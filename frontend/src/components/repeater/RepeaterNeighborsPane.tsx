@@ -1,4 +1,5 @@
-import { useMemo, useState, useCallback, lazy, Suspense } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
+import { Map as MapIcon, Maximize2, List, Minimize2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { RepeaterPane, NotFetched, formatDuration } from './repeaterPaneShared';
@@ -82,6 +83,12 @@ export function NeighborsPane({
 }) {
   const { t } = useTranslation();
   const { distanceUnit } = useDistanceUnit();
+
+  // Refreshing neighbours re-fetches node info first, and node info is what carries
+  // the coordinates. Letting the map mount depend on the live value tore it down and
+  // rebuilt it on every refresh. Once we have had a position, the map stays.
+  const everHadGpsRef = useRef(false);
+
   const advertLat = repeaterContact?.lat ?? null;
   const advertLon = repeaterContact?.lon ?? null;
 
@@ -107,6 +114,8 @@ export function NeighborsPane({
 
   const radioName = nodeInfo?.name || repeaterContact?.name || repeaterName;
   const hasValidRepeaterGps = positionSource.source !== null;
+  if (hasValidRepeaterGps) everHadGpsRef.current = true;
+  const canShowMap = hasValidRepeaterGps || everHadGpsRef.current;
   const headerNote =
     positionSource.source === 'reported'
       ? t('repeater.posReported')
@@ -115,6 +124,21 @@ export function NeighborsPane({
         : nodeInfoState.loading
           ? t('repeater.posWaiting')
           : t('repeater.posMissing');
+
+  // The table and the map used to be stacked, which left the map about 190px tall
+  // on a phone with no way to grow it. They are now two views of the same data.
+  const [view, setView] = useState<'list' | 'map'>('list');
+  const [expanded, setExpanded] = useState(false);
+  const [recenterToken, setRecenterToken] = useState(0);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [expanded]);
 
   const [sortField, setSortField] = useState<SortField>('snr');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -219,18 +243,139 @@ export function NeighborsPane({
       }
       headerNote={headerNote}
       state={state}
-      onRefresh={onRefresh}
+      // The refresh control lives in the view switch below, labelled and at a size
+      // a thumb can hit. Two of them for one pane is one too many.
       disabled={disabled}
       className="flex min-h-0 flex-1 flex-col"
       contentClassName="flex min-h-0 flex-1 flex-col"
     >
-      {!data ? (
-        <NotFetched />
-      ) : sorted.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('repeater.noNeighbors')}</p>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <div className="shrink-0 overflow-x-auto">
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col gap-2',
+          expanded && 'fixed inset-0 z-50 bg-background p-3'
+        )}
+      >
+        {/* Always available: with nothing fetched yet, a pane whose only control is
+            hidden behind having data is a pane you cannot use. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div
+            className="inline-flex rounded-md border border-border p-0.5"
+            role="tablist"
+            aria-label={t('repeater.neighborsViewAria')}
+          >
+            {(['list', 'map'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={view === mode}
+                onClick={() => setView(mode)}
+                disabled={mode === 'map' && !hasValidRepeaterGps}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  view === mode
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {mode === 'list' ? (
+                  <List className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <MapIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {mode === 'list' ? t('repeater.viewList') : t('repeater.viewMap')}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={disabled || state.loading}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <RefreshCw
+              className={cn('h-3.5 w-3.5', state.loading && 'animate-spin')}
+              aria-hidden="true"
+            />
+            {state.loading ? t('repeater.refreshing') : t('repeater.refresh')}
+          </button>
+
+          {/* A repeater answers in chunks, so the first fetch often returns fewer
+              neighbours than it reports having. The title said "5 of 7" and left
+              people to guess that pressing refresh again would help. Say it. */}
+          {data?.reported_count != null && data.reported_count > data.neighbors.length && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={disabled || state.loading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning transition-colors hover:bg-warning/20 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t('repeater.loadRemaining', {
+                missing: data.reported_count - data.neighbors.length,
+              })}
+            </button>
+          )}
+
+          {view === 'map' && (
+            <>
+              <button
+                type="button"
+                onClick={() => setRecenterToken((n) => n + 1)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t('repeater.recenter')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                aria-pressed={expanded}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {expanded ? (
+                  <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {expanded ? t('repeater.shrinkMap') : t('repeater.expandMap')}
+              </button>
+            </>
+          )}
+        </div>
+        {!data ? (
+          <NotFetched />
+        ) : sorted.length === 0 ? (
+          // An empty list is two very different things. The backend asks once with a
+          // 10s timeout (`fetch_all_neighbours(timeout=10)`), so a distant repeater
+          // that has not answered yet comes back indistinguishable from one that
+          // truly has no neighbours — except that a repeater which did answer sets
+          // reported_count. Saying "no neighbours reported" in both cases states a
+          // timeout as fact.
+          data.reported_count == null ? (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">{t('repeater.neighborsNoAnswer')}</p>
+              <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+                {t('repeater.neighborsNoAnswerHelp')}
+              </p>
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={disabled || state.loading}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <RefreshCw
+                  className={cn('h-3.5 w-3.5', state.loading && 'animate-spin')}
+                  aria-hidden="true"
+                />
+                {t('repeater.retry')}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('repeater.noNeighbors')}</p>
+          )
+        ) : (
+          <div className={cn('min-h-0 flex-1 overflow-x-auto', view !== 'list' && 'hidden')}>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-muted-foreground text-xs">
@@ -302,29 +447,45 @@ export function NeighborsPane({
               </tbody>
             </table>
           </div>
-          {hasValidRepeaterGps && (neighborsWithCoords.length > 0 || hasValidRepeaterGps) ? (
-            <Suspense
-              fallback={
-                <div className="flex min-h-48 flex-1 items-center justify-center text-xs text-muted-foreground">
-                  {t('repeater.loadingMap')}
-                </div>
-              }
-            >
-              <NeighborsMiniMap
-                key={neighborsWithCoords.map((n) => n.pubkey_prefix).join(',')}
-                neighbors={neighborsWithCoords}
-                radioLat={positionSource.lat}
-                radioLon={positionSource.lon}
-                radioName={radioName}
-              />
-            </Suspense>
-          ) : (
+        )}
+
+        {/* Outside the data branch on purpose. Inside it, every transition through
+          "not fetched" / "no neighbours" / "list" tore the Leaflet instance down and
+          Leaflet instance down and rebuilt it on every fetch, losing pan and zoom
+          and re-downloading every tile — which is what made refreshing feel rough. */}
+        <div className={cn('flex min-h-0 flex-1 flex-col', view !== 'map' && 'hidden')}>
+          {/* Rendered unconditionally: a ternary here meant that every change of mind
+              about whether coordinates exist tore Leaflet down and rebuilt it. The map
+              draws nothing by itself when it has no position to show. */}
+          <Suspense
+            fallback={
+              <div className="flex min-h-48 flex-1 items-center justify-center text-xs text-muted-foreground">
+                {t('repeater.loadingMap')}
+              </div>
+            }
+          >
+            <NeighborsMiniMap
+              neighbors={neighborsWithCoords}
+              radioLat={positionSource.lat}
+              radioLon={positionSource.lon}
+              radioName={radioName}
+              recenterToken={recenterToken}
+              className={cn(
+                'overflow-hidden rounded border border-border',
+                // The dashboard column has no definite height, so flex-1 alone
+                // resolved to zero and the map rendered 0px tall. Give it a real
+                // height until it is expanded, where the parent does have one.
+                expanded ? 'min-h-0 flex-1' : 'h-72 sm:h-96'
+              )}
+            />
+          </Suspense>
+          {!canShowMap && (
             <div className="rounded border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {t('repeater.mapUnavailable')}
             </div>
           )}
         </div>
-      )}
+      </div>
     </RepeaterPane>
   );
 }

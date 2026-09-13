@@ -911,6 +911,8 @@ export interface PaneState {
   loading: boolean;
   attempt: number;
   error: string | null;
+  /** Waiting its turn in a serial Load All run. */
+  queued?: boolean;
   fetched_at?: number | null;
 }
 

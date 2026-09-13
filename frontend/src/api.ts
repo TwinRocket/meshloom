@@ -647,6 +647,11 @@ export const api = {
     fetchJson<RepeaterStatusResponse>(`/contacts/${publicKey}/repeater/status`, {
       method: 'POST',
     }),
+  /** Last known pane answers, read from the database. Never touches the radio. */
+  repeaterPaneCache: (publicKey: string) =>
+    fetchJson<Record<string, { data: unknown; fetched_at: number }>>(
+      `/contacts/${publicKey}/repeater/cache`
+    ),
   repeaterNeighbors: (publicKey: string) =>
     fetchJson<RepeaterNeighborsResponse>(`/contacts/${publicKey}/repeater/neighbors`, {
       method: 'POST',

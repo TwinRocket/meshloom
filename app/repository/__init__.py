@@ -11,6 +11,7 @@ from app.repository.fanout import FanoutConfigRepository
 from app.repository.messages import MessageRepository
 from app.repository.radio_transport import RadioTransportRepository
 from app.repository.raw_packets import RawPacketRepository
+from app.repository.repeater_pane_cache import RepeaterPaneCacheRepository
 from app.repository.repeater_telemetry import RepeaterTelemetryRepository
 from app.repository.settings import AppSettingsRepository, StatisticsRepository
 
@@ -27,6 +28,7 @@ __all__ = [
     "MessageRepository",
     "RadioTransportRepository",
     "RawPacketRepository",
+    "RepeaterPaneCacheRepository",
     "RepeaterTelemetryRepository",
     "StatisticsRepository",
 ]

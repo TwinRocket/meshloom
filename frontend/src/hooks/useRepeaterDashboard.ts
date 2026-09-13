@@ -2,6 +2,12 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { ApiError, api, formatApiError } from '../api';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
+import { loadPersistedDashboard, persistDashboard } from '../utils/repeaterDashboardStore';
+import {
+  forgetRepeaterSession,
+  hasRememberedRepeaterSession,
+  rememberRepeaterSession,
+} from '../utils/repeaterSession';
 import type {
   Conversation,
   PaneName,
@@ -26,6 +32,19 @@ import {
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2000;
 const MAX_CACHED_REPEATERS = 20;
+
+/** The API names panes in snake_case; the dashboard state uses camelCase. */
+const API_PANE_TO_STATE: Record<string, PaneName | undefined> = {
+  status: 'status',
+  node_info: 'nodeInfo',
+  neighbors: 'neighbors',
+  acl: 'acl',
+  radio_settings: 'radioSettings',
+  advert_intervals: 'advertIntervals',
+  owner_info: 'ownerInfo',
+  lpp_telemetry: 'lppTelemetry',
+  regions: 'regions',
+};
 const MAX_STORED_CONSOLE_ENTRIES = 100;
 
 export const REPEATER_CONSOLE_HISTORY_KEY_PREFIX = 'meshloom-repeater-console-history';
@@ -176,7 +195,24 @@ function cloneConsoleHistory(consoleHistory: ConsoleEntry[]): ConsoleEntry[] {
 function getCachedState(publicKey: string | null): RepeaterDashboardCacheEntry | null {
   if (!publicKey) return null;
   const cached = repeaterDashboardCache.get(publicKey);
-  if (!cached) return null;
+  if (!cached) {
+    // Cold cache — a reload, typically. Reopen on what the repeater last told us
+    // rather than on nine empty panes.
+    const persisted = loadPersistedDashboard<
+      RepeaterDashboardCacheEntry['paneData'],
+      RepeaterDashboardCacheEntry['paneStates']
+    >(publicKey);
+    if (!persisted) return null;
+    return {
+      loggedIn: persisted.loggedIn,
+      loginError: null,
+      lastLoginAttempt: null,
+      paneData: clonePaneData(persisted.paneData),
+      paneStates: normalizePaneStates(persisted.paneStates),
+      // The console keeps its own store; going through the cache must not shadow it.
+      consoleHistory: loadStoredConsoleHistory(publicKey),
+    };
+  }
 
   repeaterDashboardCache.delete(publicKey);
   repeaterDashboardCache.set(publicKey, cached);
@@ -192,6 +228,12 @@ function getCachedState(publicKey: string | null): RepeaterDashboardCacheEntry |
 }
 
 function cacheState(publicKey: string, entry: RepeaterDashboardCacheEntry) {
+  // Pane values only: the console history already has its own storage.
+  persistDashboard(publicKey, {
+    loggedIn: entry.loggedIn,
+    paneData: entry.paneData,
+    paneStates: entry.paneStates,
+  });
   repeaterDashboardCache.delete(publicKey);
   repeaterDashboardCache.set(publicKey, {
     loggedIn: entry.loggedIn,
@@ -252,6 +294,9 @@ export interface UseRepeaterDashboardResult {
   resetLogin: () => void;
   refreshPane: (pane: PaneName) => Promise<void>;
   loadAll: () => Promise<void>;
+  cancelLoadAll: () => void;
+  queuedPanes: PaneName[];
+  loadAllProgress: { done: number; total: number } | null;
   sendConsoleCommand: (command: string) => Promise<void>;
   sendZeroHopAdvert: () => Promise<void>;
   sendFloodAdvert: () => Promise<void>;
@@ -271,7 +316,11 @@ export function useRepeaterDashboard(
     activeConversation && activeConversation.type === 'contact' ? activeConversation.id : null;
   const cachedState = getCachedState(conversationId);
 
-  const [loggedIn, setLoggedIn] = useState(cachedState?.loggedIn ?? false);
+  // The in-memory cache does not survive a reload, which sent people back to the
+  // login form on every refresh. Fall back to the remembered flag.
+  const [loggedIn, setLoggedIn] = useState(
+    cachedState?.loggedIn ?? hasRememberedRepeaterSession(conversationId)
+  );
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(cachedState?.loginError ?? null);
   const [lastLoginAttempt, setLastLoginAttempt] = useState<ServerLoginAttemptState | null>(
@@ -311,6 +360,50 @@ export function useRepeaterDashboard(
       mountedRef.current = false;
     };
   }, []);
+
+  // Hydrate from the server-side cache. This is a plain GET against the database:
+  // it never reaches the radio, so the dashboard can open on what the repeater
+  // last said — including the neighbours the map needs — instead of nine empty
+  // panes and a mesh round trip. Panes already holding a value are left alone.
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+
+    void api
+      .repeaterPaneCache(conversationId)
+      .then((cached) => {
+        if (cancelled || !mountedRef.current || activeIdRef.current !== conversationId) return;
+        const nextData = { ...paneDataRef.current };
+        const nextStates = { ...paneStatesRef.current };
+        let changed = false;
+
+        for (const [apiPane, entry] of Object.entries(cached)) {
+          const pane = API_PANE_TO_STATE[apiPane];
+          if (!pane || nextData[pane] != null) continue;
+          nextData[pane] = entry.data as never;
+          nextStates[pane] = {
+            ...nextStates[pane],
+            loading: false,
+            error: null,
+            fetched_at: entry.fetched_at * 1000,
+          };
+          changed = true;
+        }
+
+        if (!changed) return;
+        paneDataRef.current = nextData;
+        paneStatesRef.current = nextStates;
+        setPaneData(nextData);
+        setPaneStates(nextStates);
+      })
+      .catch(() => {
+        // No cache yet, or the contact is gone: the panes stay as they were.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -360,6 +453,7 @@ export function useRepeaterDashboard(
         if (activeIdRef.current !== conversationId) return;
         setLastLoginAttempt(buildServerLoginAttemptFromResponse(method, result, 'repeater'));
         setLoggedIn(true);
+        rememberRepeaterSession(publicKey);
         if (!result.authenticated) {
           const msg = result.message ?? i18n.t('repeater.loginNotConfirmed');
           setLoginError(msg);
@@ -370,6 +464,7 @@ export function useRepeaterDashboard(
         const msg = err instanceof Error ? err.message : i18n.t('toast.loginFailed');
         setLastLoginAttempt(buildServerLoginAttemptFromError(method, msg, 'repeater'));
         setLoggedIn(true);
+        rememberRepeaterSession(publicKey);
         setLoginError(msg);
         toast.error(i18n.t('toast.loginRequestFailed'), {
           description: i18n.t('toast.loginRequestFailedDetail', { message: msg }),
@@ -392,7 +487,8 @@ export function useRepeaterDashboard(
     setLoggedIn(false);
     setLoginError(null);
     setLastLoginAttempt(null);
-  }, []);
+    forgetRepeaterSession(getPublicKey());
+  }, [getPublicKey]);
 
   const refreshPane = useCallback(
     async (pane: PaneName) => {
@@ -493,6 +589,21 @@ export function useRepeaterDashboard(
     [getPublicKey, options.hasAdvertLocation]
   );
 
+  // Load-all is serial by necessity (parallel calls just queue behind the radio
+  // lock), so only one pane ever spins while the rest sit at "not fetched" —
+  // indistinguishable from panes where nothing was asked for. Expose what is
+  // queued, how far along the run is, and a way out: nine panes times three
+  // attempts times a ten-second timeout is minutes of waiting.
+  const [queuedPanes, setQueuedPanes] = useState<PaneName[]>([]);
+  const [loadAllProgress, setLoadAllProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
+  const cancelLoadAllRef = useRef(false);
+
+  const cancelLoadAll = useCallback(() => {
+    cancelLoadAllRef.current = true;
+  }, []);
+
   const loadAll = useCallback(async () => {
     const panes: PaneName[] = [
       'status',
@@ -505,9 +616,35 @@ export function useRepeaterDashboard(
       'lppTelemetry',
       'regions',
     ];
-    // Serial execution — parallel calls just queue behind the radio lock anyway
-    for (const pane of panes) {
-      await refreshPane(pane);
+    const markQueued = (pending: PaneName[]) => {
+      const pendingSet = new Set(pending);
+      const next = { ...paneStatesRef.current };
+      for (const pane of panes) {
+        next[pane] = { ...next[pane], queued: pendingSet.has(pane) };
+      }
+      paneStatesRef.current = next;
+      setPaneStates(next);
+    };
+
+    cancelLoadAllRef.current = false;
+    setQueuedPanes(panes);
+    markQueued(panes);
+    setLoadAllProgress({ done: 0, total: panes.length });
+    try {
+      for (let i = 0; i < panes.length; i++) {
+        // Stopping ends the queue; it cannot recall a request already on the air.
+        if (cancelLoadAllRef.current || !mountedRef.current) break;
+        const pending = panes.slice(i + 1);
+        setQueuedPanes(pending);
+        markQueued(pending);
+        await refreshPane(panes[i]);
+        setLoadAllProgress({ done: i + 1, total: panes.length });
+      }
+    } finally {
+      setQueuedPanes([]);
+      markQueued([]);
+      setLoadAllProgress(null);
+      cancelLoadAllRef.current = false;
     }
   }, [refreshPane]);
 
@@ -591,6 +728,9 @@ export function useRepeaterDashboard(
     resetLogin,
     refreshPane,
     loadAll,
+    cancelLoadAll,
+    queuedPanes,
+    loadAllProgress,
     sendConsoleCommand,
     sendZeroHopAdvert,
     sendFloodAdvert,

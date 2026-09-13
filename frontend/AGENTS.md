@@ -460,6 +460,15 @@ State: `useConversationNavigation` controls open/close via `infoPaneChannelKey`.
 
 For repeater contacts (`type=2`), `ConversationPane.tsx` renders `RepeaterDashboard` instead of the normal chat UI (ChatHeader + MessageList + MessageInput). There is no push bell on that dashboard.
 
+**Cold start**: on mount the dashboard hydrates from
+`GET /api/contacts/{key}/repeater/cache` — a database read that never reaches the
+radio — so panes reopen on the repeater's last answer instead of nine empty panes
+and a mesh round trip. Panes already holding a value are left alone, and each
+restored pane keeps its own `fetched_at` so its age stays visible. The
+past-the-login-form flag is remembered per repeater (`utils/repeaterSession.ts`);
+it is not a claim that the repeater still honours the session, and a failing pane
+surfaces its error exactly as before.
+
 **Login**: `RepeaterLogin` component — password or guest login via `POST /api/contacts/{key}/repeater/login`. The frontend sends exactly one request; the backend internally escalates a timed-out login to one flood retry (see `app/AGENTS.md` § "Server login route escalation"), so a single call may take up to two response windows. Do not add a client-side login retry loop on top — a `LOGIN_FAILED` result means the password was refused, not that the route needs another attempt.
 
 **Dashboard panes** (after login): Telemetry, Node Info, Neighbors, ACL, Radio Settings, Regions, Advert Intervals, Owner Info — each fetched via granular `POST /api/contacts/{key}/repeater/{pane}` endpoints. The Regions pane prefers the admin CLI hierarchy and falls back to the guest anon flood-allowed names, so its payload carries a `source` of `cli` or `anon`. Panes retry up to 3 times client-side. `Neighbors` depends on the smaller `node-info` fetch for repeater GPS, not the heavier radio-settings batch. "Load All" fetches all panes serially (parallel would queue behind the radio lock).

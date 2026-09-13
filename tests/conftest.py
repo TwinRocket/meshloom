@@ -39,6 +39,7 @@ async def test_db():
         push_subscriptions,
         radio_transport,
         raw_packets,
+        repeater_pane_cache,
         repeater_telemetry,
         settings,
     )
@@ -58,6 +59,7 @@ async def test_db():
         settings,
         fanout_repo,
         repeater_telemetry,
+        repeater_pane_cache,
         contact_telemetry,
         push_subscriptions,
     ]
