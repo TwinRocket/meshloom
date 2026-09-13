@@ -6,7 +6,7 @@ import { PacketVisualizer3D } from './PacketVisualizer3D';
 import { RawPacketList } from './RawPacketList';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { TOOL_PANE_HEADER_CLASS } from './toolPaneHeader';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { cn } from '@/lib/utils';
 import { getVisualizerSettings, saveVisualizerSettings } from '../utils/visualizerSettings';
 import { useRawPackets } from '../stores/rawPacketStore';
@@ -15,13 +15,20 @@ interface VisualizerViewProps {
   contacts: Contact[];
   channels: Channel[];
   config: RadioConfig | null;
+  radioOffline?: boolean;
 }
 
-export function VisualizerView({ contacts, channels, config }: VisualizerViewProps) {
+export function VisualizerView({
+  contacts,
+  channels,
+  config,
+  radioOffline = false,
+}: VisualizerViewProps) {
   const { t } = useTranslation();
   const packets = useRawPackets();
   const [fullScreen, setFullScreen] = useState(() => getVisualizerSettings().hidePacketFeed);
   const [paneFullScreen, setPaneFullScreen] = useState(false);
+  const [mobileTab, setMobileTab] = useState('visualizer');
   const [selectedPacket, setSelectedPacket] = useState<RawPacket | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -69,53 +76,50 @@ export function VisualizerView({ contacts, channels, config }: VisualizerViewPro
         </button>
       </div>
 
-      {/* Mobile: Tabbed interface */}
-      <div className="flex-1 overflow-hidden md:hidden">
-        <Tabs defaultValue="visualizer" className="h-full flex flex-col">
-          <TabsList className="mx-4 mt-2 grid grid-cols-2">
-            <TabsTrigger value="visualizer">{t('visualizer.tabVisualizer')}</TabsTrigger>
-            <TabsTrigger value="packets">{t('visualizer.tabPackets')}</TabsTrigger>
-          </TabsList>
-          <TabsContent value="visualizer" className="flex-1 m-0 overflow-hidden">
-            <PacketVisualizer3D packets={packets} contacts={contacts} config={config} />
-          </TabsContent>
-          <TabsContent value="packets" className="flex-1 m-0 overflow-hidden">
-            <RawPacketList
+      {/* One graph, one feed, two layouts. Rendering a second PacketVisualizer3D for
+          the narrow layout costs a second WebGL context, scene and force simulation
+          that nobody ever sees, so the panes are placed with CSS instead.
+          The split starts at lg, not md: at 768 the sidebar plus a fixed-width feed
+          left the graph about 30px wide. Below lg, tablets get the tab layout and a
+          full-width graph. The feed is then sized as a share of what is left rather
+          than a fixed width, so the graph never gets squeezed as the window shrinks. */}
+      <Tabs
+        value={mobileTab}
+        onValueChange={setMobileTab}
+        className="flex flex-1 flex-col overflow-hidden"
+      >
+        <TabsList className="mx-4 mt-2 grid grid-cols-2 lg:hidden">
+          <TabsTrigger value="visualizer">{t('visualizer.tabVisualizer')}</TabsTrigger>
+          <TabsTrigger value="packets">{t('visualizer.tabPackets')}</TabsTrigger>
+        </TabsList>
+
+        <div className="flex flex-1 overflow-hidden">
+          <div
+            className={cn(
+              'min-w-0 flex-1 overflow-hidden transition-all duration-200',
+              !fullScreen && 'lg:border-r lg:border-border',
+              mobileTab !== 'visualizer' && 'hidden lg:block'
+            )}
+          >
+            <PacketVisualizer3D
               packets={packets}
-              channels={channels}
-              onPacketClick={setSelectedPacket}
+              contacts={contacts}
+              config={config}
+              fullScreen={fullScreen}
+              onFullScreenChange={setFullScreen}
+              radioOffline={radioOffline}
             />
-          </TabsContent>
-        </Tabs>
-      </div>
+          </div>
 
-      {/* Desktop: Split screen (or full screen if toggled) */}
-      <div className="hidden md:flex flex-1 overflow-hidden">
-        {/* Visualizer panel */}
-        <div
-          className={cn(
-            'overflow-hidden transition-all duration-200',
-            fullScreen ? 'flex-1' : 'flex-1 border-r border-border'
-          )}
-        >
-          <PacketVisualizer3D
-            packets={packets}
-            contacts={contacts}
-            config={config}
-            fullScreen={fullScreen}
-            onFullScreenChange={setFullScreen}
-          />
-        </div>
-
-        {/* Packet feed panel - hidden when full screen */}
-        <div
-          className={cn(
-            'overflow-hidden transition-all duration-200',
-            fullScreen ? 'w-0' : 'w-[31rem] lg:w-[38rem]'
-          )}
-        >
-          <div className="h-full flex flex-col">
-            <div className="px-3 py-2 border-b border-border text-sm font-medium text-muted-foreground">
+          <div
+            className={cn(
+              'flex flex-col overflow-hidden transition-all duration-200',
+              'w-full lg:w-2/5 lg:min-w-[22rem] lg:max-w-[38rem]',
+              mobileTab !== 'packets' && 'hidden',
+              fullScreen ? 'lg:hidden' : 'lg:flex'
+            )}
+          >
+            <div className="hidden border-b border-border px-3 py-2 text-sm font-medium text-muted-foreground lg:block">
               {t('visualizer.packetFeed')}
             </div>
             <div className="flex-1 overflow-hidden">
@@ -123,11 +127,12 @@ export function VisualizerView({ contacts, channels, config }: VisualizerViewPro
                 packets={packets}
                 channels={channels}
                 onPacketClick={setSelectedPacket}
+                radioOffline={radioOffline}
               />
             </div>
           </div>
         </div>
-      </div>
+      </Tabs>
 
       {/* While natively fullscreened, portal into the fullscreen element so the
           dialog stays visible; otherwise keep the default document.body target. */}

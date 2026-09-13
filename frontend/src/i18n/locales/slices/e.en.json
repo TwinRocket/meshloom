@@ -165,7 +165,26 @@
     "justNow": "just now",
     "secondsAgo": "{{count}}s ago",
     "minutesSecondsAgo": "{{minutes}}m {{seconds}}s ago",
-    "minutesAgo": "{{minutes}}m ago"
+    "minutesAgo": "{{minutes}}m ago",
+    "groupDisplay": "Display",
+    "groupFilters": "Filters",
+    "groupLayout": "Layout",
+    "groupLegend": "Legend",
+    "hideToolbar": "Hide the toolbar",
+    "showToolbar": "Show the toolbar",
+    "closePanel": "Close",
+    "advancedNeedsAmbiguous": "Requires ambiguous repeaters to be shown.",
+    "resetGraph": "Reset",
+    "nodesShort_one": "{{count}} node",
+    "nodesShort_other": "{{count}} nodes",
+    "linksShort_one": "{{count}} link",
+    "linksShort_other": "{{count}} links",
+    "emptyOffline": "Nothing to draw — the radio is not connected.",
+    "emptyOfflineHint": "Connect it from the top bar; nodes appear as packets arrive.",
+    "emptyWaiting": "Listening for mesh traffic…",
+    "emptyLiveOnly": "This graph is built from packets heard while it is open, not from stored history.",
+    "emptyPruneHint_one": "Nodes silent for more than {{count}} minute are hidden (Filters).",
+    "emptyPruneHint_other": "Nodes silent for more than {{count}} minutes are hidden (Filters)."
   },
   "rawPacket": {
     "title": "Raw Packet Feed",
@@ -306,7 +325,9 @@
     "pasteEmpty": "Paste a packet hex string to analyze.",
     "pasteInvalid": "Packet hex may only contain 0-9 and A-F characters.",
     "pasteOdd": "Packet hex must contain an even number of characters.",
-    "pastePrompt": "Paste a packet above to inspect it."
+    "pastePrompt": "Paste a packet above to inspect it.",
+    "emptyRadioOffline": "No packets — the radio is not connected.",
+    "emptyRadioOfflineHint": "Connect it from the top bar to start listening."
   },
   "cracker": {
     "maxLength": "Max Length:",

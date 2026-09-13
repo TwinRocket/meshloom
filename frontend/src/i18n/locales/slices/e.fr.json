@@ -165,7 +165,26 @@
     "justNow": "à l’instant",
     "secondsAgo": "il y a {{count}} s",
     "minutesSecondsAgo": "il y a {{minutes}} min {{seconds}} s",
-    "minutesAgo": "il y a {{minutes}} min"
+    "minutesAgo": "il y a {{minutes}} min",
+    "groupDisplay": "Affichage",
+    "groupFilters": "Filtres",
+    "groupLayout": "Disposition",
+    "groupLegend": "Légende",
+    "hideToolbar": "Masquer la barre d'outils",
+    "showToolbar": "Afficher la barre d'outils",
+    "closePanel": "Fermer",
+    "advancedNeedsAmbiguous": "Nécessite l'affichage des répéteurs ambigus.",
+    "resetGraph": "Réinitialiser",
+    "nodesShort_one": "{{count}} nœud",
+    "nodesShort_other": "{{count}} nœuds",
+    "linksShort_one": "{{count}} lien",
+    "linksShort_other": "{{count}} liens",
+    "emptyOffline": "Rien à afficher — la radio n’est pas connectée.",
+    "emptyOfflineHint": "Connectez-la depuis la barre du haut ; les nœuds apparaissent au fil des paquets.",
+    "emptyWaiting": "En écoute du trafic mesh…",
+    "emptyLiveOnly": "Ce graphe se construit avec les paquets entendus pendant qu’il est ouvert, pas avec l’historique stocké.",
+    "emptyPruneHint_one": "Les nœuds silencieux depuis plus de {{count}} minute sont masqués (Filtres).",
+    "emptyPruneHint_other": "Les nœuds silencieux depuis plus de {{count}} minutes sont masqués (Filtres)."
   },
   "rawPacket": {
     "title": "Flux de paquets bruts",
@@ -306,7 +325,9 @@
     "pasteEmpty": "Collez une chaîne hexadécimale de paquet à analyser.",
     "pasteInvalid": "L’hexadécimal du paquet ne peut contenir que les caractères 0-9 et A-F.",
     "pasteOdd": "L’hexadécimal du paquet doit contenir un nombre pair de caractères.",
-    "pastePrompt": "Collez un paquet ci-dessus pour l’inspecter."
+    "pastePrompt": "Collez un paquet ci-dessus pour l’inspecter.",
+    "emptyRadioOffline": "Aucun paquet — la radio n’est pas connectée.",
+    "emptyRadioOfflineHint": "Connectez-la depuis la barre du haut pour commencer à écouter."
   },
   "cracker": {
     "maxLength": "Longueur max :",
