@@ -128,7 +128,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
     community_api_base TEXT DEFAULT '',
     push_defaults TEXT DEFAULT '{"new_contact": true, "new_dm": true, "advert_repeater": true, "advert_companion": true, "advert_sensor": true}',
     push_conversation_overrides TEXT DEFAULT '{}',
-    vapid_subject TEXT DEFAULT ''
+    vapid_subject TEXT DEFAULT '',
+    radio_proxy_enabled INTEGER DEFAULT 0,
+    radio_proxy_bind TEXT DEFAULT '0.0.0.0',
+    radio_proxy_port INTEGER DEFAULT 5001,
+    radio_proxy_max_clients INTEGER DEFAULT 8
 );
 INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 

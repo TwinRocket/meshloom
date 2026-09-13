@@ -7,6 +7,7 @@ import socket
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiosqlite
 import pytest
 from meshcore import EventType, MeshCore
 from meshcore.packets import CommandType
@@ -109,7 +110,34 @@ async def _connect_client(port: int) -> MeshCore:
 
 
 @pytest.mark.asyncio
-async def test_migration_073_columns_exist(test_db):
+async def test_repository_get_defaults_when_proxy_columns_missing():
+    from app.database import Database
+    from app.repository import radio_proxy as radio_proxy_repo
+
+    isolated = Database(":memory:")
+    isolated._connection = await aiosqlite.connect(":memory:")
+    isolated._connection.row_factory = aiosqlite.Row
+    await isolated._connection.execute(
+        "CREATE TABLE app_settings (id INTEGER PRIMARY KEY CHECK (id = 1))"
+    )
+    await isolated._connection.execute("INSERT INTO app_settings (id) VALUES (1)")
+    await isolated._connection.commit()
+
+    original = radio_proxy_repo.db
+    radio_proxy_repo.db = isolated
+    try:
+        stored = await RadioProxyRepository.get()
+        assert stored.enabled is False
+        assert stored.bind == "0.0.0.0"
+        assert stored.port == 5001
+        assert stored.max_clients == 8
+    finally:
+        radio_proxy_repo.db = original
+        await isolated._connection.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_074_columns_exist(test_db):
     async with test_db.readonly() as conn:
         cursor = await conn.execute("PRAGMA table_info(app_settings)")
         columns = {row[1] for row in await cursor.fetchall()}

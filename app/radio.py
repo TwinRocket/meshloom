@@ -224,14 +224,23 @@ class RadioManager:
         if self._operation_lock is None:
             self._operation_lock = asyncio.Lock()
 
-        if not blocking:
-            if self._operation_lock.locked():
-                raise RadioOperationBusyError(f"Radio is busy (operation: {name})")
-            # In single-threaded asyncio the lock cannot be acquired between the
-            # check above and the await below (no other coroutine runs until we
-            # yield). The await returns immediately for an uncontested lock.
-            await self._operation_lock.acquire()
-        else:
+        try:
+            if not blocking:
+                if self._operation_lock.locked():
+                    raise RadioOperationBusyError(f"Radio is busy (operation: {name})")
+                # In single-threaded asyncio the lock cannot be acquired between the
+                # check above and the await below (no other coroutine runs until we
+                # yield). The await returns immediately for an uncontested lock.
+                await self._operation_lock.acquire()
+            else:
+                await self._operation_lock.acquire()
+        except RuntimeError as exc:
+            # pytest-asyncio gives each test its own loop. A leftover lock from
+            # another test in the same xdist worker is bound to a dead loop.
+            if "different event loop" not in str(exc):
+                raise
+            logger.debug("Rebound radio operation lock to the current event loop (%s)", name)
+            self._operation_lock = asyncio.Lock()
             await self._operation_lock.acquire()
 
         logger.debug("Acquired radio operation lock (%s)", name)

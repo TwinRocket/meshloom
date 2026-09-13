@@ -51,6 +51,19 @@ class TestRadioOperationLock:
         await holder_task
 
     @pytest.mark.asyncio
+    async def test_rebinds_lock_left_on_a_dead_event_loop(self):
+        stale = asyncio.Lock()
+        radio_manager._operation_lock = stale
+
+        def _raise_wrong_loop() -> None:
+            raise RuntimeError(f"{stale!r} is bound to a different event loop")
+
+        stale.acquire = _raise_wrong_loop  # type: ignore[method-assign]
+        async with radio_manager.radio_operation("rebind"):
+            pass
+        assert radio_manager._operation_lock is not stale
+
+    @pytest.mark.asyncio
     async def test_blocking_waits_and_acquires_after_release(self):
         holder_entered = asyncio.Event()
         holder_release = asyncio.Event()

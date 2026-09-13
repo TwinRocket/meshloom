@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from app.database import db
 from app.radio_proxy.manager import (
     DEFAULT_BIND,
@@ -10,11 +12,31 @@ from app.radio_proxy.manager import (
     ProxySettings,
 )
 
+logger = logging.getLogger(__name__)
+
+_PROXY_COLUMNS = (
+    "radio_proxy_enabled",
+    "radio_proxy_bind",
+    "radio_proxy_port",
+    "radio_proxy_max_clients",
+)
+
+
+async def _app_settings_columns(conn) -> set[str]:
+    async with conn.execute("PRAGMA table_info(app_settings)") as cursor:
+        return {row[1] for row in await cursor.fetchall()}
+
 
 class RadioProxyRepository:
     @staticmethod
     async def get() -> ProxySettings:
         async with db.readonly() as conn:
+            columns = await _app_settings_columns(conn)
+            if not set(_PROXY_COLUMNS) <= columns:
+                logger.warning(
+                    "Radio proxy settings columns are missing; using defaults until migration 074"
+                )
+                return ProxySettings()
             async with conn.execute(
                 """
                 SELECT radio_proxy_enabled, radio_proxy_bind, radio_proxy_port,
@@ -48,6 +70,11 @@ class RadioProxyRepository:
             max_clients=current.max_clients if max_clients is None else max_clients,
         )
         async with db.tx() as conn:
+            columns = await _app_settings_columns(conn)
+            if not set(_PROXY_COLUMNS) <= columns:
+                raise RuntimeError(
+                    "Radio proxy settings columns are missing; restart so migration 074 can apply"
+                )
             await conn.execute(
                 """
                 UPDATE app_settings SET

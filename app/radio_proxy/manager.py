@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from meshcore.packets import CommandType
 
 from app.channel_constants import is_public_channel_key
+from app.loop_lock import LoopBoundLock
 from app.radio_proxy.policy import CommandDisposition, classify_command, send_txt_is_plain
 from app.radio_proxy.protocol import (
     FrameAssembler,
@@ -277,7 +278,7 @@ class RadioProxyManager:
         self._pending_acks: dict[str, tuple[ProxySession, float]] = {}
         self._inflight_senders: set[ProxySession] = set()
         self._last_error: str | None = None
-        self._lock = asyncio.Lock()
+        self._lock = LoopBoundLock()
 
     @property
     def settings(self) -> ProxySettings:

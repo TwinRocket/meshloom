@@ -54,6 +54,7 @@ async def run_migrations(conn: aiosqlite.Connection) -> int:
         mod = importlib.import_module(f"{__name__}.{module_info.name}")
         await mod.migrate(conn)
         await set_version(conn, num)
+        version = num
         applied += 1
 
     if applied > 0:

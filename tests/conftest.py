@@ -98,6 +98,22 @@ def _reset_radio_ingest_gate():
     radio_manager.connection_desired = True
 
 
+@pytest.fixture(autouse=True)
+async def _reset_radio_proxy_runtime():
+    """Stop the process-wide proxy so TCP sessions and locks do not leak."""
+    from app.radio_proxy.manager import radio_proxy_manager
+
+    yield
+    try:
+        await radio_proxy_manager.stop()
+    except Exception:
+        pass
+    radio_proxy_manager._sessions.clear()
+    radio_proxy_manager._pending_acks.clear()
+    radio_proxy_manager._inflight_senders.clear()
+    radio_proxy_manager._last_error = None
+
+
 @pytest.fixture
 def client():
     """Create an httpx AsyncClient for testing the app."""
