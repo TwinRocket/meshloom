@@ -59,7 +59,7 @@
       "preview": {
         "intro": "Aperçu du contraste des alertes, messages, barre latérale et badges pour le thème choisi.",
         "connected": "Aperçu connecté : liaison radio saine et synchronisée.",
-        "warning": "Aperçu d’avertissement : l’audit des paquets suggère un historique manquant.",
+        "warning": "Avertissement",
         "error": "Aperçu d’erreur : la reconnexion radio a échoué.",
         "helloMesh": "Bonjour, mesh !",
         "you": "Vous",
@@ -93,7 +93,6 @@
         "ghost": "Fantôme",
         "semanticOutline": "Variantes de contour sémantiques",
         "danger": "Danger",
-        "warning": "Avertissement",
         "success": "Succès",
         "metricPills": "Pilules de sélection de métrique",
         "voltage": "Tension",
@@ -347,7 +346,21 @@
       "unavailableUntilConnected": "L’identité radio et les réglages RF apparaissent une fois la radio connectée.",
       "identityMismatch": "Identité différente — choisissez comment continuer",
       "identityUnbound": "Radio historique non liée — choisissez comment continuer",
-      "loadTransportFailed": "Impossible de charger le transport enregistré"
+      "loadTransportFailed": "Impossible de charger le transport enregistré",
+      "deviceConfig": "Configuration de la radio",
+      "configFile": "Fichier de configuration",
+      "privateKeyGroup": "Clé privée",
+      "storedOnRadio": "Écrit sur la radio",
+      "storedInMeshloom": "Stocké dans Meshloom",
+      "appliesImmediately": "Appliqué immédiatement",
+      "unsavedChanges": "Modifications non enregistrées",
+      "unsavedHint": "Pas encore enregistré",
+      "everythingSaved": "Tout est enregistré",
+      "revert": "Annuler les modifications",
+      "tabConnection": "Connexion",
+      "tabDevice": "Configuration",
+      "tabMessaging": "Messagerie",
+      "tabAdvert": "Annonces"
     },
     "radioApp": {
       "loading": "Chargement des réglages…",
@@ -596,6 +609,13 @@
       "changelog": "Journal des changements",
       "thanks": "Avec une grande reconnaissance envers ceux qui ont créé les outils sur lesquels ceci est bâti :",
       "debugSnapshot": "Ouvrir l’instantané de support de débogage"
+    },
+    "common": {
+      "storedOnRadio": "Écrit sur la radio",
+      "storedInMeshloom": "Stocké dans Meshloom",
+      "storedInBrowser": "Ce navigateur uniquement",
+      "appliesImmediately": "Appliqué immédiatement",
+      "unsavedChanges": "Modifications non enregistrées"
     }
   }
 }

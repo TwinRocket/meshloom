@@ -14,6 +14,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
+import { SettingsGroupHeader } from './settingsPrimitives';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
@@ -345,9 +346,7 @@ export function SettingsCommunitySection({
   return (
     <div className={className}>
       <div className="space-y-1">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.community.joinTitle')}
-        </h3>
+        <SettingsGroupHeader title={t('settings.community.joinTitle')} storedOn="server" instant />
         <p className="text-[0.8125rem] text-muted-foreground">{t('settings.community.intro')}</p>
       </div>
 
@@ -490,9 +489,11 @@ export function SettingsCommunitySection({
       <Separator className="my-6" />
 
       <div className="space-y-2">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.community.privacyTitle')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.community.privacyTitle')}
+          storedOn="server"
+          instant
+        />
         <ul className="list-disc space-y-2 pl-5 text-[0.8125rem] text-muted-foreground">
           <li>{t('settings.community.privacyAccount')}</li>
           <li>{t('settings.community.privacyPrivateKey')}</li>
@@ -507,9 +508,11 @@ export function SettingsCommunitySection({
         <>
           <Separator className="my-6" />
           <div className="space-y-3">
-            <h3 className="text-base font-semibold tracking-tight">
-              {t('settings.community.meTitle')}
-            </h3>
+            <SettingsGroupHeader
+              title={t('settings.community.meTitle')}
+              storedOn="server"
+              instant
+            />
             {statsError && !meStats ? (
               <p className="text-[0.8125rem] text-muted-foreground">{statsError}</p>
             ) : meStats ? (
@@ -540,9 +543,11 @@ export function SettingsCommunitySection({
           </div>
 
           <div className="mt-6 space-y-3">
-            <h3 className="text-base font-semibold tracking-tight">
-              {t('settings.community.communityTitle')}
-            </h3>
+            <SettingsGroupHeader
+              title={t('settings.community.communityTitle')}
+              storedOn="server"
+              instant
+            />
             {statsError && !communityStats ? (
               <p className="text-[0.8125rem] text-muted-foreground">{statsError}</p>
             ) : communityStats ? (

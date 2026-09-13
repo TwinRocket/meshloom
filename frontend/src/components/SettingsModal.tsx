@@ -160,6 +160,25 @@ export function SettingsModal(props: SettingsModalProps) {
     return () => query.removeListener(onChange);
   }, []);
 
+  // In the narrow accordion layout the hash-selected section was never applied, so
+  // opening #settings/radio on a phone landed on a list with everything collapsed:
+  // the URL named a section the screen did not show. Expand the requested one.
+  // Keyed on the section itself, so collapsing it by hand afterwards sticks.
+  useEffect(() => {
+    if (!externalSidebarNav || externalDesktopSidebarMode || !desktopSection) return;
+    setExpandedSections((prev) =>
+      prev[desktopSection] ? prev : { ...prev, [desktopSection]: true }
+    );
+    // Expanding is not enough: with another section already open above it, the
+    // requested one sits below the fold and the URL again names something the
+    // screen does not show. Bring it up.
+    const frame = requestAnimationFrame(() => {
+      const header = document.querySelector(`[data-settings-section="${desktopSection}"]`);
+      header?.scrollIntoView?.({ block: 'start' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [externalSidebarNav, externalDesktopSidebarMode, desktopSection]);
+
   const toggleSection = (section: SettingsSection) => {
     setExpandedSections((prev) => ({
       ...prev,
@@ -176,9 +195,11 @@ export function SettingsModal(props: SettingsModalProps) {
 
   const sectionWrapperClass = '';
 
+  // 800px left a wide screen mostly empty while the form ran four screens tall.
+  // Groups lay their fields out in columns from lg, so give them the room.
   const sectionContentClass = externalDesktopSidebarMode
-    ? 'mx-auto w-full max-w-[800px] space-y-4 p-4'
-    : 'mx-auto w-full max-w-[800px] space-y-4 border-t border-input p-4';
+    ? 'mx-auto w-full max-w-[800px] space-y-6 p-4 lg:max-w-[1080px] lg:p-6'
+    : 'mx-auto w-full max-w-[800px] space-y-6 border-t border-input p-4 lg:max-w-[1080px] lg:p-6';
 
   const settingsContainerClass = externalDesktopSidebarMode
     ? 'w-full h-full min-w-0 overflow-x-hidden overflow-y-auto [contain:layout_paint]'
@@ -193,6 +214,7 @@ export function SettingsModal(props: SettingsModalProps) {
     return (
       <button
         type="button"
+        data-settings-section={section}
         className={sectionButtonClasses}
         aria-expanded={expandedSections[section]}
         onClick={() => toggleSection(section)}

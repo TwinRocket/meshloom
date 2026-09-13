@@ -8,6 +8,7 @@ import { toast } from '../ui/sonner';
 import { api } from '../../api';
 import { formatTime } from '../../utils/messageParser';
 import type { AppSettings, AppSettingsUpdate, HealthStatus } from '../../types';
+import { SettingsGroupHeader } from './settingsPrimitives';
 
 export function SettingsDatabaseSection({
   appSettings,
@@ -104,9 +105,7 @@ export function SettingsDatabaseSection({
     <div className={className}>
       {/* ── Database Overview ── */}
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.database.overview')}
-        </h3>
+        <SettingsGroupHeader title={t('settings.database.overview')} storedOn="server" instant />
         <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-sm">{t('settings.database.size')}</span>
@@ -136,7 +135,7 @@ export function SettingsDatabaseSection({
 
       {/* ── Storage Cleanup ── */}
       <div className="space-y-4">
-        <h3 className="text-base font-semibold tracking-tight">{t('settings.database.cleanup')}</h3>
+        <SettingsGroupHeader title={t('settings.database.cleanup')} storedOn="server" instant />
 
         <div className="rounded-md border border-border p-3 space-y-2">
           <h3 className="text-sm font-semibold">{t('settings.database.deleteUndecrypted')}</h3>
@@ -191,9 +190,7 @@ export function SettingsDatabaseSection({
 
       {/* ── DM Decryption ── */}
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.database.dmDecrypt')}
-        </h3>
+        <SettingsGroupHeader title={t('settings.database.dmDecrypt')} storedOn="server" instant />
         <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -218,7 +215,7 @@ export function SettingsDatabaseSection({
       <Separator />
 
       <div className="space-y-4">
-        <h3 className="text-base font-semibold tracking-tight">{t('settings.backupTitle')}</h3>
+        <SettingsGroupHeader title={t('settings.backupTitle')} storedOn="server" instant />
         <p className="text-[0.8125rem] text-muted-foreground">
           <Trans i18nKey="settings.backupKeyWarning" />
         </p>

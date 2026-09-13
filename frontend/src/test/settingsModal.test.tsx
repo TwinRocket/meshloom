@@ -214,6 +214,19 @@ function openRadioSection() {
   fireEvent.click(radioToggle);
 }
 
+/**
+ * The radio section is tabbed; controls live in exactly one of them.
+ * Radix activates a tab on focus, which fireEvent.click does not produce in jsdom,
+ * so drive mouseDown as well.
+ */
+function openRadioTab(key: 'tabConnection' | 'tabDevice' | 'tabMessaging' | 'tabAdvert') {
+  const label = i18n.t(`settings.radio.${key}`);
+  for (const tab of screen.getAllByRole('tab', { name: label })) {
+    fireEvent.mouseDown(tab);
+    fireEvent.click(tab);
+  }
+}
+
 function openLocalSection() {
   const localToggle = screen.getByRole('button', { name: i18n.t('settingsNav.local') });
   fireEvent.click(localToggle);
@@ -274,6 +287,7 @@ describe('SettingsModal', () => {
   it('shows favorite-contact radio sync helper text in radio tab', async () => {
     renderModal();
     openRadioSection();
+    openRadioTab('tabMessaging');
 
     expect(screen.getByText(i18n.t('settings.radio.maxContactsHelp'))).toBeInTheDocument();
   });
@@ -282,6 +296,7 @@ describe('SettingsModal', () => {
     const onAdvertise = vi.fn(async (_mode: RadioAdvertMode) => {});
     renderModal({ onAdvertise });
     openRadioSection();
+    openRadioTab('tabAdvert');
 
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.sendFlood') }));
     await waitFor(() => {
@@ -350,6 +365,7 @@ describe('SettingsModal', () => {
       health: { ...baseHealth, transport_configured: false },
     });
     openRadioSection();
+    openRadioTab('tabConnection');
 
     expect(
       await screen.findByRole('button', { name: i18n.t('settings.radio.transportSerial') })
@@ -391,6 +407,7 @@ describe('SettingsModal', () => {
       health: { ...baseHealth, transport_configured: true },
     });
     openRadioSection();
+    openRadioTab('tabConnection');
 
     const portSelect = await screen.findByLabelText(i18n.t('settings.radio.serialPort'));
     expect(portSelect).toHaveValue('/dev/ttyUSB0');
@@ -412,6 +429,7 @@ describe('SettingsModal', () => {
       },
     });
     openRadioSection();
+    openRadioTab('tabConnection');
 
     expect(
       await screen.findByText(i18n.t('settings.radio.saveTransportFirst'))
@@ -424,6 +442,7 @@ describe('SettingsModal', () => {
   it('saves the selected TCP transport from the radio connection section', async () => {
     renderModal();
     openRadioSection();
+    openRadioTab('tabConnection');
 
     fireEvent.click(
       await screen.findByRole('button', { name: i18n.t('settings.radio.transportTcp') })
@@ -459,6 +478,7 @@ describe('SettingsModal', () => {
       },
     });
     openRadioSection();
+    openRadioTab('tabConnection');
 
     expect(
       screen.getByText(
@@ -478,6 +498,7 @@ describe('SettingsModal', () => {
       health: { ...baseHealth, radio_state: 'paused' },
     });
     openRadioSection();
+    openRadioTab('tabConnection');
 
     expect(
       screen.getByRole('button', { name: i18n.t('settings.radio.reconnect') })
@@ -487,6 +508,7 @@ describe('SettingsModal', () => {
   it('runs repeater mesh discovery from the radio tab', async () => {
     const { onDiscoverMesh } = renderModal();
     openRadioSection();
+    openRadioTab('tabAdvert');
 
     fireEvent.click(
       screen.getByRole('button', { name: i18n.t('settings.radio.discoverRepeaters') })
@@ -516,6 +538,7 @@ describe('SettingsModal', () => {
       },
     });
     openRadioSection();
+    openRadioTab('tabAdvert');
 
     expect(screen.getByText(i18n.t('settings.radio.lastSweep', { count: 1 }))).toBeInTheDocument();
     expect(screen.getByText('repeater')).toBeInTheDocument();
@@ -553,6 +576,7 @@ describe('SettingsModal', () => {
       },
     });
     openRadioSection();
+    openRadioTab('tabMessaging');
 
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.discoverRegions') }));
 
@@ -572,6 +596,7 @@ describe('SettingsModal', () => {
       },
     });
     openRadioSection();
+    openRadioTab('tabMessaging');
 
     expect(
       screen.getByText(
@@ -639,6 +664,7 @@ describe('SettingsModal', () => {
   it('saves changed max contacts value through onSaveAppSettings', async () => {
     const { onSaveAppSettings } = renderModal();
     openRadioSection();
+    openRadioTab('tabMessaging');
 
     const maxContactsInput = screen.getByLabelText(i18n.t('settings.radio.maxContacts'));
     fireEvent.change(maxContactsInput, { target: { value: '250' } });
@@ -659,6 +685,7 @@ describe('SettingsModal', () => {
       appSettings: { ...baseSettings, max_radio_contacts: 200 },
     });
     openRadioSection();
+    openRadioTab('tabMessaging');
 
     // Click the "Save Messaging Settings" button
     const saveButtons = screen.getAllByRole('button', {
@@ -927,6 +954,11 @@ describe('SettingsModal', () => {
       onReconnect: vi.fn(async () => {}),
     });
     openRadioSection();
+
+    // Saving is offered only once something has actually changed.
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.radio.radioName')), {
+      target: { value: 'Renamed node' },
+    });
 
     fireEvent.click(
       screen.getByRole('button', { name: i18n.t('settings.radio.saveConfigReboot') })

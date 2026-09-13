@@ -10,6 +10,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
+import { SettingsGroupHeader } from './settingsPrimitives';
 
 const DEFAULT_KEYS: Array<{
   key: keyof PushDefaults;
@@ -121,9 +122,11 @@ export function SettingsNotificationsSection({
   return (
     <div className={className}>
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.notifications.thisDevice')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.notifications.thisDevice')}
+          storedOn="server"
+          instant
+        />
         {!isSupported ? (
           <p className="text-[0.8125rem] text-muted-foreground">
             {window.isSecureContext
@@ -216,9 +219,11 @@ export function SettingsNotificationsSection({
       <Separator />
 
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.notifications.defaults')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.notifications.defaults')}
+          storedOn="server"
+          instant
+        />
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.notifications.defaultsHelp')}
         </p>
@@ -244,9 +249,11 @@ export function SettingsNotificationsSection({
       <Separator />
 
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.notifications.exceptions')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.notifications.exceptions')}
+          storedOn="server"
+          instant
+        />
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.notifications.exceptionsHelp')}
         </p>
@@ -289,9 +296,11 @@ export function SettingsNotificationsSection({
       <Separator />
 
       <div className="space-y-2">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.notifications.vapidSubject')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.notifications.vapidSubject')}
+          storedOn="server"
+          instant
+        />
         <Label htmlFor="vapid-subject">{t('settings.notifications.vapidSubjectLabel')}</Label>
         <Input
           id="vapid-subject"
