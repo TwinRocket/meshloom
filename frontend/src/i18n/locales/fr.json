@@ -91,7 +91,7 @@
     "observerReachLoading": "Chargement des observateurs…",
     "observerReachUnavailable": "Observateurs CoreScope indisponibles",
     "observerReachTitle": "Observateurs",
-    "observerReachCaveat": "Votre message a été entendu par ces observateurs :",
+    "observerReachCaveat": "Ce message a été entendu par ces observateurs :",
     "observerReachCount": "Observateurs",
     "observerReachMaxHops": "Sauts max",
     "observerReachMaxDistance": "Distance max",

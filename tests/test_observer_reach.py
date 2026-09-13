@@ -871,3 +871,75 @@ class TestObserverReachTtlLru:
         finally:
             observer_reach._reach_cache = original
             reset_observer_reach_cache()
+
+
+class TestLocalObserverFilter:
+    LOCAL_KEY = "aa" * 32
+    PEER_KEY = "bb" * 32
+
+    @staticmethod
+    def _fake_data(observers: list[dict[str, str]]):
+        async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
+            if path.endswith("/observations"):
+                return {"results": {"AABBCCDDEEFF0011": {"observers": observers, "sealed": True}}}
+            if "/packets/" in path:
+                return {"observers": observers, "sealed": True}
+            if path.endswith("/observers"):
+                return {"observers": []}
+            return {}
+
+        return fake_data
+
+    def _observers(self) -> list[dict[str, str]]:
+        return [
+            {
+                "observer_id": self.LOCAL_KEY,
+                "public_key": self.LOCAL_KEY,
+                "observer_name": "Me",
+            },
+            {
+                "observer_id": self.PEER_KEY,
+                "public_key": self.PEER_KEY,
+                "observer_name": "Peer",
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_own_radio_is_dropped_and_counts_agree(self, test_db):
+        reset_observer_reach_cache()
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+
+        with (
+            patch("app.keystore.get_public_key", return_value=bytes.fromhex(self.LOCAL_KEY)),
+            patch(
+                "app.services.directory._community_directory_data",
+                side_effect=self._fake_data(self._observers()),
+            ),
+        ):
+            detail = await get_packet_observer_reach("AABBCCDDEEFF0011")
+            counts = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
+
+        assert [entry.public_key for entry in detail.observers] == [self.PEER_KEY]
+        assert detail.observer_count == 1
+        # The ear badge reads the counts endpoint, so it must not disagree.
+        assert counts.counts["AABBCCDDEEFF0011"] == 1
+
+    @pytest.mark.asyncio
+    async def test_no_keystore_key_filters_nothing(self, test_db):
+        reset_observer_reach_cache()
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+
+        with (
+            patch("app.keystore.get_public_key", return_value=None),
+            patch(
+                "app.services.directory._community_directory_data",
+                side_effect=self._fake_data(self._observers()),
+            ),
+        ):
+            detail = await get_packet_observer_reach("AABBCCDDEEFF0011")
+
+        assert detail.observer_count == 2

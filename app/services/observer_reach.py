@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException
 
+from app import keystore
 from app.models import (
     Message,
     ObserverReachEntry,
@@ -38,8 +39,12 @@ SPEC_TIMEOUT_SECONDS = 5.0
 REACH_CACHE_TTL_SECONDS = 90.0
 OBSERVERS_CACHE_TTL_SECONDS = 600.0
 SPEC_CACHE_TTL_SECONDS = 600.0
-# Sealed sets are final; 24h avoids a Stats round-trip after a short restart.
-SEALED_REACH_TTL_SECONDS = 86400.0
+# Sealed sets are final, but "final" is only as good as what Stats stored: a
+# server-side data repair has no way to reach a client holding a sealed copy.
+# One hour bounds that staleness. It costs one Stats request per viewed message
+# per hour, served from its Postgres, and Stats' own permanent seal is what
+# actually shields the CoreScope upstreams.
+SEALED_REACH_TTL_SECONDS = 3600.0
 # Unsealed sets still change; 8s matches the live poll cadence.
 LIVE_REACH_TTL_SECONDS = 8.0
 COMMUNITY_OBSERVERS_LIVE_TTL_SECONDS = 8.0
@@ -325,6 +330,23 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
     )
     return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def local_public_key_hex() -> str | None:
+    key = keystore.get_public_key()
+    return key.hex().lower() if key is not None else None
+
+
+def drop_local_observer(entries: list[ObserverReachEntry]) -> list[ObserverReachEntry]:
+    """Remove our own radio: it does not observe its own transmissions.
+
+    This runs in the service rather than the UI so the ear badge count and the
+    modal list stay derived from the same set.
+    """
+    local = local_public_key_hex()
+    if local is None:
+        return entries
+    return [entry for entry in entries if entry.public_key != local]
 
 
 def local_radio_origin() -> tuple[float, float] | None:
@@ -688,6 +710,7 @@ async def _finish_observer_reach(
     directory_enabled: bool,
     sealed: bool = False,
 ) -> PacketObserverReachResponse:
+    entries = drop_local_observer(entries)
     message = await MessageRepository.get_by_packet_hash(hash_lower)
     origin_coords = await resolve_origin_coords(message)
     max_hops = None
@@ -742,7 +765,7 @@ async def get_packet_observer_reach_counts(hashes: list[str]) -> PacketObserverR
         sealed: dict[str, bool] = {}
         for hash_lower in normalized:
             reach = fetched.get(hash_lower, ParsedReach(observations=[]))
-            entries = _dedup_entries(reach.observations, geos)
+            entries = drop_local_observer(_dedup_entries(reach.observations, geos))
             key = hash_lower.upper()
             counts[key] = len(entries)
             sealed[key] = reach.sealed
@@ -763,6 +786,6 @@ async def get_packet_observer_reach_counts(hashes: list[str]) -> PacketObserverR
     counts: dict[str, int] = {}
     sealed = {hash_lower.upper(): False for hash_lower in normalized}
     for hash_lower in normalized:
-        entries = _dedup_entries(fetched.get(hash_lower, []), geos)
+        entries = drop_local_observer(_dedup_entries(fetched.get(hash_lower, []), geos))
         counts[hash_lower.upper()] = len(entries)
     return PacketObserverReachCountsResponse(directory_enabled=True, counts=counts, sealed=sealed)

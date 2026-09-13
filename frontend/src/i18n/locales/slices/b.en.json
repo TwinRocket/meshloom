@@ -39,7 +39,7 @@
     "observerReachLoading": "Loading observers…",
     "observerReachUnavailable": "CoreScope observers unavailable",
     "observerReachTitle": "Observers",
-    "observerReachCaveat": "Your message was heard by these observers:",
+    "observerReachCaveat": "This message was heard by these observers:",
     "observerReachCount": "Observers",
     "observerReachMaxHops": "Max hops",
     "observerReachMaxDistance": "Max distance",
