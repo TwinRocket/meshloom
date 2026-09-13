@@ -21,6 +21,9 @@ vi.mock('../api', async (importOriginal) => ({
     repeaterLogin: vi.fn(),
     repeaterStatus: vi.fn(),
     repeaterNodeInfo: vi.fn(),
+    // Reading the server-side cache is a plain GET; the dashboard hydrates from it
+    // on mount, so every test needs it present.
+    repeaterPaneCache: vi.fn().mockResolvedValue({}),
     repeaterNeighbors: vi.fn(),
     repeaterAcl: vi.fn(),
     repeaterRadioSettings: vi.fn(),

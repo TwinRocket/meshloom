@@ -74,7 +74,7 @@ frontend/src/
 │   ├── visualizer/
 │   │   ├── useVisualizerData3D.ts   # Packet→graph data pipeline, repeat aggregation, simulation state
 │   │   ├── useVisualizer3DScene.ts  # Three.js scene lifecycle, buffers, hover/pin interaction
-│   │   ├── VisualizerControls.tsx   # Visualizer legends and control panel overlay
+│   │   ├── VisualizerControls.tsx   # Visualizer workspace toolbar + transient control panels
 │   │   ├── VisualizerTooltip.tsx    # Hover/pin node detail overlay
 │   │   └── shared.ts                # Graph node/link types and shared rendering helpers
 │   └── ...
@@ -306,7 +306,8 @@ That gives the store a load-bearing invariant: **no ancestor of `MessageList` ma
 
 ### Visualizer behavior
 
-- `VisualizerView.tsx` hosts `PacketVisualizer3D.tsx` (desktop split-pane and mobile tabs).
+- `VisualizerView.tsx` hosts a single `PacketVisualizer3D.tsx`; the desktop split-pane
+  and the mobile tabs are two CSS placements of the same mounted panes, not two mounts.
 - `PacketVisualizer3D.tsx` is now a thin composition shell over visualizer-specific hooks/components in `components/visualizer/`.
 - `PacketVisualizer3D` uses persistent Three.js geometries for links/highlights/particles and updates typed-array buffers in-place per frame.
 - Packet repeat aggregation keys prefer decoder `messageHash` (path-insensitive), with hash fallback for malformed packets.
@@ -458,6 +459,15 @@ State: `useConversationNavigation` controls open/close via `infoPaneChannelKey`.
 ## Repeater Dashboard
 
 For repeater contacts (`type=2`), `ConversationPane.tsx` renders `RepeaterDashboard` instead of the normal chat UI (ChatHeader + MessageList + MessageInput). There is no push bell on that dashboard.
+
+**Cold start**: on mount the dashboard hydrates from
+`GET /api/contacts/{key}/repeater/cache` — a database read that never reaches the
+radio — so panes reopen on the repeater's last answer instead of nine empty panes
+and a mesh round trip. Panes already holding a value are left alone, and each
+restored pane keeps its own `fetched_at` so its age stays visible. The
+past-the-login-form flag is remembered per repeater (`utils/repeaterSession.ts`);
+it is not a claim that the repeater still honours the session, and a failing pane
+surfaces its error exactly as before.
 
 **Login**: `RepeaterLogin` component — password or guest login via `POST /api/contacts/{key}/repeater/login`. The frontend sends exactly one request; the backend internally escalates a timed-out login to one flood retry (see `app/AGENTS.md` § "Server login route escalation"), so a single call may take up to two response windows. Do not add a client-side login retry loop on top — a `LOGIN_FAILED` result means the password was refused, not that the route needs another attempt.
 

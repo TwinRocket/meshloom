@@ -78,9 +78,24 @@ Scene creation, render-loop updates, raycasting hover, and click-to-pin interact
 ### UI Overlays
 
 - `components/visualizer/VisualizerControls.tsx`
-  - Legends, settings toggles, repulsion/speed controls, reset/stretch actions
+  - Workspace toolbar. It renders **in flow above the canvas**, never over it, so the
+    graph keeps the full drawing surface. The toggles are grouped behind four
+    transient panels — Display, Filters, Layout, Legend — plus a direct Reset action,
+    the packet-feed toggle and a control that collapses the toolbar entirely.
+  - One panel is open at a time. Escape or a pointer outside the toolbar dismisses it
+    and returns focus to its trigger; a click on the canvas therefore both closes the
+    panel and moves the camera.
+  - The panel is a single element positioned by CSS: a bottom sheet when narrow,
+    dropped under its trigger from `md` up. There is no JS viewport branch.
+  - Heuristic options carry their explanation inline rather than in a `title`
+    attribute, which no touch device can reach.
 - `components/visualizer/VisualizerTooltip.tsx`
   - Hovered/pinned node metadata and neighbor list
+
+**`VisualizerView` mounts exactly one `PacketVisualizer3D`.** The narrow (tabs) and
+wide (split) arrangements are the same nodes placed differently in CSS. Rendering a
+second instance for the other layout costs a second WebGL context, scene and force
+simulation that is never visible.
 
 ### Type Declarations (`types/d3-force-3d.d.ts`)
 

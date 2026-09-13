@@ -153,7 +153,8 @@ export function ChatHeader({
 
   const showKeyButton = (
     <button
-      className="min-w-0 flex-shrink text-[0.6875rem] font-mono text-muted-foreground transition-colors hover:text-primary"
+      type="button"
+      className="inline-flex min-h-6 min-w-0 flex-shrink items-center rounded px-1.5 font-mono text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={(e) => {
         e.stopPropagation();
         setShowKey(true);

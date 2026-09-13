@@ -1211,7 +1211,10 @@ export function MapView({
           className="h-full w-full"
           style={{ background: activeLayer.background }}
         >
-          <LayersControl position="topright" collapsed={false}>
+          {/* Collapsed: the expanded radio list sat permanently over the top-right
+              corner of the map. The layers icon is the convention here and gives
+              that corner back to the thing people came to look at. */}
+          <LayersControl position="topright">
             {TILE_LAYERS.map((layer) => (
               <LayersControl.BaseLayer
                 key={layer.id}

@@ -955,7 +955,7 @@ export function Sidebar({
     return (
       <div
         className={cn(
-          'flex justify-between items-center px-3 py-2 pt-3.5',
+          'sticky top-0 z-10 flex items-center justify-between bg-card px-3 py-2 pt-3.5',
           desktopCollapsed && 'md:hidden'
         )}
       >
@@ -1069,39 +1069,41 @@ export function Sidebar({
         </Button>
       </div>
 
+      {/* The filter sits above the scroll area: it is what lets someone skip a list
+          that runs well past the fold, so it must not scroll away with it. */}
+      <div className={cn('px-3 py-2 border-b border-border/60', desktopCollapsed && 'md:hidden')}>
+        <div className="relative min-w-0">
+          <Input
+            type="text"
+            placeholder={t('sidebar.searchPlaceholder')}
+            aria-label={t('sidebar.searchAria')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={cn('h-7 text-[0.8125rem] bg-background/50', searchQuery ? 'pr-8' : 'pr-3')}
+          />
+          {searchQuery && (
+            <button
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-lg leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+              onClick={() => setSearchQuery('')}
+              title={t('sidebar.clearSearch')}
+              aria-label={t('sidebar.clearSearch')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* List */}
       <div className="flex-1 min-h-0 overflow-y-auto [contain:layout_paint]">
-        <div className={cn('px-3 py-2 border-b border-border/60', desktopCollapsed && 'md:hidden')}>
-          <div className="relative min-w-0">
-            <Input
-              type="text"
-              placeholder={t('sidebar.searchPlaceholder')}
-              aria-label={t('sidebar.searchAria')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={cn('h-7 text-[0.8125rem] bg-background/50', searchQuery ? 'pr-8' : 'pr-3')}
-            />
-            {searchQuery && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-lg leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                onClick={() => setSearchQuery('')}
-                title={t('sidebar.clearSearch')}
-                aria-label={t('sidebar.clearSearch')}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </div>
-
         {/* Tools */}
         {toolRows.length > 0 && (
-          <>
+          <div>
             {renderSectionHeader(t('sidebar.tools'), toolsCollapsed, () =>
               setToolsCollapsed((prev) => !prev)
             )}
             {showSectionBody(toolsCollapsed) && toolRows}
-          </>
+          </div>
         )}
 
         {/* Mark All Read */}
@@ -1132,7 +1134,7 @@ export function Sidebar({
 
         {/* Favorites */}
         {favoriteItems.length > 0 && (
-          <>
+          <div>
             {renderSectionHeader(
               t('sidebar.favorites'),
               favoritesCollapsed,
@@ -1143,12 +1145,12 @@ export function Sidebar({
             )}
             {showSectionBody(favoritesCollapsed) &&
               favoriteRows.map((row) => renderConversationRow(row))}
-          </>
+          </div>
         )}
 
         {/* Channels */}
         {nonFavoriteChannels.length > 0 && (
-          <>
+          <div>
             {renderSectionHeader(
               t('sidebar.channels'),
               channelsCollapsed,
@@ -1159,12 +1161,12 @@ export function Sidebar({
             )}
             {showSectionBody(channelsCollapsed) &&
               channelRows.map((row) => renderConversationRow(row))}
-          </>
+          </div>
         )}
 
         {/* Contacts */}
         {nonFavoriteContacts.length > 0 && (
-          <>
+          <div>
             {renderSectionHeader(
               t('sidebar.contacts'),
               contactsCollapsed,
@@ -1175,12 +1177,12 @@ export function Sidebar({
             )}
             {showSectionBody(contactsCollapsed) &&
               contactRows.map((row) => renderConversationRow(row))}
-          </>
+          </div>
         )}
 
         {/* Repeaters */}
         {nonFavoriteRepeaters.length > 0 && (
-          <>
+          <div>
             {renderSectionHeader(
               t('sidebar.repeaters'),
               repeatersCollapsed,
@@ -1190,12 +1192,12 @@ export function Sidebar({
             )}
             {showSectionBody(repeatersCollapsed) &&
               repeaterRows.map((row) => renderConversationRow(row))}
-          </>
+          </div>
         )}
 
         {/* Room Servers */}
         {nonFavoriteRooms.length > 0 && (
-          <>
+          <div>
             {renderSectionHeader(
               t('sidebar.roomServers'),
               roomsCollapsed,
@@ -1205,7 +1207,7 @@ export function Sidebar({
               roomsUnreadCount > 0
             )}
             {showSectionBody(roomsCollapsed) && roomRows.map((row) => renderConversationRow(row))}
-          </>
+          </div>
         )}
 
         {/* Empty state */}

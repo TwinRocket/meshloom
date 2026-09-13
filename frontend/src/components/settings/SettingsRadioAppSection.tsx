@@ -11,6 +11,7 @@ import { lppDisplayUnit } from '../repeater/repeaterPaneShared';
 import { useDistanceUnit } from '../../contexts/DistanceUnitContext';
 import { BulkDeleteContactsModal } from './BulkDeleteContactsModal';
 import { ContactGroupsEditor } from './ContactGroupsEditor';
+import { SettingsGroupHeader } from './settingsPrimitives';
 import type {
   AppSettings,
   AppSettingsUpdate,
@@ -175,9 +176,11 @@ export function SettingsRadioAppSection({
     <div className={className}>
       {/* ── Tracked Repeater Telemetry ── */}
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.radioApp.trackedRepeaters')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.radioApp.trackedRepeaters')}
+          storedOn="server"
+          instant
+        />
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.radioApp.trackedRepeatersHelp', {
             max: schedule?.max_tracked ?? 8,
@@ -361,9 +364,11 @@ export function SettingsRadioAppSection({
 
       {/* ── Tracked Contact Telemetry ── */}
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.radioApp.trackedContacts')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.radioApp.trackedContacts')}
+          storedOn="server"
+          instant
+        />
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.radioApp.trackedContactsHelp')}
         </p>
@@ -458,9 +463,11 @@ export function SettingsRadioAppSection({
 
       {/* ── Contact Management ── */}
       <div className="space-y-5">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.radioApp.contactManagement')}
-        </h3>
+        <SettingsGroupHeader
+          title={t('settings.radioApp.contactManagement')}
+          storedOn="server"
+          instant
+        />
 
         <ContactGroupsEditor contacts={contacts} />
 
@@ -637,7 +644,7 @@ export function SettingsRadioAppSection({
       <Separator />
 
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">{t('settings.directoryTitle')}</h3>
+        <SettingsGroupHeader title={t('settings.directoryTitle')} storedOn="server" instant />
         {directoryViaStats ? (
           <div
             data-testid="directory-via-community"

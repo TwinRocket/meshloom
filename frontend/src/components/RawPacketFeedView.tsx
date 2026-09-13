@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -204,6 +204,7 @@ function FeedFilterControls({
 interface RawPacketFeedViewProps {
   contacts: Contact[];
   channels: Channel[];
+  radioOffline?: boolean;
 }
 
 const TOOLTIP_STYLE = {
@@ -612,7 +613,11 @@ function TimelineChart({
   );
 }
 
-export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps) {
+export function RawPacketFeedView({
+  contacts,
+  channels,
+  radioOffline = false,
+}: RawPacketFeedViewProps) {
   const { t } = useTranslation();
   const packets = useRawPackets();
   const rawPacketStatsSession = useRawPacketStatsSession();
@@ -724,23 +729,29 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
   return (
     <>
       <div className={TOOL_PANE_HEADER_CLASS}>
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-foreground">{t('rawPacket.title')}</h2>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-foreground">{t('rawPacket.title')}</h2>
             <p className="hidden text-xs font-normal text-muted-foreground md:block">
               {t('rawPacket.collectingSince', {
                 time: formatTimestamp(rawPacketStatsSession.sessionStartedAt),
               })}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Two full labels pushed this row past the right edge at 390px. The
+              labels come back as soon as the header has room for them. */}
+          <div className="flex shrink-0 items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => setAnalyzeModalOpen(true)}
+              aria-label={t('rawPacket.analyze')}
             >
-              {t('rawPacket.analyze')}
+              <Search className="h-4 w-4 sm:hidden" aria-hidden="true" />
+              <span className="hidden sm:inline" aria-hidden="true">
+                {t('rawPacket.analyze')}
+              </span>
             </Button>
             <Button
               type="button"
@@ -748,13 +759,16 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
               size="sm"
               onClick={() => setStatsOpen((current) => !current)}
               aria-expanded={statsOpen}
+              aria-label={statsOpen ? t('rawPacket.hideStats') : t('rawPacket.showStats')}
             >
               {statsOpen ? (
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
               ) : (
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
               )}
-              {statsOpen ? t('rawPacket.hideStats') : t('rawPacket.showStats')}
+              <span className="hidden sm:inline" aria-hidden="true">
+                {statsOpen ? t('rawPacket.hideStats') : t('rawPacket.showStats')}
+              </span>
             </Button>
           </div>
         </div>
@@ -818,6 +832,7 @@ export function RawPacketFeedView({ contacts, channels }: RawPacketFeedViewProps
             channels={channels}
             onPacketClick={setSelectedPacket}
             autoScroll={autoScroll}
+            radioOffline={radioOffline}
           />
         </div>
 

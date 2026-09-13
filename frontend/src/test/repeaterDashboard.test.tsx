@@ -51,6 +51,9 @@ const mockHook: {
   resetLogin: vi.fn(),
   refreshPane: vi.fn(),
   loadAll: vi.fn(),
+  cancelLoadAll: vi.fn(),
+  queuedPanes: [],
+  loadAllProgress: null,
   sendConsoleCommand: vi.fn(),
   sendZeroHopAdvert: vi.fn(),
   sendFloodAdvert: vi.fn(),
@@ -961,6 +964,129 @@ describe('RepeaterDashboard', () => {
       await deferred.promise;
 
       expect(screen.getByText(i18n.t('repeater.samples', { count: 1 }))).toBeInTheDocument();
+    });
+  });
+
+  describe('load all queue feedback', () => {
+    beforeEach(() => {
+      mockHook.loggedIn = true;
+    });
+
+    it('marks a queued pane that already holds values without hiding them', () => {
+      mockHook.paneData.nodeInfo = {
+        name: 'QueuedNodeName',
+        lat: null,
+        lon: null,
+        clock_utc: null,
+      };
+      mockHook.paneStates.nodeInfo = {
+        loading: false,
+        attempt: 1,
+        error: null,
+        fetched_at: Date.now(),
+        queued: true,
+      };
+
+      render(<RepeaterDashboard {...defaultProps} />);
+
+      expect(screen.getByText('QueuedNodeName')).toBeInTheDocument();
+      expect(screen.getByText(i18n.t('repeater.queuedBadge'))).toBeInTheDocument();
+    });
+
+    it('marks a queued pane the same way whether or not it holds values', () => {
+      mockHook.paneStates.nodeInfo = {
+        loading: false,
+        attempt: 0,
+        error: null,
+        fetched_at: null,
+        queued: true,
+      };
+      mockHook.paneStates.regions = {
+        loading: false,
+        attempt: 1,
+        error: null,
+        fetched_at: Date.now(),
+        queued: true,
+      };
+
+      render(<RepeaterDashboard {...defaultProps} />);
+
+      expect(screen.getAllByText(i18n.t('repeater.queuedBadge'))).toHaveLength(2);
+    });
+
+    it('keeps the values on screen while the pane is being refreshed', () => {
+      mockHook.paneData.nodeInfo = {
+        name: 'QueuedNodeName',
+        lat: null,
+        lon: null,
+        clock_utc: null,
+      };
+      mockHook.paneStates.nodeInfo = {
+        loading: true,
+        attempt: 1,
+        error: null,
+        fetched_at: Date.now(),
+        queued: false,
+      };
+
+      render(<RepeaterDashboard {...defaultProps} />);
+
+      expect(screen.getByText('QueuedNodeName')).toBeInTheDocument();
+      expect(screen.getByText(i18n.t('repeater.fetching'))).toBeInTheDocument();
+    });
+
+    it('reports the retry attempt on a pane that still shows its values', () => {
+      mockHook.paneData.nodeInfo = {
+        name: 'QueuedNodeName',
+        lat: null,
+        lon: null,
+        clock_utc: null,
+      };
+      mockHook.paneStates.nodeInfo = {
+        loading: true,
+        attempt: 2,
+        error: null,
+        fetched_at: Date.now(),
+        queued: false,
+      };
+
+      render(<RepeaterDashboard {...defaultProps} />);
+
+      expect(screen.getByText('QueuedNodeName')).toBeInTheDocument();
+      expect(
+        screen.getByText(i18n.t('repeater.fetchingAttempt', { attempt: 2, max: 3 }))
+      ).toBeInTheDocument();
+    });
+
+    it('a pane being fetched reports fetching, not queueing', () => {
+      mockHook.paneStates.nodeInfo = {
+        loading: true,
+        attempt: 1,
+        error: null,
+        fetched_at: null,
+        queued: true,
+      };
+
+      render(<RepeaterDashboard {...defaultProps} />);
+
+      expect(screen.getByText(i18n.t('repeater.fetching'))).toBeInTheDocument();
+      expect(screen.queryByText(i18n.t('repeater.queuedBadge'))).not.toBeInTheDocument();
+    });
+
+    it('replaces Load All with progress and a way out while a run is going', () => {
+      mockHook.loadAllProgress = { done: 3, total: 9 };
+
+      render(<RepeaterDashboard {...defaultProps} />);
+
+      expect(
+        screen.getByText(i18n.t('repeater.loadAllProgress', { done: 3, total: 9 }))
+      ).toBeInTheDocument();
+      expect(screen.queryByText(i18n.t('repeater.loadAll'))).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText(i18n.t('repeater.stopLoading')));
+      expect(mockHook.cancelLoadAll).toHaveBeenCalled();
+
+      mockHook.loadAllProgress = null;
     });
   });
 });

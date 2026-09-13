@@ -152,8 +152,15 @@
   text-shadow: 0 0 10px hsl(var(--primary) / 0.35);
 }
 
-:root:not([data-theme]) .bg-primary {
-  background: linear-gradient(135deg, hsl(188 100% 52%), hsl(280 85% 62%));
+/* The default theme painted every .bg-primary surface with the brand gradient.
+   White text measured 1.62:1 against its cyan end — WCAG AA wants 4.5:1 — so the
+   left half of every primary button was effectively unreadable. The gradient also
+   put decoration on routine controls: a plain Save button rendered in two brand
+   colours while the button beside it was flat. The gradient stays part of the
+   identity (the wordmark), buttons go solid, and the foreground goes dark so the
+   brand violet still passes: 5.25:1. */
+:root:not([data-theme]) {
+  --primary-foreground: 280 60% 10%;
 }
 
 :root:not([data-theme]) input:focus,

@@ -122,6 +122,27 @@ Frontend packet-feed consumers should treat `observation_id` as the dedup/render
 
 Channel metadata updates may also fan out as `channel` WebSocket events (full `Channel` payload) so clients can reflect local-only channel state such as regional flood-scope overrides without a full refetch.
 
+## Repeater Pane Cache
+
+The repeater dashboard's values lived only in browser memory, so a reload emptied
+every pane and the only way to see node info, radio settings or regions again was
+to query the repeater over the air — for values that rarely change.
+
+- Each successful pane fetch stores its response in `repeater_pane_cache`, keyed by
+  `(public_key, pane)`. It is a **cache, not a history**: a newer answer replaces
+  the previous one. Time series stay in `repeater_telemetry_history`.
+- `GET /api/contacts/{public_key}/repeater/cache` returns every cached pane for one
+  repeater. Database only, no radio — like the telemetry-history endpoint — and each
+  entry carries its own `fetched_at` so a client can show how old a value is rather
+  than presenting it as current.
+- Entries older than 7 days are withheld instead of being served as current state.
+- Console output is deliberately not cached: it is a transcript, not state.
+- Pane names are snake_case on the API (`node_info`, `radio_settings`) and camelCase
+  in frontend state; `useRepeaterDashboard` maps between the two.
+- Worth keeping in mind: a partial or stale answer that lands in the cache is shown
+  again later looking like any other value. `fetched_at` and the 7-day window are
+  what keep that honest.
+
 ## Contact Advert Path Memory
 
 To improve repeater disambiguation in the network visualizer, the backend stores recent unique advertisement paths per contact in a dedicated table (`contact_advert_paths`).
@@ -349,6 +370,7 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | POST | `/api/contacts/{public_key}/repeater/advert-intervals` | Fetch advert intervals |
 | POST | `/api/contacts/{public_key}/repeater/owner-info` | Fetch owner info |
 | GET | `/api/contacts/{public_key}/repeater/telemetry-history` | Stored telemetry history for a repeater (read-only, no radio access) |
+| GET | `/api/contacts/{public_key}/repeater/cache` | Last answer per repeater pane, read from the database (read-only, no radio access) |
 | POST | `/api/contacts/{public_key}/telemetry` | Fetch CayenneLPP telemetry from any contact (single attempt, 10s timeout) |
 | GET | `/api/contacts/{public_key}/telemetry-history` | Stored LPP telemetry history for a contact (read-only, no radio access) |
 | POST | `/api/contacts/{public_key}/room/login` | Log in to a room server (escalates to one flood retry if the first attempt draws no reply) |

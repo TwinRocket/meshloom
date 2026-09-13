@@ -3,6 +3,7 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
@@ -26,7 +27,11 @@ from app.models import (
     RepeaterStatusResponse,
     TelemetryHistoryEntry,
 )
-from app.repository import ContactRepository, RepeaterTelemetryRepository
+from app.repository import (
+    ContactRepository,
+    RepeaterPaneCacheRepository,
+    RepeaterTelemetryRepository,
+)
 from app.routers.server_control import (
     batch_cli_fetch,
     fetch_repeater_owner_info_binary,
@@ -47,6 +52,21 @@ ACL_PERMISSION_NAMES = {
     3: "Admin",
 }
 router = APIRouter(prefix="/contacts", tags=["repeaters"])
+
+
+async def _cache_pane(public_key: str, pane: str, response: BaseModel) -> BaseModel:
+    """Keep a pane's answer so the dashboard can reopen on it without the radio.
+
+    Called at the point of return rather than through a decorator: the panes each
+    build their own response and this repo prefers the call you can see.
+    """
+    try:
+        await RepeaterPaneCacheRepository.put(public_key, pane, response.model_dump())
+    except Exception as exc:  # a cache miss must never fail the request
+        logger.debug("Could not cache pane %s for %s: %s", pane, public_key, exc)
+    return response
+
+
 REPEATER_LOGIN_RESPONSE_TIMEOUT_SECONDS = 5.0
 
 
@@ -88,6 +108,19 @@ async def repeater_login(public_key: str, request: RepeaterLoginRequest) -> Repe
         suspend_auto_fetch=True,
     ) as mc:
         return await prepare_repeater_connection(mc, contact, request.password)
+
+
+@router.get("/{public_key}/repeater/cache")
+async def repeater_pane_cache(public_key: str) -> dict[str, dict]:
+    """Last known answer per pane, read from the database.
+
+    Read-only and radio-free, like the telemetry-history endpoint. Every entry
+    carries its own `fetched_at` so a client can show how old a value is rather
+    than presenting it as current.
+    """
+    contact = await resolve_contact_or_404(public_key)
+    _require_repeater(contact)
+    return await RepeaterPaneCacheRepository.get_all(contact.public_key)
 
 
 @router.post("/{public_key}/repeater/status", response_model=RepeaterStatusResponse)
@@ -231,7 +264,9 @@ async def repeater_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryRespons
         value = entry.get("value", 0)
         sensors.append(LppSensor(channel=channel, type_name=type_name, value=value))
 
-    return RepeaterLppTelemetryResponse(sensors=sensors)
+    return await _cache_pane(
+        public_key, "lpp_telemetry", RepeaterLppTelemetryResponse(sensors=sensors)
+    )  # type: ignore[return-value]
 
 
 @router.post("/{public_key}/repeater/neighbors", response_model=RepeaterNeighborsResponse)
@@ -266,7 +301,11 @@ async def repeater_neighbors(public_key: str) -> RepeaterNeighborsResponse:
             )
 
     reported_count = neighbors_data.get("neighbours_count") if neighbors_data else None
-    return RepeaterNeighborsResponse(neighbors=neighbors, reported_count=reported_count)
+    return await _cache_pane(
+        public_key,
+        "neighbors",
+        RepeaterNeighborsResponse(neighbors=neighbors, reported_count=reported_count),
+    )  # type: ignore[return-value]
 
 
 @router.post("/{public_key}/repeater/acl", response_model=RepeaterAclResponse)
@@ -299,7 +338,7 @@ async def repeater_acl(public_key: str) -> RepeaterAclResponse:
                 )
             )
 
-    return RepeaterAclResponse(acl=acl_entries)
+    return await _cache_pane(public_key, "acl", RepeaterAclResponse(acl=acl_entries))  # type: ignore[return-value]
 
 
 async def _batch_cli_fetch(
@@ -327,7 +366,7 @@ async def repeater_node_info(public_key: str) -> RepeaterNodeInfoResponse:
             ("clock", "clock_utc"),
         ],
     )
-    return RepeaterNodeInfoResponse(**results)
+    return await _cache_pane(public_key, "node_info", RepeaterNodeInfoResponse(**results))  # type: ignore[return-value]
 
 
 @router.post("/{public_key}/repeater/radio-settings", response_model=RepeaterRadioSettingsResponse)
@@ -359,7 +398,7 @@ async def repeater_radio_settings(public_key: str) -> RepeaterRadioSettingsRespo
         dc = dc.strip()
         if dc.startswith("??") or dc.lower().startswith("error"):
             results["duty_cycle_limit"] = None
-    return RepeaterRadioSettingsResponse(**results)
+    return await _cache_pane(public_key, "radio_settings", RepeaterRadioSettingsResponse(**results))  # type: ignore[return-value]
 
 
 @router.post(
@@ -379,7 +418,9 @@ async def repeater_advert_intervals(public_key: str) -> RepeaterAdvertIntervalsR
             ("get flood.advert.interval", "flood_advert_interval"),
         ],
     )
-    return RepeaterAdvertIntervalsResponse(**results)
+    return await _cache_pane(
+        public_key, "advert_intervals", RepeaterAdvertIntervalsResponse(**results)
+    )  # type: ignore[return-value]
 
 
 @router.post("/{public_key}/repeater/owner-info", response_model=RepeaterOwnerInfoResponse)

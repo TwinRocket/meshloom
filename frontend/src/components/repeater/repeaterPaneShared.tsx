@@ -138,12 +138,31 @@ export function RepeaterPane({
 }) {
   const { t } = useTranslation();
   const fetchedAt = state.fetched_at ?? null;
+  // Load All is serial, so a queued pane otherwise looks exactly like one nobody
+  // asked for: a single spinner and eight panes reading "not fetched".
+  const paneState = state.loading
+    ? state.attempt > 1
+      ? t('repeater.fetchingAttempt', { attempt: state.attempt, max: 3 })
+      : t('repeater.fetching')
+    : state.queued
+      ? t('repeater.queuedBadge')
+      : null;
 
   return (
     <div className={cn('border border-border rounded-lg overflow-hidden', className)}>
       <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b border-border">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium">{title}</h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="truncate text-sm font-medium">{title}</h3>
+            {/* One place for the state, whatever the pane holds. Announcing it in
+                the body instead meant a pane with cached values never showed it —
+                and a pane without values showed it somewhere else. */}
+            {paneState && (
+              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground">
+                {paneState}
+              </span>
+            )}
+          </div>
           {headerNote && <p className="text-[0.6875rem] text-muted-foreground">{headerNote}</p>}
           {fetchedAt && (
             <p
@@ -185,24 +204,14 @@ export function RepeaterPane({
           {state.error}
         </div>
       )}
-      <div className={cn('p-3', contentClassName)}>
-        {state.loading ? (
-          <p className="text-sm text-muted-foreground italic">
-            {state.attempt > 1
-              ? t('repeater.fetchingAttempt', { attempt: state.attempt, max: 3 })
-              : t('repeater.fetching')}
-          </p>
-        ) : (
-          children
-        )}
-      </div>
+      <div className={cn('p-3', contentClassName)}>{children}</div>
     </div>
   );
 }
 
 export function NotFetched() {
   const { t } = useTranslation();
-  return <p className="text-sm text-muted-foreground italic">{t('repeater.notFetched')}</p>;
+  return <p className="text-sm italic text-muted-foreground">{t('repeater.notFetched')}</p>;
 }
 
 export function KvRow({ label, value }: { label: string; value: ReactNode }) {

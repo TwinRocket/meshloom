@@ -62,6 +62,7 @@ import {
   type AppLanguage,
 } from '../../utils/languagePreference';
 import i18n from '../../i18n';
+import { SettingsGroupHeader } from './settingsPrimitives';
 
 export function SettingsLocalSection({
   onLocalLabelChange,
@@ -150,9 +151,7 @@ export function SettingsLocalSection({
       <Separator />
 
       <div className="space-y-1">
-        <h3 className="text-base font-semibold tracking-tight">
-          {t('settings.local.colorScheme')}
-        </h3>
+        <SettingsGroupHeader title={t('settings.local.colorScheme')} storedOn="browser" instant />
         <ThemeSelector />
         <ThemePreview className="mt-6" />
       </div>
@@ -160,7 +159,7 @@ export function SettingsLocalSection({
       <Separator />
 
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">{t('settings.local.localLabel')}</h3>
+        <SettingsGroupHeader title={t('settings.local.localLabel')} storedOn="browser" instant />
         <div className="flex items-center gap-2">
           <Input
             value={localLabelText}
@@ -220,7 +219,7 @@ export function SettingsLocalSection({
       <Separator />
 
       <div className="space-y-3">
-        <h3 className="text-base font-semibold tracking-tight">{t('settings.local.uiTweaks')}</h3>
+        <SettingsGroupHeader title={t('settings.local.uiTweaks')} storedOn="browser" instant />
 
         <div className="space-y-2">
           <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">

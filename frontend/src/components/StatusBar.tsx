@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  ArrowLeft,
   BatteryFull,
   BatteryLow,
   BatteryMedium,
   BatteryWarning,
   Menu,
   Moon,
+  Settings,
   Sun,
 } from 'lucide-react';
 import { isRadioIdentityGate, type HealthStatus, type RadioConfig } from '../types';
@@ -205,21 +207,21 @@ export function StatusBar({
   };
 
   return (
-    <header className="flex items-center gap-3 px-4 py-2.5 bg-card border-b border-border text-xs">
+    <header className="flex min-w-0 items-center gap-2 border-b border-border bg-card px-4 py-2.5 text-xs sm:gap-3">
       {/* Mobile menu button - only visible on small screens */}
       {onMenuClick && (
         <button
           onClick={onMenuClick}
-          className="md:hidden p-0.5 bg-transparent border-none text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          className="-ml-1.5 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
           aria-label={t('statusBar.openMenu')}
         >
-          <Menu className="h-4 w-4" />
+          <Menu className="h-4 w-4" aria-hidden="true" />
         </button>
       )}
 
       <h1
         aria-label="Meshloom"
-        className="text-base font-semibold tracking-tight mr-auto text-foreground flex items-center gap-2"
+        className="mr-auto flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-foreground"
       >
         <img
           src="./meshloom-mark.svg"
@@ -301,7 +303,7 @@ export function StatusBar({
         <button
           onClick={handleConnectAction}
           disabled={reconnecting}
-          className="px-3 py-1 bg-warning/10 border border-warning/20 text-warning rounded-md text-xs cursor-pointer hover:bg-warning/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="shrink-0 cursor-pointer whitespace-nowrap rounded-md border border-warning/20 bg-warning/10 px-3 py-1 text-xs text-warning transition-colors hover:bg-warning/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
           {reconnecting
             ? t('statusBar.reconnecting')
@@ -314,18 +316,26 @@ export function StatusBar({
       )}
       <button
         onClick={onSettingsClick}
+        aria-label={settingsMode ? t('shell.backToChat') : t('statusBar.settings')}
         className={cn(
-          'px-3 py-1.5 rounded-md text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3',
           settingsMode
-            ? 'bg-status-connected/15 border border-status-connected/30 text-status-connected hover:bg-status-connected/25'
-            : 'bg-secondary border border-border text-muted-foreground hover:bg-accent hover:text-foreground'
+            ? 'border border-status-connected/30 bg-status-connected/15 text-status-connected hover:bg-status-connected/25'
+            : 'border border-border bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground'
         )}
       >
-        {settingsMode ? t('shell.backToChat') : t('statusBar.settings')}
+        {settingsMode ? (
+          <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden="true" />
+        ) : (
+          <Settings className="h-4 w-4 shrink-0" aria-hidden="true" />
+        )}
+        <span className="hidden sm:inline" aria-hidden="true">
+          {settingsMode ? t('shell.backToChat') : t('statusBar.settings')}
+        </span>
       </button>
       <button
         onClick={handleThemeToggle}
-        className="p-0.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+        className="-mr-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title={currentTheme === 'light' ? t('statusBar.themeClassic') : t('statusBar.themeLight')}
         aria-label={
           currentTheme === 'light' ? t('statusBar.themeClassic') : t('statusBar.themeLight')

@@ -59,7 +59,7 @@
       "preview": {
         "intro": "Preview alert, message, sidebar, and badge contrast for the selected theme.",
         "connected": "Connected preview: radio link healthy and syncing.",
-        "warning": "Warning preview: packet audit suggests missing history.",
+        "warning": "Warning",
         "error": "Error preview: radio reconnect failed.",
         "helloMesh": "Hello, mesh!",
         "you": "You",
@@ -93,7 +93,6 @@
         "ghost": "Ghost",
         "semanticOutline": "Semantic outline variants",
         "danger": "Danger",
-        "warning": "Warning",
         "success": "Success",
         "metricPills": "Metric selector pills",
         "voltage": "Voltage",
@@ -347,7 +346,21 @@
       "unavailableUntilConnected": "Radio identity and RF settings appear after the radio connects.",
       "identityMismatch": "Identity mismatch — choose how to continue",
       "identityUnbound": "Unbound historical radio — choose how to continue",
-      "loadTransportFailed": "Could not load saved transport"
+      "loadTransportFailed": "Could not load saved transport",
+      "deviceConfig": "Radio configuration",
+      "configFile": "Configuration file",
+      "privateKeyGroup": "Private key",
+      "storedOnRadio": "Written to the radio",
+      "storedInMeshloom": "Stored in Meshloom",
+      "appliesImmediately": "Applies immediately",
+      "unsavedChanges": "Unsaved changes",
+      "unsavedHint": "Not saved yet",
+      "everythingSaved": "Everything saved",
+      "revert": "Revert",
+      "tabConnection": "Connection",
+      "tabDevice": "Configuration",
+      "tabMessaging": "Messaging",
+      "tabAdvert": "Advertising"
     },
     "radioApp": {
       "loading": "Loading app settings...",
@@ -596,6 +609,13 @@
       "changelog": "Changelog",
       "thanks": "With great appreciation to those who have made the tools upon which this is built:",
       "debugSnapshot": "Open debug support snapshot"
+    },
+    "common": {
+      "storedOnRadio": "Written to the radio",
+      "storedInMeshloom": "Stored in Meshloom",
+      "storedInBrowser": "This browser only",
+      "appliesImmediately": "Applies immediately",
+      "unsavedChanges": "Unsaved changes"
     }
   }
 }

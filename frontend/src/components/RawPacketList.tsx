@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 
 interface RawPacketListProps {
   packets: RawPacket[];
+  /** When the radio is down, an empty feed is expected rather than a wait. */
+  radioOffline?: boolean;
   channels?: Channel[];
   onPacketClick?: (packet: RawPacket) => void;
   /** When true (default), the feed sticks to the newest packet. */
@@ -66,6 +68,7 @@ export function RawPacketList({
   channels,
   onPacketClick,
   autoScroll = true,
+  radioOffline = false,
 }: RawPacketListProps) {
   const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
@@ -94,9 +97,18 @@ export function RawPacketList({
   }, [packets, autoScroll]);
 
   if (packets.length === 0) {
+    // Promising packets "in real time" while nothing can arrive is the kind of
+    // empty state that makes someone wait for something that is never coming.
     return (
       <div className="h-full overflow-y-auto p-5 text-center text-muted-foreground [contain:layout_paint]">
-        {t('rawPacket.empty')}
+        {radioOffline ? (
+          <>
+            <p>{t('rawPacket.emptyRadioOffline')}</p>
+            <p className="mt-1 text-xs">{t('rawPacket.emptyRadioOfflineHint')}</p>
+          </>
+        ) : (
+          t('rawPacket.empty')
+        )}
       </div>
     );
   }

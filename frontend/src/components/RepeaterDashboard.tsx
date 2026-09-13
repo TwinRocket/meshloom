@@ -85,6 +85,8 @@ export function RepeaterDashboard({
     resetLogin,
     refreshPane,
     loadAll,
+    cancelLoadAll,
+    loadAllProgress,
     sendConsoleCommand,
     sendZeroHopAdvert,
     sendFloodAdvert,
@@ -179,10 +181,16 @@ export function RepeaterDashboard({
       {/* Header */}
       <header
         className={cn(
-          'grid items-start gap-x-2 gap-y-0.5 border-b border-border px-4 py-2.5',
+          // Identity and five actions on one row squeezed the title column to about
+          // 100px at 390: the name collapsed to an ellipsis and the public key wrapped
+          // across the buttons. Stack them until the row can hold both — a plain flex
+          // column below sm rather than a one-column grid, so no grid-template rule
+          // from a wider breakpoint can win here.
+          'flex flex-col gap-1.5 border-b border-border px-4 py-2.5',
+          'sm:grid sm:items-start sm:gap-x-2 sm:gap-y-0.5',
           contact
-            ? 'grid-cols-[minmax(0,1fr)_auto] min-[1100px]:grid-cols-[minmax(0,1fr)_auto_auto]'
-            : 'grid-cols-[minmax(0,1fr)_auto]'
+            ? 'sm:grid-cols-[minmax(0,1fr)_auto] min-[1100px]:grid-cols-[minmax(0,1fr)_auto_auto]'
+            : 'sm:grid-cols-[minmax(0,1fr)_auto]'
         )}
       >
         <span className="flex min-w-0 flex-col">
@@ -252,17 +260,35 @@ export function RepeaterDashboard({
           </div>
         )}
         <div className="flex items-center gap-1.5">
-          {loggedIn && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadAll}
-              disabled={anyLoading}
-              className="h-7 px-2 text-[0.6875rem] leading-none border-success text-success hover:bg-success/10 hover:text-success sm:h-8 sm:px-3 sm:text-xs"
-            >
-              {anyLoading ? t('repeater.loading') : t('repeater.loadAll')}
-            </Button>
-          )}
+          {/* During a run the button reports progress and becomes the way out.
+              Nine panes, up to three attempts each, ten seconds a timeout: without
+              a stop, a Load All on a slow mesh is minutes with no exit. */}
+          {loggedIn &&
+            (loadAllProgress ? (
+              <div className="flex items-center gap-1.5">
+                <span className="whitespace-nowrap text-[0.6875rem] tabular-nums text-muted-foreground sm:text-xs">
+                  {t('repeater.loadAllProgress', loadAllProgress)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={cancelLoadAll}
+                  className="h-7 px-2 text-[0.6875rem] leading-none sm:h-8 sm:px-3 sm:text-xs"
+                >
+                  {t('repeater.stopLoading')}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadAll}
+                disabled={anyLoading}
+                className="h-7 border-success px-2 text-[0.6875rem] leading-none text-success hover:bg-success/10 hover:text-success sm:h-8 sm:px-3 sm:text-xs"
+              >
+                {anyLoading ? t('repeater.loading') : t('repeater.loadAll')}
+              </Button>
+            ))}
           {contact && (
             <button
               className={headerActionClass}

@@ -22,8 +22,17 @@
       // Must be in <head> BEFORE the module script so the browser queues these
       // fetches before it discovers and starts downloading the JS bundle.
       // React hooks consume the promises via window.__prefetch.
+      // A prefetch that fails is a recoverable state, not a crash: takePrefetchOrFetch
+      // catches it and falls back to a live fetch. React consumes these promises
+      // several hundred milliseconds later though, so without an immediate no-op
+      // catch the browser reports every one as an unhandled rejection first. A radio
+      // that is simply not connected yet would then log a page error on every load.
+      var keepHandled = function(promise) {
+        promise.catch(function() {});
+        return promise;
+      };
       var fetchJsonOrThrow = function(url) {
-        return fetch(url).then(function(response) {
+        return keepHandled(fetch(url).then(function(response) {
           if (response.ok) {
             return response.json();
           }
@@ -42,7 +51,7 @@
         }).catch(function(err) {
           console.error(err);
           throw err;
-        });
+        }));
       };
       window.__prefetch = {
         config: fetchJsonOrThrow('./api/radio/config'),

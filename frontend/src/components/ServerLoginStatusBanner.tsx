@@ -33,6 +33,22 @@ export function ServerLoginStatusBanner({
     return null;
   }
 
+  // No attempt recorded is not a problem to report, it is how a session resumed
+  // from this browser looks. Announcing "no attempt was recorded in this view" and
+  // then offering to *retry* described the app's own bookkeeping and proposed
+  // repeating something that never happened. Say what is true, and offer the one
+  // action that applies: log in again.
+  if (!attempt) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-4 py-2">
+        <p className="text-[0.8125rem] text-muted-foreground">{t('repeater.sessionResumed')}</p>
+        <Button type="button" variant="outline" size="sm" onClick={onReenterPassword}>
+          {t('repeater.logInAgain')}
+        </Button>
+      </div>
+    );
+  }
+
   const tone = getServerLoginAttemptTone(attempt);
   const toneClassName =
     tone === 'success'
@@ -53,7 +69,6 @@ export function ServerLoginStatusBanner({
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            variant="outline"
             size="sm"
             onClick={() => void onRetryPassword()}
             disabled={loading || !canRetryPassword}
@@ -69,7 +84,7 @@ export function ServerLoginStatusBanner({
           >
             {resolvedBlankRetry}
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={onReenterPassword}>
+          <Button type="button" variant="ghost" size="sm" onClick={onReenterPassword}>
             {t('repeater.reenterPassword')}
           </Button>
         </div>
