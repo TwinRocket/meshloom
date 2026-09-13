@@ -1,3 +1,31 @@
+## [4.6.1] - 2026-09-13
+
+This release lets a second client use this radio without unplugging anything. A phone app or another Meshloom can talk to the mesh through this instance, and Web Push stops refusing the https address of your own server.
+
+### What's new
+
+- **A second client, without pulling the cable.** Sharing a radio used to mean unplugging it from one machine and plugging it into another. Settings > Proxy now lets Meshloom present itself as a MeshCore companion over TCP: a phone app or another Meshloom connects to it and sends and receives through this instance, while the radio stays exactly where it is.
+- **Connected clients hear everything the radio hears.** Not only channel text. Adverts, paths, acks, traces and direct messages all come through, the same traffic this node overhears.
+- **What a connected client cannot touch.** It cannot rename the node, change the radio settings, or take the private key with it. The companion protocol has no password either, so keep this on a network you trust.
+- **Two Meshlooms, one identity.** A second Meshloom connecting here has to start on a fresh database, or explicitly adopt this node's identity. And aiming a Meshloom's own radio connection at its own proxy is refused, since it would only be talking to itself.
+- **Web Push accepts the address of your own instance.** Putting your server's https address in the VAPID contact field, or leaving the Docker variable empty, used to stop notifications from ever being sent — the library refused the value without saying so. An https address now works, Meshloom keeping only the beginning of it, and an empty variable falls back to the built-in default.
+
+---
+
+### Français
+
+Cette version permet à un second client d'utiliser cette radio sans rien débrancher. Une appli téléphone ou un autre Meshloom peut parler au mesh à travers cette instance, et Web Push cesse de refuser l'adresse https de votre propre serveur.
+
+#### Quoi de neuf
+
+- **Un second client, sans débrancher le câble.** Partager une radio voulait dire la retirer d'une machine pour la brancher sur une autre. Réglages > Proxy permet maintenant à Meshloom de se présenter comme un companion MeshCore en TCP : une appli téléphone ou un autre Meshloom s'y connecte, envoie et reçoit à travers cette instance, et la radio reste là où elle est.
+- **Les clients connectés entendent tout ce que la radio entend.** Pas seulement le texte des salons. Les annonces, les chemins, les acks, les traces et les messages directs passent aussi, exactement le trafic que ce nœud capte.
+- **Ce qu'un client connecté ne peut pas toucher.** Il ne peut pas renommer le nœud, modifier les réglages radio, ni emporter la clé privée. Le protocole companion n'a pas de mot de passe non plus : gardez tout ça sur un réseau de confiance.
+- **Deux Meshloom, une seule identité.** Un second Meshloom qui se connecte ici doit démarrer sur une base neuve, ou adopter explicitement l'identité de ce nœud. Et brancher la radio d'un Meshloom sur son propre proxy est refusé : il ne ferait que se parler à lui-même.
+- **Web Push accepte l'adresse de votre propre instance.** Mettre l'adresse https de votre serveur dans le champ de contact VAPID, ou laisser la variable Docker vide, empêchait les notifications de partir : la bibliothèque refusait la valeur sans rien dire. Une adresse https fonctionne maintenant, Meshloom n'en gardant que le début, et une variable vide retombe sur la valeur par défaut fournie.
+
+---
+
 ## [4.6.0] - 2026-09-13
 
 This release is about the interface rather than the mesh. The visualizer gets its graph back, the radio settings page stops hiding which button saves what, the repeater dashboard remembers what it was told, and a good part of the app finally fits on a phone.
