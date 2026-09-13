@@ -1687,3 +1687,24 @@ class CommunityAirportHit(BaseModel):
 
 class CommunityAirportSearchResponse(BaseModel):
     airports: list[CommunityAirportHit]
+
+
+class RadioProxyStatus(BaseModel):
+    enabled: bool
+    bind: str
+    port: int
+    max_clients: int
+    listening: bool = False
+    client_count: int = 0
+    dropped_messages: int = 0
+    dropped_logs: int = 0
+    last_error: str | None = None
+    instance_id: str = ""
+    model: str = ""
+
+
+class RadioProxyUpdate(BaseModel):
+    enabled: bool | None = None
+    bind: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    max_clients: int | None = Field(default=None, ge=1, le=32)

@@ -9,6 +9,7 @@ from app.repository.contacts import (
 from app.repository.directory import DirectoryHopCacheRepository
 from app.repository.fanout import FanoutConfigRepository
 from app.repository.messages import MessageRepository
+from app.repository.radio_proxy import RadioProxyRepository
 from app.repository.radio_transport import RadioTransportRepository
 from app.repository.raw_packets import RawPacketRepository
 from app.repository.repeater_pane_cache import RepeaterPaneCacheRepository
@@ -26,6 +27,7 @@ __all__ = [
     "DirectoryHopCacheRepository",
     "FanoutConfigRepository",
     "MessageRepository",
+    "RadioProxyRepository",
     "RadioTransportRepository",
     "RawPacketRepository",
     "RepeaterPaneCacheRepository",

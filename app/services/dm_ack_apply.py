@@ -18,4 +18,10 @@ async def apply_dm_ack_code(ack_code: str, *, broadcast_fn: BroadcastFn) -> bool
 
     dm_ack_tracker.clear_pending_acks_for_message(message_id)
     await increment_ack_and_broadcast(message_id=message_id, broadcast_fn=broadcast_fn)
+    try:
+        from app.radio_proxy.manager import radio_proxy_manager
+
+        radio_proxy_manager.notify_ack(ack_code)
+    except Exception:
+        pass
     return True

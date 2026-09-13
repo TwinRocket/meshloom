@@ -600,6 +600,28 @@
       "iataActive": "Active IATA regions",
       "uniqueHashes24h": "Unique hashes (24h)"
     },
+    "proxy": {
+      "title": "Radio Proxy",
+      "help": "Expose Meshloom as a MeshCore companion radio over TCP so a mobile app or another Meshloom can connect through this instance.",
+      "warning": "The companion protocol has no authentication. Bind this only on a trusted network.",
+      "identityHelp": "A second Meshloom must use a new database (or explicitly adopt this identity). Pointing this Meshloom's radio transport at its own proxy is blocked.",
+      "enabled": "Enable TCP companion proxy",
+      "bind": "Bind address",
+      "port": "Port",
+      "maxClients": "Max clients",
+      "status": "Status",
+      "listening": "Listening",
+      "stopped": "Stopped",
+      "clients": "Connected clients",
+      "drops": "Dropped messages/logs",
+      "model": "Advertised model",
+      "error": "Last error",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Proxy settings saved",
+      "saveFailed": "Could not save proxy settings",
+      "loadFailed": "Could not load proxy settings"
+    },
     "about": {
       "madeBy": "Made with love and open source by <author>Pascal M</author>",
       "licensed": "Licensed under the <license>MIT License</license>",

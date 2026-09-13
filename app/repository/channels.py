@@ -23,6 +23,22 @@ class ChannelRepository:
                 pass
 
     @staticmethod
+    async def upsert_name(key: str, name: str, *, is_hashtag: bool = False) -> None:
+        """Create or rename a channel without touching radio/read/override state."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                """
+                INSERT INTO channels (key, name, is_hashtag, on_radio, flood_scope_override)
+                VALUES (?, ?, ?, 0, NULL)
+                ON CONFLICT(key) DO UPDATE SET
+                    name = excluded.name,
+                    is_hashtag = excluded.is_hashtag
+                """,
+                (key.upper(), name, is_hashtag),
+            ):
+                pass
+
+    @staticmethod
     async def get_by_key(key: str) -> Channel | None:
         """Get a channel by its key (32-char hex string)."""
         async with db.readonly() as conn:

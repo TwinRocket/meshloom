@@ -210,6 +210,15 @@ async def run_post_connect_setup(radio_manager) -> None:
                 finally:
                     reader.handle_rx = _original_handle_rx
 
+                from app.radio_proxy.manager import radio_proxy_manager
+                from app.radio_proxy.protocol import parse_proxy_instance_id
+
+                remote_proxy_id = parse_proxy_instance_id(radio_manager.device_model)
+                if remote_proxy_id and remote_proxy_id == radio_proxy_manager.instance_id:
+                    raise RuntimeError(
+                        "Refusing to use this process's own radio proxy as the radio transport"
+                    )
+
                 # Apply flood scope from settings (best-effort; older firmware may
                 # not support the mode-1 unscoped command). Done after the device
                 # query so radio_manager.firmware_ver_code is known and the unscoped

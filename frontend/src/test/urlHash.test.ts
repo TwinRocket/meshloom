@@ -215,6 +215,13 @@ describe('settings URL hashes', () => {
     expect(parseHashSettingsSection()).toBe('notifications');
     expect(getSettingsHash('notifications')).toBe('#settings/notifications');
   });
+
+  it('parses the radio proxy settings hash', () => {
+    window.location.hash = '#settings/proxy';
+
+    expect(parseHashSettingsSection()).toBe('proxy');
+    expect(getSettingsHash('proxy')).toBe('#settings/proxy');
+  });
 });
 
 describe('resolveChannelFromHashToken', () => {

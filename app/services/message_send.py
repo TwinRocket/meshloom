@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time as _time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import HTTPException
 from meshcore import EventType
@@ -610,6 +610,12 @@ async def _retry_direct_message_until_acked(
         attempt += 1
 
 
+class DirectSendResult(NamedTuple):
+    message: Any
+    expected_ack: str | None
+    suggested_timeout_ms: int
+
+
 async def send_direct_message_to_contact(
     *,
     contact,
@@ -620,9 +626,10 @@ async def send_direct_message_to_contact(
     now_fn: NowFn,
     retry_task_scheduler: RetryTaskScheduler | None = None,
     retry_sleep_fn=None,
+    arm_retries: bool = True,
     message_repository=MessageRepository,
     contact_repository=ContactRepository,
-) -> Any:
+) -> DirectSendResult:
     """Send a direct message and persist/broadcast the outgoing row."""
     if retry_task_scheduler is None:
         retry_task_scheduler = asyncio.create_task
@@ -713,9 +720,9 @@ async def send_direct_message_to_contact(
     )
     if ack_count > 0:
         message.acked = ack_count
-        return message
+        return DirectSendResult(message, ack_code, retry_timeout_ms)
 
-    if DM_SEND_MAX_ATTEMPTS > 1 and ack_code:
+    if arm_retries and DM_SEND_MAX_ATTEMPTS > 1 and ack_code:
         retry_task_scheduler(
             _retry_direct_message_until_acked(
                 contact=contact,
@@ -731,7 +738,7 @@ async def send_direct_message_to_contact(
             )
         )
 
-    return message
+    return DirectSendResult(message, ack_code, retry_timeout_ms)
 
 
 async def _channel_echo_watchdog(

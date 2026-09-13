@@ -242,6 +242,32 @@ describe('SettingsModal', () => {
     vi.spyOn(api, 'getFanoutConfigs').mockResolvedValue([]);
     vi.spyOn(api, 'getRadioTransport').mockResolvedValue(baseTransport);
     vi.spyOn(api, 'updateRadioTransport').mockResolvedValue(baseTransport);
+    vi.spyOn(api, 'getRadioProxy').mockResolvedValue({
+      enabled: false,
+      bind: '0.0.0.0',
+      port: 5001,
+      max_clients: 8,
+      listening: false,
+      client_count: 0,
+      dropped_messages: 0,
+      dropped_logs: 0,
+      last_error: null,
+      instance_id: 'abc123def456',
+      model: 'MeshloomProxy/abc123def456',
+    });
+    vi.spyOn(api, 'updateRadioProxy').mockResolvedValue({
+      enabled: true,
+      bind: '0.0.0.0',
+      port: 5001,
+      max_clients: 8,
+      listening: true,
+      client_count: 0,
+      dropped_messages: 0,
+      dropped_logs: 0,
+      last_error: null,
+      instance_id: 'abc123def456',
+      model: 'MeshloomProxy/abc123def456',
+    });
     vi.spyOn(api, 'scanRadioBle').mockResolvedValue({ devices: [] });
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
@@ -821,6 +847,24 @@ describe('SettingsModal', () => {
     expect(
       screen.queryByLabelText(i18n.t('settings.local.localLabelText'))
     ).not.toBeInTheDocument();
+  });
+
+  it('lists proxy after radio in the accordion nav', async () => {
+    renderModal({ mobile: true });
+    const sectionToggles = screen
+      .getAllByRole('button')
+      .filter((button) => button.getAttribute('aria-expanded') !== null);
+    const labels = sectionToggles.map((button) => button.textContent ?? '');
+    const radioIdx = labels.findIndex((label) => label.includes(i18n.t('settingsNav.radio')));
+    const proxyIdx = labels.findIndex((label) => label.includes(i18n.t('settingsNav.proxy')));
+
+    expect(radioIdx).toBeGreaterThanOrEqual(0);
+    expect(proxyIdx).toBe(radioIdx + 1);
+
+    fireEvent.click(sectionToggles[proxyIdx]);
+    expect(await screen.findByText(i18n.t('settings.proxy.title'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('settings.proxy.enabled'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.proxy.warning'))).toBeInTheDocument();
   });
 
   it('lists notifications after local in the accordion nav', () => {

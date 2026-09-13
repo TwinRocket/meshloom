@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.models import RadioHealthState, RadioIdentityInfo
+from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
 from app.repository import RawPacketRepository
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import get_latest_radio_stats
@@ -75,6 +75,16 @@ class HealthResponse(BaseModel):
     bots_disabled: bool = False
     bots_disabled_source: Literal["env", "until_restart"] | None = None
     basic_auth_enabled: bool = False
+    radio_proxy: RadioProxyStatus | None = None
+
+
+def _radio_proxy_status() -> RadioProxyStatus | None:
+    try:
+        from app.radio_proxy.manager import radio_proxy_manager
+
+        return RadioProxyStatus(**radio_proxy_manager.status_dict())
+    except Exception:
+        return None
 
 
 def _clean_optional_str(value: object) -> str | None:
@@ -209,6 +219,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "basic_auth_enabled": _read_optional_bool_setting("basic_auth_enabled"),
         "transport_configured": transport_configured,
         "identity": identity,
+        "radio_proxy": _radio_proxy_status(),
     }
 
 

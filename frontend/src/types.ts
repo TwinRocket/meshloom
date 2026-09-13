@@ -52,6 +52,27 @@ export interface RadioTransportConfig {
   serial_ports: RadioSerialPortInfo[];
 }
 
+export interface RadioProxyStatus {
+  enabled: boolean;
+  bind: string;
+  port: number;
+  max_clients: number;
+  listening: boolean;
+  client_count: number;
+  dropped_messages: number;
+  dropped_logs: number;
+  last_error: string | null;
+  instance_id: string;
+  model: string;
+}
+
+export interface RadioProxyUpdate {
+  enabled?: boolean;
+  bind?: string;
+  port?: number;
+  max_clients?: number;
+}
+
 export interface RadioTransportUpdate {
   transport: RadioTransportKind;
   serial_port?: string | null;
@@ -212,6 +233,7 @@ export interface HealthStatus {
   bots_disabled: boolean;
   bots_disabled_source?: 'env' | 'until_restart' | null;
   basic_auth_enabled?: boolean;
+  radio_proxy?: RadioProxyStatus | null;
 }
 
 export interface FanoutConfig {

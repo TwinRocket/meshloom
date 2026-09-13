@@ -176,6 +176,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start fanout modules")
 
+    from app.radio_proxy.manager import radio_proxy_manager
+
+    try:
+        await radio_proxy_manager.start_from_db()
+    except Exception:
+        logger.exception("Failed to start radio proxy")
+
     startup_radio_task = asyncio.create_task(_startup_radio_connect_and_setup())
     app.state.startup_radio_task = startup_radio_task
 
@@ -189,6 +196,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     await fanout_manager.stop_all()
+    await radio_proxy_manager.stop()
     await radio_manager.stop_connection_monitor()
     await stop_background_contact_reconciliation()
     await stop_message_polling()

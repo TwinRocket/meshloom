@@ -614,6 +614,10 @@ class RadioManager:
         port = snapshot.tcp_port
 
         logger.debug("Connecting to radio at %s:%d (TCP)", host, port)
+        from app.radio_proxy.manager import radio_proxy_manager
+
+        if radio_proxy_manager.would_loop_transport(host, port):
+            raise RuntimeError("TCP radio target points at this Meshloom radio proxy")
         mc = await MeshCore.create_tcp(
             host=host,
             port=port,

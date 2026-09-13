@@ -20,6 +20,8 @@ from app.models import (
     RadioDiscoveryResult,
     RadioIdentityActionResponse,
     RadioIdentityAdoptRequest,
+    RadioProxyStatus,
+    RadioProxyUpdate,
     RadioRegionDiscoveryRepeater,
     RadioRegionDiscoveryRequest,
     RadioRegionDiscoveryResponse,
@@ -867,6 +869,14 @@ async def put_radio_transport(update: RadioTransportUpdate) -> RadioTransportRes
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if next_snapshot.transport == "tcp":
+        from app.radio_proxy.manager import radio_proxy_manager
+
+        if radio_proxy_manager.would_loop_transport(next_snapshot.tcp_host, next_snapshot.tcp_port):
+            raise HTTPException(
+                status_code=409,
+                detail="TCP radio target points at this Meshloom radio proxy",
+            )
     if not current.identity_state and _transport_fields_equal(current, next_snapshot):
         return await build_transport_response()
     try:
@@ -896,6 +906,44 @@ async def put_radio_transport(update: RadioTransportUpdate) -> RadioTransportRes
     except RadioOperationBusyError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return await build_transport_response()
+
+
+@router.get("/proxy", response_model=RadioProxyStatus)
+async def get_radio_proxy() -> RadioProxyStatus:
+    from app.radio_proxy.manager import radio_proxy_manager
+
+    return RadioProxyStatus(**radio_proxy_manager.status_dict())
+
+
+@router.patch("/proxy", response_model=RadioProxyStatus)
+async def patch_radio_proxy(update: RadioProxyUpdate) -> RadioProxyStatus:
+    from app.radio_proxy.manager import radio_proxy_manager
+    from app.repository.radio_proxy import RadioProxyRepository
+    from app.services.radio_transport import get_transport
+
+    stored = await RadioProxyRepository.update(
+        enabled=update.enabled,
+        bind=update.bind,
+        port=update.port,
+        max_clients=update.max_clients,
+    )
+    snapshot = await get_transport()
+    if stored.enabled and snapshot.transport == "tcp":
+        from app.radio_proxy.manager import targets_this_proxy
+
+        if targets_this_proxy(
+            snapshot.tcp_host,
+            snapshot.tcp_port,
+            bind=stored.bind,
+            listen_port=stored.port,
+        ):
+            await RadioProxyRepository.update(enabled=False)
+            raise HTTPException(
+                status_code=409,
+                detail="Refusing to listen: radio transport already targets this proxy",
+            )
+    status = await radio_proxy_manager.apply_settings(stored)
+    return RadioProxyStatus(**status)
 
 
 @router.post("/transport/ble-scan", response_model=RadioBleScanResponse)

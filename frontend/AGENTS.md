@@ -154,6 +154,7 @@ frontend/src/
 │   ├── settings/
 │   │   ├── settingsConstants.ts          # Settings section type, ordering, labels
 │   │   ├── SettingsRadioSection.tsx      # Name, keys, advert interval, max contacts, radio preset, freq/bw/sf/cr, txPower, lat/lon, reboot, mesh discovery
+│   │   ├── SettingsProxySection.tsx      # Virtual companion TCP radio proxy listen settings + live status
 │   │   ├── SettingsLocalSection.tsx      # Browser-local settings: theme, relative font scale, local label, reopen last conversation
 │   │   ├── SettingsNotificationsSection.tsx # Web Push: this device, defaults, exceptions, VAPID subject
 │   │   ├── SettingsCommunitySection.tsx  # Meshloom Community join, IATA, contribution stats
@@ -366,7 +367,7 @@ Supported routes:
 - `#contact/{publicKey}`
 - `#contact/{publicKey}/{label}`
 
-Where `{section}` is one of `radio`, `local`, `notifications`, `community`, `radio-app`, `database`, `fanout`, `statistics`, or `about`.
+Where `{section}` is one of `radio`, `proxy`, `local`, `notifications`, `community`, `radio-app`, `database`, `fanout`, `statistics`, or `about`.
 
 Legacy name-based channel/contact hashes are still accepted for compatibility.
 

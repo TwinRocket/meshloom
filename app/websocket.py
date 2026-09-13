@@ -104,6 +104,12 @@ def broadcast_event(event_type: str, data: dict, *, realtime: bool = True) -> No
     asyncio.create_task(ws_manager.broadcast(event_type, data))
 
     if realtime:
+        try:
+            from app.radio_proxy.manager import radio_proxy_manager
+
+            radio_proxy_manager.notify_broadcast(event_type, data)
+        except Exception:
+            logger.debug("Radio proxy fanout failed", exc_info=True)
         from app.fanout.manager import fanout_manager
 
         if event_type == "message":

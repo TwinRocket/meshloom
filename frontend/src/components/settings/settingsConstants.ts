@@ -8,11 +8,13 @@ import {
   RadioTower,
   Share2,
   SlidersHorizontal,
+  Waypoints,
   type LucideIcon,
 } from 'lucide-react';
 
 export type SettingsSection =
   | 'radio'
+  | 'proxy'
   | 'local'
   | 'notifications'
   | 'community'
@@ -24,6 +26,7 @@ export type SettingsSection =
 
 export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'radio',
+  'proxy',
   'local',
   'notifications',
   'community',
@@ -37,6 +40,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
 /** i18n key ids. Translate at render with t(SETTINGS_SECTION_LABELS[section]). */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   radio: 'settingsNav.radio',
+  proxy: 'settingsNav.proxy',
   local: 'settingsNav.local',
   notifications: 'settingsNav.notifications',
   community: 'settingsNav.community',
@@ -49,6 +53,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
 
 export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   radio: RadioTower,
+  proxy: Waypoints,
   local: MonitorCog,
   notifications: Bell,
   community: Globe,

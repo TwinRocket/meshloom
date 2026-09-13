@@ -1535,6 +1535,7 @@
     "title": "Settings",
     "aria": "Settings",
     "radio": "Radio",
+    "proxy": "Proxy",
     "local": "Local Configuration",
     "notifications": "Notifications",
     "community": "Meshloom Community",

@@ -34,6 +34,8 @@ import type {
   RadioConfig,
   RadioConfigUpdate,
   RadioIdentityActionResponse,
+  RadioProxyStatus,
+  RadioProxyUpdate,
   RadioTransportConfig,
   RadioTransportUpdate,
   RadioDiscoveryResponse,
@@ -227,6 +229,12 @@ export const api = {
   updateRadioTransport: (body: RadioTransportUpdate) =>
     fetchJson<RadioTransportConfig>('/radio/transport', {
       method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  getRadioProxy: () => fetchJson<RadioProxyStatus>('/radio/proxy'),
+  updateRadioProxy: (body: RadioProxyUpdate) =>
+    fetchJson<RadioProxyStatus>('/radio/proxy', {
+      method: 'PATCH',
       body: JSON.stringify(body),
     }),
   scanRadioBle: () =>

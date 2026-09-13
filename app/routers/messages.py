@@ -115,7 +115,7 @@ async def send_direct_message(request: SendDirectMessageRequest) -> Message:
             detail="Cannot send to an unresolved prefix-only contact until a full key is known",
         )
 
-    return await send_direct_message_to_contact(
+    result = await send_direct_message_to_contact(
         contact=db_contact,
         text=request.text,
         radio_manager=radio_manager,
@@ -125,6 +125,7 @@ async def send_direct_message(request: SendDirectMessageRequest) -> Message:
         message_repository=MessageRepository,
         contact_repository=ContactRepository,
     )
+    return result.message
 
 
 # Preferred first radio slot used for sending channel messages.

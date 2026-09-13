@@ -48,6 +48,7 @@ app/
 │   ├── directory.py             # CoreScope proxy (resolve-hops, nodes, reach, neighbors, search)
 │   └── rf_locate.py             # RF locate identity + 0-hop disk assembly
 ├── radio.py             # RadioManager transport/session state + lock management
+├── radio_proxy/         # Virtual companion TCP radio (protocol, policy, manager)
 ├── radio_sync.py        # Polling, sync, periodic advertisement loop
 ├── decoder.py           # Packet parsing/decryption
 ├── packet_processor.py  # Raw packet pipeline, dedup, path handling
@@ -253,6 +254,8 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 
 ### Radio
 - `GET /radio/config` — includes `path_hash_mode`, `path_hash_mode_supported`, advert-location on/off, and `multi_acks_enabled`
+- `GET /radio/proxy` — virtual companion TCP listen settings and live status
+- `PATCH /radio/proxy` — enable/disable/rebind the radio proxy (drops all sessions)
 - `PATCH /radio/config` — may update `path_hash_mode` (`0..2`) when firmware supports it, and `multi_acks_enabled`
 - `GET /radio/private-key` — export in-memory private key as hex (requires `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`)
 - `PUT /radio/private-key`

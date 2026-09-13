@@ -331,6 +331,8 @@ describe('fetchJson (via api methods)', () => {
 
       await api.getRadioTransport();
       await api.updateRadioTransport({ transport: 'tcp', tcp_host: '10.0.0.1', tcp_port: 5000 });
+      await api.getRadioProxy();
+      await api.updateRadioProxy({ enabled: true, port: 5001 });
       await api.scanRadioBle();
       await api.adoptRadioIdentity({ confirm_wipe: false });
       await api.rejectRadioIdentity();
@@ -338,6 +340,8 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls.map(([url, options]) => [url, options.method])).toEqual([
         ['./api/radio/transport', undefined],
         ['./api/radio/transport', 'PUT'],
+        ['./api/radio/proxy', undefined],
+        ['./api/radio/proxy', 'PATCH'],
         ['./api/radio/transport/ble-scan', 'POST'],
         ['./api/radio/identity/adopt', 'POST'],
         ['./api/radio/identity/reject', 'POST'],
@@ -347,7 +351,11 @@ describe('fetchJson (via api methods)', () => {
         tcp_host: '10.0.0.1',
         tcp_port: 5000,
       });
-      expect(JSON.parse(mockFetch.mock.calls[3][1].body)).toEqual({ confirm_wipe: false });
+      expect(JSON.parse(mockFetch.mock.calls[3][1].body)).toEqual({
+        enabled: true,
+        port: 5001,
+      });
+      expect(JSON.parse(mockFetch.mock.calls[5][1].body)).toEqual({ confirm_wipe: false });
     });
 
     it('sends PUT with JSON body for setPrivateKey', async () => {
