@@ -599,7 +599,11 @@ export function TracePane({ contacts, config, onRunTracePath }: TracePaneProps) 
             ) : null}
           </div>
 
-          <div className="max-h-[40vh] overflow-y-auto p-2 lg:min-h-0 lg:max-h-none lg:flex-1">
+          {/* Below lg the pane itself scrolls, so capping this list at 40vh only
+              created a scroll trap: a finger over the list moved it a few pixels
+              and then nothing. The inner scroll belongs to the lg split, where the
+              columns have a fixed height. */}
+          <div className="p-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {filteredRepeaters.length === 0 ? (
               <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
                 {sortMode === 'traced' && recentNodeKeys.length === 0
