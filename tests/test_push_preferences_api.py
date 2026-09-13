@@ -57,6 +57,17 @@ async def test_patch_preferences_rejects_invalid_vapid_subject(test_db, client):
 
 
 @pytest.mark.asyncio
+async def test_patch_preferences_normalizes_https_instance_url(test_db, client):
+    response = await client.patch(
+        "/api/push/preferences",
+        json={"vapid_subject": "https://radio.meshloom.app/"},
+    )
+    assert response.status_code == 200
+    assert response.json()["vapid_subject"] == "https://radio.meshloom.app"
+    assert get_vapid_claims() == {"sub": "https://radio.meshloom.app"}
+
+
+@pytest.mark.asyncio
 async def test_put_conversation_override_true_false_null(test_db, client):
     key = "contact-" + "aa" * 32
     enabled = await client.put(

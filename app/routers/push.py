@@ -14,7 +14,9 @@ from app.push.vapid import (
     get_vapid_claims,
     get_vapid_private_key,
     get_vapid_public_key,
+    normalize_vapid_subject,
     set_cached_vapid_subject,
+    vapid_subject_is_usable,
 )
 from app.repository.push_subscriptions import PushSubscriptionRepository
 from app.repository.settings import AppSettingsRepository
@@ -76,14 +78,15 @@ class PushConversationOverrideBody(BaseModel):
 
 
 def _validate_vapid_subject(subject: str) -> str:
-    """Empty stores as '' (env fallback). Non-empty must be mailto: or https:."""
-    stored = subject.strip()
+    """Empty stores as '' (env fallback). Non-empty must be a usable mailto: or https origin."""
+    stored = normalize_vapid_subject(subject)
     if not stored:
         return ""
-    if not (stored.startswith("mailto:") or stored.startswith("https:")):
+    if not vapid_subject_is_usable(stored):
         raise HTTPException(
             status_code=400,
-            detail="vapid_subject must be a mailto: or https: URI",
+            detail="vapid_subject must be a mailto: address or an https:// origin "
+            "(no path or trailing slash)",
         )
     return stored
 

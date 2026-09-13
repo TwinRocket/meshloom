@@ -158,7 +158,8 @@ def _send_push_with_session(
         subscription_info=subscription_info,
         data=payload,
         vapid_private_key=vapid_private_key,
-        vapid_claims=vapid_claims,
+        # pywebpush mutates this dict (adds aud/exp); copy so retries stay clean.
+        vapid_claims=dict(vapid_claims),
         content_encoding="aes128gcm",
         timeout=cast(Any, (connect_timeout_seconds, DEFAULT_PUSH_READ_TIMEOUT_SECONDS)),
         requests_session=session,

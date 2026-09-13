@@ -145,8 +145,8 @@
       "vapidSubject": "VAPID subject",
       "vapidSubjectLabel": "Contact URI",
       "vapidSubjectPlaceholder": "mailto:ops@example.com",
-      "vapidSubjectHelp": "Contact URI included in Web Push VAPID tokens (mailto: or https:). Leave empty to use the server environment fallback. Apple Push requires a real mailto: or https: contact, not a .local address.",
-      "vapidSubjectInvalid": "Must be empty, or a mailto: or https: URI."
+      "vapidSubjectHelp": "VAPID contact: mailto:you@domain.tld (recommended) or https://your-host with no path. Empty uses the server environment fallback. Apple rejects .local addresses.",
+      "vapidSubjectInvalid": "Must be empty, a mailto:you@domain.tld, or an https://host origin (no path)."
     },
     "radio": {
       "unavailable": "Radio is not available.",

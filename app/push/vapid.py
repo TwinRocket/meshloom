@@ -7,11 +7,12 @@ for ``PushManager.subscribe()``.
 
 import base64
 import logging
+from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from py_vapid import Vapid
 
-from app.config import settings
+from app.config import DEFAULT_VAPID_SUBJECT, settings
 from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
@@ -21,10 +22,58 @@ _cached_public_key: str = ""
 _cached_subject: str = ""
 
 
+def normalize_vapid_subject(raw: str) -> str:
+    """Strip noise py-vapid rejects (whitespace, https path, trailing slash)."""
+    stored = (raw or "").strip()
+    if not stored:
+        return ""
+    if stored.lower().startswith("mailto:"):
+        return stored
+    if stored.lower().startswith("https:"):
+        parsed = urlparse(stored)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            return stored
+        return f"https://{parsed.netloc}"
+    return stored
+
+
+def vapid_subject_is_usable(subject: str) -> bool:
+    """True when py-vapid will accept this string as JWT ``sub``."""
+    if not subject:
+        return False
+    lowered = subject.lower()
+    if lowered.startswith("mailto:"):
+        rest = subject[7:]
+        if "@" not in rest:
+            return False
+        local, _, host = rest.partition("@")
+        return bool(local.strip()) and bool(host.strip())
+    if lowered.startswith("https://"):
+        parsed = urlparse(subject)
+        return (
+            parsed.scheme.lower() == "https"
+            and bool(parsed.hostname)
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment
+        )
+    return False
+
+
+def resolve_vapid_subject(stored: str = "", env_subject: str | None = None) -> str:
+    """Pick the first usable subject: stored, then env, then built-in default."""
+    fallback = settings.vapid_subject if env_subject is None else env_subject
+    for candidate in (stored, fallback, DEFAULT_VAPID_SUBJECT):
+        normalized = normalize_vapid_subject(candidate)
+        if vapid_subject_is_usable(normalized):
+            return normalized
+    return DEFAULT_VAPID_SUBJECT
+
+
 def set_cached_vapid_subject(subject: str) -> None:
     """Update the in-memory VAPID subject. Empty means fall back to env."""
     global _cached_subject
-    _cached_subject = subject or ""
+    _cached_subject = normalize_vapid_subject(subject)
 
 
 async def ensure_vapid_keys() -> tuple[str, str]:
@@ -74,10 +123,11 @@ def get_vapid_private_key() -> str:
 def get_vapid_claims() -> dict[str, str]:
     """VAPID JWT claims for Web Push.
 
-    Precedence: non-empty DB-cached subject, then ``MESHCORE_VAPID_SUBJECT``.
+    Precedence: usable DB-cached subject, then ``MESHCORE_VAPID_SUBJECT``,
+    then ``DEFAULT_VAPID_SUBJECT``. https origins are normalized to scheme +
+    host so a trailing slash cannot trip py-vapid's ``sub`` regex.
     Apple's push service (APNs) rejects subjects on reserved TLDs such as
     ``.local`` with ``403 BadJwtToken``, so iOS/Safari operators must set this
     to a real ``mailto:`` or ``https:`` contact.
     """
-    subject = _cached_subject if _cached_subject else settings.vapid_subject
-    return {"sub": subject}
+    return {"sub": resolve_vapid_subject(_cached_subject)}

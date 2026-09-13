@@ -4,8 +4,12 @@ from collections import deque
 from threading import Lock
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Shared with app.push.vapid so empty Docker/env interpolation cannot
+# send a blank VAPID JWT ``sub`` to py-vapid.
+DEFAULT_VAPID_SUBJECT = "mailto:noreply@meshcore.local"
 
 
 class Settings(BaseSettings):
@@ -25,7 +29,20 @@ class Settings(BaseSettings):
     skip_post_connect_sync: bool = False
     basic_auth_username: str = ""
     basic_auth_password: str = ""
-    vapid_subject: str = "mailto:noreply@meshcore.local"
+    vapid_subject: str = DEFAULT_VAPID_SUBJECT
+
+    @field_validator("vapid_subject", mode="before")
+    @classmethod
+    def empty_vapid_subject_uses_default(cls, value: object) -> object:
+        """Treat blank ``MESHCORE_VAPID_SUBJECT`` as unset.
+
+        Compose files often pass ``${MESHCORE_VAPID_SUBJECT}``, which becomes
+        an empty string when the host/stack env is missing and would otherwise
+        override this field's default.
+        """
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_VAPID_SUBJECT
+        return value
 
     @model_validator(mode="after")
     def validate_basic_auth_pairing(self) -> "Settings":

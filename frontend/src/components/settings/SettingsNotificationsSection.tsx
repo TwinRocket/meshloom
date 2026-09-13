@@ -63,10 +63,39 @@ function resolveConversationName(
   return stateKey;
 }
 
-function isValidVapidSubject(value: string): boolean {
+function normalizeVapidSubject(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed) return true;
-  return trimmed.startsWith('mailto:') || trimmed.startsWith('https:');
+  if (!trimmed) return '';
+  if (trimmed.toLowerCase().startsWith('mailto:')) return trimmed;
+  if (trimmed.toLowerCase().startsWith('https:')) {
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== 'https:' || !url.hostname) return trimmed;
+      return `https://${url.host}`;
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function isValidVapidSubject(value: string): boolean {
+  const normalized = normalizeVapidSubject(value);
+  if (!normalized) return true;
+  if (normalized.toLowerCase().startsWith('mailto:')) {
+    const rest = normalized.slice('mailto:'.length);
+    const at = rest.indexOf('@');
+    return at > 0 && at < rest.length - 1;
+  }
+  if (normalized.toLowerCase().startsWith('https://')) {
+    try {
+      const url = new URL(normalized);
+      return url.protocol === 'https:' && Boolean(url.hostname);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export function SettingsNotificationsSection({
@@ -108,15 +137,17 @@ export function SettingsNotificationsSection({
     }
   }, [preferences]);
 
-  const commitVapidSubject = () => {
+  const commitVapidSubject = async () => {
     if (!isValidVapidSubject(vapidDraft)) {
       setVapidError(t('settings.notifications.vapidSubjectInvalid'));
-      return;
+      return false;
     }
-    const next = vapidDraft.trim();
+    const next = normalizeVapidSubject(vapidDraft);
     setVapidError(null);
-    if (next === (preferences?.vapid_subject ?? '')) return;
-    void patchPreferences({ vapid_subject: next });
+    if (next !== vapidDraft) setVapidDraft(next);
+    if (next === (preferences?.vapid_subject ?? '')) return true;
+    await patchPreferences({ vapid_subject: next });
+    return true;
   };
 
   return (
@@ -190,7 +221,12 @@ export function SettingsNotificationsSection({
                           variant="ghost"
                           size="sm"
                           className="h-8 text-sm"
-                          onClick={() => void testPush(sub.id)}
+                          onClick={() => {
+                            void (async () => {
+                              const saved = await commitVapidSubject();
+                              if (saved) await testPush(sub.id);
+                            })();
+                          }}
                         >
                           {t('settings.notifications.test')}
                         </Button>
@@ -313,7 +349,13 @@ export function SettingsNotificationsSection({
             setVapidDraft(event.target.value);
             if (vapidError) setVapidError(null);
           }}
-          onBlur={commitVapidSubject}
+          onBlur={() => void commitVapidSubject()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void commitVapidSubject();
+            }
+          }}
         />
         {vapidError ? (
           <p className="text-xs text-destructive">{vapidError}</p>

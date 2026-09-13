@@ -7,7 +7,7 @@ Settings env validation (basic auth pairing and experimental aliases).
 import pytest
 from pydantic import ValidationError
 
-from app.config import Settings
+from app.config import DEFAULT_VAPID_SUBJECT, Settings
 
 
 class TestBasicAuthConfiguration:
@@ -46,6 +46,25 @@ class TestExperimentalAliases:
         monkeypatch.setenv("__CLOWNTOWN_DO_CLOCK_WRAPAROUND", "true")
         s = Settings()
         assert s.clowntown_do_clock_wraparound is True
+
+
+class TestVapidSubjectEnv:
+    """Blank MESHCORE_VAPID_SUBJECT must not override the built-in default."""
+
+    def test_default_subject(self, monkeypatch):
+        monkeypatch.delenv("MESHCORE_VAPID_SUBJECT", raising=False)
+        s = Settings()
+        assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
+
+    def test_empty_env_uses_default(self, monkeypatch):
+        monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "")
+        s = Settings()
+        assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
+
+    def test_whitespace_env_uses_default(self, monkeypatch):
+        monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "   ")
+        s = Settings()
+        assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
 
 
 class TestTransportRemovedFromSettings:

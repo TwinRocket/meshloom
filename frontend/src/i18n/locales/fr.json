@@ -356,8 +356,8 @@
       "vapidSubject": "Sujet VAPID",
       "vapidSubjectLabel": "URI de contact",
       "vapidSubjectPlaceholder": "mailto:ops@example.com",
-      "vapidSubjectHelp": "URI de contact inclus dans les jetons VAPID Web Push (mailto: ou https:). Laissez vide pour utiliser le repli d’environnement du serveur. Apple Push exige un vrai contact mailto: ou https:, pas une adresse .local.",
-      "vapidSubjectInvalid": "Doit être vide, ou une URI mailto: ou https:."
+      "vapidSubjectHelp": "Contact VAPID : mailto:vous@domaine.tld (recommandé) ou https://votre-hôte sans chemin. Vide = repli d’environnement. Apple refuse les adresses .local.",
+      "vapidSubjectInvalid": "Doit être vide, un mailto:vous@domaine.tld, ou une origine https://hôte (sans chemin)."
     },
     "radio": {
       "unavailable": "La radio n’est pas disponible.",

@@ -102,6 +102,32 @@ def test_get_vapid_claims_prefers_cached_db_subject_over_env(monkeypatch):
     assert get_vapid_claims() == {"sub": "mailto:env@example.net"}
 
 
+def test_get_vapid_claims_normalizes_https_trailing_slash(monkeypatch):
+    """py-vapid rejects https://host/ — strip the path so instance URLs work."""
+    from py_vapid.__init__ import _check_sub
+
+    monkeypatch.setattr("app.config.settings.vapid_subject", "")
+    set_cached_vapid_subject("https://radio.meshloom.app/")
+    claims = get_vapid_claims()
+    assert claims == {"sub": "https://radio.meshloom.app"}
+    assert _check_sub(claims["sub"]) is True
+
+
+def test_get_vapid_claims_https_origin_without_slash_is_unchanged(monkeypatch):
+    from py_vapid.__init__ import _check_sub
+
+    set_cached_vapid_subject("https://radio.meshloom.app")
+    claims = get_vapid_claims()
+    assert claims == {"sub": "https://radio.meshloom.app"}
+    assert _check_sub(claims["sub"]) is True
+
+
+def test_get_vapid_claims_skips_unusable_cache_and_empty_env(monkeypatch):
+    monkeypatch.setattr("app.config.settings.vapid_subject", "")
+    set_cached_vapid_subject("https://")
+    assert get_vapid_claims() == {"sub": "mailto:noreply@meshcore.local"}
+
+
 @pytest.mark.asyncio
 async def test_ensure_vapid_keys_seeds_subject_cache_from_db(test_db, monkeypatch):
     from app.push.vapid import ensure_vapid_keys
