@@ -464,26 +464,55 @@ async def test_two_clients_receive_incoming_dm_not_originator(test_db):
 
 
 @pytest.mark.asyncio
-async def test_log_data_only_for_group_text(test_db):
+async def test_log_data_forwards_every_payload_type(test_db):
+    """The radio logs everything it hears; so does the proxy standing in for it."""
     async with _started_proxy(test_db) as (manager, port):
         mc = await _connect_client(port)
         session = next(iter(manager._sessions))
         try:
-            manager.notify_broadcast(
-                "raw_packet",
-                {"payload_type": "TEXT_MESSAGE", "data": "aabb", "snr": 1.0, "rssi": -70},
-            )
-            manager.notify_broadcast(
-                "raw_packet",
-                {"payload_type": "GROUP_TEXT", "data": "ccdd", "snr": 2.0, "rssi": -80},
-            )
+            for payload_type, data in (
+                ("TEXT_MESSAGE", "aabb"),
+                ("GROUP_TEXT", "ccdd"),
+                ("ADVERT", "eeff"),
+                ("PATH", "1122"),
+                ("ACK", "3344"),
+                ("TRACE", "5566"),
+                (None, "7788"),
+            ):
+                manager.notify_broadcast(
+                    "raw_packet",
+                    {"payload_type": payload_type, "data": data, "snr": 1.0, "rssi": -70},
+                )
             await asyncio_wait_queue(session.log_queue)
             frames = []
             while not session.log_queue.empty():
                 frames.append(session.log_queue.get_nowait())
-            assert any(frame[0] == 136 for frame in frames)
-            assert any(b"\xcc\xdd" in frame for frame in frames)
-            assert all(b"\xaa\xbb" not in frame for frame in frames)
+            assert all(frame[0] == 136 for frame in frames)
+            for expected in (
+                b"\xaa\xbb",
+                b"\xcc\xdd",
+                b"\xee\xff",
+                b"\x11\x22",
+                b"\x33\x44",
+                b"\x55\x66",
+                b"\x77\x88",
+            ):
+                assert any(expected in frame for frame in frames), expected.hex()
+        finally:
+            await mc.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_log_data_skips_packets_without_payload(test_db):
+    """A packet the radio reported with no bytes is nothing to forward."""
+    async with _started_proxy(test_db) as (manager, port):
+        mc = await _connect_client(port)
+        session = next(iter(manager._sessions))
+        try:
+            manager.notify_broadcast("raw_packet", {"payload_type": "ADVERT", "data": ""})
+            manager.notify_broadcast("raw_packet", {"payload_type": "ADVERT", "data": "zz"})
+            await asyncio.sleep(0.1)
+            assert session.log_queue.empty()
         finally:
             await mc.disconnect()
 
