@@ -910,8 +910,13 @@ class RadioProxyManager:
             )
 
     def _fanout_raw(self, data: dict[str, Any]) -> None:
-        if str(data.get("payload_type") or "") != "GROUP_TEXT":
-            return
+        # Every payload type, as the radio reports it. The firmware emits RX_LOG_DATA
+        # for everything it hears, so a client on the companion port sees adverts,
+        # paths, acks and traces; forwarding only GROUP_TEXT made the proxy a
+        # narrower radio than the one it stands in for, and left every view built on
+        # observed traffic — the visualiser, the packet feed, the node map — empty
+        # behind it. This is the receive path: it carries no command authority, and
+        # what a client may ask the radio to do is still decided by classify_command.
         hex_data = str(data.get("data") or "")
         if not hex_data:
             return
