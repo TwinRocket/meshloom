@@ -235,27 +235,14 @@ export function AppShell({
         >
           {t('settingsNav.title')}
         </h2>
+        {/* The status bar already carries the way out of settings, and it is visible
+            on every viewport. A second identical control 60px away is just noise. */}
         <div
           className={cn(
             'flex items-center gap-1',
             desktopSidebarCollapsed && 'md:flex-col md:gap-1.5'
           )}
         >
-          <button
-            type="button"
-            onClick={onCloseSettingsView}
-            className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded text-xs bg-status-connected/15 border border-status-connected/30 text-status-connected hover:bg-status-connected/25 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              desktopSidebarCollapsed && 'md:px-1.5'
-            )}
-            title={t('shell.backToConversations')}
-            aria-label={t('shell.backToConversations')}
-          >
-            <span>&larr;</span>
-            <span className={cn(desktopSidebarCollapsed && 'md:hidden')}>
-              {t('shell.backToChat')}
-            </span>
-          </button>
           <button
             type="button"
             onClick={handleToggleDesktopSidebar}
