@@ -82,7 +82,8 @@ describe('SearchView', () => {
     render(<SearchView {...defaultProps} />);
     expect(screen.getByText(i18n.t('search.emptyPrompt'))).toBeInTheDocument();
     expect(screen.getByText('user:', { selector: 'code' })).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('search.warning'))).toBeInTheDocument();
+    // The attribution caveat qualifies results, so it is not part of the empty state.
+    expect(screen.queryByText(i18n.t('search.warning'))).not.toBeInTheDocument();
   });
 
   it('focuses input on mount', () => {

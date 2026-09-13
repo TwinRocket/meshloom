@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
+import i18n from '../i18n';
 import { RawPacketList } from '../components/RawPacketList';
 import type { RawPacket } from '../types';
 
@@ -66,5 +67,14 @@ describe('RawPacketList', () => {
     } finally {
       delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
     }
+  });
+  it('does not promise incoming packets while the radio is down', () => {
+    const { rerender } = render(<RawPacketList packets={[]} />);
+    expect(screen.getByText(i18n.t('rawPacket.empty'))).toBeInTheDocument();
+
+    rerender(<RawPacketList packets={[]} radioOffline />);
+    expect(screen.queryByText(i18n.t('rawPacket.empty'))).not.toBeInTheDocument();
+    expect(screen.getByText(i18n.t('rawPacket.emptyRadioOffline'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('rawPacket.emptyRadioOfflineHint'))).toBeInTheDocument();
   });
 });

@@ -236,13 +236,24 @@ export function ConversationPane({
   if (activeConversation.type === 'visualizer') {
     return (
       <Suspense fallback={<LoadingPane label={t('conversation.loadingVisualizer')} />}>
-        <VisualizerView contacts={contacts} channels={channels} config={config} />
+        <VisualizerView
+          contacts={contacts}
+          channels={channels}
+          config={config}
+          radioOffline={!health?.radio_connected}
+        />
       </Suspense>
     );
   }
 
   if (activeConversation.type === 'raw') {
-    return <RawPacketFeedView contacts={contacts} channels={channels} />;
+    return (
+      <RawPacketFeedView
+        contacts={contacts}
+        channels={channels}
+        radioOffline={!health?.radio_connected}
+      />
+    );
   }
 
   if (activeConversation.type === 'search') {

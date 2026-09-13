@@ -251,13 +251,20 @@ export function SearchView({
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
         {!debouncedQuery && (
-          <div className="p-8 text-center text-muted-foreground text-sm">
+          <div className="p-8 text-center text-sm text-muted-foreground">
             <p>{t('search.emptyPrompt')}</p>
             <p className="mt-2 text-xs">
               <Trans i18nKey="search.tip" components={{ code: <code /> }} />
             </p>
-            <p className="mt-2 text-xs">{t('search.warning')}</p>
           </div>
+        )}
+
+        {/* The sender-attribution caveat qualifies results, so it appears with
+            them rather than greeting everyone who opens an empty search. */}
+        {results.length > 0 && (
+          <p className="border-b border-border/50 px-4 py-2 text-xs text-muted-foreground">
+            {t('search.warning')}
+          </p>
         )}
 
         {debouncedQuery && results.length === 0 && !loading && (
