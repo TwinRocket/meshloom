@@ -1,3 +1,27 @@
+## [4.5.0] - 2026-09-13
+
+This release keeps polishing the ears on your messages. Your own radio stops counting itself as a listener, a count that turned out wrong is no longer kept for a whole day, and the observer panel finally says something true about messages you received.
+
+### What's new
+
+- **Your own radio is no longer one of the ears.** A radio does not hear its own transmissions, so counting it inflated every badge by one. It is now removed on the server rather than in the interface, which also means the number on the badge and the list in the detail panel can no longer disagree.
+- **A count that was wrong is corrected within the hour.** Final counts used to be held for a full day, so a correction made on the directory side could not reach a browser already holding the old answer. They are now held for an hour instead. The directory is still protected — it is what decides a count is final in the first place, not this cache.
+- **The observer panel reads correctly on received messages.** It said "your message was heard by these observers" even when the message was not yours. It now simply says "this message".
+
+---
+
+### Français
+
+Cette version continue de peaufiner les oreilles de vos messages. Votre propre radio cesse de se compter comme auditrice, un comptage qui s’avère faux n’est plus conservé une journée entière, et le panneau des observateurs dit enfin quelque chose de juste sur les messages reçus.
+
+#### Quoi de neuf
+
+- **Votre propre radio n’est plus une oreille.** Une radio n’entend pas ses propres émissions : la compter gonflait chaque badge d’une unité. Elle est désormais retirée côté serveur plutôt que dans l’interface, ce qui garantit aussi que le nombre affiché sur le badge et la liste du panneau de détail ne puissent plus diverger.
+- **Un comptage erroné est corrigé dans l’heure.** Les comptages définitifs étaient conservés une journée entière, si bien qu’une correction faite côté annuaire ne pouvait pas atteindre un navigateur détenant déjà l’ancienne réponse. Ils ne sont plus conservés qu’une heure. L’annuaire reste protégé : c’est lui qui décide qu’un comptage est définitif, pas ce cache.
+- **Le panneau des observateurs est juste sur les messages reçus.** Il annonçait « votre message a été entendu par ces observateurs » même quand le message n’était pas le vôtre. Il dit maintenant simplement « ce message ».
+
+---
+
 ## [4.4.0] - 2026-09-13
 
 This release is about the ears on your messages — the badge showing which other radios heard a packet. They come back when they were missing, they stop announcing a direct hop for a node on the other side of the country, and they stop asking the shared directory the same settled question forever.
