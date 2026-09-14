@@ -305,3 +305,58 @@ body {
   backdrop-filter: none;
   margin-left: -0.5rem;
 }
+
+/* Android: the primary action of a list is a floating action button, not a labelled
+   control in the header. Same element, same handler — only where it sits and what
+   it shows changes, so there is nothing to branch on in the component. Placed above
+   the bar using the height the bar actually occupies. */
+[data-platform='android'] [data-compose-action] {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(var(--bottom-nav-height) + 0.75rem);
+  z-index: 30;
+  height: 3.5rem;
+  width: 3.5rem;
+  padding: 0;
+  justify-content: center;
+  /* Material's large FAB corner, not a circle. */
+  border-radius: 1rem;
+  box-shadow:
+    0 6px 16px -6px hsl(0 0% 0% / 0.6),
+    0 2px 4px hsl(0 0% 0% / 0.3);
+}
+
+[data-platform='android'] [data-compose-action] [data-compose-label] {
+  display: none;
+}
+
+[data-platform='android'] [data-compose-action] [data-compose-icon] {
+  display: block;
+}
+
+@media (min-width: 768px) {
+  /* Desktop has no bottom bar and plenty of header room: the labelled control
+     reads better than a control floating over a list. */
+  [data-platform='android'] [data-compose-action] {
+    position: static;
+    height: 2.25rem;
+    width: auto;
+    padding: 0 0.75rem;
+    border-radius: 9999px;
+    box-shadow: none;
+  }
+
+  [data-platform='android'] [data-compose-action] [data-compose-label] {
+    display: inline;
+  }
+
+  [data-platform='android'] [data-compose-action] [data-compose-icon] {
+    display: none;
+  }
+}
+
+/* The send control sits beside the composer rather than inside it on both
+   platforms; Android draws it as a circle. */
+[data-platform='android'] .message-input-shell button[type='submit'] {
+  border-radius: 9999px;
+}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Hash, X } from 'lucide-react';
+import { Search, Hash, X, Plus } from 'lucide-react';
 import type { Channel, Contact, Conversation, HealthStatus } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
@@ -193,12 +193,19 @@ export function ConversationListView({
             onOpenStatus={onOpenRadioStatus}
             className="ml-auto max-w-[9rem]"
           />
+          {/* Both halves are always rendered and the platform stylesheet picks:
+              a labelled pill in the header here, a floating action button with the
+              icon alone on Android, where that is where the primary action of a
+              list lives. Marked rather than branched, so the choice stays in CSS. */}
           <button
             type="button"
             onClick={onNewMessage}
+            data-compose-action=""
+            aria-label={t('conversationList.new')}
             className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {t('conversationList.new')}
+            <Plus className="hidden h-5 w-5" aria-hidden="true" data-compose-icon="" />
+            <span data-compose-label="">{t('conversationList.new')}</span>
           </button>
         </div>
 
