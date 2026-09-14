@@ -278,7 +278,7 @@ def test_stored_theme_is_on_the_root_element_of_the_served_shell(tmp_path, monke
     with TestClient(_shell_app(tmp_path)) as client:
         resp = client.get("/")
         assert resp.status_code == 200
-        assert '<html data-theme="light" lang="fr"' in resp.text
+        assert '<html data-theme="light" data-theme-server lang="fr"' in resp.text
         # Never cached, so the injected value can never go stale.
         assert resp.headers["Cache-Control"] == INDEX_CACHE_CONTROL
 
@@ -294,7 +294,11 @@ def test_following_the_os_injects_nothing(tmp_path, monkeypatch):
         AsyncMock(return_value=AppSettings(ui_preferences=UiPreferences(theme=""))),
     )
     with TestClient(_shell_app(tmp_path)) as client:
-        assert "data-theme" not in client.get("/").text
+        body = client.get("/").text
+        # No theme, but the server still says it answered — otherwise the client
+        # cannot tell "follow the OS" from "nobody injected anything".
+        assert "data-theme=" not in body
+        assert "data-theme-server" in body
 
 
 def test_a_theme_id_that_is_not_a_slug_never_reaches_the_attribute(tmp_path, monkeypatch):
@@ -311,7 +315,7 @@ def test_a_theme_id_that_is_not_a_slug_never_reaches_the_attribute(tmp_path, mon
     with TestClient(_shell_app(tmp_path)) as client:
         body = client.get("/").text
         assert "onload" not in body
-        assert "data-theme" not in body
+        assert "data-theme=" not in body
 
 
 def test_a_failing_settings_read_still_serves_the_page(tmp_path, monkeypatch):
@@ -325,3 +329,24 @@ def test_a_failing_settings_read_still_serves_the_page(tmp_path, monkeypatch):
         resp = client.get("/")
         assert resp.status_code == 200
         assert "<html" in resp.text
+
+
+def test_following_the_os_is_never_injected_as_a_theme(tmp_path, monkeypatch):
+    """`follow-os` is a valid slug but not a theme the stylesheet defines.
+
+    Injecting it would set data-theme to something with no rules behind it, and
+    would silence the prefers-color-scheme block, which is guarded on the
+    attribute being absent.
+    """
+    from unittest.mock import AsyncMock
+
+    from app.models import AppSettings, UiPreferences
+
+    monkeypatch.setattr(
+        "app.repository.AppSettingsRepository.get",
+        AsyncMock(return_value=AppSettings(ui_preferences=UiPreferences(theme="follow-os"))),
+    )
+    with TestClient(_shell_app(tmp_path)) as client:
+        body = client.get("/").text
+        assert "data-theme=" not in body
+        assert "data-theme-server" in body

@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 INDEX_CACHE_CONTROL = "no-store"
 # Theme ids are slugs; anything else does not reach an HTML attribute.
 _THEME_ID_PATTERN = re.compile(r"[a-z0-9-]{1,40}")
+# "Follow the operating system" is a choice the server cannot resolve — it depends
+# on the device asking. It injects no attribute, which is what lets the
+# prefers-color-scheme rules answer, since those are guarded on :not([data-theme]).
+_FOLLOW_OS_THEME_ID = "follow-os"
 ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 STATIC_FILE_CACHE_CONTROL = "public, max-age=3600"
 FRONTEND_BUILD_INSTRUCTIONS = (
@@ -91,11 +95,17 @@ async def _index_html_with_theme(index_file: Path) -> str:
         logger.exception("Could not read the stored theme; serving the shell unstyled")
         return html
 
+    # `data-theme-server` says the server answered, which is not the same as it
+    # having a theme: following the operating system is an answer and injects no
+    # theme at all. Without the marker the client cannot tell that case from being
+    # served statically, and would override the server with its own cached value.
+    marker = "data-theme-server"
+
     # Ids come from a fixed list in the frontend, but this value ends up inside an
     # HTML attribute, so it is checked here rather than trusted.
-    if not theme or not _THEME_ID_PATTERN.fullmatch(theme):
-        return html
-    return html.replace("<html ", f'<html data-theme="{theme}" ', 1)
+    if theme == _FOLLOW_OS_THEME_ID or not theme or not _THEME_ID_PATTERN.fullmatch(theme):
+        return html.replace("<html ", f"<html {marker} ", 1)
+    return html.replace("<html ", f'<html data-theme="{theme}" {marker} ', 1)
 
 
 def _file_response(path: Path, *, cache_control: str) -> FileResponse:

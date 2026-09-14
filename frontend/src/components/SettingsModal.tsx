@@ -244,6 +244,14 @@ export function SettingsModal(props: SettingsModalProps) {
           {isSectionVisible('local') && (
             <SettingsLocalSection
               onLocalLabelChange={onLocalLabelChange}
+              onPersistTheme={(theme) =>
+                void onSaveAppSettings({
+                  ui_preferences: {
+                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                    theme,
+                  },
+                })
+              }
               className={sectionContentClass}
             />
           )}
