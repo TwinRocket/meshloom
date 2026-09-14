@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   LockOpen,
+  CloudRain,
   Logs,
   Map,
   PanelLeftClose,
@@ -281,7 +282,8 @@ export function Sidebar({
   };
 
   const isActive = (
-    type: 'contact' | 'channel' | 'raw' | 'map' | 'visualizer' | 'search' | 'trace' | 'locate',
+    type:
+      'contact' | 'channel' | 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate',
     id: string
   ) => activeConversation?.type === type && activeConversation?.id === id;
 
@@ -863,6 +865,19 @@ export function Sidebar({
               type: 'map',
               id: 'map',
               name: t('sidebar.nodeMap'),
+            }),
+        }),
+        renderSidebarActionRow({
+          key: 'tool-live',
+          active: isActive('live', 'live'),
+          icon: <CloudRain className="h-4 w-4" />,
+          name: t('sidebar.live'),
+          label: t('sidebar.live'),
+          onClick: () =>
+            handleSelectConversation({
+              type: 'live',
+              id: 'live',
+              name: t('sidebar.live'),
             }),
         }),
         renderSidebarActionRow({

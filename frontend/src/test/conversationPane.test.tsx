@@ -68,6 +68,10 @@ vi.mock('../components/VisualizerView', () => ({
   VisualizerView: () => <div data-testid="visualizer-view" />,
 }));
 
+vi.mock('../components/LiveView', () => ({
+  LiveView: () => <div data-testid="live-view" />,
+}));
+
 vi.mock('../components/TracePane', () => ({
   TracePane: () => <div data-testid="trace-pane" />,
 }));
@@ -279,6 +283,23 @@ describe('ConversationPane', () => {
     );
     expect(wrapper).toContainElement(input);
     expect(wrapper).not.toContainElement(screen.getByTestId('chat-header'));
+  });
+
+  it('renders the live tool pane for live conversations', async () => {
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: {
+            type: 'live',
+            id: 'live',
+            name: 'Live',
+          },
+        })}
+      />
+    );
+
+    expect(await screen.findByTestId('live-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
   });
 
   it('renders the locate tool pane for locate conversations', () => {

@@ -965,6 +965,7 @@ dependencies = [
     { name = "pynacl" },
     { name = "pywebpush" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -994,6 +995,7 @@ requires-dist = [
     { name = "pynacl", specifier = ">=1.5.0" },
     { name = "pywebpush", specifier = ">=0.14.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+    { name = "websockets", specifier = ">=14.0" },
 ]
 
 [package.metadata.requires-dev]

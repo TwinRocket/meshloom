@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Crosshair,
   Hash,
+  CloudRain,
   Map,
   MessageSquare,
   Network,
@@ -61,7 +62,7 @@ interface ToolItem extends Searchable {
   id: string;
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  type: 'raw' | 'map' | 'visualizer' | 'search' | 'trace' | 'locate';
+  type: 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate';
 }
 
 interface SettingItem extends Searchable {
@@ -73,6 +74,7 @@ interface SettingItem extends Searchable {
 const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'raw', icon: Radio, type: 'raw' },
   { id: 'map', icon: Map, type: 'map' },
+  { id: 'live', icon: CloudRain, type: 'live' },
   { id: 'visualizer', icon: Network, type: 'visualizer' },
   { id: 'search', icon: Search, type: 'search' },
   { id: 'trace', icon: Route, type: 'trace' },
@@ -82,6 +84,7 @@ const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
 const TOOL_NAME_KEYS: Record<string, string> = {
   raw: 'commandPalette.rawPacketFeed',
   map: 'commandPalette.mapView',
+  live: 'commandPalette.liveRain',
   visualizer: 'commandPalette.networkVisualizer',
   search: 'commandPalette.messageSearch',
   trace: 'commandPalette.routeTrace',

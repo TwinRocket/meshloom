@@ -29,10 +29,16 @@ class WebSocketManager:
         logger.info("WebSocket client connected (%d total)", len(self.active_connections))
 
     async def disconnect(self, websocket: WebSocket) -> None:
+        empty = False
         async with self._lock:
             if websocket in self.active_connections:
                 self.active_connections.remove(websocket)
+            empty = not self.active_connections
         logger.info("WebSocket client disconnected (%d remaining)", len(self.active_connections))
+        if empty and self is ws_manager:
+            from app.services.community_live import release_live_on_app_ws_empty
+
+            await release_live_on_app_ws_empty()
 
     async def broadcast(self, event_type: str, data: Any) -> None:
         """Broadcast an event to all connected clients.

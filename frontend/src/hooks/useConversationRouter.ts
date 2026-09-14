@@ -37,6 +37,8 @@ function resolveConversationFromHash(
       return { type: 'raw', id: 'raw', name: 'Raw Packet Feed' };
     case 'map':
       return { type: 'map', id: 'map', name: 'Node Map', mapFocusKey: hashConv.mapFocusKey };
+    case 'live':
+      return { type: 'live', id: 'live', name: 'Live' };
     case 'visualizer':
       return { type: 'visualizer', id: 'visualizer', name: 'Mesh Visualizer' };
     case 'search':
@@ -141,6 +143,11 @@ export function useConversationRouter({
       hasSetDefaultConversation.current = true;
       return;
     }
+    if (hashConv?.type === 'live') {
+      setActiveConversationState({ type: 'live', id: 'live', name: 'Live' });
+      hasSetDefaultConversation.current = true;
+      return;
+    }
     if (hashConv?.type === 'visualizer') {
       setActiveConversationState({ type: 'visualizer', id: 'visualizer', name: 'Mesh Visualizer' });
       hasSetDefaultConversation.current = true;
@@ -174,6 +181,7 @@ export function useConversationRouter({
         lastViewed &&
         (lastViewed.type === 'raw' ||
           lastViewed.type === 'map' ||
+          lastViewed.type === 'live' ||
           lastViewed.type === 'visualizer' ||
           lastViewed.type === 'trace' ||
           lastViewed.type === 'locate')

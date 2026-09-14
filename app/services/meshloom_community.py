@@ -244,6 +244,9 @@ async def update_community(
     reset_observer_reach_cache()
     state = await get_community_effective()
     await _reload_system_publisher()
+    from app.services.community_live import sync_community_live
+
+    await sync_community_live(state.enabled)
     return state
 
 

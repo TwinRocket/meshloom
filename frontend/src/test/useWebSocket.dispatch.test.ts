@@ -256,6 +256,42 @@ describe('useWebSocket dispatch', () => {
     expect(onRawPacket.mock.calls[0][0]).toHaveProperty('id', 5);
   });
 
+  it('routes community_packet event to onCommunityPacket', () => {
+    const onCommunityPacket = vi.fn();
+    renderHook(() => useWebSocket({ onCommunityPacket }));
+
+    const communityPacket = {
+      v: 1,
+      event_id: 'e1',
+      hash8: 'deadbeef',
+      type: 'text',
+      path: ['ab12'],
+      hop_count: 1,
+      hops: [{ token: 'ab12', lat: 45.7, lon: 4.8 }],
+      iata: 'LYS',
+      t: 1710000000000,
+      ear_id: 'ear-1',
+    };
+    fireMessage({ type: 'community_packet', data: communityPacket });
+
+    expect(onCommunityPacket).toHaveBeenCalledOnce();
+    expect(onCommunityPacket).toHaveBeenCalledWith(communityPacket);
+  });
+
+  it('routes community_live event to onCommunityLive', () => {
+    const onCommunityLive = vi.fn();
+    renderHook(() => useWebSocket({ onCommunityLive }));
+    fireMessage({
+      type: 'community_live',
+      data: { close_code: 4003, opted_out: false, connected: false },
+    });
+    expect(onCommunityLive).toHaveBeenCalledWith({
+      close_code: 4003,
+      opted_out: false,
+      connected: false,
+    });
+  });
+
   it('skips events missing required fields', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const handlers = {

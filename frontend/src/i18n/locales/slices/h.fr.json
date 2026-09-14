@@ -1,0 +1,37 @@
+{
+  "sidebar": {
+    "live": "Live"
+  },
+  "conversation": {
+    "live": "Live",
+    "loadingLive": "Chargement de la pluie live…"
+  },
+  "commandPalette": {
+    "liveRain": "Pluie live"
+  },
+  "live": {
+    "bannerExpired": "Session Live expirée. Relancez pour continuer la pluie.",
+    "relancer": "Relancer",
+    "bannerInactive": "Observateur inactif — aucune contribution acceptée depuis 24 h.",
+    "bannerOptOut": "Communauté désactivée. La pluie Live n’est pas reçue.",
+    "bannerSlotBusy": "Cette clé publique a déjà un viewer Live ouvert.",
+    "bannerRateLimit": "Flux Live en pause (limite de débit viewer).",
+    "iataFilter": "IATA",
+    "iataAll": "Toutes les régions",
+    "fixtures": "Fixtures",
+    "playFixtures": "Lancer la pluie",
+    "simulateExpired": "JWT expiré",
+    "simulateInactive": "Inactif 24 h",
+    "simulateOptOut": "Opt-out",
+    "simulateSlotBusy": "Slot occupé",
+    "simulateRateLimit": "Limite de débit",
+    "mapAria": "Carte de la pluie de paquets live",
+    "legend": {
+      "advert": "Annonce",
+      "text": "Texte",
+      "ack": "Ack",
+      "trace": "Trace",
+      "other": "Autre"
+    }
+  }
+}

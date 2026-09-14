@@ -375,7 +375,10 @@ export function AppShell({
                 'hidden'
             )}
           >
-            <ConversationPane {...conversationPaneProps} />
+            <ConversationPane
+              {...conversationPaneProps}
+              communityEnabled={communityStatus?.enabled ?? true}
+            />
           </div>
 
           {searchMounted.current && (

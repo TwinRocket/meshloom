@@ -195,6 +195,9 @@ async def lifespan(app: FastAPI):
             await startup_radio_task
         except asyncio.CancelledError:
             pass
+    from app.services.community_live import shutdown_community_live
+
+    await shutdown_community_live()
     await fanout_manager.stop_all()
     await radio_proxy_manager.stop()
     await radio_manager.stop_connection_monitor()

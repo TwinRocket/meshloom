@@ -1689,6 +1689,40 @@ class CommunityAirportSearchResponse(BaseModel):
     airports: list[CommunityAirportHit]
 
 
+class CommunityPacketHop(BaseModel):
+    token: str
+    lat: float | None = None
+    lon: float | None = None
+    unresolved: bool | None = None
+
+
+class CommunityPacketBroadcast(BaseModel):
+    """Sanitized Stats live frame re-emitted on ``/api/ws`` as ``community_packet``."""
+
+    v: int
+    event_id: str
+    hash8: str
+    type: Literal["advert", "text", "ack", "trace", "other"]
+    path: list[str]
+    hop_count: int
+    hops: list[CommunityPacketHop]
+    snr: float | None = None
+    iata: str
+    t: int
+    ear_id: str
+
+
+class CommunityLiveStatus(BaseModel):
+    session_id: str | None = None
+    close_code: int | None = None
+    opted_out: bool
+    connected: bool
+
+
+class CommunityLiveSubscribeRequest(BaseModel):
+    session_id: str | None = None
+
+
 class RadioProxyStatus(BaseModel):
     enabled: bool
     bind: str

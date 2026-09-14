@@ -13,6 +13,7 @@ import { getStateKey } from '../utils/conversationState';
 import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
+import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
 import { emitStatusDotPulse } from '../utils/statusDotPulse';
 import type {
   Channel,
@@ -20,6 +21,8 @@ import type {
   Conversation,
   HealthStatus,
   Message,
+  CommunityLiveStatus,
+  CommunityPacket,
   MessagePath,
   RawPacket,
 } from '../types';
@@ -277,6 +280,12 @@ export function useRealtimeAppState({
       onRawPacket: (packet: RawPacket) => {
         emitStatusDotPulse(packet.payload_type);
         recordRawPacket(packet, maxRawPackets);
+      },
+      onCommunityPacket: (packet: CommunityPacket) => {
+        recordCommunityPacket(packet);
+      },
+      onCommunityLive: (status: CommunityLiveStatus) => {
+        applyLiveStatus(status);
       },
       onMessageAcked: (
         messageId: number,

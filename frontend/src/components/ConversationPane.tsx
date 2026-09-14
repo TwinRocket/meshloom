@@ -31,6 +31,7 @@ const RepeaterDashboard = lazy(() =>
   import('./RepeaterDashboard').then((m) => ({ default: m.RepeaterDashboard }))
 );
 const MapView = lazy(() => import('./MapView').then((m) => ({ default: m.MapView })));
+const LiveView = lazy(() => import('./LiveView').then((m) => ({ default: m.LiveView })));
 const VisualizerView = lazy(() =>
   import('./VisualizerView').then((m) => ({ default: m.VisualizerView }))
 );
@@ -92,6 +93,7 @@ interface ConversationPaneProps {
   blockedKeys?: string[];
   blockedNames?: string[];
   directoryEnabled?: boolean;
+  communityEnabled?: boolean;
   onOpenDirectorySettings?: () => void;
 }
 
@@ -167,6 +169,7 @@ export function ConversationPane({
   blockedKeys,
   blockedNames,
   directoryEnabled,
+  communityEnabled = true,
   onOpenDirectorySettings,
 }: ConversationPaneProps) {
   const { t } = useTranslation();
@@ -227,6 +230,21 @@ export function ConversationPane({
                 })
               }
             />
+          </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (activeConversation.type === 'live') {
+    return (
+      <>
+        <h2 className={`${TOOL_PANE_HEADER_CLASS} flex items-center justify-between`}>
+          {t('conversation.live')}
+        </h2>
+        <div className="flex-1 overflow-hidden">
+          <Suspense fallback={<LoadingPane label={t('conversation.loadingLive')} />}>
+            <LiveView contacts={contacts} config={config} communityEnabled={communityEnabled} />
           </Suspense>
         </div>
       </>

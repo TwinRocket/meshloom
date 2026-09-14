@@ -13,11 +13,14 @@ from app.models import (
     CommunityHashtagsResponse,
     CommunityIataBindRequest,
     CommunityIataBindResult,
+    CommunityLiveStatus,
+    CommunityLiveSubscribeRequest,
     CommunityMeStats,
     CommunityPublicStats,
     CommunityStatus,
     CommunityUpdate,
 )
+from app.services.community_live import relancer_live, subscribe_live, unsubscribe_live
 from app.services.meshloom_community import (
     community_status,
     radio_gps_or_none,
@@ -101,6 +104,24 @@ async def get_iata_hashtags(code: str) -> CommunityHashtagsResponse:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
     return CommunityHashtagsResponse.model_validate(payload)
+
+
+@router.post("/live/subscribe", response_model=CommunityLiveStatus)
+async def post_live_subscribe(
+    body: CommunityLiveSubscribeRequest | None = None,
+) -> CommunityLiveStatus:
+    payload = body or CommunityLiveSubscribeRequest()
+    return CommunityLiveStatus.model_validate(await subscribe_live(payload.session_id))
+
+
+@router.delete("/live/subscribe/{session_id}", response_model=CommunityLiveStatus)
+async def delete_live_subscribe(session_id: str) -> CommunityLiveStatus:
+    return CommunityLiveStatus.model_validate(await unsubscribe_live(session_id))
+
+
+@router.post("/live/relancer", response_model=CommunityLiveStatus)
+async def post_live_relancer() -> CommunityLiveStatus:
+    return CommunityLiveStatus.model_validate(await relancer_live())
 
 
 @router.put("/me/hashtags", response_model=CommunityHashtagsResponse)

@@ -120,6 +120,9 @@ vi.mock('../components/MapView', () => ({
 vi.mock('../components/VisualizerView', () => ({
   VisualizerView: () => null,
 }));
+vi.mock('../components/LiveView', () => ({
+  LiveView: () => null,
+}));
 
 vi.mock('../components/CrackerPanel', () => ({
   CrackerPanel: () => null,

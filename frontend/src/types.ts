@@ -458,7 +458,7 @@ export interface ResendChannelMessageResponse {
 }
 
 type ConversationType =
-  'contact' | 'channel' | 'raw' | 'map' | 'visualizer' | 'search' | 'trace' | 'locate';
+  'contact' | 'channel' | 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate';
 
 export interface Conversation {
   type: ConversationType;
@@ -576,6 +576,52 @@ export interface DirectoryNodeSearchResponse {
     last_seen?: string | null;
   }>;
   directory_enabled: boolean;
+}
+
+/** Packet types on the community live rain (stats contract `live-events.md`). */
+export type CommunityPacketType = 'advert' | 'text' | 'ack' | 'trace' | 'other';
+
+export interface CommunityPacketHop {
+  token: string;
+  lat?: number;
+  lon?: number;
+  unresolved?: boolean;
+}
+
+/**
+ * Server → Meshloom `community_packet` frame (v1). Browser never talks to Stats.
+ * Extra fields must be ignored.
+ */
+export interface CommunityPacket {
+  v: number;
+  event_id: string;
+  hash8: string;
+  type: CommunityPacketType;
+  path: string[];
+  hop_count: number;
+  hops: CommunityPacketHop[];
+  snr?: number;
+  iata: string;
+  t: number;
+  ear_id: string;
+}
+
+export const LIVE_CLOSE_JWT_EXPIRED = 4001;
+export const LIVE_CLOSE_INACTIVE = 4002;
+export const LIVE_CLOSE_SLOT_BUSY = 4003;
+export const LIVE_CLOSE_RATE_LIMIT = 4004;
+
+export type LiveCloseCode =
+  | typeof LIVE_CLOSE_JWT_EXPIRED
+  | typeof LIVE_CLOSE_INACTIVE
+  | typeof LIVE_CLOSE_SLOT_BUSY
+  | typeof LIVE_CLOSE_RATE_LIMIT;
+
+export interface CommunityLiveStatus {
+  session_id?: string | null;
+  close_code: LiveCloseCode | null;
+  opted_out: boolean;
+  connected: boolean;
 }
 
 export interface RawPacket {

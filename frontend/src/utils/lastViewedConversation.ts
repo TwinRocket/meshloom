@@ -9,6 +9,7 @@ const SUPPORTED_TYPES: Conversation['type'][] = [
   'channel',
   'raw',
   'map',
+  'live',
   'visualizer',
   'trace',
   'locate',
@@ -105,6 +106,10 @@ export function captureLastViewedConversationFromHash(): void {
       name: 'Node Map',
       ...(hashConversation.mapFocusKey && { mapFocusKey: hashConversation.mapFocusKey }),
     });
+    return;
+  }
+  if (hashConversation.type === 'live') {
+    saveLastViewedConversation({ type: 'live', id: 'live', name: 'Live' });
     return;
   }
   if (hashConversation.type === 'visualizer') {

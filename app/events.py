@@ -7,7 +7,15 @@ from typing import Any, Literal, NotRequired
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
-from app.models import Channel, Contact, Message, MessagePath, RawPacketBroadcast
+from app.models import (
+    Channel,
+    CommunityLiveStatus,
+    CommunityPacketBroadcast,
+    Contact,
+    Message,
+    MessagePath,
+    RawPacketBroadcast,
+)
 from app.routers.health import HealthResponse
 
 logger = logging.getLogger(__name__)
@@ -21,6 +29,8 @@ WsEventType = Literal[
     "contact_deleted",
     "channel_deleted",
     "raw_packet",
+    "community_packet",
+    "community_live",
     "message_acked",
     "message_deleted",
     "error",
@@ -70,6 +80,8 @@ _PAYLOAD_ADAPTERS: dict[WsEventType, TypeAdapter[Any]] = {
     "contact_deleted": TypeAdapter(ContactDeletedPayload),
     "channel_deleted": TypeAdapter(ChannelDeletedPayload),
     "raw_packet": TypeAdapter(RawPacketBroadcast),
+    "community_packet": TypeAdapter(CommunityPacketBroadcast),
+    "community_live": TypeAdapter(CommunityLiveStatus),
     "message_acked": TypeAdapter(MessageAckedPayload),
     "message_deleted": TypeAdapter(MessageDeletedPayload),
     "error": TypeAdapter(ToastPayload),

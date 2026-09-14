@@ -1,5 +1,14 @@
 import { useEffect, useRef, useCallback } from 'react';
-import type { Channel, HealthStatus, Contact, Message, MessagePath, RawPacket } from './types';
+import type {
+  Channel,
+  CommunityLiveStatus,
+  CommunityPacket,
+  HealthStatus,
+  Contact,
+  Message,
+  MessagePath,
+  RawPacket,
+} from './types';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
 
 interface ErrorEvent {
@@ -25,6 +34,8 @@ export interface UseWebSocketOptions {
   onChannel?: (channel: Channel) => void;
   onChannelDeleted?: (key: string) => void;
   onRawPacket?: (packet: RawPacket) => void;
+  onCommunityPacket?: (packet: CommunityPacket) => void;
+  onCommunityLive?: (status: CommunityLiveStatus) => void;
   onMessageAcked?: (
     messageId: number,
     ackCount: number,
@@ -139,6 +150,12 @@ export function useWebSocket(options: UseWebSocketOptions) {
             break;
           case 'raw_packet':
             handlers.onRawPacket?.(msg.data as RawPacket);
+            break;
+          case 'community_packet':
+            handlers.onCommunityPacket?.(msg.data as CommunityPacket);
+            break;
+          case 'community_live':
+            handlers.onCommunityLive?.(msg.data as CommunityLiveStatus);
             break;
           case 'message_acked': {
             const ackData = msg.data as {

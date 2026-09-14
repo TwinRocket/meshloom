@@ -7,7 +7,8 @@ import {
 } from '../components/settings/settingsConstants';
 
 interface ParsedHashConversation {
-  type: 'channel' | 'contact' | 'raw' | 'map' | 'visualizer' | 'search' | 'trace' | 'locate';
+  type:
+    'channel' | 'contact' | 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate';
   /** Conversation identity token (channel key or contact public key, or legacy name token) */
   name: string;
   /** Optional human-readable label segment (ignored for identity resolution) */
@@ -32,6 +33,10 @@ export function parseHashConversation(): ParsedHashConversation | null {
 
   if (hash === 'map') {
     return { type: 'map', name: 'map' };
+  }
+
+  if (hash === 'live') {
+    return { type: 'live', name: 'live' };
   }
 
   if (hash === 'visualizer') {
@@ -166,6 +171,7 @@ export function getConversationHash(conv: Conversation | null): string {
   if (!conv) return '';
   if (conv.type === 'raw') return '#raw';
   if (conv.type === 'map') return '#map';
+  if (conv.type === 'live') return '#live';
   if (conv.type === 'visualizer') return '#visualizer';
   if (conv.type === 'search') return '#search';
   if (conv.type === 'trace') return '#trace';

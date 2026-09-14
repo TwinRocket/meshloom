@@ -120,6 +120,38 @@ describe('wsEvents', () => {
     });
   });
 
+  it('parses community_packet events even when Stats is not emitting yet', () => {
+    const data = {
+      v: 1,
+      event_id: 'e1',
+      hash8: 'deadbeef',
+      type: 'advert',
+      path: ['ab12'],
+      hop_count: 1,
+      hops: [{ token: 'ab12', lat: 45.7, lon: 4.8 }],
+      iata: 'LYS',
+      t: 1710000000000,
+      ear_id: 'ear-1',
+    };
+    const event = parseWsEvent(JSON.stringify({ type: 'community_packet', data }));
+
+    expect(event).toEqual({ type: 'community_packet', data });
+    expect(isDispatchableWsEvent(event)).toBe(true);
+  });
+
+  it('parses community_live close codes for Relancer banners', () => {
+    const live = parseWsEvent(
+      JSON.stringify({
+        type: 'community_live',
+        data: { close_code: 4001, opted_out: false, connected: false },
+      })
+    );
+    expect(live).toEqual({
+      type: 'community_live',
+      data: { close_code: 4001, opted_out: false, connected: false },
+    });
+  });
+
   it('returns unknown events with rawType preserved', () => {
     const event = parseWsEvent(JSON.stringify({ type: 'mystery', data: { ok: true } }));
 

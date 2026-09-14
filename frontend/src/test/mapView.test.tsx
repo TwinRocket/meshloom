@@ -440,6 +440,11 @@ describe('MapView', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('does not offer Visualize packets; rain lives on Live', () => {
+    render(<MapView contacts={[]} />);
+    expect(screen.queryByText(i18n.t('map.visualizePackets'))).not.toBeInTheDocument();
+  });
+
   it('keeps internet relays off by default and styles them blue with an orange ring', async () => {
     vi.mocked(api.getDirectoryMapNodes).mockResolvedValue({
       nodes: [

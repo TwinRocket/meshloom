@@ -115,6 +115,7 @@ vi.mock('../components/SettingsModal', () => ({
 }));
 vi.mock('../components/MapView', () => ({ MapView: () => null }));
 vi.mock('../components/VisualizerView', () => ({ VisualizerView: () => null }));
+vi.mock('../components/LiveView', () => ({ LiveView: () => null }));
 vi.mock('../components/CrackerPanel', () => ({ CrackerPanel: () => null }));
 vi.mock('../components/ui/sonner', () => ({
   Toaster: () => null,

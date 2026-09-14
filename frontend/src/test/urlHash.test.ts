@@ -54,6 +54,14 @@ describe('parseHashConversation', () => {
     expect(result).toEqual({ type: 'map', name: 'map' });
   });
 
+  it('parses #live as live type', () => {
+    window.location.hash = '#live';
+
+    const result = parseHashConversation();
+
+    expect(result).toEqual({ type: 'live', name: 'live' });
+  });
+
   it('parses #trace as trace type', () => {
     window.location.hash = '#trace';
 
@@ -365,6 +373,10 @@ describe('getLocateHash', () => {
 });
 
 describe('getConversationHash', () => {
+  it('encodes live conversations', () => {
+    expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
+  });
+
   it('encodes locate conversations', () => {
     expect(getConversationHash({ type: 'locate', id: 'locate', name: 'RF Locate' })).toBe(
       '#locate'

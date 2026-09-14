@@ -1,4 +1,13 @@
-import type { Channel, Contact, HealthStatus, Message, MessagePath, RawPacket } from './types';
+import type {
+  Channel,
+  CommunityLiveStatus,
+  CommunityPacket,
+  Contact,
+  HealthStatus,
+  Message,
+  MessagePath,
+  RawPacket,
+} from './types';
 
 export interface MessageAckedPayload {
   message_id: number;
@@ -40,6 +49,8 @@ export type KnownWsEvent =
   | { type: 'contact_deleted'; data: ContactDeletedPayload }
   | { type: 'channel_deleted'; data: ChannelDeletedPayload }
   | { type: 'raw_packet'; data: RawPacket }
+  | { type: 'community_packet'; data: CommunityPacket }
+  | { type: 'community_live'; data: CommunityLiveStatus }
   | { type: 'message_acked'; data: MessageAckedPayload }
   | { type: 'message_deleted'; data: MessageDeletedPayload }
   | { type: 'error'; data: ToastPayload }
@@ -111,6 +122,8 @@ export function parseWsEvent(raw: string): ParsedWsEvent {
     case 'contact_deleted':
     case 'channel_deleted':
     case 'raw_packet':
+    case 'community_packet':
+    case 'community_live':
     case 'message_acked':
     case 'message_deleted':
     case 'error':

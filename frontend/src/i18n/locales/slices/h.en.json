@@ -1,0 +1,37 @@
+{
+  "sidebar": {
+    "live": "Live"
+  },
+  "conversation": {
+    "live": "Live",
+    "loadingLive": "Loading live rain..."
+  },
+  "commandPalette": {
+    "liveRain": "Live rain"
+  },
+  "live": {
+    "bannerExpired": "Live session expired. Refresh to continue the rain.",
+    "relancer": "Relancer",
+    "bannerInactive": "Observer inactive — no accepted contribution in the last 24 hours.",
+    "bannerOptOut": "Community is opted out. Live rain is not received.",
+    "bannerSlotBusy": "This public key already has a Live viewer open.",
+    "bannerRateLimit": "Live feed paused briefly (viewer rate limit).",
+    "iataFilter": "IATA",
+    "iataAll": "All regions",
+    "fixtures": "Fixtures",
+    "playFixtures": "Play rain",
+    "simulateExpired": "JWT expired",
+    "simulateInactive": "Inactive 24h",
+    "simulateOptOut": "Opt-out",
+    "simulateSlotBusy": "Slot busy",
+    "simulateRateLimit": "Rate limit",
+    "mapAria": "Live packet rain map",
+    "legend": {
+      "advert": "Advert",
+      "text": "Text",
+      "ack": "Ack",
+      "trace": "Trace",
+      "other": "Other"
+    }
+  }
+}

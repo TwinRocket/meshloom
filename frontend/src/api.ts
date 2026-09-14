@@ -66,6 +66,7 @@ import type {
   CommunityHashtagsResponse,
   CommunityIataBindRequest,
   CommunityIataBindResult,
+  CommunityLiveStatus,
   CommunityMeStats,
   CommunityPublicStats,
   CommunityAirportHit,
@@ -633,6 +634,20 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ names }),
     }),
+  subscribeCommunityLive: (sessionId?: string) =>
+    fetchJson<CommunityLiveStatus>('/community/live/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
+    }),
+  unsubscribeCommunityLive: (sessionId: string) =>
+    fetchJson<CommunityLiveStatus>(`/community/live/subscribe/${encodeURIComponent(sessionId)}`, {
+      method: 'DELETE',
+    }),
+  relancerCommunityLive: () =>
+    fetchJson<CommunityLiveStatus>('/community/live/relancer', {
+      method: 'POST',
+    }),
+
   searchCommunityAirports: async (
     query: string,
     locale?: string
