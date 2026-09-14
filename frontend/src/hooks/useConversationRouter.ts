@@ -350,14 +350,21 @@ export function useConversationRouter({
       // Settings hash transitions are handled by useAppShell
       if (parseHashSettingsSection() !== null) return;
 
-      // Resolve the target from the hash. When the hash is empty or doesn't
-      // resolve (e.g. back/forward to the bare URL), fall back to the Public
-      // channel rather than clearing to null: the initial-load phases are gated
-      // by hasSetDefaultConversation and won't re-resolve, so a null here would
-      // strand the app on an empty view with no recovery.
-      const conv =
-        resolveConversationFromHash(channelsRef.current, contactsRef.current) ??
-        resolvePublicFromChannels(channelsRef.current);
+      const fromHash = resolveConversationFromHash(channelsRef.current, contactsRef.current);
+
+      // Going back to the bare URL means leaving whatever was open. On a phone
+      // that lands on the conversation list, which is a screen of its own — so
+      // clearing is the destination, not a dead end. Anywhere else a null would
+      // strand the app on an empty pane, since the initial-load phases are gated
+      // by hasSetDefaultConversation and will not re-resolve; Public recovers it.
+      if (!fromHash && isNarrowLayout()) {
+        hashSyncEnabledRef.current = true;
+        isHandlingPopstateRef.current = true;
+        setActiveConversationState(null);
+        return;
+      }
+
+      const conv = fromHash ?? resolvePublicFromChannels(channelsRef.current);
       if (!conv) return;
       hashSyncEnabledRef.current = true;
       isHandlingPopstateRef.current = true;

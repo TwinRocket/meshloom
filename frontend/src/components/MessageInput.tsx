@@ -530,18 +530,30 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           onKeyDown={handleKeyDown}
           placeholder={placeholder || t('chat.typeMessagePlaceholder')}
           disabled={disabled || sending}
+          enterKeyHint="send"
           className={cn(
             'flex-1 min-w-0 resize-none overflow-y-auto',
-            'rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background',
-            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            // A filled pill rather than an outlined box: the field is already
+            // distinct from the surface behind it, so the outline was a line doing
+            // nothing but drawing itself.
+            'rounded-3xl border border-transparent bg-muted/60 px-4 py-2 text-base',
+            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             'disabled:cursor-not-allowed disabled:opacity-50 md:text-sm'
           )}
           style={{ minHeight: '40px', maxHeight: '160px' }}
         />
+        {/* On a phone it appears with the text and not before: an empty field has
+            nothing to send, and a permanent button takes width from the field while
+            claiming to be the way to send — which the keyboard's return key already
+            is. Desktop keeps it at all times, disabled when empty, because a pointer
+            has no return key under its thumb. */}
         <Button
           type="submit"
           disabled={disabled || sending || !canSubmit}
-          className="h-10 w-10 flex-shrink-0 px-0 sm:w-auto sm:px-4"
+          className={cn(
+            'h-10 w-10 flex-shrink-0 px-0 sm:w-auto sm:px-4',
+            !canSubmit && 'hidden md:inline-flex'
+          )}
           aria-label={sending ? t('chat.sending') : t('chat.send')}
         >
           <Send className="h-4 w-4 sm:hidden" aria-hidden="true" />

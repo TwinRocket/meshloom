@@ -16,6 +16,7 @@ import { ConversationPane } from './ConversationPane';
 import { BottomNav, type BottomNavTarget } from './BottomNav';
 import { ConversationListView } from './ConversationListView';
 import { ToolsView } from './ToolsView';
+import { SettingsIndexView } from './SettingsIndexView';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -42,7 +43,7 @@ import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
 import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, ChevronLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const SettingsModal = lazy(() =>
@@ -209,6 +210,9 @@ export function AppShell({
   const hasLocalLabel = !!localLabel.text;
   // Which screen the phone layout is on when no conversation or tool is open.
   const [mobileScreen, setMobileScreen] = useState<'conversations' | 'tools'>('conversations');
+  // Settings open on the index on a phone: the bar cannot say which section you
+  // wanted, and the rail that used to answer that went with the drawer.
+  const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
 
@@ -240,6 +244,7 @@ export function AppShell({
   const handleBottomNav = useCallback(
     (target: BottomNavTarget) => {
       if (target === 'settings') {
+        setSettingsIndexOpen(true);
         if (!showSettings) onToggleSettingsView();
         return;
       }
@@ -506,8 +511,41 @@ export function AppShell({
             </div>
           )}
 
+          {/* Phones choose a section first; desktop has the rail and goes straight in. */}
+          {showSettings && settingsIndexOpen && (
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">
+              <SettingsIndexView
+                health={statusProps.health}
+                disabledSections={disabledSettingsSections}
+                onSelectSection={(section) => {
+                  onSettingsSectionChange(section);
+                  setSettingsIndexOpen(false);
+                }}
+              />
+            </div>
+          )}
+
           {showSettings && (
-            <div className="flex-1 flex flex-col min-h-0">
+            <div
+              className={cn('flex-1 flex flex-col min-h-0', settingsIndexOpen && 'hidden md:flex')}
+            >
+              {/* A section reached from the index needs the way back the index came
+                  from; desktop has the rail beside it and needs nothing. The title
+                  is centred over the row rather than following the button, so it
+                  stays put as sections with longer names come and go. */}
+              <div className="relative flex shrink-0 items-center px-3 pb-2 pt-8 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setSettingsIndexOpen(true)}
+                  aria-label={t('settingsIndex.back')}
+                  className="liquid-surface inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+                </button>
+                <h1 className="pointer-events-none absolute inset-x-14 truncate text-center text-base font-semibold">
+                  {t(SETTINGS_SECTION_LABELS[settingsSection])}
+                </h1>
+              </div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <Suspense
                   fallback={

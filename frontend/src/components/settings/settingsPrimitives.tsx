@@ -55,7 +55,13 @@ export function SettingsGroupHeader({
   );
 }
 
-/** A bounded group. A hairline rule did not read as a boundary next to input borders. */
+/**
+ * A bounded group. A hairline rule did not read as a boundary next to input borders.
+ *
+ * On phones the boundary is the filled card itself, the way the platform's own
+ * settings draw it — a border there would land as a second rectangle inside the
+ * rounded one. Desktop keeps the outlined card, which is denser.
+ */
 export function SettingsGroup({
   id,
   children,
@@ -68,7 +74,7 @@ export function SettingsGroup({
   return (
     <section
       aria-labelledby={id}
-      className={`space-y-4 rounded-lg border border-border bg-card/40 p-4 lg:p-5 ${className ?? ''}`}
+      className={`space-y-4 rounded-2xl bg-muted/40 p-4 md:rounded-lg md:border md:border-border md:bg-card/40 lg:p-5 ${className ?? ''}`}
     >
       {children}
     </section>
@@ -81,15 +87,17 @@ export function SettingsGroup({
  */
 export function AdvancedBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <details className="group rounded-lg border border-border bg-card/40">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-4 py-3 text-base font-semibold tracking-tight hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:px-5">
+    <details className="group rounded-2xl bg-muted/40 md:rounded-lg md:border md:border-border md:bg-card/40">
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 md:rounded-lg text-base font-semibold tracking-tight hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:px-5">
         <ChevronRight
           className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
           aria-hidden="true"
         />
         {title}
       </summary>
-      <div className="space-y-4 border-t border-border px-4 py-4 lg:px-5">{children}</div>
+      <div className="space-y-4 border-t border-border/40 px-4 py-4 md:border-border lg:px-5">
+        {children}
+      </div>
     </details>
   );
 }
