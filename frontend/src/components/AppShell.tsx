@@ -379,6 +379,7 @@ export function AppShell({
         onSettingsClick={onToggleSettingsView}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
         onOpenIdentityModal={() => setIdentityModalForced(true)}
+        inConversation={inConversation}
         onMenuClick={() => onSidebarOpenChange(true)}
       />
       {communityStatus && !(showSettings && settingsSection === 'community') && (

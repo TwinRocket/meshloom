@@ -43,7 +43,11 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
       aria-label={t('bottomNav.label')}
       className={cn(
         'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center md:hidden',
-        'pb-[max(var(--safe-area-bottom),0.5rem)] px-3',
+        // The capped inset, not the raw one: the full home-indicator inset floats the
+        // bar a centimetre off the edge, which reads as something hovering rather than
+        // something anchored. The indicator overlays content by design, and the bar is
+        // a rounded pill with padding of its own, so its targets stay clear of it.
+        'px-3 pb-[calc(var(--safe-area-bottom-capped)+0.25rem)]',
         className
       )}
     >
