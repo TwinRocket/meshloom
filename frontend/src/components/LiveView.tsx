@@ -280,7 +280,9 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       </div>
 
       <div className="relative min-h-0 flex-1" role="img" aria-label={t('live.mapAria')}>
-        <div ref={mapHostRef} className="absolute inset-0 bg-[#0b0f14]" />
+        {/* Sized, not positioned: maplibre-gl.css forces position:relative on its own
+            root, so an absolute inset-0 host collapses to zero height. */}
+        <div ref={mapHostRef} className="h-full w-full bg-[#0b0f14]" />
         {hover && (
           <div
             className="pointer-events-none absolute z-10 max-w-64 rounded-md border border-border bg-background/90 px-2 py-1.5 text-xs shadow-md"
