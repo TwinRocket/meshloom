@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { MessageCircle, Map as MapIcon, Waypoints, List, Settings } from 'lucide-react';
+import { MessageCircle, Map as MapIcon, LayoutGrid, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /**
@@ -15,7 +15,7 @@ import { cn } from '../lib/utils';
  * control or push the history up for the whole session.
  */
 
-export type BottomNavTarget = 'conversations' | 'map' | 'visualizer' | 'raw' | 'settings';
+export type BottomNavTarget = 'conversations' | 'map' | 'tools' | 'settings';
 
 interface Props {
   active: BottomNavTarget | null;
@@ -27,8 +27,9 @@ interface Props {
 const ITEMS: { target: BottomNavTarget; labelKey: string; Icon: typeof MessageCircle }[] = [
   { target: 'conversations', labelKey: 'bottomNav.conversations', Icon: MessageCircle },
   { target: 'map', labelKey: 'bottomNav.map', Icon: MapIcon },
-  { target: 'visualizer', labelKey: 'bottomNav.mesh', Icon: Waypoints },
-  { target: 'raw', labelKey: 'bottomNav.packets', Icon: List },
+  // Everything that is not a conversation or the map lives behind one entry rather
+  // than competing for a slot: the feed, the visualiser, trace, locate, search.
+  { target: 'tools', labelKey: 'bottomNav.tools', Icon: LayoutGrid },
   { target: 'settings', labelKey: 'bottomNav.settings', Icon: Settings },
 ];
 

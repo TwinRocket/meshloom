@@ -2318,10 +2318,36 @@
     "label": "Primary",
     "conversations": "Chats",
     "map": "Map",
-    "mesh": "Mesh",
-    "packets": "Packets",
+    "tools": "Tools",
     "settings": "Settings",
     "unread_one": "{{count}} unread conversation",
     "unread_other": "{{count}} unread conversations"
+  },
+  "conversationList": {
+    "title": "Chats",
+    "new": "New",
+    "searchPlaceholder": "Search conversations",
+    "clearSearch": "Clear search",
+    "filterLabel": "Filter conversations",
+    "all": "All",
+    "unread": "Unread",
+    "favorites": "Favourites",
+    "groups": "Channels",
+    "direct": "Direct",
+    "noMessages": "No messages yet",
+    "noMatch": "Nothing matches “{{query}}”.",
+    "empty": "No conversations yet.",
+    "unreadCount_one": "{{count}} unread message",
+    "unreadCount_other": "{{count}} unread messages"
+  },
+  "toolsView": {
+    "title": "Tools",
+    "packetFeedDescription": "Every packet this node hears, as it arrives",
+    "visualizerDescription": "The mesh drawn from traffic heard while it is open",
+    "traceDescription": "Build a route through repeaters and time it",
+    "locateDescription": "Estimate where a node is transmitting from",
+    "searchDescription": "Search every message on this node",
+    "crackerDescription": "Try known keys against undecrypted channel traffic",
+    "markAllReadDescription": "Clear every unread badge"
   }
 }

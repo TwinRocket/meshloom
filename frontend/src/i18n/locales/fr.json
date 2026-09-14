@@ -2318,10 +2318,36 @@
     "label": "Navigation principale",
     "conversations": "Discussions",
     "map": "Carte",
-    "mesh": "Mesh",
-    "packets": "Paquets",
+    "tools": "Outils",
     "settings": "Réglages",
     "unread_one": "{{count}} conversation non lue",
     "unread_other": "{{count}} conversations non lues"
+  },
+  "conversationList": {
+    "title": "Discussions",
+    "new": "Nouveau",
+    "searchPlaceholder": "Rechercher une conversation",
+    "clearSearch": "Effacer la recherche",
+    "filterLabel": "Filtrer les conversations",
+    "all": "Toutes",
+    "unread": "Non lues",
+    "favorites": "Favoris",
+    "groups": "Canaux",
+    "direct": "Directs",
+    "noMessages": "Aucun message",
+    "noMatch": "Rien ne correspond à « {{query}} ».",
+    "empty": "Aucune conversation.",
+    "unreadCount_one": "{{count}} message non lu",
+    "unreadCount_other": "{{count}} messages non lus"
+  },
+  "toolsView": {
+    "title": "Outils",
+    "packetFeedDescription": "Tous les paquets entendus par ce nœud, au fil de l’eau",
+    "visualizerDescription": "Le mesh dessiné à partir du trafic entendu pendant que la vue est ouverte",
+    "traceDescription": "Construire une route à travers les répéteurs et la chronométrer",
+    "locateDescription": "Estimer depuis où un nœud émet",
+    "searchDescription": "Chercher dans tous les messages de ce nœud",
+    "crackerDescription": "Essayer les clés connues sur le trafic de canal non déchiffré",
+    "markAllReadDescription": "Effacer tous les compteurs de non-lus"
   }
 }

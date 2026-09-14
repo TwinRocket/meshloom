@@ -14,6 +14,8 @@ import { StatusBar } from './StatusBar';
 import { Sidebar } from './Sidebar';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav, type BottomNavTarget } from './BottomNav';
+import { ConversationListView } from './ConversationListView';
+import { ToolsView } from './ToolsView';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -74,6 +76,8 @@ interface AppShellProps {
   onSidebarOpenChange: (open: boolean) => void;
   onCrackerRunningChange: (running: boolean) => void;
   onToggleSettingsView: () => void;
+  /** Leaves the open conversation for the list, on narrow screens. */
+  onClearActiveConversation: () => void;
   onCloseSettingsView: () => void;
   onCloseNewMessage: () => void;
   onCloseBulkAddResults: () => void;
@@ -108,6 +112,7 @@ export function AppShell({
   onSidebarOpenChange,
   onCrackerRunningChange,
   onToggleSettingsView,
+  onClearActiveConversation,
   onCloseSettingsView,
   onCloseNewMessage,
   onCloseBulkAddResults,
@@ -202,6 +207,8 @@ export function AppShell({
   const TOAST_TOP_PADDING = 10;
   const [toastTopOffset, setToastTopOffset] = useState<number | undefined>(undefined);
   const hasLocalLabel = !!localLabel.text;
+  // Which screen the phone layout is on when no conversation or tool is open.
+  const [mobileScreen, setMobileScreen] = useState<'conversations' | 'tools'>('conversations');
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
 
@@ -213,15 +220,18 @@ export function AppShell({
   // Settings render over whatever conversation was last open, so the conversation
   // underneath must not be what decides.
   const showBottomNav = showSettings || !inConversation;
+  // Which of the bar's destinations is on screen. A tool opened from the Tools screen
+  // keeps Tools lit, because that is where the reader came from and where Back goes.
+  const TOOL_TYPES = ['raw', 'visualizer', 'trace', 'locate', 'search'];
   const bottomNavTarget: BottomNavTarget | null = showSettings
     ? 'settings'
     : activeType === 'map'
       ? 'map'
-      : activeType === 'visualizer'
-        ? 'visualizer'
-        : activeType === 'raw'
-          ? 'raw'
-          : null;
+      : activeType && TOOL_TYPES.includes(activeType)
+        ? 'tools'
+        : mobileScreen === 'tools'
+          ? 'tools'
+          : 'conversations';
   const unreadTotal = Object.values(sidebarProps.unreadCounts ?? {}).reduce(
     (sum, n) => sum + (n > 0 ? 1 : 0),
     0
@@ -234,14 +244,17 @@ export function AppShell({
         return;
       }
       if (showSettings) onToggleSettingsView();
-      if (target === 'conversations') {
-        onSidebarOpenChange(true);
+      if (target === 'map') {
+        setMobileScreen('conversations');
+        sidebarProps.onSelectConversation({ type: 'map', id: 'map', name: 'map' } as never);
         return;
       }
-      const type = target === 'visualizer' ? 'visualizer' : target;
-      sidebarProps.onSelectConversation({ type, id: type, name: type } as never);
+      // Conversations and Tools are screens of their own, so they clear whatever
+      // conversation or tool was open rather than opening another one.
+      setMobileScreen(target === 'tools' ? 'tools' : 'conversations');
+      onClearActiveConversation();
     },
-    [showSettings, onToggleSettingsView, onSidebarOpenChange, sidebarProps]
+    [showSettings, onToggleSettingsView, sidebarProps, onClearActiveConversation]
   );
   useEffect(() => {
     const measure = () => {
@@ -380,7 +393,10 @@ export function AppShell({
         onOpenRadioSettings={() => handleOpenSettings('radio')}
         onOpenIdentityModal={() => setIdentityModalForced(true)}
         inConversation={inConversation}
-        onMenuClick={() => onSidebarOpenChange(true)}
+        // Narrow screens navigate from the bar and the list, so the only thing left
+        // for this control is going back out of a conversation. No conversation, no
+        // control — a burger opening a drawer nothing else uses is furniture.
+        onMenuClick={inConversation ? onClearActiveConversation : undefined}
       />
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner
@@ -394,7 +410,8 @@ export function AppShell({
       <div className="flex flex-1 overflow-hidden">
         <div className="hidden md:block min-h-0 overflow-hidden">{activeSidebarContent}</div>
 
-        <Sheet open={sidebarOpen} onOpenChange={onSidebarOpenChange}>
+        {/* Desktop keeps the drawer for the settings rail; phones never open it. */}
+        <Sheet open={sidebarOpen && showSettings} onOpenChange={onSidebarOpenChange}>
           <SheetContent
             side="left"
             className="w-[280px] p-0 flex flex-col"
@@ -424,11 +441,38 @@ export function AppShell({
             showBottomNav && 'with-bottom-nav'
           )}
         >
+          {/* Phones: with nothing open, the screen is the list or the tools, not an
+              empty conversation pane waiting for a drawer to be opened. */}
+          {!showSettings && !conversationPaneProps.activeConversation && (
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">
+              {mobileScreen === 'tools' ? (
+                <ToolsView
+                  onSelectConversation={sidebarProps.onSelectConversation}
+                  onToggleCracker={sidebarProps.onToggleCracker}
+                  onMarkAllRead={sidebarProps.onMarkAllRead}
+                  crackerVisible={sidebarProps.showCracker}
+                />
+              ) : (
+                <ConversationListView
+                  contacts={sidebarProps.contacts}
+                  channels={sidebarProps.channels}
+                  unreadCounts={sidebarProps.unreadCounts}
+                  mentions={sidebarProps.mentions}
+                  lastMessageTimes={sidebarProps.lastMessageTimes}
+                  lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
+                  onSelectConversation={sidebarProps.onSelectConversation}
+                  onNewMessage={sidebarProps.onNewMessage}
+                />
+              )}
+            </div>
+          )}
+
           <div
             className={cn(
               'flex-1 flex flex-col min-h-0',
               (showSettings || conversationPaneProps.activeConversation?.type === 'search') &&
-                'hidden'
+                'hidden',
+              !showSettings && !conversationPaneProps.activeConversation && 'hidden md:flex'
             )}
           >
             <ConversationPane

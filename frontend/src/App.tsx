@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef, useState, useMemo, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from './api';
+import { updateUrlHash } from './utils/urlHash';
 import { takePrefetchOrFetch } from './prefetch';
 import { useWebSocket } from './useWebSocket';
 import {
@@ -891,6 +892,12 @@ export function App() {
             onSidebarOpenChange={setSidebarOpen}
             onCrackerRunningChange={setCrackerRunning}
             onToggleSettingsView={handleToggleSettingsView}
+            onClearActiveConversation={() => {
+              // The hash has to go with it: left behind, the router reads it on the
+              // next pass and reopens the conversation that was just closed.
+              updateUrlHash(null);
+              setActiveConversation(null);
+            }}
             onCloseSettingsView={handleCloseSettingsView}
             onCloseNewMessage={handleCloseNewMessage}
             onCloseBulkAddResults={handleCloseBulkAddResults}

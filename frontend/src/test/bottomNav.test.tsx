@@ -17,7 +17,7 @@ function renderNav(overrides?: Partial<React.ComponentProps<typeof BottomNav>>) 
 describe('BottomNav', () => {
   it('offers every top-level destination', () => {
     renderNav();
-    for (const key of ['conversations', 'map', 'mesh', 'packets', 'settings']) {
+    for (const key of ['conversations', 'map', 'tools', 'settings']) {
       expect(screen.getByText(i18n.t(`bottomNav.${key}`))).toBeInTheDocument();
     }
   });
@@ -40,8 +40,8 @@ describe('BottomNav', () => {
 
   it('reports the destination that was chosen', () => {
     const { onSelect } = renderNav();
-    fireEvent.click(screen.getByText(i18n.t('bottomNav.mesh')));
-    expect(onSelect).toHaveBeenCalledWith('visualizer');
+    fireEvent.click(screen.getByText(i18n.t('bottomNav.tools')));
+    expect(onSelect).toHaveBeenCalledWith('tools');
   });
 
   it('carries unread conversations as more than a colour', () => {

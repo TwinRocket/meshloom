@@ -81,6 +81,15 @@ interface UseConversationRouterArgs {
   hasSetDefaultConversation: MutableRefObject<boolean>;
 }
 
+/**
+ * The phone layout, where the conversation list is a screen rather than a drawer.
+ * Matches the `md` breakpoint the shell uses to switch between the two.
+ */
+function isNarrowLayout(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+
 export function useConversationRouter({
   channels,
   contacts,
@@ -228,7 +237,15 @@ export function useConversationRouter({
       if (lastViewed?.type === 'contact') return;
     }
 
-    // No hash or unresolvable — default to Public
+    // No hash or unresolvable — default to Public.
+    //
+    // Except on a phone with nothing asked for: there the conversation list is a
+    // screen of its own, and opening a conversation nobody chose means landing
+    // inside one and having to leave it to see what else there is. A hash that
+    // fails to resolve still falls back here — that is an error being recovered
+    // from, not an absence of intent.
+    if (!hashConv && isNarrowLayout()) return;
+
     const publicConversation = getPublicChannelConversation();
     if (publicConversation) {
       if (hashConv?.type === 'channel') {
