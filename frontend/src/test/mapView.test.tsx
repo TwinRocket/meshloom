@@ -48,6 +48,9 @@ vi.mock('react-leaflet', () => {
       setMaxZoom: vi.fn(),
       setZoom: vi.fn(),
       getZoom: vi.fn(() => 2),
+      getCenter: vi.fn(() => ({ lat: 20, lng: 0 })),
+      on: vi.fn(),
+      off: vi.fn(),
     }),
     useMapEvents: () => null,
   };

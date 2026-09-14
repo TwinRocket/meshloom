@@ -24,6 +24,7 @@ import {
   OSM_RASTER_TILE_URL,
 } from '../utils/mapTiles';
 import { getSavedCartoApiKey } from '../utils/cartoPreference';
+import { readSavedMapCamera, writeSavedMapCamera } from '../utils/livePackets';
 
 interface MapViewProps {
   contacts: Contact[];
@@ -117,6 +118,7 @@ const TILE_LAYERS: readonly TileLayerPreset[] = [
 ] as const;
 
 const MAP_LAYER_STORAGE_KEY = 'meshloom-map-layer';
+const MAP_CAMERA_STORAGE_KEY = 'meshloom-map-camera';
 const LEGACY_DARK_MAP_STORAGE_KEY = 'meshloom-dark-map';
 
 function getSavedLayerId(): string {
@@ -240,6 +242,27 @@ function getMarkerColor(lastSeen: number | null | undefined): string {
 
 // --- Map bounds handler ---
 
+function PersistMapCamera() {
+  const map = useMap();
+  useEffect(() => {
+    const persist = () => {
+      const center = map.getCenter();
+      writeSavedMapCamera(MAP_CAMERA_STORAGE_KEY, {
+        lat: center.lat,
+        lon: center.lng,
+        zoom: map.getZoom(),
+      });
+    };
+    map.on('moveend', persist);
+    map.on('zoomend', persist);
+    return () => {
+      map.off('moveend', persist);
+      map.off('zoomend', persist);
+    };
+  }, [map]);
+  return null;
+}
+
 function MapBoundsHandler({
   contacts,
   focusedContact,
@@ -249,15 +272,27 @@ function MapBoundsHandler({
 }) {
   const map = useMap();
   const [hasInitialized, setHasInitialized] = useState(false);
+  const lastFocusKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (focusedContact && focusedContact.lat != null && focusedContact.lon != null) {
-      map.setView([focusedContact.lat, focusedContact.lon], 12);
+      if (lastFocusKey.current !== focusedContact.public_key) {
+        map.setView([focusedContact.lat, focusedContact.lon], 12);
+        lastFocusKey.current = focusedContact.public_key;
+      }
       setHasInitialized(true);
       return;
     }
+    lastFocusKey.current = null;
 
     if (hasInitialized) return;
+
+    const saved = readSavedMapCamera(MAP_CAMERA_STORAGE_KEY);
+    if (saved) {
+      map.setView([saved.lat, saved.lon], saved.zoom);
+      setHasInitialized(true);
+      return;
+    }
 
     const fitToContacts = () => {
       if (contacts.length === 0) {
@@ -682,6 +717,7 @@ export function MapView({
           </LayersControl>
           <LayerChangeWatcher onChange={handleLayerChange} />
           <MaxZoomByActiveLayer maxZoom={activeLayer.maxZoom ?? MAP_MAX_ZOOM} />
+          <PersistMapCamera />
           <MapBoundsHandler contacts={mappableContacts} focusedContact={focusedContact} />
 
           {mappableContacts.map((contact) => {

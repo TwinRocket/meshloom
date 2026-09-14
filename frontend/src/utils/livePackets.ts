@@ -18,6 +18,43 @@ export const LIVE_POLYLINE_MAX_MS = 10000;
 export const LIVE_DIM_AFTER_MS = 5 * 60 * 1000;
 export const MAX_LIVE_PARTICLES = 150;
 export const LIVE_HOP_JITTER_DEG = 0.012;
+export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
+
+export type SavedMapCamera = { lat: number; lon: number; zoom: number };
+
+export function readSavedMapCamera(storageKey: string): SavedMapCamera | null {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedMapCamera>;
+    if (
+      typeof parsed.lat === 'number' &&
+      Number.isFinite(parsed.lat) &&
+      typeof parsed.lon === 'number' &&
+      Number.isFinite(parsed.lon) &&
+      typeof parsed.zoom === 'number' &&
+      Number.isFinite(parsed.zoom)
+    ) {
+      return { lat: parsed.lat, lon: parsed.lon, zoom: parsed.zoom };
+    }
+  } catch {
+    /* ignore quota / parse */
+  }
+  return null;
+}
+
+export function writeSavedMapCamera(storageKey: string, camera: SavedMapCamera): void {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(camera));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+/** Auto-frame once. Later ear updates must not steal the user's zoom. */
+export function liveBoundsShouldFit(alreadyFitted: boolean, earCount: number): boolean {
+  return !alreadyFitted && earCount > 0;
+}
 
 /** OurAirports IATA centroids (public domain). Ear position, never contributor GPS. */
 export const LIVE_IATA_CENTROIDS = iataCentroids as unknown as Record<

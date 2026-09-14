@@ -28,6 +28,9 @@ vi.mock('react-leaflet', () => ({
     on: vi.fn(),
     off: vi.fn(),
     fitBounds: vi.fn(),
+    setView: vi.fn(),
+    getCenter: () => ({ lat: 46.2, lng: 5.2 }),
+    getZoom: () => 6,
     latLngToContainerPoint: () => ({ x: 0, y: 0 }),
   }),
 }));

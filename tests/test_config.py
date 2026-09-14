@@ -7,7 +7,9 @@ Settings env validation (basic auth pairing and experimental aliases).
 import pytest
 from pydantic import ValidationError
 
-from app.config import DEFAULT_VAPID_SUBJECT, Settings
+import logging
+
+from app.config import DEFAULT_VAPID_SUBJECT, Settings, _UvicornLogHygiene
 
 
 class TestBasicAuthConfiguration:
@@ -65,6 +67,38 @@ class TestVapidSubjectEnv:
         monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "   ")
         s = Settings()
         assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
+
+
+class TestUvicornLogHygiene:
+    def test_renames_error_logger_and_drops_ws_chatter(self):
+        filt = _UvicornLogHygiene()
+        open_rec = logging.LogRecord(
+            "uvicorn.error", logging.INFO, __file__, 0, "connection open", (), None
+        )
+        assert filt.filter(open_rec) is False
+
+        accepted = logging.LogRecord(
+            "uvicorn.error",
+            logging.INFO,
+            __file__,
+            0,
+            '192.168.42.240:35468 - "WebSocket /api/ws" [accepted]',
+            (),
+            None,
+        )
+        assert filt.filter(accepted) is False
+
+        startup = logging.LogRecord(
+            "uvicorn.error",
+            logging.INFO,
+            __file__,
+            0,
+            "Application startup complete.",
+            (),
+            None,
+        )
+        assert filt.filter(startup) is True
+        assert startup.name == "uvicorn"
 
 
 class TestTransportRemovedFromSettings:

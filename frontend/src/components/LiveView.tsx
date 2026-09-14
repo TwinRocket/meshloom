@@ -29,7 +29,11 @@ import {
 import {
   applyHopJitter,
   buildPrefixIndex,
+  LIVE_CAMERA_STORAGE_KEY,
   isStaleLiveTime,
+  liveBoundsShouldFit,
+  readSavedMapCamera,
+  writeSavedMapCamera,
   LIVE_SEGMENT_MS,
   LIVE_STAGGER_MS,
   MAX_LIVE_PARTICLES,
@@ -212,19 +216,46 @@ function LiveRainCanvas({
   return null;
 }
 
+function PersistLiveCamera() {
+  const map = useMap();
+  useEffect(() => {
+    const persist = () => {
+      const center = map.getCenter();
+      writeSavedMapCamera(LIVE_CAMERA_STORAGE_KEY, {
+        lat: center.lat,
+        lon: center.lng,
+        zoom: map.getZoom(),
+      });
+    };
+    map.on('moveend', persist);
+    map.on('zoomend', persist);
+    return () => {
+      map.off('moveend', persist);
+      map.off('zoomend', persist);
+    };
+  }, [map]);
+  return null;
+}
+
 function FitLiveBounds({ ears }: { ears: EarPulse[] }) {
   const map = useMap();
-  const fitted = useRef(false);
+  const fitted = useRef(readSavedMapCamera(LIVE_CAMERA_STORAGE_KEY) != null);
 
   useEffect(() => {
-    if (fitted.current || ears.length === 0) return;
+    const saved = readSavedMapCamera(LIVE_CAMERA_STORAGE_KEY);
+    if (saved && !fitted.current) {
+      map.setView([saved.lat, saved.lon], saved.zoom);
+      fitted.current = true;
+      return;
+    }
+    if (!liveBoundsShouldFit(fitted.current, ears.length)) return;
     const hasCommunity = ears.some((ear) => ear.id !== 'local-ear');
     if (!hasCommunity) {
       map.setView([ears[0].lat, ears[0].lon], 7);
-      return;
+    } else {
+      const bounds = L.latLngBounds(ears.map((ear) => [ear.lat, ear.lon] as [number, number]));
+      map.fitBounds(bounds.pad(0.35), { maxZoom: 9 });
     }
-    const bounds = L.latLngBounds(ears.map((ear) => [ear.lat, ear.lon] as [number, number]));
-    map.fitBounds(bounds.pad(0.35), { maxZoom: 9 });
     fitted.current = true;
   }, [ears, map]);
 
@@ -526,6 +557,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
             }
             maxZoom={19}
           />
+          <PersistLiveCamera />
           <FitLiveBounds ears={earMarkers} />
           {lines.map((line) => {
             const age = nowTick - line.startedAt;

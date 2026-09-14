@@ -5,6 +5,7 @@ import {
   applyHopJitter,
   buildPrefixIndex,
   isOneByteHopToken,
+  liveBoundsShouldFit,
   liveOpacity,
   observationFromCommunity,
   polylinePositions,
@@ -96,6 +97,14 @@ describe('local vs community opacity', () => {
   it('keeps local rain more opaque when the same hash8 exists on both feeds', () => {
     expect(liveOpacity('local', 0, true)).toBeGreaterThan(liveOpacity('community', 0, true));
     expect(liveOpacity('community', 0, true)).toBeLessThan(liveOpacity('community', 0, false));
+  });
+});
+
+describe('live bounds', () => {
+  it('auto-fits only the first time ears appear', () => {
+    expect(liveBoundsShouldFit(false, 0)).toBe(false);
+    expect(liveBoundsShouldFit(false, 1)).toBe(true);
+    expect(liveBoundsShouldFit(true, 3)).toBe(false);
   });
 });
 

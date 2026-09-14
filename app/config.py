@@ -107,6 +107,27 @@ def clear_recent_log_lines() -> None:
     _recent_log_handler.clear()
 
 
+class _UvicornLogHygiene(logging.Filter):
+    """uvicorn.error is a general logger, not errors. WS chatter is traffic.
+
+    See https://github.com/encode/uvicorn/issues/562 — handshake lines use
+    that name at INFO. Rename it for %(name)s and drop the redundant
+    accepted/open/closed trio (app.websocket already records connect).
+    """
+
+    _DROP_EXACT = frozenset({"connection open", "connection closed"})
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name == "uvicorn.error":
+            record.name = "uvicorn"
+        msg = record.getMessage()
+        if msg in self._DROP_EXACT:
+            return False
+        if "WebSocket " in msg and "[accepted]" in msg:
+            return False
+        return True
+
+
 class _RepeatSquelch(logging.Filter):
     """Suppress rapid-fire identical messages and emit a summary instead.
 
@@ -208,3 +229,6 @@ def setup_logging() -> None:
     # Squelch repeated messages from the meshcore library (e.g. rapid-fire
     # "Serial Connection started" when the port is contended).
     logging.getLogger("meshcore").addFilter(_RepeatSquelch())
+    uvicorn_hygiene = _UvicornLogHygiene()
+    for logger_name in ("uvicorn", "uvicorn.error"):
+        logging.getLogger(logger_name).addFilter(uvicorn_hygiene)
