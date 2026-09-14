@@ -7,7 +7,12 @@
 }
 
 html {
+  /* dvh tracks the browser chrome but not the virtual keyboard, which shrinks the
+     visual viewport only. --app-height carries that measurement on the browsers
+     that ignore interactive-widget; see utils/appViewport.ts. It is absent the rest
+     of the time, so dvh stays in charge. */
   height: 100dvh;
+  height: var(--app-height, 100dvh);
 }
 
 body,
@@ -31,6 +36,38 @@ body,
     --safe-area-bottom: constant(safe-area-inset-bottom);
     --safe-area-left: constant(safe-area-inset-left);
     --safe-area-bottom-capped: min(var(--safe-area-bottom), 12px);
+  }
+}
+
+/* An installed PWA reloads the page when you pull down past the top, and every
+   scroll area in the app has a meaningful top: pulling above the oldest loaded
+   message is how you ask for more history, not how you ask to restart the app.
+   The body already refuses to chain, but overscroll chains from the inner container
+   outwards, so the refusal has to be stated where the pull actually starts. `contain`
+   rather than `none`: the bounce inside the area is native feel worth keeping, it
+   just must not escape. */
+[class*='overflow-y-auto'],
+[class*='overflow-auto'],
+[class*='overflow-y-scroll'] {
+  overscroll-behavior-y: contain;
+}
+
+/* iOS Safari zooms the page in when a focused form control renders text under 16px,
+   and it does not zoom back out: the layout is left scaled and panned, so the next
+   drag pans that zoomed page instead of scrolling the list under the finger, and the
+   edges of the screen are the blurred remains of the unzoomed page. The control is
+   the trigger, so the floor goes on the control. Scoped to coarse pointers, which
+   leaves desktop density exactly as designed; max() keeps anything already larger. */
+@media (pointer: coarse) {
+  /* [class] carries one point of specificity, enough to win against the single
+     utility class that sets these sizes without reaching for !important. */
+  input[class]:not([type='checkbox']):not([type='radio']):not([type='range']),
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea[class],
+  textarea,
+  select[class],
+  select {
+    font-size: max(16px, 1em);
   }
 }
 

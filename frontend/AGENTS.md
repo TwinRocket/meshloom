@@ -319,6 +319,36 @@ That gives the store a load-bearing invariant: **no ancestor of `MessageList` ma
 - Packet feed/visualizer render keys and dedup logic should use `observation_id` (fallback to `id` only for older payloads).
 - The dedicated raw packet feed view now includes a frontend-only stats drawer. It tracks a separate lightweight per-observation session history for charts/rankings, so its windows are not limited by the visible packet list cap. Coverage messaging should stay honest when detailed in-memory stats history has been trimmed or the selected window predates the current browser session.
 
+### Conversation layout and scroll ownership
+
+The conversation column owns exactly one vertical scroll area: the message viewport.
+The shell above it must never become a second one, because the composer is laid out
+after the viewport — a shell that scrolls does not reveal more history, it pushes the
+composer past the clip its parent applies and out of reach.
+
+That holds only while every flex child between `#root` and the viewport can shrink.
+A flex item defaults to `min-height: auto`, which refuses to go below its content;
+`overflow` other than `visible` waives that, which is why most of the chain is already
+safe and why `main#main-content` — the one link with visible overflow — carries an
+explicit `min-h-0`. Adding a wrapper without one re-opens the hole silently: nothing
+looks wrong until a conversation is tall enough to matter.
+
+Three device behaviours are handled in `styles.css` and `utils/appViewport.ts` rather
+than per component, since they apply to every view:
+
+- **Keyboard**: `dvh` follows browser chrome, not the virtual keyboard, so a bottom-anchored
+  composer is laid out underneath it. `interactive-widget=resizes-content` fixes this in the
+  browser; `--app-height` carries `visualViewport` for the ones that ignore it.
+- **iOS focus zoom**: a focused control rendering text under 16px zooms the page and does not
+  zoom back, leaving the layout scaled and panned so drags pan instead of scrolling. Coarse
+  pointers get a 16px floor on form controls; desktop density is untouched.
+- **Pull-to-refresh**: an installed PWA reloads on an overscroll at the top, which is exactly
+  the gesture that asks for older messages. Scroll areas contain their overscroll.
+
+`tests/e2e/specs/chat-layout.spec.ts` pins the invariants in a real browser — jsdom has
+no layout engine and sees none of it. The assertions fail if the shrink chain is broken
+anywhere, which is the point: they are about the outcome, not about a class name.
+
 ### Virtualization (`MessageList`)
 
 The message list is windowed with `@tanstack/react-virtual`; only the visible rows are mounted, so render cost no longer scales with conversation length. Three details are load-bearing and easy to break:

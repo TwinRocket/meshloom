@@ -367,7 +367,11 @@ export function AppShell({
           </SheetContent>
         </Sheet>
 
-        <main id="main-content" className="flex-1 flex flex-col bg-background min-w-0">
+        {/* min-h-0 as well as min-w-0: a flex child defaults to min-height:auto, which
+            refuses to shrink below its content. Its parent clips rather than scrolls, so
+            the overflow a tall conversation produces is not a scrollbar — it is the
+            composer pushed past the clip and out of reach. */}
+        <main id="main-content" className="flex-1 flex flex-col bg-background min-w-0 min-h-0">
           <div
             className={cn(
               'flex-1 flex flex-col min-h-0',
