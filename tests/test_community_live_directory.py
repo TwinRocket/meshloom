@@ -101,7 +101,11 @@ class TestListDirectoryMapNodesPaging:
                 for i in range(kept_per_page)
             ]
             nodes += [
-                {"public_key": f"{base + kept_per_page + i:064x}", "name": "nogps", "role": "client"}
+                {
+                    "public_key": f"{base + kept_per_page + i:064x}",
+                    "name": "nogps",
+                    "role": "client",
+                }
                 for i in range(NODES_PAGE_SIZE - kept_per_page)
             ]
             return {"total": total, "nodes": nodes}
