@@ -188,6 +188,62 @@ test.describe('Conversation layout', () => {
     expect(after.horizontalOverflow).toBe(false);
   });
 
+  test('the bottom bar stands down inside a conversation and never covers the composer', async ({
+    page,
+  }) => {
+    const seeded = seedChannelMessages({
+      channelName: CHANNEL_NAME,
+      count: 120,
+      startTimestamp: Math.floor(Date.now() / 1000) - 140,
+    });
+
+    await page.setViewportSize(MOBILE);
+
+    // A tool view: the bar is the primary navigation there.
+    await page.goto('/#raw');
+    await page.waitForTimeout(1_500);
+    const onTool = await page.evaluate(() => {
+      const bar = document.querySelector('nav.fixed[aria-label]');
+      const box = bar?.getBoundingClientRect();
+      return {
+        present: !!box && box.height > 10,
+        insideViewport: !!box && box.bottom <= window.innerHeight + 1 && box.top >= 0,
+      };
+    });
+    expect(onTool.present).toBe(true);
+    expect(onTool.insideViewport).toBe(true);
+
+    // A conversation: the composer owns the bottom instead.
+    await openSeededChannel(page, seeded.key, CHANNEL_NAME);
+    const inChat = await page.evaluate(() => {
+      const bar = document.querySelector('nav.fixed[aria-label]');
+      const textarea = document.querySelector('textarea');
+      let composer: HTMLElement | null = textarea?.parentElement ?? null;
+      while (composer && !/border-t/.test(String(composer.className))) {
+        composer = composer.parentElement;
+      }
+      const composerBox = composer?.getBoundingClientRect();
+      const barBox = bar?.getBoundingClientRect();
+      return {
+        barPresent: !!barBox && barBox.height > 10,
+        composerInViewport: !!(
+          composerBox &&
+          composerBox.top >= 0 &&
+          composerBox.bottom <= window.innerHeight + 1
+        ),
+        overlap: !!(
+          barBox &&
+          composerBox &&
+          composerBox.bottom > barBox.top &&
+          composerBox.top < barBox.bottom
+        ),
+      };
+    });
+    expect(inChat.barPresent).toBe(false);
+    expect(inChat.composerInViewport).toBe(true);
+    expect(inChat.overlap).toBe(false);
+  });
+
   test('the composer survives viewport changes at every size class', async ({ page }) => {
     const seeded = seedChannelMessages({
       channelName: CHANNEL_NAME,

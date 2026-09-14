@@ -2313,5 +2313,15 @@
     "title": "Meshloom",
     "unreadTitle": "({{count}}) Meshloom",
     "newMessage": "Nouveau message"
+  },
+  "bottomNav": {
+    "label": "Navigation principale",
+    "conversations": "Discussions",
+    "map": "Carte",
+    "mesh": "Mesh",
+    "packets": "Paquets",
+    "settings": "Réglages",
+    "unread_one": "{{count}} conversation non lue",
+    "unread_other": "{{count}} conversations non lues"
   }
 }

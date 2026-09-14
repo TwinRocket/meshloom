@@ -13,6 +13,7 @@ import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { StatusBar } from './StatusBar';
 import { Sidebar } from './Sidebar';
 import { ConversationPane } from './ConversationPane';
+import { BottomNav, type BottomNavTarget } from './BottomNav';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -203,6 +204,45 @@ export function AppShell({
   const hasLocalLabel = !!localLabel.text;
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
+
+  // The bar stands down inside a conversation: there the composer owns the bottom of
+  // the screen, and floating over it would either cover the send control or steal a
+  // strip of history for the whole session.
+  // Room servers are contacts, so they are covered by 'contact'.
+  const inConversation = activeType === 'contact' || activeType === 'channel';
+  // Settings render over whatever conversation was last open, so the conversation
+  // underneath must not be what decides.
+  const showBottomNav = showSettings || !inConversation;
+  const bottomNavTarget: BottomNavTarget | null = showSettings
+    ? 'settings'
+    : activeType === 'map'
+      ? 'map'
+      : activeType === 'visualizer'
+        ? 'visualizer'
+        : activeType === 'raw'
+          ? 'raw'
+          : null;
+  const unreadTotal = Object.values(sidebarProps.unreadCounts ?? {}).reduce(
+    (sum, n) => sum + (n > 0 ? 1 : 0),
+    0
+  );
+
+  const handleBottomNav = useCallback(
+    (target: BottomNavTarget) => {
+      if (target === 'settings') {
+        if (!showSettings) onToggleSettingsView();
+        return;
+      }
+      if (showSettings) onToggleSettingsView();
+      if (target === 'conversations') {
+        onSidebarOpenChange(true);
+        return;
+      }
+      const type = target === 'visualizer' ? 'visualizer' : target;
+      sidebarProps.onSelectConversation({ type, id: type, name: type } as never);
+    },
+    [showSettings, onToggleSettingsView, onSidebarOpenChange, sidebarProps]
+  );
   useEffect(() => {
     const measure = () => {
       const anchor =
@@ -376,7 +416,13 @@ export function AppShell({
             refuses to shrink below its content. Its parent clips rather than scrolls, so
             the overflow a tall conversation produces is not a scrollbar — it is the
             composer pushed past the clip and out of reach. */}
-        <main id="main-content" className="flex-1 flex flex-col bg-background min-w-0 min-h-0">
+        <main
+          id="main-content"
+          className={cn(
+            'flex-1 flex flex-col bg-background min-w-0 min-h-0',
+            showBottomNav && '[&_.overflow-y-auto]:has-bottom-nav md:[&_.overflow-y-auto]:pb-0'
+          )}
+        >
           <div
             className={cn(
               'flex-1 flex flex-col min-h-0',
@@ -436,6 +482,10 @@ export function AppShell({
           )}
         </main>
       </div>
+
+      {showBottomNav && (
+        <BottomNav active={bottomNavTarget} unreadTotal={unreadTotal} onSelect={handleBottomNav} />
+      )}
 
       <div
         className={cn(

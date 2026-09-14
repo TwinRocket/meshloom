@@ -61,6 +61,34 @@ body,
   overscroll-behavior-y: contain;
 }
 
+/* Translucent surfaces that let the content below show through, blurred.
+   iOS renders installed apps this way at the screen edges — it blurs whatever sits
+   under the status bar whether we ask for it or not — so an opaque bar reads as a
+   foreign object stuck onto a system that is doing something else. Matching it is
+   cheaper than fighting it. backdrop-filter is the whole effect; where it is not
+   supported the fallback is simply a more opaque surface, which still reads. */
+.liquid-surface {
+  background: hsl(var(--card) / 0.92);
+  border: 1px solid hsl(var(--border) / 0.7);
+  box-shadow:
+    0 8px 28px -12px hsl(0 0% 0% / 0.55),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .liquid-surface {
+    background: hsl(var(--card) / 0.68);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+  }
+}
+
+/* Room for the floating bar, so the last row of a list is not sitting under it.
+   Applied to the scrolling element rather than the page: the page does not scroll. */
+.has-bottom-nav {
+  padding-bottom: calc(4.25rem + var(--safe-area-bottom));
+}
+
 /* iOS Safari zooms the page in when a focused form control renders text under 16px,
    and it does not zoom back out: the layout is left scaled and panned, so the next
    drag pans that zoomed page instead of scrolling the list under the finger, and the
