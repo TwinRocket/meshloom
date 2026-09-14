@@ -90,6 +90,16 @@ describe('LiveView', () => {
     expect(screen.getByText(i18n.t('live.bannerInactive'))).toBeInTheDocument();
   });
 
+  it('starts the rain playing and toggles to play when paused', () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    const toggle = screen.getByRole('button', { name: i18n.t('live.playPause') });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle).toHaveTextContent(i18n.t('live.pause'));
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveTextContent(i18n.t('live.play'));
+  });
+
   it('exposes an IATA-only filter', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     expect(screen.getByLabelText(i18n.t('live.iataFilter'))).toBeInTheDocument();

@@ -18,6 +18,8 @@ export const LIVE_POLYLINE_MAX_MS = 10000;
 export const LIVE_DIM_AFTER_MS = 5 * 60 * 1000;
 export const MAX_LIVE_PARTICLES = 150;
 export const LIVE_HOP_JITTER_DEG = 0.012;
+/** Spread same-IATA ears (~6 km) so stacked observers stay distinct. */
+export const LIVE_EAR_JITTER_DEG = 0.055;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
 
 export type SavedMapCamera = { lat: number; lon: number; zoom: number };
@@ -220,9 +222,14 @@ export function waypointsFromCommunity(
 
   if (!ear) return waypoints;
 
+  if (waypoints.length === 0) {
+    waypoints.push({ lat: ear.lat, lon: ear.lon, token: packet.ear_id, kind: 'ear' });
+    return waypoints;
+  }
+
   if (pendingUnresolved) {
     waypoints.push({ lat: ear.lat, lon: ear.lon, token: packet.ear_id, kind: 'fade' });
-  } else if (waypoints.length > 0) {
+  } else {
     const last = waypoints[waypoints.length - 1];
     if (last.lat !== ear.lat || last.lon !== ear.lon) {
       waypoints.push({ lat: ear.lat, lon: ear.lon, token: packet.ear_id, kind: 'ear' });
@@ -261,9 +268,14 @@ export function waypointsFromRaw(
 
   if (!ear) return waypoints;
 
+  if (waypoints.length === 0) {
+    waypoints.push({ lat: ear.lat, lon: ear.lon, token: earId, kind: 'ear' });
+    return waypoints;
+  }
+
   if (pendingUnresolved) {
     waypoints.push({ lat: ear.lat, lon: ear.lon, token: earId, kind: 'fade' });
-  } else if (waypoints.length > 0) {
+  } else {
     const last = waypoints[waypoints.length - 1];
     if (last.lat !== ear.lat || last.lon !== ear.lon) {
       waypoints.push({ lat: ear.lat, lon: ear.lon, token: earId, kind: 'ear' });
@@ -273,10 +285,23 @@ export function waypointsFromRaw(
   return waypoints;
 }
 
+export function jitterAround(
+  seed: string,
+  lat: number,
+  lon: number,
+  scaleDeg: number
+): { lat: number; lon: number } {
+  const [dlat, dlon] = seededJitter(seed, 17);
+  const mul = scaleDeg / LIVE_HOP_JITTER_DEG;
+  return { lat: lat + dlat * mul, lon: lon + dlon * mul };
+}
+
 export function observationFromCommunity(packet: CommunityPacket): LiveObservation | null {
   if (packet.v !== 1 || !isCommunityPacketType(packet.type)) return null;
   const centroid = iataCentroid(packet.iata);
-  const ear = centroid ? { lat: centroid[0], lon: centroid[1] } : null;
+  const ear = centroid
+    ? jitterAround(packet.ear_id, centroid[0], centroid[1], LIVE_EAR_JITTER_DEG)
+    : null;
   return {
     id: packet.event_id,
     hash8: packet.hash8.toLowerCase(),

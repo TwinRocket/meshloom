@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Pause, Play } from 'lucide-react';
 import { CircleMarker, MapContainer, Polyline, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -237,26 +238,53 @@ function PersistLiveCamera() {
   return null;
 }
 
+const LIVE_FIT_DELAY_MS = 1200;
+
 function FitLiveBounds({ ears }: { ears: EarPulse[] }) {
   const map = useMap();
-  const fitted = useRef(readSavedMapCamera(LIVE_CAMERA_STORAGE_KEY) != null);
+  const fitted = useRef(false);
+  const communityFitted = useRef(false);
+  const userMoved = useRef(false);
 
   useEffect(() => {
     const saved = readSavedMapCamera(LIVE_CAMERA_STORAGE_KEY);
-    if (saved && !fitted.current) {
+    if (saved) {
       map.setView([saved.lat, saved.lon], saved.zoom);
       fitted.current = true;
+      userMoved.current = true;
+    }
+    const markUser = () => {
+      userMoved.current = true;
+    };
+    map.on('dragend', markUser);
+    return () => {
+      map.off('dragend', markUser);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (userMoved.current || !liveBoundsShouldFit(false, ears.length)) return;
+    const hasCommunity = ears.some((ear) => ear.id !== 'local-ear');
+
+    const apply = () => {
+      if (userMoved.current) return;
+      if (ears.length === 1) {
+        map.setView([ears[0].lat, ears[0].lon], 7);
+      } else {
+        const bounds = L.latLngBounds(ears.map((ear) => [ear.lat, ear.lon] as [number, number]));
+        map.fitBounds(bounds.pad(0.35), { maxZoom: 9 });
+      }
+      fitted.current = true;
+      if (hasCommunity) communityFitted.current = true;
+    };
+
+    if (hasCommunity && !communityFitted.current) {
+      apply();
       return;
     }
-    if (!liveBoundsShouldFit(fitted.current, ears.length)) return;
-    const hasCommunity = ears.some((ear) => ear.id !== 'local-ear');
-    if (!hasCommunity) {
-      map.setView([ears[0].lat, ears[0].lon], 7);
-    } else {
-      const bounds = L.latLngBounds(ears.map((ear) => [ear.lat, ear.lon] as [number, number]));
-      map.fitBounds(bounds.pad(0.35), { maxZoom: 9 });
-    }
-    fitted.current = true;
+    if (fitted.current) return;
+    const timer = window.setTimeout(apply, LIVE_FIT_DELAY_MS);
+    return () => window.clearTimeout(timer);
   }, [ears, map]);
 
   return null;
@@ -285,10 +313,12 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
   const rawPackets = useRawPackets();
   const communityPackets = useCommunityPackets();
   const connection = useLiveConnectionState();
+  const [playing, setPlaying] = useState(true);
   const [iataFilter, setIataFilter] = useState('');
   const [particles, setParticles] = useState<RainParticle[]>([]);
   const [lines, setLines] = useState<FadeLine[]>([]);
   const [ears, setEars] = useState<EarPulse[]>([]);
+  const [hopDots, setHopDots] = useState<EarPulse[]>([]);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const seenRef = useRef<Set<string>>(new Set());
   const spawnIndexRef = useRef(0);
@@ -362,31 +392,43 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
 
   useEffect(() => {
     const now = Date.now();
-    const fresh = observations.filter((obs) => !isStaleLiveTime(obs.t, now) && obs.t > 0);
-    const newcomers = fresh.filter((obs) => !seenRef.current.has(obs.id));
+    const newcomers = observations.filter((obs) => !seenRef.current.has(obs.id));
     if (newcomers.length === 0) return;
 
     const nextParticles: RainParticle[] = [];
     const nextEars: EarPulse[] = [];
+    const nextHops: EarPulse[] = [];
     for (const obs of newcomers) {
       seenRef.current.add(obs.id);
       const staggerMs = (spawnIndexRef.current++ % 8) * LIVE_STAGGER_MS;
       const twin = obs.source === 'community' && localHash8.has(obs.hash8);
       const jittered = applyHopJitter(obs.waypoints, obs.id);
-      nextParticles.push({
-        id: obs.id,
-        color: liveTypeColor(obs.type),
-        opacity: liveOpacity(obs.source, obs.snr, twin),
-        radius: 3.5 + snrWeight(obs.snr) * 4,
-        waypoints: jittered,
-        startedAt: now,
-        staggerMs,
-      });
+      if (playing) {
+        nextParticles.push({
+          id: obs.id,
+          color: liveTypeColor(obs.type),
+          opacity: liveOpacity(obs.source, obs.snr, twin),
+          radius: 3.5 + snrWeight(obs.snr) * 4,
+          waypoints: jittered,
+          startedAt: now,
+          staggerMs,
+        });
+      }
       if (obs.ear) {
         nextEars.push({
           id: obs.earId,
           lat: obs.ear.lat,
           lon: obs.ear.lon,
+          lastAt: now,
+          iata: obs.iata,
+        });
+      }
+      for (const point of jittered) {
+        if (point.kind !== 'hop') continue;
+        nextHops.push({
+          id: `hop:${point.token}:${point.lat.toFixed(4)}:${point.lon.toFixed(4)}`,
+          lat: point.lat,
+          lon: point.lon,
           lastAt: now,
           iata: obs.iata,
         });
@@ -404,7 +446,12 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       for (const ear of nextEars) map.set(ear.id, ear);
       return [...map.values()];
     });
-  }, [localHash8, observations]);
+    setHopDots((prev) => {
+      const map = new Map(prev.map((hop) => [hop.id, hop]));
+      for (const hop of nextHops) map.set(hop.id, hop);
+      return [...map.values()].slice(-200);
+    });
+  }, [localHash8, observations, playing]);
 
   const onFinished = useCallback((particle: RainParticle) => {
     const path = polylinePositions(particle.waypoints);
@@ -473,6 +520,25 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       )}
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
+        <Button
+          size="sm"
+          variant="secondary"
+          aria-label={t('live.playPause')}
+          aria-pressed={playing}
+          onClick={() => setPlaying((current) => !current)}
+        >
+          {playing ? (
+            <>
+              <Pause className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              {t('live.pause')}
+            </>
+          ) : (
+            <>
+              <Play className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              {t('live.play')}
+            </>
+          )}
+        </Button>
         <label className="flex items-center gap-1.5">
           <span className="text-muted-foreground">{t('live.iataFilter')}</span>
           <select
@@ -489,45 +555,49 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
             ))}
           </select>
         </label>
-        <span className="text-muted-foreground">{t('live.fixtures')}</span>
-        <Button size="sm" variant="secondary" onClick={() => playLivePacketFixtures()}>
-          {t('live.playFixtures')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => simulateLiveJwtExpired()}>
-          {t('live.simulateExpired')}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setLiveInactiveObserver(!connection.inactiveObserver)}
-        >
-          {t('live.simulateInactive')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => setLiveOptOut(!connection.optOut)}>
-          {t('live.simulateOptOut')}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() =>
-            setLiveCloseCode(
-              connection.closeCode === LIVE_CLOSE_SLOT_BUSY ? null : LIVE_CLOSE_SLOT_BUSY
-            )
-          }
-        >
-          {t('live.simulateSlotBusy')}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() =>
-            setLiveCloseCode(
-              connection.closeCode === LIVE_CLOSE_RATE_LIMIT ? null : LIVE_CLOSE_RATE_LIMIT
-            )
-          }
-        >
-          {t('live.simulateRateLimit')}
-        </Button>
+        {import.meta.env.DEV && (
+          <>
+            <span className="text-muted-foreground">{t('live.fixtures')}</span>
+            <Button size="sm" variant="ghost" onClick={() => playLivePacketFixtures()}>
+              {t('live.playFixtures')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => simulateLiveJwtExpired()}>
+              {t('live.simulateExpired')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setLiveInactiveObserver(!connection.inactiveObserver)}
+            >
+              {t('live.simulateInactive')}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLiveOptOut(!connection.optOut)}>
+              {t('live.simulateOptOut')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setLiveCloseCode(
+                  connection.closeCode === LIVE_CLOSE_SLOT_BUSY ? null : LIVE_CLOSE_SLOT_BUSY
+                )
+              }
+            >
+              {t('live.simulateSlotBusy')}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setLiveCloseCode(
+                  connection.closeCode === LIVE_CLOSE_RATE_LIMIT ? null : LIVE_CLOSE_RATE_LIMIT
+                )
+              }
+            >
+              {t('live.simulateRateLimit')}
+            </Button>
+          </>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-2 text-[0.6875rem]">
           {(['advert', 'text', 'ack', 'trace', 'other'] as const).map((type) => (
             <span key={type} className="flex items-center gap-1">
@@ -570,6 +640,19 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
               />
             );
           })}
+          {hopDots.map((hop) => (
+            <CircleMarker
+              key={hop.id}
+              center={[hop.lat, hop.lon]}
+              radius={5}
+              pathOptions={{
+                color: '#94a3b8',
+                fillColor: '#cbd5e1',
+                fillOpacity: isStaleLiveTime(hop.lastAt, nowTick) ? 0.15 : 0.55,
+                weight: 1,
+              }}
+            />
+          ))}
           {earMarkers.map((ear) => {
             const dim = isStaleLiveTime(ear.lastAt, nowTick);
             const pulse = nowTick - ear.lastAt < 1800;

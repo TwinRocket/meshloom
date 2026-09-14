@@ -87,9 +87,28 @@ describe('community waypoints', () => {
   it('places a community ear on any IATA centroid, not a 5-city allow-list', () => {
     const jfk = observationFromCommunity({ ...packet, event_id: 'e-jfk', iata: 'JFK' });
     const nrt = observationFromCommunity({ ...packet, event_id: 'e-nrt', iata: 'NRT' });
-    expect(jfk?.ear).toEqual({ lat: 40.6394, lon: -73.7793 });
-    expect(nrt?.ear).toEqual({ lat: 35.7686, lon: 140.3887 });
+    expect(jfk?.ear).not.toBeNull();
+    expect(nrt?.ear).not.toBeNull();
+    expect(Math.abs((jfk?.ear?.lat ?? 0) - 40.6394)).toBeLessThan(0.2);
+    expect(Math.abs((nrt?.ear?.lat ?? 0) - 35.7686)).toBeLessThan(0.2);
     expect(observationFromCommunity({ ...packet, iata: 'ZZZ' })?.ear).toBeNull();
+  });
+
+  it('pulses the ear when a community packet has no resolved hops', () => {
+    const direct: CommunityPacket = {
+      ...packet,
+      path: [],
+      hop_count: 0,
+      hops: [],
+    };
+    const waypoints = waypointsFromCommunity(direct, { lat: 45.7, lon: 4.8 });
+    expect(waypoints).toEqual([{ lat: 45.7, lon: 4.8, token: 'ear-1', kind: 'ear' }]);
+  });
+
+  it('spreads two ears that share an IATA', () => {
+    const a = observationFromCommunity({ ...packet, ear_id: 'ear-a', iata: 'LYS' });
+    const b = observationFromCommunity({ ...packet, ear_id: 'ear-b', iata: 'LYS' });
+    expect(a?.ear).not.toEqual(b?.ear);
   });
 });
 
