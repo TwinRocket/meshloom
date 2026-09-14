@@ -1493,7 +1493,8 @@
     "batteryTitle": "Battery: {{pct}}% ({{volts}}V)",
     "batteryAria": "Battery {{pct}} percent",
     "themeClassic": "Switch to classic theme",
-    "themeLight": "Switch to light theme"
+    "themeLight": "Switch to light theme",
+    "radioStatusOpensSettings": "{{status}} — open radio settings"
   },
   "security": {
     "title": "Unprotected bot execution is enabled",

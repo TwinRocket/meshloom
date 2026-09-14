@@ -6,8 +6,6 @@ import {
   BatteryLow,
   BatteryMedium,
   BatteryWarning,
-  Menu,
-  ChevronLeft,
   Moon,
   Settings,
   Sun,
@@ -38,23 +36,20 @@ interface StatusBarProps {
   health: HealthStatus | null;
   config: RadioConfig | null;
   settingsMode?: boolean;
-  /** In a conversation the top-left control goes back to the list instead of opening it. */
-  inConversation?: boolean;
   onSettingsClick: () => void;
   onOpenRadioSettings?: () => void;
   onOpenIdentityModal?: () => void;
-  onMenuClick?: () => void;
+  className?: string;
 }
 
 export function StatusBar({
   health,
   config,
   settingsMode = false,
-  inConversation = false,
   onSettingsClick,
   onOpenRadioSettings,
   onOpenIdentityModal,
-  onMenuClick,
+  className,
 }: StatusBarProps) {
   const { t } = useTranslation();
   const [showBatteryPercent, setShowBatteryPercent] = useState(getShowBatteryPercent);
@@ -211,25 +206,12 @@ export function StatusBar({
   };
 
   return (
-    <header className="flex min-w-0 items-center gap-2 border-b border-border bg-card px-4 py-2.5 text-xs sm:gap-3">
-      {/* Top-left control, narrow screens only. Reading a conversation, the list is
-          somewhere you came from, so it is a back arrow; everywhere else the list is
-          somewhere you have not been yet, so it is a menu. Same target, and on an
-          installed app this is the only way back — there is no browser button. */}
-      {onMenuClick && (
-        <button
-          onClick={onMenuClick}
-          className="-ml-1.5 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-          aria-label={inConversation ? t('shell.backToConversations') : t('statusBar.openMenu')}
-        >
-          {inConversation ? (
-            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-          ) : (
-            <Menu className="h-4 w-4" aria-hidden="true" />
-          )}
-        </button>
+    <header
+      className={cn(
+        'flex min-w-0 items-center gap-2 border-b border-border bg-card px-4 py-2.5 text-xs sm:gap-3',
+        className
       )}
-
+    >
       <h1
         aria-label="Meshloom"
         className="mr-auto flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-foreground"

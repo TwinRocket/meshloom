@@ -385,18 +385,18 @@ export function AppShell({
         </div>
       )}
 
+      {/* Desktop only. On a phone its whole job has moved: navigation to the bar,
+          the way back into the conversation's own header, the radio state onto the
+          screens that need it, and settings and theme into Settings. What was left
+          was a bar saying the app's name. */}
       <StatusBar
+        className="hidden md:flex"
         health={statusProps.health}
         config={statusProps.config}
         settingsMode={showSettings}
         onSettingsClick={onToggleSettingsView}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
         onOpenIdentityModal={() => setIdentityModalForced(true)}
-        inConversation={inConversation}
-        // Narrow screens navigate from the bar and the list, so the only thing left
-        // for this control is going back out of a conversation. No conversation, no
-        // control — a burger opening a drawer nothing else uses is furniture.
-        onMenuClick={inConversation ? onClearActiveConversation : undefined}
       />
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner
@@ -451,6 +451,8 @@ export function AppShell({
                   onToggleCracker={sidebarProps.onToggleCracker}
                   onMarkAllRead={sidebarProps.onMarkAllRead}
                   crackerVisible={sidebarProps.showCracker}
+                  health={statusProps.health}
+                  onOpenRadioSettings={() => handleOpenSettings('radio')}
                 />
               ) : (
                 <ConversationListView
@@ -462,6 +464,8 @@ export function AppShell({
                   lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
                   onSelectConversation={sidebarProps.onSelectConversation}
                   onNewMessage={sidebarProps.onNewMessage}
+                  health={statusProps.health}
+                  onOpenRadioSettings={() => handleOpenSettings('radio')}
                 />
               )}
             </div>
@@ -478,6 +482,7 @@ export function AppShell({
             <ConversationPane
               {...conversationPaneProps}
               communityEnabled={communityStatus?.enabled ?? true}
+              onBack={onClearActiveConversation}
             />
           </div>
 

@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, BellOff, ChevronsLeftRight, Globe2, Info, Route, Star, Trash2 } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  ChevronsLeftRight,
+  Globe2,
+  Info,
+  Route,
+  Star,
+  Trash2,
+  ChevronLeft,
+} from 'lucide-react';
 import { toast } from './ui/sonner';
 import { DirectTraceIcon } from './DirectTraceIcon';
 import { ContactPathDiscoveryModal } from './ContactPathDiscoveryModal';
@@ -34,10 +44,13 @@ interface ChatHeaderProps {
   onDeleteContact: (publicKey: string) => void;
   onOpenContactInfo?: (publicKey: string) => void;
   onOpenChannelInfo?: (channelKey: string) => void;
+  /** Leaves the conversation for the list. Narrow layouts only — where it is the way out. */
+  onBack?: () => void;
 }
 
 export function ChatHeader({
   conversation,
+  onBack,
   contacts,
   channels,
   config,
@@ -196,6 +209,18 @@ export function ChatHeader({
       )}
     >
       <span className="flex min-w-0 items-start gap-2">
+        {/* The way out of a conversation belongs to the conversation, next to whose
+            conversation it is — not to a bar above it that says the app's name. */}
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label={t('shell.backToConversations')}
+            className="-ml-1.5 mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+        )}
         {conversation.type === 'contact' && onOpenContactInfo && (
           <button
             type="button"

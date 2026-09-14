@@ -1493,7 +1493,8 @@
     "batteryTitle": "Batterie : {{pct}} % ({{volts}} V)",
     "batteryAria": "Batterie {{pct}} pour cent",
     "themeClassic": "Passer au thème classique",
-    "themeLight": "Passer au thème clair"
+    "themeLight": "Passer au thème clair",
+    "radioStatusOpensSettings": "{{status}} — ouvrir les réglages radio"
   },
   "security": {
     "title": "L’exécution non protégée de bots est activée",

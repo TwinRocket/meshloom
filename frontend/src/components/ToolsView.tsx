@@ -8,7 +8,8 @@ import {
   Unlock,
   CheckCheck,
 } from 'lucide-react';
-import type { Conversation } from '../types';
+import type { Conversation, HealthStatus } from '../types';
+import { RadioStatusChip } from './RadioStatusChip';
 
 /**
  * Everything that is not a conversation, as a screen.
@@ -26,6 +27,8 @@ interface Props {
   onToggleCracker: () => void;
   onMarkAllRead: () => void;
   crackerVisible: boolean;
+  health?: HealthStatus | null;
+  onOpenRadioSettings?: () => void;
 }
 
 const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeof List }[] = [
@@ -69,14 +72,21 @@ export function ToolsView({
   onToggleCracker,
   onMarkAllRead,
   crackerVisible,
+  health,
+  onOpenRadioSettings,
 }: Props) {
   const { t } = useTranslation();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <h1 className="px-4 pb-2 pt-3 text-2xl font-semibold tracking-tight">
-        {t('toolsView.title')}
-      </h1>
+      <div className="flex items-center gap-2 px-4 pb-2 pt-3">
+        <h1 className="text-2xl font-semibold tracking-tight">{t('toolsView.title')}</h1>
+        <RadioStatusChip
+          health={health ?? null}
+          onOpenRadioSettings={onOpenRadioSettings}
+          className="ml-auto max-w-[9rem]"
+        />
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ul>

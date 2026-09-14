@@ -53,6 +53,8 @@ interface ConversationPaneProps {
   hasNewerMessages: boolean;
   loadingNewer: boolean;
   messageInputRef: Ref<MessageInputHandle>;
+  /** Leaves the conversation for the list, on narrow layouts. */
+  onBack?: () => void;
   onTrace: () => Promise<void>;
   onRunTracePath: (
     hopHashBytes: 1 | 2 | 4,
@@ -137,6 +139,7 @@ export function ConversationPane({
   hasNewerMessages,
   loadingNewer,
   messageInputRef,
+  onBack,
   onTrace,
   onRunTracePath,
   onPathDiscovery,
@@ -340,6 +343,7 @@ export function ConversationPane({
         onDeleteContact={onDeleteContact}
         onOpenContactInfo={onOpenContactInfo}
         onOpenChannelInfo={onOpenChannelInfo}
+        onBack={onBack}
       />
       {activeConversation.type === 'contact' && isPrefixOnlyActiveContact && (
         <ContactResolutionBanner variant="prefix-only" />

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, Hash, X } from 'lucide-react';
-import type { Channel, Contact, Conversation } from '../types';
+import type { Channel, Contact, Conversation, HealthStatus } from '../types';
 import { ContactAvatar } from './ContactAvatar';
+import { RadioStatusChip } from './RadioStatusChip';
 import { cn } from '../lib/utils';
 
 /**
@@ -29,6 +30,8 @@ interface Props {
   lastMessagePreviews: Record<string, string>;
   onSelectConversation: (conversation: Conversation) => void;
   onNewMessage: () => void;
+  health?: HealthStatus | null;
+  onOpenRadioSettings?: () => void;
 }
 
 interface Row {
@@ -75,6 +78,8 @@ export function ConversationListView({
   lastMessagePreviews,
   onSelectConversation,
   onNewMessage,
+  health,
+  onOpenRadioSettings,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
@@ -145,9 +150,12 @@ export function ConversationListView({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 px-4 pb-2 pt-3">
-        <h1 className="mr-auto text-2xl font-semibold tracking-tight">
-          {t('conversationList.title')}
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
+        <RadioStatusChip
+          health={health ?? null}
+          onOpenRadioSettings={onOpenRadioSettings}
+          className="ml-auto max-w-[9rem]"
+        />
         <button
           type="button"
           onClick={onNewMessage}
