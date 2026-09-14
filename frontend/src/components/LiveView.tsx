@@ -117,7 +117,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
 
   useEffect(() => {
     let cancelled = false;
-    void api.getDirectoryMapNodesAll().then(
+    void api.getDirectoryMapNodes().then(
       (res) => {
         if (!cancelled) engineRef.current?.setDirectoryNodes(res.nodes);
       },

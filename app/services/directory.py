@@ -43,7 +43,7 @@ RESOLVE_TIMEOUT_SECONDS = 4.0
 SPEC_TIMEOUT_SECONDS = 5.0
 NODES_TIMEOUT_SECONDS = 8.0
 NODES_PAGE_SIZE = 500
-NODES_MAX_PAGES = 8
+NODES_MAX_PAGES = 40
 NODES_CACHE_TTL_SECONDS = 600
 REACH_TIMEOUT_SECONDS = 8.0
 REACH_CACHE_TTL_SECONDS = 300
@@ -490,11 +490,13 @@ async def _collect_map_node_pages(
                 merged[node.public_key] = node
                 new_on_page += 1
         offset += NODES_PAGE_SIZE
-        if len(page) < NODES_PAGE_SIZE:
-            break
-        if total is not None and offset >= total:
-            break
-        if new_on_page == 0:
+        if total_out is not None:
+            # A page is short because nodes without GPS were dropped, not because
+            # the directory ended. Only the upstream total can say where it ends.
+            if offset >= total_out:
+                break
+            continue
+        if len(page) < NODES_PAGE_SIZE or new_on_page == 0:
             break
     return list(merged.values()), total_out
 

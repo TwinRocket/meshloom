@@ -18,7 +18,6 @@ vi.mock('../api', () => ({
     unsubscribeCommunityLive: vi.fn(),
     relancerCommunityLive: vi.fn(),
     getDirectoryMapNodes: vi.fn(),
-    getDirectoryMapNodesAll: vi.fn(),
   },
 }));
 
@@ -94,7 +93,7 @@ describe('LiveView', () => {
       opted_out: false,
       connected: true,
     });
-    vi.mocked(api.getDirectoryMapNodesAll).mockResolvedValue({
+    vi.mocked(api.getDirectoryMapNodes).mockResolvedValue({
       nodes: [
         {
           public_key: 'aa',
@@ -174,7 +173,7 @@ describe('LiveView', () => {
   it('loads community directory nodes as the permanent map layer', async () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     await waitFor(() => {
-      expect(api.getDirectoryMapNodesAll).toHaveBeenCalled();
+      expect(api.getDirectoryMapNodes).toHaveBeenCalled();
     });
   });
 

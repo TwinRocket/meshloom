@@ -15,7 +15,6 @@ import type {
   ContactAdvertPathSummary,
   DirectoryMapNodesQuery,
   DirectoryMapNodesResponse,
-  DirectoryNodeRole,
   DirectoryNeighborsResponse,
   DirectoryNodeSearchResponse,
   DirectoryReachResponse,
@@ -483,24 +482,6 @@ export const api = {
     if (query?.role) search.set('role', query.role);
     const qs = search.toString();
     return fetchJson<DirectoryMapNodesResponse>(`/directory/nodes${qs ? `?${qs}` : ''}`);
-  },
-  getDirectoryMapNodesAll: async (
-    pageSize = 500,
-    role?: DirectoryNodeRole
-  ): Promise<DirectoryMapNodesResponse> => {
-    const first = await api.getDirectoryMapNodes({ limit: pageSize, offset: 0, role });
-    const total = first.total;
-    if (total == null || first.nodes.length >= total || first.nodes.length === 0) {
-      return first;
-    }
-    const nodes = [...first.nodes];
-    while (nodes.length < total) {
-      const page = await api.getDirectoryMapNodes({ limit: pageSize, offset: nodes.length, role });
-      if (page.nodes.length === 0) break;
-      nodes.push(...page.nodes);
-      if (page.nodes.length < pageSize) break;
-    }
-    return { nodes, total };
   },
   searchDirectoryNodes: (q: string) =>
     fetchJson<DirectoryNodeSearchResponse>(`/directory/nodes/search?q=${encodeURIComponent(q)}`),

@@ -88,6 +88,41 @@ class TestListDirectoryMapNodesPaging:
         assert cached.nodes[0].name == result.nodes[0].name
         assert calls == [0, NODES_PAGE_SIZE]
 
+    async def test_gps_less_rows_do_not_look_like_the_end_of_the_directory(self, test_db):
+        """A page shrinks because nodes lack GPS, not because the directory ran out."""
+        reset_directory_nodes_cache()
+        total = NODES_PAGE_SIZE * 3
+        kept_per_page = 5
+
+        def page(index: int) -> dict:
+            base = index * NODES_PAGE_SIZE
+            nodes = [
+                _node(f"{base + i:064x}", role="client", name=f"n{base + i}")
+                for i in range(kept_per_page)
+            ]
+            nodes += [
+                {"public_key": f"{base + kept_per_page + i:064x}", "name": "nogps", "role": "client"}
+                for i in range(NODES_PAGE_SIZE - kept_per_page)
+            ]
+            return {"total": total, "nodes": nodes}
+
+        calls: list[int] = []
+
+        async def fake_data(_path: str, params: dict | None = None, **_kwargs: object) -> object:
+            offset = 0 if params is None else int(params.get("offset", 0))
+            calls.append(offset)
+            return page(offset // NODES_PAGE_SIZE)
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
+            result = await list_directory_map_nodes()
+
+        assert calls == [0, NODES_PAGE_SIZE, NODES_PAGE_SIZE * 2]
+        assert len(result.nodes) == kept_per_page * 3
+        assert result.total == total
+
     async def test_corescope_omits_role_filter_and_pages(self, test_db):
         reset_directory_nodes_cache()
         await AppSettingsRepository.update(
