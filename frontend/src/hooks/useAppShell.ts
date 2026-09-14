@@ -30,7 +30,7 @@ interface UseAppShellResult {
   setDistanceUnit: (unit: DistanceUnit) => void;
   setRenderRichPayloads: (enabled: boolean) => void;
   setShowPathHopWidth: (enabled: boolean) => void;
-  handleCloseSettingsView: () => void;
+  handleCloseSettingsView: (restoreLocation?: boolean) => void;
   handleToggleSettingsView: () => void;
   handleOpenNewMessage: () => void;
   handleCloseNewMessage: () => void;
@@ -70,16 +70,31 @@ export function useAppShell(): UseAppShellResult {
     }
   }, [settingsSection, showSettings]);
 
-  const handleCloseSettingsView = useCallback(() => {
+  /**
+   * Leave settings.
+   *
+   * `restoreLocation` puts back whatever was open before, which is what closing
+   * settings means. It must not happen when the reader is leaving *for* somewhere
+   * else: the restoration goes through `history.back()`, whose popstate lands
+   * after the new destination has been set and quietly replaces it — clicking
+   * Conversations from settings returned to the tool that was open beforehand.
+   */
+  const handleCloseSettingsView = useCallback((restoreLocation = true) => {
     startTransition(() => setShowSettings(false));
     setSidebarOpen(false);
-    if (typeof window !== 'undefined') {
-      if (pushedSettingsEntryRef.current) {
-        pushedSettingsEntryRef.current = false;
-        window.history.back();
-      } else if (parseHashSettingsSection() !== null) {
-        window.history.replaceState(null, '', previousHashRef.current || window.location.pathname);
+    if (typeof window === 'undefined') return;
+    if (!restoreLocation) {
+      pushedSettingsEntryRef.current = false;
+      if (parseHashSettingsSection() !== null) {
+        window.history.replaceState(null, '', window.location.pathname);
       }
+      return;
+    }
+    if (pushedSettingsEntryRef.current) {
+      pushedSettingsEntryRef.current = false;
+      window.history.back();
+    } else if (parseHashSettingsSection() !== null) {
+      window.history.replaceState(null, '', previousHashRef.current || window.location.pathname);
     }
   }, []);
 

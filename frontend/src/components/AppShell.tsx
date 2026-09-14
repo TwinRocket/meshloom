@@ -75,7 +75,7 @@ interface AppShellProps {
   onToggleSettingsView: () => void;
   /** Leaves the open conversation for the list, on narrow screens. */
   onClearActiveConversation: () => void;
-  onCloseSettingsView: () => void;
+  onCloseSettingsView: (restoreLocation?: boolean) => void;
   onCloseNewMessage: () => void;
   onCloseBulkAddResults: () => void;
   onLocalLabelChange: (label: LocalLabel) => void;
@@ -238,7 +238,10 @@ export function AppShell({
         if (!showSettings) onToggleSettingsView();
         return;
       }
-      if (showSettings) onToggleSettingsView();
+      // Leaving settings *for* somewhere else, so the previous location must not be
+      // restored: that restoration is a history.back(), and its popstate lands
+      // after the new destination and replaces it.
+      if (showSettings) onCloseSettingsView(false);
       if (target === 'map') {
         setMobileScreen('conversations');
         sidebarProps.onSelectConversation({ type: 'map', id: 'map', name: 'map' } as never);
@@ -252,6 +255,7 @@ export function AppShell({
     [
       showSettings,
       onToggleSettingsView,
+      onCloseSettingsView,
       onSettingsSectionChange,
       sidebarProps,
       onClearActiveConversation,
@@ -348,7 +352,9 @@ export function AppShell({
           onSelect={handleBottomNav}
           health={statusProps.health ?? null}
           order={navRailOrder}
-          activeToolId={activeType ?? null}
+          // Settings render over whatever was open, so the pane underneath must not
+          // keep the rail lit: two places cannot both be where you are.
+          activeToolId={showSettings ? null : (activeType ?? null)}
           onOpenRadioStatus={() => setRadioStatusOpen(true)}
           onSelectTool={(id) => {
             if (showSettings) onToggleSettingsView();

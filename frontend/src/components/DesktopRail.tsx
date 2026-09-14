@@ -97,11 +97,10 @@ export function DesktopRail({
           are built. Anchoring these here also means adding a tool never moves
           them, so their rank stops being a question.
 
-          None of them carries aria-current, and that is the point rather than an
-          omission. A catalogue is a door, not a location: marking Tools as current
-          while a tool opened from it is also marked gives "where am I" two answers
-          at once. What is open is marked in the group above when it is on the
-          rail, and by the pane's own title when it is not. */}
+          Settings is marked like any destination — it is a place, with a list and
+          a pane of its own. The rule this group needs is narrower than "never mark
+          the bottom": what must not be marked is a catalogue, which would light up
+          beside the thing opened from it. There is no catalogue here. */}
       <div className="mt-auto flex flex-col items-center gap-1 pt-2">
         {/* The dot is enough to notice something is wrong and never enough to act
             on it, so it opens what it is a summary of rather than the settings —
@@ -113,9 +112,13 @@ export function DesktopRail({
             key={target}
             type="button"
             onClick={() => onSelect(target)}
+            aria-current={active === target ? 'page' : undefined}
             aria-label={t(labelKey)}
             title={t(labelKey)}
-            className={DOOR_CLASS}
+            className={cn(
+              DOOR_CLASS,
+              active === target && 'bg-primary/15 text-primary hover:text-primary'
+            )}
           >
             <Icon className="h-[1.25rem] w-[1.25rem]" aria-hidden="true" />
           </button>
