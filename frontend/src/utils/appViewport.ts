@@ -41,10 +41,25 @@ export function initAppViewport(): () => void {
 
   const root = document.documentElement;
 
+  /**
+   * A keyboard needs something to type into. Without this gate the height was driven
+   * by the measurement alone, and an installed app reports a much shorter visual
+   * viewport while it is still opening — which looked exactly like a keyboard, got
+   * written down, and was never revisited because no further event arrived. The
+   * result was a shell a third shorter than the screen for the whole session, with
+   * the bar still anchored to the viewport and a void between the two.
+   */
+  const keyboardPlausible = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
+  };
+
   const apply = () => {
     const layoutHeight = window.innerHeight;
     const visibleHeight = vv.height;
-    if (layoutHeight - visibleHeight >= KEYBOARD_MIN_DELTA_PX) {
+    if (keyboardPlausible() && layoutHeight - visibleHeight >= KEYBOARD_MIN_DELTA_PX) {
       root.style.setProperty(APP_HEIGHT_VAR, `${Math.round(visibleHeight)}px`);
     } else {
       root.style.removeProperty(APP_HEIGHT_VAR);
@@ -56,9 +71,14 @@ export function initAppViewport(): () => void {
   // The visual viewport also pans: iOS scrolls the focused field into view by moving
   // it rather than resizing, and the offset is what leaves the layout looking shifted.
   vv.addEventListener('scroll', apply);
+  // Focus changes are the other half: the keyboard closing is a blur, not a resize.
+  document.addEventListener('focusin', apply, true);
+  document.addEventListener('focusout', apply, true);
   return () => {
     vv.removeEventListener('resize', apply);
     vv.removeEventListener('scroll', apply);
+    document.removeEventListener('focusin', apply, true);
+    document.removeEventListener('focusout', apply, true);
     root.style.removeProperty(APP_HEIGHT_VAR);
   };
 }
