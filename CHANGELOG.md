@@ -1,3 +1,25 @@
+## [4.7.1] - 2026-09-14
+
+A client connecting to a Meshloom proxy could be told the radio had been swapped, and offered to erase its mesh history to adopt a node that does not exist.
+
+### What's new
+
+- **A proxy no longer claims an identity it does not have.** While a Meshloom is still coming up it knows neither its radio's key nor its own stored one, and it answered connecting clients with a key of all zeros and the name "Meshloom". That is a well-formed key, so the client compared it against the identity it was bound to, found it different, and offered to erase every mesh contact and message in order to adopt it. The proxy now answers with its real key, or with an error while it has none — a client that cannot be told the truth is told nothing.
+- **An all-zero key is treated as no key at all.** The other half of the same fix, on the receiving side: a client refuses to read zeros as an identity whatever sent them, so it waits instead of proposing to erase anything. A radio whose key is genuinely different still raises the same warning it always did.
+
+---
+
+### Français
+
+Un client se connectant à un proxy Meshloom pouvait s'entendre dire que la radio avait été remplacée, et se voir proposer d'effacer son historique mesh pour adopter un nœud qui n'existe pas.
+
+#### Quoi de neuf
+
+- **Un proxy n'annonce plus une identité qu'il n'a pas.** Pendant qu'un Meshloom démarre, il ne connaît ni la clé de sa radio ni la sienne en base, et il répondait aux clients qui se connectaient par une clé entièrement nulle et le nom « Meshloom ». Cette clé est bien formée : le client la comparait à l'identité à laquelle il est lié, la trouvait différente, et proposait d'effacer tous les contacts et messages mesh pour l'adopter. Le proxy répond désormais avec sa vraie clé, ou par une erreur tant qu'il n'en a pas — un client à qui on ne peut pas dire la vérité ne s'entend rien dire.
+- **Une clé entièrement nulle vaut absence de clé.** L'autre moitié du même correctif, côté réception : un client refuse de lire des zéros comme une identité, quel que soit l'émetteur, et attend au lieu de proposer d'effacer quoi que ce soit. Une radio dont la clé est réellement différente déclenche toujours le même avertissement qu'avant.
+
+---
+
 ## [4.7.0] - 2026-09-14
 
 This release rebuilds the phone app around a bar at the bottom of the screen, and rebuilds the live map on a new engine. Installed on a phone, Meshloom now fills the screen and stays put.
