@@ -148,7 +148,12 @@ export function AppShell({
     },
     trackTouch: true,
     trackMouse: false,
-    preventScrollOnSwipe: true,
+    // These handlers sit on the app root, so they see every touch in the app — including
+    // a drag down a conversation or the sidebar list. Preventing default here registers a
+    // non-passive touchmove listener over the whole tree and cancels those scrolls along
+    // with the edge swipe it was meant for. The gesture is recognised from its direction
+    // and starting point; it does not need to suppress scrolling to do that.
+    preventScrollOnSwipe: false,
   });
 
   const closeSwipeHandlers = useSwipeable({
@@ -334,7 +339,7 @@ export function AppShell({
         onSettingsClick={onToggleSettingsView}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
         onOpenIdentityModal={() => setIdentityModalForced(true)}
-        onMenuClick={showSettings ? undefined : () => onSidebarOpenChange(true)}
+        onMenuClick={() => onSidebarOpenChange(true)}
       />
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner

@@ -116,13 +116,12 @@ export function SettingsModal(props: SettingsModalProps) {
   const externalSidebarNav = props.externalSidebarNav === true;
   const desktopSection = props.externalSidebarNav ? props.desktopSection : undefined;
 
-  const getIsMobileLayout = () => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-    return window.matchMedia('(max-width: 767px)').matches;
-  };
-
-  const [isMobileLayout, setIsMobileLayout] = useState(getIsMobileLayout);
-  const externalDesktopSidebarMode = externalSidebarNav && !isMobileLayout;
+  // One section at a time, at every width. The narrow layout used to stack all of
+  // them as an accordion because the burger was disabled in settings mode, leaving no
+  // way to reach the section list — so the list had to be the page. The burger opens
+  // it now, which makes settings navigate like every other view instead of being the
+  // one place that scrolls through everything at once.
+  const externalDesktopSidebarMode = externalSidebarNav;
   const [expandedSections, setExpandedSections] = useState<Record<SettingsSection, boolean>>({
     radio: false,
     proxy: false,
@@ -142,44 +141,6 @@ export function SettingsModal(props: SettingsModalProps) {
       onRefreshAppSettings();
     }
   }, [open, pageMode, onRefreshAppSettings]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-
-    const query = window.matchMedia('(max-width: 767px)');
-    const onChange = (event: MediaQueryListEvent) => {
-      setIsMobileLayout(event.matches);
-    };
-
-    setIsMobileLayout(query.matches);
-
-    if (typeof query.addEventListener === 'function') {
-      query.addEventListener('change', onChange);
-      return () => query.removeEventListener('change', onChange);
-    }
-
-    query.addListener(onChange);
-    return () => query.removeListener(onChange);
-  }, []);
-
-  // In the narrow accordion layout the hash-selected section was never applied, so
-  // opening #settings/radio on a phone landed on a list with everything collapsed:
-  // the URL named a section the screen did not show. Expand the requested one.
-  // Keyed on the section itself, so collapsing it by hand afterwards sticks.
-  useEffect(() => {
-    if (!externalSidebarNav || externalDesktopSidebarMode || !desktopSection) return;
-    setExpandedSections((prev) =>
-      prev[desktopSection] ? prev : { ...prev, [desktopSection]: true }
-    );
-    // Expanding is not enough: with another section already open above it, the
-    // requested one sits below the fold and the URL again names something the
-    // screen does not show. Bring it up.
-    const frame = requestAnimationFrame(() => {
-      const header = document.querySelector(`[data-settings-section="${desktopSection}"]`);
-      header?.scrollIntoView?.({ block: 'start' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [externalSidebarNav, externalDesktopSidebarMode, desktopSection]);
 
   const toggleSection = (section: SettingsSection) => {
     setExpandedSections((prev) => ({
