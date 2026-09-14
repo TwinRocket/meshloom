@@ -1,3 +1,25 @@
+## [4.7.3] - 2026-09-15
+
+Two screens could not be left. Message search and the repeater dashboard take the whole screen on a phone, and neither offered a way back to where you came from.
+
+### What's new
+
+- **Message search and the repeater dashboard can be left again.** Both fill the screen on a phone, and neither had a back control: once inside, the only way out was the browser's own gesture, which an installed app does not have. Both now carry the same control every other screen does.
+- **The proxy settings say where their values go.** Every other group of settings states whether it writes to the radio, to Meshloom or to this browser, and whether the change applies at once. This one gave only its name, which is the one thing you already knew.
+
+---
+
+### Français
+
+Deux écrans ne pouvaient pas être quittés. La recherche de messages et le tableau de bord d'un répéteur occupent tout l'écran sur un téléphone, et ni l'un ni l'autre ne proposait de revenir d'où l'on venait.
+
+#### Quoi de neuf
+
+- **On peut de nouveau quitter la recherche de messages et le tableau de bord d'un répéteur.** Les deux remplissent l'écran sur un téléphone et n'avaient aucun bouton de retour : une fois dedans, il ne restait que le geste du navigateur, dont une application installée ne dispose pas. Ils portent désormais le même contrôle que tous les autres écrans.
+- **Les réglages du proxy disent où vont leurs valeurs.** Chaque autre groupe de réglages indique s'il écrit dans la radio, dans Meshloom ou dans ce navigateur, et si le changement s'applique immédiatement. Celui-ci ne donnait que son nom, c'est-à-dire la seule chose que vous saviez déjà.
+
+---
+
 ## [4.7.2] - 2026-09-14
 
 This release rebuilds the desktop around three columns, gives the left rail a configurable set of entries, and moves interface preferences off each browser and onto the instance, so the same Meshloom looks the same from every device reaching it.
