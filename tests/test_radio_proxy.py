@@ -90,8 +90,18 @@ def _make_host_radio(name: str = "HostRadio") -> MagicMock:
     return mc
 
 
+# A real Meshloom always knows its own key by the time it is proxying; the proxy
+# now refuses to answer with a placeholder when it does not, which is what a
+# client needs in order not to mistake a booting node for a different radio.
+PROXY_TEST_PUBLIC_KEY = bytes.fromhex("ab" * 32)
+
+
 @asynccontextmanager
 async def _started_proxy(test_db, *, bind: str = "127.0.0.1", port: int | None = None):
+    import app.keystore as keystore
+
+    previous_key = keystore._public_key
+    keystore._public_key = PROXY_TEST_PUBLIC_KEY
     manager = RadioProxyManager()
     settings = ProxySettings(enabled=True, bind=bind, port=port if port is not None else 0)
     await manager.apply_settings(settings)
@@ -101,6 +111,7 @@ async def _started_proxy(test_db, *, bind: str = "127.0.0.1", port: int | None =
         yield manager, listen
     finally:
         await manager.stop()
+        keystore._public_key = previous_key
 
 
 async def _connect_client(port: int) -> MeshCore:
@@ -690,3 +701,36 @@ def test_command_codes_match_plan():
     assert CommandType.SYNC_NEXT_MESSAGE.value == 10
     assert CommandType.EXPORT_PRIVATE_KEY.value == 23
     assert CommandType.DEVICE_QEURY.value == 22
+
+
+@pytest.mark.asyncio
+async def test_self_info_refuses_rather_than_inventing_an_identity(monkeypatch):
+    """A proxy that does not know its own key must say so, not answer with zeros.
+
+    It used to fall back to 32 zero bytes and the name "Meshloom". A client reads
+    that as a well-formed identity, finds it different from the one it is bound to,
+    and offers to erase every mesh contact and message to adopt it.
+    """
+    manager = RadioProxyManager()
+    monkeypatch.setattr("app.keystore.get_public_key", lambda: None)
+    runtime = MagicMock()
+    runtime.meshcore = None
+    monkeypatch.setattr("app.services.radio_runtime.radio_runtime", runtime)
+
+    assert manager._self_public_key() is None
+    assert await manager._self_info_frame() is None
+
+
+@pytest.mark.asyncio
+async def test_self_info_uses_the_stored_key_when_the_radio_is_silent(monkeypatch):
+    manager = RadioProxyManager()
+    stored = bytes.fromhex("ab" * 32)
+    monkeypatch.setattr("app.keystore.get_public_key", lambda: stored)
+    runtime = MagicMock()
+    runtime.meshcore = None
+    monkeypatch.setattr("app.services.radio_runtime.radio_runtime", runtime)
+
+    assert manager._self_public_key() == stored
+    frame = await manager._self_info_frame()
+    assert frame is not None
+    assert stored in frame

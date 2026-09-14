@@ -201,3 +201,39 @@ async def test_wipe_clears_contact_groups_and_directory_cache(test_db, monkeypat
             assert (await cursor.fetchone())[0] == 0
         async with conn.execute("SELECT COUNT(*) FROM contact_groups") as cursor:
             assert (await cursor.fetchone())[0] == 0
+
+
+def test_all_zero_key_is_not_an_identity():
+    """A peer that does not know its own key must not look like a different radio.
+
+    The proxy answered with 64 zeros while its own radio was still coming up. That
+    is a well-formed hex string, so it passed every shape check, compared unequal
+    to the bound key, and produced an offer to erase 138 contacts and 1485 messages
+    in order to adopt a node that does not exist.
+    """
+    from app.services.radio_identity import _normalize_key
+
+    assert _normalize_key("00" * 32) is None
+    assert _normalize_key("0" * 64) is None
+    # A real key that merely starts with zeros is untouched.
+    assert _normalize_key("00" * 31 + "a1") == "00" * 31 + "a1"
+
+
+@pytest.mark.asyncio
+async def test_zero_key_fails_closed_instead_of_claiming_a_swap(monkeypatch):
+    snapshot = RadioTransportSnapshot(transport="tcp", bound_public_key="aa" * 32)
+    monkeypatch.setattr(
+        "app.services.radio_identity.get_transport", AsyncMock(return_value=snapshot)
+    )
+    mc = MagicMock()
+    mc.send_appstart = AsyncMock(return_value={"public_key": "00" * 32, "name": "Meshloom"})
+    mc.self_info = {"public_key": "00" * 32, "name": "Meshloom"}
+    gate = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.radio_identity.RadioTransportRepository.set_identity_gate",
+        gate,
+    )
+
+    assert await evaluate_connected_identity(mc) == "stop"
+    # Crucially: it stops without recording a mismatch, so nothing offers to wipe.
+    gate.assert_not_awaited()
