@@ -41,8 +41,12 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
   return (
     <nav
       aria-label={t('bottomNav.label')}
+      data-bottom-nav=""
       className={cn(
-        'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center md:hidden',
+        // Absolute, not fixed: `fixed` anchors to the layout viewport, which an
+        // installed app reports shorter than the screen. Anchored to the shell it
+        // follows whatever the shell's real height turns out to be.
+        'pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center md:hidden',
         // The capped inset, not the raw one: the full home-indicator inset floats the
         // bar a centimetre off the edge, which reads as something hovering rather than
         // something anchored. The indicator overlays content by design, and the bar is

@@ -2,11 +2,15 @@
 <html lang="fr" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <!-- Both, deliberately. The standard name is what everything except iOS reads;
+         the Apple one is the gate for apple-mobile-web-app-status-bar-style, which is
+         ignored without it. Ignored, the status bar stays opaque and the web app is
+         laid out below it: the viewport comes back as the screen minus the status bar
+         (measured on device: 894 on a 956 screen, short by exactly the 62px inset) and
+         that missing strip at the bottom is a band the app can never draw into. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Meshloom" />
     <meta name="theme-color" content="#0A0C10" />

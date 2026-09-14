@@ -203,7 +203,7 @@ test.describe('Conversation layout', () => {
     await page.goto('/#raw');
     await page.waitForTimeout(1_500);
     const onTool = await page.evaluate(() => {
-      const bar = document.querySelector('nav.fixed[aria-label]');
+      const bar = document.querySelector('nav[data-bottom-nav]');
       const box = bar?.getBoundingClientRect();
       return {
         present: !!box && box.height > 10,
@@ -216,7 +216,7 @@ test.describe('Conversation layout', () => {
     // A conversation: the composer owns the bottom instead.
     await openSeededChannel(page, seeded.key, CHANNEL_NAME);
     const inChat = await page.evaluate(() => {
-      const bar = document.querySelector('nav.fixed[aria-label]');
+      const bar = document.querySelector('nav[data-bottom-nav]');
       const textarea = document.querySelector('textarea');
       let composer: HTMLElement | null = textarea?.parentElement ?? null;
       while (composer && !/border-t/.test(String(composer.className))) {

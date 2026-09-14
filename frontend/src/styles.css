@@ -19,6 +19,17 @@ html {
   touch-action: manipulation;
 }
 
+/* Installed, the dynamic viewport is not the screen. Measured on device: the screen is
+   956 CSS px, `100dvh` and `100svh` report 894 — short by exactly the 62px status-bar
+   inset — while `100vh` and `100lvh` report 956. There is no dynamic browser chrome to
+   collapse in a standalone app, so the "largest possible viewport" is simply the
+   screen, and the dynamic one is the value that is wrong here. */
+@media (display-mode: standalone) {
+  html {
+    height: 100lvh;
+  }
+}
+
 body,
 #root {
   height: 100%;
