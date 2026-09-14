@@ -83,10 +83,18 @@ body,
   }
 }
 
-/* Room for the floating bar, so the last row of a list is not sitting under it.
-   Applied to the scrolling element rather than the page: the page does not scroll. */
-.has-bottom-nav {
-  padding-bottom: calc(4.25rem + var(--safe-area-bottom));
+/* Content runs under the floating bar — that is the point, it is what the glass has
+   to show — but the end of a list still has to be reachable. The reserve goes on the
+   scrolling element, not the page, because the page does not scroll; a descendant
+   rule rather than a utility, because the scrolling element is chosen by each view. */
+.with-bottom-nav .overflow-y-auto {
+  padding-bottom: calc(4.25rem + var(--safe-area-bottom-capped));
+}
+
+@media (min-width: 768px) {
+  .with-bottom-nav .overflow-y-auto {
+    padding-bottom: 0;
+  }
 }
 
 /* iOS Safari zooms the page in when a focused form control renders text under 16px,
@@ -111,9 +119,20 @@ body,
 body {
   /* Prevent overscroll/bounce on mobile */
   overscroll-behavior: none;
-  padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom-capped)
-    var(--safe-area-left);
+  /* No bottom inset here on purpose. Padding the page bottom leaves a dead band the
+     app cannot draw into, which is what an installed app looks wrong doing: content
+     is supposed to run to the physical edge and pass under the floating bar, which
+     is the whole reason that bar is translucent — there has to be something behind
+     it to show through. The inset moves to whatever actually sits at the bottom: the
+     bar carries its own, and so does the composer. */
+  padding: var(--safe-area-top) var(--safe-area-right) 0 var(--safe-area-left);
   box-sizing: border-box;
+}
+
+/* The composer is the bottom-most control when no bar is there to be one, so it
+   keeps itself off the home indicator. */
+.message-input-shell {
+  padding-bottom: calc(0.625rem + var(--safe-area-bottom-capped));
 }
 
 #root {

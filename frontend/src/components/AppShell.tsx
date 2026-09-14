@@ -421,7 +421,7 @@ export function AppShell({
           id="main-content"
           className={cn(
             'flex-1 flex flex-col bg-background min-w-0 min-h-0',
-            showBottomNav && '[&_.overflow-y-auto]:has-bottom-nav md:[&_.overflow-y-auto]:pb-0'
+            showBottomNav && 'with-bottom-nav'
           )}
         >
           <div

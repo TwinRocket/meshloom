@@ -244,6 +244,49 @@ test.describe('Conversation layout', () => {
     expect(inChat.overlap).toBe(false);
   });
 
+  test('every view paints to the bottom edge of the screen', async ({ page }) => {
+    // An installed app draws to the physical edge and lets content pass under the
+    // floating bar — that is what the bar is translucent for. A page inset from the
+    // bottom leaves a band the app cannot draw into, which is the giveaway that this
+    // is a web page in a costume.
+    seedChannelMessages({
+      channelName: CHANNEL_NAME,
+      count: 80,
+      startTimestamp: Math.floor(Date.now() / 1000) - 100,
+    });
+
+    await page.setViewportSize(MOBILE);
+    // Stand in for a device with a notch and a home indicator; Chromium reports none.
+    await page.addInitScript(() => {
+      const style = document.createElement('style');
+      style.textContent =
+        ':root{--safe-area-top:59px;--safe-area-bottom:34px;--safe-area-bottom-capped:12px;}';
+      document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    });
+
+    for (const route of ['#raw', '#map', '#trace', '#search', '#settings/radio']) {
+      await page.goto(`/${route}`);
+      await page.reload();
+      await page.waitForTimeout(1_200);
+
+      const gap = await page.evaluate(() => {
+        let lowest = 0;
+        for (const el of document.querySelectorAll<HTMLElement>('body *')) {
+          const style = getComputedStyle(el);
+          if (style.visibility === 'hidden' || style.display === 'none') continue;
+          const background = style.backgroundColor;
+          if (background === 'rgba(0, 0, 0, 0)' || background === 'transparent') continue;
+          const box = el.getBoundingClientRect();
+          if (box.width < 80 || box.height < 8) continue;
+          if (box.bottom > lowest) lowest = box.bottom;
+        }
+        return Math.round(window.innerHeight - lowest);
+      });
+
+      expect(gap, `dead band below the content on ${route}`).toBeLessThanOrEqual(2);
+    }
+  });
+
   test('the composer survives viewport changes at every size class', async ({ page }) => {
     const seeded = seedChannelMessages({
       channelName: CHANNEL_NAME,
