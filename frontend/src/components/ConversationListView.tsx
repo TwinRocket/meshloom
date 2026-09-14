@@ -149,77 +149,84 @@ export function ConversationListView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 px-4 pb-2 pt-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
-        <RadioStatusChip
-          health={health ?? null}
-          onOpenRadioSettings={onOpenRadioSettings}
-          className="ml-auto max-w-[9rem]"
-        />
-        <button
-          type="button"
-          onClick={onNewMessage}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {t('conversationList.new')}
-        </button>
-      </div>
-
-      <div className="px-4 pb-2">
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
+      {/* Opaque, and standing clear of the top edge. Installed, iOS treats the strip
+          under the status bar as its own: content that reaches into it is blurred
+          there, which turned the title and the status into something that looked
+          out of focus. A solid surface gives that treatment a flat colour to work
+          on, and the breathing room keeps the text itself out of the strip. */}
+      <div className="shrink-0 bg-background pt-2">
+        <div className="flex items-center gap-2 px-4 pb-2 pt-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
+          <RadioStatusChip
+            health={health ?? null}
+            onOpenRadioSettings={onOpenRadioSettings}
+            className="ml-auto max-w-[9rem]"
           />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('conversationList.searchPlaceholder')}
-            aria-label={t('conversationList.searchPlaceholder')}
-            className="h-10 w-full rounded-full border border-border bg-muted/40 pl-9 pr-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              aria-label={t('conversationList.clearSearch')}
-              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onNewMessage}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {t('conversationList.new')}
+          </button>
         </div>
-      </div>
 
-      <div
-        className="flex gap-2 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        role="group"
-        aria-label={t('conversationList.filterLabel')}
-      >
-        {FILTERS.map(({ id, labelKey }) => {
-          const active = filter === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setFilter(id)}
-              aria-pressed={active}
-              className={cn(
-                'shrink-0 rounded-full border px-3 py-1.5 text-sm transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                active
-                  ? 'border-primary/50 bg-primary/15 text-primary'
-                  : 'border-border text-muted-foreground'
-              )}
-            >
-              {t(labelKey)}
-              {id === 'unread' && unreadTotal > 0 && (
-                <span className="ml-1.5 tabular-nums">{unreadTotal}</span>
-              )}
-            </button>
-          );
-        })}
+        <div className="px-4 pb-2">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('conversationList.searchPlaceholder')}
+              aria-label={t('conversationList.searchPlaceholder')}
+              className="h-10 w-full rounded-full border border-border bg-muted/40 pl-9 pr-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label={t('conversationList.clearSearch')}
+                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div
+          className="flex gap-2 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="group"
+          aria-label={t('conversationList.filterLabel')}
+        >
+          {FILTERS.map(({ id, labelKey }) => {
+            const active = filter === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFilter(id)}
+                aria-pressed={active}
+                className={cn(
+                  'shrink-0 rounded-full border px-3 py-1.5 text-sm transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  active
+                    ? 'border-primary/50 bg-primary/15 text-primary'
+                    : 'border-border text-muted-foreground'
+                )}
+              >
+                {t(labelKey)}
+                {id === 'unread' && unreadTotal > 0 && (
+                  <span className="ml-1.5 tabular-nums">{unreadTotal}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
