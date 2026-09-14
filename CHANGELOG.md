@@ -1,3 +1,45 @@
+## [4.7.2] - 2026-09-14
+
+This release rebuilds the desktop around three columns, gives the left rail a configurable set of entries, and moves interface preferences off each browser and onto the instance, so the same Meshloom looks the same from every device reaching it.
+
+### What's new
+
+- **The desktop is a rail, a list, and the content.** The single 240px column that mixed the tools with the conversations is gone: with thirty channels the tools left the screen entirely, and every row truncated the name, the preview and the time together. The rail offers the same destinations the phone's bar does, so a place added to one can no longer be missing from the other.
+- **The column beside the rail belongs to what you are looking at.** Conversations while you are in conversations, the section list while you are in settings, and nothing at all for the map and the tools — each of those is one full-width view, and the list was taking 384px from panes that lay out two columns of their own.
+- **Every tool has its own place on the rail**, and you decide which ones and in what order. Settings → Navigation arranges it: move an entry up or down, take one off, put it back. It starts with everything on it, since removing what you do not use is easier than discovering what you never saw.
+- **Interface preferences follow you between devices.** The rail's arrangement and the colour theme are kept with the instance rather than in each browser, so setting them on a computer is enough for the phone that reaches the same Meshloom.
+- **The theme no longer flashes on load.** The page is served with the theme already applied instead of being told afterwards, and following the operating system is answered before any script runs. A device seeing the instance for the first time corrects itself once and then never again.
+- **The radio status says what it knows.** The dot was enough to notice something was wrong and never enough to act on it: it opens a read-out of the radio's state, how this app is reaching it, which radio and firmware answered, and whether a proxy is in the way — without offering to change anything.
+- **Android gets its own chrome.** Installed on Android, the bar runs edge to edge with the indicator behind the icon, the back control is a plain arrow, writing a new message is a floating button, and sending is a circle — the platform's conventions rather than another platform's.
+- **Leaving settings takes you where you asked.** Choosing a destination from settings could return you to whatever was open beforehand instead.
+
+### Note for upgrades
+
+This release adds a column to the settings table. The change is additive and nothing is rewritten, but the upgrade does touch the database, so take a copy of it first if you keep one.
+
+---
+
+### Français
+
+Cette version reconstruit le desktop autour de trois colonnes, rend la barre de gauche configurable, et sort les préférences d'interface de chaque navigateur pour les rattacher à l'instance : le même Meshloom se présente de la même façon depuis tous vos appareils.
+
+#### Quoi de neuf
+
+- **Le desktop, c'est une barre, une liste et le contenu.** L'unique colonne de 240 px qui mélangeait les outils et les conversations disparaît : avec trente canaux, les outils sortaient de l'écran, et chaque ligne tronquait ensemble le nom, l'aperçu et l'heure. La barre propose les mêmes destinations que celle du téléphone, si bien qu'un endroit ajouté à l'une ne peut plus manquer à l'autre.
+- **La colonne à côté de la barre appartient à ce que vous regardez.** Les conversations quand vous y êtes, la liste des sections dans les réglages, et rien du tout pour la carte et les outils — chacun est une vue pleine largeur, et la liste prenait 384 px à des panneaux qui déploient déjà deux colonnes à eux.
+- **Chaque outil a sa place dans la barre**, et vous choisissez lesquels et dans quel ordre. Réglages → Navigation s'en charge : monter, descendre, retirer, remettre. Elle démarre avec tout, parce que retirer ce dont on ne se sert pas est plus facile que découvrir ce qu'on n'a jamais vu.
+- **Les préférences d'interface vous suivent d'un appareil à l'autre.** L'agencement de la barre et le thème sont conservés avec l'instance plutôt que dans chaque navigateur : les régler sur un ordinateur suffit pour le téléphone qui atteint le même Meshloom.
+- **Le thème ne clignote plus au chargement.** La page est servie avec le thème déjà appliqué au lieu d'en être informée après coup, et « suivre le système » trouve sa réponse avant le moindre script. Un appareil qui découvre l'instance se corrige une fois, puis plus jamais.
+- **L'état de la radio se raconte.** Le point suffisait à remarquer un problème, jamais à agir dessus : il ouvre un relevé de l'état de la radio, de la manière dont l'application l'atteint, de quel modèle et quel micrologiciel ont répondu, et si un proxy se trouve sur le chemin — sans rien proposer de modifier.
+- **Android a son propre habillage.** Installée sur Android, la barre va d'un bord à l'autre avec l'indicateur derrière l'icône, le retour est une flèche simple, écrire un message est un bouton flottant et envoyer est un rond : les conventions de la plateforme plutôt que celles d'une autre.
+- **Quitter les réglages vous emmène où vous avez demandé.** Choisir une destination depuis les réglages pouvait vous ramener à ce qui était ouvert auparavant.
+
+#### À noter pour la mise à jour
+
+Cette version ajoute une colonne à la table des réglages. Le changement est additif et rien n'est réécrit, mais la mise à jour touche bien la base : si vous en gardez une copie, faites-la avant.
+
+---
+
 ## [4.7.1] - 2026-09-14
 
 A client connecting to a Meshloom proxy could be told the radio had been swapped, and offered to erase its mesh history to adopt a node that does not exist.
