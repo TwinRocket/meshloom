@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../../api';
 import type { RadioProxyStatus, RadioProxyUpdate } from '../../types';
 import { Button } from '../ui/button';
+import { SettingsGroupHeader } from './settingsPrimitives';
 import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -79,7 +80,10 @@ export function SettingsProxySection({ className }: { className?: string }) {
 
   return (
     <div className={className}>
-      <h3 className="text-base font-semibold tracking-tight">{t('settings.proxy.title')}</h3>
+      {/* The shared header, like every other section. A hand-written title says the
+          name and nothing else: this one never told the reader where its values go
+          or that they take effect at once, which every other group states. */}
+      <SettingsGroupHeader title={t('settings.proxy.title')} storedOn="server" instant />
       <p className="mt-1 text-[0.8125rem] text-muted-foreground">{t('settings.proxy.help')}</p>
       <p className="mt-2 text-[0.8125rem] text-muted-foreground">{t('settings.proxy.warning')}</p>
       <p className="mt-2 text-[0.8125rem] text-muted-foreground">

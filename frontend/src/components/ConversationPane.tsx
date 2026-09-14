@@ -311,6 +311,7 @@ export function ConversationPane({
       <Suspense fallback={<LoadingPane label={t('conversation.loadingDashboard')} />}>
         <RepeaterDashboard
           key={activeConversation.id}
+          onBack={onBack}
           conversation={activeConversation}
           contacts={contacts}
           radioLat={config?.lat ?? null}

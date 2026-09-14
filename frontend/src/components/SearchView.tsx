@@ -4,6 +4,7 @@ import { api, isAbortError } from '../api';
 import type { Contact, Channel } from '../types';
 import { formatTime } from '../utils/messageParser';
 import { Input } from './ui/input';
+import { ToolPaneHeader } from './ToolPaneHeader';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,8 @@ export interface SearchNavigateTarget {
 }
 
 export interface SearchViewProps {
+  /** Leaves this pane for the Tools screen. Phones only, as everywhere else. */
+  onBackToTools?: () => void;
   contacts: Contact[];
   channels: Channel[];
   visibilityVersion?: number;
@@ -84,6 +87,7 @@ function getHighlightQuery(query: string): string {
 }
 
 export function SearchView({
+  onBackToTools,
   contacts,
   channels,
   visibilityVersion = 0,
@@ -230,10 +234,11 @@ export function SearchView({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <h2 className="flex justify-between items-center px-4 py-2.5 border-b border-border font-semibold text-base">
-        {t('search.title')}
-      </h2>
+      {/* The shared header, like every other tool pane. This one kept a hand-written
+          copy of the old dense title — the same utility string, inlined rather than
+          imported, which is why converting the other six missed it. Without it there
+          is no way back out of this pane on a phone. */}
+      <ToolPaneHeader title={t('search.title')} onBack={onBackToTools} />
 
       {/* Search input */}
       <div className="px-4 py-3 border-b border-border">
