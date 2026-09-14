@@ -159,7 +159,8 @@
     "sidebarNav": "Navigation latérale",
     "loadingSearch": "Chargement de la recherche…",
     "loadingSettings": "Chargement des réglages…",
-    "loadingChannelFinder": "Chargement du chercheur de canaux…"
+    "loadingChannelFinder": "Chargement du chercheur de canaux…",
+    "backToTools": "Retour aux outils"
   },
   "settings": {
     "staleTitle": "Purge des contacts inactifs",
@@ -209,8 +210,6 @@
     "restoreFailed": "Échec de la restauration JSON",
     "giphyKey": "Clé API Giphy",
     "giphyKeyHelp": "Optionnelle. Sert uniquement à la recherche du sélecteur GIF. Créez une clé beta gratuite sur developers.giphy.com. Les GIF reçus s’affichent sans clé (chargés depuis media.giphy.com).",
-    "cartoKey": "Clé API CARTO",
-    "cartoKeyHelp": "Optionnelle. Sert au fond de carte sombre. Demandez une clé gratuite sur https://carto.com/basemaps/apikey.",
     "local": {
       "deviceOnly": "Ces réglages s’appliquent uniquement à cet appareil/navigateur.",
       "colorScheme": "Thème de couleurs",
@@ -1208,7 +1207,8 @@
     "neverHeard": "Jamais entendu par ce serveur",
     "lastHeard": "Dernière écoute : {{time}}",
     "repeaterTitle": "Répéteur",
-    "openConversation": "Ouvrir la conversation avec {{name}}"
+    "openConversation": "Ouvrir la conversation avec {{name}}",
+    "fitAllNodes": "Voir tous les nœuds"
   },
   "share": {
     "title": "Partager",
@@ -1493,7 +1493,8 @@
     "batteryTitle": "Batterie : {{pct}} % ({{volts}} V)",
     "batteryAria": "Batterie {{pct}} pour cent",
     "themeClassic": "Passer au thème classique",
-    "themeLight": "Passer au thème clair"
+    "themeLight": "Passer au thème clair",
+    "radioStatusOpensSettings": "{{status}} — ouvrir les réglages radio"
   },
   "security": {
     "title": "L’exécution non protégée de bots est activée",
@@ -1571,7 +1572,8 @@
     "removeFavorite": "Retirer des favoris",
     "addFavoriteContact": "Ajouter aux favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
     "removeFavoriteContact": "Retirer des favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "moreActions": "Plus d’actions"
   },
   "conversation": {
     "selectPrompt": "Sélectionnez une conversation ou démarrez-en une nouvelle",
@@ -2313,5 +2315,49 @@
     "title": "Meshloom",
     "unreadTitle": "({{count}}) Meshloom",
     "newMessage": "Nouveau message"
+  },
+  "bottomNav": {
+    "label": "Navigation principale",
+    "conversations": "Discussions",
+    "map": "Carte",
+    "tools": "Outils",
+    "settings": "Réglages",
+    "unread_one": "{{count}} conversation non lue",
+    "unread_other": "{{count}} conversations non lues"
+  },
+  "conversationList": {
+    "title": "Discussions",
+    "new": "Nouveau",
+    "searchPlaceholder": "Rechercher une conversation",
+    "clearSearch": "Effacer la recherche",
+    "filterLabel": "Filtrer les conversations",
+    "all": "Toutes",
+    "unread": "Non lues",
+    "favorites": "Favoris",
+    "groups": "Canaux",
+    "direct": "Directs",
+    "noMessages": "Aucun message",
+    "noMatch": "Rien ne correspond à « {{query}} ».",
+    "empty": "Aucune conversation.",
+    "unreadCount_one": "{{count}} message non lu",
+    "unreadCount_other": "{{count}} messages non lus"
+  },
+  "toolsView": {
+    "title": "Outils",
+    "packetFeedDescription": "Tous les paquets entendus par ce nœud, au fil de l’eau",
+    "visualizerDescription": "Le mesh dessiné à partir du trafic entendu pendant que la vue est ouverte",
+    "traceDescription": "Construire une route à travers les répéteurs et la chronométrer",
+    "locateDescription": "Estimer depuis où un nœud émet",
+    "searchDescription": "Chercher dans tous les messages de ce nœud",
+    "crackerDescription": "Essayer les clés connues sur le trafic de canal non déchiffré",
+    "markAllReadDescription": "Effacer tous les compteurs de non-lus",
+    "liveDescription": "Les paquets sur la carte au moment où ils sont entendus"
+  },
+  "settingsIndex": {
+    "title": "Réglages",
+    "groupRadio": "Radio",
+    "groupApp": "Application",
+    "groupData": "Données",
+    "back": "Réglages"
   }
 }

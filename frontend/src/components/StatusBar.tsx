@@ -6,7 +6,6 @@ import {
   BatteryLow,
   BatteryMedium,
   BatteryWarning,
-  Menu,
   Moon,
   Settings,
   Sun,
@@ -40,7 +39,7 @@ interface StatusBarProps {
   onSettingsClick: () => void;
   onOpenRadioSettings?: () => void;
   onOpenIdentityModal?: () => void;
-  onMenuClick?: () => void;
+  className?: string;
 }
 
 export function StatusBar({
@@ -50,7 +49,7 @@ export function StatusBar({
   onSettingsClick,
   onOpenRadioSettings,
   onOpenIdentityModal,
-  onMenuClick,
+  className,
 }: StatusBarProps) {
   const { t } = useTranslation();
   const [showBatteryPercent, setShowBatteryPercent] = useState(getShowBatteryPercent);
@@ -207,18 +206,12 @@ export function StatusBar({
   };
 
   return (
-    <header className="flex min-w-0 items-center gap-2 border-b border-border bg-card px-4 py-2.5 text-xs sm:gap-3">
-      {/* Mobile menu button - only visible on small screens */}
-      {onMenuClick && (
-        <button
-          onClick={onMenuClick}
-          className="-ml-1.5 inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
-          aria-label={t('statusBar.openMenu')}
-        >
-          <Menu className="h-4 w-4" aria-hidden="true" />
-        </button>
+    <header
+      className={cn(
+        'flex min-w-0 items-center gap-2 border-b border-border bg-card px-4 py-2.5 text-xs sm:gap-3',
+        className
       )}
-
+    >
       <h1
         aria-label="Meshloom"
         className="mr-auto flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-foreground"

@@ -32,7 +32,7 @@ import { createDecoderOptions } from '../utils/rawPacketInspector';
 import { useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
 import { getContactDisplayName } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
-import { TOOL_PANE_HEADER_CLASS } from './toolPaneHeader';
+import { ToolPaneHeader } from './ToolPaneHeader';
 import i18n from '../i18n';
 
 const TIMELINE_FILL_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6'];
@@ -202,6 +202,8 @@ function FeedFilterControls({
 }
 
 interface RawPacketFeedViewProps {
+  /** Leaves this sub-screen for the Tools screen. Phones only. */
+  onBackToTools?: () => void;
   contacts: Contact[];
   channels: Channel[];
   radioOffline?: boolean;
@@ -614,6 +616,7 @@ function TimelineChart({
 }
 
 export function RawPacketFeedView({
+  onBackToTools,
   contacts,
   channels,
   radioOffline = false,
@@ -728,19 +731,20 @@ export function RawPacketFeedView({
   );
   return (
     <>
-      <div className={TOOL_PANE_HEADER_CLASS}>
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-foreground">{t('rawPacket.title')}</h2>
-            <p className="hidden text-xs font-normal text-muted-foreground md:block">
-              {t('rawPacket.collectingSince', {
-                time: formatTimestamp(rawPacketStatsSession.sessionStartedAt),
-              })}
-            </p>
-          </div>
-          {/* Two full labels pushed this row past the right edge at 390px. The
-              labels come back as soon as the header has room for them. */}
-          <div className="flex shrink-0 items-center gap-2">
+      <ToolPaneHeader
+        title={t('rawPacket.title')}
+        onBack={onBackToTools}
+        subtitle={
+          <p className="hidden text-xs md:block">
+            {t('rawPacket.collectingSince', {
+              time: formatTimestamp(rawPacketStatsSession.sessionStartedAt),
+            })}
+          </p>
+        }
+        /* Two full labels pushed this row past the right edge at 390px. The
+           labels come back as soon as the header has room for them. */
+        actions={
+          <>
             <Button
               type="button"
               variant="outline"
@@ -770,8 +774,11 @@ export function RawPacketFeedView({
                 {statsOpen ? t('rawPacket.hideStats') : t('rawPacket.showStats')}
               </span>
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
+
+      <div className="shrink-0 bg-background px-4 pb-2 md:border-b md:border-border md:px-4 md:pb-2.5">
         <p className="md:hidden text-xs text-muted-foreground">
           {t('rawPacket.collectingSince', {
             time: formatTimestamp(rawPacketStatsSession.sessionStartedAt),

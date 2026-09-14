@@ -188,6 +188,108 @@ test.describe('Conversation layout', () => {
     expect(after.horizontalOverflow).toBe(false);
   });
 
+  test('the bottom bar stands down inside a conversation and never covers the composer', async ({
+    page,
+  }) => {
+    const seeded = seedChannelMessages({
+      channelName: CHANNEL_NAME,
+      count: 120,
+      startTimestamp: Math.floor(Date.now() / 1000) - 140,
+    });
+
+    await page.setViewportSize(MOBILE);
+
+    // A tool view: the bar is the primary navigation there.
+    await page.goto('/#raw');
+    await page.waitForTimeout(1_500);
+    const onTool = await page.evaluate(() => {
+      const bar = document.querySelector('nav[data-bottom-nav]');
+      const box = bar?.getBoundingClientRect();
+      return {
+        present: !!box && box.height > 10,
+        insideViewport: !!box && box.bottom <= window.innerHeight + 1 && box.top >= 0,
+      };
+    });
+    expect(onTool.present).toBe(true);
+    expect(onTool.insideViewport).toBe(true);
+
+    // A conversation: the composer owns the bottom instead.
+    await openSeededChannel(page, seeded.key, CHANNEL_NAME);
+    const inChat = await page.evaluate(() => {
+      const bar = document.querySelector('nav[data-bottom-nav]');
+      const textarea = document.querySelector('textarea');
+      let composer: HTMLElement | null = textarea?.parentElement ?? null;
+      while (composer && !/border-t/.test(String(composer.className))) {
+        composer = composer.parentElement;
+      }
+      const composerBox = composer?.getBoundingClientRect();
+      const barBox = bar?.getBoundingClientRect();
+      return {
+        barPresent: !!barBox && barBox.height > 10,
+        composerInViewport: !!(
+          composerBox &&
+          composerBox.top >= 0 &&
+          composerBox.bottom <= window.innerHeight + 1
+        ),
+        overlap: !!(
+          barBox &&
+          composerBox &&
+          composerBox.bottom > barBox.top &&
+          composerBox.top < barBox.bottom
+        ),
+      };
+    });
+    expect(inChat.barPresent).toBe(false);
+    expect(inChat.composerInViewport).toBe(true);
+    expect(inChat.overlap).toBe(false);
+  });
+
+  test('every view paints to the bottom edge of the screen', async ({ page }) => {
+    // An installed app draws to the physical edge and lets content pass under the
+    // floating bar — that is what the bar is translucent for. A page inset from the
+    // bottom leaves a band the app cannot draw into, which is the giveaway that this
+    // is a web page in a costume.
+    seedChannelMessages({
+      channelName: CHANNEL_NAME,
+      count: 80,
+      startTimestamp: Math.floor(Date.now() / 1000) - 100,
+    });
+
+    await page.setViewportSize(MOBILE);
+    // Stand in for a device with a notch and a home indicator; Chromium reports none.
+    await page.addInitScript(() => {
+      const style = document.createElement('style');
+      style.textContent =
+        ':root{--safe-area-top:59px;--safe-area-bottom:34px;--safe-area-bottom-capped:12px;}';
+      document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
+    });
+
+    for (const route of ['#raw', '#map', '#trace', '#search', '#settings/radio']) {
+      await page.goto(`/${route}`);
+      await page.reload();
+      await page.waitForTimeout(1_200);
+
+      // The view's own region, not any element that happens to have a background:
+      // measuring the latter matched the shell's backdrop and passed while the view
+      // itself stopped well above the edge.
+      const measured = await page.evaluate(() => {
+        const main = document.querySelector('#main-content');
+        const doc = document.scrollingElement as HTMLElement;
+        return {
+          gap: main ? Math.round(window.innerHeight - main.getBoundingClientRect().bottom) : NaN,
+          documentScrollRange: doc.scrollHeight - doc.clientHeight,
+        };
+      });
+
+      expect(measured.gap, `dead band below the content on ${route}`).toBeLessThanOrEqual(2);
+      // The shell is furniture: a drag must move the content, never the app itself.
+      expect(
+        measured.documentScrollRange,
+        `the page itself can be scrolled on ${route}`
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
   test('the composer survives viewport changes at every size class', async ({ page }) => {
     const seeded = seedChannelMessages({
       channelName: CHANNEL_NAME,

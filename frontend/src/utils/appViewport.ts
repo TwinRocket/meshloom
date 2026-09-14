@@ -18,6 +18,12 @@
  * Deliberately narrow: it writes one custom property, only while the visible area is
  * meaningfully shorter than the layout viewport, and removes it as soon as that stops
  * being true. Everything else about the layout stays in CSS.
+ *
+ * Do not widen it to "always measure when installed". That was tried, to close a band
+ * at the bottom of the screen, and it took the bottom bar off screen with it: iOS
+ * anchors `position: fixed` to the layout viewport, so making the document a
+ * different height from it puts `bottom: 0` somewhere the user cannot see. The band
+ * belongs to the page's own insets, not to the document height.
  */
 
 /** Height of the visible area, when it differs enough from the layout viewport to matter. */
@@ -29,16 +35,77 @@ const APP_HEIGHT_VAR = '--app-height';
  */
 const KEYBOARD_MIN_DELTA_PX = 120;
 
+/**
+ * Marks the document when the app is running installed rather than in a tab.
+ *
+ * `@media (display-mode: standalone)` alone is not enough: measured on device, an
+ * installed app can report `navigator.standalone` while that query does not match,
+ * and the height rule keyed on it silently did nothing. Two signals, one attribute,
+ * and the stylesheet keys on the attribute.
+ */
+function markStandalone(): void {
+  if (typeof window === 'undefined') return;
+  const legacy = (window.navigator as { standalone?: boolean }).standalone === true;
+  const query = window.matchMedia?.('(display-mode: standalone)').matches === true;
+  const minimal = window.matchMedia?.('(display-mode: minimal-ui)').matches === true;
+  if (legacy || query || minimal) {
+    document.documentElement.dataset.standalone = '';
+  } else {
+    delete document.documentElement.dataset.standalone;
+  }
+}
+
+/**
+ * Which platform's conventions the chrome should follow.
+ *
+ * The surfaces this app draws — the floating bar, the round glass back control, the
+ * filled settings cards — are one platform's idea of what those things look like.
+ * Naming the platform on the root element means a second set of conventions is a
+ * stylesheet rule keyed on the attribute, not a change inside every component that
+ * happens to draw a control.
+ *
+ * Read from the user agent because that is the only signal a web app gets, and
+ * narrowed to the two that have distinct conventions here; anything else keeps the
+ * default chrome rather than guessing.
+ */
+function markPlatform(): void {
+  if (typeof window === 'undefined') return;
+  const ua = window.navigator.userAgent;
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  document.documentElement.dataset.platform = iOS
+    ? 'ios'
+    : /Android/.test(ua)
+      ? 'android'
+      : 'other';
+}
+
 export function initAppViewport(): () => void {
+  markStandalone();
+  markPlatform();
   const vv = typeof window !== 'undefined' ? window.visualViewport : undefined;
   if (!vv) return () => {};
 
   const root = document.documentElement;
 
+  /**
+   * A keyboard needs something to type into. Without this gate the height was driven
+   * by the measurement alone, and an installed app reports a much shorter visual
+   * viewport while it is still opening — which looked exactly like a keyboard, got
+   * written down, and was never revisited because no further event arrived. The
+   * result was a shell a third shorter than the screen for the whole session, with
+   * the bar still anchored to the viewport and a void between the two.
+   */
+  const keyboardPlausible = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
+  };
+
   const apply = () => {
     const layoutHeight = window.innerHeight;
     const visibleHeight = vv.height;
-    if (layoutHeight - visibleHeight >= KEYBOARD_MIN_DELTA_PX) {
+    if (keyboardPlausible() && layoutHeight - visibleHeight >= KEYBOARD_MIN_DELTA_PX) {
       root.style.setProperty(APP_HEIGHT_VAR, `${Math.round(visibleHeight)}px`);
     } else {
       root.style.removeProperty(APP_HEIGHT_VAR);
@@ -50,9 +117,14 @@ export function initAppViewport(): () => void {
   // The visual viewport also pans: iOS scrolls the focused field into view by moving
   // it rather than resizing, and the offset is what leaves the layout looking shifted.
   vv.addEventListener('scroll', apply);
+  // Focus changes are the other half: the keyboard closing is a blur, not a resize.
+  document.addEventListener('focusin', apply, true);
+  document.addEventListener('focusout', apply, true);
   return () => {
     vv.removeEventListener('resize', apply);
     vv.removeEventListener('scroll', apply);
+    document.removeEventListener('focusin', apply, true);
+    document.removeEventListener('focusout', apply, true);
     root.style.removeProperty(APP_HEIGHT_VAR);
   };
 }

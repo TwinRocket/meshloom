@@ -26,7 +26,7 @@ import {
 } from './ui/dialog';
 import { Input } from './ui/input';
 import { cn } from '@/lib/utils';
-import { TOOL_PANE_HEADER_CLASS } from './toolPaneHeader';
+import { ToolPaneHeader } from './ToolPaneHeader';
 
 type TraceSortMode = 'alpha' | 'recent' | 'distance' | 'traced';
 type CustomHopBytes = 1 | 2 | 4;
@@ -132,6 +132,8 @@ type TraceDraftHop =
   | { id: string; kind: 'custom'; hopHex: string; hopBytes: CustomHopBytes };
 
 interface TracePaneProps {
+  /** Leaves this sub-screen for the Tools screen. Phones only. */
+  onBackToTools?: () => void;
   contacts: Contact[];
   config: RadioConfig | null;
   onRunTracePath: (
@@ -239,7 +241,7 @@ function TraceNodeRow({
   );
 }
 
-export function TracePane({ contacts, config, onRunTracePath }: TracePaneProps) {
+export function TracePane({ onBackToTools, contacts, config, onRunTracePath }: TracePaneProps) {
   const { t } = useTranslation();
   const { distanceUnit } = useDistanceUnit();
   const [searchQuery, setSearchQuery] = useState('');
@@ -543,12 +545,11 @@ export function TracePane({ contacts, config, onRunTracePath }: TracePaneProps) 
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto lg:overflow-hidden">
-      <div className={cn(TOOL_PANE_HEADER_CLASS, 'shrink-0')}>
-        <h2>{t('trace.title')}</h2>
-        <p className="mt-1 max-w-3xl text-sm font-normal text-muted-foreground">
-          {t('trace.help')}
-        </p>
-      </div>
+      <ToolPaneHeader
+        title={t('trace.title')}
+        onBack={onBackToTools}
+        subtitle={<p className="max-w-3xl">{t('trace.help')}</p>}
+      />
 
       <div className="flex flex-1 flex-col gap-4 p-4 lg:min-h-0 lg:flex-row lg:overflow-hidden">
         <section className="flex w-full flex-col rounded-lg border border-border bg-card lg:min-h-0 lg:max-w-[24rem]">

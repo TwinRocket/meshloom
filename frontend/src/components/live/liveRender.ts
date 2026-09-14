@@ -519,12 +519,16 @@ export function writeLiveCamera(
   }
 }
 
-export function shouldAutoFitCamera(
-  hasSavedCamera: boolean,
-  userMoved: boolean,
-  nodeCount: number
-): boolean {
-  return !hasSavedCamera && !userMoved && nodeCount > 0;
+/**
+ * Whether to frame the nodes rather than keep the camera as it is.
+ *
+ * Arriving means wanting to see what is being heard, so a camera left over from a
+ * previous visit does not stand: it could be anywhere, with nothing on screen and
+ * no hint that anything is missing. Only the reader moving the map in this session
+ * holds the view.
+ */
+export function shouldAutoFitCamera(userMoved: boolean, nodeCount: number): boolean {
+  return !userMoved && nodeCount > 0;
 }
 
 export function selectCatchup(newIds: string[], max: number = MAX_LIVE_CATCHUP): Set<string> {

@@ -7,12 +7,7 @@
 }
 
 html {
-  /* dvh tracks the browser chrome but not the virtual keyboard, which shrinks the
-     visual viewport only. --app-height carries that measurement on the browsers
-     that ignore interactive-widget; see utils/appViewport.ts. It is absent the rest
-     of the time, so dvh stays in charge. */
-  height: 100dvh;
-  height: var(--app-height, 100dvh);
+  height: 100%;
 
   /* An installed PWA has no address bar, so a double-tap zoom has nothing to undo
      it with: the page stays scaled and soft at the edges until the app is killed.
@@ -22,6 +17,24 @@ html {
      accidental one goes. Libraries that own their gestures (Leaflet, the
      visualiser canvas) set their own value on their container. */
   touch-action: manipulation;
+}
+
+/* Installed, the dynamic viewport is not the screen. Measured on device: the screen is
+   956 CSS px, `100dvh` and `100svh` report 894 — short by exactly the 62px status-bar
+   inset — while `100vh` and `100lvh` report 956. There is no dynamic browser chrome to
+   collapse in a standalone app, so the "largest possible viewport" is simply the
+   screen, and the dynamic one is the value that is wrong here. */
+@media (display-mode: standalone) {
+  html {
+    height: 100lvh;
+  }
+}
+
+/* Same rule, keyed on the attribute utils/appViewport.ts sets. The media query above
+   is not reliable on its own: an installed app can report `navigator.standalone`
+   while `display-mode: standalone` does not match, and then nothing applies. */
+html[data-standalone] {
+  height: 100lvh;
 }
 
 body,
@@ -36,6 +49,10 @@ body,
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
   --safe-area-bottom-capped: min(var(--safe-area-bottom), 12px);
+  /* What the floating bottom bar occupies: its pill, the home indicator it clears,
+     and the air it leaves under itself. Anything that floats over a view with the
+     bar must sit above this — the capped inset is a scroll reserve, not this. */
+  --bottom-nav-height: calc(4.375rem + var(--safe-area-bottom) + 0.5rem);
 }
 
 @supports (padding: constant(safe-area-inset-top)) {
@@ -61,6 +78,79 @@ body,
   overscroll-behavior-y: contain;
 }
 
+/* Translucent surfaces that let the content below show through, blurred.
+   iOS renders installed apps this way at the screen edges — it blurs whatever sits
+   under the status bar whether we ask for it or not — so an opaque bar reads as a
+   foreign object stuck onto a system that is doing something else. Matching it is
+   cheaper than fighting it. backdrop-filter is the whole effect; where it is not
+   supported the fallback is simply a more opaque surface, which still reads. */
+/* The round glass control that leaves a screen — in a conversation, in a tool pane,
+   in a settings section. One class rather than the same utility string written out
+   three times: it is a platform's idea of a back control, and the platform is the
+   thing likeliest to change under it. */
+.glass-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-left: -0.125rem;
+  border-radius: 9999px;
+  color: hsl(var(--foreground));
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    color 150ms;
+}
+
+@media (min-width: 768px) {
+  /* Desktop panes sit beside a rail that already says where you are. */
+  .glass-back-button {
+    display: none;
+  }
+}
+
+.liquid-surface {
+  background: hsl(var(--card) / 0.92);
+  border: 1px solid hsl(var(--border) / 0.55);
+  box-shadow:
+    0 8px 28px -12px hsl(0 0% 0% / 0.55),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .liquid-surface {
+    /* Thin enough to keep the reader's context — Apple's regular variant "blurs and
+       adjusts the luminosity of background content to maintain legibility" rather
+       than hiding it, and the HIG's own note is that thinner materials "help people
+       retain their context". The blur and the luminosity lift are what carry
+       legibility here, not opacity. Apple publishes no numbers for this; these are
+       matched by eye against the system bars. */
+    background: hsl(var(--card) / 0.5);
+    /* Darkens what is behind rather than lifting it. Apple's regular variant "blurs
+       and adjusts the luminosity of background content to maintain legibility", and
+       in a dark interface legibility means pulling a bright backdrop down: over the
+       map, lifting it turned the bar into a pale slab with unreadable labels. */
+    -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
+    backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
+  }
+}
+
+/* Content runs under the floating bar — that is the point, it is what the glass has
+   to show — but the end of a list still has to be reachable. The reserve goes on the
+   scrolling element, not the page, because the page does not scroll; a descendant
+   rule rather than a utility, because the scrolling element is chosen by each view. */
+.with-bottom-nav .overflow-y-auto {
+  padding-bottom: calc(4.25rem + var(--safe-area-bottom-capped));
+}
+
+@media (min-width: 768px) {
+  .with-bottom-nav .overflow-y-auto {
+    padding-bottom: 0;
+  }
+}
+
 /* iOS Safari zooms the page in when a focused form control renders text under 16px,
    and it does not zoom back out: the layout is left scaled and panned, so the next
    drag pans that zoomed page instead of scrolling the list under the finger, and the
@@ -83,9 +173,43 @@ body,
 body {
   /* Prevent overscroll/bounce on mobile */
   overscroll-behavior: none;
-  padding: var(--safe-area-top) var(--safe-area-right) var(--safe-area-bottom-capped)
-    var(--safe-area-left);
+  /* No bottom inset here on purpose. Padding the page bottom leaves a dead band the
+     app cannot draw into, which is what an installed app looks wrong doing: content
+     is supposed to run to the physical edge and pass under the floating bar, which
+     is the whole reason that bar is translucent — there has to be something behind
+     it to show through. The inset moves to whatever actually sits at the bottom: the
+     bar carries its own, and so does the composer. */
+  padding: var(--safe-area-top) var(--safe-area-right) 0 var(--safe-area-left);
   box-sizing: border-box;
+
+  /* The shell is furniture, not a document: it does not scroll, only the content
+     inside it does. Left as a normal block it was a page slightly taller than the
+     screen, so a drag anywhere moved the whole app — header, composer and all —
+     and parked it wherever the finger let go. Pinned to the viewport it cannot
+     move, which also makes the bottom edge a fixed thing rather than something
+     that depends on where the page happens to be scrolled to.
+     `height` rather than `bottom: 0` so the keyboard can shorten it: --app-height
+     is what visualViewport reports while the keyboard is up (utils/appViewport.ts),
+     and `100%` — the layout viewport — the rest of the time. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-height, 100%);
+  overflow: hidden;
+}
+
+/* The composer is the bottom-most control when no bar is there to be one, so it
+   keeps itself off the home indicator. */
+.message-input-shell {
+  padding-bottom: calc(0.625rem + var(--safe-area-bottom-capped));
+}
+
+/* No rule above the composer. The separation is carried by the surfaces — the
+   conversation ends, the composer begins — and a grey hairline across the screen
+   only added a line to look at. */
+.message-input-shell {
+  border-top-color: transparent;
 }
 
 #root {
@@ -125,4 +249,11 @@ body {
 
 .observer-reach-hop-label::before {
   display: none !important;
+}
+
+/* Dark basemap. Only the tile pane is inverted: markers, paths and popups live in
+   sibling panes and must keep the colours they encode meaning with. hue-rotate
+   undoes the hue flip invert() causes, so water stays blue rather than orange. */
+.basemap-inverted .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
 }

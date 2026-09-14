@@ -159,7 +159,8 @@
     "sidebarNav": "Sidebar navigation",
     "loadingSearch": "Loading search...",
     "loadingSettings": "Loading settings...",
-    "loadingChannelFinder": "Loading channel finder..."
+    "loadingChannelFinder": "Loading channel finder...",
+    "backToTools": "Back to Tools"
   },
   "settings": {
     "staleTitle": "Stale Contact Purge",
@@ -209,8 +210,6 @@
     "restoreFailed": "JSON restore failed",
     "giphyKey": "Giphy API key",
     "giphyKeyHelp": "Optional. Used only for GIF picker search. Create a free beta key at developers.giphy.com. Incoming GIFs render without a key (they load from media.giphy.com).",
-    "cartoKey": "CARTO API key",
-    "cartoKeyHelp": "Optional. Used for the dark map layer. Get a free key at https://carto.com/basemaps/apikey.",
     "local": {
       "deviceOnly": "These settings apply only to this device/browser.",
       "colorScheme": "Color Scheme",
@@ -1208,7 +1207,8 @@
     "neverHeard": "Never heard by this server",
     "lastHeard": "Last heard: {{time}}",
     "repeaterTitle": "Repeater",
-    "openConversation": "Open conversation with {{name}}"
+    "openConversation": "Open conversation with {{name}}",
+    "fitAllNodes": "Fit all nodes"
   },
   "share": {
     "title": "Share",
@@ -1493,7 +1493,8 @@
     "batteryTitle": "Battery: {{pct}}% ({{volts}}V)",
     "batteryAria": "Battery {{pct}} percent",
     "themeClassic": "Switch to classic theme",
-    "themeLight": "Switch to light theme"
+    "themeLight": "Switch to light theme",
+    "radioStatusOpensSettings": "{{status}} — open radio settings"
   },
   "security": {
     "title": "Unprotected bot execution is enabled",
@@ -1571,7 +1572,8 @@
     "removeFavorite": "Remove from favorites",
     "addFavoriteContact": "Add to favorites. Favorite contacts stay loaded on the radio for ACK support.",
     "removeFavoriteContact": "Remove from favorites. Favorite contacts stay loaded on the radio for ACK support.",
-    "delete": "Delete"
+    "delete": "Delete",
+    "moreActions": "More actions"
   },
   "conversation": {
     "selectPrompt": "Select a conversation or start a new one",
@@ -2313,5 +2315,49 @@
     "title": "Meshloom",
     "unreadTitle": "({{count}}) Meshloom",
     "newMessage": "New message"
+  },
+  "bottomNav": {
+    "label": "Primary",
+    "conversations": "Chats",
+    "map": "Map",
+    "tools": "Tools",
+    "settings": "Settings",
+    "unread_one": "{{count}} unread conversation",
+    "unread_other": "{{count}} unread conversations"
+  },
+  "conversationList": {
+    "title": "Chats",
+    "new": "New",
+    "searchPlaceholder": "Search conversations",
+    "clearSearch": "Clear search",
+    "filterLabel": "Filter conversations",
+    "all": "All",
+    "unread": "Unread",
+    "favorites": "Favourites",
+    "groups": "Channels",
+    "direct": "Direct",
+    "noMessages": "No messages yet",
+    "noMatch": "Nothing matches “{{query}}”.",
+    "empty": "No conversations yet.",
+    "unreadCount_one": "{{count}} unread message",
+    "unreadCount_other": "{{count}} unread messages"
+  },
+  "toolsView": {
+    "title": "Tools",
+    "packetFeedDescription": "Every packet this node hears, as it arrives",
+    "visualizerDescription": "The mesh drawn from traffic heard while it is open",
+    "traceDescription": "Build a route through repeaters and time it",
+    "locateDescription": "Estimate where a node is transmitting from",
+    "searchDescription": "Search every message on this node",
+    "crackerDescription": "Try known keys against undecrypted channel traffic",
+    "markAllReadDescription": "Clear every unread badge",
+    "liveDescription": "Packets landing on the map as they are heard"
+  },
+  "settingsIndex": {
+    "title": "Settings",
+    "groupRadio": "Radio",
+    "groupApp": "Application",
+    "groupData": "Data",
+    "back": "Settings"
   }
 }

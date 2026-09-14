@@ -81,6 +81,15 @@ interface UseConversationRouterArgs {
   hasSetDefaultConversation: MutableRefObject<boolean>;
 }
 
+/**
+ * The phone layout, where the conversation list is a screen rather than a drawer.
+ * Matches the `md` breakpoint the shell uses to switch between the two.
+ */
+function isNarrowLayout(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+
 export function useConversationRouter({
   channels,
   contacts,
@@ -228,7 +237,15 @@ export function useConversationRouter({
       if (lastViewed?.type === 'contact') return;
     }
 
-    // No hash or unresolvable — default to Public
+    // No hash or unresolvable — default to Public.
+    //
+    // Except on a phone with nothing asked for: there the conversation list is a
+    // screen of its own, and opening a conversation nobody chose means landing
+    // inside one and having to leave it to see what else there is. A hash that
+    // fails to resolve still falls back here — that is an error being recovered
+    // from, not an absence of intent.
+    if (!hashConv && isNarrowLayout()) return;
+
     const publicConversation = getPublicChannelConversation();
     if (publicConversation) {
       if (hashConv?.type === 'channel') {
@@ -333,14 +350,21 @@ export function useConversationRouter({
       // Settings hash transitions are handled by useAppShell
       if (parseHashSettingsSection() !== null) return;
 
-      // Resolve the target from the hash. When the hash is empty or doesn't
-      // resolve (e.g. back/forward to the bare URL), fall back to the Public
-      // channel rather than clearing to null: the initial-load phases are gated
-      // by hasSetDefaultConversation and won't re-resolve, so a null here would
-      // strand the app on an empty view with no recovery.
-      const conv =
-        resolveConversationFromHash(channelsRef.current, contactsRef.current) ??
-        resolvePublicFromChannels(channelsRef.current);
+      const fromHash = resolveConversationFromHash(channelsRef.current, contactsRef.current);
+
+      // Going back to the bare URL means leaving whatever was open. On a phone
+      // that lands on the conversation list, which is a screen of its own — so
+      // clearing is the destination, not a dead end. Anywhere else a null would
+      // strand the app on an empty pane, since the initial-load phases are gated
+      // by hasSetDefaultConversation and will not re-resolve; Public recovers it.
+      if (!fromHash && isNarrowLayout()) {
+        hashSyncEnabledRef.current = true;
+        isHandlingPopstateRef.current = true;
+        setActiveConversationState(null);
+        return;
+      }
+
+      const conv = fromHash ?? resolvePublicFromChannels(channelsRef.current);
       if (!conv) return;
       hashSyncEnabledRef.current = true;
       isHandlingPopstateRef.current = true;

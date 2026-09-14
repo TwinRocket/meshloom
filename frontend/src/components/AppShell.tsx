@@ -13,6 +13,10 @@ import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { StatusBar } from './StatusBar';
 import { Sidebar } from './Sidebar';
 import { ConversationPane } from './ConversationPane';
+import { BottomNav, type BottomNavTarget } from './BottomNav';
+import { ConversationListView } from './ConversationListView';
+import { ToolsView } from './ToolsView';
+import { SettingsIndexView } from './SettingsIndexView';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -39,7 +43,7 @@ import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
 import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, ChevronLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const SettingsModal = lazy(() =>
@@ -73,6 +77,8 @@ interface AppShellProps {
   onSidebarOpenChange: (open: boolean) => void;
   onCrackerRunningChange: (running: boolean) => void;
   onToggleSettingsView: () => void;
+  /** Leaves the open conversation for the list, on narrow screens. */
+  onClearActiveConversation: () => void;
   onCloseSettingsView: () => void;
   onCloseNewMessage: () => void;
   onCloseBulkAddResults: () => void;
@@ -107,6 +113,7 @@ export function AppShell({
   onSidebarOpenChange,
   onCrackerRunningChange,
   onToggleSettingsView,
+  onClearActiveConversation,
   onCloseSettingsView,
   onCloseNewMessage,
   onCloseBulkAddResults,
@@ -201,8 +208,64 @@ export function AppShell({
   const TOAST_TOP_PADDING = 10;
   const [toastTopOffset, setToastTopOffset] = useState<number | undefined>(undefined);
   const hasLocalLabel = !!localLabel.text;
+  // Which screen the phone layout is on when no conversation or tool is open.
+  const [mobileScreen, setMobileScreen] = useState<'conversations' | 'tools'>('conversations');
+  // Settings open on the index on a phone: the bar cannot say which section you
+  // wanted, and the rail that used to answer that went with the drawer.
+  const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
+
+  // The bar stands down inside a conversation: there the composer owns the bottom of
+  // the screen, and floating over it would either cover the send control or steal a
+  // strip of history for the whole session.
+  // Room servers are contacts, so they are covered by 'contact'.
+  const inConversation = activeType === 'contact' || activeType === 'channel';
+  // Settings render over whatever conversation was last open, so the conversation
+  // underneath must not be what decides.
+  const showBottomNav = showSettings || !inConversation;
+  // Which of the bar's destinations is on screen. A tool opened from the Tools screen
+  // keeps Tools lit, because that is where the reader came from and where Back goes.
+  const TOOL_TYPES = ['raw', 'live', 'visualizer', 'trace', 'locate', 'search'];
+  const bottomNavTarget: BottomNavTarget | null = showSettings
+    ? 'settings'
+    : activeType === 'map'
+      ? 'map'
+      : activeType && TOOL_TYPES.includes(activeType)
+        ? 'tools'
+        : mobileScreen === 'tools'
+          ? 'tools'
+          : 'conversations';
+  const unreadTotal = Object.values(sidebarProps.unreadCounts ?? {}).reduce(
+    (sum, n) => sum + (n > 0 ? 1 : 0),
+    0
+  );
+
+  const handleBackToTools = useCallback(() => {
+    setMobileScreen('tools');
+    onClearActiveConversation();
+  }, [onClearActiveConversation]);
+
+  const handleBottomNav = useCallback(
+    (target: BottomNavTarget) => {
+      if (target === 'settings') {
+        setSettingsIndexOpen(true);
+        if (!showSettings) onToggleSettingsView();
+        return;
+      }
+      if (showSettings) onToggleSettingsView();
+      if (target === 'map') {
+        setMobileScreen('conversations');
+        sidebarProps.onSelectConversation({ type: 'map', id: 'map', name: 'map' } as never);
+        return;
+      }
+      // Conversations and Tools are screens of their own, so they clear whatever
+      // conversation or tool was open rather than opening another one.
+      setMobileScreen(target === 'tools' ? 'tools' : 'conversations');
+      onClearActiveConversation();
+    },
+    [showSettings, onToggleSettingsView, sidebarProps, onClearActiveConversation]
+  );
   useEffect(() => {
     const measure = () => {
       const anchor =
@@ -313,7 +376,7 @@ export function AppShell({
   );
 
   return (
-    <div className="flex flex-col h-full" {...swipeHandlers}>
+    <div className="relative flex flex-col h-full" {...swipeHandlers}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-2 focus:bg-primary focus:text-primary-foreground"
@@ -332,14 +395,18 @@ export function AppShell({
         </div>
       )}
 
+      {/* Desktop only. On a phone its whole job has moved: navigation to the bar,
+          the way back into the conversation's own header, the radio state onto the
+          screens that need it, and settings and theme into Settings. What was left
+          was a bar saying the app's name. */}
       <StatusBar
+        className="hidden md:flex"
         health={statusProps.health}
         config={statusProps.config}
         settingsMode={showSettings}
         onSettingsClick={onToggleSettingsView}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
         onOpenIdentityModal={() => setIdentityModalForced(true)}
-        onMenuClick={() => onSidebarOpenChange(true)}
       />
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner
@@ -353,7 +420,8 @@ export function AppShell({
       <div className="flex flex-1 overflow-hidden">
         <div className="hidden md:block min-h-0 overflow-hidden">{activeSidebarContent}</div>
 
-        <Sheet open={sidebarOpen} onOpenChange={onSidebarOpenChange}>
+        {/* Desktop keeps the drawer for the settings rail; phones never open it. */}
+        <Sheet open={sidebarOpen && showSettings} onOpenChange={onSidebarOpenChange}>
           <SheetContent
             side="left"
             className="w-[280px] p-0 flex flex-col"
@@ -376,17 +444,56 @@ export function AppShell({
             refuses to shrink below its content. Its parent clips rather than scrolls, so
             the overflow a tall conversation produces is not a scrollbar — it is the
             composer pushed past the clip and out of reach. */}
-        <main id="main-content" className="flex-1 flex flex-col bg-background min-w-0 min-h-0">
+        <main
+          id="main-content"
+          className={cn(
+            'flex-1 flex flex-col bg-background min-w-0 min-h-0',
+            showBottomNav && 'with-bottom-nav'
+          )}
+        >
+          {/* Phones: with nothing open, the screen is the list or the tools, not an
+              empty conversation pane waiting for a drawer to be opened. */}
+          {!showSettings && !conversationPaneProps.activeConversation && (
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">
+              {mobileScreen === 'tools' ? (
+                <ToolsView
+                  onSelectConversation={sidebarProps.onSelectConversation}
+                  onToggleCracker={sidebarProps.onToggleCracker}
+                  onMarkAllRead={sidebarProps.onMarkAllRead}
+                  crackerVisible={sidebarProps.showCracker}
+                  health={statusProps.health}
+                  onOpenRadioSettings={() => handleOpenSettings('radio')}
+                />
+              ) : (
+                <ConversationListView
+                  contacts={sidebarProps.contacts}
+                  channels={sidebarProps.channels}
+                  unreadCounts={sidebarProps.unreadCounts}
+                  mentions={sidebarProps.mentions}
+                  lastMessageTimes={sidebarProps.lastMessageTimes}
+                  lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
+                  onSelectConversation={sidebarProps.onSelectConversation}
+                  onNewMessage={sidebarProps.onNewMessage}
+                  health={statusProps.health}
+                  onOpenRadioSettings={() => handleOpenSettings('radio')}
+                />
+              )}
+            </div>
+          )}
+
           <div
             className={cn(
               'flex-1 flex flex-col min-h-0',
               (showSettings || conversationPaneProps.activeConversation?.type === 'search') &&
-                'hidden'
+                'hidden',
+              !showSettings && !conversationPaneProps.activeConversation && 'hidden md:flex'
             )}
           >
             <ConversationPane
               {...conversationPaneProps}
               communityEnabled={communityStatus?.enabled ?? true}
+              onBack={onClearActiveConversation}
+              onBackToTools={handleBackToTools}
             />
           </div>
 
@@ -410,8 +517,41 @@ export function AppShell({
             </div>
           )}
 
+          {/* Phones choose a section first; desktop has the rail and goes straight in. */}
+          {showSettings && settingsIndexOpen && (
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">
+              <SettingsIndexView
+                health={statusProps.health}
+                disabledSections={disabledSettingsSections}
+                onSelectSection={(section) => {
+                  onSettingsSectionChange(section);
+                  setSettingsIndexOpen(false);
+                }}
+              />
+            </div>
+          )}
+
           {showSettings && (
-            <div className="flex-1 flex flex-col min-h-0">
+            <div
+              className={cn('flex-1 flex flex-col min-h-0', settingsIndexOpen && 'hidden md:flex')}
+            >
+              {/* A section reached from the index needs the way back the index came
+                  from; desktop has the rail beside it and needs nothing. The title
+                  is centred over the row rather than following the button, so it
+                  stays put as sections with longer names come and go. */}
+              <div className="relative flex shrink-0 items-center px-3 pb-2 pt-8 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setSettingsIndexOpen(true)}
+                  aria-label={t('settingsIndex.back')}
+                  className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+                </button>
+                <h1 className="pointer-events-none absolute inset-x-14 truncate text-center text-base font-semibold">
+                  {t(SETTINGS_SECTION_LABELS[settingsSection])}
+                </h1>
+              </div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <Suspense
                   fallback={
@@ -436,6 +576,10 @@ export function AppShell({
           )}
         </main>
       </div>
+
+      {showBottomNav && (
+        <BottomNav active={bottomNavTarget} unreadTotal={unreadTotal} onSelect={handleBottomNav} />
+      )}
 
       <div
         className={cn(
