@@ -13,6 +13,15 @@ html {
      of the time, so dvh stays in charge. */
   height: 100dvh;
   height: var(--app-height, 100dvh);
+
+  /* An installed PWA has no address bar, so a double-tap zoom has nothing to undo
+     it with: the page stays scaled and soft at the edges until the app is killed.
+     In a chat that happens by accident constantly — a tap that appears to do
+     nothing, then a second one. `manipulation` is pan plus pinch-zoom minus
+     double-tap, so the deliberate accessibility gesture still works; only the
+     accidental one goes. Libraries that own their gestures (Leaflet, the
+     visualiser canvas) set their own value on their container. */
+  touch-action: manipulation;
 }
 
 body,
