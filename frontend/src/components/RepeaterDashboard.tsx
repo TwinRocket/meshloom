@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { toast } from './ui/sonner';
 import { Button } from './ui/button';
-import { Info, Route, Star, Trash2 } from 'lucide-react';
+import { ChevronLeft, Info, Route, Star, Trash2 } from 'lucide-react';
 import { DirectTraceIcon } from './DirectTraceIcon';
 import { RepeaterLogin } from './RepeaterLogin';
 import { ServerLoginStatusBanner } from './ServerLoginStatusBanner';
@@ -34,6 +34,8 @@ export { formatDuration, formatClockDrift } from './repeater/repeaterPaneShared'
 // --- Main Dashboard ---
 
 interface RepeaterDashboardProps {
+  /** Leaves this pane, which stands in for the conversation and its header. */
+  onBack?: () => void;
   conversation: Conversation;
   contacts: Contact[];
   radioLat: number | null;
@@ -51,6 +53,7 @@ interface RepeaterDashboardProps {
 }
 
 export function RepeaterDashboard({
+  onBack,
   conversation,
   contacts,
   radioLat,
@@ -195,7 +198,21 @@ export function RepeaterDashboard({
       >
         <span className="flex min-w-0 flex-col">
           <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="flex min-w-0 flex-1 items-baseline gap-2">
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              {/* This pane replaces the conversation entirely, so it does not get
+                  the chat header's back control and had no way out of its own: on a
+                  phone, opening a repeater from the list was a dead end. Same class
+                  as every other back control, so it follows the platform. */}
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label={t('shell.backToConversations')}
+                  className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+                </button>
+              )}
               <h2 className="min-w-0 flex-shrink font-semibold text-base">
                 {onOpenContactInfo ? (
                   <button

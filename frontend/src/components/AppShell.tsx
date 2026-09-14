@@ -424,7 +424,7 @@ export function AppShell({
                   </div>
                 }
               >
-                <SearchView {...searchProps} />
+                <SearchView {...searchProps} onBackToTools={handleBackToTools} />
               </Suspense>
             </div>
           )}
