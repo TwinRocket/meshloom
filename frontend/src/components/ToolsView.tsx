@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import {
+  CloudRain,
   List,
   Waypoints,
   Waypoints as Trace,
@@ -20,7 +21,7 @@ import { RadioStatusChip } from './RadioStatusChip';
  * channel finder are for.
  */
 
-type ToolId = 'raw' | 'visualizer' | 'trace' | 'locate' | 'search';
+type ToolId = 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
@@ -37,6 +38,12 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     labelKey: 'sidebar.packetFeed',
     descriptionKey: 'toolsView.packetFeedDescription',
     Icon: List,
+  },
+  {
+    id: 'live',
+    labelKey: 'sidebar.live',
+    descriptionKey: 'toolsView.liveDescription',
+    Icon: CloudRain,
   },
   {
     id: 'visualizer',

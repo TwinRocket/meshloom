@@ -16,9 +16,11 @@ import { calibrateRadiusKm } from '../utils/locateZone';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { LocateZoneMap } from './LocateZoneMap';
-import { TOOL_PANE_HEADER_CLASS } from './toolPaneHeader';
+import { ToolPaneHeader } from './ToolPaneHeader';
 
 interface LocatePaneProps {
+  /** Leaves this sub-screen for the Tools screen. Phones only. */
+  onBackToTools?: () => void;
   contacts: Contact[];
   locateKey?: string;
   directoryEnabled?: boolean;
@@ -46,6 +48,7 @@ function sourceLabel(source: LocateResponse['source'], t: (key: string) => strin
 }
 
 export function LocatePane({
+  onBackToTools,
   contacts,
   locateKey,
   directoryEnabled = false,
@@ -174,15 +177,16 @@ export function LocatePane({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto" data-testid="locate-pane">
-      <div className={`${TOOL_PANE_HEADER_CLASS} shrink-0`}>
-        <h2 className="flex items-center gap-2">
-          <Crosshair className="h-4 w-4" aria-hidden="true" />
-          {t('locate.title')}
-        </h2>
-        <p className="mt-1 max-w-3xl text-[0.8125rem] font-normal text-muted-foreground">
-          {t('locate.help')}
-        </p>
-      </div>
+      <ToolPaneHeader
+        title={
+          <span className="flex items-center justify-center gap-2 md:justify-start">
+            <Crosshair className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('locate.title')}
+          </span>
+        }
+        onBack={onBackToTools}
+        subtitle={<p className="max-w-3xl text-[0.8125rem]">{t('locate.help')}</p>}
+      />
 
       <form
         className="flex shrink-0 gap-2 border-b border-border px-4 py-3"

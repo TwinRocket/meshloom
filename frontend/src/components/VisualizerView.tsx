@@ -5,13 +5,15 @@ import type { Channel, Contact, RawPacket, RadioConfig } from '../types';
 import { PacketVisualizer3D } from './PacketVisualizer3D';
 import { RawPacketList } from './RawPacketList';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
-import { TOOL_PANE_HEADER_CLASS } from './toolPaneHeader';
+import { ToolPaneHeader } from './ToolPaneHeader';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { cn } from '@/lib/utils';
 import { getVisualizerSettings, saveVisualizerSettings } from '../utils/visualizerSettings';
 import { useRawPackets } from '../stores/rawPacketStore';
 
 interface VisualizerViewProps {
+  /** Leaves this sub-screen for the Tools screen. Phones only. */
+  onBackToTools?: () => void;
   contacts: Contact[];
   channels: Channel[];
   config: RadioConfig | null;
@@ -19,6 +21,7 @@ interface VisualizerViewProps {
 }
 
 export function VisualizerView({
+  onBackToTools,
   contacts,
   channels,
   config,
@@ -62,19 +65,22 @@ export function VisualizerView({
   return (
     <div ref={containerRef} className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className={cn(TOOL_PANE_HEADER_CLASS, 'flex items-center justify-between')}>
-        <span>{paneFullScreen ? t('visualizer.titleFullscreen') : t('visualizer.title')}</span>
-        <button
-          className="hidden md:inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={toggleFullScreen}
-          title={paneFullScreen ? t('visualizer.exitFullscreen') : t('visualizer.fullscreen')}
-          aria-label={
-            paneFullScreen ? t('visualizer.exitFullscreen') : t('visualizer.enterFullscreen')
-          }
-        >
-          {paneFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-        </button>
-      </div>
+      <ToolPaneHeader
+        title={paneFullScreen ? t('visualizer.titleFullscreen') : t('visualizer.title')}
+        onBack={onBackToTools}
+        actions={
+          <button
+            className="hidden md:inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={toggleFullScreen}
+            title={paneFullScreen ? t('visualizer.exitFullscreen') : t('visualizer.fullscreen')}
+            aria-label={
+              paneFullScreen ? t('visualizer.exitFullscreen') : t('visualizer.enterFullscreen')
+            }
+          >
+            {paneFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          </button>
+        }
+      />
 
       {/* One graph, one feed, two layouts. Rendering a second PacketVisualizer3D for
           the narrow layout costs a second WebGL context, scene and force simulation

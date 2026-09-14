@@ -8,7 +8,7 @@ import { RawPacketFeedView } from './RawPacketFeedView';
 import { RoomServerPanel } from './RoomServerPanel';
 import { LocatePane, locateConversation } from './LocatePane';
 import { TracePane } from './TracePane';
-import { TOOL_PANE_HEADER_CLASS } from './toolPaneHeader';
+import { ToolPaneHeader } from './ToolPaneHeader';
 import type {
   Channel,
   Contact,
@@ -38,6 +38,8 @@ const VisualizerView = lazy(() =>
 
 interface ConversationPaneProps {
   activeConversation: Conversation | null;
+  /** Leaves a tool sub-screen for the Tools screen it was opened from. Phones only. */
+  onBackToTools?: () => void;
   contacts: Contact[];
   channels: Channel[];
   config: RadioConfig | null;
@@ -124,6 +126,7 @@ function ContactResolutionBanner({ variant }: { variant: 'unknown-full-key' | 'p
 
 export function ConversationPane({
   activeConversation,
+  onBackToTools,
   contacts,
   channels,
   config,
@@ -209,9 +212,7 @@ export function ConversationPane({
   if (activeConversation.type === 'map') {
     return (
       <>
-        <h2 className={`${TOOL_PANE_HEADER_CLASS} flex items-center justify-between`}>
-          {t('conversation.nodeMap')}
-        </h2>
+        <ToolPaneHeader title={t('conversation.nodeMap')} />
         <div className="flex-1 overflow-hidden">
           <Suspense fallback={<LoadingPane label={t('conversation.loadingMap')} />}>
             <MapView
@@ -242,9 +243,7 @@ export function ConversationPane({
   if (activeConversation.type === 'live') {
     return (
       <>
-        <h2 className={`${TOOL_PANE_HEADER_CLASS} flex items-center justify-between`}>
-          {t('conversation.live')}
-        </h2>
+        <ToolPaneHeader title={t('conversation.live')} onBack={onBackToTools} />
         <div className="flex-1 overflow-hidden">
           <Suspense fallback={<LoadingPane label={t('conversation.loadingLive')} />}>
             <LiveView contacts={contacts} config={config} communityEnabled={communityEnabled} />
@@ -258,6 +257,7 @@ export function ConversationPane({
     return (
       <Suspense fallback={<LoadingPane label={t('conversation.loadingVisualizer')} />}>
         <VisualizerView
+          onBackToTools={onBackToTools}
           contacts={contacts}
           channels={channels}
           config={config}
@@ -270,6 +270,7 @@ export function ConversationPane({
   if (activeConversation.type === 'raw') {
     return (
       <RawPacketFeedView
+        onBackToTools={onBackToTools}
         contacts={contacts}
         channels={channels}
         radioOffline={!health?.radio_connected}
@@ -282,12 +283,20 @@ export function ConversationPane({
   }
 
   if (activeConversation.type === 'trace') {
-    return <TracePane contacts={contacts} config={config} onRunTracePath={onRunTracePath} />;
+    return (
+      <TracePane
+        contacts={contacts}
+        config={config}
+        onRunTracePath={onRunTracePath}
+        onBackToTools={onBackToTools}
+      />
+    );
   }
 
   if (activeConversation.type === 'locate') {
     return (
       <LocatePane
+        onBackToTools={onBackToTools}
         contacts={contacts}
         locateKey={activeConversation.locateKey}
         directoryEnabled={directoryEnabled}
