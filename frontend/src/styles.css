@@ -7,12 +7,7 @@
 }
 
 html {
-  /* dvh tracks the browser chrome but not the virtual keyboard, which shrinks the
-     visual viewport only. --app-height carries that measurement on the browsers
-     that ignore interactive-widget; see utils/appViewport.ts. It is absent the rest
-     of the time, so dvh stays in charge. */
-  height: 100dvh;
-  height: var(--app-height, 100dvh);
+  height: 100%;
 
   /* An installed PWA has no address bar, so a double-tap zoom has nothing to undo
      it with: the page stays scaled and soft at the edges until the app is killed.
@@ -127,6 +122,22 @@ body {
      bar carries its own, and so does the composer. */
   padding: var(--safe-area-top) var(--safe-area-right) 0 var(--safe-area-left);
   box-sizing: border-box;
+
+  /* The shell is furniture, not a document: it does not scroll, only the content
+     inside it does. Left as a normal block it was a page slightly taller than the
+     screen, so a drag anywhere moved the whole app — header, composer and all —
+     and parked it wherever the finger let go. Pinned to the viewport it cannot
+     move, which also makes the bottom edge a fixed thing rather than something
+     that depends on where the page happens to be scrolled to.
+     `height` rather than `bottom: 0` so the keyboard can shorten it: --app-height
+     is what visualViewport reports while the keyboard is up (utils/appViewport.ts),
+     and `100%` — the layout viewport — the rest of the time. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--app-height, 100%);
+  overflow: hidden;
 }
 
 /* The composer is the bottom-most control when no bar is there to be one, so it

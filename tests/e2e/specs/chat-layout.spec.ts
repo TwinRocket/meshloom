@@ -272,13 +272,21 @@ test.describe('Conversation layout', () => {
       // The view's own region, not any element that happens to have a background:
       // measuring the latter matched the shell's backdrop and passed while the view
       // itself stopped well above the edge.
-      const gap = await page.evaluate(() => {
+      const measured = await page.evaluate(() => {
         const main = document.querySelector('#main-content');
-        if (!main) return Number.NaN;
-        return Math.round(window.innerHeight - main.getBoundingClientRect().bottom);
+        const doc = document.scrollingElement as HTMLElement;
+        return {
+          gap: main ? Math.round(window.innerHeight - main.getBoundingClientRect().bottom) : NaN,
+          documentScrollRange: doc.scrollHeight - doc.clientHeight,
+        };
       });
 
-      expect(gap, `dead band below the content on ${route}`).toBeLessThanOrEqual(2);
+      expect(measured.gap, `dead band below the content on ${route}`).toBeLessThanOrEqual(2);
+      // The shell is furniture: a drag must move the content, never the app itself.
+      expect(
+        measured.documentScrollRange,
+        `the page itself can be scrolled on ${route}`
+      ).toBeLessThanOrEqual(1);
     }
   });
 
