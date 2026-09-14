@@ -30,6 +30,13 @@ html {
   }
 }
 
+/* Same rule, keyed on the attribute utils/appViewport.ts sets. The media query above
+   is not reliable on its own: an installed app can report `navigator.standalone`
+   while `display-mode: standalone` does not match, and then nothing applies. */
+html[data-standalone] {
+  height: 100lvh;
+}
+
 body,
 #root {
   height: 100%;
@@ -75,7 +82,7 @@ body,
    supported the fallback is simply a more opaque surface, which still reads. */
 .liquid-surface {
   background: hsl(var(--card) / 0.92);
-  border: 1px solid hsl(var(--border) / 0.7);
+  border: 1px solid hsl(var(--border) / 0.55);
   box-shadow:
     0 8px 28px -12px hsl(0 0% 0% / 0.55),
     inset 0 1px 0 hsl(0 0% 100% / 0.06);
@@ -83,9 +90,15 @@ body,
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .liquid-surface {
-    background: hsl(var(--card) / 0.68);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    backdrop-filter: blur(20px) saturate(180%);
+    /* Thin enough to keep the reader's context — Apple's regular variant "blurs and
+       adjusts the luminosity of background content to maintain legibility" rather
+       than hiding it, and the HIG's own note is that thinner materials "help people
+       retain their context". The blur and the luminosity lift are what carry
+       legibility here, not opacity. Apple publishes no numbers for this; these are
+       matched by eye against the system bars. */
+    background: hsl(var(--card) / 0.42);
+    -webkit-backdrop-filter: blur(28px) saturate(200%) brightness(1.35);
+    backdrop-filter: blur(28px) saturate(200%) brightness(1.35);
   }
 }
 

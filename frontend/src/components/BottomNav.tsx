@@ -47,15 +47,13 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
         // installed app reports shorter than the screen. Anchored to the shell it
         // follows whatever the shell's real height turns out to be.
         'pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center md:hidden',
-        // The capped inset, not the raw one: the full home-indicator inset floats the
-        // bar a centimetre off the edge, which reads as something hovering rather than
-        // something anchored. The indicator overlays content by design, and the bar is
-        // a rounded pill with padding of its own, so its targets stay clear of it.
-        'px-3 pb-[calc(var(--safe-area-bottom-capped)+0.25rem)]',
+        // Clear of the home indicator with a little air, the way the system's own
+        // floating bars sit — not pressed against the edge.
+        'px-2 pb-[calc(var(--safe-area-bottom)+0.5rem)]',
         className
       )}
     >
-      <div className="liquid-surface pointer-events-auto flex w-full max-w-md items-stretch justify-between gap-0.5 rounded-full p-1">
+      <div className="liquid-surface pointer-events-auto flex w-full max-w-md items-stretch justify-between gap-0 rounded-[1.75rem] p-1.5">
         {ITEMS.map(({ target, labelKey, Icon }) => {
           const isActive = active === target;
           const badge = target === 'conversations' ? unreadTotal : 0;
@@ -66,7 +64,7 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
               onClick={() => onSelect(target)}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 py-1.5',
+                'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[1.375rem] px-0.5 py-2.5',
                 'text-[0.625rem] leading-none transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 isActive
@@ -75,7 +73,7 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
               )}
             >
               <span className="relative">
-                <Icon className="h-5 w-5" aria-hidden="true" />
+                <Icon className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
                 {badge > 0 && (
                   <span
                     className="absolute -right-2.5 -top-1.5 min-w-[1.05rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground"

@@ -35,7 +35,28 @@ const APP_HEIGHT_VAR = '--app-height';
  */
 const KEYBOARD_MIN_DELTA_PX = 120;
 
+/**
+ * Marks the document when the app is running installed rather than in a tab.
+ *
+ * `@media (display-mode: standalone)` alone is not enough: measured on device, an
+ * installed app can report `navigator.standalone` while that query does not match,
+ * and the height rule keyed on it silently did nothing. Two signals, one attribute,
+ * and the stylesheet keys on the attribute.
+ */
+function markStandalone(): void {
+  if (typeof window === 'undefined') return;
+  const legacy = (window.navigator as { standalone?: boolean }).standalone === true;
+  const query = window.matchMedia?.('(display-mode: standalone)').matches === true;
+  const minimal = window.matchMedia?.('(display-mode: minimal-ui)').matches === true;
+  if (legacy || query || minimal) {
+    document.documentElement.dataset.standalone = '';
+  } else {
+    delete document.documentElement.dataset.standalone;
+  }
+}
+
 export function initAppViewport(): () => void {
+  markStandalone();
   const vv = typeof window !== 'undefined' ? window.visualViewport : undefined;
   if (!vv) return () => {};
 
