@@ -85,6 +85,7 @@ interface EarPulse {
   lon: number;
   lastAt: number;
   iata: string | null;
+  color?: string;
 }
 
 function LiveRainCanvas({
@@ -186,6 +187,17 @@ function LiveRainCanvas({
           .toString(16)
           .padStart(2, '0');
 
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = particle.color + alpha;
+        ctx.shadowColor = particle.color;
+        ctx.shadowBlur = 16 * fadeMul;
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
         ctx.beginPath();
         ctx.arc(x, y, particle.radius + 4, 0, Math.PI * 2);
         ctx.fillStyle = `${particle.color}28`;
@@ -193,10 +205,8 @@ function LiveRainCanvas({
         ctx.beginPath();
         ctx.arc(x, y, particle.radius, 0, Math.PI * 2);
         ctx.fillStyle = particle.color + alpha;
-        ctx.shadowColor = particle.color;
-        ctx.shadowBlur = 10 * fadeMul;
         ctx.fill();
-        ctx.shadowBlur = 0;
+        ctx.restore();
       }
 
       ctx.restore();
@@ -416,6 +426,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
           iata: obs.iata,
         });
       }
+      const packetColor = liveTypeColor(obs.type);
       for (const point of jittered) {
         if (point.kind !== 'hop') continue;
         nextHops.push({
@@ -424,6 +435,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
           lon: point.lon,
           lastAt: now,
           iata: obs.iata,
+          color: packetColor,
         });
       }
     }
@@ -581,12 +593,12 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
           <FitLiveBounds ears={earMarkers} />
           {lines.map((line) => {
             const age = nowTick - line.startedAt;
-            const opacity = Math.max(0, 0.55 * (1 - age / line.lifetimeMs));
+            const opacity = Math.max(0, 0.88 * (1 - age / line.lifetimeMs));
             return (
               <Polyline
                 key={line.id}
                 positions={line.path}
-                pathOptions={{ color: line.color, weight: 2, opacity }}
+                pathOptions={{ color: line.color, weight: 3, opacity }}
               />
             );
           })}
@@ -596,10 +608,10 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
               center={[hop.lat, hop.lon]}
               radius={5}
               pathOptions={{
-                color: '#94a3b8',
-                fillColor: '#cbd5e1',
-                fillOpacity: isStaleLiveTime(hop.lastAt, nowTick) ? 0.15 : 0.55,
-                weight: 1,
+                color: hop.color ?? liveTypeColor('other'),
+                fillColor: hop.color ?? liveTypeColor('other'),
+                fillOpacity: isStaleLiveTime(hop.lastAt, nowTick) ? 0.15 : 0.7,
+                weight: 1.5,
               }}
             />
           ))}

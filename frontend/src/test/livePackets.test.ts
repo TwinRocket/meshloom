@@ -7,6 +7,7 @@ import {
   isOneByteHopToken,
   liveBoundsShouldFit,
   liveOpacity,
+  liveTypeColor,
   observationFromCommunity,
   polylinePositions,
   uniqueGpsContact,
@@ -78,6 +79,15 @@ describe('community waypoints', () => {
     expect(waypoints.map((point) => point.kind)).toEqual(['hop', 'fade']);
     expect(polylinePositions(waypoints)).toEqual([[45.78, 4.86]]);
     expect(waypoints.some((point) => point.token === 'cd' && point.kind === 'hop')).toBe(false);
+  });
+
+  it('keeps legend colors on the observation type', () => {
+    expect(liveTypeColor('advert')).toBe('#f59e0b');
+    expect(liveTypeColor('text')).toBe('#06b6d4');
+    expect(liveTypeColor('ack')).toBe('#22c55e');
+    expect(liveTypeColor('trace')).toBe('#f97316');
+    expect(liveTypeColor('other')).toBe('#94a3b8');
+    expect(observationFromCommunity(packet)?.type).toBe('ack');
   });
 
   it('ignores unknown schema versions', () => {
