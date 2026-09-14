@@ -60,7 +60,10 @@ export function RadioStatusChip({ health, onOpenRadioSettings, compact, classNam
 
   if (!onOpenRadioSettings) {
     return (
-      <span className={classes} role="status">
+      // `title` because the compact form hides the word: a screen reader still
+      // hears it, and without this a sighted reader gets a coloured dot and
+      // nothing else — which is the one thing the status must never be.
+      <span className={classes} role="status" title={compact ? label : undefined}>
         {content}
       </span>
     );

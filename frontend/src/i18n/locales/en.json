@@ -2373,6 +2373,7 @@
     "removeShort": "Remove",
     "available": "Add to the rail",
     "reset": "Reset to defaults",
-    "saved": "Saved"
+    "saved": "Saved",
+    "configureRail": "Arrange the rail"
   }
 }

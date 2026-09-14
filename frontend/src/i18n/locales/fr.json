@@ -2373,6 +2373,7 @@
     "removeShort": "Retirer",
     "available": "Ajouter à la barre",
     "reset": "Rétablir les valeurs par défaut",
-    "saved": "Enregistré"
+    "saved": "Enregistré",
+    "configureRail": "Organiser la barre"
   }
 }

@@ -326,9 +326,9 @@ export function AppShell({
           unreadTotal={unreadTotal}
           onSelect={handleBottomNav}
           health={statusProps.health ?? null}
-          onOpenRadioSettings={() => handleOpenSettings('radio')}
           order={navRailOrder}
           activeToolId={activeType ?? null}
+          onConfigure={() => handleOpenSettings('navigation')}
           onSelectTool={(id) => {
             if (showSettings) onToggleSettingsView();
             sidebarProps.onSelectConversation(

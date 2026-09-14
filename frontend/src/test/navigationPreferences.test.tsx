@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import { resolveRail, DEFAULT_RAIL, RAIL_ITEMS } from '../components/navDestinations';
+import {
+  addToRail,
+  resolveRail,
+  DEFAULT_RAIL,
+  RAIL_ITEMS,
+  ANCHORED_RAIL_IDS,
+} from '../components/navDestinations';
 import { SettingsNavigationSection } from '../components/settings/SettingsNavigationSection';
 import i18n from '../i18n';
 
@@ -16,7 +22,7 @@ describe('resolveRail', () => {
   });
 
   it('keeps the stored order', () => {
-    const stored = ['settings', 'conversations', 'map', 'tools'];
+    const stored = ['map', 'conversations'];
     expect(resolveRail(stored).map((i) => i.id)).toEqual(stored);
   });
 
@@ -32,9 +38,34 @@ describe('resolveRail', () => {
   });
 
   it('puts back a permanent entry a stored list had dropped', () => {
-    // Otherwise the rail can lose the only way back to where it is configured.
-    const ids = resolveRail(['conversations']).map((i) => i.id);
-    for (const permanent of DEFAULT_RAIL) expect(ids).toContain(permanent);
+    // Conversations and the map cannot be taken off the rail; a tool can, so a
+    // stored list that omits one is a choice and is left alone.
+    const ids = resolveRail(['raw']).map((i) => i.id);
+    expect(ids).toContain('conversations');
+    expect(ids).toContain('map');
+    expect(ids).toContain('raw');
+  });
+
+  it('starts with everything on the rail', () => {
+    // Removing what you do not use is easier to think of than adding what you
+    // never saw, and the tools have no other entry on desktop.
+    expect(DEFAULT_RAIL).toContain('live');
+    expect(DEFAULT_RAIL).toContain('search');
+    expect(resolveRail([]).map((i) => i.id)).toEqual(DEFAULT_RAIL);
+  });
+
+  it('has no catalogue entry, which would be a second way to the same places', () => {
+    expect(RAIL_ITEMS.map((i) => i.id)).not.toContain('tools');
+  });
+
+  it('leaves the bottom group out of the order entirely', () => {
+    // Tools and settings are anchored, so the order never decides their rank and
+    // adding a tool can never move them.
+    for (const anchored of ANCHORED_RAIL_IDS) {
+      expect(DEFAULT_RAIL).not.toContain(anchored);
+      expect(RAIL_ITEMS.map((i) => i.id)).not.toContain(anchored);
+      expect(resolveRail(['conversations']).map((i) => i.id)).not.toContain(anchored);
+    }
   });
 
   it('carries the tools, which are what there is to add', () => {
@@ -56,34 +87,35 @@ const rowNames = () =>
 
 describe('SettingsNavigationSection', () => {
   it('reorders an entry without losing the others', () => {
-    const { onChange } = renderSection(['conversations', 'map', 'tools', 'settings']);
+    const { onChange } = renderSection(['conversations', 'map', 'live']);
     fireEvent.click(
       screen.getByRole('button', {
         name: i18n.t('settingsNavigation.moveUp', { name: i18n.t('bottomNav.map') }),
       })
     );
-    expect(onChange).toHaveBeenCalledWith(['map', 'conversations', 'tools', 'settings']);
+    expect(onChange).toHaveBeenCalledWith(['map', 'conversations', 'live']);
   });
 
-  it('adds a tool to the end of the rail', () => {
-    const { onChange } = renderSection(DEFAULT_RAIL);
+  it('adds back a tool that was taken off the rail', () => {
+    const trimmed = DEFAULT_RAIL.filter((id) => id !== 'live');
+    const { onChange } = renderSection(trimmed);
     fireEvent.click(screen.getByRole('button', { name: new RegExp(i18n.t('sidebar.live')) }));
-    expect(onChange).toHaveBeenCalledWith([...DEFAULT_RAIL, 'live']);
+    expect(onChange).toHaveBeenCalledWith([...trimmed, 'live']);
   });
 
   it('removes a tool but offers no way to remove a permanent destination', () => {
-    const { onChange } = renderSection([...DEFAULT_RAIL, 'live']);
+    const { onChange } = renderSection(DEFAULT_RAIL);
     fireEvent.click(
       screen.getByRole('button', {
         name: i18n.t('settingsNavigation.remove', { name: i18n.t('sidebar.live') }),
       })
     );
-    expect(onChange).toHaveBeenCalledWith(DEFAULT_RAIL);
+    expect(onChange).toHaveBeenCalledWith(DEFAULT_RAIL.filter((id) => id !== 'live'));
 
     // A permanent entry has no remove control at all — not a disabled one.
     expect(
       screen.queryByRole('button', {
-        name: i18n.t('settingsNavigation.remove', { name: i18n.t('bottomNav.settings') }),
+        name: i18n.t('settingsNavigation.remove', { name: i18n.t('bottomNav.conversations') }),
       })
     ).not.toBeInTheDocument();
   });
@@ -97,15 +129,28 @@ describe('SettingsNavigationSection', () => {
     ).toBeDisabled();
     expect(
       screen.getByRole('button', {
-        name: i18n.t('settingsNavigation.moveDown', { name: i18n.t('bottomNav.settings') }),
+        name: i18n.t('settingsNavigation.moveDown', {
+          name: i18n.t('sidebar.messageSearch'),
+        }),
       })
     ).toBeDisabled();
   });
 
   it('restores the defaults', () => {
-    const { onChange } = renderSection(['settings', 'conversations', 'map', 'tools', 'raw']);
+    const { onChange } = renderSection(['map', 'conversations', 'raw']);
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settingsNavigation.reset') }));
     expect(onChange).toHaveBeenCalledWith(DEFAULT_RAIL);
     expect(rowNames().length).toBeGreaterThan(0);
+  });
+});
+
+describe('addToRail', () => {
+  it('appends the entry', () => {
+    expect(addToRail(['conversations', 'map'], 'live')).toEqual(['conversations', 'map', 'live']);
+  });
+
+  it('refuses to add the same entry twice', () => {
+    const rail: ReturnType<typeof addToRail> = ['conversations', 'live'];
+    expect(addToRail(rail, 'live')).toBe(rail);
   });
 });

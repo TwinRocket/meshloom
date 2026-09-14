@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronUp, ChevronDown, Check, Plus } from 'lucide-react';
-import { DEFAULT_RAIL, RAIL_ITEMS, resolveRail, type RailItemId } from '../navDestinations';
+import {
+  addToRail,
+  DEFAULT_RAIL,
+  RAIL_ITEMS,
+  resolveRail,
+  type RailItemId,
+} from '../navDestinations';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
@@ -130,7 +136,7 @@ export function SettingsNavigationSection({ order, onChange }: Props) {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => commit([...current, id])}
+                  onClick={() => commit(addToRail(current, id))}
                 >
                   <Icon className="mr-1.5 h-4 w-4" aria-hidden="true" />
                   <Plus className="mr-1 h-3 w-3" aria-hidden="true" />

@@ -59,13 +59,37 @@ const tool = (id: Exclude<RailItemId, BottomNavTarget>, labelKey: string, Icon: 
   conversation: { type: id, id, name: id } as Conversation,
 });
 
+/**
+ * The rail's bottom group, and never part of the arrangeable list.
+ *
+ * A rail holds two natures of thing: places, and the application talking about
+ * itself. Everything you can open is a place and lives in the group above;
+ * settings and the radio state belong against the bottom edge, which is how the
+ * platform's own rails are built.
+ *
+ * Nothing here carries `aria-current`, and that is the point rather than an
+ * omission — it is a door, not a location.
+ *
+ * The tool catalogue is deliberately absent. Every tool has its own entry on the
+ * rail, so a catalogue entry beside them would be a second way to reach places
+ * already present, and would light up at the same time as the tool opened from it
+ * — "where am I" with two answers. On a phone the bar has four slots and no
+ * arranging, so Tools remains a destination there.
+ */
+export const ANCHORED_RAIL_IDS = ['settings'] as const;
+
+/** Never on the rail: settings is anchored below, and Tools is a phone destination. */
+const NOT_ON_RAIL: readonly string[] = ['settings', 'tools'];
+
 export const RAIL_ITEMS: RailItem[] = [
-  ...NAV_ITEMS.map(({ target, labelKey, Icon }) => ({
-    id: target as RailItemId,
-    labelKey,
-    Icon,
-    permanent: true,
-  })),
+  ...NAV_ITEMS.filter(({ target }) => !NOT_ON_RAIL.includes(target)).map(
+    ({ target, labelKey, Icon }) => ({
+      id: target as RailItemId,
+      labelKey,
+      Icon,
+      permanent: true,
+    })
+  ),
   tool('raw', 'sidebar.packetFeed', List),
   tool('live', 'sidebar.live', CloudRain),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),
@@ -76,7 +100,26 @@ export const RAIL_ITEMS: RailItem[] = [
 
 const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
 
-export const DEFAULT_RAIL: RailItemId[] = NAV_ITEMS.map(({ target }) => target);
+/**
+ * Everything on the rail to begin with.
+ *
+ * There is room: nine entries at 44px sit inside a 600px window, and the rail
+ * scrolls below that. Starting full means the tools are discoverable without
+ * having to learn that the rail can be arranged at all — removing what you do not
+ * use is an easier thing to think of than adding what you never saw.
+ */
+export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id);
+
+/** The bottom group's entries, in the order they are drawn. */
+export const ANCHORED_RAIL_ITEMS = ANCHORED_RAIL_IDS.map((id) =>
+  NAV_ITEMS.find(({ target }) => target === id)!
+);
+
+/** Add an entry to the rail, once. Order is otherwise the reader's business. */
+export function addToRail(current: RailItemId[], id: RailItemId): RailItemId[] {
+  if (current.includes(id)) return current;
+  return [...current, id];
+}
 
 /**
  * The rail a stored order describes.
@@ -95,7 +138,8 @@ export function resolveRail(stored: string[] | undefined): RailItem[] {
     seen.add(id);
     items.push(item);
   }
-  if (items.length === 0) return RAIL_ITEMS.filter((item) => item.permanent);
+  // Nothing stored means the defaults, not an empty rail.
+  if (items.length === 0) return DEFAULT_RAIL.map((id) => RAIL_BY_ID.get(id)!);
   for (const item of RAIL_ITEMS) {
     if (item.permanent && !seen.has(item.id)) items.push(item);
   }
