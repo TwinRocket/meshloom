@@ -153,15 +153,15 @@ def register_frontend_static_routes(app: FastAPI, frontend_dir: Path) -> bool:
         return _file_response(index_file, cache_control=INDEX_CACHE_CONTROL)
 
     @app.get("/site.webmanifest")
-    async def serve_webmanifest(request: Request):
-        """Serve a dynamic web manifest using the active request base URL."""
-        base = _resolve_request_base(request)
+    async def serve_webmanifest():
+        """Serve the web manifest with same-origin relative URLs."""
+        asset = "./"
         manifest = {
             "name": "Meshloom",
             "short_name": "Meshloom",
-            "id": base,
-            "start_url": base,
-            "scope": base,
+            "id": asset,
+            "start_url": asset,
+            "scope": asset,
             "display": "standalone",
             "display_override": ["window-controls-overlay", "standalone", "fullscreen"],
             "theme_color": "#0A0C10",
@@ -177,31 +177,31 @@ def register_frontend_static_routes(app: FastAPI, frontend_dir: Path) -> bool:
             # render with excessive padding.
             "icons": [
                 {
-                    "src": f"{base}favicon-96x96.png",
+                    "src": f"{asset}favicon-96x96.png",
                     "sizes": "96x96",
                     "type": "image/png",
                     "purpose": "any",
                 },
                 {
-                    "src": f"{base}apple-touch-icon.png",
+                    "src": f"{asset}apple-touch-icon.png",
                     "sizes": "180x180",
                     "type": "image/png",
                     "purpose": "any",
                 },
                 {
-                    "src": f"{base}favicon-256x256.png",
+                    "src": f"{asset}favicon-256x256.png",
                     "sizes": "256x256",
                     "type": "image/png",
                     "purpose": "any",
                 },
                 {
-                    "src": f"{base}web-app-manifest-192x192.png",
+                    "src": f"{asset}web-app-manifest-192x192.png",
                     "sizes": "192x192",
                     "type": "image/png",
                     "purpose": "maskable",
                 },
                 {
-                    "src": f"{base}web-app-manifest-512x512.png",
+                    "src": f"{asset}web-app-manifest-512x512.png",
                     "sizes": "512x512",
                     "type": "image/png",
                     "purpose": "maskable",
@@ -209,20 +209,20 @@ def register_frontend_static_routes(app: FastAPI, frontend_dir: Path) -> bool:
             ],
             "screenshots": [
                 {
-                    "src": f"{base}screenshot-wide.png",
+                    "src": f"{asset}screenshot-wide.png",
                     "sizes": "1367x909",
                     "type": "image/png",
                     "form_factor": "wide",
                     "label": "Meshloom desktop view",
                 },
                 {
-                    "src": f"{base}screenshot-mobile.png",
+                    "src": f"{asset}screenshot-mobile.png",
                     "sizes": "1170x2532",
                     "type": "image/png",
                     "label": "Meshloom mobile view",
                 },
                 {
-                    "src": f"{base}screenshot-mobile-2.png",
+                    "src": f"{asset}screenshot-mobile-2.png",
                     "sizes": "750x1334",
                     "type": "image/png",
                     "label": "Meshloom mobile conversation",

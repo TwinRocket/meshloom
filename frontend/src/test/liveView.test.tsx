@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveView } from '../components/LiveView';
 import { api } from '../api';
 import i18n from '../i18n';
-import { resetLivePacketStore, setLiveCloseCode } from '../stores/livePacketStore';
+import {
+  resetLivePacketStore,
+  setLiveCloseCode,
+  setLiveInactiveObserver,
+} from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { stopLivePacketFixtures } from '../fixtures/livePacketFixtures';
 
@@ -82,12 +86,19 @@ describe('LiveView', () => {
     expect(api.relancerCommunityLive).toHaveBeenCalled();
   });
 
-  it('shows opt-out and inactive banners from fixture toggles', () => {
+  it('shows the opt-out banner without debug toggles', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled={false} />);
     expect(screen.getByText(i18n.t('live.bannerOptOut'))).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'JWT expiré' })).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.simulateInactive') }));
+  it('shows the inactive-observer banner from store state', () => {
+    vi.mocked(api.subscribeCommunityLive).mockReturnValue(new Promise(() => {}));
+    setLiveInactiveObserver(true);
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
     expect(screen.getByText(i18n.t('live.bannerInactive'))).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
   });
 
   it('starts the rain playing and toggles to play when paused', () => {

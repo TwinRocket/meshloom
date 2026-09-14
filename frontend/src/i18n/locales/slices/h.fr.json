@@ -21,13 +21,6 @@
     "play": "Lecture",
     "pause": "Pause",
     "playPause": "Lecture ou pause de la pluie",
-    "fixtures": "Fixtures",
-    "playFixtures": "Rejouer les fixtures",
-    "simulateExpired": "JWT expiré",
-    "simulateInactive": "Inactif 24 h",
-    "simulateOptOut": "Opt-out",
-    "simulateSlotBusy": "Slot occupé",
-    "simulateRateLimit": "Limite de débit",
     "mapAria": "Carte de la pluie de paquets live",
     "legend": {
       "advert": "Annonce",

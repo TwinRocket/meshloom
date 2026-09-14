@@ -17,16 +17,9 @@ import { useRawPackets } from '../stores/rawPacketStore';
 import {
   applyLiveStatus,
   relancerLive,
-  setLiveCloseCode,
-  setLiveInactiveObserver,
-  setLiveOptOut,
   useCommunityPackets,
   useLiveConnectionState,
 } from '../stores/livePacketStore';
-import {
-  playLivePacketFixtures,
-  simulateLiveJwtExpired,
-} from '../fixtures/livePacketFixtures';
 import {
   applyHopJitter,
   buildPrefixIndex,
@@ -555,49 +548,6 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
             ))}
           </select>
         </label>
-        {import.meta.env.DEV && (
-          <>
-            <span className="text-muted-foreground">{t('live.fixtures')}</span>
-            <Button size="sm" variant="ghost" onClick={() => playLivePacketFixtures()}>
-              {t('live.playFixtures')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => simulateLiveJwtExpired()}>
-              {t('live.simulateExpired')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setLiveInactiveObserver(!connection.inactiveObserver)}
-            >
-              {t('live.simulateInactive')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setLiveOptOut(!connection.optOut)}>
-              {t('live.simulateOptOut')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                setLiveCloseCode(
-                  connection.closeCode === LIVE_CLOSE_SLOT_BUSY ? null : LIVE_CLOSE_SLOT_BUSY
-                )
-              }
-            >
-              {t('live.simulateSlotBusy')}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                setLiveCloseCode(
-                  connection.closeCode === LIVE_CLOSE_RATE_LIMIT ? null : LIVE_CLOSE_RATE_LIMIT
-                )
-              }
-            >
-              {t('live.simulateRateLimit')}
-            </Button>
-          </>
-        )}
         <div className="ml-auto flex flex-wrap items-center gap-2 text-[0.6875rem]">
           {(['advert', 'text', 'ack', 'trace', 'other'] as const).map((type) => (
             <span key={type} className="flex items-center gap-1">

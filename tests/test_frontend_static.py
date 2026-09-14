@@ -65,13 +65,13 @@ def test_valid_dist_serves_static_and_spa_fallback(tmp_path):
         assert manifest_response.headers["content-type"].startswith("application/manifest+json")
         assert manifest_response.headers["cache-control"] == "no-store"
         manifest = manifest_response.json()
-        assert manifest["start_url"] == "http://testserver/"
-        assert manifest["scope"] == "http://testserver/"
-        assert manifest["id"] == "http://testserver/"
+        assert manifest["start_url"] == "./"
+        assert manifest["scope"] == "./"
+        assert manifest["id"] == "./"
         assert manifest["display"] == "standalone"
         icon_srcs = {icon["src"] for icon in manifest["icons"]}
-        assert "http://testserver/web-app-manifest-192x192.png" in icon_srcs
-        assert "http://testserver/web-app-manifest-512x512.png" in icon_srcs
+        assert "./web-app-manifest-192x192.png" in icon_srcs
+        assert "./web-app-manifest-512x512.png" in icon_srcs
         # SVG icons cause inconsistent PWA icon rendering on iOS; the manifest
         # must be PNG-only.
         assert all(icon["type"] == "image/png" for icon in manifest["icons"])
@@ -127,9 +127,9 @@ def test_webmanifest_uses_forwarded_origin_headers(tmp_path):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["start_url"] == "https://mesh.example.com:8443/"
-        assert data["scope"] == "https://mesh.example.com:8443/"
-        assert data["id"] == "https://mesh.example.com:8443/"
+        assert data["start_url"] == "./"
+        assert data["scope"] == "./"
+        assert data["id"] == "./"
 
 
 def test_webmanifest_includes_forwarded_prefix(tmp_path):
@@ -153,13 +153,12 @@ def test_webmanifest_includes_forwarded_prefix(tmp_path):
 
         assert response.status_code == 200
         data = response.json()
-        expected_base = "https://homeassistant.local:8123/api/hassio_ingress/abc123/"
-        assert data["start_url"] == expected_base
-        assert data["scope"] == expected_base
-        assert data["id"] == expected_base
+        assert data["start_url"] == "./"
+        assert data["scope"] == "./"
+        assert data["id"] == "./"
         icon_srcs = {icon["src"] for icon in data["icons"]}
-        assert f"{expected_base}web-app-manifest-192x192.png" in icon_srcs
-        assert f"{expected_base}web-app-manifest-512x512.png" in icon_srcs
+        assert "./web-app-manifest-192x192.png" in icon_srcs
+        assert "./web-app-manifest-512x512.png" in icon_srcs
 
 
 def test_webmanifest_ignores_unsafe_forwarded_headers(tmp_path):
@@ -183,8 +182,8 @@ def test_webmanifest_ignores_unsafe_forwarded_headers(tmp_path):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["start_url"] == "http://testserver/"
-        assert data["scope"] == "http://testserver/"
+        assert data["start_url"] == "./"
+        assert data["scope"] == "./"
 
 
 def test_webmanifest_ignores_forwarded_credentials_and_query_prefix(tmp_path):
@@ -208,7 +207,7 @@ def test_webmanifest_ignores_forwarded_credentials_and_query_prefix(tmp_path):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["start_url"] == "http://testserver/"
+        assert data["start_url"] == "./"
 
 
 def test_first_available_prefers_dist_over_prebuilt(tmp_path):
