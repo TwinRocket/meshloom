@@ -20,7 +20,10 @@ export const MAX_LIVE_PARTICLES = 150;
 export const LIVE_HOP_JITTER_DEG = 0.012;
 
 /** OurAirports IATA centroids (public domain). Ear position, never contributor GPS. */
-export const LIVE_IATA_CENTROIDS = iataCentroids as Record<string, [number, number]>;
+export const LIVE_IATA_CENTROIDS = iataCentroids as unknown as Record<
+  string,
+  [number, number]
+>;
 
 export const LIVE_TYPE_COLORS: Record<CommunityPacketType, string> = {
   advert: '#f59e0b',
