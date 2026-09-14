@@ -29,16 +29,30 @@ const APP_HEIGHT_VAR = '--app-height';
  */
 const KEYBOARD_MIN_DELTA_PX = 120;
 
+/**
+ * Installed, the app has no browser chrome to collapse, and `dvh` does not resolve to
+ * the screen: it leaves a band at the bottom the app cannot draw into, which is the
+ * one thing that gives away a web page wearing an app's clothes. `visualViewport`
+ * reports what is actually visible, so there it is the measurement rather than the
+ * exception — and the keyboard is covered by the same number, for free.
+ */
+function isStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  const iosStandalone = (window.navigator as { standalone?: boolean }).standalone === true;
+  return iosStandalone || window.matchMedia?.('(display-mode: standalone)').matches === true;
+}
+
 export function initAppViewport(): () => void {
   const vv = typeof window !== 'undefined' ? window.visualViewport : undefined;
   if (!vv) return () => {};
 
   const root = document.documentElement;
+  const standalone = isStandalone();
 
   const apply = () => {
     const layoutHeight = window.innerHeight;
     const visibleHeight = vv.height;
-    if (layoutHeight - visibleHeight >= KEYBOARD_MIN_DELTA_PX) {
+    if (standalone || layoutHeight - visibleHeight >= KEYBOARD_MIN_DELTA_PX) {
       root.style.setProperty(APP_HEIGHT_VAR, `${Math.round(visibleHeight)}px`);
     } else {
       root.style.removeProperty(APP_HEIGHT_VAR);

@@ -269,18 +269,13 @@ test.describe('Conversation layout', () => {
       await page.reload();
       await page.waitForTimeout(1_200);
 
+      // The view's own region, not any element that happens to have a background:
+      // measuring the latter matched the shell's backdrop and passed while the view
+      // itself stopped well above the edge.
       const gap = await page.evaluate(() => {
-        let lowest = 0;
-        for (const el of document.querySelectorAll<HTMLElement>('body *')) {
-          const style = getComputedStyle(el);
-          if (style.visibility === 'hidden' || style.display === 'none') continue;
-          const background = style.backgroundColor;
-          if (background === 'rgba(0, 0, 0, 0)' || background === 'transparent') continue;
-          const box = el.getBoundingClientRect();
-          if (box.width < 80 || box.height < 8) continue;
-          if (box.bottom > lowest) lowest = box.bottom;
-        }
-        return Math.round(window.innerHeight - lowest);
+        const main = document.querySelector('#main-content');
+        if (!main) return Number.NaN;
+        return Math.round(window.innerHeight - main.getBoundingClientRect().bottom);
       });
 
       expect(gap, `dead band below the content on ${route}`).toBeLessThanOrEqual(2);

@@ -131,6 +131,48 @@ describe('initAppViewport', () => {
   });
 });
 
+describe('initAppViewport when installed', () => {
+  let cleanup: (() => void) | null = null;
+
+  beforeEach(() => {
+    Object.defineProperty(window, 'innerHeight', {
+      value: 844,
+      configurable: true,
+      writable: true,
+    });
+    document.documentElement.style.removeProperty('--app-height');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('standalone'),
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+      }),
+    });
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = null;
+    Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'visualViewport');
+    Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'matchMedia');
+  });
+
+  it('takes the visible height even when nothing is covering the screen', () => {
+    // Installed there is no chrome to collapse, and dvh leaves a band at the bottom
+    // the app cannot draw into. The measurement is the rule here, not the exception.
+    const vv = installVisualViewport(812);
+    cleanup = initAppViewport();
+    expect(appHeight()).toBe('812px');
+
+    vv.height = 800;
+    vv.emit('resize');
+    expect(appHeight()).toBe('800px');
+  });
+});
+
 describe('initAppViewport teardown', () => {
   it('detaches both listeners', () => {
     const vv = installVisualViewport(844);
