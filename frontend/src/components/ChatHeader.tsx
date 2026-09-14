@@ -219,7 +219,7 @@ export function ChatHeader({
           : 'grid-cols-[minmax(0,1fr)_auto]'
       )}
     >
-      <span className="flex min-w-0 items-start gap-2">
+      <span className="flex min-w-0 items-center gap-2.5 md:gap-2">
         {/* The way out of a conversation belongs to the conversation, next to whose
             conversation it is — not to a bar above it that says the app's name. */}
         {onBack && (
@@ -227,9 +227,9 @@ export function ChatHeader({
             type="button"
             onClick={onBack}
             aria-label={t('shell.backToConversations')}
-            className="liquid-surface -ml-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+            className="liquid-surface -ml-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
           >
-            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+            <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
           </button>
         )}
         {conversation.type === 'contact' && onOpenContactInfo && (
@@ -240,13 +240,27 @@ export function ChatHeader({
             title={t('chatHeader.viewContactInfo')}
             aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
           >
-            <ContactAvatar
-              name={conversation.name}
-              publicKey={conversation.id}
-              size={28}
-              contactType={contacts.find((c) => c.public_key === conversation.id)?.type}
-              clickable
-            />
+            {/* Two sizes rather than one compromise: on a phone the avatar sits
+                beside a 40px back control and has to hold its own against it; on
+                desktop the row is dense and 28 is right. */}
+            <span className="md:hidden">
+              <ContactAvatar
+                name={conversation.name}
+                publicKey={conversation.id}
+                size={40}
+                contactType={contacts.find((c) => c.public_key === conversation.id)?.type}
+                clickable
+              />
+            </span>
+            <span className="hidden md:block">
+              <ContactAvatar
+                name={conversation.name}
+                publicKey={conversation.id}
+                size={28}
+                contactType={contacts.find((c) => c.public_key === conversation.id)?.type}
+                clickable
+              />
+            </span>
           </button>
         )}
         <span className="flex min-w-0 flex-1 flex-col">
@@ -258,7 +272,7 @@ export function ChatHeader({
               {/* Spans the row so the whole strip opens the details, not just the
                   glyphs of the name — the empty space beside a title reads as part
                   of the title. */}
-              <h2 className="min-w-0 flex-1 font-semibold text-base">
+              <h2 className="min-w-0 flex-1 text-[1.0625rem] font-semibold md:text-base">
                 {titleClickable ? (
                   <button
                     type="button"
@@ -331,8 +345,11 @@ export function ChatHeader({
           </span>
         </span>
       </span>
+      {/* One line on a phone, truncated: a subtitle under a name is glanced at, and
+          two wrapped lines of it push the conversation down every time. The detail is
+          in the info pane the header opens. */}
       {conversation.type === 'contact' && activeContact && (
-        <div className="col-span-2 row-start-2 min-w-0 text-[0.6875rem] text-muted-foreground min-[1100px]:col-span-1 min-[1100px]:col-start-2 min-[1100px]:row-start-1">
+        <div className="col-span-2 row-start-2 min-w-0 truncate whitespace-nowrap text-[0.6875rem] text-muted-foreground md:whitespace-normal min-[1100px]:col-span-1 min-[1100px]:col-start-2 min-[1100px]:row-start-1">
           <ContactStatusInfo
             contact={activeContact}
             ourLat={config?.lat ?? null}
