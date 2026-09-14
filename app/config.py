@@ -123,9 +123,7 @@ class _UvicornLogHygiene(logging.Filter):
         msg = record.getMessage()
         if msg in self._DROP_EXACT:
             return False
-        if "WebSocket " in msg and "[accepted]" in msg:
-            return False
-        return True
+        return not ("WebSocket " in msg and "[accepted]" in msg)
 
 
 class _RepeatSquelch(logging.Filter):

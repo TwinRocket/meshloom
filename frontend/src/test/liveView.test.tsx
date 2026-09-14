@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveView } from '../components/LiveView';
@@ -18,25 +17,58 @@ vi.mock('../api', () => ({
     subscribeCommunityLive: vi.fn(),
     unsubscribeCommunityLive: vi.fn(),
     relancerCommunityLive: vi.fn(),
+    getDirectoryMapNodes: vi.fn(),
   },
 }));
 
-vi.mock('react-leaflet', () => ({
-  MapContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  TileLayer: () => <div data-testid="tile-layer" />,
-  CircleMarker: () => null,
-  Polyline: () => null,
-  useMap: () => ({
-    getContainer: () => document.createElement('div'),
-    getSize: () => ({ x: 100, y: 100 }),
-    on: vi.fn(),
-    off: vi.fn(),
-    fitBounds: vi.fn(),
-    setView: vi.fn(),
-    getCenter: () => ({ lat: 46.2, lng: 5.2 }),
-    getZoom: () => 6,
-    latLngToContainerPoint: () => ({ x: 0, y: 0 }),
-  }),
+const { FakeMap } = vi.hoisted(() => {
+  class FakeMap {
+    handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    addControl = vi.fn();
+    removeControl = vi.fn();
+    remove = vi.fn();
+    resize = vi.fn();
+    fitBounds = vi.fn();
+    getCenter = () => ({ lat: 46.2, lng: 5.2 });
+    getZoom = () => 6;
+    on(event: string, cb: (...args: unknown[]) => void) {
+      const list = this.handlers.get(event) ?? [];
+      list.push(cb);
+      this.handlers.set(event, list);
+      if (event === 'load') queueMicrotask(() => cb());
+    }
+    off() {}
+  }
+  return { FakeMap };
+});
+
+vi.mock('maplibre-gl', () => {
+  class LngLatBounds {
+    extend() {
+      return this;
+    }
+  }
+  class NavigationControl {}
+  const maplibregl = { Map: FakeMap, NavigationControl, LngLatBounds };
+  return { default: maplibregl, Map: FakeMap, NavigationControl, LngLatBounds };
+});
+
+vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
+
+vi.mock('@deck.gl/mapbox', () => ({
+  MapboxOverlay: class {
+    setProps = vi.fn();
+    constructor(_props: unknown) {}
+  },
+}));
+
+vi.mock('@deck.gl/layers', () => ({
+  PathLayer: class {
+    constructor(public props: unknown) {}
+  },
+  ScatterplotLayer: class {
+    constructor(public props: unknown) {}
+  },
 }));
 
 describe('LiveView', () => {
@@ -61,6 +93,18 @@ describe('LiveView', () => {
       opted_out: false,
       connected: true,
     });
+    vi.mocked(api.getDirectoryMapNodes).mockResolvedValue({
+      nodes: [
+        {
+          public_key: 'aa',
+          name: 'Lyon Repeater',
+          role: 'repeater',
+          lat: 45.76,
+          lon: 4.84,
+          source: 'corescope',
+        },
+      ],
+    });
   });
 
   afterEach(() => {
@@ -68,22 +112,17 @@ describe('LiveView', () => {
     resetLivePacketStore();
   });
 
-  it('shows Relancer for close 4001 and not for slot-busy', () => {
+  it('does not show retired Relancer or slot-busy banners', () => {
     vi.mocked(api.subscribeCommunityLive).mockReturnValue(new Promise(() => {}));
     setLiveCloseCode(4001);
     const { rerender } = render(<LiveView contacts={[]} config={null} communityEnabled />);
-    expect(screen.getByText(i18n.t('live.bannerExpired'))).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: i18n.t('live.relancer') })).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('live.bannerExpired'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
 
     setLiveCloseCode(4003);
     rerender(<LiveView contacts={[]} config={null} communityEnabled />);
-    expect(screen.getByText(i18n.t('live.bannerSlotBusy'))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('live.bannerSlotBusy'))).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
-
-    setLiveCloseCode(4001);
-    rerender(<LiveView contacts={[]} config={null} communityEnabled />);
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.relancer') }));
-    expect(api.relancerCommunityLive).toHaveBeenCalled();
   });
 
   it('shows the opt-out banner without debug toggles', () => {
@@ -115,5 +154,31 @@ describe('LiveView', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     expect(screen.getByLabelText(i18n.t('live.iataFilter'))).toBeInTheDocument();
     expect(screen.getByRole('option', { name: i18n.t('live.iataAll') })).toBeInTheDocument();
+  });
+
+  it('exposes packet-type chips and an exact-only toggle', () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    expect(screen.getByRole('group', { name: i18n.t('live.typeFilter') })).toBeInTheDocument();
+    const textChip = screen.getByRole('button', { name: i18n.t('live.legend.text') });
+    expect(textChip).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(textChip);
+    expect(textChip).toHaveAttribute('aria-pressed', 'false');
+    const exact = screen.getByLabelText(i18n.t('live.certainOnly'));
+    expect(exact).not.toBeChecked();
+    fireEvent.click(exact);
+    expect(exact).toBeChecked();
+  });
+
+  it('loads community directory nodes as the permanent map layer', async () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    await waitFor(() => {
+      expect(api.getDirectoryMapNodes).toHaveBeenCalled();
+    });
+  });
+
+  it('does not mount a Leaflet tile layer', () => {
+    const { container } = render(<LiveView contacts={[]} config={null} communityEnabled />);
+    expect(container.querySelector('.leaflet-container')).toBeNull();
+    expect(screen.queryByTestId('tile-layer')).not.toBeInTheDocument();
   });
 });

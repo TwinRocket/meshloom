@@ -46,6 +46,7 @@ app/
 │   ├── radio_runtime.py         # Router/dependency seam over the global RadioManager
 │   ├── radio_transport.py       # UX-owned radio transport snapshot (serial / TCP / BLE)
 │   ├── directory.py             # CoreScope proxy (resolve-hops, nodes, reach, neighbors, search)
+│   ├── community_live.py        # Stats live-packet relay (one upstream socket, local fan-out)
 │   └── rf_locate.py             # RF locate identity + 0-hop disk assembly
 ├── radio.py             # RadioManager transport/session state + lock management
 ├── radio_proxy/         # Virtual companion TCP radio (protocol, policy, manager)
@@ -353,7 +354,7 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 
 ### Directory
 - `POST /directory/resolve-hops` — 2/3-byte hop prefixes only; 1-byte is 400
-- `GET /directory/nodes`
+- `GET /directory/nodes` — all roles (empty/unknown → `unknown`), paginated to completion
 - `GET /directory/nodes/search?q=` — name/key search, not hop prefixes
 - `GET /directory/nodes/{pubkey}/reach` — 0-hop observers; HTTP 500 ≠ empty
 - `GET /directory/nodes/{pubkey}/neighbors`
@@ -380,6 +381,11 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 - `GET /community/stats` — public community stats
 - `GET /community/iata/{code}/hashtags` — shared hashtag names for an IATA code
 - `PUT /community/me/hashtags` — publish local/discovered hashtag names (names only)
+- `POST /community/live/subscribe` — register or heartbeat a Live session (`session_id` known = cheap TTL refresh)
+- `DELETE /community/live/subscribe/{session_id}` — drop one Live session; upstream socket closes after idle grace when none remain
+- `POST /community/live/relancer` — remint JWT, clear the 24h gate, reconnect
+
+One process-wide Stats live socket (`app/services/community_live.py`) fans frames to browsers as `community_packet`. Concurrent Live tabs share that socket: the reader task is claimed synchronously under the relay lock, so two `subscribe()` calls cannot open two upstream sockets. The reader reconnects itself with capped exponential backoff (0.5s → 30s) on every close except 4002 (24h gate). 4003/409 from a v1 Stats server are treated as 4005 (superseded) and retried; those codes are never placed on `CommunityLiveStatus.close_code`. Status `state` is `connected` / `reconnecting` / `gate` / `opted_out` / `idle`.
 
 ### WebSocket
 - `WS /ws`
@@ -392,6 +398,8 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 - `message` — new message (channel or DM, from packet processor or send endpoints)
 - `message_acked` — ACK/echo update for existing message (ack count + paths)
 - `raw_packet` — every incoming RF packet (for real-time packet feed UI)
+- `community_packet` — sanitized Stats live rain frame (v2: `ear`, hop `confidence`)
+- `community_live` — Live relay status (`state`, `connected`, `opted_out`, `close_code`)
 - `contact_deleted` — contact removed from database (payload: `{ public_key }`)
 - `channel` — single channel upsert/update (payload: full `Channel`)
 - `channel_deleted` — channel removed from database (payload: `{ key }`)
@@ -473,6 +481,9 @@ tests/
 ├── test_channel_sender_backfill.py # Sender-key backfill uniqueness rules for channel messages
 ├── test_channels_router.py     # Channels router endpoints
 ├── test_community_mqtt.py      # Community MQTT publisher (JWT, packet format, hash, broadcast)
+├── test_community_live.py      # Stats live relay sanitize, status, fan-out
+├── test_community_live_resilience.py # Concurrent subscribe, reconnect, 4002 stop, reload
+├── test_community_live_directory.py # Directory map nodes: all roles + pagination
 ├── test_meshloom_community.py  # Meshloom Community join, IATA seed, hashtag share, Stats proxies
 ├── test_config.py              # Configuration validation
 ├── test_contact_reconciliation_service.py # Prefix/contact reconciliation service helpers

@@ -4,10 +4,10 @@ Radio transport is no longer part of Settings. These tests cover remaining
 Settings env validation (basic auth pairing and experimental aliases).
 """
 
+import logging
+
 import pytest
 from pydantic import ValidationError
-
-import logging
 
 from app.config import DEFAULT_VAPID_SUBJECT, Settings, _UvicornLogHygiene
 

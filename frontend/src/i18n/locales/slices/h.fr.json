@@ -10,14 +10,13 @@
     "liveRain": "Pluie live"
   },
   "live": {
-    "bannerExpired": "Session Live expirée. Relancez pour continuer la pluie.",
-    "relancer": "Relancer",
-    "bannerInactive": "Observateur inactif — aucune contribution acceptée depuis 24 h.",
-    "bannerOptOut": "Communauté désactivée. La pluie Live n’est pas reçue.",
-    "bannerSlotBusy": "Cette clé publique a déjà un viewer Live ouvert.",
-    "bannerRateLimit": "Flux Live en pause (limite de débit viewer).",
+    "bannerInactive": "Aucune contribution acceptée depuis 24 h. Publiez au moins une observation pour ouvrir la pluie communautaire.",
+    "bannerOptOut": "La communauté est désactivée. Activez-la dans Réglages pour recevoir la pluie.",
     "iataFilter": "IATA",
     "iataAll": "Toutes les régions",
+    "typeFilter": "Type",
+    "certainOnly": "Traces certaines uniquement",
+    "certainOnlyHelp": "Masque les sauts dont la position est seulement probable.",
     "play": "Lecture",
     "pause": "Pause",
     "playPause": "Lecture ou pause de la pluie",
@@ -28,6 +27,29 @@
       "ack": "Ack",
       "trace": "Trace",
       "other": "Autre"
+    },
+    "confidence": {
+      "exact": "Position certaine",
+      "probable": "Position probable"
+    },
+    "reason": {
+      "ambiguous_prefix": "Préfixe ambigu",
+      "no_candidate": "Aucun nœud correspondant",
+      "no_position": "Position inconnue",
+      "geo_filtered": "Trop loin pour être plausible",
+      "skipped_unresolved": "Saut non résolu — raccourci entre les nœuds connus"
+    },
+    "nodes": {
+      "repeater": "Répéteur",
+      "room": "Salon",
+      "client": "Client",
+      "sensor": "Capteur",
+      "unknown": "Rôle inconnu"
+    },
+    "ears": {
+      "advert": "Position annoncée par le nœud",
+      "iata": "Position approchée (centroïde régional)",
+      "local": "Votre radio"
     }
   }
 }

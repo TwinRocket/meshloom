@@ -122,13 +122,14 @@ describe('wsEvents', () => {
 
   it('parses community_packet events even when Stats is not emitting yet', () => {
     const data = {
-      v: 1,
+      v: 2,
       event_id: 'e1',
       hash8: 'deadbeef',
       type: 'advert',
       path: ['ab12'],
       hop_count: 1,
-      hops: [{ token: 'ab12', lat: 45.7, lon: 4.8 }],
+      hops: [{ token: 'ab12', lat: 45.7, lon: 4.8, confidence: 'exact' }],
+      ear: { lat: 45.72, lon: 5.08, source: 'advert' },
       iata: 'LYS',
       t: 1710000000000,
       ear_id: 'ear-1',

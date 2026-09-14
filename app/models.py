@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.path_utils import normalize_contact_route, normalize_route_override
 
@@ -1141,11 +1141,11 @@ class DirectoryCacheResetResponse(BaseModel):
 
 
 class DirectoryMapNode(BaseModel):
-    """CoreScope repeater with GPS. Never mixed into RF contacts."""
+    """CoreScope node with GPS. Never mixed into RF contacts."""
 
     public_key: str
     name: str
-    role: Literal["repeater"] = "repeater"
+    role: Literal["repeater", "room", "client", "sensor", "unknown"] = "unknown"
     lat: float
     lon: float
     source: Literal["corescope"] = "corescope"
@@ -1153,6 +1153,7 @@ class DirectoryMapNode(BaseModel):
 
 class DirectoryMapNodesResponse(BaseModel):
     nodes: list[DirectoryMapNode] = Field(default_factory=list)
+    total: int | None = None
 
 
 class DirectoryReachObserver(BaseModel):
@@ -1691,9 +1692,18 @@ class CommunityAirportSearchResponse(BaseModel):
 
 class CommunityPacketHop(BaseModel):
     token: str
+    confidence: Literal["exact", "probable", "unresolved"]
     lat: float | None = None
     lon: float | None = None
-    unresolved: bool | None = None
+    reason: str | None = None
+    pubkey: str | None = None
+    name: str | None = None
+
+
+class CommunityPacketEar(BaseModel):
+    lat: float
+    lon: float
+    source: Literal["advert", "iata"]
 
 
 class CommunityPacketBroadcast(BaseModel):
@@ -1706,6 +1716,7 @@ class CommunityPacketBroadcast(BaseModel):
     path: list[str]
     hop_count: int
     hops: list[CommunityPacketHop]
+    ear: CommunityPacketEar | None = None
     snr: float | None = None
     iata: str
     t: int
@@ -1717,6 +1728,14 @@ class CommunityLiveStatus(BaseModel):
     close_code: int | None = None
     opted_out: bool
     connected: bool
+    state: Literal["connected", "reconnecting", "gate", "opted_out", "idle"] = "idle"
+
+    @field_validator("close_code")
+    @classmethod
+    def _hide_non_user_close_codes(cls, value: int | None) -> int | None:
+        if value in {4003, 4004, 4005}:
+            return None
+        return value
 
 
 class CommunityLiveSubscribeRequest(BaseModel):

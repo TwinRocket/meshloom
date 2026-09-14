@@ -581,16 +581,35 @@ export interface DirectoryNodeSearchResponse {
 /** Packet types on the community live rain (stats contract `live-events.md`). */
 export type CommunityPacketType = 'advert' | 'text' | 'ack' | 'trace' | 'other';
 
+/**
+ * How much a hop position can be trusted. `probable` is a geographically
+ * filtered guess and must stay visually distinct from `exact`.
+ */
+export type CommunityHopConfidence = 'exact' | 'probable' | 'unresolved';
+
 export interface CommunityPacketHop {
   token: string;
+  confidence: CommunityHopConfidence;
+  /** Present when confidence is `exact` or `probable`, absent otherwise. */
   lat?: number;
   lon?: number;
-  unresolved?: boolean;
+  /** Machine token for the tooltip. Required unless confidence is `exact`. */
+  reason?: string;
+  /** From signed adverts; only offered on `exact`. */
+  pubkey?: string;
+  name?: string;
+}
+
+/** Observer position. `advert` is the real node GPS, `iata` a region centroid. */
+export interface CommunityPacketEar {
+  lat: number;
+  lon: number;
+  source: 'advert' | 'iata';
 }
 
 /**
- * Server → Meshloom `community_packet` frame (v1). Browser never talks to Stats.
- * Extra fields must be ignored.
+ * Server → Meshloom `community_packet` frame (v2, stats `live-events.md`).
+ * Browser never talks to Stats. Extra fields must be ignored.
  */
 export interface CommunityPacket {
   v: number;
@@ -600,6 +619,8 @@ export interface CommunityPacket {
   path: string[];
   hop_count: number;
   hops: CommunityPacketHop[];
+  /** Null when neither an advert position nor an IATA centroid is known. */
+  ear: CommunityPacketEar | null;
   snr?: number;
   iata: string;
   t: number;
@@ -608,20 +629,32 @@ export interface CommunityPacket {
 
 export const LIVE_CLOSE_JWT_EXPIRED = 4001;
 export const LIVE_CLOSE_INACTIVE = 4002;
+/** Retired in contract v2. Kept so a v1 server response still maps somewhere. */
 export const LIVE_CLOSE_SLOT_BUSY = 4003;
 export const LIVE_CLOSE_RATE_LIMIT = 4004;
+export const LIVE_CLOSE_SUPERSEDED = 4005;
 
 export type LiveCloseCode =
   | typeof LIVE_CLOSE_JWT_EXPIRED
   | typeof LIVE_CLOSE_INACTIVE
   | typeof LIVE_CLOSE_SLOT_BUSY
-  | typeof LIVE_CLOSE_RATE_LIMIT;
+  | typeof LIVE_CLOSE_RATE_LIMIT
+  | typeof LIVE_CLOSE_SUPERSEDED;
 
 export interface CommunityLiveStatus {
   session_id?: string | null;
   close_code: LiveCloseCode | null;
   opted_out: boolean;
   connected: boolean;
+  /** Absent on older relays — derive reconnecting from close_code instead. */
+  reconnecting?: boolean;
+}
+
+export interface DirectoryMapNodesQuery {
+  limit?: number;
+  offset?: number;
+  /** Omitted means every role, not repeaters only. */
+  role?: DirectoryNodeRole;
 }
 
 export interface RawPacket {
@@ -715,10 +748,13 @@ export interface DirectoryResolveHopsResponse {
   resolved: Record<string, DirectoryHopHit>;
 }
 
+/** Roles the community directory reports. Empty/unknown collapses to `unknown`. */
+export type DirectoryNodeRole = 'repeater' | 'room' | 'client' | 'sensor' | 'unknown';
+
 export interface DirectoryMapNode {
   public_key: string;
   name: string;
-  role: 'repeater';
+  role: DirectoryNodeRole;
   lat: number;
   lon: number;
   source: 'corescope';
@@ -726,6 +762,8 @@ export interface DirectoryMapNode {
 
 export interface DirectoryMapNodesResponse {
   nodes: DirectoryMapNode[];
+  /** Total available upstream, so a caller can tell a page from the whole set. */
+  total?: number;
 }
 
 export interface ObserverReachEntry {

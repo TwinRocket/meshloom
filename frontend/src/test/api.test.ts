@@ -582,7 +582,13 @@ describe('fetchJson (via api methods)', () => {
       installMockFetch();
       mockFetch.mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ session_id: 's1', close_code: null, opted_out: false, connected: true }),
+        json: () =>
+          Promise.resolve({
+            session_id: 's1',
+            close_code: null,
+            opted_out: false,
+            connected: true,
+          }),
       });
 
       await api.subscribeCommunityLive();

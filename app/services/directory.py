@@ -6,7 +6,9 @@ import ipaddress
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -58,7 +60,14 @@ REACH_CACHE_MAX = 256
 NEIGHBORS_CACHE_MAX = 256
 SEARCH_CACHE_MAX = 64
 
-_nodes_cache: tuple[float, str, list[DirectoryMapNode]] | None = None
+MapNodeRole = Literal["repeater", "room", "client", "sensor", "unknown"]
+MAP_NODE_ROLES: dict[str, MapNodeRole] = {
+    "repeater": "repeater",
+    "room": "room",
+    "client": "client",
+    "sensor": "sensor",
+}
+_nodes_cache: tuple[float, str, list[DirectoryMapNode], int | None] | None = None
 _reach_cache: TtlLruCache[tuple[str, str], DirectoryReachResponse] = TtlLruCache(REACH_CACHE_MAX)
 _neighbors_cache: TtlLruCache[tuple[str, str], DirectoryNeighborsResponse] = TtlLruCache(
     NEIGHBORS_CACHE_MAX
@@ -403,6 +412,12 @@ def _as_float(value: object) -> float | None:
     return None
 
 
+def _normalize_map_role(role: object) -> MapNodeRole:
+    if isinstance(role, str):
+        return MAP_NODE_ROLES.get(role.strip().lower(), "unknown")
+    return "unknown"
+
+
 def parse_corescope_map_nodes(payload: object) -> tuple[list[DirectoryMapNode], int | None]:
     """Keep documented Node fields only: public_key, name, role, lat, lon."""
     if not isinstance(payload, dict):
@@ -423,9 +438,6 @@ def parse_corescope_map_nodes(payload: object) -> tuple[list[DirectoryMapNode], 
         key = public_key.strip().lower()
         if len(key) != PUBKEY_HEX_LEN or not _HEX_RE.fullmatch(key) or key in seen:
             continue
-        role = item.get("role")
-        if not isinstance(role, str) or role.strip().lower() != "repeater":
-            continue
         lat = _as_float(item.get("lat"))
         lon = _as_float(item.get("lon"))
         if lat is None or lon is None or not _is_valid_map_location(lat, lon):
@@ -437,7 +449,7 @@ def parse_corescope_map_nodes(payload: object) -> tuple[list[DirectoryMapNode], 
             DirectoryMapNode(
                 public_key=key,
                 name=label,
-                role="repeater",
+                role=_normalize_map_role(item.get("role")),
                 lat=lat,
                 lon=lon,
                 source="corescope",
@@ -454,6 +466,39 @@ def reset_directory_nodes_cache() -> None:
     _search_cache.clear()
 
 
+def _cached_map_response(now: float, source: str) -> DirectoryMapNodesResponse | None:
+    if _nodes_cache is None or _nodes_cache[0] <= now or _nodes_cache[1] != source:
+        return None
+    return DirectoryMapNodesResponse(nodes=list(_nodes_cache[2]), total=_nodes_cache[3])
+
+
+async def _collect_map_node_pages(
+    fetch_page: Callable[[int], Awaitable[tuple[list[DirectoryMapNode], int | None]]],
+) -> tuple[list[DirectoryMapNode], int | None]:
+    merged: dict[str, DirectoryMapNode] = {}
+    offset = 0
+    total_out: int | None = None
+    for _ in range(NODES_MAX_PAGES):
+        page, total = await fetch_page(offset)
+        if total is not None:
+            total_out = total
+        if not page and offset == 0:
+            break
+        new_on_page = 0
+        for node in page:
+            if node.public_key not in merged:
+                merged[node.public_key] = node
+                new_on_page += 1
+        offset += NODES_PAGE_SIZE
+        if len(page) < NODES_PAGE_SIZE:
+            break
+        if total is not None and offset >= total:
+            break
+        if new_on_page == 0:
+            break
+    return list(merged.values()), total_out
+
+
 async def _fetch_corescope_nodes_page(
     origin: str, offset: int
 ) -> tuple[list[DirectoryMapNode], int | None]:
@@ -465,7 +510,6 @@ async def _fetch_corescope_nodes_page(
             response = await client.get(
                 url,
                 params={
-                    "role": "repeater",
                     "limit": NODES_PAGE_SIZE,
                     "offset": offset,
                 },
@@ -484,20 +528,38 @@ async def _fetch_corescope_nodes_page(
     return parse_corescope_map_nodes(payload)
 
 
-async def list_directory_map_nodes() -> DirectoryMapNodesResponse:
-    """Repeater GPS pins from CoreScope. Empty when the directory is off."""
-    global _nodes_cache
-    now = time.time()
-    if _nodes_cache is not None and _nodes_cache[0] > now and _nodes_cache[1] == "community":
-        return DirectoryMapNodesResponse(nodes=list(_nodes_cache[2]))
+async def _fetch_community_nodes_page(
+    offset: int,
+) -> tuple[list[DirectoryMapNode], int | None] | None:
     stats_data = await _community_directory_data(
         "/v1/directory/nodes",
-        params={"role": "repeater", "limit": NODES_PAGE_SIZE, "offset": 0},
+        params={"limit": NODES_PAGE_SIZE, "offset": offset},
     )
-    if stats_data is not None:
-        nodes, _total = parse_corescope_map_nodes(stats_data)
-        _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, "community", nodes)
-        return DirectoryMapNodesResponse(nodes=nodes)
+    if stats_data is None:
+        return None
+    return parse_corescope_map_nodes(stats_data)
+
+
+async def list_directory_map_nodes() -> DirectoryMapNodesResponse:
+    """GPS pins for every directory role. Empty when the directory is off."""
+    global _nodes_cache
+    now = time.time()
+    cached = _cached_map_response(now, "community")
+    if cached is not None:
+        return cached
+
+    first = await _fetch_community_nodes_page(0)
+    if first is not None:
+
+        async def _community_page(offset: int) -> tuple[list[DirectoryMapNode], int | None]:
+            if offset == 0:
+                return first
+            page = await _fetch_community_nodes_page(offset)
+            return page if page is not None else ([], None)
+
+        nodes, total = await _collect_map_node_pages(_community_page)
+        _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, "community", nodes, total)
+        return DirectoryMapNodesResponse(nodes=nodes, total=total)
 
     settings = await AppSettingsRepository.get()
     origin = (settings.directory_url or "").strip()
@@ -505,31 +567,16 @@ async def list_directory_map_nodes() -> DirectoryMapNodesResponse:
         return DirectoryMapNodesResponse()
 
     now = time.time()
-    if _nodes_cache is not None and _nodes_cache[0] > now and _nodes_cache[1] == origin:
-        return DirectoryMapNodesResponse(nodes=list(_nodes_cache[2]))
+    cached = _cached_map_response(now, origin)
+    if cached is not None:
+        return cached
 
-    merged: dict[str, DirectoryMapNode] = {}
-    offset = 0
-    for _ in range(NODES_MAX_PAGES):
-        page, total = await _fetch_corescope_nodes_page(origin, offset)
-        if not page and offset == 0:
-            break
-        new_on_page = 0
-        for node in page:
-            if node.public_key not in merged:
-                merged[node.public_key] = node
-                new_on_page += 1
-        offset += NODES_PAGE_SIZE
-        if len(page) < NODES_PAGE_SIZE:
-            break
-        if total is not None and offset >= total:
-            break
-        if new_on_page == 0:
-            break
+    async def _corescope_page(offset: int) -> tuple[list[DirectoryMapNode], int | None]:
+        return await _fetch_corescope_nodes_page(origin, offset)
 
-    nodes = list(merged.values())
-    _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, origin, nodes)
-    return DirectoryMapNodesResponse(nodes=nodes)
+    nodes, total = await _collect_map_node_pages(_corescope_page)
+    _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, origin, nodes, total)
+    return DirectoryMapNodesResponse(nodes=nodes, total=total)
 
 
 def is_valid_map_location(lat: float, lon: float) -> bool:

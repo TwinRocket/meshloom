@@ -335,8 +335,9 @@ class TestParseCorescopeMapNodes:
             }
         )
         assert total == 3
-        assert [(n.public_key, n.name, n.source) for n in nodes] == [
-            ("ab" * 32, "HillTop", "corescope")
+        assert [(n.public_key, n.name, n.role, n.source) for n in nodes] == [
+            ("ab" * 32, "HillTop", "repeater", "corescope"),
+            ("ef" * 32, "Companion", "unknown", "corescope"),
         ]
 
     def test_rejects_non_object_payload(self):
@@ -385,7 +386,7 @@ class TestListDirectoryMapNodes:
         assert second.nodes[0].name == "NetRelay"
         assert mock_client.get.call_count == 1
         assert mock_client.get.call_args.args[0] == "https://corescope.test/api/nodes"
-        assert mock_client.get.call_args.kwargs["params"]["role"] == "repeater"
+        assert "role" not in mock_client.get.call_args.kwargs["params"]
 
     @pytest.mark.asyncio
     async def test_community_nodes_cache_skips_second_stats_call(self, test_db):

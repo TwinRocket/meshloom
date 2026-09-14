@@ -10,14 +10,13 @@
     "liveRain": "Live rain"
   },
   "live": {
-    "bannerExpired": "Live session expired. Refresh to continue the rain.",
-    "relancer": "Relancer",
-    "bannerInactive": "Observer inactive — no accepted contribution in the last 24 hours.",
-    "bannerOptOut": "Community is opted out. Live rain is not received.",
-    "bannerSlotBusy": "This public key already has a Live viewer open.",
-    "bannerRateLimit": "Live feed paused briefly (viewer rate limit).",
+    "bannerInactive": "No accepted contribution in the last 24 hours. Publish at least one observation to open the community rain.",
+    "bannerOptOut": "Community is turned off. Enable it in Settings to receive the rain.",
     "iataFilter": "IATA",
     "iataAll": "All regions",
+    "typeFilter": "Type",
+    "certainOnly": "Certain traces only",
+    "certainOnlyHelp": "Hide hops whose position is only probable.",
     "play": "Play",
     "pause": "Pause",
     "playPause": "Play or pause the rain",
@@ -28,6 +27,29 @@
       "ack": "Ack",
       "trace": "Trace",
       "other": "Other"
+    },
+    "confidence": {
+      "exact": "Exact position",
+      "probable": "Probable position"
+    },
+    "reason": {
+      "ambiguous_prefix": "Ambiguous prefix",
+      "no_candidate": "No matching node",
+      "no_position": "Position unknown",
+      "geo_filtered": "Too far to be plausible",
+      "skipped_unresolved": "Unresolved hop — shortcut between known nodes"
+    },
+    "nodes": {
+      "repeater": "Repeater",
+      "room": "Room",
+      "client": "Client",
+      "sensor": "Sensor",
+      "unknown": "Unknown role"
+    },
+    "ears": {
+      "advert": "Position advertised by the node",
+      "iata": "Approximate position (regional centroid)",
+      "local": "Your radio"
     }
   }
 }

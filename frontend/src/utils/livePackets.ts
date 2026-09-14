@@ -1,26 +1,27 @@
 import type {
+  CommunityHopConfidence,
   CommunityPacket,
+  CommunityPacketEar,
   CommunityPacketHop,
   CommunityPacketType,
   Contact,
   RadioConfig,
   RawPacket,
 } from '../types';
-import iataCentroids from '../data/iataCentroids.json';
 import { isValidLocation, MIN_NAMED_HOP_HEX_CHARS } from './pathUtils';
 import { hashString } from './contactAvatar';
 import { getPacketLabel, parsePacket } from './visualizerUtils';
 
-export const LIVE_SEGMENT_MS = 800;
 export const LIVE_STAGGER_MS = 150;
-export const LIVE_POLYLINE_MIN_MS = 6000;
-export const LIVE_POLYLINE_MAX_MS = 10000;
 export const LIVE_DIM_AFTER_MS = 5 * 60 * 1000;
-export const MAX_LIVE_PARTICLES = 150;
-export const LIVE_HOP_JITTER_DEG = 0.012;
-/** Spread same-IATA ears (~6 km) so stacked observers stay distinct. */
-export const LIVE_EAR_JITTER_DEG = 0.055;
-export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
+export const LIVE_COMMUNITY_SCHEMA = 2;
+export const LIVE_PACKET_TYPES: readonly CommunityPacketType[] = [
+  'advert',
+  'text',
+  'ack',
+  'trace',
+  'other',
+];
 
 export type SavedMapCamera = { lat: number; lon: number; zoom: number };
 
@@ -53,33 +54,31 @@ export function writeSavedMapCamera(storageKey: string, camera: SavedMapCamera):
   }
 }
 
-/** Auto-frame once. Later ear updates must not steal the user's zoom. */
-export function liveBoundsShouldFit(alreadyFitted: boolean, earCount: number): boolean {
-  return !alreadyFitted && earCount > 0;
-}
-
-/** OurAirports IATA centroids (public domain). Ear position, never contributor GPS. */
-export const LIVE_IATA_CENTROIDS = iataCentroids as unknown as Record<
-  string,
-  [number, number]
->;
-
 export const LIVE_TYPE_COLORS: Record<CommunityPacketType, string> = {
   advert: '#f59e0b',
   text: '#06b6d4',
   ack: '#22c55e',
-  trace: '#f97316',
-  other: '#94a3b8',
+  trace: '#c084fc',
+  other: '#475569',
 };
 
 export type LiveSource = 'local' | 'community';
+export type LiveHopConfidence = 'exact' | 'probable' | 'unresolved';
 
 export interface LiveWaypoint {
   lat: number;
   lon: number;
   token: string;
-  /** `fade` approaches the ear after an unresolved hop — never a drawn segment. */
-  kind: 'hop' | 'ear' | 'fade';
+  kind: 'hop' | 'ear';
+  confidence: LiveHopConfidence;
+  reason?: string;
+  label?: string;
+}
+
+export interface LiveEar {
+  lat: number;
+  lon: number;
+  source: 'advert' | 'iata' | 'local';
 }
 
 export interface LiveObservation {
@@ -91,7 +90,7 @@ export interface LiveObservation {
   iata: string | null;
   t: number;
   earId: string;
-  ear: { lat: number; lon: number } | null;
+  ear: LiveEar | null;
   waypoints: LiveWaypoint[];
 }
 
@@ -103,6 +102,10 @@ export function isCommunityPacketType(value: unknown): value is CommunityPacketT
     value === 'trace' ||
     value === 'other'
   );
+}
+
+export function isLiveHopConfidence(value: unknown): value is CommunityHopConfidence {
+  return value === 'exact' || value === 'probable' || value === 'unresolved';
 }
 
 export function liveTypeColor(type: CommunityPacketType): string {
@@ -166,11 +169,6 @@ export function buildPrefixIndex(contacts: Contact[]): Map<string, Contact[]> {
   return index;
 }
 
-export function iataCentroid(iata: string | null | undefined): [number, number] | null {
-  if (!iata) return null;
-  return LIVE_IATA_CENTROIDS[iata.trim().toUpperCase()] ?? null;
-}
-
 export function packetTypeFromRaw(payloadType: number): CommunityPacketType {
   switch (getPacketLabel(payloadType)) {
     case 'AD':
@@ -193,47 +191,184 @@ export function hash8FromRaw(packet: RawPacket): string {
   return raw.slice(0, 8).toLowerCase();
 }
 
-function hopHasCoords(hop: CommunityPacketHop): hop is CommunityPacketHop & {
-  lat: number;
-  lon: number;
-} {
-  return !hop.unresolved && isValidLocation(hop.lat ?? null, hop.lon ?? null);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * Build rain waypoints. Unresolved hops never invent a segment; the drop
- * fades toward the ear from the last resolved hop (or only pulses the ear).
- */
-export function waypointsFromCommunity(
-  packet: CommunityPacket,
-  ear: { lat: number; lon: number } | null
-): LiveWaypoint[] {
+function finiteCoord(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function readEar(value: unknown): CommunityPacketEar | null | undefined {
+  if (value == null) return null;
+  if (!isRecord(value)) return undefined;
+  const lat = finiteCoord(value.lat);
+  const lon = finiteCoord(value.lon);
+  const source = value.source;
+  if (lat == null || lon == null || !isValidLocation(lat, lon)) return undefined;
+  if (source !== 'advert' && source !== 'iata') return undefined;
+  return { lat, lon, source };
+}
+
+function readHop(value: unknown): CommunityPacketHop | null {
+  if (!isRecord(value)) return null;
+  const token = value.token;
+  if (typeof token !== 'string' || !token.trim()) return null;
+  if (!isLiveHopConfidence(value.confidence)) return null;
+  const hop: CommunityPacketHop = { token: token.trim(), confidence: value.confidence };
+  if (typeof value.reason === 'string' && value.reason) hop.reason = value.reason;
+  if (typeof value.pubkey === 'string' && value.pubkey) hop.pubkey = value.pubkey;
+  if (typeof value.name === 'string' && value.name) hop.name = value.name;
+  if (hop.confidence === 'unresolved') {
+    return hop;
+  }
+  const lat = finiteCoord(value.lat);
+  const lon = finiteCoord(value.lon);
+  if (lat == null || lon == null || !isValidLocation(lat, lon)) return null;
+  hop.lat = lat;
+  hop.lon = lon;
+  return hop;
+}
+
+const HASH8_RE = /^[0-9a-f]{8}$/;
+
+export function asCommunityPacket(value: unknown): CommunityPacket | null {
+  if (!isRecord(value)) return null;
+  if (value.v !== LIVE_COMMUNITY_SCHEMA) return null;
+  if (typeof value.event_id !== 'string' || !value.event_id) return null;
+  if (typeof value.hash8 !== 'string') return null;
+  const hash8 = value.hash8.trim().toLowerCase().slice(0, 8);
+  if (!HASH8_RE.test(hash8)) return null;
+  if (!isCommunityPacketType(value.type)) return null;
+  if (!Array.isArray(value.hops)) return null;
+  const hops: CommunityPacketHop[] = [];
+  for (const item of value.hops) {
+    const hop = readHop(item);
+    if (!hop) return null;
+    hops.push(hop);
+  }
+  let path: string[];
+  if (value.path === undefined) {
+    path = hops.map((hop) => hop.token);
+  } else if (
+    Array.isArray(value.path) &&
+    value.path.length === hops.length &&
+    value.path.every((item) => typeof item === 'string')
+  ) {
+    path = value.path;
+  } else {
+    return null;
+  }
+  if (value.hop_count !== undefined && value.hop_count !== hops.length) return null;
+  if (typeof value.ear_id !== 'string' || !value.ear_id) return null;
+  if (typeof value.t !== 'number' || !Number.isFinite(value.t)) return null;
+  const ear = readEar(value.ear);
+  if (ear === undefined) return null;
+  if (value.iata !== undefined && typeof value.iata !== 'string') return null;
+  const snr =
+    value.snr === undefined || value.snr === null
+      ? undefined
+      : typeof value.snr === 'number' && Number.isFinite(value.snr)
+        ? value.snr
+        : undefined;
+  const packet: CommunityPacket = {
+    v: LIVE_COMMUNITY_SCHEMA,
+    event_id: value.event_id,
+    hash8,
+    type: value.type,
+    path,
+    hop_count: hops.length,
+    hops,
+    ear,
+    iata: value.iata ?? '',
+    t: value.t,
+    ear_id: value.ear_id,
+  };
+  if (snr !== undefined) packet.snr = snr;
+  return packet;
+}
+
+function hopHasCoords(
+  hop: CommunityPacketHop
+): hop is CommunityPacketHop & { lat: number; lon: number } {
+  return (
+    (hop.confidence === 'exact' || hop.confidence === 'probable') &&
+    isValidLocation(hop.lat ?? null, hop.lon ?? null)
+  );
+}
+
+function arrivalConfidence(
+  hopConfidence: LiveHopConfidence,
+  skippedUnresolved: boolean
+): LiveHopConfidence {
+  if (!skippedUnresolved) return hopConfidence;
+  return hopConfidence === 'exact' ? 'probable' : hopConfidence;
+}
+
+function appendEarWaypoint(
+  waypoints: LiveWaypoint[],
+  ear: LiveEar,
+  earId: string,
+  skippedUnresolved: boolean
+): void {
+  const confidence: LiveHopConfidence = skippedUnresolved ? 'probable' : 'exact';
+  const reason = skippedUnresolved ? 'skipped_unresolved' : undefined;
+  if (waypoints.length === 0) {
+    waypoints.push({
+      lat: ear.lat,
+      lon: ear.lon,
+      token: earId,
+      kind: 'ear',
+      confidence: skippedUnresolved ? 'probable' : 'exact',
+      reason,
+    });
+    return;
+  }
+  const last = waypoints[waypoints.length - 1];
+  if (last.lat === ear.lat && last.lon === ear.lon) return;
+  waypoints.push({
+    lat: ear.lat,
+    lon: ear.lon,
+    token: earId,
+    kind: 'ear',
+    confidence,
+    reason,
+  });
+}
+
+export function waypointsFromCommunity(packet: CommunityPacket): LiveWaypoint[] {
   const waypoints: LiveWaypoint[] = [];
-  let pendingUnresolved = false;
+  let skippedUnresolved = false;
 
   for (const hop of packet.hops) {
-    if (hopHasCoords(hop)) {
-      waypoints.push({ lat: hop.lat, lon: hop.lon, token: hop.token, kind: 'hop' });
-      pendingUnresolved = false;
-    } else {
-      pendingUnresolved = true;
+    if (!hopHasCoords(hop)) {
+      skippedUnresolved = true;
+      continue;
     }
+    const confidence = arrivalConfidence(hop.confidence, skippedUnresolved);
+    const reason =
+      hop.reason ??
+      (skippedUnresolved && hop.confidence === 'exact' ? 'skipped_unresolved' : undefined);
+    waypoints.push({
+      lat: hop.lat,
+      lon: hop.lon,
+      token: hop.token,
+      kind: 'hop',
+      confidence,
+      reason,
+      label: hop.name,
+    });
+    skippedUnresolved = false;
   }
 
-  if (!ear) return waypoints;
-
-  if (waypoints.length === 0) {
-    waypoints.push({ lat: ear.lat, lon: ear.lon, token: packet.ear_id, kind: 'ear' });
-    return waypoints;
-  }
-
-  if (pendingUnresolved) {
-    waypoints.push({ lat: ear.lat, lon: ear.lon, token: packet.ear_id, kind: 'fade' });
-  } else {
-    const last = waypoints[waypoints.length - 1];
-    if (last.lat !== ear.lat || last.lon !== ear.lon) {
-      waypoints.push({ lat: ear.lat, lon: ear.lon, token: packet.ear_id, kind: 'ear' });
-    }
+  if (packet.ear) {
+    appendEarWaypoint(
+      waypoints,
+      { lat: packet.ear.lat, lon: packet.ear.lon, source: packet.ear.source },
+      packet.ear_id,
+      skippedUnresolved
+    );
   }
 
   return waypoints;
@@ -242,77 +377,55 @@ export function waypointsFromCommunity(
 export function waypointsFromRaw(
   packet: RawPacket,
   prefixIndex: Map<string, Contact[]>,
-  ear: { lat: number; lon: number } | null,
+  ear: LiveEar | null,
   earId: string
 ): LiveWaypoint[] {
   const parsed = parsePacket(packet.data);
   if (!parsed) return [];
 
   const waypoints: LiveWaypoint[] = [];
-  let pendingUnresolved = false;
+  let skippedUnresolved = false;
 
   for (const token of parsed.pathBytes) {
     const contact = uniqueGpsContact(token, prefixIndex);
-    if (contact) {
+    if (contact && contact.lat != null && contact.lon != null) {
+      const confidence = arrivalConfidence('exact', skippedUnresolved);
       waypoints.push({
-        lat: contact.lat!,
-        lon: contact.lon!,
+        lat: contact.lat,
+        lon: contact.lon,
         token,
         kind: 'hop',
+        confidence,
+        reason: skippedUnresolved ? 'skipped_unresolved' : undefined,
+        label: contact.name ?? undefined,
       });
-      pendingUnresolved = false;
+      skippedUnresolved = false;
     } else {
-      pendingUnresolved = true;
+      skippedUnresolved = true;
     }
   }
 
-  if (!ear) return waypoints;
-
-  if (waypoints.length === 0) {
-    waypoints.push({ lat: ear.lat, lon: ear.lon, token: earId, kind: 'ear' });
-    return waypoints;
-  }
-
-  if (pendingUnresolved) {
-    waypoints.push({ lat: ear.lat, lon: ear.lon, token: earId, kind: 'fade' });
-  } else {
-    const last = waypoints[waypoints.length - 1];
-    if (last.lat !== ear.lat || last.lon !== ear.lon) {
-      waypoints.push({ lat: ear.lat, lon: ear.lon, token: earId, kind: 'ear' });
-    }
-  }
-
+  if (ear) appendEarWaypoint(waypoints, ear, earId, skippedUnresolved);
   return waypoints;
 }
 
-export function jitterAround(
-  seed: string,
-  lat: number,
-  lon: number,
-  scaleDeg: number
-): { lat: number; lon: number } {
-  const [dlat, dlon] = seededJitter(seed, 17);
-  const mul = scaleDeg / LIVE_HOP_JITTER_DEG;
-  return { lat: lat + dlat * mul, lon: lon + dlon * mul };
-}
-
 export function observationFromCommunity(packet: CommunityPacket): LiveObservation | null {
-  if (packet.v !== 1 || !isCommunityPacketType(packet.type)) return null;
-  const centroid = iataCentroid(packet.iata);
-  const ear = centroid
-    ? jitterAround(packet.ear_id, centroid[0], centroid[1], LIVE_EAR_JITTER_DEG)
+  const frame = asCommunityPacket(packet);
+  if (!frame) return null;
+  const ear: LiveEar | null = frame.ear
+    ? { lat: frame.ear.lat, lon: frame.ear.lon, source: frame.ear.source }
     : null;
   return {
-    id: packet.event_id,
-    hash8: packet.hash8.toLowerCase(),
+    id: frame.event_id,
+    hash8: frame.hash8,
     source: 'community',
-    type: packet.type,
-    snr: packet.snr ?? null,
-    iata: packet.iata || null,
-    t: packet.t,
-    earId: packet.ear_id,
+    type: frame.type,
+    snr: frame.snr ?? null,
+    iata: frame.iata.trim() ? frame.iata.trim().toUpperCase() : null,
+    t: frame.t,
+    earId: frame.ear_id,
     ear,
-    waypoints: waypointsFromCommunity(packet, ear),
+    waypoints: waypointsFromCommunity(frame),
   };
 }
 
@@ -323,8 +436,10 @@ export function observationFromRaw(
 ): LiveObservation | null {
   const parsed = parsePacket(packet.data);
   if (!parsed) return null;
-  const ear =
-    config && isValidLocation(config.lat, config.lon) ? { lat: config.lat, lon: config.lon } : null;
+  const ear: LiveEar | null =
+    config && isValidLocation(config.lat, config.lon)
+      ? { lat: config.lat, lon: config.lon, source: 'local' }
+      : null;
   const earId = (config?.public_key || 'local-ear').slice(0, 16);
   const t = packet.timestamp > 1e12 ? packet.timestamp : packet.timestamp * 1000;
   return {
@@ -339,47 +454,6 @@ export function observationFromRaw(
     ear,
     waypoints: waypointsFromRaw(packet, prefixIndex, ear, earId),
   };
-}
-
-/** Polyline uses resolved hops + ear only — never a fade approach. */
-export function polylinePositions(waypoints: LiveWaypoint[]): [number, number][] {
-  const points: [number, number][] = [];
-  for (const point of waypoints) {
-    if (point.kind === 'fade') break;
-    points.push([point.lat, point.lon]);
-  }
-  return points;
-}
-
-export function applyHopJitter(waypoints: LiveWaypoint[], seed: string): LiveWaypoint[] {
-  return waypoints.map((point, index) => {
-    if (point.kind !== 'hop') return point;
-    const jitter = seededJitter(seed, index);
-    return {
-      ...point,
-      lat: point.lat + jitter[0],
-      lon: point.lon + jitter[1],
-    };
-  });
-}
-
-function seededJitter(seed: string, index: number): [number, number] {
-  let h = 2166136261;
-  const text = `${seed}:${index}`;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const u = ((h >>> 0) % 10000) / 10000 - 0.5;
-  const v = ((h >>> 8) % 10000) / 10000 - 0.5;
-  return [u * LIVE_HOP_JITTER_DEG * 2, v * LIVE_HOP_JITTER_DEG * 2];
-}
-
-export function polylineLifetimeMs(seed: string): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  const span = LIVE_POLYLINE_MAX_MS - LIVE_POLYLINE_MIN_MS;
-  return LIVE_POLYLINE_MIN_MS + (h % (span + 1));
 }
 
 export function isStaleLiveTime(t: number, now: number = Date.now()): boolean {

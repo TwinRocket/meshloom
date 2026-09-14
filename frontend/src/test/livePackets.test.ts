@@ -1,20 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CommunityPacket, Contact } from '../types';
+import type { CommunityPacket, Contact, RadioConfig, RawPacket } from '../types';
 import {
-  applyHopJitter,
+  asCommunityPacket,
   buildPrefixIndex,
   isOneByteHopToken,
-  liveBoundsShouldFit,
   liveOpacity,
   liveTypeColor,
   observationFromCommunity,
-  polylinePositions,
+  observationFromRaw,
   uniqueGpsContact,
   waypointsFromCommunity,
   waypointsFromRaw,
+  type LiveObservation,
 } from '../utils/livePackets';
-import type { RawPacket } from '../types';
 
 function contact(prefix: string, lat: number, lon: number): Contact {
   return {
@@ -34,6 +33,26 @@ function contact(prefix: string, lat: number, lon: number): Contact {
     last_contacted: null,
     last_read_at: null,
     first_seen: null,
+  };
+}
+
+function packet(overrides: Partial<CommunityPacket> = {}): CommunityPacket {
+  return {
+    v: 2,
+    event_id: 'e1',
+    hash8: 'deadbeef',
+    type: 'ack',
+    path: ['fe10', 'cd'],
+    hop_count: 2,
+    hops: [
+      { token: 'fe10', lat: 45.78, lon: 4.86, confidence: 'exact', name: 'Fe10' },
+      { token: 'cd', confidence: 'unresolved', reason: 'ambiguous_prefix' },
+    ],
+    ear: { lat: 45.7256, lon: 5.0811, source: 'advert' },
+    iata: 'LYS',
+    t: 1_710_000_000_000,
+    ear_id: 'ear-1',
+    ...overrides,
   };
 }
 
@@ -57,68 +76,152 @@ describe('live hop resolution', () => {
 });
 
 describe('community waypoints', () => {
-  const packet: CommunityPacket = {
-    v: 1,
-    event_id: 'e1',
-    hash8: 'deadbeef',
-    type: 'ack',
-    path: ['fe10', 'cd'],
-    hop_count: 2,
-    hops: [
-      { token: 'fe10', lat: 45.78, lon: 4.86 },
-      { token: 'cd', unresolved: true },
-    ],
-    iata: 'LYS',
-    t: 1,
-    ear_id: 'ear-1',
-  };
+  it('skips unresolved hops and shortcuts to the next real coordinate', () => {
+    const waypoints = waypointsFromCommunity(packet());
+    expect(waypoints.map((point) => point.kind)).toEqual(['hop', 'ear']);
+    expect(waypoints[0]).toMatchObject({
+      token: 'fe10',
+      lat: 45.78,
+      lon: 4.86,
+      confidence: 'exact',
+      label: 'Fe10',
+    });
+    expect(waypoints[1]).toMatchObject({
+      kind: 'ear',
+      lat: 45.7256,
+      lon: 5.0811,
+      confidence: 'probable',
+      reason: 'skipped_unresolved',
+    });
+    expect(waypoints.some((point) => point.token === 'cd')).toBe(false);
+    expect(waypoints.map((point) => [point.lat, point.lon])).toEqual([
+      [45.78, 4.86],
+      [45.7256, 5.0811],
+    ]);
+  });
 
-  it('fades toward the ear and never invents an unresolved segment', () => {
-    const ear = { lat: 45.7256, lon: 5.0811 };
-    const waypoints = waypointsFromCommunity(packet, ear);
-    expect(waypoints.map((point) => point.kind)).toEqual(['hop', 'fade']);
-    expect(polylinePositions(waypoints)).toEqual([[45.78, 4.86]]);
-    expect(waypoints.some((point) => point.token === 'cd' && point.kind === 'hop')).toBe(false);
+  it('never invents coordinates for an unresolved hop', () => {
+    const hops = packet({
+      path: ['aa01'],
+      hop_count: 1,
+      hops: [{ token: 'aa01', confidence: 'unresolved', reason: 'no_candidate' }],
+      ear: null,
+    });
+    const waypoints = waypointsFromCommunity(hops);
+    expect(waypoints).toEqual([]);
+    expect(observationFromCommunity(hops)?.waypoints).toEqual([]);
+  });
+
+  it('keeps exact and probable hops on their server coordinates', () => {
+    const frame = packet({
+      path: ['aa', 'bb'],
+      hop_count: 2,
+      hops: [
+        { token: 'aa', lat: 45.1, lon: 4.1, confidence: 'exact' },
+        { token: 'bb', lat: 45.2, lon: 4.2, confidence: 'probable', reason: 'geo_filtered' },
+      ],
+      ear: { lat: 45.3, lon: 4.3, source: 'iata' },
+    });
+    const waypoints = waypointsFromCommunity(frame);
+    expect(waypoints).toEqual([
+      { lat: 45.1, lon: 4.1, token: 'aa', kind: 'hop', confidence: 'exact' },
+      {
+        lat: 45.2,
+        lon: 4.2,
+        token: 'bb',
+        kind: 'hop',
+        confidence: 'probable',
+        reason: 'geo_filtered',
+      },
+      { lat: 45.3, lon: 4.3, token: 'ear-1', kind: 'ear', confidence: 'exact' },
+    ]);
+  });
+
+  it('marks the next resolved hop as a shortcut after an unresolved gap', () => {
+    const frame = packet({
+      path: ['aa', 'bb', 'cc'],
+      hop_count: 3,
+      hops: [
+        { token: 'aa', lat: 45.1, lon: 4.1, confidence: 'exact' },
+        { token: 'bb', confidence: 'unresolved', reason: 'no_position' },
+        { token: 'cc', lat: 45.3, lon: 4.3, confidence: 'exact', name: 'Cc' },
+      ],
+      ear: null,
+    });
+    const waypoints = waypointsFromCommunity(frame);
+    expect(waypoints).toHaveLength(2);
+    expect(waypoints[1]).toMatchObject({
+      token: 'cc',
+      lat: 45.3,
+      lon: 4.3,
+      confidence: 'probable',
+      reason: 'skipped_unresolved',
+      label: 'Cc',
+    });
+  });
+
+  it('pulses the ear when a community packet has no resolved hops', () => {
+    const direct = packet({
+      path: [],
+      hop_count: 0,
+      hops: [],
+    });
+    expect(waypointsFromCommunity(direct)).toEqual([
+      { lat: 45.7256, lon: 5.0811, token: 'ear-1', kind: 'ear', confidence: 'exact' },
+    ]);
+  });
+
+  it('uses the packet ear, never an IATA centroid fallback', () => {
+    const withEar = observationFromCommunity(packet({ iata: 'JFK' }));
+    expect(withEar?.ear).toEqual({ lat: 45.7256, lon: 5.0811, source: 'advert' });
+    const noEar = observationFromCommunity(packet({ event_id: 'e-none', iata: 'NRT', ear: null }));
+    expect(noEar?.ear).toBeNull();
+    expect(noEar?.waypoints.some((point) => point.kind === 'ear')).toBe(false);
   });
 
   it('keeps legend colors on the observation type', () => {
     expect(liveTypeColor('advert')).toBe('#f59e0b');
     expect(liveTypeColor('text')).toBe('#06b6d4');
     expect(liveTypeColor('ack')).toBe('#22c55e');
-    expect(liveTypeColor('trace')).toBe('#f97316');
-    expect(liveTypeColor('other')).toBe('#94a3b8');
-    expect(observationFromCommunity(packet)?.type).toBe('ack');
+    expect(liveTypeColor('trace')).toBe('#c084fc');
+    expect(liveTypeColor('other')).toBe('#475569');
+    expect(observationFromCommunity(packet())?.type).toBe('ack');
+  });
+});
+
+describe('malformed community frames', () => {
+  it('returns null for unknown schema versions', () => {
+    expect(observationFromCommunity({ ...packet(), v: 1 })).toBeNull();
+    expect(asCommunityPacket({ ...packet(), v: 3 })).toBeNull();
   });
 
-  it('ignores unknown schema versions', () => {
-    expect(observationFromCommunity({ ...packet, v: 2 })).toBeNull();
-  });
-
-  it('places a community ear on any IATA centroid, not a 5-city allow-list', () => {
-    const jfk = observationFromCommunity({ ...packet, event_id: 'e-jfk', iata: 'JFK' });
-    const nrt = observationFromCommunity({ ...packet, event_id: 'e-nrt', iata: 'NRT' });
-    expect(jfk?.ear).not.toBeNull();
-    expect(nrt?.ear).not.toBeNull();
-    expect(Math.abs((jfk?.ear?.lat ?? 0) - 40.6394)).toBeLessThan(0.2);
-    expect(Math.abs((nrt?.ear?.lat ?? 0) - 35.7686)).toBeLessThan(0.2);
-    expect(observationFromCommunity({ ...packet, iata: 'ZZZ' })?.ear).toBeNull();
-  });
-
-  it('pulses the ear when a community packet has no resolved hops', () => {
-    const direct: CommunityPacket = {
-      ...packet,
-      path: [],
-      hop_count: 0,
-      hops: [],
-    };
-    const waypoints = waypointsFromCommunity(direct, { lat: 45.7, lon: 4.8 });
-    expect(waypoints).toEqual([{ lat: 45.7, lon: 4.8, token: 'ear-1', kind: 'ear' }]);
-  });
-
-  it('spreads two ears that share an IATA', () => {
-    const a = observationFromCommunity({ ...packet, ear_id: 'ear-a', iata: 'LYS' });
-    const b = observationFromCommunity({ ...packet, ear_id: 'ear-b', iata: 'LYS' });
-    expect(a?.ear).not.toEqual(b?.ear);
+  it('returns null instead of a half-filled observation', () => {
+    expect(asCommunityPacket({ v: 2, event_id: 'e1' })).toBeNull();
+    expect(observationFromCommunity({ ...packet(), event_id: '' })).toBeNull();
+    expect(observationFromCommunity({ ...packet(), hash8: 'zz' })).toBeNull();
+    expect(
+      observationFromCommunity({ ...packet(), type: 'nope' as CommunityPacket['type'] })
+    ).toBeNull();
+    expect(
+      observationFromCommunity({
+        ...packet(),
+        hops: [{ token: 'aa', confidence: 'exact' }],
+      })
+    ).toBeNull();
+    expect(
+      observationFromCommunity({
+        ...packet(),
+        hops: [{ token: 'aa', lat: 45.1, lon: 4.1, confidence: 'exact' }],
+        path: ['aa', 'extra'],
+      })
+    ).toBeNull();
+    expect(
+      observationFromCommunity({
+        ...packet(),
+        ear: { lat: 999, lon: 4, source: 'advert' },
+      })
+    ).toBeNull();
+    expect(observationFromCommunity({ ...packet(), t: Number.NaN })).toBeNull();
   });
 });
 
@@ -126,28 +229,6 @@ describe('local vs community opacity', () => {
   it('keeps local rain more opaque when the same hash8 exists on both feeds', () => {
     expect(liveOpacity('local', 0, true)).toBeGreaterThan(liveOpacity('community', 0, true));
     expect(liveOpacity('community', 0, true)).toBeLessThan(liveOpacity('community', 0, false));
-  });
-});
-
-describe('live bounds', () => {
-  it('auto-fits only the first time ears appear', () => {
-    expect(liveBoundsShouldFit(false, 0)).toBe(false);
-    expect(liveBoundsShouldFit(false, 1)).toBe(true);
-    expect(liveBoundsShouldFit(true, 3)).toBe(false);
-  });
-});
-
-describe('hop jitter', () => {
-  it('offsets hop waypoints but not the ear', () => {
-    const jittered = applyHopJitter(
-      [
-        { lat: 45.7, lon: 4.8, token: 'ab12', kind: 'hop' },
-        { lat: 45.72, lon: 5.08, token: 'ear', kind: 'ear' },
-      ],
-      'seed'
-    );
-    expect(jittered[0].lat).not.toBe(45.7);
-    expect(jittered[1]).toEqual({ lat: 45.72, lon: 5.08, token: 'ear', kind: 'ear' });
   });
 });
 
@@ -164,6 +245,94 @@ describe('raw waypoints', () => {
       decrypted_info: null,
     };
     const index = buildPrefixIndex([contact('ab', 45.7, 4.8)]);
-    expect(waypointsFromRaw(raw, index, { lat: 45.72, lon: 5.08 }, 'ear')).toEqual([]);
+    expect(waypointsFromRaw(raw, index, { lat: 45.72, lon: 5.08, source: 'local' }, 'ear')).toEqual(
+      []
+    );
+  });
+
+  it('resolves a unique geolocated contact as exact and leaves others undrawn', () => {
+    const index = buildPrefixIndex([contact('ab12', 45.76, 4.84), contact('cd99', 0, 0)]);
+    const parsedPath = {
+      pathBytes: ['ab12', 'cd', 'ffff'],
+    };
+    const waypoints: LiveObservation['waypoints'] = [];
+    let skipped = false;
+    for (const token of parsedPath.pathBytes) {
+      const match = uniqueGpsContact(token, index);
+      if (match?.lat != null && match.lon != null) {
+        waypoints.push({
+          lat: match.lat,
+          lon: match.lon,
+          token,
+          kind: 'hop',
+          confidence: skipped ? 'probable' : 'exact',
+          reason: skipped ? 'skipped_unresolved' : undefined,
+          label: match.name ?? undefined,
+        });
+        skipped = false;
+      } else {
+        skipped = true;
+      }
+    }
+    expect(waypoints).toEqual([
+      {
+        lat: 45.76,
+        lon: 4.84,
+        token: 'ab12',
+        kind: 'hop',
+        confidence: 'exact',
+        label: 'ab12',
+      },
+    ]);
+  });
+
+  it('uses the radio config as a local ear', () => {
+    const config: RadioConfig = {
+      public_key: 'aa'.repeat(32),
+      name: 'me',
+      lat: 45.72,
+      lon: 5.08,
+      tx_power: 22,
+      max_tx_power: 22,
+      radio: { freq: 869.525, bw: 250, sf: 11, cr: 5 },
+      path_hash_mode: 0,
+      path_hash_mode_supported: true,
+    };
+    const raw: RawPacket = {
+      id: 9,
+      observation_id: 3,
+      timestamp: Date.now(),
+      data: '00',
+      payload_type: 'OTHER',
+      snr: -2,
+      rssi: null,
+      decrypted: false,
+      decrypted_info: null,
+    };
+    const obs = observationFromRaw(raw, buildPrefixIndex([]), config);
+    if (obs) {
+      expect(obs.source).toBe('local');
+      expect(obs.ear).toEqual({ lat: 45.72, lon: 5.08, source: 'local' });
+    }
+  });
+});
+
+describe('probable confidence survives observation building', () => {
+  it('keeps the reason so the renderer can explain a dashed segment', () => {
+    const cdg = observationFromCommunity(
+      packet({
+        event_id: 'e-cdg',
+        type: 'trace',
+        iata: 'CDG',
+        path: ['aa'],
+        hop_count: 1,
+        hops: [
+          { token: 'aa', lat: 48.8, lon: 2.3, confidence: 'probable', reason: 'geo_filtered' },
+        ],
+      })
+    )!;
+    const hop = cdg.waypoints.find((point) => point.kind === 'hop');
+    expect(hop?.confidence).toBe('probable');
+    expect(hop?.reason).toBe('geo_filtered');
   });
 });

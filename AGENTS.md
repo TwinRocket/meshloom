@@ -417,6 +417,7 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | POST | `/api/fanout/bots/disable-until-restart` | Stop bot fanout modules and keep bots disabled until the process restarts |
 | GET | `/api/statistics` | Aggregated mesh network statistics, including `region_scope_24h` regional flood-scope adoption |
 | GET | `/api/locate?q=` | RF locate zone for one uniquely resolved node (0-hop disks). 409 if the query is ambiguous |
+| GET | `/api/directory/nodes` | Community/CoreScope map nodes (all roles, paginated; empty/unknown role → `unknown`) |
 | GET | `/api/directory/nodes/{pubkey}/reach` | Proxy CoreScope 0-hop observers. HTTP 500 is a failure, not empty data |
 | GET | `/api/directory/nodes/{pubkey}/neighbors` | Proxy CoreScope neighbor affinity for optional disk calibration |
 | GET | `/api/directory/nodes/search?q=` | Proxy CoreScope name/key search (not hop prefixes) |
@@ -438,6 +439,9 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | GET | `/api/community/stats` | Public community stats |
 | GET | `/api/community/iata/{code}/hashtags` | Shared hashtag names for an IATA code |
 | PUT | `/api/community/me/hashtags` | Publish local/discovered hashtag names (names only) |
+| POST | `/api/community/live/subscribe` | Register or heartbeat a Live session; one process-wide Stats socket |
+| DELETE | `/api/community/live/subscribe/{session_id}` | Drop one Live session (upstream closes after idle grace when none remain) |
+| POST | `/api/community/live/relancer` | Remint JWT, clear the 24h viewer gate, reconnect |
 | WS | `/api/ws` | Real-time updates |
 
 ## Key Concepts
@@ -492,6 +496,8 @@ All external integrations are managed through the fanout bus (`app/fanout/`). Ea
 `broadcast_event()` in `websocket.py` dispatches `message` and `raw_packet` events to the fanout manager. See `app/fanout/AGENTS_fanout.md` for full architecture details.
 
 Community MQTT forwards raw packets only. Its derived `path` field, when present on direct packets, is a comma-separated list of hop identifiers as reported by the packet format. Token width therefore varies with the packet's path hash mode; it is intentionally not a flat per-byte rendering.
+
+Community Live (`POST/DELETE /api/community/live/subscribe`, `POST /api/community/live/relancer`) opens one process-wide Stats WebSocket and fans sanitized v2 frames to browsers as `community_packet`. The reader is claimed under a lock so concurrent tab subscribe cannot open a second upstream socket. The reader reconnects with capped exponential backoff except on close 4002 (24h gate). 4003/409 from a v1 Stats server are treated as 4005 and are never a user-facing error. `community_live` reports `state`: `connected` / `reconnecting` / `gate` / `opted_out` / `idle`.
 
 ### Web Push Notifications
 

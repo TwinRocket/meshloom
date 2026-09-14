@@ -99,6 +99,9 @@ export function isDispatchableWsEvent(event: ParsedWsEvent): boolean {
       );
     case 'message_deleted':
       return isRecord(data) && typeof data.message_id === 'number';
+    case 'community_packet':
+    case 'community_live':
+      return isRecord(data);
     case 'error':
     case 'success':
       return isRecord(data) && typeof data.message === 'string';
