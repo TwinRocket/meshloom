@@ -4,7 +4,13 @@ import { Pause, Play } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { api } from '../api';
-import type { CommunityPacketType, Contact, DirectoryNodeRole, RadioConfig } from '../types';
+import type {
+  CommunityPacketType,
+  Contact,
+  DirectoryMapNode,
+  DirectoryNodeRole,
+  RadioConfig,
+} from '../types';
 import { useRawPackets } from '../stores/rawPacketStore';
 import {
   applyLiveStatus,
@@ -66,6 +72,9 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
   const mapHostRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<LiveMapController | null>(null);
   const hoverRef = useRef<(payload: LiveHoverPayload | null) => void>(() => {});
+  // The directory fetch and the engine race each other; whichever lands second
+  // applies the nodes, so the payload is never dropped on the floor.
+  const directoryNodesRef = useRef<DirectoryMapNode[]>([]);
 
   const optedOut = connection.optOut || !communityEnabled;
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
@@ -79,6 +88,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       onHover: (payload) => hoverRef.current(payload),
     });
     engineRef.current = engine;
+    engine.setDirectoryNodes(directoryNodesRef.current);
     return () => {
       engine.destroy();
       engineRef.current = null;
@@ -119,10 +129,14 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
     let cancelled = false;
     void api.getDirectoryMapNodes().then(
       (res) => {
-        if (!cancelled) engineRef.current?.setDirectoryNodes(res.nodes);
+        if (cancelled) return;
+        directoryNodesRef.current = res.nodes;
+        engineRef.current?.setDirectoryNodes(res.nodes);
       },
       () => {
-        if (!cancelled) engineRef.current?.setDirectoryNodes([]);
+        if (cancelled) return;
+        directoryNodesRef.current = [];
+        engineRef.current?.setDirectoryNodes([]);
       }
     );
     return () => {
