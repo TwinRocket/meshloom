@@ -4,6 +4,7 @@ import { Search, Hash, X } from 'lucide-react';
 import type { Channel, Contact, Conversation, HealthStatus } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
+import { getStateKey } from '../utils/conversationState';
 import { cn } from '../lib/utils';
 
 /**
@@ -86,34 +87,41 @@ export function ConversationListView({
   const [filter, setFilter] = useState<ConversationFilter>('all');
 
   const rows = useMemo<Row[]>(() => {
-    const channelRows: Row[] = channels.map((channel) => ({
-      key: channel.key,
-      kind: 'channel',
-      name: channel.name,
-      conversation: { type: 'channel', id: channel.key, name: channel.name },
-      unread: unreadCounts[channel.key] ?? 0,
-      mentioned: mentions[channel.key] === true,
-      favorite: channel.favorite,
-      lastAt: lastMessageTimes[channel.key] ?? 0,
-      preview: lastMessagePreviews[channel.key] ?? '',
-    }));
+    // Every one of these maps is keyed by the conversation's state key, not by the
+    // channel key or the public key. Reading them raw looked like a list where
+    // nothing had ever been said: no previews, no times, no unread badges, and an
+    // "unread" filter that was always empty while the bar counted four.
+    const channelRows: Row[] = channels.map((channel) => {
+      const stateKey = getStateKey('channel', channel.key);
+      return {
+        key: channel.key,
+        kind: 'channel',
+        name: channel.name,
+        conversation: { type: 'channel', id: channel.key, name: channel.name },
+        unread: unreadCounts[stateKey] ?? 0,
+        mentioned: mentions[stateKey] === true,
+        favorite: channel.favorite,
+        lastAt: lastMessageTimes[stateKey] ?? 0,
+        preview: lastMessagePreviews[stateKey] ?? '',
+      };
+    });
 
-    const contactRows: Row[] = contacts.map((contact) => ({
-      key: contact.public_key,
-      kind: 'contact',
-      name: contact.name ?? contact.public_key.slice(0, 12),
-      conversation: {
-        type: 'contact',
-        id: contact.public_key,
-        name: contact.name ?? contact.public_key.slice(0, 12),
-      },
-      unread: unreadCounts[contact.public_key] ?? 0,
-      mentioned: mentions[contact.public_key] === true,
-      favorite: contact.favorite,
-      lastAt: lastMessageTimes[contact.public_key] ?? 0,
-      preview: lastMessagePreviews[contact.public_key] ?? '',
-      contact,
-    }));
+    const contactRows: Row[] = contacts.map((contact) => {
+      const stateKey = getStateKey('contact', contact.public_key);
+      const name = contact.name ?? contact.public_key.slice(0, 12);
+      return {
+        key: contact.public_key,
+        kind: 'contact',
+        name,
+        conversation: { type: 'contact', id: contact.public_key, name },
+        unread: unreadCounts[stateKey] ?? 0,
+        mentioned: mentions[stateKey] === true,
+        favorite: contact.favorite,
+        lastAt: lastMessageTimes[stateKey] ?? 0,
+        preview: lastMessagePreviews[stateKey] ?? '',
+        contact,
+      };
+    });
 
     // Newest first, and conversations nobody has written in yet fall to the bottom
     // in name order rather than in whatever order the API returned them.

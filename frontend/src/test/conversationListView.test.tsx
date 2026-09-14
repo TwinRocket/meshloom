@@ -42,10 +42,20 @@ function renderList(overrides?: Partial<React.ComponentProps<typeof Conversation
         contact({ public_key: 'bb'.repeat(32), name: 'Bob', favorite: true }),
       ]}
       channels={[channel({ key: 'C1', name: '#alpha' }), channel({ key: 'C2', name: '#beta' })]}
-      unreadCounts={{ C1: 3 }}
+      // Keyed the way every one of these maps is actually keyed — reading them by
+      // the raw channel key or public key silently yields a list where nothing has
+      // ever been said.
+      unreadCounts={{ 'channel-C1': 3 }}
       mentions={{}}
-      lastMessageTimes={{ C1: 300, [`aa`.repeat(32)]: 200, C2: 100 }}
-      lastMessagePreviews={{ C1: 'newest thing', [`aa`.repeat(32)]: 'older thing' }}
+      lastMessageTimes={{
+        'channel-C1': 300,
+        [`contact-${'aa'.repeat(32)}`]: 200,
+        'channel-C2': 100,
+      }}
+      lastMessagePreviews={{
+        'channel-C1': 'newest thing',
+        [`contact-${'aa'.repeat(32)}`]: 'older thing',
+      }}
       onSelectConversation={onSelectConversation}
       onNewMessage={onNewMessage}
       {...overrides}
