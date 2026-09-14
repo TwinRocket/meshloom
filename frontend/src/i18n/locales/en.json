@@ -1572,7 +1572,8 @@
     "removeFavorite": "Remove from favorites",
     "addFavoriteContact": "Add to favorites. Favorite contacts stay loaded on the radio for ACK support.",
     "removeFavoriteContact": "Remove from favorites. Favorite contacts stay loaded on the radio for ACK support.",
-    "delete": "Delete"
+    "delete": "Delete",
+    "moreActions": "More actions"
   },
   "conversation": {
     "selectPrompt": "Select a conversation or start a new one",

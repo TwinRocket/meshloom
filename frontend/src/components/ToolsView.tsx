@@ -81,7 +81,7 @@ export function ToolsView({
     <div className="flex h-full min-h-0 flex-col">
       {/* Opaque and clear of the top edge, for the same reason as the list: iOS
           blurs what reaches into the strip under the status bar. */}
-      <div className="flex shrink-0 items-center gap-2 bg-background px-4 pb-2 pt-5">
+      <div className="flex shrink-0 items-center gap-2 bg-background px-4 pb-2 pt-8 md:pt-5">
         <h1 className="text-2xl font-semibold tracking-tight">{t('toolsView.title')}</h1>
         <RadioStatusChip
           health={health ?? null}

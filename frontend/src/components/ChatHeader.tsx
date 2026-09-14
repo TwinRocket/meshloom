@@ -10,6 +10,7 @@ import {
   Star,
   Trash2,
   ChevronLeft,
+  MoreVertical,
 } from 'lucide-react';
 import { toast } from './ui/sonner';
 import { DirectTraceIcon } from './DirectTraceIcon';
@@ -70,6 +71,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const [showKey, setShowKey] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [pathDiscoveryOpen, setPathDiscoveryOpen] = useState(false);
   const [channelOverrideOpen, setChannelOverrideOpen] = useState(false);
   const [pathHashModeOverrideOpen, setPathHashModeOverrideOpen] = useState(false);
@@ -202,7 +204,16 @@ export function ChatHeader({
   return (
     <header
       className={cn(
-        'conversation-header grid items-start gap-x-2 gap-y-0.5 border-b border-border px-4 py-2.5',
+        // Opaque, and standing clear of the top edge on phones, for the same reason
+        // the list screen does: installed, iOS blurs whatever reaches into the strip
+        // under the status bar, and with no app header above it this row is what
+        // lands there. Desktop keeps its original padding, since the app header is
+        // still above it.
+        // items-center, so the back arrow, the avatar and the name sit on one line
+        // instead of being top-aligned against a title that may wrap.
+        // The rule underneath is a hairline at low opacity rather than a grey bar:
+        // the surfaces already differ, the line only has to hint at the boundary.
+        'conversation-header grid items-center gap-x-2 gap-y-0.5 border-b border-border/30 bg-background px-3 pb-2.5 pt-8 md:px-4 md:pt-2.5',
         conversation.type === 'contact' && activeContact
           ? 'grid-cols-[minmax(0,1fr)_auto] min-[1100px]:grid-cols-[minmax(0,1fr)_auto_auto]'
           : 'grid-cols-[minmax(0,1fr)_auto]'
@@ -216,7 +227,7 @@ export function ChatHeader({
             type="button"
             onClick={onBack}
             aria-label={t('shell.backToConversations')}
-            className="-ml-1.5 mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+            className="liquid-surface -ml-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -240,12 +251,18 @@ export function ChatHeader({
         )}
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="flex min-w-0 flex-1 items-baseline gap-2 whitespace-nowrap">
-              <h2 className="min-w-0 flex-shrink font-semibold text-base">
+            {/* Wraps below md. Held on one line it did not truncate, it overflowed —
+                the key and its reveal button ran under the action icons in the next
+                grid column, which is what the overlapping text was. */}
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 md:flex-nowrap md:whitespace-nowrap">
+              {/* Spans the row so the whole strip opens the details, not just the
+                  glyphs of the name — the empty space beside a title reads as part
+                  of the title. */}
+              <h2 className="min-w-0 flex-1 font-semibold text-base">
                 {titleClickable ? (
                   <button
                     type="button"
-                    className="flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
                     onClick={handleOpenConversationInfo}
                   >
@@ -273,17 +290,26 @@ export function ChatHeader({
                   </span>
                 )}
               </h2>
+              {/* The key is reference material, and it already has a home in the info
+                  pane the ⓘ opens. On a phone it cost the header two extra lines
+                  above the conversation it is meant to be a header for. */}
               {isPrivateChannel && !showKey ? (
-                showKeyButton
+                <span className="hidden md:contents">{showKeyButton}</span>
               ) : isHiddenContactKey ? (
-                <>
+                // Their own row below sm: side by side they overlapped, the key
+                // running under the button's label.
+                <span className="hidden min-w-0 flex-wrap items-baseline gap-x-1 md:flex">
                   {renderCopyableKey(conversation.id.slice(0, 12), true)}
                   {showKeyButton}
-                </>
+                </span>
               ) : (
-                renderCopyableKey(
-                  conversation.type === 'channel' ? conversation.id.toLowerCase() : conversation.id
-                )
+                <span className="hidden min-w-0 md:contents">
+                  {renderCopyableKey(
+                    conversation.type === 'channel'
+                      ? conversation.id.toLowerCase()
+                      : conversation.id
+                  )}
+                </span>
               )}
             </span>
             {conversation.type === 'channel' && activeFloodScopeBadge && (
@@ -314,142 +340,164 @@ export function ChatHeader({
           />
         </div>
       )}
-      <div className="flex items-center justify-end gap-1.5">
-        {conversation.type === 'contact' && !activeContactIsRoomServer && (
-          <button
-            className={headerActionDisabledClass}
-            onClick={() => setPathDiscoveryOpen(true)}
-            title={
-              activeContactIsPrefixOnly
-                ? t('chatHeader.pathDiscoveryUnavailable')
-                : t('chatHeader.pathDiscoveryTitle')
-            }
-            aria-label={t('chatHeader.pathDiscovery')}
-            disabled={activeContactIsPrefixOnly}
-          >
-            <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          </button>
-        )}
-        {conversation.type === 'contact' && !activeContactIsRoomServer && (
-          <button
-            className={headerActionDisabledClass}
-            onClick={onTrace}
-            title={
-              activeContactIsPrefixOnly
-                ? t('chatHeader.directTraceUnavailable')
-                : t('chatHeader.directTraceTitle')
-            }
-            aria-label={t('chatHeader.directTrace')}
-            disabled={activeContactIsPrefixOnly}
-          >
-            <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
-          </button>
-        )}
-        {pushSupported && onTogglePush && (
-          <button
-            className={headerActionClass}
-            onClick={() => void onTogglePush()}
-            title={t('chatHeader.notifications')}
-            aria-label={t('chatHeader.notifications')}
-            aria-pressed={!!pushEnabledForConversation}
-          >
-            <Bell
-              className={cn(
-                'h-4 w-4',
-                pushEnabledForConversation ? 'text-primary' : 'text-muted-foreground'
-              )}
-              fill={pushEnabledForConversation ? 'currentColor' : 'none'}
-              aria-hidden="true"
-            />
-          </button>
-        )}
-        {conversation.type === 'channel' && onToggleMute && (
-          <button
-            className={headerActionClass}
-            onClick={() => onToggleMute(conversation.id)}
-            title={
-              activeChannel?.muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')
-            }
-            aria-label={
-              activeChannel?.muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')
-            }
-            aria-pressed={!!activeChannel?.muted}
-          >
-            <BellOff
-              className={cn(
-                'h-4 w-4',
-                activeChannel?.muted ? 'text-primary' : 'text-muted-foreground'
-              )}
-              aria-hidden="true"
-            />
-          </button>
-        )}
-        {conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
-          <button
-            className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={handleEditFloodScopeOverride}
-            title={t('chatHeader.regionalOverride')}
-            aria-label={t('chatHeader.regionalOverride')}
-          >
-            <Globe2
-              className={`h-4 w-4 ${activeFloodScopeLabel ? 'text-[hsl(var(--region-override))]' : 'text-muted-foreground'}`}
-              aria-hidden="true"
-            />
-            {activeFloodScopeBadge && (
-              <span className="hidden text-[0.6875rem] font-medium text-[hsl(var(--region-override))] sm:inline">
-                {activeFloodScopeBadge}
-              </span>
-            )}
-          </button>
-        )}
-        {showPathHashModeOverride && (
-          <button
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={handleEditPathHashModeOverride}
-            title={t('chatHeader.pathHashOverride')}
-            aria-label={t('chatHeader.pathHashOverride')}
-          >
-            <ChevronsLeftRight
-              className={`h-4 w-4 ${activePathHashModeOverride != null ? 'text-status-connected' : 'text-muted-foreground'}`}
-              aria-hidden="true"
-            />
-          </button>
-        )}
-        {(conversation.type === 'channel' || conversation.type === 'contact') && (
-          <button
-            className={headerActionClass}
-            onClick={() =>
-              onToggleFavorite(conversation.type as 'channel' | 'contact', conversation.id)
-            }
-            title={favoriteTitle}
-            aria-label={isFav ? t('chatHeader.removeFavorite') : t('chatHeader.addFavorite')}
-          >
-            {isFav ? (
-              <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
-            ) : (
-              <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            )}
-          </button>
-        )}
-        {!(conversation.type === 'channel' && isPublicChannelKey(conversation.id)) && (
-          <button
-            className={cn(
-              headerActionClass,
-              'ml-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
-            )}
-            onClick={() => {
-              if (conversation.type === 'channel') {
-                onDeleteChannel(conversation.id);
-              } else {
-                onDeleteContact(conversation.id);
+      <div className="relative flex items-center justify-end gap-1.5">
+        {/* Below md the row is folded behind one control. Simple is the point — the
+            header is a back arrow, who you are talking to, and a way in — but folding
+            is not hiding: every action is still here, one tap away, because several of
+            them (trace, notifications, delete) have no other home in the app. */}
+        <button
+          type="button"
+          onClick={() => setActionsOpen((open) => !open)}
+          aria-expanded={actionsOpen}
+          aria-label={t('chatHeader.moreActions')}
+          className={cn(headerActionClass, 'md:hidden')}
+        >
+          <MoreVertical className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <div
+          className={cn(
+            'items-center gap-1.5 md:flex',
+            actionsOpen
+              ? 'absolute right-0 top-full z-30 mt-1 flex rounded-full border border-border bg-popover px-1.5 py-1 shadow-lg md:static md:mt-0 md:border-0 md:bg-transparent md:p-0 md:shadow-none'
+              : 'hidden'
+          )}
+        >
+          {conversation.type === 'contact' && !activeContactIsRoomServer && (
+            <button
+              className={headerActionDisabledClass}
+              onClick={() => setPathDiscoveryOpen(true)}
+              title={
+                activeContactIsPrefixOnly
+                  ? t('chatHeader.pathDiscoveryUnavailable')
+                  : t('chatHeader.pathDiscoveryTitle')
               }
-            }}
-            title={t('chatHeader.delete')}
-            aria-label={t('chatHeader.delete')}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </button>
-        )}
+              aria-label={t('chatHeader.pathDiscovery')}
+              disabled={activeContactIsPrefixOnly}
+            >
+              <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </button>
+          )}
+          {conversation.type === 'contact' && !activeContactIsRoomServer && (
+            <button
+              className={headerActionDisabledClass}
+              onClick={onTrace}
+              title={
+                activeContactIsPrefixOnly
+                  ? t('chatHeader.directTraceUnavailable')
+                  : t('chatHeader.directTraceTitle')
+              }
+              aria-label={t('chatHeader.directTrace')}
+              disabled={activeContactIsPrefixOnly}
+            >
+              <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
+          {pushSupported && onTogglePush && (
+            <button
+              className={headerActionClass}
+              onClick={() => void onTogglePush()}
+              title={t('chatHeader.notifications')}
+              aria-label={t('chatHeader.notifications')}
+              aria-pressed={!!pushEnabledForConversation}
+            >
+              <Bell
+                className={cn(
+                  'h-4 w-4',
+                  pushEnabledForConversation ? 'text-primary' : 'text-muted-foreground'
+                )}
+                fill={pushEnabledForConversation ? 'currentColor' : 'none'}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+          {conversation.type === 'channel' && onToggleMute && (
+            <button
+              className={headerActionClass}
+              onClick={() => onToggleMute(conversation.id)}
+              title={
+                activeChannel?.muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')
+              }
+              aria-label={
+                activeChannel?.muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')
+              }
+              aria-pressed={!!activeChannel?.muted}
+            >
+              <BellOff
+                className={cn(
+                  'h-4 w-4',
+                  activeChannel?.muted ? 'text-primary' : 'text-muted-foreground'
+                )}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+          {conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
+            <button
+              className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleEditFloodScopeOverride}
+              title={t('chatHeader.regionalOverride')}
+              aria-label={t('chatHeader.regionalOverride')}
+            >
+              <Globe2
+                className={`h-4 w-4 ${activeFloodScopeLabel ? 'text-[hsl(var(--region-override))]' : 'text-muted-foreground'}`}
+                aria-hidden="true"
+              />
+              {activeFloodScopeBadge && (
+                <span className="hidden text-[0.6875rem] font-medium text-[hsl(var(--region-override))] sm:inline">
+                  {activeFloodScopeBadge}
+                </span>
+              )}
+            </button>
+          )}
+          {showPathHashModeOverride && (
+            <button
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleEditPathHashModeOverride}
+              title={t('chatHeader.pathHashOverride')}
+              aria-label={t('chatHeader.pathHashOverride')}
+            >
+              <ChevronsLeftRight
+                className={`h-4 w-4 ${activePathHashModeOverride != null ? 'text-status-connected' : 'text-muted-foreground'}`}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+          {(conversation.type === 'channel' || conversation.type === 'contact') && (
+            <button
+              className={headerActionClass}
+              onClick={() =>
+                onToggleFavorite(conversation.type as 'channel' | 'contact', conversation.id)
+              }
+              title={favoriteTitle}
+              aria-label={isFav ? t('chatHeader.removeFavorite') : t('chatHeader.addFavorite')}
+            >
+              {isFav ? (
+                <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
+              ) : (
+                <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              )}
+            </button>
+          )}
+          {!(conversation.type === 'channel' && isPublicChannelKey(conversation.id)) && (
+            <button
+              className={cn(
+                headerActionClass,
+                'ml-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
+              )}
+              onClick={() => {
+                if (conversation.type === 'channel') {
+                  onDeleteChannel(conversation.id);
+                } else {
+                  onDeleteContact(conversation.id);
+                }
+              }}
+              title={t('chatHeader.delete')}
+              aria-label={t('chatHeader.delete')}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
       {conversation.type === 'contact' && activeContact && (
         <ContactPathDiscoveryModal

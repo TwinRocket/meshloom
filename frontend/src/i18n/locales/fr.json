@@ -1572,7 +1572,8 @@
     "removeFavorite": "Retirer des favoris",
     "addFavoriteContact": "Ajouter aux favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
     "removeFavoriteContact": "Retirer des favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "moreActions": "Plus d’actions"
   },
   "conversation": {
     "selectPrompt": "Sélectionnez une conversation ou démarrez-en une nouvelle",

@@ -154,7 +154,7 @@ export function ConversationListView({
           there, which turned the title and the status into something that looked
           out of focus. A solid surface gives that treatment a flat colour to work
           on, and the breathing room keeps the text itself out of the strip. */}
-      <div className="shrink-0 bg-background pt-2">
+      <div className="shrink-0 bg-background pt-5 md:pt-2">
         <div className="flex items-center gap-2 px-4 pb-2 pt-3">
           <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
           <RadioStatusChip
@@ -231,7 +231,7 @@ export function ConversationListView({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {showFavourites && (
-          <div className="border-b border-border/60 pb-3 pt-1">
+          <div className="border-b border-border/25 pb-3 pt-1">
             <h2 className="px-4 pb-2 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
               {t('conversationList.favorites')}
             </h2>
@@ -309,7 +309,10 @@ export function ConversationListView({
                     />
                   )}
 
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {/* The rule starts after the avatar rather than spanning the
+                      screen: a full-width line reads as a division of the page, an
+                      inset one as a gap between two rows of the same list. */}
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 border-b border-border/20 pb-2.5">
                     <span className="flex items-baseline gap-2">
                       <span className="truncate font-medium">{row.name}</span>
                       <span className="ml-auto shrink-0 text-[0.6875rem] text-muted-foreground">
