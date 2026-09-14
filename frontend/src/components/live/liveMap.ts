@@ -164,7 +164,9 @@ export class LiveMapController {
     });
     this.map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
     this.overlay = new MapboxOverlay({
-      interleaved: true,
+      // Overlaid, not interleaved: sharing MapLibre's depth buffer let basemap
+      // fills occlude most node dots (231 in view, 17 actually drawn).
+      interleaved: false,
       layers: [],
       pickingRadius: 10,
       getCursor: ({ isHovering }: { isHovering: boolean }) => (isHovering ? 'pointer' : 'grab'),
