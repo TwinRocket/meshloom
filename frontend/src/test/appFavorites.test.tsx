@@ -210,6 +210,7 @@ const baseConfig = {
 };
 
 const baseSettings = {
+  ui_preferences: { nav_rail: [], theme: '' },
   max_radio_contacts: 200,
   auto_decrypt_dm_on_advert: false,
   last_message_times: {},

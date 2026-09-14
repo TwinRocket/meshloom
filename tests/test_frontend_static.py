@@ -246,3 +246,82 @@ def test_first_available_uses_prebuilt_when_dist_missing(tmp_path):
         response = client.get("/")
         assert response.status_code == 200
         assert "prebuilt" in response.text
+
+
+def _shell_app(tmp_path):
+    dist = tmp_path / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text(
+        '<!doctype html>\n<html lang="fr" class="dark">\n<head></head><body></body></html>\n',
+        encoding="utf-8",
+    )
+    app = FastAPI()
+    assert register_frontend_static_routes(app, dist) is True
+    return app
+
+
+def test_stored_theme_is_on_the_root_element_of_the_served_shell(tmp_path, monkeypatch):
+    """The page must paint in the right theme on the first frame.
+
+    A theme learned from a fetch paints the default first and then changes. That
+    flash cannot be avoided with a local copy either: a device visiting for the
+    first time has nothing stored, which is exactly the multi-device case.
+    """
+    from unittest.mock import AsyncMock
+
+    from app.models import AppSettings, UiPreferences
+
+    monkeypatch.setattr(
+        "app.repository.AppSettingsRepository.get",
+        AsyncMock(return_value=AppSettings(ui_preferences=UiPreferences(theme="light"))),
+    )
+    with TestClient(_shell_app(tmp_path)) as client:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert '<html data-theme="light" lang="fr"' in resp.text
+        # Never cached, so the injected value can never go stale.
+        assert resp.headers["Cache-Control"] == INDEX_CACHE_CONTROL
+
+
+def test_following_the_os_injects_nothing(tmp_path, monkeypatch):
+    """An empty theme is answered by CSS, not by an attribute."""
+    from unittest.mock import AsyncMock
+
+    from app.models import AppSettings, UiPreferences
+
+    monkeypatch.setattr(
+        "app.repository.AppSettingsRepository.get",
+        AsyncMock(return_value=AppSettings(ui_preferences=UiPreferences(theme=""))),
+    )
+    with TestClient(_shell_app(tmp_path)) as client:
+        assert "data-theme" not in client.get("/").text
+
+
+def test_a_theme_id_that_is_not_a_slug_never_reaches_the_attribute(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.models import AppSettings, UiPreferences
+
+    monkeypatch.setattr(
+        "app.repository.AppSettingsRepository.get",
+        AsyncMock(
+            return_value=AppSettings(ui_preferences=UiPreferences(theme='x" onload="alert(1)'))
+        ),
+    )
+    with TestClient(_shell_app(tmp_path)) as client:
+        body = client.get("/").text
+        assert "onload" not in body
+        assert "data-theme" not in body
+
+
+def test_a_failing_settings_read_still_serves_the_page(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        "app.repository.AppSettingsRepository.get",
+        AsyncMock(side_effect=RuntimeError("database is gone")),
+    )
+    with TestClient(_shell_app(tmp_path)) as client:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "<html" in resp.text

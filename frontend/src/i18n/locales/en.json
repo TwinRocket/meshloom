@@ -1544,7 +1544,8 @@
     "database": "Database",
     "fanout": "MQTT & Automation",
     "statistics": "Statistics",
-    "about": "About"
+    "about": "About",
+    "navigation": "Navigation"
   },
   "chatHeader": {
     "viewContactInfo": "View contact info",
@@ -2361,5 +2362,17 @@
     "groupApp": "Application",
     "groupData": "Data",
     "back": "Settings"
+  },
+  "settingsNavigation": {
+    "railTitle": "Left rail",
+    "railHelp": "What the rail beside the conversations holds, and in what order. Desktop only — the bar on a phone holds four.",
+    "permanent": "Always",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "remove": "Remove {{name}} from the rail",
+    "removeShort": "Remove",
+    "available": "Add to the rail",
+    "reset": "Reset to defaults",
+    "saved": "Saved"
   }
 }

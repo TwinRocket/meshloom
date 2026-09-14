@@ -109,6 +109,7 @@ beforeEach(() => {
   mockedApi.getChannels.mockResolvedValue([]);
   mockedApi.getContacts.mockResolvedValue([]);
   mockedApi.getSettings.mockResolvedValue({
+    ui_preferences: { nav_rail: [], theme: '' },
     max_radio_contacts: 200,
     auto_decrypt_dm_on_advert: true,
     last_message_times: {},
@@ -1202,6 +1203,7 @@ describe('SettingsFanoutSection', () => {
       },
     ]);
     mockedApi.getSettings.mockResolvedValue({
+      ui_preferences: { nav_rail: [], theme: '' },
       max_radio_contacts: 200,
       auto_decrypt_dm_on_advert: true,
       last_message_times: {},

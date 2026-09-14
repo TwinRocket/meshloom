@@ -1011,6 +1011,29 @@ class UnreadCounts(BaseModel):
     )
 
 
+class UiPreferences(BaseModel):
+    """Interface preferences, kept with the instance rather than in a browser.
+
+    The same person reaches one Meshloom from a phone and a desktop, and there is
+    no notion of separate users here — a single credential pair guards the whole
+    instance. Preferences stored per browser therefore had to be set again on
+    every device. Migration 009 recorded this intention and stopped at a flag.
+    """
+
+    nav_rail: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The desktop rail's contents, in order, as destination and tool ids. "
+            "Empty means the defaults. One ordered list rather than a set of pins "
+            "plus an order, which could disagree with each other."
+        ),
+    )
+    theme: str = Field(
+        default="",
+        description="Theme id, or empty to follow the operating system",
+    )
+
+
 class AppSettings(BaseModel):
     """Application settings stored in the database."""
 
@@ -1028,6 +1051,10 @@ class AppSettings(BaseModel):
     last_message_times: dict[str, int] = Field(
         default_factory=dict,
         description="Map of conversation state keys to last message timestamps",
+    )
+    ui_preferences: UiPreferences = Field(
+        default_factory=UiPreferences,
+        description="Interface preferences shared by every device reaching this instance",
     )
     advert_interval: int = Field(
         default=0,

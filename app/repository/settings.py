@@ -5,9 +5,10 @@ from collections.abc import Mapping
 from typing import Any, TypedDict
 
 import aiosqlite
+from pydantic import ValidationError
 
 from app.database import db
-from app.models import AppSettings
+from app.models import AppSettings, UiPreferences
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
 from app.telemetry_interval import DEFAULT_TELEMETRY_INTERVAL_HOURS
 
@@ -105,7 +106,8 @@ class AppSettingsRepository:
                    tracked_telemetry_repeaters, tracked_telemetry_contacts,
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
-                   stale_contact_days, directory_enabled, directory_url
+                   stale_contact_days, directory_enabled, directory_url,
+                   ui_preferences
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -126,6 +128,18 @@ class AppSettingsRepository:
                     e,
                 )
                 last_message_times = {}
+
+        # Parse ui_preferences JSON. A malformed blob falls back to defaults rather
+        # than failing the whole settings read: chrome preferences must never be
+        # able to stop the app from loading.
+        ui_preferences = UiPreferences()
+        try:
+            raw_ui = row["ui_preferences"]
+            if raw_ui:
+                ui_preferences = UiPreferences.model_validate(json.loads(raw_ui))
+        except (json.JSONDecodeError, TypeError, KeyError, ValidationError) as e:
+            logger.warning("Failed to parse ui_preferences, using defaults: %s", e)
+            ui_preferences = UiPreferences()
 
         # Parse blocked_keys JSON
         blocked_keys: list[str] = []
@@ -220,6 +234,7 @@ class AppSettingsRepository:
             max_radio_contacts=row["max_radio_contacts"],
             auto_decrypt_dm_on_advert=bool(row["auto_decrypt_dm_on_advert"]),
             last_message_times=last_message_times,
+            ui_preferences=ui_preferences,
             advert_interval=row["advert_interval"] or 0,
             last_advert_time=row["last_advert_time"] or 0,
             flood_scope=row["flood_scope"] or "",
@@ -259,6 +274,7 @@ class AppSettingsRepository:
         stale_contact_days: int | None = None,
         directory_enabled: bool | None = None,
         directory_url: str | None = None,
+        ui_preferences: UiPreferences | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -279,6 +295,10 @@ class AppSettingsRepository:
         if last_message_times is not None:
             updates.append("last_message_times = ?")
             params.append(json.dumps(last_message_times))
+
+        if ui_preferences is not None:
+            updates.append("ui_preferences = ?")
+            params.append(ui_preferences.model_dump_json())
 
         if advert_interval is not None:
             updates.append("advert_interval = ?")
@@ -374,6 +394,7 @@ class AppSettingsRepository:
         stale_contact_days: int | None = None,
         directory_enabled: bool | None = None,
         directory_url: str | None = None,
+        ui_preferences: UiPreferences | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -382,6 +403,7 @@ class AppSettingsRepository:
                 max_radio_contacts=max_radio_contacts,
                 auto_decrypt_dm_on_advert=auto_decrypt_dm_on_advert,
                 last_message_times=last_message_times,
+                ui_preferences=ui_preferences,
                 advert_interval=advert_interval,
                 last_advert_time=last_advert_time,
                 flood_scope=flood_scope,

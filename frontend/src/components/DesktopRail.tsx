@@ -1,5 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import { type BottomNavTarget, NAV_ITEMS, UNREAD_BADGE_MAX } from './navDestinations';
+import {
+  type BottomNavTarget,
+  type RailItemId,
+  resolveRail,
+  UNREAD_BADGE_MAX,
+} from './navDestinations';
 import { RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
@@ -23,25 +28,40 @@ interface Props {
   onSelect: (target: BottomNavTarget) => void;
   health: HealthStatus | null;
   onOpenRadioSettings: () => void;
+  /** The rail's contents, in order, as configured in Settings. */
+  order?: string[];
+  /** Which tool is open, so a pinned tool lights up like a destination does. */
+  activeToolId?: string | null;
+  onSelectTool: (id: RailItemId) => void;
 }
 
-export function DesktopRail({ active, unreadTotal, onSelect, health, onOpenRadioSettings }: Props) {
+export function DesktopRail({
+  active,
+  unreadTotal,
+  onSelect,
+  health,
+  onOpenRadioSettings,
+  order,
+  activeToolId,
+  onSelectTool,
+}: Props) {
   const { t } = useTranslation();
 
   return (
     <nav
       aria-label={t('bottomNav.label')}
       data-desktop-rail=""
-      className="hidden w-14 shrink-0 flex-col items-center gap-1 border-r border-border bg-muted/30 py-3 md:flex"
+      className="hidden w-14 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-border bg-muted/30 py-3 md:flex"
     >
-      {NAV_ITEMS.map(({ target, labelKey, Icon }) => {
-        const current = active === target;
-        const badge = target === 'conversations' && unreadTotal > 0;
+      {resolveRail(order).map(({ id, labelKey, Icon, permanent }) => {
+        const target = id as BottomNavTarget;
+        const current = permanent ? active === target : activeToolId === id;
+        const badge = id === 'conversations' && unreadTotal > 0;
         return (
           <button
-            key={target}
+            key={id}
             type="button"
-            onClick={() => onSelect(target)}
+            onClick={() => (permanent ? onSelect(target) : onSelectTool(id))}
             aria-current={current ? 'page' : undefined}
             aria-label={t(labelKey)}
             title={t(labelKey)}

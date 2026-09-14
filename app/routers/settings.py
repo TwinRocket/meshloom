@@ -15,6 +15,7 @@ from app.models import (
     BackupExport,
     BackupRestoreRequest,
     BackupRestoreResult,
+    UiPreferences,
 )
 from app.region_scope import normalize_region_scope
 from app.repository import AppSettingsRepository, ChannelRepository, ContactRepository
@@ -35,6 +36,10 @@ MAX_TRACKED_TELEMETRY_CONTACTS = 8
 
 
 class AppSettingsUpdate(BaseModel):
+    ui_preferences: UiPreferences | None = Field(
+        default=None,
+        description="Interface preferences shared by every device reaching this instance",
+    )
     max_radio_contacts: int | None = Field(
         default=None,
         ge=1,
@@ -234,6 +239,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     Settings are persisted to the database and survive restarts.
     """
     kwargs = {}
+    if update.ui_preferences is not None:
+        kwargs["ui_preferences"] = update.ui_preferences
+
     if update.max_radio_contacts is not None:
         logger.info("Updating max_radio_contacts to %d", update.max_radio_contacts)
         kwargs["max_radio_contacts"] = update.max_radio_contacts

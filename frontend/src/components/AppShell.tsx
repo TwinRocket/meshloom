@@ -13,7 +13,7 @@ import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
 import { DesktopRail } from './DesktopRail';
-import type { BottomNavTarget } from './navDestinations';
+import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
 import { ToolsView } from './ToolsView';
 import { SettingsIndexView } from './SettingsIndexView';
@@ -75,6 +75,8 @@ interface AppShellProps {
   onCloseBulkAddResults: () => void;
   onLocalLabelChange: (label: LocalLabel) => void;
   statusProps: { health: HealthStatus | null; config: RadioConfig | null };
+  /** The desktop rail's contents, in order, from the stored preferences. */
+  navRailOrder?: string[];
   sidebarProps: SidebarProps;
   conversationPaneProps: ConversationPaneProps;
   searchProps: SearchViewProps;
@@ -110,6 +112,7 @@ export function AppShell({
   onCloseBulkAddResults,
   onLocalLabelChange,
   statusProps,
+  navRailOrder,
   sidebarProps,
   conversationPaneProps,
   searchProps,
@@ -324,6 +327,14 @@ export function AppShell({
           onSelect={handleBottomNav}
           health={statusProps.health ?? null}
           onOpenRadioSettings={() => handleOpenSettings('radio')}
+          order={navRailOrder}
+          activeToolId={activeType ?? null}
+          onSelectTool={(id) => {
+            if (showSettings) onToggleSettingsView();
+            sidebarProps.onSelectConversation(
+              RAIL_ITEMS.find((item) => item.id === id)?.conversation as never
+            );
+          }}
         />
 
         {/* The destination's own list, permanently beside the conversation. On a
