@@ -1,3 +1,41 @@
+## [4.7.0] - 2026-09-14
+
+This release rebuilds the phone app around a bar at the bottom of the screen, and rebuilds the live map on a new engine. Installed on a phone, Meshloom now fills the screen and stays put.
+
+### What's new
+
+- **The phone app is navigated from the bottom.** Four destinations — conversations, map, tools, settings — on a bar that is always there, instead of a drawer behind a burger. The app header is gone with it: the radio state moved onto the screens that need it, and settings became a destination of its own.
+- **Conversations are one list.** Channels and direct conversations sit together, newest first, with search, filters for unread, favourites, groups and direct, and a row of favourites at the top. It is the whole screen, not a drawer over one.
+- **Tools have a screen.** The packet feed, the live map, the mesh visualiser, trace, RF locate, message search and the channel finder are a list with a line each saying what they are for. Each opens full screen with a way back.
+- **Settings open on an index.** The sections are grouped by where their values go — the radio, the app, the data it keeps — rather than dropping straight into the radio one.
+- **Installed on a phone, the app fills the screen and stays put.** The skeleton no longer drifts when you drag it, only content scrolls, and the keyboard no longer leaves the layout a third shorter than the screen for the rest of the session. Double-tapping no longer leaves the page zoomed.
+- **A conversation has one scroll.** Reaching the top loads older messages without losing your place, and the composer stays reachable whatever the draft's length or the keyboard's state.
+- **The live map is rebuilt.** Packets land on a MapLibre and deck.gl map as they are heard, with trails and hops coloured by packet type rather than grey, and zero-hop ears drawn where traffic was heard directly.
+- **The dark map works again.** CARTO's free tiles began answering with an "API KEY REQUIRED" watermark past a certain zoom. The dark basemap is OpenStreetMap now, and it follows your theme without being asked.
+- **Both maps open on your nodes.** Arriving frames everything being heard instead of restoring wherever the last visit ended; a control puts the whole mesh back once you have panned away.
+- **Through the proxy, your own messages are yours.** A message sent from a connected client was filed under the contact it was sent to, as though they had written it.
+
+---
+
+### Français
+
+Cette version reconstruit l'application téléphone autour d'une barre en bas de l'écran, et refait la carte live sur un nouveau moteur. Installé sur un téléphone, Meshloom occupe maintenant tout l'écran et ne bouge plus.
+
+#### Quoi de neuf
+
+- **L'application téléphone se navigue par le bas.** Quatre destinations — discussions, carte, outils, réglages — sur une barre toujours présente, au lieu d'un tiroir derrière un menu burger. L'en-tête de l'application disparaît avec lui : l'état de la radio a rejoint les écrans qui en ont besoin, et les réglages sont devenus une destination à part entière.
+- **Les conversations forment une seule liste.** Salons et conversations directes ensemble, les plus récentes d'abord, avec recherche, filtres non lues / favoris / groupes / directs, et une rangée de favoris en haut. C'est tout l'écran, pas un tiroir par-dessus.
+- **Les outils ont leur écran.** Le flux de paquets, la carte live, le visualiseur mesh, trace, la localisation RF, la recherche de messages et le chercheur de canaux forment une liste, chacun avec une ligne qui dit à quoi il sert. Chacun s'ouvre en plein écran avec un retour.
+- **Les réglages s'ouvrent sur un index.** Les sections sont groupées selon l'endroit où vont leurs valeurs — la radio, l'application, les données qu'elle conserve — au lieu d'atterrir directement dans celle de la radio.
+- **Installée sur un téléphone, l'application occupe tout l'écran et reste en place.** Le squelette ne dérive plus quand on tire la page, seul le contenu défile, et le clavier ne laisse plus la mise en page d'un tiers trop courte pour le reste de la session. Un double tap ne laisse plus la page zoomée.
+- **Une conversation n'a qu'un seul défilement.** Arriver en haut charge les messages plus anciens sans perdre sa place, et la zone de saisie reste atteignable quelle que soit la longueur du brouillon ou l'état du clavier.
+- **La carte live est refaite.** Les paquets arrivent sur une carte MapLibre et deck.gl au moment où ils sont entendus, avec des traces et des sauts colorés par type de paquet plutôt qu'en gris, et les oreilles zéro-hop dessinées là où le trafic a été entendu en direct.
+- **La carte sombre refonctionne.** Les tuiles gratuites de CARTO se sont mises à répondre par un filigrane « API KEY REQUIRED » au-delà d'un certain zoom. Le fond sombre est désormais OpenStreetMap, et il suit votre thème sans qu'on le lui demande.
+- **Les deux cartes s'ouvrent sur vos nœuds.** Arriver cadre tout ce qui est entendu au lieu de restaurer l'endroit où s'était arrêtée la visite précédente ; un bouton remet tout le mesh à l'écran une fois qu'on s'en est éloigné.
+- **À travers le proxy, vos messages sont les vôtres.** Un message envoyé depuis un client connecté était classé sous le contact à qui il était destiné, comme s'il l'avait écrit.
+
+---
+
 ## [4.6.1] - 2026-09-13
 
 This release lets a second client use this radio without unplugging anything. A phone app or another Meshloom can talk to the mesh through this instance, and Web Push stops refusing the https address of your own server.
