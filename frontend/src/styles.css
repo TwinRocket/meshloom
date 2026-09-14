@@ -49,6 +49,10 @@ body,
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
   --safe-area-bottom-capped: min(var(--safe-area-bottom), 12px);
+  /* What the floating bottom bar occupies: its pill, the home indicator it clears,
+     and the air it leaves under itself. Anything that floats over a view with the
+     bar must sit above this — the capped inset is a scroll reserve, not this. */
+  --bottom-nav-height: calc(4.375rem + var(--safe-area-bottom) + 0.5rem);
 }
 
 @supports (padding: constant(safe-area-inset-top)) {
@@ -80,6 +84,33 @@ body,
    foreign object stuck onto a system that is doing something else. Matching it is
    cheaper than fighting it. backdrop-filter is the whole effect; where it is not
    supported the fallback is simply a more opaque surface, which still reads. */
+/* The round glass control that leaves a screen — in a conversation, in a tool pane,
+   in a settings section. One class rather than the same utility string written out
+   three times: it is a platform's idea of a back control, and the platform is the
+   thing likeliest to change under it. */
+.glass-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-left: -0.125rem;
+  border-radius: 9999px;
+  color: hsl(var(--foreground));
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    color 150ms;
+}
+
+@media (min-width: 768px) {
+  /* Desktop panes sit beside a rail that already says where you are. */
+  .glass-back-button {
+    display: none;
+  }
+}
+
 .liquid-surface {
   background: hsl(var(--card) / 0.92);
   border: 1px solid hsl(var(--border) / 0.55);

@@ -327,10 +327,11 @@ describe('stroke, color, and node/ear encoding', () => {
 
 describe('camera and spawn policy', () => {
   it('never auto-fits after a saved camera or a user move', () => {
-    expect(shouldAutoFitCamera(false, false, 10)).toBe(true);
-    expect(shouldAutoFitCamera(true, false, 10)).toBe(false);
-    expect(shouldAutoFitCamera(false, true, 10)).toBe(false);
-    expect(shouldAutoFitCamera(false, false, 0)).toBe(false);
+    expect(shouldAutoFitCamera(false, 10)).toBe(true);
+    // A camera saved on a previous visit no longer suppresses the fit: arriving
+    // means seeing what is being heard, wherever it is.
+    expect(shouldAutoFitCamera(true, 10)).toBe(false);
+    expect(shouldAutoFitCamera(false, 0)).toBe(false);
   });
 
   it('keeps only the newest catch-up lasers', () => {

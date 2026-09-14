@@ -295,6 +295,7 @@ function FitAllNodes({
   const map = useMap();
   const lastFocusKey = useRef<string | null>(null);
   const hasFitted = useRef(false);
+  const readerTookOver = useRef(false);
 
   const points = useMemo(
     () => contacts.map((c) => [c.lat!, c.lon!] as [number, number]),
@@ -302,6 +303,10 @@ function FitAllNodes({
   );
 
   const fitAll = useCallback(() => {
+    // The pane's height settles after the map is created — on iOS a frame or two
+    // later — and a fit computed against the wrong box lands somewhere with no
+    // nodes in it at all.
+    map.invalidateSize({ animate: false });
     if (points.length === 0) {
       map.setView(EMPTY_MAP_VIEW.center, EMPTY_MAP_VIEW.zoom);
       return;
@@ -340,6 +345,24 @@ function FitAllNodes({
     fitAll();
     if (points.length > 0) hasFitted.current = true;
   }, [map, fitAll, points, focusedContact]);
+
+  // Until the reader takes the map over, a resize means the first fit was measured
+  // against a box that has since changed, so it is worth redoing.
+  useEffect(() => {
+    const refit = () => {
+      if (readerTookOver.current) return;
+      fitAll();
+    };
+    const takeOver = () => {
+      readerTookOver.current = true;
+    };
+    map.on('resize', refit);
+    map.on('dragstart', takeOver);
+    return () => {
+      map.off('resize', refit);
+      map.off('dragstart', takeOver);
+    };
+  }, [map, fitAll]);
 
   // Drift is "a node is off screen", not "the camera moved": zooming into a
   // cluster that still holds everything is not something to offer undoing.
@@ -727,7 +750,7 @@ export function MapView({
           <button
             type="button"
             onClick={() => fitAllRef.current?.()}
-            className="liquid-surface absolute bottom-4 left-1/2 z-[500] inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-foreground shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="liquid-surface absolute bottom-[calc(var(--bottom-nav-height)+0.75rem)] left-1/2 z-[500] inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-foreground shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:bottom-4"
           >
             <Maximize2 className="h-4 w-4" aria-hidden="true" />
             {t('map.fitAllNodes')}

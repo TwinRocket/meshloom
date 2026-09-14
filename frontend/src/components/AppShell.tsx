@@ -226,7 +226,7 @@ export function AppShell({
   const showBottomNav = showSettings || !inConversation;
   // Which of the bar's destinations is on screen. A tool opened from the Tools screen
   // keeps Tools lit, because that is where the reader came from and where Back goes.
-  const TOOL_TYPES = ['raw', 'visualizer', 'trace', 'locate', 'search'];
+  const TOOL_TYPES = ['raw', 'live', 'visualizer', 'trace', 'locate', 'search'];
   const bottomNavTarget: BottomNavTarget | null = showSettings
     ? 'settings'
     : activeType === 'map'
@@ -240,6 +240,11 @@ export function AppShell({
     (sum, n) => sum + (n > 0 ? 1 : 0),
     0
   );
+
+  const handleBackToTools = useCallback(() => {
+    setMobileScreen('tools');
+    onClearActiveConversation();
+  }, [onClearActiveConversation]);
 
   const handleBottomNav = useCallback(
     (target: BottomNavTarget) => {
@@ -488,6 +493,7 @@ export function AppShell({
               {...conversationPaneProps}
               communityEnabled={communityStatus?.enabled ?? true}
               onBack={onClearActiveConversation}
+              onBackToTools={handleBackToTools}
             />
           </div>
 
@@ -538,7 +544,7 @@ export function AppShell({
                   type="button"
                   onClick={() => setSettingsIndexOpen(true)}
                   aria-label={t('settingsIndex.back')}
-                  className="liquid-surface inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
                 </button>

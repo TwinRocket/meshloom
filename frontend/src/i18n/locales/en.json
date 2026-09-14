@@ -159,7 +159,8 @@
     "sidebarNav": "Sidebar navigation",
     "loadingSearch": "Loading search...",
     "loadingSettings": "Loading settings...",
-    "loadingChannelFinder": "Loading channel finder..."
+    "loadingChannelFinder": "Loading channel finder...",
+    "backToTools": "Back to Tools"
   },
   "settings": {
     "staleTitle": "Stale Contact Purge",
@@ -2349,7 +2350,8 @@
     "locateDescription": "Estimate where a node is transmitting from",
     "searchDescription": "Search every message on this node",
     "crackerDescription": "Try known keys against undecrypted channel traffic",
-    "markAllReadDescription": "Clear every unread badge"
+    "markAllReadDescription": "Clear every unread badge",
+    "liveDescription": "Packets landing on the map as they are heard"
   },
   "settingsIndex": {
     "title": "Settings",

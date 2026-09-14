@@ -319,6 +319,26 @@ That gives the store a load-bearing invariant: **no ancestor of `MessageList` ma
 - Packet feed/visualizer render keys and dedup logic should use `observation_id` (fallback to `id` only for older payloads).
 - The dedicated raw packet feed view now includes a frontend-only stats drawer. It tracks a separate lightweight per-observation session history for charts/rankings, so its windows are not limited by the visible packet list cap. Coverage messaging should stay honest when detailed in-memory stats history has been trimmed or the selected window predates the current browser session.
 
+### Platform chrome
+
+The phone chrome this app draws — the floating bottom bar, the round glass back
+control, the filled settings cards — follows one platform's conventions. A second
+platform's should be a stylesheet change, not an edit inside every component that
+happens to draw a control, so the pieces that carry those conventions are named:
+
+- `data-platform` on `<html>` (`ios` | `android` | `other`), set by `markPlatform()`
+  in `utils/appViewport.ts`. Key rules on the attribute.
+- `.liquid-surface` — the glass material itself.
+- `.glass-back-button` — the control that leaves a screen. Used verbatim by
+  `ChatHeader`, `ToolPaneHeader` and the settings sub-screen header in `AppShell`;
+  change it in one place or it drifts apart again.
+- `--bottom-nav-height` — what the floating bar occupies, the home indicator it
+  clears included. Anything floating over a view that shows the bar must sit above
+  this. `--safe-area-bottom-capped` is a scroll reserve and is not the same number.
+
+Adding a platform variant means adding rules under `[data-platform='...']`, not
+branching in TSX. Keep it that way.
+
 ### Conversation layout and scroll ownership
 
 The conversation column owns exactly one vertical scroll area: the message viewport.

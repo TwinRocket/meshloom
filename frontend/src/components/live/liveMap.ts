@@ -43,6 +43,10 @@ import {
 import type { LiveObservation } from '../../utils/livePackets';
 import { isStaleLiveTime, snrWeight } from '../../utils/livePackets';
 
+/** As close in as framing the nodes is allowed to go — a lone node must not put
+ *  the camera in a street. */
+const LIVE_FIT_MAX_ZOOM = 11;
+
 export const CARTO_DARK_MATTER_STYLE =
   'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
@@ -125,7 +129,6 @@ export class LiveMapController {
   private clockOffset = 0;
   private frame = 0;
   private userMoved = false;
-  private hasSavedCamera: boolean;
   private fitted = false;
   private lastHoverKey = '';
   private resizeObserver: ResizeObserver | null = null;
@@ -148,8 +151,6 @@ export class LiveMapController {
   constructor(container: HTMLElement, options: LiveMapOptions = {}) {
     this.onHover = options.onHover ?? (() => {});
     const saved = readLiveCamera();
-    this.hasSavedCamera = saved != null;
-    if (saved) this.userMoved = true;
     this.map = new maplibregl.Map({
       container,
       style: CARTO_DARK_MATTER_STYLE,
@@ -365,16 +366,12 @@ export class LiveMapController {
   }
 
   private maybeFitNodes(): void {
-    if (
-      !this.map ||
-      this.fitted ||
-      !shouldAutoFitCamera(this.hasSavedCamera, this.userMoved, this.nodes.length)
-    ) {
+    if (!this.map || this.fitted || !shouldAutoFitCamera(this.userMoved, this.nodes.length)) {
       return;
     }
     const bounds = new LngLatBounds();
     for (const node of this.nodes) bounds.extend([node.lon, node.lat]);
-    this.map.fitBounds(bounds, { padding: 56, maxZoom: 4.6, duration: 0 });
+    this.map.fitBounds(bounds, { padding: 56, maxZoom: LIVE_FIT_MAX_ZOOM, duration: 0 });
     this.fitted = true;
   }
 

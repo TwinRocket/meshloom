@@ -55,8 +55,33 @@ function markStandalone(): void {
   }
 }
 
+/**
+ * Which platform's conventions the chrome should follow.
+ *
+ * The surfaces this app draws — the floating bar, the round glass back control, the
+ * filled settings cards — are one platform's idea of what those things look like.
+ * Naming the platform on the root element means a second set of conventions is a
+ * stylesheet rule keyed on the attribute, not a change inside every component that
+ * happens to draw a control.
+ *
+ * Read from the user agent because that is the only signal a web app gets, and
+ * narrowed to the two that have distinct conventions here; anything else keeps the
+ * default chrome rather than guessing.
+ */
+function markPlatform(): void {
+  if (typeof window === 'undefined') return;
+  const ua = window.navigator.userAgent;
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  document.documentElement.dataset.platform = iOS
+    ? 'ios'
+    : /Android/.test(ua)
+      ? 'android'
+      : 'other';
+}
+
 export function initAppViewport(): () => void {
   markStandalone();
+  markPlatform();
   const vv = typeof window !== 'undefined' ? window.visualViewport : undefined;
   if (!vv) return () => {};
 

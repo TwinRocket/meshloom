@@ -159,7 +159,8 @@
     "sidebarNav": "Navigation latérale",
     "loadingSearch": "Chargement de la recherche…",
     "loadingSettings": "Chargement des réglages…",
-    "loadingChannelFinder": "Chargement du chercheur de canaux…"
+    "loadingChannelFinder": "Chargement du chercheur de canaux…",
+    "backToTools": "Retour aux outils"
   },
   "settings": {
     "staleTitle": "Purge des contacts inactifs",
@@ -2349,7 +2350,8 @@
     "locateDescription": "Estimer depuis où un nœud émet",
     "searchDescription": "Chercher dans tous les messages de ce nœud",
     "crackerDescription": "Essayer les clés connues sur le trafic de canal non déchiffré",
-    "markAllReadDescription": "Effacer tous les compteurs de non-lus"
+    "markAllReadDescription": "Effacer tous les compteurs de non-lus",
+    "liveDescription": "Les paquets sur la carte au moment où ils sont entendus"
   },
   "settingsIndex": {
     "title": "Réglages",

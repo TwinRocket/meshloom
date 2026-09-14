@@ -49,6 +49,7 @@ vi.mock('react-leaflet', () => {
       setView: vi.fn(),
       fitBounds: vi.fn(),
       getBounds: vi.fn(() => ({ contains: () => true })),
+      invalidateSize: vi.fn(),
       setMaxZoom: vi.fn(),
       setZoom: vi.fn(),
       getZoom: vi.fn(() => 2),

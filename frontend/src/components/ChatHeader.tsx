@@ -227,7 +227,7 @@ export function ChatHeader({
             type="button"
             onClick={onBack}
             aria-label={t('shell.backToConversations')}
-            className="liquid-surface -ml-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+            className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
           </button>
