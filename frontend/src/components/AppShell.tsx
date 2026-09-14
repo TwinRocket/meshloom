@@ -10,13 +10,14 @@ import {
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
-import { StatusBar } from './StatusBar';
-import { Sidebar } from './Sidebar';
 import { ConversationPane } from './ConversationPane';
-import { BottomNav, type BottomNavTarget } from './BottomNav';
+import { BottomNav } from './BottomNav';
+import { DesktopRail } from './DesktopRail';
+import type { BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
 import { ToolsView } from './ToolsView';
 import { SettingsIndexView } from './SettingsIndexView';
+import type { NavigationData } from './navigationData';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -25,25 +26,15 @@ import { CommandPalette } from './CommandPalette';
 import { SecurityWarningModal } from './SecurityWarningModal';
 import { RadioIdentityModal } from './RadioIdentityModal';
 import { Toaster } from './ui/sonner';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
-import {
-  SETTINGS_SECTION_ICONS,
-  SETTINGS_SECTION_LABELS,
-  SETTINGS_SECTION_ORDER,
-  type SettingsSection,
-} from './settings/settingsConstants';
+import { SETTINGS_SECTION_LABELS, type SettingsSection } from './settings/settingsConstants';
 import { getContrastTextColor, type LocalLabel } from '../utils/localLabel';
-import {
-  getSavedDesktopSidebarCollapsed,
-  setSavedDesktopSidebarCollapsed,
-} from '../utils/sidebarRailPreference';
 import { api } from '../api';
-import type { CommunityStatus } from '../types';
+import type { CommunityStatus, HealthStatus, RadioConfig } from '../types';
 import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
+import { ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelLeftOpen, ChevronLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const SettingsModal = lazy(() =>
@@ -54,7 +45,7 @@ const CrackerPanel = lazy(() =>
 );
 const SearchView = lazy(() => import('./SearchView').then((m) => ({ default: m.SearchView })));
 
-type SidebarProps = ComponentProps<typeof Sidebar>;
+type SidebarProps = NavigationData;
 type ConversationPaneProps = ComponentProps<typeof ConversationPane>;
 type NewMessageModalProps = Omit<ComponentProps<typeof NewMessageModal>, 'open' | 'onClose'>;
 type BulkAddChannelResultModalProps = Omit<
@@ -83,7 +74,7 @@ interface AppShellProps {
   onCloseNewMessage: () => void;
   onCloseBulkAddResults: () => void;
   onLocalLabelChange: (label: LocalLabel) => void;
-  statusProps: Pick<ComponentProps<typeof StatusBar>, 'health' | 'config'>;
+  statusProps: { health: HealthStatus | null; config: RadioConfig | null };
   sidebarProps: SidebarProps;
   conversationPaneProps: ConversationPaneProps;
   searchProps: SearchViewProps;
@@ -132,20 +123,7 @@ export function AppShell({
   onIdentityAdopted,
 }: AppShellProps) {
   const { t } = useTranslation();
-  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(
-    getSavedDesktopSidebarCollapsed
-  );
   const [crackerQueueCount, setCrackerQueueCount] = useState(0);
-
-  const handleToggleDesktopSidebar = useCallback(() => {
-    setDesktopSidebarCollapsed((prev) => {
-      const next = !prev;
-      setSavedDesktopSidebarCollapsed(next);
-      return next;
-    });
-  }, []);
-
-  const desktopSidebarWidthClass = desktopSidebarCollapsed ? 'w-full md:w-14' : 'w-60';
 
   const swipeHandlers = useSwipeable({
     onSwipedRight: ({ initial }) => {
@@ -160,13 +138,6 @@ export function AppShell({
     // non-passive touchmove listener over the whole tree and cancels those scrolls along
     // with the edge swipe it was meant for. The gesture is recognised from its direction
     // and starting point; it does not need to suppress scrolling to do that.
-    preventScrollOnSwipe: false,
-  });
-
-  const closeSwipeHandlers = useSwipeable({
-    onSwipedLeft: () => onSidebarOpenChange(false),
-    trackTouch: true,
-    trackMouse: false,
     preventScrollOnSwipe: false,
   });
 
@@ -280,98 +251,40 @@ export function AppShell({
     return () => window.removeEventListener('resize', measure);
   }, [hasLocalLabel, activeType, activeId, showSettings, communityStatus]);
 
-  const settingsSidebarContent = (
-    <nav
-      className={cn(
-        'sidebar h-full min-h-0 overflow-hidden bg-card border-r border-border flex flex-col',
-        desktopSidebarWidthClass
-      )}
-      aria-label={t('settingsNav.aria')}
-      data-desktop-collapsed={desktopSidebarCollapsed ? 'true' : undefined}
-    >
-      <div
-        className={cn(
-          'flex justify-between items-center px-3 py-2.5 border-b border-border',
-          desktopSidebarCollapsed && 'md:flex-col md:items-center md:gap-1.5 md:px-1.5'
-        )}
-      >
-        <h2
-          className={cn(
-            'text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium',
-            desktopSidebarCollapsed && 'md:hidden'
-          )}
-        >
-          {t('settingsNav.title')}
-        </h2>
-        {/* The status bar already carries the way out of settings, and it is visible
-            on every viewport. A second identical control 60px away is just noise. */}
-        <div
-          className={cn(
-            'flex items-center gap-1',
-            desktopSidebarCollapsed && 'md:flex-col md:gap-1.5'
-          )}
-        >
-          <button
-            type="button"
-            onClick={handleToggleDesktopSidebar}
-            className="hidden md:inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            title={desktopSidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')}
-            aria-label={desktopSidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')}
-            aria-expanded={!desktopSidebarCollapsed}
-          >
-            {desktopSidebarCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
-            )}
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto py-1 [contain:layout_paint]">
-        {SETTINGS_SECTION_ORDER.map((section) => {
-          const Icon = SETTINGS_SECTION_ICONS[section];
-          const disabled = disabledSettingsSections.includes(section);
-          return (
-            <button
-              key={section}
-              type="button"
-              disabled={disabled}
-              title={t(SETTINGS_SECTION_LABELS[section])}
-              className={cn(
-                'w-full px-3 py-2 text-left text-[0.8125rem] border-l-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-50',
-                !disabled && 'hover:bg-accent',
-                settingsSection === section && !disabled && 'bg-accent border-l-primary',
-                desktopSidebarCollapsed && 'md:px-1.5 md:justify-center'
-              )}
-              aria-current={settingsSection === section ? 'true' : undefined}
-              onClick={() => onSettingsSectionChange(section)}
-            >
-              <span
-                className={cn(
-                  'flex items-center gap-2',
-                  desktopSidebarCollapsed && 'md:justify-center'
-                )}
-              >
-                <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                <span className={cn(desktopSidebarCollapsed && 'md:hidden')}>
-                  {t(SETTINGS_SECTION_LABELS[section])}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </nav>
-  );
-
-  const activeSidebarContent = showSettings ? (
-    settingsSidebarContent
-  ) : (
-    <Sidebar
-      {...sidebarProps}
+  const destinationList = showSettings ? (
+    <SettingsIndexView
+      health={statusProps.health}
+      disabledSections={disabledSettingsSections}
+      activeSection={settingsSection}
+      onSelectSection={(section) => {
+        onSettingsSectionChange(section);
+        setSettingsIndexOpen(false);
+      }}
+    />
+  ) : mobileScreen === 'tools' ? (
+    <ToolsView
+      onSelectConversation={sidebarProps.onSelectConversation}
+      onToggleCracker={sidebarProps.onToggleCracker}
+      onMarkAllRead={sidebarProps.onMarkAllRead}
+      crackerVisible={sidebarProps.showCracker}
       crackerQueueCount={crackerQueueCount}
-      desktopCollapsed={desktopSidebarCollapsed}
-      onToggleDesktopCollapsed={handleToggleDesktopSidebar}
+      health={statusProps.health}
+      onOpenRadioSettings={() => handleOpenSettings('radio')}
+      activeConversation={conversationPaneProps.activeConversation}
+    />
+  ) : (
+    <ConversationListView
+      contacts={sidebarProps.contacts}
+      channels={sidebarProps.channels}
+      unreadCounts={sidebarProps.unreadCounts}
+      mentions={sidebarProps.mentions}
+      lastMessageTimes={sidebarProps.lastMessageTimes}
+      lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
+      onSelectConversation={sidebarProps.onSelectConversation}
+      onNewMessage={sidebarProps.onNewMessage}
+      health={statusProps.health}
+      onOpenRadioSettings={() => handleOpenSettings('radio')}
+      activeConversation={conversationPaneProps.activeConversation}
     />
   );
 
@@ -395,19 +308,6 @@ export function AppShell({
         </div>
       )}
 
-      {/* Desktop only. On a phone its whole job has moved: navigation to the bar,
-          the way back into the conversation's own header, the radio state onto the
-          screens that need it, and settings and theme into Settings. What was left
-          was a bar saying the app's name. */}
-      <StatusBar
-        className="hidden md:flex"
-        health={statusProps.health}
-        config={statusProps.config}
-        settingsMode={showSettings}
-        onSettingsClick={onToggleSettingsView}
-        onOpenRadioSettings={() => handleOpenSettings('radio')}
-        onOpenIdentityModal={() => setIdentityModalForced(true)}
-      />
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner
           enabled={communityStatus.enabled}
@@ -418,27 +318,20 @@ export function AppShell({
       <div data-toast-anchor="statusbar" aria-hidden="true" />
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="hidden md:block min-h-0 overflow-hidden">{activeSidebarContent}</div>
+        <DesktopRail
+          active={bottomNavTarget}
+          unreadTotal={unreadTotal}
+          onSelect={handleBottomNav}
+          health={statusProps.health ?? null}
+          onOpenRadioSettings={() => handleOpenSettings('radio')}
+        />
 
-        {/* Desktop keeps the drawer for the settings rail; phones never open it. */}
-        <Sheet open={sidebarOpen && showSettings} onOpenChange={onSidebarOpenChange}>
-          <SheetContent
-            side="left"
-            className="w-[280px] p-0 flex flex-col"
-            hideCloseButton
-            onOpenAutoFocus={(event) => {
-              event.preventDefault();
-            }}
-          >
-            <SheetHeader className="sr-only">
-              <SheetTitle>{t('shell.navigation')}</SheetTitle>
-              <SheetDescription>{t('shell.sidebarNav')}</SheetDescription>
-            </SheetHeader>
-            <div className="flex-1 overflow-hidden" {...closeSwipeHandlers}>
-              {activeSidebarContent}
-            </div>
-          </SheetContent>
-        </Sheet>
+        {/* The destination's own list, permanently beside the conversation. On a
+            phone the same views are the whole screen; here they are the column
+            WhatsApp Desktop puts between its rail and the conversation. */}
+        <div className="hidden min-h-0 w-[22rem] shrink-0 flex-col border-r border-border md:flex lg:w-[24rem]">
+          {destinationList}
+        </div>
 
         {/* min-h-0 as well as min-w-0: a flex child defaults to min-height:auto, which
             refuses to shrink below its content. Its parent clips rather than scrolls, so
@@ -454,31 +347,7 @@ export function AppShell({
           {/* Phones: with nothing open, the screen is the list or the tools, not an
               empty conversation pane waiting for a drawer to be opened. */}
           {!showSettings && !conversationPaneProps.activeConversation && (
-            <div className="flex min-h-0 flex-1 flex-col md:hidden">
-              {mobileScreen === 'tools' ? (
-                <ToolsView
-                  onSelectConversation={sidebarProps.onSelectConversation}
-                  onToggleCracker={sidebarProps.onToggleCracker}
-                  onMarkAllRead={sidebarProps.onMarkAllRead}
-                  crackerVisible={sidebarProps.showCracker}
-                  health={statusProps.health}
-                  onOpenRadioSettings={() => handleOpenSettings('radio')}
-                />
-              ) : (
-                <ConversationListView
-                  contacts={sidebarProps.contacts}
-                  channels={sidebarProps.channels}
-                  unreadCounts={sidebarProps.unreadCounts}
-                  mentions={sidebarProps.mentions}
-                  lastMessageTimes={sidebarProps.lastMessageTimes}
-                  lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
-                  onSelectConversation={sidebarProps.onSelectConversation}
-                  onNewMessage={sidebarProps.onNewMessage}
-                  health={statusProps.health}
-                  onOpenRadioSettings={() => handleOpenSettings('radio')}
-                />
-              )}
-            </div>
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">{destinationList}</div>
           )}
 
           <div
@@ -517,18 +386,9 @@ export function AppShell({
             </div>
           )}
 
-          {/* Phones choose a section first; desktop has the rail and goes straight in. */}
+          {/* Phones choose a section first; desktop has the index beside the section. */}
           {showSettings && settingsIndexOpen && (
-            <div className="flex min-h-0 flex-1 flex-col md:hidden">
-              <SettingsIndexView
-                health={statusProps.health}
-                disabledSections={disabledSettingsSections}
-                onSelectSection={(section) => {
-                  onSettingsSectionChange(section);
-                  setSettingsIndexOpen(false);
-                }}
-              />
-            </div>
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">{destinationList}</div>
           )}
 
           {showSettings && (

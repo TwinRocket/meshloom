@@ -2351,7 +2351,9 @@
     "searchDescription": "Chercher dans tous les messages de ce nœud",
     "crackerDescription": "Essayer les clés connues sur le trafic de canal non déchiffré",
     "markAllReadDescription": "Effacer tous les compteurs de non-lus",
-    "liveDescription": "Les paquets sur la carte au moment où ils sont entendus"
+    "liveDescription": "Les paquets sur la carte au moment où ils sont entendus",
+    "crackerQueued_one": "{{count}} clé encore à essayer",
+    "crackerQueued_other": "{{count}} clés encore à essayer"
   },
   "settingsIndex": {
     "title": "Réglages",

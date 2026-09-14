@@ -17,10 +17,12 @@ import { cn } from '../lib/utils';
 interface Props {
   health: HealthStatus | null;
   onOpenRadioSettings?: () => void;
+  /** Dot only, for the rail, where there is no room for the word. */
+  compact?: boolean;
   className?: string;
 }
 
-export function RadioStatusChip({ health, onOpenRadioSettings, className }: Props) {
+export function RadioStatusChip({ health, onOpenRadioSettings, compact, className }: Props) {
   const { t } = useTranslation();
 
   const state = health?.radio_state;
@@ -44,12 +46,14 @@ export function RadioStatusChip({ health, onOpenRadioSettings, className }: Prop
         )}
         aria-hidden="true"
       />
-      <span className="truncate">{label}</span>
+      {/* The word is the accessible name when it cannot be shown. */}
+      <span className={cn('truncate', compact && 'sr-only')}>{label}</span>
     </>
   );
 
   const classes = cn(
-    'inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2 py-1',
+    'inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40',
+    compact ? 'h-7 w-7 justify-center' : 'px-2 py-1',
     'text-[0.6875rem] text-muted-foreground',
     className
   );

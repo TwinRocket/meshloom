@@ -30,6 +30,8 @@ interface Props {
   lastMessageTimes: Record<string, number>;
   lastMessagePreviews: Record<string, string>;
   onSelectConversation: (conversation: Conversation) => void;
+  /** The conversation open beside this list. Desktop only. */
+  activeConversation?: Conversation | null;
   onNewMessage: () => void;
   health?: HealthStatus | null;
   onOpenRadioSettings?: () => void;
@@ -78,6 +80,7 @@ export function ConversationListView({
   lastMessageTimes,
   lastMessagePreviews,
   onSelectConversation,
+  activeConversation,
   onNewMessage,
   health,
   onOpenRadioSettings,
@@ -85,6 +88,11 @@ export function ConversationListView({
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ConversationFilter>('all');
+
+  // Which row the pane beside this list is showing. Nothing is open on a phone
+  // while the list is the screen, so this simply never matches there.
+  const isOpen = (row: Row) =>
+    activeConversation?.type === row.conversation.type && activeConversation?.id === row.key;
 
   const rows = useMemo<Row[]>(() => {
     // Every one of these maps is keyed by the conversation's state key, not by the
@@ -148,6 +156,20 @@ export function ConversationListView({
   }, [rows, filter, query]);
 
   const unreadTotal = useMemo(() => rows.filter((row) => row.unread > 0).length, [rows]);
+
+  // How many conversations each filter would leave. Shown on the chips that answer
+  // a question — how many are unread, how many groups — rather than on "all", where
+  // the number is just the length of the list underneath it.
+  const filterCounts = useMemo(
+    () => ({
+      all: 0,
+      unread: unreadTotal,
+      favorites: rows.filter((row) => row.favorite).length,
+      groups: rows.filter((row) => row.kind === 'channel').length,
+      direct: rows.filter((row) => row.kind === 'contact').length,
+    }),
+    [rows, unreadTotal]
+  );
 
   // Favourites get a row of their own at the top: the ones you reach for are
   // otherwise scattered down a list sorted by who happened to talk last, and
@@ -228,8 +250,8 @@ export function ConversationListView({
                 )}
               >
                 {t(labelKey)}
-                {id === 'unread' && unreadTotal > 0 && (
-                  <span className="ml-1.5 tabular-nums">{unreadTotal}</span>
+                {filterCounts[id] > 0 && (
+                  <span className="ml-1.5 tabular-nums">{filterCounts[id]}</span>
                 )}
               </button>
             );
@@ -299,7 +321,11 @@ export function ConversationListView({
                 <button
                   type="button"
                   onClick={() => onSelectConversation(row.conversation)}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  aria-current={isOpen(row) ? 'page' : undefined}
+                  className={cn(
+                    'flex w-full items-center gap-3 px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                    isOpen(row) ? 'bg-accent/60' : 'hover:bg-accent/40'
+                  )}
                 >
                   {row.kind === 'channel' ? (
                     <span

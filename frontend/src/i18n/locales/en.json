@@ -2351,7 +2351,9 @@
     "searchDescription": "Search every message on this node",
     "crackerDescription": "Try known keys against undecrypted channel traffic",
     "markAllReadDescription": "Clear every unread badge",
-    "liveDescription": "Packets landing on the map as they are heard"
+    "liveDescription": "Packets landing on the map as they are heard",
+    "crackerQueued_one": "{{count}} key still to try",
+    "crackerQueued_other": "{{count}} keys still to try"
   },
   "settingsIndex": {
     "title": "Settings",

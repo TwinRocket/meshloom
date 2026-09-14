@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
 import { RadioStatusChip } from './RadioStatusChip';
+import { cn } from '../lib/utils';
 
 /**
  * Everything that is not a conversation, as a screen.
@@ -25,9 +26,13 @@ type ToolId = 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
+  /** The tool open beside this list. Desktop only; a phone shows one at a time. */
+  activeConversation?: Conversation | null;
   onToggleCracker: () => void;
   onMarkAllRead: () => void;
   crackerVisible: boolean;
+  /** How many candidate keys the channel finder still has to try. */
+  crackerQueueCount?: number;
   health?: HealthStatus | null;
   onOpenRadioSettings?: () => void;
 }
@@ -76,9 +81,11 @@ const ROW_CLASS =
 
 export function ToolsView({
   onSelectConversation,
+  activeConversation,
   onToggleCracker,
   onMarkAllRead,
   crackerVisible,
+  crackerQueueCount = 0,
   health,
   onOpenRadioSettings,
 }: Props) {
@@ -103,7 +110,8 @@ export function ToolsView({
             <li key={id}>
               <button
                 type="button"
-                className={ROW_CLASS}
+                aria-current={activeConversation?.type === id ? 'page' : undefined}
+                className={cn(ROW_CLASS, activeConversation?.type === id && 'bg-accent/60')}
                 onClick={() => onSelectConversation({ type: id, id, name: t(labelKey) })}
               >
                 <span
@@ -133,7 +141,9 @@ export function ToolsView({
                   {crackerVisible ? t('sidebar.hideChannelFinder') : t('sidebar.showChannelFinder')}
                 </span>
                 <span className="text-sm text-muted-foreground">
-                  {t('toolsView.crackerDescription')}
+                  {crackerQueueCount > 0
+                    ? t('toolsView.crackerQueued', { count: crackerQueueCount })
+                    : t('toolsView.crackerDescription')}
                 </span>
               </span>
             </button>

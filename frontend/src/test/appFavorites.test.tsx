@@ -122,24 +122,6 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/StatusBar', () => ({
-  StatusBar: ({
-    settingsMode,
-    onSettingsClick,
-  }: {
-    settingsMode?: boolean;
-    onSettingsClick: () => void;
-  }) => (
-    <button type="button" onClick={onSettingsClick} data-testid="status-bar-settings-toggle">
-      {settingsMode ? i18n.t('shell.backToChat') : i18n.t('statusBar.settings')}
-    </button>
-  ),
-}));
-
-vi.mock('../components/Sidebar', () => ({
-  Sidebar: () => <div data-testid="sidebar" />,
-}));
-
 vi.mock('../components/MessageList', () => ({
   MessageList: () => <div data-testid="message-list" />,
 }));
@@ -336,16 +318,18 @@ describe('App favorite toggle flow', () => {
   it('toggles settings page mode and syncs selected section into SettingsModal', async () => {
     render(<App />);
 
+    // Settings are a destination of the navigation now, not a mode toggled from an
+    // app header. Both surfaces render in jsdom, which has no CSS to hide either.
+    const navButton = (labelKey: string) =>
+      screen.getAllByRole('button', { name: i18n.t(labelKey) })[0];
+
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: i18n.t('statusBar.settings') })
-      ).toBeInTheDocument();
+      expect(navButton('bottomNav.settings')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('statusBar.settings') }));
+    fireEvent.click(navButton('bottomNav.settings'));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: i18n.t('shell.backToChat') })).toBeInTheDocument();
       expect(screen.getByTestId('settings-modal-section')).toHaveTextContent('radio');
     });
 
@@ -355,12 +339,9 @@ describe('App favorite toggle flow', () => {
       expect(screen.getByTestId('settings-modal-section')).toHaveTextContent('local');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('shell.backToChat') }));
+    fireEvent.click(navButton('bottomNav.conversations'));
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: i18n.t('statusBar.settings') })
-      ).toBeInTheDocument();
       expect(screen.queryByTestId('settings-modal-section')).not.toBeInTheDocument();
     });
   });

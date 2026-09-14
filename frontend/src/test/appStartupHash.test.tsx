@@ -62,12 +62,11 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/StatusBar', () => ({
-  StatusBar: () => <div data-testid="status-bar" />,
-}));
-
-vi.mock('../components/Sidebar', () => ({
-  Sidebar: ({
+// These tests are about hash resolution, and read the result off whichever
+// navigation surface is handed the active conversation. That used to be the
+// sidebar; it is the conversation list column now.
+vi.mock('../components/ConversationListView', () => ({
+  ConversationListView: ({
     activeConversation,
   }: {
     activeConversation: { type: string; id: string; name: string } | null;

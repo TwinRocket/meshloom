@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import { MessageCircle, Map as MapIcon, LayoutGrid, Settings } from 'lucide-react';
+import { type BottomNavTarget, NAV_ITEMS, UNREAD_BADGE_MAX } from './navDestinations';
 import { cn } from '../lib/utils';
+
+export type { BottomNavTarget };
 
 /**
  * Primary navigation for narrow screens.
@@ -15,26 +17,12 @@ import { cn } from '../lib/utils';
  * control or push the history up for the whole session.
  */
 
-export type BottomNavTarget = 'conversations' | 'map' | 'tools' | 'settings';
-
 interface Props {
   active: BottomNavTarget | null;
   unreadTotal: number;
   onSelect: (target: BottomNavTarget) => void;
   className?: string;
 }
-
-const ITEMS: { target: BottomNavTarget; labelKey: string; Icon: typeof MessageCircle }[] = [
-  { target: 'conversations', labelKey: 'bottomNav.conversations', Icon: MessageCircle },
-  { target: 'map', labelKey: 'bottomNav.map', Icon: MapIcon },
-  // Everything that is not a conversation or the map lives behind one entry rather
-  // than competing for a slot: the feed, the visualiser, trace, locate, search.
-  { target: 'tools', labelKey: 'bottomNav.tools', Icon: LayoutGrid },
-  { target: 'settings', labelKey: 'bottomNav.settings', Icon: Settings },
-];
-
-/** Past this the badge stops being a count and becomes "a lot". */
-const UNREAD_BADGE_MAX = 99;
 
 export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
   const { t } = useTranslation();
@@ -55,7 +43,7 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
       )}
     >
       <div className="liquid-surface pointer-events-auto flex w-full max-w-md items-stretch justify-between gap-0 rounded-[1.75rem] p-1.5">
-        {ITEMS.map(({ target, labelKey, Icon }) => {
+        {NAV_ITEMS.map(({ target, labelKey, Icon }) => {
           const isActive = active === target;
           const badge = target === 'conversations' ? unreadTotal : 0;
           return (

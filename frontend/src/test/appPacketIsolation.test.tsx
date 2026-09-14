@@ -98,8 +98,6 @@ vi.mock('../hooks', async (importOriginal) => {
 
 // Mocked to keep the tree small and deterministic. None of them are mounted while a
 // chat conversation is active, so removing them cannot mask a chat-path subscription.
-vi.mock('../components/StatusBar', () => ({ StatusBar: () => <div data-testid="status-bar" /> }));
-vi.mock('../components/Sidebar', () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
 vi.mock('../components/MessageList', () => ({ MessageList: mocks.messageList }));
 vi.mock('../components/MessageInput', () => ({
   MessageInput: React.forwardRef((_props, ref) => {

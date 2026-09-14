@@ -68,12 +68,10 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/StatusBar', () => ({
-  StatusBar: () => <div data-testid="status-bar" />,
-}));
-
-vi.mock('../components/Sidebar', () => ({
-  Sidebar: ({
+// The navigation surface that takes a conversation and reports the active one.
+// It was the sidebar; it is the conversation list column now.
+vi.mock('../components/ConversationListView', () => ({
+  ConversationListView: ({
     onSelectConversation,
     activeConversation,
   }: {
