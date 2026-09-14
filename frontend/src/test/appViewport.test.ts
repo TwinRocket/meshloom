@@ -160,16 +160,17 @@ describe('initAppViewport when installed', () => {
     Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'matchMedia');
   });
 
-  it('takes the visible height even when nothing is covering the screen', () => {
-    // Installed there is no chrome to collapse, and dvh leaves a band at the bottom
-    // the app cannot draw into. The measurement is the rule here, not the exception.
-    const vv = installVisualViewport(812);
+  it('leaves the document height alone when nothing is covering the screen', () => {
+    // Installed is not a reason to override the height. Doing that made the document
+    // a different height from the layout viewport, and iOS anchors `position: fixed`
+    // to the layout viewport — which put the bottom bar off screen entirely.
+    const vv = installVisualViewport(844);
     cleanup = initAppViewport();
-    expect(appHeight()).toBe('812px');
+    expect(appHeight()).toBe('');
 
-    vv.height = 800;
+    vv.height = 420;
     vv.emit('resize');
-    expect(appHeight()).toBe('800px');
+    expect(appHeight()).toBe('420px');
   });
 });
 
