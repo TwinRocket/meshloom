@@ -431,7 +431,15 @@ class RadioProxyManager:
     async def _handle_virtual(self, session: ProxySession, payload: bytes) -> None:
         code = payload[0]
         if code == CommandType.APP_START.value:
-            await session.write_response(await self._self_info_frame())
+            frame = await self._self_info_frame()
+            if frame is None:
+                logger.warning(
+                    "Radio proxy was asked for this node's identity before it is known; "
+                    "answering with an error rather than a placeholder"
+                )
+                await session.write_response(encode_error())
+                return
+            await session.write_response(frame)
             return
         if code == CommandType.DEVICE_QEURY.value:
             await session.write_response(self._device_info_frame())
@@ -514,20 +522,37 @@ class RadioProxyManager:
             return
         await session.write_response(encode_error())
 
-    async def _self_info_frame(self) -> bytes:
+    def _self_public_key(self) -> bytes | None:
+        """This node's public key, or None while it is not known yet.
+
+        None is a real answer and has to stay one. A connected client compares the
+        key it is handed against the identity it stored, so inventing a value tells
+        it the radio was swapped — it then offers to erase every mesh contact and
+        message in order to bind to a node that does not exist.
+        """
         from app.keystore import get_public_key
         from app.services.radio_runtime import radio_runtime
 
         mc = getattr(radio_runtime, "meshcore", None)
         info = getattr(mc, "self_info", None) or {}
         pubkey_hex = info.get("public_key") or ""
-        pubkey = (
-            bytes.fromhex(pubkey_hex)
-            if len(pubkey_hex) == 64
-            else (get_public_key() or b"\x00" * 32)
-        )
-        if len(pubkey) != 32:
-            pubkey = (pubkey + b"\x00" * 32)[:32]
+        if len(pubkey_hex) == 64:
+            try:
+                return bytes.fromhex(pubkey_hex)
+            except ValueError:
+                logger.warning("Radio reported a public key that is not hex; ignoring it")
+        stored = get_public_key()
+        return stored if stored is not None and len(stored) == 32 else None
+
+    async def _self_info_frame(self) -> bytes | None:
+        from app.services.radio_runtime import radio_runtime
+
+        pubkey = self._self_public_key()
+        if pubkey is None:
+            return None
+
+        mc = getattr(radio_runtime, "meshcore", None)
+        info = getattr(mc, "self_info", None) or {}
         telemetry = (
             ((info.get("telemetry_mode_env") or 0) << 4)
             | ((info.get("telemetry_mode_loc") or 0) << 2)

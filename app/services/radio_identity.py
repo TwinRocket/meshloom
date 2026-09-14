@@ -17,10 +17,23 @@ logger = logging.getLogger(__name__)
 
 
 def _normalize_key(value: object) -> str | None:
+    """A radio public key, or None when what arrived cannot be one.
+
+    An all-zero key is not an identity, it is a peer that does not know its own
+    yet. It is a well-formed hex string, so it passes every shape check and then
+    compares unequal to the bound key — which reads as "the radio was swapped"
+    and offers to erase the mesh history to adopt it. Treated as the absence it
+    is, the caller fails closed instead.
+    """
     if not isinstance(value, str):
         return None
     key = value.strip().lower()
-    return key or None
+    if not key:
+        return None
+    if set(key) == {"0"}:
+        logger.warning("Radio reported an all-zero public key; treating it as unknown")
+        return None
+    return key
 
 
 async def read_radio_public_key(mc) -> tuple[str | None, str | None]:
