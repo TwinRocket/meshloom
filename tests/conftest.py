@@ -110,7 +110,6 @@ async def _reset_radio_proxy_runtime():
         pass
     radio_proxy_manager._sessions.clear()
     radio_proxy_manager._pending_acks.clear()
-    radio_proxy_manager._inflight_senders.clear()
     radio_proxy_manager._last_error = None
 
 

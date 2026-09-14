@@ -333,7 +333,6 @@ function MapBoundsHandler({
   return null;
 }
 
-
 export function MapView({
   contacts,
   focusedKey,
@@ -554,39 +553,39 @@ export function MapView({
             role="group"
             aria-label={t('map.recencyLegend')}
           >
-              <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: MAP_RECENCY_COLORS.recent }}
-                  aria-hidden="true"
-                />{' '}
-                &lt;1h
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: MAP_RECENCY_COLORS.today }}
-                  aria-hidden="true"
-                />{' '}
-                &lt;1d
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: MAP_RECENCY_COLORS.stale }}
-                  aria-hidden="true"
-                />{' '}
-                &lt;3d
-              </span>
-              <span className="flex items-center gap-1">
-                <span
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: MAP_RECENCY_COLORS.old }}
-                  aria-hidden="true"
-                />{' '}
-                {t('map.older')}
-              </span>
-            </div>
+            <span className="flex items-center gap-1">
+              <span
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: MAP_RECENCY_COLORS.recent }}
+                aria-hidden="true"
+              />{' '}
+              &lt;1h
+            </span>
+            <span className="flex items-center gap-1">
+              <span
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: MAP_RECENCY_COLORS.today }}
+                aria-hidden="true"
+              />{' '}
+              &lt;1d
+            </span>
+            <span className="flex items-center gap-1">
+              <span
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: MAP_RECENCY_COLORS.stale }}
+                aria-hidden="true"
+              />{' '}
+              &lt;3d
+            </span>
+            <span className="flex items-center gap-1">
+              <span
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: MAP_RECENCY_COLORS.old }}
+                aria-hidden="true"
+              />{' '}
+              {t('map.older')}
+            </span>
+          </div>
           <span className="flex items-center gap-1">
             <span
               className="w-3 h-3 rounded-full border-2"
@@ -609,61 +608,61 @@ export function MapView({
             </span>
           )}
           <div
-              className="flex flex-wrap items-center gap-1"
-              role="group"
-              aria-label={t('map.sinceAria')}
-            >
-              <span className="text-[0.6875rem] text-muted-foreground">{t('map.since')}</span>
-              {MAP_SINCE_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => setSinceId(preset.id)}
-                  aria-pressed={sinceId === preset.id}
-                  className={cn(
-                    'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    sinceId === preset.id
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'bg-muted hover:bg-accent'
-                  )}
-                >
-                  {preset.id === 'all' ? t('map.sinceAll') : preset.label}
-                </button>
-              ))}
+            className="flex flex-wrap items-center gap-1"
+            role="group"
+            aria-label={t('map.sinceAria')}
+          >
+            <span className="text-[0.6875rem] text-muted-foreground">{t('map.since')}</span>
+            {MAP_SINCE_PRESETS.map((preset) => (
               <button
+                key={preset.id}
                 type="button"
-                onClick={() => setSinceId('custom')}
-                aria-pressed={sinceId === 'custom'}
+                onClick={() => setSinceId(preset.id)}
+                aria-pressed={sinceId === preset.id}
                 className={cn(
                   'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  sinceId === 'custom'
+                  sinceId === preset.id
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'bg-muted hover:bg-accent'
                 )}
               >
-                {t('map.sinceCustom')}
+                {preset.id === 'all' ? t('map.sinceAll') : preset.label}
               </button>
-              {sinceId === 'custom' && (
-                <>
-                  <input
-                    type="datetime-local"
-                    value={customSince}
-                    onChange={(e) => setCustomSince(e.target.value)}
-                    aria-label={t('map.sinceCustomAria')}
-                    className="rounded border border-input bg-background px-1.5 py-0.5 text-[0.6875rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  {customSince && (
-                    <button
-                      type="button"
-                      onClick={() => setCustomSince('')}
-                      className="rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider bg-muted hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {t('map.sinceClear')}
-                    </button>
-                  )}
-                </>
+            ))}
+            <button
+              type="button"
+              onClick={() => setSinceId('custom')}
+              aria-pressed={sinceId === 'custom'}
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                sinceId === 'custom'
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'bg-muted hover:bg-accent'
               )}
-            </div>
+            >
+              {t('map.sinceCustom')}
+            </button>
+            {sinceId === 'custom' && (
+              <>
+                <input
+                  type="datetime-local"
+                  value={customSince}
+                  onChange={(e) => setCustomSince(e.target.value)}
+                  aria-label={t('map.sinceCustomAria')}
+                  className="rounded border border-input bg-background px-1.5 py-0.5 text-[0.6875rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                {customSince && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomSince('')}
+                    className="rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider bg-muted hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t('map.sinceClear')}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
           {directoryEnabled && (
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input

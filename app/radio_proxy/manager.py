@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -178,7 +177,6 @@ class ProxySession:
         self.log_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=LOG_QUEUE_MAX)
         self.dropped_messages = 0
         self.dropped_logs = 0
-        self.recent_outgoing_ids: deque[int] = deque(maxlen=256)
         self._closed = False
         self._write_lock = asyncio.Lock()
         self._writer_task: asyncio.Task[None] | None = None
@@ -276,7 +274,6 @@ class RadioProxyManager:
         self._server: asyncio.AbstractServer | None = None
         self._sessions: set[ProxySession] = set()
         self._pending_acks: dict[str, tuple[ProxySession, float]] = {}
-        self._inflight_senders: set[ProxySession] = set()
         self._last_error: str | None = None
         self._lock = LoopBoundLock()
 
@@ -759,7 +756,6 @@ class RadioProxyManager:
         if dest is None or isinstance(dest, OverlayContact):
             await session.write_response(encode_error())
             return
-        self._inflight_senders.add(session)
         try:
             result = await send_direct_message_to_contact(
                 contact=dest,
@@ -775,9 +771,6 @@ class RadioProxyManager:
         except HTTPException:
             await session.write_response(encode_error())
             return
-        finally:
-            self._inflight_senders.discard(session)
-        session.recent_outgoing_ids.append(result.message.id)
         ack = bytes.fromhex(result.expected_ack) if result.expected_ack else b"\x00" * 4
         if result.expected_ack:
             self._pending_acks[result.expected_ack.lower()] = (
@@ -820,9 +813,8 @@ class RadioProxyManager:
             await session.write_response(encode_error())
             return
         body = self._strip_radio_prefix(parsed.text)
-        self._inflight_senders.add(session)
         try:
-            message = await send_channel_message_to_channel(
+            await send_channel_message_to_channel(
                 channel=channel,
                 channel_key_upper=channel.key.upper(),
                 key_bytes=_channel_secret(channel.key),
@@ -837,9 +829,6 @@ class RadioProxyManager:
         except HTTPException:
             await session.write_response(encode_error())
             return
-        finally:
-            self._inflight_senders.discard(session)
-        session.recent_outgoing_ids.append(message.id)
         await session.write_response(encode_ok())
 
     def notify_ack(self, ack_code: str) -> None:
@@ -862,7 +851,14 @@ class RadioProxyManager:
             self._fanout_raw(data)
 
     def _fanout_message(self, data: dict[str, Any]) -> None:
-        msg_id = data.get("id")
+        # Outgoing messages are not relayed. The companion protocol can say "this
+        # contact sent you this"; it has no frame for "this node sent this from
+        # somewhere else", so relaying one arrives as an incoming message and the
+        # client files the operator's own words under the contact — with no RF
+        # metadata, since it never crossed the air. A client that sent it already
+        # knows; a client that did not cannot be told truthfully.
+        if data.get("outgoing"):
+            return
         msg_type = data.get("type")
         text = str(data.get("text") or "")
         timestamp = int(data.get("sender_timestamp") or data.get("received_at") or time.time())
@@ -875,20 +871,12 @@ class RadioProxyManager:
                 sender_timestamp=timestamp,
             )
             for session in list(self._sessions):
-                if (
-                    session in self._inflight_senders and data.get("outgoing")
-                ) or msg_id in session.recent_outgoing_ids:
-                    continue
                 session.enqueue_message(QueuedMessage(kind="dm", frame=frame))
             return
         if msg_type != "CHAN":
             return
         channel_key = str(data.get("conversation_key") or "").upper()
         for session in list(self._sessions):
-            if (
-                session in self._inflight_senders and data.get("outgoing")
-            ) or msg_id in session.recent_outgoing_ids:
-                continue
             idx = next(
                 (slot for slot, key in session.slots.items() if key.upper() == channel_key),
                 None,

@@ -1467,14 +1467,21 @@ describe('SettingsModal', () => {
       })
     );
 
-    renderModal({
+    // Sections are navigated one at a time, so showing another one is what must not
+    // fetch; the fetch belongs to statistics being on screen.
+    const { view } = renderModal({
       mobile: true,
       externalSidebarNav: true,
       desktopSection: 'radio',
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('settingsNav.statistics') }));
+    view.unmount();
+    renderModal({
+      mobile: true,
+      externalSidebarNav: true,
+      desktopSection: 'statistics',
+    });
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith('./api/statistics', expect.any(Object));

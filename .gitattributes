@@ -1,1 +1,7 @@
+# Line endings are normalised in the repository and checked out as LF everywhere.
+# Without this, a commit from an editor defaulting to CRLF stores CRLF, and both
+# formatters the quality gate runs — prettier and ruff format — reject it. The gate
+# then fails on files nobody touched, on every branch cut from that point.
+* text=auto eol=lf
+
 frontend/prebuilt/** -diff

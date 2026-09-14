@@ -1,0 +1,3 @@
+# Generated data, shipped minified on a single line. Prettier would expand it to
+# some nine thousand lines of diff nobody reads, on every regeneration.
+src/data/iataCentroids.json

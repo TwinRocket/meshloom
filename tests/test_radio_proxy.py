@@ -408,7 +408,7 @@ async def test_disconnected_radio_errors_sends_but_serves_reads(test_db):
 
 
 @pytest.mark.asyncio
-async def test_originator_does_not_echo_own_dm(test_db):
+async def test_outgoing_dm_reaches_no_client(test_db):
     dest = "ab" * 32
     await ContactRepository.upsert(ContactUpsert(public_key=dest, name="Alice", type=1))
     host = _make_host_radio()
@@ -425,9 +425,11 @@ async def test_originator_does_not_echo_own_dm(test_db):
                 assert sent.type == EventType.MSG_SENT
                 empty = await origin.commands.get_msg()
                 assert empty.type == EventType.NO_MORE_MSGS
-                incoming = await other.commands.get_msg()
-                assert incoming.type == EventType.CONTACT_MSG_RECV
-                assert incoming.payload["text"] == "hello-proxy"
+                # Nor does any other client: CONTACT_MSG_RECV asserts the contact
+                # sent it, so relaying an outgoing message files the operator's own
+                # words under Alice, in a client that has no way to tell otherwise.
+                other_empty = await other.commands.get_msg()
+                assert other_empty.type == EventType.NO_MORE_MSGS
             finally:
                 await origin.disconnect()
                 await other.disconnect()
@@ -461,6 +463,56 @@ async def test_two_clients_receive_incoming_dm_not_originator(test_db):
         finally:
             await first.disconnect()
             await second.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_host_outgoing_is_not_relayed_as_incoming(test_db):
+    """A message this node sent must not reach clients as one it received.
+
+    Reported from a real conversation: a Meshloom connected to another Meshloom's
+    proxy stored the operator's own replies as messages from the contact. They were
+    recognisable in the database because they carried no path and no packet hash —
+    they never crossed the air — yet sat there as incoming, so reading the thread
+    back attributed both halves of the dialogue to the other person.
+    """
+    async with _started_proxy(test_db) as (manager, port):
+        mc = await _connect_client(port)
+        session = next(iter(manager._sessions))
+        try:
+            manager.notify_broadcast(
+                "message",
+                {
+                    "id": 1,
+                    "type": "PRIV",
+                    "text": "something we sent",
+                    "sender_key": "cd" * 32,
+                    "conversation_key": "cd" * 32,
+                    "sender_timestamp": 1_700_000_000,
+                    "outgoing": True,
+                },
+            )
+            await asyncio.sleep(0.15)
+            assert session.dequeue_message() is None
+
+            # The same payload arriving from the contact is still relayed.
+            manager.notify_broadcast(
+                "message",
+                {
+                    "id": 2,
+                    "type": "PRIV",
+                    "text": "something they sent",
+                    "sender_key": "cd" * 32,
+                    "conversation_key": "cd" * 32,
+                    "sender_timestamp": 1_700_000_001,
+                    "outgoing": False,
+                },
+            )
+            await asyncio.sleep(0.15)
+            relayed = session.dequeue_message()
+            assert relayed is not None
+            assert b"something they sent" in relayed.frame
+        finally:
+            await mc.disconnect()
 
 
 @pytest.mark.asyncio
