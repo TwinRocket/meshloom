@@ -96,9 +96,13 @@ body,
        retain their context". The blur and the luminosity lift are what carry
        legibility here, not opacity. Apple publishes no numbers for this; these are
        matched by eye against the system bars. */
-    background: hsl(var(--card) / 0.42);
-    -webkit-backdrop-filter: blur(28px) saturate(200%) brightness(1.35);
-    backdrop-filter: blur(28px) saturate(200%) brightness(1.35);
+    background: hsl(var(--card) / 0.5);
+    /* Darkens what is behind rather than lifting it. Apple's regular variant "blurs
+       and adjusts the luminosity of background content to maintain legibility", and
+       in a dark interface legibility means pulling a bright backdrop down: over the
+       map, lifting it turned the bar into a pale slab with unreadable labels. */
+    -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
+    backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
   }
 }
 
@@ -170,6 +174,13 @@ body {
   padding-bottom: calc(0.625rem + var(--safe-area-bottom-capped));
 }
 
+/* No rule above the composer. The separation is carried by the surfaces — the
+   conversation ends, the composer begins — and a grey hairline across the screen
+   only added a line to look at. */
+.message-input-shell {
+  border-top-color: transparent;
+}
+
 #root {
   height: 100%;
   box-sizing: border-box;
@@ -207,4 +218,11 @@ body {
 
 .observer-reach-hop-label::before {
   display: none !important;
+}
+
+/* Dark basemap. Only the tile pane is inverted: markers, paths and popups live in
+   sibling panes and must keep the colours they encode meaning with. hue-rotate
+   undoes the hue flip invert() causes, so water stays blue rather than orange. */
+.basemap-inverted .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
 }

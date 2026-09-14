@@ -209,8 +209,6 @@
     "restoreFailed": "Échec de la restauration JSON",
     "giphyKey": "Clé API Giphy",
     "giphyKeyHelp": "Optionnelle. Sert uniquement à la recherche du sélecteur GIF. Créez une clé beta gratuite sur developers.giphy.com. Les GIF reçus s’affichent sans clé (chargés depuis media.giphy.com).",
-    "cartoKey": "Clé API CARTO",
-    "cartoKeyHelp": "Optionnelle. Sert au fond de carte sombre. Demandez une clé gratuite sur https://carto.com/basemaps/apikey.",
     "local": {
       "deviceOnly": "Ces réglages s’appliquent uniquement à cet appareil/navigateur.",
       "colorScheme": "Thème de couleurs",
@@ -1208,7 +1206,8 @@
     "neverHeard": "Jamais entendu par ce serveur",
     "lastHeard": "Dernière écoute : {{time}}",
     "repeaterTitle": "Répéteur",
-    "openConversation": "Ouvrir la conversation avec {{name}}"
+    "openConversation": "Ouvrir la conversation avec {{name}}",
+    "fitAllNodes": "Voir tous les nœuds"
   },
   "share": {
     "title": "Partager",
@@ -2351,5 +2350,12 @@
     "searchDescription": "Chercher dans tous les messages de ce nœud",
     "crackerDescription": "Essayer les clés connues sur le trafic de canal non déchiffré",
     "markAllReadDescription": "Effacer tous les compteurs de non-lus"
+  },
+  "settingsIndex": {
+    "title": "Réglages",
+    "groupRadio": "Radio",
+    "groupApp": "Application",
+    "groupData": "Données",
+    "back": "Réglages"
   }
 }

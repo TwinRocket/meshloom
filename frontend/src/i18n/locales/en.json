@@ -209,8 +209,6 @@
     "restoreFailed": "JSON restore failed",
     "giphyKey": "Giphy API key",
     "giphyKeyHelp": "Optional. Used only for GIF picker search. Create a free beta key at developers.giphy.com. Incoming GIFs render without a key (they load from media.giphy.com).",
-    "cartoKey": "CARTO API key",
-    "cartoKeyHelp": "Optional. Used for the dark map layer. Get a free key at https://carto.com/basemaps/apikey.",
     "local": {
       "deviceOnly": "These settings apply only to this device/browser.",
       "colorScheme": "Color Scheme",
@@ -1208,7 +1206,8 @@
     "neverHeard": "Never heard by this server",
     "lastHeard": "Last heard: {{time}}",
     "repeaterTitle": "Repeater",
-    "openConversation": "Open conversation with {{name}}"
+    "openConversation": "Open conversation with {{name}}",
+    "fitAllNodes": "Fit all nodes"
   },
   "share": {
     "title": "Share",
@@ -2351,5 +2350,12 @@
     "searchDescription": "Search every message on this node",
     "crackerDescription": "Try known keys against undecrypted channel traffic",
     "markAllReadDescription": "Clear every unread badge"
+  },
+  "settingsIndex": {
+    "title": "Settings",
+    "groupRadio": "Radio",
+    "groupApp": "Application",
+    "groupData": "Data",
+    "back": "Settings"
   }
 }

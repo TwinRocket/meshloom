@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import './eSlices';
 import { MapView } from '../components/MapView';
-import { setSavedCartoApiKey } from '../utils/cartoPreference';
 import { api } from '../api';
 import i18n from '../i18n';
 import type { Contact } from '../types';
@@ -25,7 +24,11 @@ vi.mock('react-leaflet', () => {
   const LayersControlMock = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
   (LayersControlMock as unknown as { BaseLayer: typeof BaseLayer }).BaseLayer = BaseLayer;
   return {
-    MapContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    MapContainer: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <div data-testid="map-container" className={className}>
+        {children}
+      </div>
+    ),
     TileLayer: ({ url }: { url: string }) => <div data-testid="tile-layer" data-url={url} />,
     CircleMarker: forwardRef<
       HTMLDivElement,
@@ -45,6 +48,7 @@ vi.mock('react-leaflet', () => {
     useMap: () => ({
       setView: vi.fn(),
       fitBounds: vi.fn(),
+      getBounds: vi.fn(() => ({ contains: () => true })),
       setMaxZoom: vi.fn(),
       setZoom: vi.fn(),
       getZoom: vi.fn(() => 2),
@@ -63,19 +67,41 @@ describe('MapView', () => {
     localStorage.clear();
   });
 
-  it('appends key= to the CARTO dark tile URL when a key is set', () => {
-    setSavedCartoApiKey('test-carto-key');
-
+  it('serves the dark basemap from OpenStreetMap, with no keyed provider left', () => {
+    // CARTO's keyless raster answers every tile past zoom 7 with a watermark, so
+    // the dark layer must not be a second provider any more.
     render(<MapView contacts={[]} />);
 
-    const darkUrl = screen
-      .getAllByTestId('tile-layer')
-      .map((el) => el.getAttribute('data-url'))
-      .find((url) => url?.includes('dark_all'));
+    const urls = screen.getAllByTestId('tile-layer').map((el) => el.getAttribute('data-url'));
+    expect(urls.some((url) => url?.includes('openstreetmap'))).toBe(true);
+    expect(urls.some((url) => url?.includes('cartocdn'))).toBe(false);
+  });
 
-    expect(darkUrl).toBe(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=test-carto-key'
-    );
+  it('inverts the tiles only when the dark basemap is the chosen one', () => {
+    localStorage.setItem('meshloom-map-layer', 'dark');
+    localStorage.setItem('meshloom-map-layer-chosen', 'true');
+    const { unmount } = render(<MapView contacts={[]} />);
+    expect(screen.getByTestId('map-container').className).toContain('basemap-inverted');
+    unmount();
+
+    localStorage.setItem('meshloom-map-layer', 'light');
+    render(<MapView contacts={[]} />);
+    expect(screen.getByTestId('map-container').className).not.toContain('basemap-inverted');
+  });
+
+  it('lets the theme pick the basemap when nobody chose one', () => {
+    // A stored light/dark nobody asked for predates the themed default; honouring
+    // it would leave a daylight map inside a dark app for good.
+    localStorage.setItem('meshloom-map-layer', 'dark');
+    const { unmount } = render(<MapView contacts={[]} />);
+    expect(screen.getByTestId('map-container').className).not.toContain('basemap-inverted');
+    unmount();
+
+    // A styled basemap is never theme-derived, so it stands without the marker.
+    localStorage.setItem('meshloom-map-layer', 'satellite');
+    render(<MapView contacts={[]} />);
+    const urls = screen.getAllByTestId('tile-layer').map((el) => el.getAttribute('data-url'));
+    expect(urls.some((url) => url?.includes('arcgisonline'))).toBe(true);
   });
 
   it('renders a never-heard fallback for a focused contact without last_seen', () => {

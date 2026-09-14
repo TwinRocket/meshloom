@@ -1060,16 +1060,6 @@ describe('SettingsModal', () => {
     expect(localStorage.getItem(LAST_VIEWED_CONVERSATION_KEY)).toBeNull();
   });
 
-  it('stores a CARTO API key locally', () => {
-    renderModal();
-    openLocalSection();
-
-    const input = screen.getByLabelText(i18n.t('settings.cartoKey'));
-    fireEvent.change(input, { target: { value: '  carto-test  ' } });
-
-    expect(localStorage.getItem('meshloom-carto-api-key')).toBe('carto-test');
-  });
-
   it('defaults the path-hop-width toggle to on and persists disabling it', () => {
     renderModal();
     openLocalSection();

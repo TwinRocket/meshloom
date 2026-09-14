@@ -24,7 +24,6 @@ import { useDistanceUnit } from '../../contexts/DistanceUnitContext';
 import { useRichPayloads } from '../../contexts/RichPayloadContext';
 import { setSavedRenderRichPayloads } from '../../utils/richPayloadPreference';
 import { getSavedGiphyApiKey, setSavedGiphyApiKey } from '../../utils/giphyPreference';
-import { getSavedCartoApiKey, setSavedCartoApiKey } from '../../utils/cartoPreference';
 import { usePathHopWidth } from '../../contexts/PathHopWidthContext';
 import { setSavedShowPathHopWidth } from '../../utils/pathHopWidthPreference';
 import {
@@ -86,7 +85,6 @@ export function SettingsLocalSection({
   const [batteryVoltage, setBatteryVoltage] = useState(getShowBatteryVoltage);
   const [statusDotPulse, setStatusDotPulse] = useState(getStatusDotPulseEnabled);
   const [giphyApiKey, setGiphyApiKey] = useState(getSavedGiphyApiKey);
-  const [cartoApiKey, setCartoApiKey] = useState(getSavedCartoApiKey);
   const [textReplaceEnabled, setTextReplaceEnabled] = useState(getTextReplaceEnabled);
   const [textReplaceJson, setTextReplaceJson] = useState(getTextReplaceMapJson);
   const [textReplaceError, setTextReplaceError] = useState<string | null>(null);
@@ -352,22 +350,6 @@ export function SettingsLocalSection({
               }}
             />
             <p className="text-[0.8125rem] text-muted-foreground">{t('settings.giphyKeyHelp')}</p>
-          </div>
-
-          <div className="space-y-2 rounded-md border border-border/60 p-3">
-            <Label htmlFor="carto-api-key">{t('settings.cartoKey')}</Label>
-            <Input
-              id="carto-api-key"
-              type="password"
-              autoComplete="off"
-              value={cartoApiKey}
-              onChange={(event) => {
-                const next = event.target.value;
-                setCartoApiKey(next);
-                setSavedCartoApiKey(next);
-              }}
-            />
-            <p className="text-[0.8125rem] text-muted-foreground">{t('settings.cartoKeyHelp')}</p>
           </div>
 
           <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">

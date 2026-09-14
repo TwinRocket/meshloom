@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import type { MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MapContainer,
@@ -16,6 +17,7 @@ import { api } from '../api';
 import { formatTime } from '../utils/messageParser';
 import { isValidLocation } from '../utils/pathUtils';
 import { CONTACT_TYPE_REPEATER } from '../types';
+import { Maximize2 } from 'lucide-react';
 import { DirectoryGlobeIcon } from './messagePath/DirectoryGlobeIcon';
 import { cn } from '@/lib/utils';
 import {
@@ -23,8 +25,6 @@ import {
   OSM_RASTER_TILE_ATTRIBUTION,
   OSM_RASTER_TILE_URL,
 } from '../utils/mapTiles';
-import { getSavedCartoApiKey } from '../utils/cartoPreference';
-import { readSavedMapCamera, writeSavedMapCamera } from '../utils/livePackets';
 
 interface MapViewProps {
   contacts: Contact[];
@@ -67,15 +67,15 @@ interface TileLayerPreset {
 const MAP_MIN_ZOOM = 2;
 const MAP_MAX_ZOOM = 19;
 
-/** CARTO dark raster URL. `{r}` stays before `.png`; `?key=` is appended when set. */
-export const CARTO_DARK_TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-
-export function cartoDarkTileUrl(apiKey: string): string {
-  const trimmed = apiKey.trim();
-  return trimmed
-    ? `${CARTO_DARK_TILE_URL}?key=${encodeURIComponent(trimmed)}`
-    : CARTO_DARK_TILE_URL;
-}
+/**
+ * The dark basemap is OpenStreetMap inverted by CSS, not a second provider.
+ *
+ * CARTO's keyless raster endpoint now answers every tile past zoom 7 with one
+ * 1970-byte "API KEY REQUIRED" placeholder — the same bytes worldwide, so the map
+ * was legible only when fully zoomed out. Darkening the tiles we already fetch
+ * keeps the map keyless and keeps one provider to attribute.
+ */
+export const DARK_BASEMAP_LAYER_ID = 'dark';
 
 const TILE_LAYERS: readonly TileLayerPreset[] = [
   {
@@ -87,10 +87,10 @@ const TILE_LAYERS: readonly TileLayerPreset[] = [
     maxZoom: 19,
   },
   {
-    id: 'dark',
-    url: CARTO_DARK_TILE_URL,
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    id: DARK_BASEMAP_LAYER_ID,
+    url: OSM_RASTER_TILE_URL,
+    attribution: OSM_RASTER_TILE_ATTRIBUTION,
+    referrerPolicy: OSM_RASTER_REFERRER_POLICY,
     background: '#0d0d0d',
     maxZoom: 19,
   },
@@ -118,19 +118,43 @@ const TILE_LAYERS: readonly TileLayerPreset[] = [
 ] as const;
 
 const MAP_LAYER_STORAGE_KEY = 'meshloom-map-layer';
-const MAP_CAMERA_STORAGE_KEY = 'meshloom-map-camera';
+/** Set the first time the reader picks a basemap from the control themselves. */
+const MAP_LAYER_CHOSEN_STORAGE_KEY = 'meshloom-map-layer-chosen';
 const LEGACY_DARK_MAP_STORAGE_KEY = 'meshloom-dark-map';
 
 function getSavedLayerId(): string {
   try {
     const stored = localStorage.getItem(MAP_LAYER_STORAGE_KEY);
-    if (stored && TILE_LAYERS.some((l) => l.id === stored)) return stored;
+    const chosen = localStorage.getItem(MAP_LAYER_CHOSEN_STORAGE_KEY) === 'true';
+    // A stored light/dark that nobody chose is a leftover of when light was the
+    // only default: the theme outranks it, or switching to a dark theme leaves a
+    // daylight map behind for good. An explicit pick, and every styled basemap,
+    // stands.
+    const themed = stored === 'light' || stored === DARK_BASEMAP_LAYER_ID;
+    if (stored && TILE_LAYERS.some((l) => l.id === stored) && (chosen || !themed)) return stored;
     // Legacy migration: boolean dark-map flag predates multi-layer support.
     const legacyDark = localStorage.getItem(LEGACY_DARK_MAP_STORAGE_KEY) === 'true';
-    return legacyDark ? 'dark' : 'light';
+    return legacyDark ? 'dark' : defaultLayerIdForTheme();
   } catch {
-    return 'light';
+    return defaultLayerIdForTheme();
   }
+}
+
+/**
+ * The basemap a theme implies, until the reader picks one.
+ *
+ * A daylight map inside a dark app is the one surface that does not belong to it,
+ * and it drags everything floating above it along: the bar over it has to blur a
+ * bright backdrop and comes out pale. Read from the background token rather than a
+ * class name, so it holds for all the themes rather than the two obvious ones.
+ */
+function defaultLayerIdForTheme(): string {
+  if (typeof window === 'undefined') return 'light';
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--background').trim();
+  // HSL triplet, "H S% L%": the third component is the one that decides.
+  const lightness = Number.parseFloat(raw.split(/\s+/)[2] ?? '');
+  if (!Number.isFinite(lightness)) return 'light';
+  return lightness < 50 ? 'dark' : 'light';
 }
 
 /**
@@ -242,93 +266,100 @@ function getMarkerColor(lastSeen: number | null | undefined): string {
 
 // --- Map bounds handler ---
 
-function PersistMapCamera() {
-  const map = useMap();
-  useEffect(() => {
-    const persist = () => {
-      const center = map.getCenter();
-      writeSavedMapCamera(MAP_CAMERA_STORAGE_KEY, {
-        lat: center.lat,
-        lon: center.lng,
-        zoom: map.getZoom(),
-      });
-    };
-    map.on('moveend', persist);
-    map.on('zoomend', persist);
-    return () => {
-      map.off('moveend', persist);
-      map.off('zoomend', persist);
-    };
-  }, [map]);
-  return null;
-}
+/** Padding around the fitted bounds, and how close in a fit is allowed to go. */
+const FIT_PADDING: [number, number] = [50, 50];
+const FIT_MAX_ZOOM = 12;
+const SINGLE_POINT_ZOOM = 10;
+const EMPTY_MAP_VIEW: { center: [number, number]; zoom: number } = { center: [20, 0], zoom: 2 };
 
-function MapBoundsHandler({
+/**
+ * Frames every node on arrival, and says so when the view has left some behind.
+ *
+ * Arriving on the map means wanting to see the mesh, so the map always opens on
+ * all of it rather than on wherever the last visit happened to end — a restored
+ * camera could be a rooftop in another country, with nothing on screen and no
+ * hint that anything was missing. Panning away afterwards is deliberate and is
+ * left alone; the button is how you get the whole picture back.
+ */
+function FitAllNodes({
   contacts,
   focusedContact,
+  onDriftChange,
+  fitRef,
 }: {
   contacts: Contact[];
   focusedContact: Contact | null;
+  onDriftChange: (drifted: boolean) => void;
+  fitRef: MutableRefObject<(() => void) | null>;
 }) {
   const map = useMap();
-  const [hasInitialized, setHasInitialized] = useState(false);
   const lastFocusKey = useRef<string | null>(null);
+  const hasFitted = useRef(false);
+
+  const points = useMemo(
+    () => contacts.map((c) => [c.lat!, c.lon!] as [number, number]),
+    [contacts]
+  );
+
+  const fitAll = useCallback(() => {
+    if (points.length === 0) {
+      map.setView(EMPTY_MAP_VIEW.center, EMPTY_MAP_VIEW.zoom);
+      return;
+    }
+    if (points.length === 1) {
+      map.setView(points[0], SINGLE_POINT_ZOOM);
+      return;
+    }
+    map.fitBounds(points as LatLngBoundsExpression, {
+      padding: FIT_PADDING,
+      maxZoom: FIT_MAX_ZOOM,
+    });
+  }, [map, points]);
+
+  useEffect(() => {
+    fitRef.current = fitAll;
+    return () => {
+      fitRef.current = null;
+    };
+  }, [fitAll, fitRef]);
 
   useEffect(() => {
     if (focusedContact && focusedContact.lat != null && focusedContact.lon != null) {
       if (lastFocusKey.current !== focusedContact.public_key) {
-        map.setView([focusedContact.lat, focusedContact.lon], 12);
+        map.setView([focusedContact.lat, focusedContact.lon], FIT_MAX_ZOOM);
         lastFocusKey.current = focusedContact.public_key;
       }
-      setHasInitialized(true);
+      hasFitted.current = true;
       return;
     }
     lastFocusKey.current = null;
 
-    if (hasInitialized) return;
+    // Points arrive in batches as contacts load; refit until there are some to
+    // frame, then leave the view to the reader.
+    if (hasFitted.current && points.length > 0) return;
+    fitAll();
+    if (points.length > 0) hasFitted.current = true;
+  }, [map, fitAll, points, focusedContact]);
 
-    const saved = readSavedMapCamera(MAP_CAMERA_STORAGE_KEY);
-    if (saved) {
-      map.setView([saved.lat, saved.lon], saved.zoom);
-      setHasInitialized(true);
-      return;
-    }
-
-    const fitToContacts = () => {
-      if (contacts.length === 0) {
-        map.setView([20, 0], 2);
-        setHasInitialized(true);
+  // Drift is "a node is off screen", not "the camera moved": zooming into a
+  // cluster that still holds everything is not something to offer undoing.
+  useEffect(() => {
+    const check = () => {
+      if (points.length === 0) {
+        onDriftChange(false);
         return;
       }
-
-      if (contacts.length === 1) {
-        map.setView([contacts[0].lat!, contacts[0].lon!], 10);
-        setHasInitialized(true);
-        return;
-      }
-
-      const bounds: LatLngBoundsExpression = contacts.map(
-        (c) => [c.lat!, c.lon!] as [number, number]
-      );
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
-      setHasInitialized(true);
+      const view = map.getBounds();
+      onDriftChange(points.some(([lat, lon]) => !view.contains([lat, lon])));
     };
-
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          map.setView([position.coords.latitude, position.coords.longitude], 8);
-          setHasInitialized(true);
-        },
-        () => {
-          fitToContacts();
-        },
-        { timeout: 5000, maximumAge: 300000 }
-      );
-    } else {
-      fitToContacts();
-    }
-  }, [map, contacts, hasInitialized, focusedContact]);
+    check();
+    map.on('moveend', check);
+    map.on('zoomend', check);
+    return () => {
+      map.off('moveend', check);
+      map.off('zoomend', check);
+    };
+  }, [map, points, onDriftChange]);
 
   return null;
 }
@@ -342,6 +373,8 @@ export function MapView({
   directoryEnabled = false,
 }: MapViewProps) {
   const { t } = useTranslation();
+  const [nodesOffScreen, setNodesOffScreen] = useState(false);
+  const fitAllRef = useRef<(() => void) | null>(null);
   const [sinceId, setSinceId] = useState<MapSinceId>(getSavedSinceId);
   const [customSince, setCustomSince] = useState('');
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
@@ -379,6 +412,7 @@ export function MapView({
       setSelectedLayerId(match.id);
       try {
         localStorage.setItem(MAP_LAYER_STORAGE_KEY, match.id);
+        localStorage.setItem(MAP_LAYER_CHOSEN_STORAGE_KEY, 'true');
         // Clear the legacy key so a future downgrade-rollback doesn't revert us.
         localStorage.removeItem(LEGACY_DARK_MAP_STORAGE_KEY);
       } catch {
@@ -687,12 +721,27 @@ export function MapView({
         role="img"
         aria-label={t('map.mapAria')}
       >
+        {/* Only once something is actually out of frame: a control that is always
+            there is one more thing between the reader and the map. */}
+        {nodesOffScreen && (
+          <button
+            type="button"
+            onClick={() => fitAllRef.current?.()}
+            className="liquid-surface absolute bottom-4 left-1/2 z-[500] inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-foreground shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Maximize2 className="h-4 w-4" aria-hidden="true" />
+            {t('map.fitAllNodes')}
+          </button>
+        )}
         <MapContainer
           center={[20, 0]}
           zoom={2}
           minZoom={MAP_MIN_ZOOM}
           maxZoom={MAP_MAX_ZOOM}
-          className="h-full w-full"
+          className={cn(
+            'h-full w-full',
+            selectedLayerId === DARK_BASEMAP_LAYER_ID && 'basemap-inverted'
+          )}
           style={{ background: activeLayer.background }}
         >
           {/* Collapsed: the expanded radio list sat permanently over the top-right
@@ -706,7 +755,7 @@ export function MapView({
                 checked={layer.id === selectedLayerId}
               >
                 <TileLayer
-                  url={layer.id === 'dark' ? cartoDarkTileUrl(getSavedCartoApiKey()) : layer.url}
+                  url={layer.url}
                   attribution={layer.attribution}
                   maxZoom={layer.maxZoom}
                   referrerPolicy={layer.referrerPolicy}
@@ -716,8 +765,12 @@ export function MapView({
           </LayersControl>
           <LayerChangeWatcher onChange={handleLayerChange} />
           <MaxZoomByActiveLayer maxZoom={activeLayer.maxZoom ?? MAP_MAX_ZOOM} />
-          <PersistMapCamera />
-          <MapBoundsHandler contacts={mappableContacts} focusedContact={focusedContact} />
+          <FitAllNodes
+            contacts={mappableContacts}
+            focusedContact={focusedContact}
+            onDriftChange={setNodesOffScreen}
+            fitRef={fitAllRef}
+          />
 
           {mappableContacts.map((contact) => {
             const isRepeater = contact.type === CONTACT_TYPE_REPEATER;
