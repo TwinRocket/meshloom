@@ -6,9 +6,6 @@ import {
   resolveRail,
   UNREAD_BADGE_MAX,
 } from './navDestinations';
-// The same icon the Navigation settings section carries: one concept, one icon,
-// and it does not compete with the gear sitting under it.
-import { PanelLeft } from 'lucide-react';
 import { RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
@@ -31,13 +28,13 @@ interface Props {
   unreadTotal: number;
   onSelect: (target: BottomNavTarget) => void;
   health: HealthStatus | null;
+  /** Opens the read-out the dot summarises. */
+  onOpenRadioStatus: () => void;
   /** The rail's contents, in order, as configured in Settings. */
   order?: string[];
   /** Which tool is open, so a pinned tool lights up like a destination does. */
   activeToolId?: string | null;
   onSelectTool: (id: RailItemId) => void;
-  /** Opens the screen where the rail's own contents are arranged. */
-  onConfigure: () => void;
 }
 
 /** The bottom group's controls: same size as a destination, never marked current. */
@@ -49,10 +46,10 @@ export function DesktopRail({
   unreadTotal,
   onSelect,
   health,
+  onOpenRadioStatus,
   order,
   activeToolId,
   onSelectTool,
-  onConfigure,
 }: Props) {
   const { t } = useTranslation();
 
@@ -106,23 +103,10 @@ export function DesktopRail({
           at once. What is open is marked in the group above when it is on the
           rail, and by the pane's own title when it is not. */}
       <div className="mt-auto flex flex-col items-center gap-1 pt-2">
-        {/* The rail can be arranged and nothing on it said so. The control is the
-            place you would change, which is how that gets discovered — quiet until
-            the rail is hovered, so the group does not grow a permanent entry. */}
-        <button
-          type="button"
-          onClick={onConfigure}
-          aria-label={t('settingsNavigation.configureRail')}
-          title={t('settingsNavigation.configureRail')}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-opacity hover:bg-accent/50 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/rail:opacity-100"
-        >
-          <PanelLeft className="h-4 w-4" aria-hidden="true" />
-        </button>
-
-        {/* Status, not a link. It used to open the radio settings, which is where
-            the gear beneath it goes — two neighbouring controls leading to the same
-            screen. */}
-        <RadioStatusChip health={health} compact className="px-0" />
+        {/* The dot is enough to notice something is wrong and never enough to act
+            on it, so it opens what it is a summary of rather than the settings —
+            which is where the gear beneath it already goes. */}
+        <RadioStatusChip health={health} compact onOpenStatus={onOpenRadioStatus} />
 
         {ANCHORED_RAIL_ITEMS.map(({ target, labelKey, Icon }) => (
           <button

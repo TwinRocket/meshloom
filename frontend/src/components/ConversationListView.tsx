@@ -34,7 +34,8 @@ interface Props {
   activeConversation?: Conversation | null;
   onNewMessage: () => void;
   health?: HealthStatus | null;
-  onOpenRadioSettings?: () => void;
+  /** Opens the radio read-out. The dot means the same thing on every screen. */
+  onOpenRadioStatus?: () => void;
 }
 
 interface Row {
@@ -83,7 +84,7 @@ export function ConversationListView({
   activeConversation,
   onNewMessage,
   health,
-  onOpenRadioSettings,
+  onOpenRadioStatus,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
@@ -189,7 +190,7 @@ export function ConversationListView({
           <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
           <RadioStatusChip
             health={health ?? null}
-            onOpenRadioSettings={onOpenRadioSettings}
+            onOpenStatus={onOpenRadioStatus}
             className="ml-auto max-w-[9rem]"
           />
           <button

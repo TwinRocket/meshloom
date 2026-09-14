@@ -345,6 +345,15 @@ describe('App favorite toggle flow', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('settings-modal-section')).not.toBeInTheDocument();
     });
+
+    // Coming back starts at the first section again, not wherever the last visit
+    // ended: a section is opened to do one thing, and landing back in it later
+    // answers a question nobody asked.
+    fireEvent.click(navButton('bottomNav.settings'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-modal-section')).toHaveTextContent('radio');
+    });
   });
 
   it('subscribes this browser on the first push-bell click without setting an override', async () => {

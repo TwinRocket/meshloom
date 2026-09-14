@@ -110,6 +110,22 @@ vi.mock('../components/ConversationListView', () => ({
   ),
 }));
 
+vi.mock('../components/ConversationPane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ConversationPane')>();
+  return {
+    ConversationPane: (props: React.ComponentProps<typeof actual.ConversationPane>) => (
+      <>
+        <div data-testid="active-conversation">
+          {props.activeConversation
+            ? `${props.activeConversation.type}:${props.activeConversation.id}`
+            : 'none'}
+        </div>
+        <actual.ConversationPane {...props} />
+      </>
+    ),
+  };
+});
+
 vi.mock('../components/ChatHeader', () => ({
   ChatHeader: () => <div data-testid="chat-header" />,
 }));

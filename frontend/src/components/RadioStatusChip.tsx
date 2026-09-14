@@ -17,12 +17,20 @@ import { cn } from '../lib/utils';
 interface Props {
   health: HealthStatus | null;
   onOpenRadioSettings?: () => void;
+  /** Opens the read-out this chip summarises. Takes precedence over the settings. */
+  onOpenStatus?: () => void;
   /** Dot only, for the rail, where there is no room for the word. */
   compact?: boolean;
   className?: string;
 }
 
-export function RadioStatusChip({ health, onOpenRadioSettings, compact, className }: Props) {
+export function RadioStatusChip({
+  health,
+  onOpenRadioSettings,
+  onOpenStatus,
+  compact,
+  className,
+}: Props) {
   const { t } = useTranslation();
 
   const state = health?.radio_state;
@@ -58,7 +66,9 @@ export function RadioStatusChip({ health, onOpenRadioSettings, compact, classNam
     className
   );
 
-  if (!onOpenRadioSettings) {
+  const action = onOpenStatus ?? onOpenRadioSettings;
+
+  if (!action) {
     return (
       // `title` because the compact form hides the word: a screen reader still
       // hears it, and without this a sighted reader gets a coloured dot and
@@ -72,12 +82,17 @@ export function RadioStatusChip({ health, onOpenRadioSettings, compact, classNam
   return (
     <button
       type="button"
-      onClick={onOpenRadioSettings}
+      onClick={action}
       className={cn(
         classes,
         'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
       )}
-      aria-label={t('statusBar.radioStatusOpensSettings', { status: label })}
+      title={compact ? label : undefined}
+      aria-label={
+        onOpenStatus
+          ? t('radioStatus.openStatus', { status: label })
+          : t('statusBar.radioStatusOpensSettings', { status: label })
+      }
     >
       {content}
     </button>

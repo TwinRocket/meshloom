@@ -2375,5 +2375,19 @@
     "reset": "Rétablir les valeurs par défaut",
     "saved": "Enregistré",
     "configureRail": "Organiser la barre"
+  },
+  "radioStatus": {
+    "transport": "Connexion",
+    "notConfigured": "Aucun transport configuré",
+    "model": "Radio",
+    "firmware": "Micrologiciel",
+    "proxy": "Proxy",
+    "proxyListening": "Sert des clients sur le port {{port}}",
+    "version": "Meshloom",
+    "connectedHelp": "Les messages peuvent partir, et tout ce que la radio entend est enregistré.",
+    "disconnectedHelp": "Rien ne peut partir et rien n'est entendu tant que la radio n'est pas joignable.",
+    "openSettings": "Réglages radio",
+    "close": "Fermer",
+    "openStatus": "État de la radio — {{status}}"
   }
 }

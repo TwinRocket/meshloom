@@ -13,6 +13,7 @@ import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
 import { DesktopRail } from './DesktopRail';
+import { RadioStatusDialog } from './RadioStatusDialog';
 import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
 import { ToolsView } from './ToolsView';
@@ -26,7 +27,11 @@ import { CommandPalette } from './CommandPalette';
 import { SecurityWarningModal } from './SecurityWarningModal';
 import { RadioIdentityModal } from './RadioIdentityModal';
 import { Toaster } from './ui/sonner';
-import { SETTINGS_SECTION_LABELS, type SettingsSection } from './settings/settingsConstants';
+import {
+  SETTINGS_SECTION_LABELS,
+  SETTINGS_SECTION_ORDER,
+  type SettingsSection,
+} from './settings/settingsConstants';
 import { getContrastTextColor, type LocalLabel } from '../utils/localLabel';
 import { api } from '../api';
 import type { CommunityStatus, HealthStatus, RadioConfig } from '../types';
@@ -187,6 +192,7 @@ export function AppShell({
   // Settings open on the index on a phone: the bar cannot say which section you
   // wanted, and the rail that used to answer that went with the drawer.
   const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
+  const [radioStatusOpen, setRadioStatusOpen] = useState(false);
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
 
@@ -224,6 +230,11 @@ export function AppShell({
     (target: BottomNavTarget) => {
       if (target === 'settings') {
         setSettingsIndexOpen(true);
+        // Entering settings starts at the first section rather than wherever the
+        // last visit ended. A section is opened to do one thing; coming back later
+        // for something else and landing in it is being answered a question nobody
+        // asked, and on a phone it skips the index entirely.
+        onSettingsSectionChange(SETTINGS_SECTION_ORDER[0]);
         if (!showSettings) onToggleSettingsView();
         return;
       }
@@ -238,7 +249,13 @@ export function AppShell({
       setMobileScreen(target === 'tools' ? 'tools' : 'conversations');
       onClearActiveConversation();
     },
-    [showSettings, onToggleSettingsView, sidebarProps, onClearActiveConversation]
+    [
+      showSettings,
+      onToggleSettingsView,
+      onSettingsSectionChange,
+      sidebarProps,
+      onClearActiveConversation,
+    ]
   );
   useEffect(() => {
     const measure = () => {
@@ -253,6 +270,10 @@ export function AppShell({
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, [hasLocalLabel, activeType, activeId, showSettings, communityStatus]);
+
+  // A map and a tool are single full-width views: they have no list to put in the
+  // middle column, and their own panels need the width it was taking.
+  const showDestinationList = bottomNavTarget === 'conversations' || bottomNavTarget === 'settings';
 
   const destinationList = showSettings ? (
     <SettingsIndexView
@@ -272,7 +293,7 @@ export function AppShell({
       crackerVisible={sidebarProps.showCracker}
       crackerQueueCount={crackerQueueCount}
       health={statusProps.health}
-      onOpenRadioSettings={() => handleOpenSettings('radio')}
+      onOpenRadioStatus={() => setRadioStatusOpen(true)}
       activeConversation={conversationPaneProps.activeConversation}
     />
   ) : (
@@ -286,7 +307,7 @@ export function AppShell({
       onSelectConversation={sidebarProps.onSelectConversation}
       onNewMessage={sidebarProps.onNewMessage}
       health={statusProps.health}
-      onOpenRadioSettings={() => handleOpenSettings('radio')}
+      onOpenRadioStatus={() => setRadioStatusOpen(true)}
       activeConversation={conversationPaneProps.activeConversation}
     />
   );
@@ -328,7 +349,7 @@ export function AppShell({
           health={statusProps.health ?? null}
           order={navRailOrder}
           activeToolId={activeType ?? null}
-          onConfigure={() => handleOpenSettings('navigation')}
+          onOpenRadioStatus={() => setRadioStatusOpen(true)}
           onSelectTool={(id) => {
             if (showSettings) onToggleSettingsView();
             sidebarProps.onSelectConversation(
@@ -337,12 +358,17 @@ export function AppShell({
           }}
         />
 
-        {/* The destination's own list, permanently beside the conversation. On a
-            phone the same views are the whole screen; here they are the column
-            WhatsApp Desktop puts between its rail and the conversation. */}
-        <div className="hidden min-h-0 w-[22rem] shrink-0 flex-col border-r border-border md:flex lg:w-[24rem]">
-          {destinationList}
-        </div>
+        {/* The column belongs to the destination rather than being permanent:
+            Slack, WhatsApp Desktop, Discord and VS Code all replace it when the
+            section changes. A map or a tool has no list of its own — each is one
+            full-width view with its own internal layout, which 384px of
+            conversations was squeezing. The rail's conversations entry is the way
+            back, as it is in all four. */}
+        {showDestinationList && (
+          <div className="hidden min-h-0 w-[22rem] shrink-0 flex-col border-r border-border md:flex lg:w-[24rem]">
+            {destinationList}
+          </div>
+        )}
 
         {/* min-h-0 as well as min-w-0: a flex child defaults to min-height:auto, which
             refuses to shrink below its content. Its parent clips rather than scrolls, so
@@ -475,6 +501,13 @@ export function AppShell({
           </Suspense>
         )}
       </div>
+
+      <RadioStatusDialog
+        open={radioStatusOpen}
+        health={statusProps.health ?? null}
+        onClose={() => setRadioStatusOpen(false)}
+        onOpenRadioSettings={() => handleOpenSettings('radio')}
+      />
 
       <NewMessageModal
         {...newMessageModalProps}

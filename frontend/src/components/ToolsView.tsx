@@ -34,7 +34,8 @@ interface Props {
   /** How many candidate keys the channel finder still has to try. */
   crackerQueueCount?: number;
   health?: HealthStatus | null;
-  onOpenRadioSettings?: () => void;
+  /** Opens the radio read-out. The dot means the same thing on every screen. */
+  onOpenRadioStatus?: () => void;
 }
 
 const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeof List }[] = [
@@ -87,7 +88,7 @@ export function ToolsView({
   crackerVisible,
   crackerQueueCount = 0,
   health,
-  onOpenRadioSettings,
+  onOpenRadioStatus,
 }: Props) {
   const { t } = useTranslation();
 
@@ -99,7 +100,7 @@ export function ToolsView({
         <h1 className="text-2xl font-semibold tracking-tight">{t('toolsView.title')}</h1>
         <RadioStatusChip
           health={health ?? null}
-          onOpenRadioSettings={onOpenRadioSettings}
+          onOpenStatus={onOpenRadioStatus}
           className="ml-auto max-w-[9rem]"
         />
       </div>

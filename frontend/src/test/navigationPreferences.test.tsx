@@ -154,3 +154,12 @@ describe('addToRail', () => {
     expect(addToRail(rail, 'live')).toBe(rail);
   });
 });
+
+describe('rail icons', () => {
+  it('gives every entry a glyph of its own', () => {
+    // Trace and the visualizer both used Waypoints, so the rail drew the same icon
+    // twice and neither could be told from the other at 20px.
+    const icons = RAIL_ITEMS.map((item) => item.Icon);
+    expect(new Set(icons).size).toBe(icons.length);
+  });
+});

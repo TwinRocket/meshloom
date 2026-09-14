@@ -6,6 +6,7 @@ import {
   List,
   CloudRain,
   Waypoints,
+  Spline,
   Crosshair,
   Search,
   type LucideIcon,
@@ -93,7 +94,7 @@ export const RAIL_ITEMS: RailItem[] = [
   tool('raw', 'sidebar.packetFeed', List),
   tool('live', 'sidebar.live', CloudRain),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),
-  tool('trace', 'sidebar.trace', Waypoints),
+  tool('trace', 'sidebar.trace', Spline),
   tool('locate', 'locate.title', Crosshair),
   tool('search', 'sidebar.messageSearch', Search),
 ];

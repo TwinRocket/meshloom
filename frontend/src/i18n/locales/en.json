@@ -2375,5 +2375,19 @@
     "reset": "Reset to defaults",
     "saved": "Saved",
     "configureRail": "Arrange the rail"
+  },
+  "radioStatus": {
+    "transport": "Connection",
+    "notConfigured": "No transport configured",
+    "model": "Radio",
+    "firmware": "Firmware",
+    "proxy": "Proxy",
+    "proxyListening": "Serving clients on port {{port}}",
+    "version": "Meshloom",
+    "connectedHelp": "Messages can be sent and everything the radio hears is being recorded.",
+    "disconnectedHelp": "Nothing can be sent and nothing is being heard until the radio is reachable again.",
+    "openSettings": "Radio settings",
+    "close": "Close",
+    "openStatus": "Radio status — {{status}}"
   }
 }

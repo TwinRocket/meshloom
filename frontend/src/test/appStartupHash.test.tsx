@@ -62,9 +62,10 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
-// These tests are about hash resolution, and read the result off whichever
-// navigation surface is handed the active conversation. That used to be the
-// sidebar; it is the conversation list column now.
+// These tests are about hash resolution, so they read the result off the pane that
+// consumes it. Reading it off a navigation surface broke twice: the sidebar was
+// deleted, and the list column is only rendered for the destinations that have a
+// list. The pane is mounted whatever is open.
 vi.mock('../components/ConversationListView', () => ({
   ConversationListView: ({
     activeConversation,
@@ -78,6 +79,22 @@ vi.mock('../components/ConversationListView', () => ({
     </div>
   ),
 }));
+
+vi.mock('../components/ConversationPane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ConversationPane')>();
+  return {
+    ConversationPane: (props: React.ComponentProps<typeof actual.ConversationPane>) => (
+      <>
+        <div data-testid="active-conversation">
+          {props.activeConversation
+            ? `${props.activeConversation.type}:${props.activeConversation.id}:${props.activeConversation.name}`
+            : 'none'}
+        </div>
+        <actual.ConversationPane {...props} />
+      </>
+    ),
+  };
+});
 
 vi.mock('../components/MessageList', () => ({
   MessageList: () => <div data-testid="message-list" />,
