@@ -10,6 +10,8 @@ import {
   LIVE_STAGGER_MS,
   MAX_LIVE_SHOTS,
   buildLaserPolyline,
+  cloneLonLat,
+  cloneLonLatPath,
   dashLonLat,
   earPulse,
   earVisual,
@@ -17,7 +19,9 @@ import {
   interpolatePolyline,
   laserTravel,
   laserWidth,
+  liveHoverKey,
   mappableDirectoryNodes,
+  nearerEndpointLabel,
   nodeRoleStyle,
   observationColor,
   observationDrawOpacity,
@@ -72,6 +76,8 @@ interface PathSprite {
   color: Rgba;
   width: number;
   pick: LiveHoverPayload | null;
+  fromLabel?: string;
+  toLabel?: string;
 }
 
 interface PointSprite {
@@ -162,7 +168,17 @@ export class LiveMapController {
       layers: [],
       pickingRadius: 10,
       getCursor: ({ isHovering }: { isHovering: boolean }) => (isHovering ? 'pointer' : 'grab'),
-      onHover: (info: { object?: { pick?: LiveHoverPayload | null }; x: number; y: number }) => {
+      onHover: (info: {
+        object?: {
+          pick?: LiveHoverPayload | null;
+          path?: LonLat[];
+          fromLabel?: string;
+          toLabel?: string;
+        };
+        x: number;
+        y: number;
+        coordinate?: number[];
+      }) => {
         this.handleHover(info);
       },
     });
@@ -363,14 +379,19 @@ export class LiveMapController {
   }
 
   private handleHover(info: {
-    object?: { pick?: LiveHoverPayload | null };
+    object?: {
+      pick?: LiveHoverPayload | null;
+      path?: LonLat[];
+      fromLabel?: string;
+      toLabel?: string;
+    };
     x: number;
     y: number;
+    coordinate?: number[];
   }): void {
-    const pick = info.object?.pick ?? null;
-    const key = pick
-      ? `${pick.kind}:${'reason' in pick ? pick.reason : ''}:${'name' in pick ? pick.name : ''}:${'source' in pick ? pick.source : ''}`
-      : '';
+    const raw = info.object?.pick ?? null;
+    const pick = this.resolvePathPick(raw, info.object, info.coordinate);
+    const key = pick ? `${liveHoverKey(pick)}:${info.x}:${info.y}` : '';
     if (key === this.lastHoverKey) return;
     this.lastHoverKey = key;
     if (!pick) {
@@ -378,6 +399,21 @@ export class LiveMapController {
       return;
     }
     this.onHover({ ...pick, x: info.x, y: info.y });
+  }
+
+  private resolvePathPick(
+    pick: LiveHoverPayload | null,
+    object: { path?: LonLat[]; fromLabel?: string; toLabel?: string } | undefined,
+    coordinate: number[] | undefined
+  ): LiveHoverPayload | null {
+    if (!pick || (pick.kind !== 'exact' && pick.kind !== 'probable')) return pick;
+    const path = object?.path;
+    if (!path || path.length < 2 || !coordinate || coordinate.length < 2) return pick;
+    const label = nearerEndpointLabel(path, object.fromLabel, object.toLabel, [
+      coordinate[0],
+      coordinate[1],
+    ]);
+    return label === pick.label ? pick : { ...pick, label };
   }
 
   private takeSprite<T>(pool: T[], index: number, factory: () => T): T {
@@ -412,8 +448,7 @@ export class LiveMapController {
       pick: null,
     }));
     sprite.id = id;
-    sprite.path.length = 0;
-    for (const point of path) sprite.path.push(point);
+    sprite.path = cloneLonLatPath(path);
     this.resetColor(sprite.color, color);
     sprite.width = width;
     sprite.pick = pick;
@@ -439,8 +474,7 @@ export class LiveMapController {
       pick: null,
     }));
     sprite.id = id;
-    sprite.position[0] = position[0];
-    sprite.position[1] = position[1];
+    sprite.position = cloneLonLat(position);
     this.resetColor(sprite.fill, fill);
     this.resetColor(sprite.line, line);
     sprite.radius = radius;
@@ -470,36 +504,59 @@ export class LiveMapController {
     alpha: number,
     confidence: 'exact' | 'probable',
     reason?: string,
-    label?: string
+    fromLabel?: string,
+    toLabel?: string
   ): [number, number] {
     if (path.length < 2 || alpha <= 0.01) return [glowCount, coreCount];
     const style = strokeStyleForConfidence(confidence, width);
     const pieces = style.dashed ? dashLonLat(path[0], path[path.length - 1]) : [path];
-    const pick = this.pickForSlice(confidence, reason, label);
+    const pick = this.pickForSlice(confidence, reason, toLabel ?? fromLabel);
     const glow = hexToRgba(colorHex, alpha * style.opacityScale * 0.22);
     const core = hexToRgba(colorHex, alpha * style.opacityScale);
     for (let i = 0; i < pieces.length; i++) {
       const piece = pieces[i];
-      glowCount = this.emitPath(
+      glowCount = this.emitLabeledPath(
         this.glowSprites,
         glowCount,
         `${id}:g:${i}`,
         piece,
         glow,
         style.width * 6.2,
-        pick
+        pick,
+        fromLabel,
+        toLabel
       );
-      coreCount = this.emitPath(
+      coreCount = this.emitLabeledPath(
         this.coreSprites,
         coreCount,
         `${id}:c:${i}`,
         piece,
         core,
         style.width,
-        pick
+        pick,
+        fromLabel,
+        toLabel
       );
     }
     return [glowCount, coreCount];
+  }
+
+  private emitLabeledPath(
+    pool: PathSprite[],
+    index: number,
+    id: string,
+    path: LonLat[],
+    color: Rgba,
+    width: number,
+    pick: LiveHoverPayload | null,
+    fromLabel?: string,
+    toLabel?: string
+  ): number {
+    const next = this.emitPath(pool, index, id, path, color, width, pick);
+    const sprite = pool[index];
+    sprite.fromLabel = fromLabel;
+    sprite.toLabel = toLabel;
+    return next;
   }
 
   private draw(): void {
@@ -544,7 +601,8 @@ export class LiveMapController {
           shot.opacity * fade,
           slice.confidence,
           slice.reason,
-          slice.label
+          slice.fromLabel,
+          slice.toLabel
         );
       }
 
@@ -656,7 +714,7 @@ export class LiveMapController {
       layers: [
         new ScatterplotLayer<PointSprite>({
           id: 'live-nodes',
-          data: this.nodeSprites,
+          data: this.nodeSprites.slice(),
           pickable: true,
           opacity: 1,
           stroked: true,
@@ -672,7 +730,7 @@ export class LiveMapController {
         }),
         new PathLayer<PathSprite>({
           id: 'live-laser-glow',
-          data: this.glowSprites,
+          data: this.glowSprites.slice(),
           pickable: true,
           widthUnits: 'pixels',
           jointRounded: true,
@@ -686,7 +744,7 @@ export class LiveMapController {
         }),
         new PathLayer<PathSprite>({
           id: 'live-laser-core',
-          data: this.coreSprites,
+          data: this.coreSprites.slice(),
           pickable: true,
           widthUnits: 'pixels',
           jointRounded: true,
@@ -700,7 +758,7 @@ export class LiveMapController {
         }),
         new ScatterplotLayer<PointSprite>({
           id: 'live-ears',
-          data: this.earSprites,
+          data: this.earSprites.slice(),
           pickable: true,
           stroked: true,
           filled: true,
@@ -715,7 +773,7 @@ export class LiveMapController {
         }),
         new ScatterplotLayer<PointSprite>({
           id: 'live-ear-pulses',
-          data: this.pulseSprites,
+          data: this.pulseSprites.slice(),
           pickable: false,
           stroked: true,
           filled: true,
@@ -731,7 +789,7 @@ export class LiveMapController {
         }),
         new ScatterplotLayer<PointSprite>({
           id: 'live-laser-heads',
-          data: this.headSprites,
+          data: this.headSprites.slice(),
           pickable: false,
           stroked: false,
           filled: true,
@@ -747,10 +805,4 @@ export class LiveMapController {
   }
 }
 
-export function liveHoverKey(hover: LiveHoverPayload | null): string {
-  if (!hover) return '';
-  if (hover.kind === 'node') return `node:${hover.name}`;
-  if (hover.kind === 'probable') return `probable:${hover.reason}`;
-  if (hover.kind === 'exact') return `exact:${hover.label ?? ''}`;
-  return `ear:${hover.source}:${hover.iata ?? ''}`;
-}
+export { liveHoverKey } from './liveRender';

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CommunityPacketType } from '../types';
-import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
+import type { CommunityPacket, CommunityPacketType } from '../types';
+import {
+  observationFromCommunity,
+  type LiveObservation,
+  type LiveWaypoint,
+} from '../utils/livePackets';
 import {
   LIVE_SEGMENT_MS,
   buildLaserPolyline,
+  cloneLonLatPath,
   collectIataCodes,
   dashLonLat,
   earVisual,
@@ -13,7 +18,9 @@ import {
   interpolatePolyline,
   laserTravel,
   laserWidth,
+  liveHoverKey,
   mappableDirectoryNodes,
+  nearerEndpointLabel,
   nodeRoleStyle,
   observationPassesFilters,
   remanenceOpacity,
@@ -25,6 +32,72 @@ import {
   visibleEdgeSlices,
   waypointConfidence,
 } from '../components/live/liveRender';
+
+/** Captured community_packet that rendered FR83-Mont-Caume on the Nice coast. */
+const NCE_MONT_CAUME_FRAME: CommunityPacket = {
+  v: 2,
+  event_id: 'e3ad43e0c2ae49969048e1ec0773d72a',
+  hash8: '6e6939eb',
+  type: 'other',
+  iata: 'NCE',
+  snr: -9,
+  t: 1789360773578,
+  hop_count: 6,
+  ear: { lat: 43.760531, lon: 7.177876, source: 'advert' },
+  ear_id: '71c397fdd1390ba98b555aeb2aea812cdc164e1a5da51aa731d2c89e335e6f03',
+  path: ['7f91', 'a3cb', 'f5e6', '3b42', 'f604', '56d9'],
+  hops: [
+    {
+      token: '7f91',
+      confidence: 'unresolved',
+      reason: 'geo_filtered',
+      lat: undefined,
+      lon: undefined,
+      name: undefined,
+      pubkey: undefined,
+    },
+    {
+      token: 'a3cb',
+      confidence: 'exact',
+      lat: 43.600193,
+      lon: 3.825857,
+      name: 'FR34MPL-MAR',
+      pubkey: 'a3cb5563fe76597bf657d29109126b5120e477b3b0c3c914079fc575aeeaf588',
+    },
+    {
+      token: 'f5e6',
+      confidence: 'exact',
+      lat: 43.535191,
+      lon: 3.811703,
+      name: 'FR34MPL-VLM',
+      pubkey: 'f5e6b76f5a3ef9d1db5f4dbdff2edd654c0110a527aca955129854d404a371b5',
+    },
+    {
+      token: '3b42',
+      confidence: 'exact',
+      lat: 43.20536,
+      lon: 5.953823,
+      name: 'FR83-Grand-Cap',
+      pubkey: '3b42e2faf534e33fb390b9c7d51c0f9ea01487b2dfa2f26a6a479c582f4d0973',
+    },
+    {
+      token: 'f604',
+      confidence: 'exact',
+      lat: 43.182626,
+      lon: 5.898634,
+      name: 'FR83-Mont-Caume',
+      pubkey: 'f60431bc302cb60259562ca4e39973a347986bb44925c7a677e18814a77ff407',
+    },
+    {
+      token: '56d9',
+      confidence: 'exact',
+      lat: 43.800231,
+      lon: 7.412203,
+      name: 'FR06-PEIL-RPL1\u2600\ufe0f',
+      pubkey: '56d9854b379d33d1f7d94681e3c684661d3bab50c37b40be9fcc3fa7127cd906',
+    },
+  ],
+};
 
 function waypoint(
   lat: number,
@@ -267,5 +340,91 @@ describe('camera and spawn policy', () => {
   it('refuses to spawn lasers from stale timestamps', () => {
     expect(shouldSpawnLaser(observation({ t: Date.now() }))).toBe(true);
     expect(shouldSpawnLaser(observation({ t: Date.now() - 6 * 60 * 1000 }))).toBe(false);
+  });
+});
+
+describe('captured NCE Mont-Caume frame', () => {
+  const montCaume: [number, number] = [5.898634, 43.182626];
+  const peil: [number, number] = [7.412203, 43.800231];
+  const ear: [number, number] = [7.177876, 43.760531];
+
+  function built() {
+    const obs = observationFromCommunity(NCE_MONT_CAUME_FRAME);
+    expect(obs).not.toBeNull();
+    const poly = buildLaserPolyline(obs!);
+    const segments = segmentsFromObservation(obs!, false);
+    const slices = visibleEdgeSlices(poly, 0, 1, false);
+    return { obs: obs!, poly, segments, slices };
+  }
+
+  it('drops the leading geo_filtered hop without shifting later names', () => {
+    const { obs, poly } = built();
+    expect(obs.waypoints.map((point) => point.label)).toEqual([
+      'FR34MPL-MAR',
+      'FR34MPL-VLM',
+      'FR83-Grand-Cap',
+      'FR83-Mont-Caume',
+      'FR06-PEIL-RPL1\u2600\ufe0f',
+      undefined,
+    ]);
+    expect(poly.points).toHaveLength(6);
+    expect(poly.vertexLabel).toEqual([
+      'FR34MPL-MAR',
+      'FR34MPL-VLM',
+      'FR83-Grand-Cap',
+      'FR83-Mont-Caume',
+      'FR06-PEIL-RPL1\u2600\ufe0f',
+      undefined,
+    ]);
+    expect(poly.edgeLabel).toHaveLength(poly.points.length - 1);
+    expect(poly.edgeConfidence).toHaveLength(poly.points.length - 1);
+  });
+
+  it('keeps FR83-Mont-Caume on the edge that ends at Mont Caume, not Peille or the ear', () => {
+    const { segments, slices } = built();
+    const named = [...segments, ...slices].filter((row) => row.label === 'FR83-Mont-Caume');
+    expect(named.length).toBeGreaterThan(0);
+    for (const row of named) {
+      expect(row.path[row.path.length - 1]).toEqual(montCaume);
+      expect(row.path[row.path.length - 1]).not.toEqual(peil);
+      expect(row.path[row.path.length - 1]).not.toEqual(ear);
+      expect(row.toLabel).toBe('FR83-Mont-Caume');
+      expect(row.fromLabel).toBe('FR83-Grand-Cap');
+    }
+  });
+
+  it('names the nearer vertex when hovering the long Mont-Caume–Peille edge over the coast', () => {
+    const { slices } = built();
+    const across = slices.find(
+      (slice) =>
+        slice.fromLabel === 'FR83-Mont-Caume' && slice.toLabel === 'FR06-PEIL-RPL1\u2600\ufe0f'
+    );
+    expect(across).toBeDefined();
+    expect(across!.path[0]).toEqual(montCaume);
+    expect(across!.path[1]).toEqual(peil);
+    expect(nearerEndpointLabel(across!.path, across!.fromLabel, across!.toLabel, peil)).toBe(
+      'FR06-PEIL-RPL1\u2600\ufe0f'
+    );
+    expect(nearerEndpointLabel(across!.path, across!.fromLabel, across!.toLabel, montCaume)).toBe(
+      'FR83-Mont-Caume'
+    );
+    expect(nearerEndpointLabel(across!.path, across!.fromLabel, across!.toLabel, ear)).toBe(
+      'FR06-PEIL-RPL1\u2600\ufe0f'
+    );
+  });
+
+  it('does not treat every exact slice as the same hover identity', () => {
+    expect(liveHoverKey({ kind: 'exact', label: 'FR83-Mont-Caume' })).not.toBe(
+      liveHoverKey({ kind: 'exact', label: 'FR06-PEIL-RPL1\u2600\ufe0f' })
+    );
+    expect(liveHoverKey({ kind: 'exact', label: 'FR83-Mont-Caume' })).toBe('exact:FR83-Mont-Caume');
+  });
+
+  it('replaces pooled path arrays instead of mutating them in place', () => {
+    const first = cloneLonLatPath([montCaume, peil]);
+    const second = cloneLonLatPath([ear, montCaume]);
+    expect(first).not.toBe(second);
+    expect(first[0]).not.toBe(montCaume);
+    expect(second[1]).toEqual(montCaume);
   });
 });

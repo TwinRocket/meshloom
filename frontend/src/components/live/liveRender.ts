@@ -39,6 +39,7 @@ export interface LiveCamera {
 
 export interface LaserPolyline {
   points: LonLat[];
+  vertexLabel: Array<string | undefined>;
   edgeConfidence: Array<'exact' | 'probable'>;
   edgeReason: Array<string | undefined>;
   edgeLabel: Array<string | undefined>;
@@ -50,6 +51,8 @@ export interface LiveDrawSegment {
   path: LonLat[];
   confidence: 'exact' | 'probable';
   reason?: string;
+  fromLabel?: string;
+  toLabel?: string;
   label?: string;
   colorHex: string;
   width: number;
@@ -216,6 +219,7 @@ export function shouldSpawnLaser(obs: LiveObservation, now: number = Date.now())
 
 export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
   const points: LonLat[] = [];
+  const vertexLabel: Array<string | undefined> = [];
   const edgeConfidence: Array<'exact' | 'probable'> = [];
   const edgeReason: Array<string | undefined> = [];
   const edgeLabel: Array<string | undefined> = [];
@@ -224,15 +228,17 @@ export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
     const confidence = waypointConfidence(point);
     if (confidence === 'unresolved') continue;
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) continue;
+    const label = waypointLabel(point);
     if (points.length > 0) {
       edgeConfidence.push(confidence === 'probable' ? 'probable' : 'exact');
       edgeReason.push(waypointReason(point));
-      edgeLabel.push(waypointLabel(point));
+      edgeLabel.push(label);
     }
     points.push([point.lon, point.lat]);
+    vertexLabel.push(label);
   }
 
-  return { points, edgeConfidence, edgeReason, edgeLabel };
+  return { points, vertexLabel, edgeConfidence, edgeReason, edgeLabel };
 }
 
 export function segmentsFromObservation(
@@ -256,6 +262,8 @@ export function segmentsFromObservation(
       path: [from, to],
       confidence,
       reason: poly.edgeReason[i],
+      fromLabel: poly.vertexLabel[i],
+      toLabel: poly.vertexLabel[i + 1],
       label: poly.edgeLabel[i],
       colorHex,
       width: style.width,
@@ -383,6 +391,8 @@ export function visibleEdgeSlices(
   path: LonLat[];
   confidence: 'exact' | 'probable';
   reason?: string;
+  fromLabel?: string;
+  toLabel?: string;
   label?: string;
 }> {
   if (poly.points.length < 2) return [];
@@ -393,6 +403,8 @@ export function visibleEdgeSlices(
     path: LonLat[];
     confidence: 'exact' | 'probable';
     reason?: string;
+    fromLabel?: string;
+    toLabel?: string;
     label?: string;
   }> = [];
 
@@ -412,10 +424,51 @@ export function visibleEdgeSlices(
       path,
       confidence,
       reason: poly.edgeReason[i],
+      fromLabel: poly.vertexLabel[i],
+      toLabel: poly.vertexLabel[i + 1],
       label: poly.edgeLabel[i],
     });
   }
   return slices;
+}
+
+/** Name the vertex the cursor is actually on, not the whole edge's destination. */
+export function nearerEndpointLabel(
+  path: LonLat[],
+  fromLabel: string | undefined,
+  toLabel: string | undefined,
+  at: LonLat
+): string | undefined {
+  if (path.length === 0) return toLabel ?? fromLabel;
+  const start = path[0];
+  const end = path[path.length - 1];
+  const d0 = (at[0] - start[0]) ** 2 + (at[1] - start[1]) ** 2;
+  const d1 = (at[0] - end[0]) ** 2 + (at[1] - end[1]) ** 2;
+  return d0 <= d1 ? (fromLabel ?? toLabel) : (toLabel ?? fromLabel);
+}
+
+/** New array so deck.gl cannot keep a mutated path reference as "unchanged". */
+export function cloneLonLatPath(path: LonLat[]): LonLat[] {
+  return path.map((point) => [point[0], point[1]]);
+}
+
+export function cloneLonLat(point: LonLat): LonLat {
+  return [point[0], point[1]];
+}
+
+export function liveHoverKey(
+  hover:
+    | { kind: 'node'; name: string }
+    | { kind: 'probable'; reason: string; label?: string }
+    | { kind: 'exact'; label?: string }
+    | { kind: 'ear'; source: string; iata: string | null }
+    | null
+): string {
+  if (!hover) return '';
+  if (hover.kind === 'node') return `node:${hover.name}`;
+  if (hover.kind === 'probable') return `probable:${hover.reason}:${hover.label ?? ''}`;
+  if (hover.kind === 'exact') return `exact:${hover.label ?? ''}`;
+  return `ear:${hover.source}:${hover.iata ?? ''}`;
 }
 
 export function trailAlpha(headT: number, trailStartT: number, sampleT: number): number {
