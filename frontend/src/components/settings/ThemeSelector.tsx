@@ -17,13 +17,21 @@ function ThemeSwatch({ colors }: { colors: readonly string[] }) {
   );
 }
 
-export function ThemeSelector() {
+interface Props {
+  /** Persists the choice with the instance, so every device reaching it follows. */
+  onPersist?: (themeId: string) => void;
+}
+
+export function ThemeSelector({ onPersist }: Props) {
   const { t } = useTranslation();
   const [current, setCurrent] = useState(getSavedTheme);
 
   const handleChange = (themeId: string) => {
     setCurrent(themeId);
+    // Applied first so the change is immediate, then stored: the write is what
+    // makes it follow to other devices, not what makes it take effect here.
     applyTheme(themeId);
+    onPersist?.(themeId);
   };
 
   return (

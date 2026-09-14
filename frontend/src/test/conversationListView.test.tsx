@@ -94,10 +94,14 @@ describe('ConversationListView', () => {
 
   it('separates channels from direct conversations only when asked', () => {
     renderList();
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('conversationList.groups') }));
+    fireEvent.click(
+      screen.getByRole('button', { name: new RegExp(`^${i18n.t('conversationList.groups')}`) })
+    );
     expect(rowNames().join('|')).not.toContain('Alice');
 
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('conversationList.direct') }));
+    fireEvent.click(
+      screen.getByRole('button', { name: new RegExp(`^${i18n.t('conversationList.direct')}`) })
+    );
     const direct = rowNames().join('|');
     expect(direct).toContain('Alice');
     expect(direct).not.toContain('#alpha');
@@ -133,7 +137,9 @@ describe('ConversationListView', () => {
       screen.getByRole('heading', { name: i18n.t('conversationList.favorites') })
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('conversationList.groups') }));
+    fireEvent.click(
+      screen.getByRole('button', { name: new RegExp(`^${i18n.t('conversationList.groups')}`) })
+    );
     expect(
       screen.queryByRole('heading', { name: i18n.t('conversationList.favorites') })
     ).not.toBeInTheDocument();

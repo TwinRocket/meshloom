@@ -696,7 +696,22 @@ export interface GroupTextSamplesResponse {
   samples: GroupTextSample[];
 }
 
+/**
+ * Interface preferences, kept with the instance rather than in a browser.
+ *
+ * One Meshloom is reached from a phone and a desktop by the same person — there is
+ * no notion of separate users, a single credential guards the whole instance — so
+ * a preference stored per browser had to be set again on every device.
+ */
+export interface UiPreferences {
+  /** The desktop rail's contents, in order. Empty means the defaults. */
+  nav_rail: string[];
+  /** Theme id, or empty to follow the operating system. */
+  theme: string;
+}
+
 export interface AppSettings {
+  ui_preferences: UiPreferences;
   max_radio_contacts: number;
   auto_decrypt_dm_on_advert: boolean;
   last_message_times: Record<string, number>;
@@ -719,6 +734,7 @@ export interface AppSettings {
 }
 
 export interface AppSettingsUpdate {
+  ui_preferences?: UiPreferences;
   max_radio_contacts?: number;
   auto_decrypt_dm_on_advert?: boolean;
   advert_interval?: number;

@@ -1063,3 +1063,54 @@
 [data-theme='monochrome'] ::-webkit-scrollbar-thumb:hover {
   background: hsl(0 0% 8%);
 }
+
+/* Follow-the-OS, before any script runs.
+   Resolving it in JS meant the page always painted in the dark palette first and
+   then switched — a flash on every load for anyone whose system is light. The
+   guard is `:not([data-theme])`: an explicit choice, which the server writes onto
+   <html> when it serves the page, always wins over the system preference. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --background: 230 24% 97%;
+    --foreground: 228 18% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 228 18% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 228 18% 14%;
+    --primary: 280 72% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 230 16% 93%;
+    --secondary-foreground: 228 14% 28%;
+    --muted: 230 14% 94%;
+    --muted-foreground: 226 8% 42%;
+    --accent: 230 16% 91%;
+    --accent-foreground: 228 18% 14%;
+    --destructive: 0 84% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 228 12% 84%;
+    --input: 228 12% 84%;
+    --ring: 188 80% 32%;
+    --msg-outgoing: 280 40% 94%;
+    --msg-incoming: 230 12% 95%;
+    --status-connected: 145 63% 38%;
+    --status-disconnected: 228 8% 58%;
+    --warning: 42 92% 40%;
+    --warning-foreground: 42 92% 12%;
+    --success: 145 63% 32%;
+    --success-foreground: 0 0% 100%;
+    --info: 188 78% 32%;
+    --info-foreground: 0 0% 100%;
+    --region-override: 280 62% 32%;
+    --favorite: 38 90% 42%;
+    --console: 188 72% 28%;
+    --console-command: 280 62% 34%;
+    --console-bg: 230 14% 94%;
+    --toast-error: 0 40% 96%;
+    --toast-error-foreground: 0 70% 38%;
+    --toast-error-border: 0 30% 86%;
+    --code-editor-bg: 230 12% 94%;
+    --scrollbar: 228 10% 76%;
+    --scrollbar-hover: 280 16% 58%;
+    --overlay: 228 18% 10%;
+  }
+}

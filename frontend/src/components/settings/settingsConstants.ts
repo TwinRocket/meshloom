@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  PanelLeft,
   Bell,
   Database,
   Globe,
@@ -22,6 +23,7 @@ export type SettingsSection =
   | 'database'
   | 'fanout'
   | 'statistics'
+  | 'navigation'
   | 'about';
 
 export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
@@ -33,6 +35,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'fanout',
   'radio-app',
   'database',
+  'navigation',
   'statistics',
   'about',
 ];
@@ -47,6 +50,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   'radio-app': 'settingsNav.radioApp',
   database: 'settingsNav.database',
   fanout: 'settingsNav.fanout',
+  navigation: 'settingsNav.navigation',
   statistics: 'settingsNav.statistics',
   about: 'settingsNav.about',
 };
@@ -60,6 +64,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   'radio-app': SlidersHorizontal,
   database: Database,
   fanout: Share2,
+  navigation: PanelLeft,
   statistics: BarChart3,
   about: Info,
 };

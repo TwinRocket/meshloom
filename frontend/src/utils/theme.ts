@@ -95,6 +95,48 @@ export const THEMES: Theme[] = [
 
 const THEME_KEY = 'meshloom-theme';
 
+/**
+ * Whether the server wrote the theme into the page it served.
+ *
+ * It does that whenever the backend serves the shell, which is the deployed case:
+ * the page then paints in the right theme on its very first frame. It is absent
+ * when the files are served by something else — the dev server, or a static host
+ * in front of `dist/` — and there the cached choice below takes over, so the flash
+ * happens once on a device rather than on every load.
+ */
+/**
+ * Remember a theme locally without applying it.
+ *
+ * The local copy is a cache, not the authority: it is what the next load paints
+ * from before anything is fetched, which is what makes the flash happen once on a
+ * device rather than on every visit.
+ */
+export function cacheTheme(themeId: string): void {
+  try {
+    localStorage.setItem(THEME_KEY, themeId);
+  } catch {
+    // localStorage may be unavailable; the stored value will say so again.
+  }
+}
+
+export function serverChoseTheme(): boolean {
+  return (
+    typeof document !== 'undefined' && document.documentElement.hasAttribute('data-theme-server')
+  );
+}
+
+/**
+ * Apply the theme for the first paint, without undoing the server's work.
+ *
+ * `applyTheme` writes the attribute unconditionally, so calling it at startup
+ * overwrote an injected theme with the local default and reintroduced the flash
+ * it was there to remove.
+ */
+export function applyStartupTheme(): void {
+  if (serverChoseTheme()) return;
+  applyTheme(getSavedTheme());
+}
+
 export function getSavedTheme(): string {
   try {
     return localStorage.getItem(THEME_KEY) ?? 'original';

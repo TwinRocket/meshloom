@@ -257,3 +257,106 @@ body {
 .basemap-inverted .leaflet-tile-pane {
   filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
 }
+
+/* Android chrome.
+   The floating glass pill, the round back control and the header-button compose
+   action are one platform's conventions. Material draws the same jobs differently:
+   a bar edge to edge, an active indicator behind the icon alone, a bare back
+   arrow, and a floating action button for the thing you came to do. Keyed on the
+   attribute the root element carries, so this is a stylesheet and not a branch in
+   every component that happens to draw a control. */
+[data-platform='android'] [data-bottom-nav] {
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: var(--safe-area-bottom);
+}
+
+[data-platform='android'] [data-bottom-nav] .liquid-surface {
+  max-width: none;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+  background: hsl(var(--card));
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 0.5rem 0.25rem 0.25rem;
+}
+
+/* The indicator sits behind the icon, not behind the whole item, so the label
+   stays outside it the way Material draws it. */
+[data-platform='android'] [data-bottom-nav] button[aria-current='page'] {
+  background: transparent;
+}
+
+[data-platform='android'] [data-bottom-nav] button[aria-current='page'] > span:first-of-type {
+  background: hsl(var(--primary) / 0.22);
+  border-radius: 9999px;
+  padding: 0.125rem 1rem;
+}
+
+/* A bare arrow: the circular material is an iOS idiom, and on Android it reads as
+   a button where the platform expects an affordance-free glyph. */
+[data-platform='android'] .glass-back-button {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  margin-left: -0.5rem;
+}
+
+/* Android: the primary action of a list is a floating action button, not a labelled
+   control in the header. Same element, same handler — only where it sits and what
+   it shows changes, so there is nothing to branch on in the component. Placed above
+   the bar using the height the bar actually occupies. */
+[data-platform='android'] [data-compose-action] {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(var(--bottom-nav-height) + 0.75rem);
+  z-index: 30;
+  height: 3.5rem;
+  width: 3.5rem;
+  padding: 0;
+  justify-content: center;
+  /* Material's large FAB corner, not a circle. */
+  border-radius: 1rem;
+  box-shadow:
+    0 6px 16px -6px hsl(0 0% 0% / 0.6),
+    0 2px 4px hsl(0 0% 0% / 0.3);
+}
+
+[data-platform='android'] [data-compose-action] [data-compose-label] {
+  display: none;
+}
+
+[data-platform='android'] [data-compose-action] [data-compose-icon] {
+  display: block;
+}
+
+@media (min-width: 768px) {
+  /* Desktop has no bottom bar and plenty of header room: the labelled control
+     reads better than a control floating over a list. */
+  [data-platform='android'] [data-compose-action] {
+    position: static;
+    height: 2.25rem;
+    width: auto;
+    padding: 0 0.75rem;
+    border-radius: 9999px;
+    box-shadow: none;
+  }
+
+  [data-platform='android'] [data-compose-action] [data-compose-label] {
+    display: inline;
+  }
+
+  [data-platform='android'] [data-compose-action] [data-compose-icon] {
+    display: none;
+  }
+}
+
+/* The send control sits beside the composer rather than inside it on both
+   platforms; Android draws it as a circle. */
+[data-platform='android'] .message-input-shell button[type='submit'] {
+  border-radius: 9999px;
+}

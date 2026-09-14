@@ -65,9 +65,12 @@ import { SettingsGroupHeader } from './settingsPrimitives';
 
 export function SettingsLocalSection({
   onLocalLabelChange,
+  onPersistTheme,
   className,
 }: {
   onLocalLabelChange?: (label: LocalLabel) => void;
+  /** Stores the theme with the instance so every device reaching it follows. */
+  onPersistTheme?: (themeId: string) => void;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -149,8 +152,8 @@ export function SettingsLocalSection({
       <Separator />
 
       <div className="space-y-1">
-        <SettingsGroupHeader title={t('settings.local.colorScheme')} storedOn="browser" instant />
-        <ThemeSelector />
+        <SettingsGroupHeader title={t('settings.local.colorScheme')} storedOn="server" instant />
+        <ThemeSelector onPersist={onPersistTheme} />
         <ThemePreview className="mt-6" />
       </div>
 

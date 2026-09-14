@@ -17,10 +17,20 @@ import { cn } from '../lib/utils';
 interface Props {
   health: HealthStatus | null;
   onOpenRadioSettings?: () => void;
+  /** Opens the read-out this chip summarises. Takes precedence over the settings. */
+  onOpenStatus?: () => void;
+  /** Dot only, for the rail, where there is no room for the word. */
+  compact?: boolean;
   className?: string;
 }
 
-export function RadioStatusChip({ health, onOpenRadioSettings, className }: Props) {
+export function RadioStatusChip({
+  health,
+  onOpenRadioSettings,
+  onOpenStatus,
+  compact,
+  className,
+}: Props) {
   const { t } = useTranslation();
 
   const state = health?.radio_state;
@@ -44,19 +54,26 @@ export function RadioStatusChip({ health, onOpenRadioSettings, className }: Prop
         )}
         aria-hidden="true"
       />
-      <span className="truncate">{label}</span>
+      {/* The word is the accessible name when it cannot be shown. */}
+      <span className={cn('truncate', compact && 'sr-only')}>{label}</span>
     </>
   );
 
   const classes = cn(
-    'inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2 py-1',
+    'inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40',
+    compact ? 'h-7 w-7 justify-center' : 'px-2 py-1',
     'text-[0.6875rem] text-muted-foreground',
     className
   );
 
-  if (!onOpenRadioSettings) {
+  const action = onOpenStatus ?? onOpenRadioSettings;
+
+  if (!action) {
     return (
-      <span className={classes} role="status">
+      // `title` because the compact form hides the word: a screen reader still
+      // hears it, and without this a sighted reader gets a coloured dot and
+      // nothing else — which is the one thing the status must never be.
+      <span className={classes} role="status" title={compact ? label : undefined}>
         {content}
       </span>
     );
@@ -65,12 +82,17 @@ export function RadioStatusChip({ health, onOpenRadioSettings, className }: Prop
   return (
     <button
       type="button"
-      onClick={onOpenRadioSettings}
+      onClick={action}
       className={cn(
         classes,
         'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
       )}
-      aria-label={t('statusBar.radioStatusOpensSettings', { status: label })}
+      title={compact ? label : undefined}
+      aria-label={
+        onOpenStatus
+          ? t('radioStatus.openStatus', { status: label })
+          : t('statusBar.radioStatusOpensSettings', { status: label })
+      }
     >
       {content}
     </button>

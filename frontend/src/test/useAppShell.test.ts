@@ -168,4 +168,31 @@ describe('useAppShell', () => {
     expect(result.current.showCracker).toBe(true);
     expect(result.current.sidebarOpen).toBe(true);
   });
+
+  it('restores where you were when settings are simply closed', async () => {
+    window.location.hash = '#live';
+    const { result } = renderHook(() => useAppShell());
+
+    act(() => result.current.handleToggleSettingsView());
+    await waitFor(() => expect(window.location.hash).toBe('#settings/radio'));
+
+    act(() => result.current.handleCloseSettingsView());
+    await waitFor(() => expect(window.location.hash).not.toContain('settings'));
+  });
+
+  it('does not restore it when leaving settings for somewhere else', async () => {
+    // The restoration is a history.back(), and its popstate lands after the new
+    // destination has been set — which quietly returned the reader to the tool
+    // they had left instead of the one they asked for.
+    window.location.hash = '#live';
+    const { result } = renderHook(() => useAppShell());
+
+    act(() => result.current.handleToggleSettingsView());
+    await waitFor(() => expect(window.location.hash).toBe('#settings/radio'));
+
+    act(() => result.current.handleCloseSettingsView(false));
+
+    await waitFor(() => expect(window.location.hash).not.toContain('settings'));
+    expect(window.location.hash).not.toBe('#live');
+  });
 });

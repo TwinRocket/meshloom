@@ -29,6 +29,7 @@ import { SettingsCommunitySection } from './settings/SettingsCommunitySection';
 import { SettingsRadioAppSection } from './settings/SettingsRadioAppSection';
 import { SettingsFanoutSection } from './settings/SettingsFanoutSection';
 import { SettingsDatabaseSection } from './settings/SettingsDatabaseSection';
+import { SettingsNavigationSection } from './settings/SettingsNavigationSection';
 import { SettingsStatisticsSection } from './settings/SettingsStatisticsSection';
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 
@@ -131,6 +132,7 @@ export function SettingsModal(props: SettingsModalProps) {
     'radio-app': false,
     fanout: false,
     database: false,
+    navigation: false,
     statistics: false,
     about: false,
   });
@@ -242,6 +244,14 @@ export function SettingsModal(props: SettingsModalProps) {
           {isSectionVisible('local') && (
             <SettingsLocalSection
               onLocalLabelChange={onLocalLabelChange}
+              onPersistTheme={(theme) =>
+                void onSaveAppSettings({
+                  ui_preferences: {
+                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                    theme,
+                  },
+                })
+              }
               className={sectionContentClass}
             />
           )}
@@ -334,6 +344,27 @@ export function SettingsModal(props: SettingsModalProps) {
               onHealthRefresh={onHealthRefresh}
               className={sectionContentClass}
             />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('navigation') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('navigation')}
+          {isSectionVisible('navigation') && (
+            <div className={sectionContentClass}>
+              <SettingsNavigationSection
+                order={appSettings?.ui_preferences?.nav_rail ?? []}
+                onChange={(nav_rail) =>
+                  void onSaveAppSettings({
+                    ui_preferences: {
+                      nav_rail,
+                      theme: appSettings?.ui_preferences?.theme ?? '',
+                    },
+                  })
+                }
+              />
+            </div>
           )}
         </section>
       )}

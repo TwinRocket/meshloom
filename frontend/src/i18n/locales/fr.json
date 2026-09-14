@@ -1544,7 +1544,8 @@
     "database": "Base de données",
     "fanout": "MQTT et automatisation",
     "statistics": "Statistiques",
-    "about": "À propos"
+    "about": "À propos",
+    "navigation": "Navigation"
   },
   "chatHeader": {
     "viewContactInfo": "Voir la fiche du contact",
@@ -2351,7 +2352,9 @@
     "searchDescription": "Chercher dans tous les messages de ce nœud",
     "crackerDescription": "Essayer les clés connues sur le trafic de canal non déchiffré",
     "markAllReadDescription": "Effacer tous les compteurs de non-lus",
-    "liveDescription": "Les paquets sur la carte au moment où ils sont entendus"
+    "liveDescription": "Les paquets sur la carte au moment où ils sont entendus",
+    "crackerQueued_one": "{{count}} clé encore à essayer",
+    "crackerQueued_other": "{{count}} clés encore à essayer"
   },
   "settingsIndex": {
     "title": "Réglages",
@@ -2359,5 +2362,32 @@
     "groupApp": "Application",
     "groupData": "Données",
     "back": "Réglages"
+  },
+  "settingsNavigation": {
+    "railTitle": "Barre de gauche",
+    "railHelp": "Ce que contient la barre à côté des conversations, et dans quel ordre. Desktop uniquement — sur téléphone la barre du bas en contient quatre.",
+    "permanent": "Toujours",
+    "moveUp": "Remonter {{name}}",
+    "moveDown": "Descendre {{name}}",
+    "remove": "Retirer {{name}} de la barre",
+    "removeShort": "Retirer",
+    "available": "Ajouter à la barre",
+    "reset": "Rétablir les valeurs par défaut",
+    "saved": "Enregistré",
+    "configureRail": "Organiser la barre"
+  },
+  "radioStatus": {
+    "transport": "Connexion",
+    "notConfigured": "Aucun transport configuré",
+    "model": "Radio",
+    "firmware": "Micrologiciel",
+    "proxy": "Proxy",
+    "proxyListening": "Sert des clients sur le port {{port}}",
+    "version": "Meshloom",
+    "connectedHelp": "Les messages peuvent partir, et tout ce que la radio entend est enregistré.",
+    "disconnectedHelp": "Rien ne peut partir et rien n'est entendu tant que la radio n'est pas joignable.",
+    "openSettings": "Réglages radio",
+    "close": "Fermer",
+    "openStatus": "État de la radio — {{status}}"
   }
 }

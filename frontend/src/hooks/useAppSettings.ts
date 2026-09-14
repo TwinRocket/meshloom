@@ -4,7 +4,31 @@ import { takePrefetchOrFetch } from '../prefetch';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
 import { initLastMessageTimes } from '../utils/conversationState';
+import { applyTheme, cacheTheme, getSavedTheme, serverChoseTheme } from '../utils/theme';
 import type { AppSettings, AppSettingsUpdate } from '../types';
+
+/**
+ * Take the instance's theme, and keep a local copy of it.
+ *
+ * The copy is what makes the flash happen once on a device rather than on every
+ * load: the next visit paints from it before anything is fetched. It is a cache,
+ * never the authority — the stored value wins whenever the two disagree, which is
+ * how a theme picked on one device reaches the others.
+ *
+ * Skipped entirely when the server wrote the theme into the page, since there is
+ * then nothing to correct and no frame in which the wrong one was shown.
+ */
+function adoptStoredTheme(stored: string | undefined): void {
+  if (stored === undefined) return;
+  if (serverChoseTheme()) {
+    // Still cached, so a later load served by something other than the backend
+    // starts from the right theme instead of the default.
+    cacheTheme(stored);
+    return;
+  }
+  if (stored === getSavedTheme()) return;
+  applyTheme(stored);
+}
 
 export function useAppSettings() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -17,6 +41,7 @@ export function useAppSettings() {
       const data = await takePrefetchOrFetch('settings', api.getSettings);
       setAppSettings(data);
       initLastMessageTimes(data.last_message_times ?? {});
+      adoptStoredTheme(data.ui_preferences?.theme);
     } catch (err) {
       console.error('Failed to fetch app settings:', err);
     }

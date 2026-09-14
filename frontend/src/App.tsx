@@ -881,6 +881,7 @@ export function App() {
           setShowPathHopWidth={setShowPathHopWidth}
         >
           <AppShell
+            navRailOrder={appSettings?.ui_preferences?.nav_rail}
             localLabel={localLabel}
             showNewMessage={showNewMessage}
             showBulkAddResults={bulkAddResult !== null}

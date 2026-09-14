@@ -3,12 +3,18 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 
 INDEX_CACHE_CONTROL = "no-store"
+# Theme ids are slugs; anything else does not reach an HTML attribute.
+_THEME_ID_PATTERN = re.compile(r"[a-z0-9-]{1,40}")
+# "Follow the operating system" is a choice the server cannot resolve — it depends
+# on the device asking. It injects no attribute, which is what lets the
+# prefers-color-scheme rules answer, since those are guarded on :not([data-theme]).
+_FOLLOW_OS_THEME_ID = "follow-os"
 ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 STATIC_FILE_CACHE_CONTROL = "public, max-age=3600"
 FRONTEND_BUILD_INSTRUCTIONS = (
@@ -63,6 +69,43 @@ class CacheControlStaticFiles(StaticFiles):
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = self.cache_control
         return response
+
+
+async def _index_html_with_theme(index_file: Path) -> str:
+    """The SPA shell with the stored theme already on the root element.
+
+    The theme decides the page's background, so a page that learns it from a fetch
+    paints the default first and then changes — a flash on every load, on every
+    device, including the first visit where no local copy could have helped. The
+    server knows the answer when it serves the page, so it says so in the page.
+
+    Nothing caches this: the service worker has no fetch handler and the shell is
+    sent `no-store`, so the injected value can never be a stale one.
+
+    An empty theme means "follow the operating system"; nothing is injected and the
+    `prefers-color-scheme` block in themes.css answers before any script runs.
+    """
+    html = index_file.read_text(encoding="utf-8")
+    try:
+        from app.repository import AppSettingsRepository
+
+        theme = (await AppSettingsRepository.get()).ui_preferences.theme.strip()
+    except Exception:
+        # A settings read must never be what stops the app from being served.
+        logger.exception("Could not read the stored theme; serving the shell unstyled")
+        return html
+
+    # `data-theme-server` says the server answered, which is not the same as it
+    # having a theme: following the operating system is an answer and injects no
+    # theme at all. Without the marker the client cannot tell that case from being
+    # served statically, and would override the server with its own cached value.
+    marker = "data-theme-server"
+
+    # Ids come from a fixed list in the frontend, but this value ends up inside an
+    # HTML attribute, so it is checked here rather than trusted.
+    if theme == _FOLLOW_OS_THEME_ID or not theme or not _THEME_ID_PATTERN.fullmatch(theme):
+        return html.replace("<html ", f"<html {marker} ", 1)
+    return html.replace("<html ", f'<html data-theme="{theme}" {marker} ', 1)
 
 
 def _file_response(path: Path, *, cache_control: str) -> FileResponse:
@@ -149,8 +192,11 @@ def register_frontend_static_routes(app: FastAPI, frontend_dir: Path) -> bool:
 
     @app.get("/")
     async def serve_index():
-        """Serve the frontend index.html."""
-        return _file_response(index_file, cache_control=INDEX_CACHE_CONTROL)
+        """Serve the frontend index.html, already carrying the stored theme."""
+        return HTMLResponse(
+            await _index_html_with_theme(index_file),
+            headers={"Cache-Control": INDEX_CACHE_CONTROL},
+        )
 
     @app.get("/site.webmanifest")
     async def serve_webmanifest():

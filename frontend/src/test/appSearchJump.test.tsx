@@ -68,12 +68,10 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/StatusBar', () => ({
-  StatusBar: () => <div data-testid="status-bar" />,
-}));
-
-vi.mock('../components/Sidebar', () => ({
-  Sidebar: ({
+// The navigation surface that takes a conversation and reports the active one.
+// It was the sidebar; it is the conversation list column now.
+vi.mock('../components/ConversationListView', () => ({
+  ConversationListView: ({
     onSelectConversation,
     activeConversation,
   }: {
@@ -111,6 +109,22 @@ vi.mock('../components/Sidebar', () => ({
     </div>
   ),
 }));
+
+vi.mock('../components/ConversationPane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ConversationPane')>();
+  return {
+    ConversationPane: (props: React.ComponentProps<typeof actual.ConversationPane>) => (
+      <>
+        <div data-testid="active-conversation">
+          {props.activeConversation
+            ? `${props.activeConversation.type}:${props.activeConversation.id}`
+            : 'none'}
+        </div>
+        <actual.ConversationPane {...props} />
+      </>
+    ),
+  };
+});
 
 vi.mock('../components/ChatHeader', () => ({
   ChatHeader: () => <div data-testid="chat-header" />,
@@ -221,6 +235,7 @@ describe('App search jump target handling', () => {
       path_hash_mode_supported: false,
     });
     mocks.api.getSettings.mockResolvedValue({
+      ui_preferences: { nav_rail: [], theme: '' },
       max_radio_contacts: 200,
       auto_decrypt_dm_on_advert: false,
       last_message_times: {},

@@ -62,12 +62,12 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/StatusBar', () => ({
-  StatusBar: () => <div data-testid="status-bar" />,
-}));
-
-vi.mock('../components/Sidebar', () => ({
-  Sidebar: ({
+// These tests are about hash resolution, so they read the result off the pane that
+// consumes it. Reading it off a navigation surface broke twice: the sidebar was
+// deleted, and the list column is only rendered for the destinations that have a
+// list. The pane is mounted whatever is open.
+vi.mock('../components/ConversationListView', () => ({
+  ConversationListView: ({
     activeConversation,
   }: {
     activeConversation: { type: string; id: string; name: string } | null;
@@ -79,6 +79,22 @@ vi.mock('../components/Sidebar', () => ({
     </div>
   ),
 }));
+
+vi.mock('../components/ConversationPane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ConversationPane')>();
+  return {
+    ConversationPane: (props: React.ComponentProps<typeof actual.ConversationPane>) => (
+      <>
+        <div data-testid="active-conversation">
+          {props.activeConversation
+            ? `${props.activeConversation.type}:${props.activeConversation.id}:${props.activeConversation.name}`
+            : 'none'}
+        </div>
+        <actual.ConversationPane {...props} />
+      </>
+    ),
+  };
+});
 
 vi.mock('../components/MessageList', () => ({
   MessageList: () => <div data-testid="message-list" />,
@@ -195,6 +211,7 @@ describe('App startup hash resolution', () => {
       path_hash_mode_supported: false,
     });
     mocks.api.getSettings.mockResolvedValue({
+      ui_preferences: { nav_rail: [], theme: '' },
       max_radio_contacts: 200,
       auto_decrypt_dm_on_advert: false,
       last_message_times: {},

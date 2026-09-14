@@ -1544,7 +1544,8 @@
     "database": "Database",
     "fanout": "MQTT & Automation",
     "statistics": "Statistics",
-    "about": "About"
+    "about": "About",
+    "navigation": "Navigation"
   },
   "chatHeader": {
     "viewContactInfo": "View contact info",
@@ -2351,7 +2352,9 @@
     "searchDescription": "Search every message on this node",
     "crackerDescription": "Try known keys against undecrypted channel traffic",
     "markAllReadDescription": "Clear every unread badge",
-    "liveDescription": "Packets landing on the map as they are heard"
+    "liveDescription": "Packets landing on the map as they are heard",
+    "crackerQueued_one": "{{count}} key still to try",
+    "crackerQueued_other": "{{count}} keys still to try"
   },
   "settingsIndex": {
     "title": "Settings",
@@ -2359,5 +2362,32 @@
     "groupApp": "Application",
     "groupData": "Data",
     "back": "Settings"
+  },
+  "settingsNavigation": {
+    "railTitle": "Left rail",
+    "railHelp": "What the rail beside the conversations holds, and in what order. Desktop only — the bar on a phone holds four.",
+    "permanent": "Always",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "remove": "Remove {{name}} from the rail",
+    "removeShort": "Remove",
+    "available": "Add to the rail",
+    "reset": "Reset to defaults",
+    "saved": "Saved",
+    "configureRail": "Arrange the rail"
+  },
+  "radioStatus": {
+    "transport": "Connection",
+    "notConfigured": "No transport configured",
+    "model": "Radio",
+    "firmware": "Firmware",
+    "proxy": "Proxy",
+    "proxyListening": "Serving clients on port {{port}}",
+    "version": "Meshloom",
+    "connectedHelp": "Messages can be sent and everything the radio hears is being recorded.",
+    "disconnectedHelp": "Nothing can be sent and nothing is being heard until the radio is reachable again.",
+    "openSettings": "Radio settings",
+    "close": "Close",
+    "openStatus": "Radio status — {{status}}"
   }
 }

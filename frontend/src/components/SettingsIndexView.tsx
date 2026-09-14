@@ -26,18 +26,25 @@ interface Props {
   onSelectSection: (section: SettingsSection) => void;
   disabledSections?: SettingsSection[];
   health?: HealthStatus | null;
+  /** The section open beside this list. Desktop only; a phone shows one at a time. */
+  activeSection?: SettingsSection;
 }
 
 const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
   { titleKey: 'settingsIndex.groupRadio', sections: ['radio', 'proxy', 'radio-app'] },
   {
     titleKey: 'settingsIndex.groupApp',
-    sections: ['local', 'notifications', 'community', 'fanout'],
+    sections: ['local', 'navigation', 'notifications', 'community', 'fanout'],
   },
   { titleKey: 'settingsIndex.groupData', sections: ['database', 'statistics', 'about'] },
 ];
 
-export function SettingsIndexView({ onSelectSection, disabledSections = [], health }: Props) {
+export function SettingsIndexView({
+  onSelectSection,
+  disabledSections = [],
+  health,
+  activeSection,
+}: Props) {
   const { t } = useTranslation();
 
   return (
@@ -59,16 +66,22 @@ export function SettingsIndexView({ onSelectSection, disabledSections = [], heal
               {sections.map((section, index) => {
                 const Icon = SETTINGS_SECTION_ICONS[section];
                 const disabled = disabledSections.includes(section);
+                const current = activeSection === section;
                 return (
                   <li key={section}>
                     <button
                       type="button"
                       disabled={disabled}
+                      aria-current={current ? 'page' : undefined}
                       onClick={() => onSelectSection(section)}
                       className={cn(
                         'flex w-full items-center gap-3 px-4 py-3.5 text-left',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                        disabled ? 'cursor-not-allowed opacity-50' : 'active:bg-accent/40'
+                        disabled
+                          ? 'cursor-not-allowed opacity-50'
+                          : current
+                            ? 'bg-accent/60'
+                            : 'active:bg-accent/40 md:hover:bg-accent/30'
                       )}
                     >
                       <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
