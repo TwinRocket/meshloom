@@ -57,11 +57,7 @@ vi.mock('@deck.gl/layers', () => ({
   },
 }));
 
-function waypoint(
-  lat: number,
-  lon: number,
-  extras: Partial<LiveWaypoint> = {}
-): LiveWaypoint {
+function waypoint(lat: number, lon: number, extras: Partial<LiveWaypoint> = {}): LiveWaypoint {
   return {
     lat,
     lon,
@@ -172,8 +168,9 @@ describe('LiveMapController', () => {
       new Set()
     );
     const first = engine.getShotSnapshots();
-    const originCount = engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))
-      .length;
+    const originCount = engine
+      .getRippleSnapshots()
+      .filter((row) => row.id.startsWith('origin:')).length;
     expect(first).toHaveLength(1);
     expect(originCount).toBe(1);
 

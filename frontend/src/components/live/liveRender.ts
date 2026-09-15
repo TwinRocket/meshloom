@@ -215,10 +215,7 @@ export function pinVisualRadius(roleRadius: number): number {
   return roleRadius * LIVE_PIN_VISUAL_RADIUS_SCALE;
 }
 
-export function rippleRadii(
-  pinRadius: number,
-  t: number
-): { radius: number; lineAlpha: number } {
+export function rippleRadii(pinRadius: number, t: number): { radius: number; lineAlpha: number } {
   const progress = clamp01(t);
   const visual = pinVisualRadius(pinRadius);
   return {

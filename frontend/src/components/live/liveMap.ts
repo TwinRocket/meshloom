@@ -480,13 +480,7 @@ export class LiveMapController {
       const pin = findPinnedHop(shot.poly.vertexToken[i], shot.poly.vertexPubkey[i], this.nodes);
       shot.rippledHops.add(i);
       if (!pin) continue;
-      this.pushRipple(
-        `${shot.id}:hop:${i}`,
-        [pin.lon, pin.lat],
-        shot.obs,
-        now,
-        pin
-      );
+      this.pushRipple(`${shot.id}:hop:${i}`, [pin.lon, pin.lat], shot.obs, now, pin);
     }
   }
 

@@ -8,9 +8,7 @@ from app.path_utils import calculate_packet_hash
 
 
 @pytest.mark.asyncio
-async def test_raw_packet_broadcast_includes_firmware_packet_hash(
-    test_db, captured_broadcasts
-):
+async def test_raw_packet_broadcast_includes_firmware_packet_hash(test_db, captured_broadcasts):
     from app.packet_processor import process_raw_packet
 
     raw = bytes([0x11, 0x00, 0xDE, 0xAD])

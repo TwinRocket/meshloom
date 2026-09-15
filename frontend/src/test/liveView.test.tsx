@@ -230,14 +230,14 @@ describe('LiveView', () => {
     await waitFor(() => expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled());
     rerender(<LiveView contacts={[gpsContact]} config={null} communityEnabled />);
     await waitFor(() => {
-      const last = spy.mock.calls.at(-1)?.[0] ?? [];
-      expect(last.some((node) => node.public_key === 'dd'.repeat(32) && node.name === 'NewPin')).toBe(
-        true
-      );
+      const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
+      expect(
+        last.some((node) => node.public_key === 'dd'.repeat(32) && node.name === 'NewPin')
+      ).toBe(true);
     });
     rerender(<LiveView contacts={[]} config={null} communityEnabled />);
     await waitFor(() => {
-      const last = spy.mock.calls.at(-1)?.[0] ?? [];
+      const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
       expect(last.some((node) => node.public_key === 'dd'.repeat(32))).toBe(false);
     });
     spy.mockRestore();
