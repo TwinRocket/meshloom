@@ -2386,5 +2386,11 @@
     "openSettings": "Radio settings",
     "close": "Close",
     "openStatus": "Radio status — {{status}}"
+  },
+  "messagePreview": {
+    "gif": "GIF",
+    "location": "Location",
+    "locationNamed": "Location · {{label}}",
+    "reaction": "Reacted {{emoji}}"
   }
 }
