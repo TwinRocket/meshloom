@@ -465,7 +465,8 @@ export class LiveMapController {
     this.spawnOriginRipple([representative], routeKind, startedAt);
     this.spawnShot(representative, routeKind, startedAt, { originRipple: false });
     const first = firstHopWaypoint(representative);
-    if (first) released.spawnedKeys.add(`${first.token.trim().toLowerCase()}@${first.lat},${first.lon}`);
+    if (first)
+      released.spawnedKeys.add(`${first.token.trim().toLowerCase()}@${first.lat},${first.lon}`);
     if (first?.pubkey) released.spawnedKeys.add(first.pubkey.trim().toLowerCase());
     const plan = fanoutFromOrigin({ observations: kept }, pins, released.spawnedKeys);
     this.applyFanout(plan, startedAt, false);

@@ -256,7 +256,8 @@ describe('LiveMapController', () => {
     expect(laser?.pointCount).toBe(3);
     expect(laser?.firstPoint).toEqual([4.84, 45.76]);
     expect(laser?.lastPoint).toEqual([5.08, 45.72]);
-    expect(laser?.vertexKinds?.at(-1)).toBe('ear');
+    const laserKinds = laser?.vertexKinds;
+    expect(laserKinds?.[laserKinds.length - 1]).toBe('ear');
   });
 
   it('draws hop→ear for a community advert like ea6e0c86 without origin A', async () => {
@@ -297,7 +298,8 @@ describe('LiveMapController', () => {
     expect(shots[0].firstPoint).toEqual([7.210411, 43.685501]);
     expect(shots[0].lastPoint).toEqual([7.186681, 43.660905]);
     expect(shots[0].vertexKinds).toEqual(['hop', 'ear']);
-    expect(shots[0].vertexKinds?.at(-1)).toBe('ear');
+    const shotKinds = shots[0].vertexKinds;
+    expect(shotKinds?.[shotKinds.length - 1]).toBe('ear');
   });
 
   it('coalesces the same packet_hash + first hop + ear_id into one shot', async () => {

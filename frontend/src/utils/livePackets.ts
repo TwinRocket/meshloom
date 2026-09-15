@@ -447,7 +447,9 @@ function primaryPolylineCoversOriginHop(
   pins: ReadonlyArray<LiveOriginPin>
 ): boolean {
   const waypoints = prependOrigin(obs, pins);
-  const hasOrigin = waypoints.some((point) => point.kind === 'origin' && sameLocation(point, origin));
+  const hasOrigin = waypoints.some(
+    (point) => point.kind === 'origin' && sameLocation(point, origin)
+  );
   const hasHop = waypoints.some((point) => point.kind === 'hop' && sameLocation(point, hop));
   return hasOrigin && hasHop;
 }
@@ -607,7 +609,11 @@ export function asCommunityPacket(value: unknown): CommunityPacket | null {
     const origin = readOrigin(value.origin);
     if (origin) packet.origin = origin;
   }
-  if (value.route_kind === 'flood' || value.route_kind === 'direct' || value.route_kind === 'unknown') {
+  if (
+    value.route_kind === 'flood' ||
+    value.route_kind === 'direct' ||
+    value.route_kind === 'unknown'
+  ) {
     packet.route_kind = value.route_kind;
   }
   return packet;

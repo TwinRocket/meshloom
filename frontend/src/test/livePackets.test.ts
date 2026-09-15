@@ -439,7 +439,7 @@ describe('firmware hash8 and origin resolution', () => {
     expect(observationFromCommunity(packet())?.routeKind).toBe('unknown');
     expect(observationFromCommunity(packet({ route_kind: 'flood' }))?.routeKind).toBe('flood');
     expect(asCommunityPacket(packet({ route_kind: 'direct' }))?.route_kind).toBe('direct');
-    expect(asCommunityPacket({ ...packet(), route_kind: 'nope' } as CommunityPacket)?.route_kind).toBeUndefined();
+    expect(asCommunityPacket({ ...packet(), route_kind: 'nope' })?.route_kind).toBeUndefined();
   });
 
   it('coalesces on packet hash, first hop token, and ear_id', () => {
