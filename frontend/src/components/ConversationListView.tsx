@@ -6,6 +6,7 @@ import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
 import { getStateKey } from '../utils/conversationState';
 import { describeMessagePreview } from '../utils/messagePreview';
+import { countUnreadConversations } from '../utils/unreadConversations';
 import { cn } from '../lib/utils';
 
 /**
@@ -157,7 +158,12 @@ export function ConversationListView({
     });
   }, [rows, filter, query]);
 
-  const unreadTotal = useMemo(() => rows.filter((row) => row.unread > 0).length, [rows]);
+  // The same count the bar and the rail show, from the same function: three
+  // places asking one question rather than three.
+  const unreadTotal = useMemo(
+    () => countUnreadConversations(channels, contacts, unreadCounts),
+    [channels, contacts, unreadCounts]
+  );
 
   // How many conversations each filter would leave. Shown on the chips that answer
   // a question — how many are unread, how many groups — rather than on "all", where

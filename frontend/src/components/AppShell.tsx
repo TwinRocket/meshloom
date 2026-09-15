@@ -19,6 +19,7 @@ import { ConversationListView } from './ConversationListView';
 import { ToolsView } from './ToolsView';
 import { SettingsIndexView } from './SettingsIndexView';
 import type { NavigationData } from './navigationData';
+import { countUnreadConversations } from '../utils/unreadConversations';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -216,9 +217,14 @@ export function AppShell({
         : mobileScreen === 'tools'
           ? 'tools'
           : 'conversations';
-  const unreadTotal = Object.values(sidebarProps.unreadCounts ?? {}).reduce(
-    (sum, n) => sum + (n > 0 ? 1 : 0),
-    0
+  // Counted from the conversations, not from the counter map: a counter can
+  // outlive the conversation it belonged to, and counting entries then advertises
+  // something the reader cannot open — the badge said one while the unread filter
+  // said there was nothing.
+  const unreadTotal = countUnreadConversations(
+    sidebarProps.channels,
+    sidebarProps.contacts,
+    sidebarProps.unreadCounts ?? {}
   );
 
   const handleBackToTools = useCallback(() => {
