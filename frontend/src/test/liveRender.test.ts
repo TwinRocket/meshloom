@@ -17,6 +17,7 @@ import {
   LIVE_PACKET_MS,
   LIVE_REMANENCE_MS,
   MAX_CONCURRENT_ANIMS,
+  MAX_PENDING_ANIMS,
   LIVE_RIPPLE_MS,
   LIVE_RIPPLE_SCALE,
   LIVE_ROLE_LEGEND,
@@ -273,6 +274,7 @@ describe('laser travel and remanence', () => {
     expect(LIVE_HOLD_MS).toBeGreaterThanOrEqual(200);
     expect(LIVE_HOLD_MS).toBeLessThanOrEqual(400);
     expect(MAX_CONCURRENT_ANIMS).toBe(20);
+    expect(MAX_PENDING_ANIMS).toBe(48);
     expect(laserTravel(3, 0, 1850).headT).toBe(0);
     expect(laserTravel(3, 925, 1850).headT).toBeCloseTo(0.5);
     expect(laserTravel(1, 1399, 1400).finished).toBe(false);

@@ -13,6 +13,7 @@ import {
   LOCAL_RADIO_VISUAL,
   MAX_CONCURRENT_ANIMS,
   MAX_LIVE_SHOTS,
+  MAX_PENDING_ANIMS,
   buildRoleIconAtlas,
   cloneLonLat,
   cloneLonLatPath,
@@ -178,6 +179,12 @@ interface LocalRadioMarker {
   lat: number;
 }
 
+interface PendingShot {
+  id: string;
+  obs: LiveObservation;
+  poly: LaserPolyline;
+}
+
 export interface LiveMapOptions {
   onHover?: HoverHandler;
   now?: () => number;
@@ -221,10 +228,13 @@ export class LiveMapController {
   private localHash8 = new Set<string>();
   private seen = new Set<string>();
   private shots: LaserShot[] = [];
+  private pendingShots: PendingShot[] = [];
+  private droppedPending = 0;
+  private droppedCatchup = 0;
   private buckets = new Map<string, HoldBucket>();
   private released = new Map<string, ReleasedBucket>();
   private ripples: RippleSprite[] = [];
-  private nextBucketStagger = 0;
+  private nextFreeStartAt = 0;
   private nodes: DirectoryMapNode[] = [];
   private geometryNodes: DirectoryMapNode[] = [];
   private localRadio: LocalRadioMarker | null = null;
@@ -401,6 +411,18 @@ export class LiveMapController {
     return this.buckets.size;
   }
 
+  pendingAnimCount(): number {
+    return this.pendingShots.length;
+  }
+
+  droppedPendingCount(): number {
+    return this.droppedPending;
+  }
+
+  droppedCatchupCount(): number {
+    return this.droppedCatchup;
+  }
+
   private now(): number {
     if (this.pausedAt != null) return this.pausedAt - this.clockOffset;
     return this.wallClock() - this.clockOffset;
@@ -446,11 +468,13 @@ export class LiveMapController {
 
   private releaseBucket(bucket: HoldBucket, now: number): void {
     const spawnIds = selectCatchup(bucket.observations.map((obs) => obs.id));
+    const trimmed = bucket.observations.length - spawnIds.size;
+    if (trimmed > 0) this.droppedCatchup += trimmed;
     const kept = bucket.observations.filter((obs) => spawnIds.has(obs.id));
     let routeKind: LiveRouteKind = 'unknown';
     for (const obs of kept) routeKind = mergeRouteKind(routeKind, obs.routeKind);
-    const startedAt = now + this.nextBucketStagger * LIVE_STAGGER_MS;
-    this.nextBucketStagger += 1;
+    const startedAt =
+      this.inFlightCount() >= MAX_CONCURRENT_ANIMS ? null : this.allocateStartTime(now);
     const pins = this.geometryPins();
     const representative = kept[kept.length - 1];
     const origin = representative ? resolveOriginPin(representative, pins) : null;
@@ -462,7 +486,9 @@ export class LiveMapController {
     };
     this.released.set(bucket.key, released);
     if (!representative) return;
-    this.spawnOriginRipple([representative], routeKind, startedAt);
+    if (startedAt != null) {
+      this.spawnOriginRipple([representative], routeKind, startedAt);
+    }
     this.spawnShot(representative, routeKind, startedAt, { originRipple: false });
     const first = firstHopWaypoint(representative);
     if (first)
@@ -479,10 +505,10 @@ export class LiveMapController {
     for (const flash of plan.earFlashes) released.spawnedKeys.add(flash.key);
   }
 
-  private applyFanout(plan: FanoutPlan, startedAt: number, originRipple: boolean): void {
+  private applyFanout(plan: FanoutPlan, startedAt: number | null, originRipple: boolean): void {
     const sample =
       plan.lasers[0]?.obs ?? plan.hopFlashes[0]?.obs ?? plan.earFlashes[0]?.obs ?? null;
-    if (originRipple && plan.origin && sample) {
+    if (originRipple && plan.origin && sample && startedAt != null) {
       this.pushRipple(
         `origin:${plan.origin.public_key}`,
         [plan.origin.lon, plan.origin.lat],
@@ -513,7 +539,7 @@ export class LiveMapController {
     lat: number,
     lon: number,
     kind: LiveWaypoint['kind'],
-    startedAt: number
+    startedAt: number | null
   ): void {
     this.pushPolylineShot(
       id,
@@ -551,7 +577,7 @@ export class LiveMapController {
   private spawnShot(
     obs: LiveObservation,
     routeKind: LiveRouteKind,
-    startedAt: number,
+    startedAt: number | null,
     opts: { originRipple: boolean }
   ): void {
     const withOrigin: LiveObservation = {
@@ -560,8 +586,43 @@ export class LiveMapController {
     };
     const poly = drawableLaserPolyline(withOrigin, routeKind);
     this.pushPolylineShot(obs.id, withOrigin, poly, startedAt);
-    if (opts.originRipple) {
+    if (opts.originRipple && startedAt != null) {
       this.spawnOriginRipple([obs], routeKind, startedAt);
+    }
+  }
+
+  private maxStaggerAheadMs(): number {
+    return (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
+  }
+
+  /** Space one wave of releases. A gap longer than LIVE_STAGGER_MS snaps back to now. */
+  private allocateStartTime(now: number): number | null {
+    const startedAt = Math.max(now, this.nextFreeStartAt);
+    if (startedAt - now > this.maxStaggerAheadMs()) return null;
+    this.nextFreeStartAt = startedAt + LIVE_STAGGER_MS;
+    return startedAt;
+  }
+
+  private inFlightCount(): number {
+    const now = this.now();
+    return this.shots.filter((shot) => shot.finishedAt == null && shot.startedAt <= now).length;
+  }
+
+  private enqueuePendingShot(id: string, obs: LiveObservation, poly: LaserPolyline): void {
+    this.pendingShots.push({ id, obs, poly });
+    while (this.pendingShots.length > MAX_PENDING_ANIMS) {
+      this.pendingShots.shift();
+      this.droppedPending += 1;
+    }
+  }
+
+  private drainPendingShots(now: number): void {
+    while (this.inFlightCount() < MAX_CONCURRENT_ANIMS && this.pendingShots.length > 0) {
+      const startedAt = this.allocateStartTime(now);
+      if (startedAt == null) break;
+      const item = this.pendingShots.shift();
+      if (!item) break;
+      this.startPolylineShot(item.id, item.obs, item.poly, startedAt);
     }
   }
 
@@ -569,11 +630,22 @@ export class LiveMapController {
     id: string,
     obs: LiveObservation,
     poly: LaserPolyline,
-    startedAt: number
+    startedAt: number | null
   ): void {
     if (poly.points.length < 1) return;
-    const inFlight = this.shots.filter((shot) => shot.finishedAt == null).length;
-    if (inFlight >= MAX_CONCURRENT_ANIMS) return;
+    if (startedAt == null || this.inFlightCount() >= MAX_CONCURRENT_ANIMS) {
+      this.enqueuePendingShot(id, obs, poly);
+      return;
+    }
+    this.startPolylineShot(id, obs, poly, startedAt);
+  }
+
+  private startPolylineShot(
+    id: string,
+    obs: LiveObservation,
+    poly: LaserPolyline,
+    startedAt: number
+  ): void {
     const twin = obs.source === 'community' && observationHasLocalTwin(obs, this.localHash8);
     const edges = placeableEdges(poly.points.length);
     this.shots.push({
@@ -655,6 +727,7 @@ export class LiveMapController {
   private hasMovingWork(): boolean {
     const now = this.now();
     if (this.buckets.size > 0) return true;
+    if (this.pendingShots.length > 0) return true;
     if (this.ripples.some((ripple) => now - ripple.startedAt < LIVE_RIPPLE_MS)) return true;
     return this.shots.some(
       (shot) => shot.finishedAt == null || now - shot.finishedAt < shot.remanenceMs
@@ -873,10 +946,6 @@ export class LiveMapController {
 
     const nextShots: LaserShot[] = [];
     for (const shot of this.shots) {
-      if (!observationPassesFilters(shot.obs, this.filters)) {
-        nextShots.push(shot);
-        continue;
-      }
       const elapsed = now - shot.startedAt;
       if (elapsed < 0) {
         nextShots.push(shot);
@@ -886,6 +955,7 @@ export class LiveMapController {
       if (travel.finished && shot.finishedAt == null) shot.finishedAt = now;
       if (shot.finishedAt != null && now - shot.finishedAt >= shot.remanenceMs) continue;
       nextShots.push(shot);
+      if (!observationPassesFilters(shot.obs, this.filters)) continue;
       this.maybeRippleHops(shot, travel.headT, now);
 
       const fade =
@@ -943,6 +1013,7 @@ export class LiveMapController {
       }
     }
     this.shots = nextShots;
+    this.drainPendingShots(now);
 
     let nodeCount = 0;
     for (const node of this.nodes) {

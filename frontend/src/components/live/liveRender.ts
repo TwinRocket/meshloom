@@ -6,6 +6,7 @@ import type {
 } from '../../types';
 import { isValidLocation } from '../../utils/pathUtils';
 import {
+  LIVE_PACKET_TYPES,
   LIVE_TYPE_COLORS,
   isStaleLiveTime,
   liveOpacity,
@@ -20,7 +21,7 @@ import {
   type LiveWaypoint,
 } from '../../utils/livePackets';
 
-export const LIVE_PACKET_TYPES: CommunityPacketType[] = ['advert', 'text', 'ack', 'trace', 'other'];
+export { LIVE_PACKET_TYPES };
 
 /** 0-edge (1-point flash) travel. Multi-hop uses laserTravelMs(placeableEdges). */
 export const LIVE_PACKET_MS = 1400;
@@ -32,9 +33,13 @@ export const LIVE_REMANENCE_MS = 400;
 export const LIVE_STAGGER_MS = 90;
 /** Short coalesce so a hop+ear frame draws as one polyline, not after a 5s hold. */
 export const LIVE_HOLD_MS = 300;
-/** In-flight lasers. MAX_LIVE_SHOTS only bounds retained history. */
+/** Simultaneous in-flight lasers. Surplus waits in MAX_PENDING_ANIMS. */
 export const MAX_CONCURRENT_ANIMS = 20;
+/** Deferred shots waiting for a free slot. Overflow sheds the oldest. */
+export const MAX_PENDING_ANIMS = 48;
+/** Newest retained shots, including in-flight and not-yet-started. */
 export const MAX_LIVE_SHOTS = 140;
+/** Newest observations kept when one coalesce bucket releases. */
 export const MAX_LIVE_CATCHUP = 36;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
 

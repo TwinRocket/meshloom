@@ -50,7 +50,28 @@ HANDSHAKE_TO_CLOSE = {
     503: CLOSE_RATE_LIMIT,
 }
 
-PACKET_TYPES = frozenset({"advert", "text", "ack", "trace", "other"})
+# Known MeshCore live tokens. Sanitize accepts any [a-z][a-z0-9_]* token so a
+# future Stats type still rains instead of blanking the frame.
+KNOWN_PACKET_TYPES = frozenset(
+    {
+        "req",
+        "response",
+        "text",
+        "ack",
+        "advert",
+        "grp_txt",
+        "grp_data",
+        "anon_req",
+        "path",
+        "trace",
+        "multipart",
+        "control",
+        "raw_custom",
+        "other",
+    }
+)
+PACKET_TYPES = KNOWN_PACKET_TYPES
+_PACKET_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
 LiveState = Literal["connected", "reconnecting", "gate", "opted_out", "idle"]
@@ -243,7 +264,7 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
             return None
         packet_hash_out = packet_hash
     packet_type = payload.get("type")
-    if packet_type not in PACKET_TYPES:
+    if not isinstance(packet_type, str) or not _PACKET_TYPE_RE.fullmatch(packet_type):
         return None
     path = payload.get("path")
     if not isinstance(path, list) or not all(isinstance(item, str) for item in path):

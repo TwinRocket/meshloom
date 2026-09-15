@@ -11,6 +11,7 @@ import {
   isOneByteHopToken,
   liveOpacity,
   liveTypeColor,
+  packetTypeFromRaw,
   observationBucketKey,
   observationCoalesceKey,
   observationFromCommunity,
@@ -195,7 +196,42 @@ describe('community waypoints', () => {
     expect(liveTypeColor('ack')).toBe('#39ff88');
     expect(liveTypeColor('trace')).toBe('#a78bfa');
     expect(liveTypeColor('other')).toBe('#78716c');
+    expect(liveTypeColor('req')).toBe('#ff4528');
+    expect(liveTypeColor('grp_txt')).toBe('#ff3d9a');
     expect(observationFromCommunity(packet())?.type).toBe('ack');
+  });
+
+  it('paints an unrecognised server token instead of dropping the frame', () => {
+    const obs = observationFromCommunity(packet({ type: 'future_token' }));
+    expect(obs).not.toBeNull();
+    expect(obs?.type).toBe('future_token');
+    expect(liveTypeColor(obs!.type)).toBe('#78716c');
+    expect(asCommunityPacket({ ...packet(), type: 'ADVERT' })).toBeNull();
+    expect(asCommunityPacket({ ...packet(), type: '' })).toBeNull();
+  });
+
+  it('maps the full MeshCore nibble, reserved values staying other', () => {
+    const expected: Record<number, string> = {
+      0x00: 'req',
+      0x01: 'response',
+      0x02: 'text',
+      0x03: 'ack',
+      0x04: 'advert',
+      0x05: 'grp_txt',
+      0x06: 'grp_data',
+      0x07: 'anon_req',
+      0x08: 'path',
+      0x09: 'trace',
+      0x0a: 'multipart',
+      0x0b: 'control',
+      0x0c: 'other',
+      0x0d: 'other',
+      0x0e: 'other',
+      0x0f: 'raw_custom',
+    };
+    for (let nibble = 0; nibble <= 0x0f; nibble += 1) {
+      expect(packetTypeFromRaw(nibble)).toBe(expected[nibble]);
+    }
   });
 });
 
@@ -209,9 +245,8 @@ describe('malformed community frames', () => {
     expect(asCommunityPacket({ v: 2, event_id: 'e1' })).toBeNull();
     expect(observationFromCommunity({ ...packet(), event_id: '' })).toBeNull();
     expect(observationFromCommunity({ ...packet(), hash8: 'zz' })).toBeNull();
-    expect(
-      observationFromCommunity({ ...packet(), type: 'nope' as CommunityPacket['type'] })
-    ).toBeNull();
+    expect(observationFromCommunity({ ...packet(), type: 'ADVERT' })).toBeNull();
+    expect(observationFromCommunity({ ...packet(), type: '' })).toBeNull();
     expect(
       observationFromCommunity({
         ...packet(),

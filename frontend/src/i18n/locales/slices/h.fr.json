@@ -25,10 +25,19 @@
     "packetLegend": "Types de paquets",
     "roleLegend": "Rôles",
     "legend": {
-      "advert": "Annonce",
+      "req": "Requête",
+      "response": "Réponse",
       "text": "Texte",
       "ack": "Ack",
+      "advert": "Annonce",
+      "grp_txt": "Texte de groupe",
+      "grp_data": "Données de groupe",
+      "anon_req": "Requête anonyme",
+      "path": "Chemin",
       "trace": "Trace",
+      "multipart": "Multipart",
+      "control": "Contrôle",
+      "raw_custom": "Personnalisé",
       "other": "Autre"
     },
     "confidence": {

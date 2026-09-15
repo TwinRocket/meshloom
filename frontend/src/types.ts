@@ -578,8 +578,25 @@ export interface DirectoryNodeSearchResponse {
   directory_enabled: boolean;
 }
 
-/** Packet types on the community live feed (stats contract `live-events.md`). */
-export type CommunityPacketType = 'advert' | 'text' | 'ack' | 'trace' | 'other';
+/** Known MeshCore payload tokens on the community live feed. */
+export type KnownCommunityPacketType =
+  | 'req'
+  | 'response'
+  | 'text'
+  | 'ack'
+  | 'advert'
+  | 'grp_txt'
+  | 'grp_data'
+  | 'anon_req'
+  | 'path'
+  | 'trace'
+  | 'multipart'
+  | 'control'
+  | 'raw_custom'
+  | 'other';
+
+/** Known tokens plus any future Stats token. Unknown tokens still draw. */
+export type CommunityPacketType = KnownCommunityPacketType | (string & {});
 
 /**
  * How much a hop position can be trusted. `probable` is a geographically

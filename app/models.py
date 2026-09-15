@@ -1739,7 +1739,7 @@ class CommunityPacketBroadcast(BaseModel):
     event_id: str
     hash8: str
     packet_hash: str | None = None
-    type: Literal["advert", "text", "ack", "trace", "other"]
+    type: str
     path: list[str]
     hop_count: int
     hops: list[CommunityPacketHop]

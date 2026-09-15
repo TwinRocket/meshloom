@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveMapController } from '../components/live/liveMap';
-import { LIVE_HOLD_MS, MAX_CONCURRENT_ANIMS } from '../components/live/liveRender';
-import type { RadioConfig } from '../types';
+import {
+  LIVE_HOLD_MS,
+  LIVE_PACKET_MS,
+  LIVE_REMANENCE_MS,
+  LIVE_STAGGER_MS,
+  MAX_CONCURRENT_ANIMS,
+  MAX_LIVE_CATCHUP,
+  MAX_PENDING_ANIMS,
+} from '../components/live/liveRender';
+import type { CommunityPacketType, RadioConfig } from '../types';
 import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
 
 const { FakeMap } = vi.hoisted(() => {
@@ -67,6 +75,17 @@ function waypoint(lat: number, lon: number, extras: Partial<LiveWaypoint> = {}):
     confidence: extras.confidence ?? 'exact',
     ...extras,
   };
+}
+
+function uniqueFlash(id: string, index: number): LiveObservation {
+  const tag = index.toString().padStart(4, '0');
+  return observation({
+    id,
+    hash8: index.toString(16).padStart(8, '0'),
+    packetHash: `hash-${tag}`,
+    earId: `ear-${tag}`,
+    waypoints: [waypoint(45.72, 5.08, { kind: 'ear', token: `ear-${tag}` })],
+  });
 }
 
 function observation(overrides: Partial<LiveObservation> = {}): LiveObservation {
@@ -401,22 +420,184 @@ describe('LiveMapController', () => {
     expect(shot.vertexKinds).toEqual(['hop', 'ear']);
   });
 
-  it('caps in-flight shots at MAX_CONCURRENT_ANIMS', async () => {
+  it('caps in-flight shots at MAX_CONCURRENT_ANIMS and defers the rest', async () => {
     let t = 8_000;
     const engine = await readyController(() => t);
     engines.push(engine);
-    const rows = Array.from({ length: MAX_CONCURRENT_ANIMS + 5 }, (_, i) =>
-      observation({
-        id: `cap-${i}`,
-        hash8: i.toString(16).padStart(8, '0'),
-        packetHash: null,
-        earId: `ear-${i}`,
-        waypoints: [waypoint(45.72, 5.08, { kind: 'ear', token: `ear-${i}` })],
-      })
+    const surplus = 5;
+    const rows = Array.from({ length: MAX_CONCURRENT_ANIMS + surplus }, (_, i) =>
+      uniqueFlash(`cap-${i}`, i)
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
     engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
+    expect(engine.pendingAnimCount()).toBe(surplus);
+    expect(engine.droppedPendingCount()).toBe(0);
+  });
+
+  it('starts a deferred observation once an in-flight slot frees', async () => {
+    let t = 9_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const rows = Array.from({ length: MAX_CONCURRENT_ANIMS + 5 }, (_, i) =>
+      uniqueFlash(`late-${i}`, i)
+    );
+    engine.syncObservations(rows, new Set());
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    expect(engine.getShotSnapshots().map((shot) => shot.id)).not.toContain('late-20');
+
+    t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    const ids = engine.getShotSnapshots().map((shot) => shot.id);
+    expect(ids).toContain('late-20');
+    expect(ids).toContain('late-24');
+    expect(engine.pendingAnimCount()).toBe(0);
+    expect(engine.droppedPendingCount()).toBe(0);
+  });
+
+  it('bounds the pending queue and sheds the oldest overflow', async () => {
+    let t = 10_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const overflow = 10;
+    const rows = Array.from(
+      { length: MAX_CONCURRENT_ANIMS + MAX_PENDING_ANIMS + overflow },
+      (_, i) => uniqueFlash(`shed-${i}`, i)
+    );
+    engine.syncObservations(rows, new Set());
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
+    expect(engine.pendingAnimCount()).toBe(MAX_PENDING_ANIMS);
+    expect(engine.droppedPendingCount()).toBe(overflow);
+
+    t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    const ids = engine.getShotSnapshots().map((shot) => shot.id);
+    expect(ids).not.toContain(`shed-${MAX_CONCURRENT_ANIMS}`);
+    expect(ids).not.toContain(`shed-${MAX_CONCURRENT_ANIMS + overflow - 1}`);
+    expect(ids).toContain(`shed-${MAX_CONCURRENT_ANIMS + overflow}`);
+    expect(engine.pendingAnimCount()).toBe(MAX_PENDING_ANIMS - MAX_CONCURRENT_ANIMS);
+  });
+
+  it('keeps bucket stagger bounded to now after sustained arrivals', async () => {
+    let t = 40_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const maxAhead = (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
+    const arrivals = 220;
+    const cadenceMs = 93;
+
+    for (let i = 0; i < arrivals; i++) {
+      engine.syncObservations([uniqueFlash(`sust-${i}`, i)], new Set());
+      t += cadenceMs;
+      engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+      for (const shot of engine.getShotSnapshots()) {
+        expect(shot.startedAt).toBeLessThanOrEqual(t + maxAhead);
+      }
+    }
+
+    const ids = engine.getShotSnapshots().map((shot) => shot.id);
+    const latest = Math.max(
+      ...ids.filter((id) => id.startsWith('sust-')).map((id) => Number(id.slice(5)))
+    );
+    expect(latest).toBeGreaterThan(arrivals - 10);
+    expect(engine.droppedPendingCount()).toBe(0);
+    expect(engine.pendingAnimCount()).toBe(0);
+  });
+
+  it('counts coalesce catchup trims instead of dropping them silently', async () => {
+    let t = 12_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const extra = 8;
+    const rows = Array.from({ length: MAX_LIVE_CATCHUP + extra }, (_, i) =>
+      observation({
+        id: `catch-${i}`,
+        hash8: 'aabbccdd',
+        packetHash: 'aabbccdd-same-path',
+        earId: 'ear-shared',
+        waypoints: [waypoint(45.72, 5.08, { kind: 'ear', token: 'ear' })],
+      })
+    );
+    engine.syncObservations(rows, new Set());
+    expect(engine.pendingBucketCount()).toBe(1);
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    expect(engine.droppedCatchupCount()).toBe(extra);
+    expect(engine.getShotSnapshots()).toHaveLength(1);
+  });
+
+  it('releases a type-filtered shot slot after travel so a visible one can draw', async () => {
+    let t = 13_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const hiddenAdvert: Set<CommunityPacketType> = new Set(['advert']);
+    const hideAdvert = { iata: '', hiddenTypes: hiddenAdvert, exactOnly: false };
+    engine.setFilters(hideAdvert);
+    engine.syncObservations([uniqueFlash('hid-0', 0)], new Set());
+    t += LIVE_HOLD_MS;
+    engine.setFilters(hideAdvert);
+    expect(engine.getShotSnapshots().map((shot) => shot.id)).toEqual(['hid-0']);
+    expect(engine.getShotSnapshots()[0].finishedAt).toBeNull();
+
+    t += LIVE_PACKET_MS;
+    engine.setFilters(hideAdvert);
+    expect(engine.getShotSnapshots()[0].finishedAt).not.toBeNull();
+    expect(engine.getShotSnapshots().map((shot) => shot.id)).toEqual(['hid-0']);
+
+    engine.syncObservations(
+      [
+        observation({
+          id: 'vis-1',
+          type: 'text',
+          hash8: 'ffffffff',
+          packetHash: 'hash-vis-1',
+          earId: 'ear-vis',
+          waypoints: [waypoint(45.72, 5.08, { kind: 'ear', token: 'ear-vis' })],
+        }),
+      ],
+      new Set()
+    );
+    t += LIVE_HOLD_MS;
+    engine.setFilters(hideAdvert);
+    const afterVisible = engine.getShotSnapshots();
+    expect(afterVisible.map((shot) => shot.id)).toContain('vis-1');
+    expect(engine.pendingAnimCount()).toBe(0);
+
+    t += LIVE_REMANENCE_MS;
+    engine.setFilters(hideAdvert);
+    const afterExpiry = engine.getShotSnapshots().map((shot) => shot.id);
+    expect(afterExpiry).not.toContain('hid-0');
+    expect(afterExpiry).toContain('vis-1');
+  });
+
+  it('does not grow retained shots without bound under sustained hidden traffic', async () => {
+    let t = 50_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const hideAdvert = {
+      iata: '',
+      hiddenTypes: new Set<CommunityPacketType>(['advert']),
+      exactOnly: false,
+    };
+    engine.setFilters(hideAdvert);
+    const arrivals = 220;
+    const cadenceMs = 93;
+    let peak = 0;
+
+    for (let i = 0; i < arrivals; i++) {
+      engine.syncObservations([uniqueFlash(`hide-${i}`, i)], new Set());
+      t += cadenceMs;
+      engine.setFilters(hideAdvert);
+      peak = Math.max(peak, engine.getShotSnapshots().length);
+    }
+
+    expect(peak).toBeLessThan(arrivals / 2);
+    expect(engine.getShotSnapshots().length).toBeLessThan(arrivals / 2);
+    expect(engine.droppedPendingCount()).toBe(0);
+    expect(engine.pendingAnimCount()).toBe(0);
   });
 });

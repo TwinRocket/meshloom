@@ -291,6 +291,18 @@ class TestSanitizeAndCloseCodes:
         assert sanitize_community_packet(_v2_packet(packet_hash="zz" * 8)) is None
         assert sanitize_community_packet(_v2_packet(packet_hash=12)) is None
 
+    def test_sanitize_keeps_new_and_unknown_type_tokens(self):
+        for token in ("req", "grp_txt", "path", "control", "raw_custom", "future_token"):
+            cleaned = sanitize_community_packet(_v2_packet(type=token))
+            assert cleaned is not None
+            assert cleaned["type"] == token
+
+    def test_sanitize_rejects_invalid_type_tokens(self):
+        assert sanitize_community_packet(_v2_packet(type="ADVERT")) is None
+        assert sanitize_community_packet(_v2_packet(type="")) is None
+        assert sanitize_community_packet(_v2_packet(type="group-text")) is None
+        assert sanitize_community_packet(_v2_packet(type=4)) is None
+
     def test_sanitize_rejects_malformed_v2(self):
         assert sanitize_community_packet(_v2_packet(hops=[{"token": "ab12"}])) is None
         assert (

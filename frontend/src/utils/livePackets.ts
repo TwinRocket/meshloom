@@ -4,24 +4,36 @@ import type {
   CommunityPacketEar,
   CommunityPacketHop,
   CommunityPacketType,
+  KnownCommunityPacketType,
   Contact,
   RadioConfig,
   RawPacket,
 } from '../types';
 import { calculateDistance, isValidLocation, MIN_NAMED_HOP_HEX_CHARS } from './pathUtils';
-import { getPacketLabel, parsePacket } from './visualizerUtils';
+import { parsePacket } from './visualizerUtils';
 
 export const LIVE_DIM_AFTER_MS = 5 * 60 * 1000;
 /** Unique 1-byte srcHash may name A only inside this radius of the path anchor. */
 export const LIVE_ORIGIN_ANCHOR_KM = 20;
 export const LIVE_COMMUNITY_SCHEMA = 2;
-export const LIVE_PACKET_TYPES: readonly CommunityPacketType[] = [
-  'advert',
+export const LIVE_PACKET_TYPES: readonly KnownCommunityPacketType[] = [
+  'req',
+  'response',
   'text',
   'ack',
+  'advert',
+  'grp_txt',
+  'grp_data',
+  'anon_req',
+  'path',
   'trace',
+  'multipart',
+  'control',
+  'raw_custom',
   'other',
 ];
+
+const PACKET_TYPE_RE = /^[a-z][a-z0-9_]*$/;
 
 export type SavedMapCamera = { lat: number; lon: number; zoom: number };
 
@@ -55,12 +67,23 @@ export function writeSavedMapCamera(storageKey: string, camera: SavedMapCamera):
 }
 
 /** Packet-type palette. Must stay disjoint from NODE_ROLE_STYLE (no shared #f59e0b).
+ *  Existing five stay put so the map does not have to be relearned. New tokens
+ *  are neon hues spaced around the wheel for laser-width reads on #05070a.
  *  Trace is #a78bfa so it does not collide with LOCAL_RADIO_VISUAL. */
-export const LIVE_TYPE_COLORS: Record<CommunityPacketType, string> = {
-  advert: '#fde047',
+export const LIVE_TYPE_COLORS: Record<KnownCommunityPacketType, string> = {
+  req: '#ff4528',
+  response: '#ff8f1f',
   text: '#22f0ff',
   ack: '#39ff88',
+  advert: '#fde047',
+  grp_txt: '#ff3d9a',
+  grp_data: '#ff8ac8',
+  anon_req: '#c6ff1a',
+  path: '#00b7ff',
   trace: '#a78bfa',
+  multipart: '#7c6cff',
+  control: '#fdba74',
+  raw_custom: '#d4a574',
   other: '#78716c',
 };
 
@@ -104,21 +127,18 @@ export interface LiveObservation {
 }
 
 export function isCommunityPacketType(value: unknown): value is CommunityPacketType {
-  return (
-    value === 'advert' ||
-    value === 'text' ||
-    value === 'ack' ||
-    value === 'trace' ||
-    value === 'other'
-  );
+  return typeof value === 'string' && PACKET_TYPE_RE.test(value);
 }
 
 export function isLiveHopConfidence(value: unknown): value is CommunityHopConfidence {
   return value === 'exact' || value === 'probable' || value === 'unresolved';
 }
 
-export function liveTypeColor(type: CommunityPacketType): string {
-  return LIVE_TYPE_COLORS[type];
+export function liveTypeColor(type: string): string {
+  if (type in LIVE_TYPE_COLORS) {
+    return LIVE_TYPE_COLORS[type as KnownCommunityPacketType];
+  }
+  return LIVE_TYPE_COLORS.other;
 }
 
 /** Map typical LoRa SNR onto 0.35–1 for size / opacity. */
@@ -178,20 +198,24 @@ export function buildPrefixIndex(contacts: Contact[]): Map<string, Contact[]> {
   return index;
 }
 
+const RAW_PAYLOAD_TYPES: Record<number, KnownCommunityPacketType> = {
+  0x00: 'req',
+  0x01: 'response',
+  0x02: 'text',
+  0x03: 'ack',
+  0x04: 'advert',
+  0x05: 'grp_txt',
+  0x06: 'grp_data',
+  0x07: 'anon_req',
+  0x08: 'path',
+  0x09: 'trace',
+  0x0a: 'multipart',
+  0x0b: 'control',
+  0x0f: 'raw_custom',
+};
+
 export function packetTypeFromRaw(payloadType: number): CommunityPacketType {
-  switch (getPacketLabel(payloadType)) {
-    case 'AD':
-      return 'advert';
-    case 'GT':
-    case 'DM':
-      return 'text';
-    case 'ACK':
-      return 'ack';
-    case 'TR':
-      return 'trace';
-    default:
-      return 'other';
-  }
+  return RAW_PAYLOAD_TYPES[payloadType] ?? 'other';
 }
 
 const FIRMWARE_HASH_RE = /^[0-9a-fA-F]{8,}$/;
