@@ -1,5 +1,6 @@
 """CoreScope directory hop resolver: 1-byte reject, opt-in no-op, cache, SSRF."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -337,8 +338,50 @@ class TestParseCorescopeMapNodes:
         assert total == 3
         assert [(n.public_key, n.name, n.role, n.source) for n in nodes] == [
             ("ab" * 32, "HillTop", "repeater", "corescope"),
-            ("ef" * 32, "Companion", "unknown", "corescope"),
+            ("ef" * 32, "Companion", "companion", "corescope"),
         ]
+
+    def test_keeps_community_source_and_parses_last_seen_at(self):
+        nodes, total = parse_corescope_map_nodes(
+            {
+                "total": 1,
+                "nodes": [
+                    {
+                        "public_key": "ab" * 32,
+                        "name": "HillTop",
+                        "role": "repeater",
+                        "lat": 48.1,
+                        "lon": 2.2,
+                        "source": "community-db",
+                        "last_seen_at": "2026-09-15T03:00:00Z",
+                    }
+                ],
+            }
+        )
+        assert total == 1
+        assert nodes[0].source == "community-db"
+        assert nodes[0].last_seen == int(
+            datetime(2026, 9, 15, 3, 0, tzinfo=timezone.utc).timestamp()
+        )
+
+    def test_community_default_source_without_payload_field(self):
+        nodes, _total = parse_corescope_map_nodes(
+            {
+                "nodes": [
+                    {
+                        "public_key": "ab" * 32,
+                        "name": "HillTop",
+                        "role": "client",
+                        "lat": 48.1,
+                        "lon": 2.2,
+                    }
+                ],
+            },
+            default_source="community-db",
+        )
+        assert nodes[0].role == "client"
+        assert nodes[0].source == "community-db"
+        assert nodes[0].last_seen is None
 
     def test_rejects_non_object_payload(self):
         assert parse_corescope_map_nodes(["nope"]) == ([], None)
@@ -417,8 +460,102 @@ class TestListDirectoryMapNodes:
             first = await list_directory_map_nodes()
             second = await list_directory_map_nodes()
         assert first.nodes[0].name == "NetRelay"
+        assert first.nodes[0].source == "community-db"
         assert second.nodes[0].name == "NetRelay"
         assert calls["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_default_list_excludes_local_gps_contacts(self, test_db):
+        from app.models import ContactUpsert
+        from app.repository import ContactRepository
+
+        reset_directory_nodes_cache()
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key="aa" * 32,
+                name="LocalBuddy",
+                type=1,
+                lat=43.7,
+                lon=7.3,
+                last_seen=1_700_000_000,
+            )
+        )
+        result = await list_directory_map_nodes()
+        assert result.nodes == []
+
+    @pytest.mark.asyncio
+    async def test_include_local_merges_gps_and_remote_wins(self, test_db):
+        from app.models import ContactUpsert
+        from app.repository import ContactRepository
+        from app.services.meshloom_community import update_community
+
+        reset_directory_nodes_cache()
+        await update_community(enabled=True, iata="LYS")
+        shared = "11" * 32
+        local_only = "aa" * 32
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key=shared,
+                name="LocalName",
+                type=1,
+                lat=1.0,
+                lon=1.0,
+                last_seen=1_700_000_000,
+            )
+        )
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key=local_only,
+                name="LocalBuddy",
+                type=1,
+                lat=43.7,
+                lon=7.3,
+                last_seen=1_700_000_100,
+            )
+        )
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key="00" * 32,
+                name="NoGps",
+                type=2,
+                lat=0.0,
+                lon=0.0,
+            )
+        )
+
+        async def fake_data(*_args: object, **_kwargs: object) -> object:
+            return {
+                "total": 1,
+                "nodes": [
+                    {
+                        "public_key": shared,
+                        "name": "NetRelay",
+                        "role": "repeater",
+                        "lat": 45.0,
+                        "lon": 5.0,
+                        "source": "community-db",
+                        "last_seen_at": 1_800_000_000,
+                    }
+                ],
+            }
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
+            map_nodes = await list_directory_map_nodes()
+            live_nodes = await list_directory_map_nodes(include_local=True)
+
+        assert [(n.public_key, n.source, n.name) for n in map_nodes.nodes] == [
+            (shared, "community-db", "NetRelay")
+        ]
+        assert [(n.public_key, n.source, n.role, n.name) for n in live_nodes.nodes] == [
+            (shared, "community-db", "repeater", "NetRelay"),
+            (local_only, "local", "companion", "LocalBuddy"),
+        ]
+        assert live_nodes.nodes[0].last_seen == 1_800_000_000
+        assert live_nodes.nodes[1].last_seen == 1_700_000_100
+        assert live_nodes.total == 2
 
 
 class TestDirectoryReach:

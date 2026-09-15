@@ -6,8 +6,9 @@ import ipaddress
 import logging
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -28,7 +29,7 @@ from app.models import (
     DirectoryReachResponse,
     DirectoryResolveHopsResponse,
 )
-from app.repository import AppSettingsRepository
+from app.repository import AppSettingsRepository, ContactRepository
 from app.repository.directory import (
     DIRECTORY_SOURCE_CORESCOPE,
     DirectoryHopCacheRepository,
@@ -60,12 +61,21 @@ REACH_CACHE_MAX = 256
 NEIGHBORS_CACHE_MAX = 256
 SEARCH_CACHE_MAX = 64
 
-MapNodeRole = Literal["repeater", "room", "client", "sensor", "unknown"]
+MapNodeRole = Literal["repeater", "room", "client", "companion", "sensor", "unknown"]
+MapNodeSource = Literal["community-db", "corescope", "local"]
 MAP_NODE_ROLES: dict[str, MapNodeRole] = {
     "repeater": "repeater",
     "room": "room",
     "client": "client",
+    "companion": "companion",
     "sensor": "sensor",
+}
+MAP_NODE_SOURCES: frozenset[str] = frozenset({"community-db", "corescope", "local"})
+CONTACT_TYPE_TO_MAP_ROLE: dict[int, MapNodeRole] = {
+    1: "companion",
+    2: "repeater",
+    3: "room",
+    4: "sensor",
 }
 _nodes_cache: tuple[float, str, list[DirectoryMapNode], int | None] | None = None
 _reach_cache: TtlLruCache[tuple[str, str], DirectoryReachResponse] = TtlLruCache(REACH_CACHE_MAX)
@@ -418,8 +428,60 @@ def _normalize_map_role(role: object) -> MapNodeRole:
     return "unknown"
 
 
-def parse_corescope_map_nodes(payload: object) -> tuple[list[DirectoryMapNode], int | None]:
-    """Keep documented Node fields only: public_key, name, role, lat, lon."""
+def _normalize_map_source(source: object, default: MapNodeSource) -> MapNodeSource:
+    if isinstance(source, str):
+        raw = source.strip().lower()
+        if raw in {"community", "community_db", "communitydb"}:
+            return "community-db"
+        if raw in MAP_NODE_SOURCES:
+            return raw  # type: ignore[return-value]
+    return default
+
+
+def _as_unix_timestamp(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        if value != value:
+            return None
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = int(float(text))
+            return parsed if parsed > 0 else None
+        except ValueError:
+            pass
+        iso = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(iso)
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        parsed = int(dt.timestamp())
+        return parsed if parsed > 0 else None
+    return None
+
+
+def _parse_map_last_seen(item: Mapping[str, object]) -> int | None:
+    last_seen = _as_unix_timestamp(item.get("last_seen_at"))
+    if last_seen is not None:
+        return last_seen
+    return _as_unix_timestamp(item.get("last_seen"))
+
+
+def parse_corescope_map_nodes(
+    payload: object,
+    *,
+    default_source: MapNodeSource = "corescope",
+) -> tuple[list[DirectoryMapNode], int | None]:
+    """Keep documented Node fields: public_key, name, role, lat, lon, source, last_seen."""
     if not isinstance(payload, dict):
         return [], None
     raw_nodes = payload.get("nodes")
@@ -452,7 +514,8 @@ def parse_corescope_map_nodes(payload: object) -> tuple[list[DirectoryMapNode], 
                 role=_normalize_map_role(item.get("role")),
                 lat=lat,
                 lon=lon,
-                source="corescope",
+                source=_normalize_map_source(item.get("source"), default_source),
+                last_seen=_parse_map_last_seen(item),
             )
         )
     return nodes, total_n
@@ -539,11 +602,51 @@ async def _fetch_community_nodes_page(
     )
     if stats_data is None:
         return None
-    return parse_corescope_map_nodes(stats_data)
+    return parse_corescope_map_nodes(stats_data, default_source="community-db")
 
 
-async def list_directory_map_nodes() -> DirectoryMapNodesResponse:
-    """GPS pins for every directory role. Empty when the directory is off."""
+async def list_local_gps_map_nodes() -> list[DirectoryMapNode]:
+    """Local RF contacts with a usable GPS pin, tagged source=local."""
+    contacts = await ContactRepository.list_with_map_location()
+    nodes: list[DirectoryMapNode] = []
+    seen: set[str] = set()
+    for contact in contacts:
+        key = contact.public_key.strip().lower()
+        if len(key) != PUBKEY_HEX_LEN or not _HEX_RE.fullmatch(key) or key in seen:
+            continue
+        lat = contact.lat
+        lon = contact.lon
+        if lat is None or lon is None or not _is_valid_map_location(lat, lon):
+            continue
+        raw_name = contact.name.strip() if isinstance(contact.name, str) else ""
+        name = raw_name or key[:12]
+        seen.add(key)
+        nodes.append(
+            DirectoryMapNode(
+                public_key=key,
+                name=name,
+                role=CONTACT_TYPE_TO_MAP_ROLE.get(contact.type, "unknown"),
+                lat=lat,
+                lon=lon,
+                source="local",
+                last_seen=contact.last_seen,
+            )
+        )
+    return nodes
+
+
+def merge_directory_and_local_nodes(
+    remote: list[DirectoryMapNode],
+    local: list[DirectoryMapNode],
+) -> list[DirectoryMapNode]:
+    """Dedupe by public_key. community-db / corescope win over local."""
+    remote_keys = {node.public_key for node in remote}
+    extra = [node for node in local if node.public_key not in remote_keys]
+    return list(remote) + extra
+
+
+async def _list_remote_directory_map_nodes() -> DirectoryMapNodesResponse:
+    """GPS pins from Community or CoreScope. Empty when the directory is off."""
     global _nodes_cache
     now = time.time()
     cached = _cached_map_response(now, "community")
@@ -578,6 +681,22 @@ async def list_directory_map_nodes() -> DirectoryMapNodesResponse:
 
     nodes, total = await _collect_map_node_pages(_corescope_page)
     _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, origin, nodes, total)
+    return DirectoryMapNodesResponse(nodes=nodes, total=total)
+
+
+async def list_directory_map_nodes(*, include_local: bool = False) -> DirectoryMapNodesResponse:
+    """GPS pins for every directory role. Local contacts only when include_local."""
+    remote = await _list_remote_directory_map_nodes()
+    if not include_local:
+        return remote
+    local = await list_local_gps_map_nodes()
+    nodes = merge_directory_and_local_nodes(remote.nodes, local)
+    extra = len(nodes) - len(remote.nodes)
+    if extra == 0:
+        return remote
+    total = remote.total
+    if extra:
+        total = (total if total is not None else len(remote.nodes)) + extra
     return DirectoryMapNodesResponse(nodes=nodes, total=total)
 
 

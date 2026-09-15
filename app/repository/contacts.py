@@ -344,6 +344,22 @@ class ContactRepository:
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
+    async def list_with_map_location() -> list[Contact]:
+        """Contacts with a usable map pin (non-null, not the 0,0 sentinel)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                """
+                SELECT * FROM contacts
+                WHERE lat IS NOT NULL
+                  AND lon IS NOT NULL
+                  AND NOT (lat = 0 AND lon = 0)
+                  AND length(public_key) = 64
+                """
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [ContactRepository._row_to_contact(row) for row in rows]
+
+    @staticmethod
     async def get_repeaters_by_recent(limit: int = 8) -> list[Contact]:
         """Get repeater contacts ordered by most recently seen.
 
