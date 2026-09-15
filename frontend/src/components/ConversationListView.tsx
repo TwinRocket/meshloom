@@ -5,6 +5,7 @@ import type { Channel, Contact, Conversation, HealthStatus } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
 import { getStateKey } from '../utils/conversationState';
+import { describeMessagePreview } from '../utils/messagePreview';
 import { cn } from '../lib/utils';
 
 /**
@@ -111,7 +112,7 @@ export function ConversationListView({
         mentioned: mentions[stateKey] === true,
         favorite: channel.favorite,
         lastAt: lastMessageTimes[stateKey] ?? 0,
-        preview: lastMessagePreviews[stateKey] ?? '',
+        preview: describeMessagePreview(lastMessagePreviews[stateKey] ?? ''),
       };
     });
 
@@ -127,7 +128,7 @@ export function ConversationListView({
         mentioned: mentions[stateKey] === true,
         favorite: contact.favorite,
         lastAt: lastMessageTimes[stateKey] ?? 0,
-        preview: lastMessagePreviews[stateKey] ?? '',
+        preview: describeMessagePreview(lastMessagePreviews[stateKey] ?? ''),
         contact,
       };
     });

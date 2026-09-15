@@ -2386,5 +2386,11 @@
     "openSettings": "Réglages radio",
     "close": "Fermer",
     "openStatus": "État de la radio — {{status}}"
+  },
+  "messagePreview": {
+    "gif": "GIF",
+    "location": "Position",
+    "locationNamed": "Position · {{label}}",
+    "reaction": "A réagi {{emoji}}"
   }
 }
