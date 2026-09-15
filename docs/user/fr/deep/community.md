@@ -22,7 +22,7 @@ Tant qu’un code IATA d’aéroport n’est pas enregistré, une bannière rest
 Avec Community activé et un IATA posé :
 
 - Les **paquets bruts** entendus sont publiés vers les hôtes MQTT Stats officiels. Le texte décodé des conversations ne passe pas par ce chemin.
-- Les noms de sauts, le RF locate et la portée observateurs utilisent l’annuaire communautaire. Une URL CoreScope manuelle dans Radio-App reste un repli quand Community est coupé.
+- Les noms de sauts, le RF locate et les compteurs « entendu par » utilisent l’annuaire communautaire. Community coupé, il n’y a plus d’annuaire du tout : Meshloom ne contacte aucun autre hôte.
 - Les **noms hashtag** des salons hashtag locaux (jusqu’à 50), et les noms trouvés par le chercheur de salons, peuvent être publiés pour cet IATA. Les clés ne sont pas partagées.
 
 Un seul opt-out arrête la publication **et** les appels d’annuaire communautaires.

@@ -22,7 +22,7 @@ Until an IATA airport code is saved, a banner stays on screen. Tokens need that 
 With Community on and IATA set:
 
 - Overheard **raw packets** are published to the official Stats MQTT hosts. Decoded conversation text does not go through this path.
-- Hop names, RF locate, and observer-reach use the community directory. A manual CoreScope URL in Radio-App remains a fallback when Community is off.
+- Hop names, RF locate, and heard-by counts use the community directory. With Community off there is no directory at all: Meshloom contacts no other host.
 - **Hashtag names** of local hashtag channels (up to 50), and names the channel finder discovers, can be published for that IATA. Keys are not shared.
 
 One opt-out stops publish and community directory calls.

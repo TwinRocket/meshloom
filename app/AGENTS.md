@@ -45,7 +45,7 @@ app/
 │   ├── radio_stats.py           # In-memory local radio stats sampling and noise-floor history
 │   ├── radio_runtime.py         # Router/dependency seam over the global RadioManager
 │   ├── radio_transport.py       # UX-owned radio transport snapshot (serial / TCP / BLE)
-│   ├── directory.py             # CoreScope proxy (resolve-hops, nodes, reach, neighbors, search)
+│   ├── directory.py             # Community directory (resolve-hops, nodes, reach, neighbors, search)
 │   ├── community_live.py        # Stats live-packet relay (one upstream socket, local fan-out)
 │   └── rf_locate.py             # RF locate identity + 0-hop disk assembly
 ├── radio.py             # RadioManager transport/session state + lock management
@@ -353,8 +353,16 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 - `GET /locate?q=` — unique identity then conservative 0-hop coverage disks (`local` / `corescope` / `mixte`). 409 if ambiguous. Never writes inferred lat/lon.
 
 ### Directory
+
+Every directory surface is Meshloom Community or nothing. `app/services/directory.py`
+has no HTTP client of its own: with Community on it reads the Stats directory API,
+with Community off it returns empty payloads and `directory_enabled=false`. There is
+no operator-supplied origin setting — `directory_enabled` / `directory_url` were
+dropped in migration 076.
+
 - `POST /directory/resolve-hops` — 2/3-byte hop prefixes only; 1-byte is 400
 - `GET /directory/nodes` — all roles (empty/unknown → `unknown`), paginated to completion
+- `GET /directory/nodes/live` — directory plus local GPS contacts, **minus observers**. `#live` draws packets and hops, so an observer catalog entry never reaches that map.
 - `GET /directory/nodes/search?q=` — name/key search, not hop prefixes
 - `GET /directory/nodes/{pubkey}/reach` — 0-hop observers; HTTP 500 ≠ empty
 - `GET /directory/nodes/{pubkey}/neighbors`
@@ -499,7 +507,7 @@ tests/
 ├── test_health_mqtt_status.py  # Health endpoint MQTT status field
 ├── test_http_quality.py        # Cache-control / gzip / basic-auth HTTP quality checks
 ├── test_key_normalization.py   # Public key normalization
-├── test_rf_locate.py           # RF locate identity, 0-hop extract, CoreScope merge
+├── test_rf_locate.py           # RF locate identity, 0-hop extract, directory merge
 ├── test_keystore.py            # Ephemeral keystore
 ├── test_main_startup.py        # App startup and lifespan
 ├── test_map_upload.py          # Map upload fanout module
