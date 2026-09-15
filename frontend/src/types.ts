@@ -439,7 +439,7 @@ export interface Message {
   transport_code?: number | null;
   /** Resolved region name for the transport code, if it matched a known region. */
   region?: string | null;
-  /** Firmware packet hash (16 hex) for CoreScope observer lookup. */
+  /** Firmware packet hash (16 hex) for observer-reach lookup. */
   packet_hash?: string | null;
   /** True for CHAN and PRIV flood; persisted so the badge survives raw-packet purge. */
   observer_reach_eligible?: boolean | null;
@@ -578,7 +578,7 @@ export interface DirectoryNodeSearchResponse {
   directory_enabled: boolean;
 }
 
-/** Packet types on the community live rain (stats contract `live-events.md`). */
+/** Packet types on the community live feed (stats contract `live-events.md`). */
 export type CommunityPacketType = 'advert' | 'text' | 'ack' | 'trace' | 'other';
 
 /**
@@ -728,8 +728,6 @@ export interface AppSettings {
   telemetry_interval_hours: number;
   telemetry_routed_hourly: boolean;
   stale_contact_days?: number;
-  directory_enabled?: boolean;
-  directory_url?: string;
   directory_available?: boolean;
 }
 
@@ -747,8 +745,6 @@ export interface AppSettingsUpdate {
   telemetry_interval_hours?: number;
   telemetry_routed_hourly?: boolean;
   stale_contact_days?: number;
-  directory_enabled?: boolean;
-  directory_url?: string;
 }
 
 export interface DirectoryHopHit {

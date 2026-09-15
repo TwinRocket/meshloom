@@ -742,7 +742,7 @@ export function App() {
     onClearRepeaterAutoLogin: () => setRepeaterAutoLoginKey(null),
     blockedKeys: appSettings?.blocked_keys,
     blockedNames: appSettings?.blocked_names,
-    directoryEnabled: appSettings?.directory_available ?? appSettings?.directory_enabled ?? false,
+    directoryEnabled: appSettings?.directory_available ?? false,
     onOpenDirectorySettings: () => {
       setSettingsSection('community');
       if (!showSettings) handleToggleSettingsView();

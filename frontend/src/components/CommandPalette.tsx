@@ -92,7 +92,7 @@ const TOOL_NAME_KEYS: Record<string, string> = {
 };
 
 const TOOL_SEARCH_EXTRA: Record<string, string> = {
-  locate: 'rf locate zone corescope',
+  locate: 'rf locate zone community',
 };
 
 function fuzzyMatch(text: string, query: string): boolean {

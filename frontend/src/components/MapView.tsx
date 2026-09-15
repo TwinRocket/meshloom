@@ -36,7 +36,7 @@ interface MapViewProps {
   /** When provided, the contact name in each popup becomes a clickable link
    *  that opens the conversation for that contact (DM, repeater, or room). */
   onSelectContact?: (contact: Contact) => void;
-  /** Settings → Radio-App CoreScope switch. Overlay stays off until the map checkbox is ticked. */
+  /** True when the Community directory answers. Overlay stays off until the map checkbox is ticked. */
   directoryEnabled?: boolean;
 }
 

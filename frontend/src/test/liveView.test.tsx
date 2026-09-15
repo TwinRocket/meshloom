@@ -17,7 +17,7 @@ vi.mock('../api', () => ({
     subscribeCommunityLive: vi.fn(),
     unsubscribeCommunityLive: vi.fn(),
     relancerCommunityLive: vi.fn(),
-    getDirectoryMapNodes: vi.fn(),
+    getLiveDirectoryMapNodes: vi.fn(),
   },
 }));
 
@@ -96,7 +96,7 @@ describe('LiveView', () => {
       opted_out: false,
       connected: true,
     });
-    vi.mocked(api.getDirectoryMapNodes).mockResolvedValue({
+    vi.mocked(api.getLiveDirectoryMapNodes).mockResolvedValue({
       nodes: [
         {
           public_key: 'aa',
@@ -104,7 +104,7 @@ describe('LiveView', () => {
           role: 'repeater',
           lat: 45.76,
           lon: 4.84,
-          source: 'corescope',
+          source: 'community-db',
         },
       ],
       total: 1,
@@ -144,7 +144,7 @@ describe('LiveView', () => {
     expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
   });
 
-  it('starts the rain playing and toggles to play when paused', () => {
+  it('starts the live feed playing and toggles to play when paused', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     const toggle = screen.getByRole('button', { name: i18n.t('live.playPause') });
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
@@ -184,11 +184,17 @@ describe('LiveView', () => {
     expect(screen.queryByTestId('live-packet-log')).not.toBeInTheDocument();
   });
 
-  it('loads community directory nodes as the permanent map layer', async () => {
+  it('loads the observer-free live directory as the permanent map layer', async () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     await waitFor(() => {
-      expect(api.getDirectoryMapNodes).toHaveBeenCalled();
+      expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled();
     });
+  });
+
+  it('has no observer entry in the role legend', () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    const legend = screen.getByRole('group', { name: i18n.t('live.roleLegend') });
+    expect(legend.textContent ?? '').not.toMatch(/observ/i);
   });
 
   it('does not mount a Leaflet tile layer', () => {

@@ -4,14 +4,14 @@
   },
   "conversation": {
     "live": "Live",
-    "loadingLive": "Loading live rain..."
+    "loadingLive": "Loading live feed..."
   },
   "commandPalette": {
-    "liveRain": "Live rain"
+    "liveRain": "Live feed"
   },
   "live": {
-    "bannerInactive": "No accepted contribution in the last 24 hours. Publish at least one observation to open the community rain.",
-    "bannerOptOut": "Community is turned off. Enable it in Settings to receive the rain.",
+    "bannerInactive": "No accepted contribution in the last 24 hours. Publish at least one observation to open the community live feed.",
+    "bannerOptOut": "Community is turned off. Enable it in Settings to receive the live feed.",
     "iataFilter": "IATA",
     "iataAll": "All regions",
     "typeFilter": "Type",
@@ -19,8 +19,8 @@
     "certainOnlyHelp": "Hide hops whose position is only probable.",
     "play": "Play",
     "pause": "Pause",
-    "playPause": "Play or pause the rain",
-    "mapAria": "Live packet rain map",
+    "playPause": "Play or pause the live feed",
+    "mapAria": "Live packet map",
     "legendTitle": "Map legend",
     "packetLegend": "Packet types",
     "roleLegend": "Roles",
@@ -48,13 +48,8 @@
       "client": "Companion",
       "companion": "Companion",
       "sensor": "Sensor",
-      "observer": "Observer",
       "unknown": "Unknown role"
     },
-    "ears": {
-      "advert": "Position advertised by the node",
-      "iata": "Approximate position (regional centroid)",
-      "local": "Your radio"
-    }
+    "localRadio": "Your radio"
   }
 }

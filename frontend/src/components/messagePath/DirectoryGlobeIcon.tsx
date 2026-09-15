@@ -1,7 +1,7 @@
 import { Globe } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-/** Orange globe for a CoreScope hop name when local resolve is not known. */
+/** Orange globe for a directory hop name when local resolve is not known. */
 export function DirectoryGlobeIcon() {
   const { t } = useTranslation();
   return (

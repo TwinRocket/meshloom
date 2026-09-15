@@ -19,7 +19,7 @@ import {
   cloneLonLatPath,
   collectIataCodes,
   dashLonLat,
-  earVisual,
+  LOCAL_RADIO_VISUAL,
   filterLiveObservations,
   hexToRgba,
   interpolatePolyline,
@@ -324,14 +324,18 @@ describe('stroke, color, and node/ear encoding', () => {
     expect(nodeRoleStyle('client').shape).toBe('square');
     expect(nodeRoleStyle('room').shape).toBe('hexagon');
     expect(nodeRoleStyle('sensor').shape).toBe('triangle');
-    expect(nodeRoleStyle('observer').shape).toBe('diamond');
     expect(LIVE_ROLE_LEGEND.map((entry) => entry.shape)).toEqual([
       'circle',
       'square',
       'hexagon',
       'triangle',
-      'diamond',
     ]);
+  });
+
+  it('has no observer role: #live draws packets and hops, not who heard them', () => {
+    expect(LIVE_ROLE_LEGEND.map((entry) => entry.role)).not.toContain('observer');
+    expect(Object.keys(NODE_ROLE_STYLE)).not.toContain('observer');
+    expect(nodeRoleStyle('observer')).toEqual(nodeRoleStyle('unknown'));
   });
 
   it('maps companion aliases without collapsing them to unknown', () => {
@@ -369,22 +373,35 @@ describe('stroke, color, and node/ear encoding', () => {
     expect(encoded).not.toMatch(/carto/i);
   });
 
-  it('makes advert ears tighter and brighter than IATA centroids', () => {
-    const advert = earVisual('advert');
-    const iata = earVisual('iata');
-    expect(advert.radius).toBeLessThan(iata.radius);
-    expect(advert.opacity).toBeGreaterThan(iata.opacity);
-    expect(advert.color).not.toBe(iata.color);
-    expect(earVisual('local').color).not.toBe(advert.color);
+  it('keeps one visual for your own radio and none for community ears', () => {
+    expect(LOCAL_RADIO_VISUAL.radius).toBeGreaterThan(0);
+    expect(Object.values(NODE_ROLE_STYLE).map((style) => style.color)).not.toContain(
+      LOCAL_RADIO_VISUAL.color
+    );
   });
 
-  it('drops directory nodes without a real position', () => {
+  it('drops directory nodes without a real position, and every observer', () => {
     expect(
       mappableDirectoryNodes([
-        { public_key: 'aa', name: 'A', role: 'repeater', lat: 45.7, lon: 4.8, source: 'corescope' },
-        { public_key: 'bb', name: 'B', role: 'client', lat: 0, lon: 0, source: 'corescope' },
-      ])
-    ).toHaveLength(1);
+        {
+          public_key: 'aa',
+          name: 'A',
+          role: 'repeater',
+          lat: 45.7,
+          lon: 4.8,
+          source: 'community-db',
+        },
+        { public_key: 'bb', name: 'B', role: 'client', lat: 0, lon: 0, source: 'community-db' },
+        {
+          public_key: 'cc',
+          name: 'Ear',
+          role: 'observer',
+          lat: 45.8,
+          lon: 4.9,
+          source: 'community-db',
+        },
+      ]).map((node) => node.public_key)
+    ).toEqual(['aa']);
   });
 });
 

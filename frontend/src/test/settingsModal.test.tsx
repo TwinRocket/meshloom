@@ -1510,31 +1510,18 @@ describe('SettingsModal', () => {
     });
   });
 
-  it('renders CoreScope directory switch off by default', async () => {
-    const onSaveAppSettings = vi.fn(async () => {});
-
+  it('says the directory is off when Meshloom Community is off', async () => {
     renderModal({
       externalSidebarNav: true,
       desktopSection: 'radio-app',
-      onSaveAppSettings,
     });
 
-    const checkbox = screen.getByRole('checkbox', {
-      name: i18n.t('settings.directoryEnable'),
-    }) as HTMLInputElement;
-
-    expect(checkbox.checked).toBe(false);
-
-    fireEvent.click(checkbox);
-
-    await waitFor(() => {
-      expect(onSaveAppSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ directory_enabled: true })
-      );
-    });
+    const callout = await screen.findByTestId('directory-off');
+    expect(callout).toHaveTextContent(i18n.t('settings.directoryOff'));
+    expect(screen.queryByTestId('directory-via-community')).not.toBeInTheDocument();
   });
 
-  it('locks the CoreScope URL when Meshloom Community is on', async () => {
+  it('routes the directory through Community and offers no origin to point at', async () => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: true,
       locked: false,
@@ -1555,14 +1542,10 @@ describe('SettingsModal', () => {
       },
     });
 
-    const checkbox = await screen.findByRole('checkbox', {
-      name: i18n.t('settings.directoryViaStatsEnable'),
-    });
-    expect(checkbox).toBeDisabled();
-    expect(screen.getByLabelText(i18n.t('settings.directoryUrl'))).toBeDisabled();
-    const callout = screen.getByTestId('directory-via-community');
+    const callout = await screen.findByTestId('directory-via-community');
     expect(callout).toHaveTextContent(i18n.t('settings.directoryViaStats'));
-    expect(callout).toHaveClass('border-warning/30', 'bg-warning/10', 'text-warning');
+    expect(screen.queryByLabelText(/corescope/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/corescope/i)).not.toBeInTheDocument();
   });
 
   it('shows route badge per tracked repeater', async () => {
