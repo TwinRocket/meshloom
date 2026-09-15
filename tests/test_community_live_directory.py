@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.repository import AppSettingsRepository
+from app.models import ContactUpsert
+from app.repository import AppSettingsRepository, ContactRepository
+from app.routers.directory import get_directory_map_nodes, get_live_directory_map_nodes
 from app.services.directory import (
     NODES_PAGE_SIZE,
     list_directory_map_nodes,
@@ -46,7 +48,7 @@ class TestParseMapNodesRoles:
             ("room", "Room"),
             ("client", "C"),
             ("sensor", "S"),
-            ("unknown", "X"),
+            ("companion", "X"),
             ("unknown", "Empty"),
         ]
 
@@ -162,3 +164,25 @@ class TestListDirectoryMapNodesPaging:
             "limit": NODES_PAGE_SIZE,
             "offset": 0,
         }
+
+
+@pytest.mark.asyncio
+class TestLiveDirectoryLocalMerge:
+    async def test_live_endpoint_includes_local_map_excludes(self, test_db):
+        reset_directory_nodes_cache()
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key="aa" * 32,
+                name="LocalBuddy",
+                type=1,
+                lat=43.7,
+                lon=7.3,
+                last_seen=1_700_000_000,
+            )
+        )
+        map_nodes = await get_directory_map_nodes()
+        live_nodes = await get_live_directory_map_nodes()
+        assert map_nodes.nodes == []
+        assert [(n.role, n.source, n.name) for n in live_nodes.nodes] == [
+            ("companion", "local", "LocalBuddy")
+        ]
