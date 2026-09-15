@@ -4,12 +4,18 @@ import type { CommunityPacket, Contact, RadioConfig, RawPacket } from '../types'
 import {
   asCommunityPacket,
   buildPrefixIndex,
+  fanoutFromOrigin,
   hash8FromRaw,
+  inferFloodForAdvert,
+  packetHashFromRaw,
   isOneByteHopToken,
   liveOpacity,
   liveTypeColor,
+  observationBucketKey,
   observationFromCommunity,
   observationFromRaw,
+  pinsIncludingLocalRadio,
+  prependOrigin,
   resolveOriginPin,
   routeKindFromRawHex,
   uniqueGpsContact,
@@ -354,8 +360,26 @@ describe('firmware hash8 and origin resolution', () => {
       packet_hash: '19D68FE91E75C7DE',
     };
     expect(hash8FromRaw(packet)).toBe('19d68fe9');
+    expect(packetHashFromRaw(packet)).toBe('19d68fe91e75c7de');
+    expect(
+      observationBucketKey({ hash8: hash8FromRaw(packet), packetHash: packetHashFromRaw(packet) })
+    ).toBe('19d68fe91e75c7de');
     expect(routeKindFromRawHex('1100dead')).toBe('flood');
     expect(routeKindFromRawHex('1200dead')).toBe('direct');
+  });
+
+  it('uses 16-hex packet_hash as the bucket key when community sends it', () => {
+    const frame = packet({
+      hash8: '19d68fe9',
+      packet_hash: '19D68FE91E75C7DE',
+    });
+    const parsed = asCommunityPacket(frame);
+    expect(parsed?.packet_hash).toBe('19d68fe91e75c7de');
+    const obs = observationFromCommunity(frame)!;
+    expect(obs.packetHash).toBe('19d68fe91e75c7de');
+    expect(obs.hash8).toBe('19d68fe9');
+    expect(observationBucketKey(obs)).toBe('19d68fe91e75c7de');
+    expect(observationBucketKey({ hash8: '19d68fe9', packetHash: null })).toBe('19d68fe9');
   });
 
   it('resolves A from advertPubkey or a unique 20 km srcHash pin, never contact_key', () => {
@@ -412,5 +436,119 @@ describe('firmware hash8 and origin resolution', () => {
     expect(observationFromCommunity(packet())?.advertPubkey).toBeNull();
     expect(observationFromCommunity(packet())?.srcHash).toBeNull();
     expect(observationFromCommunity(packet())?.routeKind).toBe('unknown');
+  });
+
+  it('uses the local radio pin as origin A for a matching advert pubkey', () => {
+    const config: RadioConfig = {
+      public_key: 'ab'.repeat(32),
+      name: 'me',
+      lat: 45.76,
+      lon: 4.84,
+      tx_power: 22,
+      max_tx_power: 22,
+      radio: { freq: 869.525, bw: 250, sf: 11, cr: 5 },
+      path_hash_mode: 0,
+      path_hash_mode_supported: true,
+    };
+    const pins = pinsIncludingLocalRadio([], config);
+    expect(pins).toEqual([{ public_key: 'ab'.repeat(32), lat: 45.76, lon: 4.84 }]);
+    expect(
+      resolveOriginPin(
+        {
+          advertPubkey: 'ab'.repeat(32),
+          srcHash: null,
+          waypoints: [],
+          ear: null,
+        },
+        pins
+      )?.public_key
+    ).toBe(config.public_key);
+    const prepended = prependOrigin(
+      {
+        advertPubkey: 'ab'.repeat(32),
+        srcHash: null,
+        waypoints: [{ lat: 45.74, lon: 4.92, token: 'fe10', kind: 'hop', confidence: 'exact' }],
+        ear: null,
+      },
+      pins
+    );
+    expect(prepended[0]).toMatchObject({
+      kind: 'origin',
+      confidence: 'exact',
+      lat: 45.76,
+      lon: 4.84,
+      pubkey: config.public_key,
+    });
+    expect(prepended[1]).toMatchObject({ kind: 'hop', lat: 45.74, lon: 4.92 });
+  });
+
+  it('treats community advert unknown routeKind as flood and fans out A→first hop', () => {
+    const origin = { public_key: 'ab'.repeat(32), lat: 45.76, lon: 4.84 };
+    const hop = { public_key: 'cd'.repeat(32), lat: 45.74, lon: 4.92 };
+    const obs: LiveObservation = {
+      id: 'c1',
+      hash8: '19d68fe9',
+      packetHash: '19d68fe91e75c7de',
+      source: 'community',
+      type: 'advert',
+      snr: 0,
+      iata: 'LYS',
+      t: Date.now(),
+      earId: 'ear-1',
+      ear: { lat: 45.72, lon: 5.08, source: 'advert' },
+      waypoints: [
+        {
+          lat: hop.lat,
+          lon: hop.lon,
+          token: 'cd34',
+          kind: 'hop',
+          confidence: 'exact',
+          pubkey: hop.public_key,
+        },
+        { lat: 45.72, lon: 5.08, token: 'ear-1', kind: 'ear', confidence: 'exact' },
+      ],
+      routeKind: 'unknown',
+      advertPubkey: 'ab'.repeat(32),
+      srcHash: null,
+    };
+    expect(inferFloodForAdvert(obs)).toBe('flood');
+    const plan = fanoutFromOrigin({ observations: [obs] }, [origin, hop]);
+    expect(plan.origin?.public_key).toBe(origin.public_key);
+    expect(plan.lasers).toHaveLength(1);
+    expect(plan.lasers[0].origin).toEqual(origin);
+    expect(plan.lasers[0].hop).toMatchObject({ lat: hop.lat, lon: hop.lon });
+    expect(plan.earFlashes).toHaveLength(1);
+    expect(plan.earFlashes[0]).toMatchObject({ lat: 45.72, lon: 5.08 });
+  });
+
+  it('flashes first hops when A cannot be resolved, and never invents an origin', () => {
+    const hop = {
+      lat: 45.74,
+      lon: 4.92,
+      token: 'cd34',
+      kind: 'hop' as const,
+      confidence: 'exact' as const,
+    };
+    const obs: LiveObservation = {
+      id: 'c2',
+      hash8: 'cafef00d',
+      packetHash: null,
+      source: 'community',
+      type: 'advert',
+      snr: 0,
+      iata: null,
+      t: Date.now(),
+      earId: 'ear-2',
+      ear: { lat: 45.72, lon: 5.08, source: 'iata' },
+      waypoints: [hop, { lat: 45.72, lon: 5.08, token: 'ear-2', kind: 'ear', confidence: 'exact' }],
+      routeKind: 'unknown',
+      advertPubkey: null,
+      srcHash: null,
+    };
+    const plan = fanoutFromOrigin({ observations: [obs] }, []);
+    expect(plan.origin).toBeNull();
+    expect(plan.lasers).toEqual([]);
+    expect(plan.hopFlashes).toHaveLength(1);
+    expect(plan.hopFlashes[0]).toMatchObject({ lat: 45.74, lon: 4.92, kind: 'hop' });
   });
 });

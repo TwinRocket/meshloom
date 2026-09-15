@@ -510,7 +510,7 @@ def merge_directory_and_local_nodes(
 
 
 def drop_observer_nodes(nodes: list[DirectoryMapNode]) -> list[DirectoryMapNode]:
-    """#live draws packets and hops. An observer catalog entry is not a hop."""
+    """Filter observer catalog rows. Live pins keep them for hop/origin geometry."""
     return [node for node in nodes if node.role != "observer"]
 
 

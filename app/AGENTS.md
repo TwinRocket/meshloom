@@ -362,7 +362,7 @@ dropped in migration 076.
 
 - `POST /directory/resolve-hops` — 2/3-byte hop prefixes only; 1-byte is 400
 - `GET /directory/nodes` — all roles (empty/unknown → `unknown`), paginated to completion
-- `GET /directory/nodes/live` — directory plus local GPS contacts, **minus observers**. `#live` draws packets and hops, so an observer catalog entry never reaches that map.
+- `GET /directory/nodes/live` — directory plus local GPS contacts, **including observer GPS**. Observer GPS stays available for hop/origin geometry; the client must not paint a dedicated observer icon.
 - `GET /directory/nodes/search?q=` — name/key search, not hop prefixes
 - `GET /directory/nodes/{pubkey}/reach` — 0-hop observers; HTTP 500 ≠ empty
 - `GET /directory/nodes/{pubkey}/neighbors`

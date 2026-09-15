@@ -21,6 +21,8 @@ import {
   NODE_ROLE_STYLE,
   buildLaserPolyline,
   drawableLaserPolyline,
+  findPinnedHop,
+  geometryDirectoryNodes,
   laserRemanenceMs,
   laserTravelMs,
   localContactsToMapNodes,
@@ -157,6 +159,7 @@ function observation(overrides: Partial<LiveObservation> = {}): LiveObservation 
     routeKind: overrides.routeKind ?? 'flood',
     advertPubkey: overrides.advertPubkey ?? null,
     srcHash: overrides.srcHash ?? null,
+    packetHash: overrides.packetHash ?? null,
   } as LiveObservation;
 }
 
@@ -401,28 +404,35 @@ describe('stroke, color, and node/ear encoding', () => {
     );
   });
 
-  it('drops directory nodes without a real position, and every observer', () => {
-    expect(
-      mappableDirectoryNodes([
-        {
-          public_key: 'aa',
-          name: 'A',
-          role: 'repeater',
-          lat: 45.7,
-          lon: 4.8,
-          source: 'community-db',
-        },
-        { public_key: 'bb', name: 'B', role: 'client', lat: 0, lon: 0, source: 'community-db' },
-        {
-          public_key: 'cc',
-          name: 'Ear',
-          role: 'observer',
-          lat: 45.8,
-          lon: 4.9,
-          source: 'community-db',
-        },
-      ]).map((node) => node.public_key)
-    ).toEqual(['aa']);
+  it('keeps observer GPS for geometry and skips the observer icon', () => {
+    const nodes = [
+      {
+        public_key: 'aa',
+        name: 'A',
+        role: 'repeater' as const,
+        lat: 45.7,
+        lon: 4.8,
+        source: 'community-db' as const,
+      },
+      {
+        public_key: 'bb',
+        name: 'B',
+        role: 'client' as const,
+        lat: 0,
+        lon: 0,
+        source: 'community-db' as const,
+      },
+      {
+        public_key: 'cc',
+        name: 'Ear',
+        role: 'observer' as const,
+        lat: 45.8,
+        lon: 4.9,
+        source: 'community-db' as const,
+      },
+    ];
+    expect(mappableDirectoryNodes(nodes).map((node) => node.public_key)).toEqual(['aa']);
+    expect(geometryDirectoryNodes(nodes).map((node) => node.public_key)).toEqual(['aa', 'cc']);
   });
 });
 
@@ -462,7 +472,20 @@ describe('camera and spawn policy', () => {
     });
     expect(drawableLaserPolyline(hops, 'direct').points).toEqual([[6.1, 46.2]]);
     expect(drawableLaserPolyline(hops, 'unknown').points).toEqual([[6.1, 46.2]]);
-    expect(drawableLaserPolyline(hops, 'flood').points).toHaveLength(2);
+    expect(drawableLaserPolyline(hops, 'flood').points).toEqual([[4.8, 45.7]]);
+  });
+
+  it('treats an advert with community unknown routeKind as flood, not a 1-point remaining path', () => {
+    const advert = observation({
+      type: 'advert',
+      routeKind: 'unknown',
+      waypoints: [
+        waypoint(45.7, 4.8, { kind: 'hop', token: 'aa11' }),
+        waypoint(46.2, 6.1, { kind: 'ear', token: 'ear' }),
+      ],
+    });
+    expect(drawableLaserPolyline(advert, 'unknown').points).toEqual([[4.8, 45.7]]);
+    expect(drawableLaserPolyline(advert, 'unknown').vertexKind).toEqual(['hop']);
   });
 });
 
@@ -512,6 +535,21 @@ describe('contacts overlay and ripples', () => {
     expect(merged[0].lat).toBe(45.71);
     const tombstoned = mergeLocalOverDirectory(directory, [], new Set(['aa'.repeat(32)]));
     expect(tombstoned.map((node) => node.public_key)).toEqual(['bb'.repeat(32)]);
+  });
+
+  it('keeps observer GPS in the merged pin list and uses it as a hop pin', () => {
+    const observer = {
+      public_key: 'ee'.repeat(32),
+      name: 'Ear',
+      role: 'observer' as const,
+      lat: 45.8,
+      lon: 4.9,
+      source: 'community-db' as const,
+    };
+    const merged = mergeLocalOverDirectory([observer], [], new Set());
+    expect(merged.map((node) => node.public_key)).toEqual(['ee'.repeat(32)]);
+    expect(mappableDirectoryNodes(merged)).toEqual([]);
+    expect(findPinnedHop(undefined, observer.public_key, merged)?.lat).toBe(45.8);
   });
 
   it('drops blocked contacts from the overlay and never upserts hops', () => {

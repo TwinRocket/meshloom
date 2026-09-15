@@ -615,6 +615,8 @@ export interface CommunityPacket {
   v: number;
   event_id: string;
   hash8: string;
+  /** Canonical firmware packet hash (16 hex lowercase). Absent on older Stats frames. */
+  packet_hash?: string;
   type: CommunityPacketType;
   path: string[];
   hop_count: number;

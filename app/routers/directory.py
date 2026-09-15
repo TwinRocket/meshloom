@@ -45,13 +45,12 @@ async def get_directory_map_nodes(include_local: bool = False) -> DirectoryMapNo
 
 @router.get("/nodes/live", response_model=DirectoryMapNodesResponse)
 async def get_live_directory_map_nodes() -> DirectoryMapNodesResponse:
-    """Live-map pins: directory plus local GPS, minus observers.
+    """Live-map pins: directory plus local GPS, including observer GPS.
 
-    #live draws packets and hops. Observer catalog entries are not hops and
-    never appear there, so they are dropped server-side rather than filtered
-    by every client.
+    Observer GPS stays available for hop/origin geometry. The client must
+    not paint a dedicated observer icon.
     """
-    return await list_directory_map_nodes(include_local=True, include_observers=False)
+    return await list_directory_map_nodes(include_local=True, include_observers=True)
 
 
 @router.get("/nodes/search", response_model=DirectoryNodeSearchResponse)

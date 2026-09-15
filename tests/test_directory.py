@@ -239,7 +239,7 @@ class TestParseDirectoryMapNodes:
             ("ef" * 32, "Companion", "companion", "community-db"),
         ]
 
-    def test_keeps_observer_role_so_live_can_drop_it(self):
+    def test_keeps_observer_role_and_drop_helper(self):
         nodes, _total = parse_directory_map_nodes(
             {
                 "nodes": [

@@ -159,6 +159,7 @@ class TestSanitizeAndCloseCodes:
         assert cleaned is not None
         assert cleaned["v"] == 2
         assert cleaned["hash8"] == "deadbeef"
+        assert "packet_hash" not in cleaned
         assert cleaned["ear"] == {"lat": 43.66, "lon": 7.21, "source": "advert"}
         assert cleaned["hops"][0]["confidence"] == "exact"
         assert cleaned["hops"][0]["pubkey"] == "ab" * 32
@@ -216,6 +217,31 @@ class TestSanitizeAndCloseCodes:
         assert sanitize_community_packet(_v2_packet(v=3)) is None
         assert sanitize_community_packet(_v1_packet(v="1")) is None
 
+    def test_sanitize_keeps_packet_hash_when_consistent_with_hash8(self):
+        cleaned = sanitize_community_packet(
+            _v2_packet(hash8="DEADBEEF", packet_hash="DEADBEEFCAFEF00D")
+        )
+        assert cleaned is not None
+        assert cleaned["hash8"] == "deadbeef"
+        assert cleaned["packet_hash"] == "deadbeefcafef00d"
+
+    def test_sanitize_accepts_hash8_only_from_old_stats(self):
+        cleaned = sanitize_community_packet(_v2_packet())
+        assert cleaned is not None
+        assert cleaned["hash8"] == "deadbeef"
+        assert "packet_hash" not in cleaned
+
+    def test_sanitize_drops_packet_hash_that_does_not_match_hash8(self):
+        assert (
+            sanitize_community_packet(_v2_packet(hash8="deadbeef", packet_hash="cafef00ddeadbeef"))
+            is None
+        )
+
+    def test_sanitize_drops_invalid_packet_hash(self):
+        assert sanitize_community_packet(_v2_packet(packet_hash="deadbeef")) is None
+        assert sanitize_community_packet(_v2_packet(packet_hash="zz" * 8)) is None
+        assert sanitize_community_packet(_v2_packet(packet_hash=12)) is None
+
     def test_sanitize_rejects_malformed_v2(self):
         assert sanitize_community_packet(_v2_packet(hops=[{"token": "ab12"}])) is None
         assert (
@@ -249,12 +275,14 @@ class TestSanitizeAndCloseCodes:
         assert user_visible_close_code(CLOSE_INACTIVE) == CLOSE_INACTIVE
 
     def test_dump_ws_event_community_packet(self):
-        packet = sanitize_community_packet(_v2_packet())
+        packet = sanitize_community_packet(_v2_packet(packet_hash="deadbeefcafef00d"))
         assert packet is not None
         serialized = dump_ws_event("community_packet", packet)
         envelope = json.loads(serialized)
         assert envelope["type"] == "community_packet"
         assert envelope["data"]["event_id"] == "e1"
+        assert envelope["data"]["packet_hash"] == "deadbeefcafef00d"
+        assert envelope["data"]["hash8"] == "deadbeef"
         assert envelope["data"]["ear"]["source"] == "advert"
         assert envelope["data"]["hops"][1]["confidence"] == "unresolved"
 

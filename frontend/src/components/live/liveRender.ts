@@ -7,11 +7,15 @@ import type {
 import { isValidLocation } from '../../utils/pathUtils';
 import {
   LIVE_TYPE_COLORS,
+  inferFloodForAdvert,
   isStaleLiveTime,
   liveOpacity,
   liveTypeColor,
+  observationBucketKey,
   snrWeight,
+  type FanoutHop,
   type LiveObservation,
+  type LiveOriginPin,
   type LiveRouteKind,
   type LiveSource,
   type LiveWaypoint,
@@ -282,7 +286,9 @@ export function filterLiveObservations(
 export function localHash8Set(observations: LiveObservation[]): Set<string> {
   const set = new Set<string>();
   for (const obs of observations) {
-    if (obs.source === 'local') set.add(obs.hash8);
+    if (obs.source !== 'local') continue;
+    set.add(observationBucketKey(obs));
+    set.add(obs.hash8);
   }
   return set;
 }
@@ -351,13 +357,20 @@ export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
   };
 }
 
-/** Flood draws hops→ear. DIRECT / unknown never paint remaining-path hops. */
+/** Flood draws hops only (ears are events, not laser endpoints).
+ *  DIRECT / unknown text never paint remaining-path hops. Adverts are flood. */
 export function drawableLaserPolyline(
   obs: LiveObservation,
   routeKind: LiveRouteKind = obs.routeKind
 ): LaserPolyline {
+  const effective = inferFloodForAdvert({ type: obs.type, routeKind });
+  if (effective === 'flood') {
+    return buildLaserPolyline({
+      ...obs,
+      waypoints: obs.waypoints.filter((point) => point.kind !== 'ear'),
+    });
+  }
   const full = buildLaserPolyline(obs);
-  if (routeKind === 'flood') return full;
   const earIndex = full.vertexKind.lastIndexOf('ear');
   if (earIndex < 0) return emptyLaserPolyline();
   return {
@@ -369,6 +382,22 @@ export function drawableLaserPolyline(
     edgeConfidence: [],
     edgeReason: [],
     edgeLabel: [],
+  };
+}
+
+export function laserPolylineOriginToHop(origin: LiveOriginPin, hop: FanoutHop): LaserPolyline {
+  return {
+    points: [
+      [origin.lon, origin.lat],
+      [hop.lon, hop.lat],
+    ],
+    vertexLabel: [undefined, hop.label],
+    vertexKind: ['origin', 'hop'],
+    vertexPubkey: [origin.public_key, hop.pubkey],
+    vertexToken: [origin.public_key.slice(0, 8), hop.token],
+    edgeConfidence: [hop.confidence],
+    edgeReason: [undefined],
+    edgeLabel: [hop.label],
   };
 }
 
@@ -682,17 +711,20 @@ export function trailAlpha(headT: number, trailStartT: number, sampleT: number):
   return clamp01((sampleT - trailStartT) / (headT - trailStartT));
 }
 
-/** City plan for #live: placeable nodes, never observers. The live endpoint
- *  already drops them; this is the second latch so a stale payload cannot
- *  paint an ear on the map. */
-export function mappableDirectoryNodes(nodes: DirectoryMapNode[]): DirectoryMapNode[] {
-  return nodes.filter(
-    (node) =>
-      node.role !== 'observer' &&
-      Number.isFinite(node.lat) &&
-      Number.isFinite(node.lon) &&
-      !(node.lat === 0 && node.lon === 0)
+function hasRealGps(node: DirectoryMapNode): boolean {
+  return (
+    Number.isFinite(node.lat) && Number.isFinite(node.lon) && !(node.lat === 0 && node.lon === 0)
   );
+}
+
+/** Geometry pins: any role with real GPS, observers included. Used for origin/hops. */
+export function geometryDirectoryNodes(nodes: DirectoryMapNode[]): DirectoryMapNode[] {
+  return nodes.filter(hasRealGps);
+}
+
+/** City-plan icons: placeable mesh nodes. Observer GPS is usable but not painted. */
+export function mappableDirectoryNodes(nodes: DirectoryMapNode[]): DirectoryMapNode[] {
+  return geometryDirectoryNodes(nodes).filter((node) => node.role !== 'observer');
 }
 
 export function readLiveCamera(
@@ -816,7 +848,7 @@ export function mergeLocalOverDirectory(
     hidden.delete(key);
     byKey.set(key, { ...node, public_key: key });
   }
-  return mappableDirectoryNodes([...byKey.values()]);
+  return geometryDirectoryNodes([...byKey.values()]);
 }
 
 export function hopVertexT(pointCount: number, index: number): number {

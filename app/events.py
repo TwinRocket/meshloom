@@ -97,7 +97,10 @@ def dump_ws_event(event_type: str, data: Any) -> str:
 
     try:
         validated = adapter.validate_python(data)
-        payload = adapter.dump_python(validated, mode="json")
+        # Omit absent packet_hash on community rain so old-Stats frames stay hash8-only.
+        payload = adapter.dump_python(
+            validated, mode="json", exclude_none=(event_type == "community_packet")
+        )
         return json.dumps({"type": event_type, "data": payload})
     except Exception:
         logger.exception(
