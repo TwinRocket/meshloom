@@ -37,6 +37,7 @@ import {
   localHash8Set,
   type LiveRoleShape,
 } from './live/liveRender';
+import { LIVE_DIRECTORY_REFRESH_MS } from './live/livePins';
 
 interface LiveViewProps {
   contacts: Contact[];
@@ -130,20 +131,30 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
 
   useEffect(() => {
     let cancelled = false;
-    void api.getDirectoryMapNodes().then(
-      (res) => {
-        if (cancelled) return;
-        directoryNodesRef.current = res.nodes;
-        engineRef.current?.setDirectoryNodes(res.nodes);
-      },
-      () => {
-        if (cancelled) return;
-        directoryNodesRef.current = [];
-        engineRef.current?.setDirectoryNodes([]);
-      }
-    );
+    const load = () => {
+      void api.getLiveDirectoryMapNodes().then(
+        (res) => {
+          if (cancelled) return;
+          directoryNodesRef.current = res.nodes;
+          engineRef.current?.setDirectoryNodes(res.nodes);
+        },
+        () => {
+          if (cancelled) return;
+          directoryNodesRef.current = [];
+          engineRef.current?.setDirectoryNodes([]);
+        }
+      );
+    };
+    load();
+    const timer = window.setInterval(load, LIVE_DIRECTORY_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 
@@ -368,6 +379,9 @@ function LiveHoverCard({ hover }: { hover: LiveHoverPayload }) {
         <div className="text-muted-foreground">{nodeRoleLabel(hover.role, t)}</div>
       </div>
     );
+  }
+  if (hover.kind === 'cluster') {
+    return <div className="font-medium">{t('live.clusterCount', { count: hover.count })}</div>;
   }
   if (hover.kind === 'probable') {
     const reasonKey = hover.reason ? `live.reason.${hover.reason}` : '';

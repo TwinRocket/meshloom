@@ -133,8 +133,25 @@ describe('community waypoints', () => {
         confidence: 'probable',
         reason: 'geo_filtered',
       },
-      { lat: 45.3, lon: 4.3, token: 'ear-1', kind: 'ear', confidence: 'exact' },
     ]);
+    expect(observationFromCommunity(frame)?.ear).toEqual({
+      lat: 45.3,
+      lon: 4.3,
+      source: 'iata',
+    });
+  });
+
+  it('does not draw a laser to an IATA airport centroid', () => {
+    const frame = packet({
+      path: ['aa'],
+      hop_count: 1,
+      hops: [{ token: 'aa', lat: 43.18, lon: 5.9, confidence: 'exact', name: 'FR83-Mont-Caume' }],
+      ear: { lat: 43.6584, lon: 7.2159, source: 'iata' },
+      iata: 'NCE',
+    });
+    const waypoints = waypointsFromCommunity(frame);
+    expect(waypoints.every((point) => point.kind !== 'ear')).toBe(true);
+    expect(waypoints.some((point) => point.lat === 43.6584 && point.lon === 7.2159)).toBe(false);
   });
 
   it('marks the next resolved hop as a shortcut after an unresolved gap', () => {

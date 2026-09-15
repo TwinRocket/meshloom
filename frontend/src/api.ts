@@ -159,6 +159,15 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+function directoryNodesQueryString(query?: DirectoryMapNodesQuery): string {
+  const search = new URLSearchParams();
+  if (query?.limit != null) search.set('limit', String(query.limit));
+  if (query?.offset != null) search.set('offset', String(query.offset));
+  if (query?.role) search.set('role', query.role);
+  if (query?.include_local) search.set('include_local', 'true');
+  return search.toString();
+}
+
 /** Check if an error is an AbortError (request was cancelled) */
 export function isAbortError(err: unknown): boolean {
   // DOMException is thrown by fetch when aborted, and it's not an Error subclass
@@ -476,12 +485,27 @@ export const api = {
       body: JSON.stringify({ hops }),
     }),
   getDirectoryMapNodes: (query?: DirectoryMapNodesQuery) => {
-    const search = new URLSearchParams();
-    if (query?.limit != null) search.set('limit', String(query.limit));
-    if (query?.offset != null) search.set('offset', String(query.offset));
-    if (query?.role) search.set('role', query.role);
-    const qs = search.toString();
+    const qs = directoryNodesQueryString(query);
     return fetchJson<DirectoryMapNodesResponse>(`/directory/nodes${qs ? `?${qs}` : ''}`);
+  },
+  /**
+   * Live-map pins: directory plus local GPS (`GET /directory/nodes/live`).
+   * Falls back to `?include_local=true` when the sibling backend route is absent.
+   */
+  getLiveDirectoryMapNodes: async (query?: DirectoryMapNodesQuery) => {
+    const qs = directoryNodesQueryString(query);
+    try {
+      return await fetchJson<DirectoryMapNodesResponse>(
+        `/directory/nodes/live${qs ? `?${qs}` : ''}`
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        return fetchJson<DirectoryMapNodesResponse>(
+          `/directory/nodes?${directoryNodesQueryString({ ...query, include_local: true })}`
+        );
+      }
+      throw err;
+    }
   },
   searchDirectoryNodes: (q: string) =>
     fetchJson<DirectoryNodeSearchResponse>(`/directory/nodes/search?q=${encodeURIComponent(q)}`),

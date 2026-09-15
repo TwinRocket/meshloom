@@ -74,6 +74,7 @@ export interface LiveWaypoint {
   confidence: LiveHopConfidence;
   reason?: string;
   label?: string;
+  pubkey?: string;
 }
 
 export interface LiveEar {
@@ -359,11 +360,13 @@ export function waypointsFromCommunity(packet: CommunityPacket): LiveWaypoint[] 
       confidence,
       reason,
       label: hop.name,
+      pubkey: hop.pubkey,
     });
     skippedUnresolved = false;
   }
 
-  if (packet.ear) {
+  // IATA centroids are not RF positions — pulse the ear, never a laser tip.
+  if (packet.ear && packet.ear.source !== 'iata') {
     appendEarWaypoint(
       waypoints,
       { lat: packet.ear.lat, lon: packet.ear.lon, source: packet.ear.source },
@@ -399,6 +402,7 @@ export function waypointsFromRaw(
         confidence,
         reason: skippedUnresolved ? 'skipped_unresolved' : undefined,
         label: contact.name ?? undefined,
+        pubkey: contact.public_key,
       });
       skippedUnresolved = false;
     } else {

@@ -655,6 +655,8 @@ export interface DirectoryMapNodesQuery {
   offset?: number;
   /** Omitted means every role, not repeaters only. */
   role?: DirectoryNodeRole;
+  /** Merge local GPS contacts. `#map` leaves this off; `#live` uses `/nodes/live`. */
+  include_local?: boolean;
 }
 
 export interface RawPacket {

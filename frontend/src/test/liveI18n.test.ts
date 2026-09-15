@@ -36,6 +36,7 @@ const LIVE_KEYS = [
   'live.nodes.sensor',
   'live.nodes.observer',
   'live.nodes.unknown',
+  'live.clusterCount',
   'live.ears.advert',
   'live.ears.iata',
   'live.ears.local',

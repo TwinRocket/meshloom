@@ -51,6 +51,7 @@
       "observer": "Observer",
       "unknown": "Unknown role"
     },
+    "clusterCount": "{{count}} nodes",
     "ears": {
       "advert": "Position advertised by the node",
       "iata": "Approximate position (regional centroid)",
