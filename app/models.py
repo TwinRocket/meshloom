@@ -1168,14 +1168,15 @@ class DirectoryCacheResetResponse(BaseModel):
 
 
 class DirectoryMapNode(BaseModel):
-    """CoreScope node with GPS. Never mixed into RF contacts."""
+    """Directory or local GPS node. Never mixed into RF contact rows."""
 
     public_key: str
     name: str
-    role: Literal["repeater", "room", "client", "sensor", "unknown"] = "unknown"
+    role: Literal["repeater", "room", "client", "companion", "sensor", "unknown"] = "unknown"
     lat: float
     lon: float
-    source: Literal["corescope"] = "corescope"
+    source: Literal["community-db", "corescope", "local"] = "corescope"
+    last_seen: int | None = None
 
 
 class DirectoryMapNodesResponse(BaseModel):
