@@ -38,9 +38,15 @@ async def post_resolve_hops(request: DirectoryResolveHopsRequest) -> DirectoryRe
 
 
 @router.get("/nodes", response_model=DirectoryMapNodesResponse)
-async def get_directory_map_nodes() -> DirectoryMapNodesResponse:
-    """Proxy CoreScope repeater GPS for the #map overlay. No-op when disabled."""
-    return await list_directory_map_nodes()
+async def get_directory_map_nodes(include_local: bool = False) -> DirectoryMapNodesResponse:
+    """Directory GPS pins for the #map overlay. Local contacts stay off by default."""
+    return await list_directory_map_nodes(include_local=include_local)
+
+
+@router.get("/nodes/live", response_model=DirectoryMapNodesResponse)
+async def get_live_directory_map_nodes() -> DirectoryMapNodesResponse:
+    """Live-map pins: directory plus local GPS. Community/CoreScope win on the same key."""
+    return await list_directory_map_nodes(include_local=True)
 
 
 @router.get("/nodes/search", response_model=DirectoryNodeSearchResponse)
