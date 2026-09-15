@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 async def migrate(conn: aiosqlite.Connection) -> None:
-    """Store optional CoreScope GPS/pubkey on hop-cache rows for path maps."""
+    """Store optional directory GPS/pubkey on hop-cache rows for path maps."""
     tables_cursor = await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {row[0] for row in await tables_cursor.fetchall()}
     if "directory_hop_cache" not in tables:

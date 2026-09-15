@@ -33,7 +33,7 @@ router = APIRouter(prefix="/directory", tags=["directory"])
 
 @router.post("/resolve-hops", response_model=DirectoryResolveHopsResponse)
 async def post_resolve_hops(request: DirectoryResolveHopsRequest) -> DirectoryResolveHopsResponse:
-    """Proxy CoreScope hop resolution. Rejects 1-byte prefixes. No-op when disabled."""
+    """Community hop resolution. Rejects 1-byte prefixes. No-op when Community is off."""
     return await resolve_directory_hops(request.hops)
 
 
@@ -45,19 +45,24 @@ async def get_directory_map_nodes(include_local: bool = False) -> DirectoryMapNo
 
 @router.get("/nodes/live", response_model=DirectoryMapNodesResponse)
 async def get_live_directory_map_nodes() -> DirectoryMapNodesResponse:
-    """Live-map pins: directory plus local GPS. Community/CoreScope win on the same key."""
-    return await list_directory_map_nodes(include_local=True)
+    """Live-map pins: directory plus local GPS, minus observers.
+
+    #live draws packets and hops. Observer catalog entries are not hops and
+    never appear there, so they are dropped server-side rather than filtered
+    by every client.
+    """
+    return await list_directory_map_nodes(include_local=True, include_observers=False)
 
 
 @router.get("/nodes/search", response_model=DirectoryNodeSearchResponse)
 async def get_directory_node_search(q: str) -> DirectoryNodeSearchResponse:
-    """Proxy CoreScope name/key search. Not for hop prefixes — use resolve-hops."""
+    """Community name/key search. Not for hop prefixes — use resolve-hops."""
     return await search_directory_nodes(q)
 
 
 @router.get("/packets/{packet_hash}/reach", response_model=PacketObserverReachResponse)
 async def get_packet_reach(packet_hash: str) -> PacketObserverReachResponse:
-    """CoreScope observers that published this firmware packet hash."""
+    """Nodes that heard this firmware packet hash, from stored Community events."""
     return await get_packet_observer_reach(packet_hash)
 
 
@@ -71,13 +76,13 @@ async def post_packet_reach_counts(
 
 @router.get("/nodes/{pubkey}/reach", response_model=DirectoryReachResponse)
 async def get_node_reach(pubkey: str) -> DirectoryReachResponse:
-    """Proxy CoreScope 0-hop observers. HTTP 500 is a failure, not empty data."""
+    """Community 0-hop observers. HTTP 500 is a failure, not empty data."""
     return await get_directory_node_reach(pubkey)
 
 
 @router.get("/nodes/{pubkey}/neighbors", response_model=DirectoryNeighborsResponse)
 async def get_node_neighbors(pubkey: str) -> DirectoryNeighborsResponse:
-    """Proxy CoreScope neighbor affinity for optional repeater-disk calibration."""
+    """Community neighbor affinity for optional repeater-disk calibration."""
     return await get_directory_node_neighbors(pubkey)
 
 

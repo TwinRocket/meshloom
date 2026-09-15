@@ -34,11 +34,8 @@ const LIVE_KEYS = [
   'live.nodes.client',
   'live.nodes.companion',
   'live.nodes.sensor',
-  'live.nodes.observer',
   'live.nodes.unknown',
-  'live.ears.advert',
-  'live.ears.iata',
-  'live.ears.local',
+  'live.localRadio',
 ] as const;
 
 describe('live i18n', () => {
@@ -54,6 +51,22 @@ describe('live i18n', () => {
     expect(i18n.exists('live.relancer')).toBe(false);
     expect(i18n.exists('live.bannerExpired')).toBe(false);
     expect(i18n.exists('live.bannerRateLimit')).toBe(false);
+  });
+
+  it('drops the observer role and the community ear labels', () => {
+    expect(i18n.exists('live.nodes.observer')).toBe(false);
+    expect(i18n.exists('live.ears.advert')).toBe(false);
+    expect(i18n.exists('live.ears.iata')).toBe(false);
+  });
+
+  it('never calls the live feed rain', () => {
+    for (const lng of ['en', 'fr'] as const) {
+      const t = i18n.getFixedT(lng);
+      for (const key of LIVE_KEYS) {
+        expect(t(key).toLowerCase()).not.toContain('rain');
+        expect(t(key).toLowerCase()).not.toContain('pluie');
+      }
+    }
   });
 
   it('labels the companion role Companion in English and French', () => {

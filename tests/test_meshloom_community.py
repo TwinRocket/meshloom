@@ -120,42 +120,16 @@ class TestFanoutHidesSystemPublisher:
         assert exc.value.status_code == 403
 
 
-class TestCommunityOffUsesDirectoryUrl:
+class TestCommunityOffHasNoDirectory:
     @pytest.mark.asyncio
-    async def test_off_does_not_call_stats_and_uses_directory_url(self, test_db):
-        from app.repository import AppSettingsRepository
+    async def test_off_does_not_call_stats_and_serves_nothing(self, test_db):
         from app.services.directory import reset_directory_nodes_cache
 
         reset_directory_nodes_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "total": 1,
-            "nodes": [
-                {
-                    "public_key": "11" * 32,
-                    "name": "NetRelay",
-                    "role": "repeater",
-                    "lat": 45.0,
-                    "lon": 5.0,
-                }
-            ],
-        }
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        with (
-            patch("app.services.directory.httpx.AsyncClient", return_value=mock_client),
-            patch("app.services.meshloom_community.stats_request", new=AsyncMock()) as stats_req,
-        ):
+        with patch("app.services.meshloom_community.stats_request", new=AsyncMock()) as stats_req:
             result = await list_directory_map_nodes()
-        assert result.nodes[0].name == "NetRelay"
+        assert result.nodes == []
         stats_req.assert_not_called()
-        assert mock_client.get.call_args.args[0] == "https://corescope.test/api/nodes"
 
 
 class TestCommunityOnDirectoryUnavailable:

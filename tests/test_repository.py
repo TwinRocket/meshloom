@@ -775,8 +775,6 @@ class TestAppSettingsRepository:
         assert settings.auto_resend_channel is False
         assert settings.telemetry_interval_hours == DEFAULT_TELEMETRY_INTERVAL_HOURS
         assert settings.stale_contact_days == 0
-        assert settings.directory_enabled is False
-        assert settings.directory_url == ""
 
 
 class TestMessageRepositoryGetById:

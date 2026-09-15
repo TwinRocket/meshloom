@@ -120,7 +120,7 @@ export function snrWeight(snr: number | null | undefined): number {
 }
 
 /**
- * Local rain is more opaque than community rain. When the same hash8 is
+ * The local feed is more opaque than the community feed. When the same hash8 is
  * present on both feeds, community is dimmed further so the local drop wins.
  */
 export function liveOpacity(

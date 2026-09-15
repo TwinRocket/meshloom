@@ -19,7 +19,6 @@ export const LIVE_SEGMENT_MS = LIVE_PACKET_MS;
 export const LIVE_TRAIL_MS = 380;
 export const LIVE_REMANENCE_MS = 280;
 export const LIVE_STAGGER_MS = 90;
-export const LIVE_EAR_PULSE_MS = 1400;
 export const MAX_LIVE_SHOTS = 140;
 export const MAX_LIVE_CATCHUP = 36;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
@@ -30,7 +29,6 @@ export const LASER_GLOW_WIDTH_SCALE = 2;
 export const LASER_GLOW_ALPHA = 0.22;
 
 export type LiveHopConfidence = 'exact' | 'probable' | 'unresolved';
-export type LiveEarSource = 'advert' | 'iata' | 'local';
 export type LonLat = [number, number];
 export type Rgba = [number, number, number, number];
 
@@ -82,10 +80,9 @@ export interface ConfidenceStroke {
   dashed: boolean;
 }
 
-export type LiveRoleShape = 'circle' | 'square' | 'hexagon' | 'triangle' | 'diamond';
+export type LiveRoleShape = 'circle' | 'square' | 'hexagon' | 'triangle';
 
-export type NormalizedDirectoryRole =
-  'repeater' | 'companion' | 'room' | 'sensor' | 'observer' | 'unknown';
+export type NormalizedDirectoryRole = 'repeater' | 'companion' | 'room' | 'sensor' | 'unknown';
 
 export interface NodeRoleStyle {
   color: string;
@@ -93,24 +90,22 @@ export interface NodeRoleStyle {
   shape: LiveRoleShape;
 }
 
-export interface EarVisual {
+export interface LocalRadioVisual {
   color: string;
   ring: string;
   radius: number;
-  pulseScale: number;
   opacity: number;
 }
 
 const COMPANION_STYLE: NodeRoleStyle = { color: '#60a5fa', radius: 3.2, shape: 'square' };
 
-/** Role palette. Disjoint from LIVE_TYPE_COLORS; MeshLoom identity, not Wong. */
-export const NODE_ROLE_STYLE: Record<DirectoryNodeRole, NodeRoleStyle> = {
+/** Role palette. Disjoint from LIVE_TYPE_COLORS; MeshLoom identity, not Wong.
+ *  No observer entry: #live draws packets and hops, never who heard them. */
+export const NODE_ROLE_STYLE: Record<NormalizedDirectoryRole, NodeRoleStyle> = {
   repeater: { color: '#f43f5e', radius: 4.4, shape: 'circle' },
   companion: COMPANION_STYLE,
-  client: COMPANION_STYLE,
   room: { color: '#818cf8', radius: 4.1, shape: 'hexagon' },
   sensor: { color: '#2dd4bf', radius: 3.5, shape: 'triangle' },
-  observer: { color: '#e879f9', radius: 3.4, shape: 'diamond' },
   unknown: { color: '#64748b', radius: 2.8, shape: 'circle' },
 };
 
@@ -122,7 +117,6 @@ export const LIVE_ROLE_LEGEND: ReadonlyArray<{
   { role: 'companion', shape: 'square' },
   { role: 'room', shape: 'hexagon' },
   { role: 'sensor', shape: 'triangle' },
-  { role: 'observer', shape: 'diamond' },
 ];
 
 export const LIVE_ROLE_SHAPES: readonly LiveRoleShape[] = [
@@ -130,7 +124,6 @@ export const LIVE_ROLE_SHAPES: readonly LiveRoleShape[] = [
   'square',
   'hexagon',
   'triangle',
-  'diamond',
 ];
 
 export const DEFAULT_LIVE_CAMERA: LiveCamera = { lat: 24, lon: 8, zoom: 2.15 };
@@ -159,15 +152,6 @@ export function waypointReason(point: LiveWaypoint): string | undefined {
 export function waypointLabel(point: LiveWaypoint): string | undefined {
   const extra = point as LiveWaypoint & { label?: string };
   return extra.label;
-}
-
-export function observationEarSource(obs: LiveObservation): LiveEarSource | null {
-  if (!obs.ear) return null;
-  const extra = obs.ear as { source?: LiveEarSource };
-  if (extra.source === 'advert' || extra.source === 'iata' || extra.source === 'local') {
-    return extra.source;
-  }
-  return obs.source === 'local' ? 'local' : 'iata';
 }
 
 export function hexToRgba(hex: string, alpha: number): Rgba {
@@ -209,20 +193,18 @@ export function strokeStyleForConfidence(
   return { width: baseWidth, opacityScale: 1, dashed: false };
 }
 
-export function earVisual(source: LiveEarSource): EarVisual {
-  if (source === 'advert') {
-    return { color: '#f8fafc', ring: '#e2e8f0', radius: 6.5, pulseScale: 2.4, opacity: 0.92 };
-  }
-  if (source === 'local') {
-    return { color: '#e879f9', ring: '#f5d0fe', radius: 7.5, pulseScale: 2.1, opacity: 0.88 };
-  }
-  return { color: '#94a3b8', ring: '#64748b', radius: 11, pulseScale: 1.55, opacity: 0.36 };
-}
+/** Your own radio, drawn once. Community ears are not nodes on this map. */
+export const LOCAL_RADIO_VISUAL: LocalRadioVisual = {
+  color: '#e879f9',
+  ring: '#f5d0fe',
+  radius: 7.5,
+  opacity: 0.88,
+};
 
 export function normalizeDirectoryRole(
   role: DirectoryNodeRole | string | undefined
 ): NormalizedDirectoryRole {
-  if (role === 'repeater' || role === 'room' || role === 'sensor' || role === 'observer') {
+  if (role === 'repeater' || role === 'room' || role === 'sensor') {
     return role;
   }
   if (role === 'companion' || role === 'client' || role === 'chat') {
@@ -396,12 +378,6 @@ export function drawRoleShape(
     ctx.lineTo(cx + r, cy + r);
     ctx.lineTo(cx - r, cy + r);
     ctx.closePath();
-  } else if (shape === 'diamond') {
-    ctx.moveTo(cx, cy - r);
-    ctx.lineTo(cx + r, cy);
-    ctx.lineTo(cx, cy + r);
-    ctx.lineTo(cx - r, cy);
-    ctx.closePath();
   } else {
     const sides = shape === 'hexagon' ? 6 : 3;
     const start = shape === 'triangle' ? -Math.PI / 2 : 0;
@@ -466,12 +442,6 @@ export function remanenceOpacity(ageMs: number, lifetimeMs: number = LIVE_REMANE
   if (ageMs >= lifetimeMs) return 0;
   const linear = 1 - ageMs / lifetimeMs;
   return linear * linear;
-}
-
-export function earPulse(ageMs: number, lifetimeMs: number = LIVE_EAR_PULSE_MS): number {
-  if (ageMs < 0 || ageMs >= lifetimeMs) return 0;
-  const t = ageMs / lifetimeMs;
-  return (1 - t) * (1 - t);
 }
 
 export function dashLonLat(from: LonLat, to: LonLat, dashDeg = 0.16, gapDeg = 0.12): LonLat[][] {
@@ -607,14 +577,14 @@ export function liveHoverKey(
     | { kind: 'node'; name: string }
     | { kind: 'probable'; reason: string; label?: string }
     | { kind: 'exact'; label?: string }
-    | { kind: 'ear'; source: string; iata: string | null }
+    | { kind: 'local' }
     | null
 ): string {
   if (!hover) return '';
   if (hover.kind === 'node') return `node:${hover.name}`;
   if (hover.kind === 'probable') return `probable:${hover.reason}:${hover.label ?? ''}`;
   if (hover.kind === 'exact') return `exact:${hover.label ?? ''}`;
-  return `ear:${hover.source}:${hover.iata ?? ''}`;
+  return 'local';
 }
 
 export function trailAlpha(headT: number, trailStartT: number, sampleT: number): number {
@@ -622,10 +592,16 @@ export function trailAlpha(headT: number, trailStartT: number, sampleT: number):
   return clamp01((sampleT - trailStartT) / (headT - trailStartT));
 }
 
+/** City plan for #live: placeable nodes, never observers. The live endpoint
+ *  already drops them; this is the second latch so a stale payload cannot
+ *  paint an ear on the map. */
 export function mappableDirectoryNodes(nodes: DirectoryMapNode[]): DirectoryMapNode[] {
   return nodes.filter(
     (node) =>
-      Number.isFinite(node.lat) && Number.isFinite(node.lon) && !(node.lat === 0 && node.lon === 0)
+      node.role !== 'observer' &&
+      Number.isFinite(node.lat) &&
+      Number.isFinite(node.lon) &&
+      !(node.lat === 0 && node.lon === 0)
   );
 }
 

@@ -1,50 +1,43 @@
-"""CoreScope directory hop resolver: 1-byte reject, opt-in no-op, cache, SSRF."""
+"""Community-only directory: 1-byte reject, off = empty, SQLite hop cache."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-import httpx
 import pytest
 from fastapi import HTTPException
 
 from app.models import DirectoryResolveHopsRequest
-from app.repository import AppSettingsRepository
 from app.repository.directory import DirectoryHopCacheRepository
 from app.routers.directory import post_reset_directory_cache, post_resolve_hops
-from app.routers.settings import AppSettingsUpdate, update_settings
 from app.services.directory import (
+    drop_observer_nodes,
+    get_directory_node_neighbors,
     get_directory_node_reach,
     list_directory_map_nodes,
-    normalize_directory_origin,
-    parse_corescope_map_nodes,
-    parse_corescope_reach,
-    parse_corescope_resolved,
+    parse_directory_map_nodes,
+    parse_directory_reach,
+    parse_directory_resolved,
     reset_directory_nodes_cache,
     resolve_directory_hops,
+    search_directory_nodes,
     validate_hop_prefixes,
 )
 
 
-class TestNormalizeDirectoryOrigin:
-    def test_empty_stays_empty(self):
-        assert normalize_directory_origin("  ") == ""
+class TestNoUpstreamClient:
+    def test_directory_module_has_no_http_client(self):
+        """OSS talks to Meshloom Community only. No direct upstream connection."""
+        import app.services.directory as directory
 
-    def test_strips_path_to_origin(self):
-        assert normalize_directory_origin("https://analyzer.example/api/docs") == (
-            "https://analyzer.example"
-        )
-
-    def test_rejects_file_scheme(self):
-        with pytest.raises(ValueError, match="http or https"):
-            normalize_directory_origin("file:///etc/passwd")
-
-    def test_rejects_credentials(self):
-        with pytest.raises(ValueError, match="credentials"):
-            normalize_directory_origin("https://user:pass@evil.example")
-
-    def test_rejects_whitespace(self):
-        with pytest.raises(ValueError, match="whitespace"):
-            normalize_directory_origin("https://evil.example /path")
+        assert not hasattr(directory, "httpx")
+        for removed in (
+            "_corescope_get_json",
+            "_corescope_post_json",
+            "_require_directory_origin",
+            "validate_corescope_spec",
+            "normalize_directory_origin",
+        ):
+            assert not hasattr(directory, removed), removed
 
 
 class TestValidateHopPrefixes:
@@ -68,9 +61,9 @@ class TestValidateHopPrefixes:
         assert exc.value.status_code == 400
 
 
-class TestParseCorescopeResolved:
+class TestParseDirectoryResolved:
     def test_unique_name(self):
-        parsed = parse_corescope_resolved(
+        parsed = parse_directory_resolved(
             {
                 "resolved": {
                     "A1B2": {
@@ -85,9 +78,9 @@ class TestParseCorescopeResolved:
         assert parsed == {"A1B2": "HillTop"}
 
     def test_keeps_candidate_gps(self):
-        from app.services.directory import parse_corescope_resolved_hits
+        from app.services.directory import parse_directory_resolved_hits
 
-        parsed = parse_corescope_resolved_hits(
+        parsed = parse_directory_resolved_hits(
             {
                 "resolved": {
                     "A1B2": {
@@ -110,7 +103,7 @@ class TestParseCorescopeResolved:
         assert hit.lon == 2.2
 
     def test_no_match_and_1_byte_ignored(self):
-        parsed = parse_corescope_resolved(
+        parsed = parse_directory_resolved(
             {
                 "resolved": {
                     "A1": {
@@ -134,22 +127,13 @@ class TestParseCorescopeResolved:
 
 class TestDirectoryAvailable:
     @pytest.mark.asyncio
-    async def test_off_without_url_is_false(self, test_db):
+    async def test_community_off_is_false(self, test_db):
         from app.services.directory import directory_is_available
 
         assert await directory_is_available() is False
 
     @pytest.mark.asyncio
-    async def test_manual_corescope_is_true(self, test_db):
-        from app.services.directory import directory_is_available
-
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        assert await directory_is_available() is True
-
-    @pytest.mark.asyncio
-    async def test_community_on_without_manual_url_is_true(self, test_db):
+    async def test_community_on_is_true(self, test_db):
         from app.services.directory import directory_is_available
         from app.services.meshloom_community import update_community
 
@@ -159,59 +143,18 @@ class TestDirectoryAvailable:
 
 class TestResolveDirectoryHops:
     @pytest.mark.asyncio
-    async def test_disabled_is_noop(self, test_db):
+    async def test_community_off_is_noop(self, test_db):
         result = await resolve_directory_hops(["A1B2"])
         assert result.resolved == {}
 
     @pytest.mark.asyncio
-    async def test_enabled_without_url_is_noop(self, test_db):
-        await AppSettingsRepository.update(directory_enabled=True, directory_url="")
-        result = await resolve_directory_hops(["A1B2"])
-        assert result.resolved == {}
+    async def test_rejects_1_byte_even_when_community_on(self, test_db):
+        from app.services.meshloom_community import update_community
 
-    @pytest.mark.asyncio
-    async def test_rejects_1_byte_even_when_enabled(self, test_db):
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
+        await update_community(enabled=True, iata="LYS")
         with pytest.raises(HTTPException) as exc:
             await resolve_directory_hops(["1A"])
         assert exc.value.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_proxies_only_saved_origin_and_caches(self, test_db):
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "resolved": {
-                "A1B2": {
-                    "name": "HillTop",
-                    "candidates": [],
-                    "conflicts": [],
-                    "confidence": "unique",
-                }
-            }
-        }
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            first = await resolve_directory_hops(["A1B2"])
-            second = await resolve_directory_hops(["A1B2"])
-
-        assert first.resolved["A1B2"].name == "HillTop"
-        assert first.resolved["A1B2"].source == "corescope"
-        assert first.resolved["A1B2"].hash_width == 2
-        assert second.resolved["A1B2"].name == "HillTop"
-        assert mock_client.get.call_count == 1
-        called_url = mock_client.get.call_args.args[0]
-        assert called_url == "https://corescope.test/api/resolve-hops"
-        assert mock_client.get.call_args.kwargs["params"]["hops"] == "A1B2"
 
     @pytest.mark.asyncio
     async def test_community_hops_use_sqlite_cache(self, test_db):
@@ -239,6 +182,7 @@ class TestResolveDirectoryHops:
             first = await resolve_directory_hops(["A1B2"])
             second = await resolve_directory_hops(["A1B2"])
         assert first.resolved["A1B2"].name == "HillTop"
+        assert first.resolved["A1B2"].hash_width == 2
         assert second.resolved["A1B2"].name == "HillTop"
         assert calls["n"] == 1
 
@@ -251,52 +195,6 @@ class TestResolveDirectoryHops:
         assert cached == {}
 
 
-class TestDirectorySettingsValidation:
-    @pytest.mark.asyncio
-    async def test_empty_url_persists_without_spec_check(self, test_db):
-        result = await update_settings(AppSettingsUpdate(directory_url=""))
-        assert result.directory_url == ""
-        assert result.directory_enabled is False
-
-    @pytest.mark.asyncio
-    async def test_url_requires_successful_spec(self, test_db):
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"openapi": "3.0.3", "info": {"title": "CoreScope API"}}
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            result = await update_settings(
-                AppSettingsUpdate(directory_url="https://analyzer.example/extra")
-            )
-
-        assert result.directory_url == "https://analyzer.example"
-        assert mock_client.get.call_args.args[0] == "https://analyzer.example/api/spec"
-
-    @pytest.mark.asyncio
-    async def test_file_url_rejected(self, test_db):
-        with pytest.raises(HTTPException) as exc:
-            await update_settings(AppSettingsUpdate(directory_url="file:///tmp/x"))
-        assert exc.value.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_spec_failure_does_not_persist(self, test_db):
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(HTTPException) as exc:
-                await update_settings(AppSettingsUpdate(directory_url="https://nope.example"))
-        assert exc.value.status_code == 400
-        fresh = await AppSettingsRepository.get()
-        assert fresh.directory_url == ""
-
-
 class TestDirectoryRouter:
     @pytest.mark.asyncio
     async def test_post_resolve_rejects_1_byte(self, test_db):
@@ -305,9 +203,9 @@ class TestDirectoryRouter:
         assert exc.value.status_code == 400
 
 
-class TestParseCorescopeMapNodes:
+class TestParseDirectoryMapNodes:
     def test_keeps_repeater_gps_and_drops_sentinel(self):
-        nodes, total = parse_corescope_map_nodes(
+        nodes, total = parse_directory_map_nodes(
             {
                 "total": 3,
                 "nodes": [
@@ -337,12 +235,29 @@ class TestParseCorescopeMapNodes:
         )
         assert total == 3
         assert [(n.public_key, n.name, n.role, n.source) for n in nodes] == [
-            ("ab" * 32, "HillTop", "repeater", "corescope"),
-            ("ef" * 32, "Companion", "companion", "corescope"),
+            ("ab" * 32, "HillTop", "repeater", "community-db"),
+            ("ef" * 32, "Companion", "companion", "community-db"),
         ]
 
-    def test_keeps_community_source_and_parses_last_seen_at(self):
-        nodes, total = parse_corescope_map_nodes(
+    def test_keeps_observer_role_so_live_can_drop_it(self):
+        nodes, _total = parse_directory_map_nodes(
+            {
+                "nodes": [
+                    {
+                        "public_key": "ab" * 32,
+                        "name": "Ear",
+                        "role": "observer",
+                        "lat": 48.1,
+                        "lon": 2.2,
+                    }
+                ]
+            }
+        )
+        assert nodes[0].role == "observer"
+        assert drop_observer_nodes(nodes) == []
+
+    def test_keeps_upstream_source_tag_and_parses_last_seen_at(self):
+        nodes, total = parse_directory_map_nodes(
             {
                 "total": 1,
                 "nodes": [
@@ -352,18 +267,18 @@ class TestParseCorescopeMapNodes:
                         "role": "repeater",
                         "lat": 48.1,
                         "lon": 2.2,
-                        "source": "community-db",
+                        "source": "corescope",
                         "last_seen_at": "2026-09-15T03:00:00Z",
                     }
                 ],
             }
         )
         assert total == 1
-        assert nodes[0].source == "community-db"
+        assert nodes[0].source == "corescope"
         assert nodes[0].last_seen == int(datetime(2026, 9, 15, 3, 0, tzinfo=UTC).timestamp())
 
     def test_community_default_source_without_payload_field(self):
-        nodes, _total = parse_corescope_map_nodes(
+        nodes, _total = parse_directory_map_nodes(
             {
                 "nodes": [
                     {
@@ -374,60 +289,22 @@ class TestParseCorescopeMapNodes:
                         "lon": 2.2,
                     }
                 ],
-            },
-            default_source="community-db",
+            }
         )
         assert nodes[0].role == "client"
         assert nodes[0].source == "community-db"
         assert nodes[0].last_seen is None
 
     def test_rejects_non_object_payload(self):
-        assert parse_corescope_map_nodes(["nope"]) == ([], None)
+        assert parse_directory_map_nodes(["nope"]) == ([], None)
 
 
 class TestListDirectoryMapNodes:
     @pytest.mark.asyncio
-    async def test_disabled_is_noop(self, test_db):
+    async def test_community_off_is_noop(self, test_db):
         reset_directory_nodes_cache()
         result = await list_directory_map_nodes()
         assert result.nodes == []
-
-    @pytest.mark.asyncio
-    async def test_proxies_repeaters_and_caches(self, test_db):
-        reset_directory_nodes_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "total": 1,
-            "nodes": [
-                {
-                    "public_key": "11" * 32,
-                    "name": "NetRelay",
-                    "role": "repeater",
-                    "lat": 45.0,
-                    "lon": 5.0,
-                }
-            ],
-        }
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            first = await list_directory_map_nodes()
-            second = await list_directory_map_nodes()
-
-        assert first.nodes[0].name == "NetRelay"
-        assert first.nodes[0].lat == 45.0
-        assert first.nodes[0].source == "corescope"
-        assert second.nodes[0].name == "NetRelay"
-        assert mock_client.get.call_count == 1
-        assert mock_client.get.call_args.args[0] == "https://corescope.test/api/nodes"
-        assert "role" not in mock_client.get.call_args.kwargs["params"]
 
     @pytest.mark.asyncio
     async def test_community_nodes_cache_skips_second_stats_call(self, test_db):
@@ -558,7 +435,7 @@ class TestListDirectoryMapNodes:
 
 class TestDirectoryReach:
     def test_parse_keeps_gps_observers_only(self):
-        parsed = parse_corescope_reach(
+        parsed = parse_directory_reach(
             {
                 "node": {"pubkey": "aa" * 32, "name": "Ghost", "lat": 0, "lon": 0},
                 "direct_observers": [
@@ -588,28 +465,41 @@ class TestDirectoryReach:
         assert parsed.observers[0].avg_snr == 4.5
 
     @pytest.mark.asyncio
-    async def test_reach_500_raises(self, test_db):
-        reset_directory_nodes_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(HTTPException) as exc:
-                await get_directory_node_reach("aa" * 32)
-        assert exc.value.status_code == 500
-
-    @pytest.mark.asyncio
-    async def test_reach_disabled_is_empty_not_500(self, test_db):
+    async def test_reach_community_off_is_empty_not_500(self, test_db):
         reset_directory_nodes_cache()
         result = await get_directory_node_reach("aa" * 32)
         assert result.directory_enabled is False
         assert result.observers == []
+
+    @pytest.mark.asyncio
+    async def test_neighbors_and_search_community_off_are_empty(self, test_db):
+        neighbors = await get_directory_node_neighbors("aa" * 32)
+        assert neighbors.directory_enabled is False
+        assert neighbors.neighbors == []
+        found = await search_directory_nodes("hill")
+        assert found.directory_enabled is False
+        assert found.nodes == []
+
+    @pytest.mark.asyncio
+    async def test_reach_uses_stats_when_community_on(self, test_db):
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        paths: list[str] = []
+
+        async def fake_data(path: str, **_kwargs: object) -> object:
+            paths.append(path)
+            return {"node": {"pubkey": "aa" * 32, "name": "Ghost", "lat": 48.1, "lon": 2.2}}
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
+            result = await get_directory_node_reach("aa" * 32)
+        assert paths == [f"/v1/directory/nodes/{'aa' * 32}/reach"]
+        assert result.directory_enabled is True
+        assert result.node is not None
+        assert result.node.name == "Ghost"
 
 
 class TestDirectoryTtlLru:
@@ -637,43 +527,3 @@ class TestDirectoryTtlLru:
         assert cache.get("a", now=1) is None
         assert cache.get("b", now=1) == "B"
         assert cache.get("c", now=1) == "C"
-
-    @pytest.mark.asyncio
-    async def test_reach_cache_drops_lru_entry(self, test_db):
-        from app.models import DirectoryReachResponse
-        from app.services import directory
-        from app.services.ttl_lru import TtlLruCache
-
-        reset_directory_nodes_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        original = directory._reach_cache
-        directory._reach_cache = TtlLruCache[tuple[str, str], DirectoryReachResponse](2)
-
-        def _ok(pubkey: str) -> MagicMock:
-            response = MagicMock()
-            response.status_code = 200
-            response.json.return_value = {
-                "node": {"pubkey": pubkey, "name": pubkey[:4], "lat": 1.0, "lon": 2.0},
-                "direct_observers": [],
-            }
-            return response
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(
-            side_effect=[_ok("aa" * 32), _ok("bb" * 32), _ok("cc" * 32), _ok("aa" * 32)]
-        )
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        try:
-            with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-                await get_directory_node_reach("aa" * 32)
-                await get_directory_node_reach("bb" * 32)
-                await get_directory_node_reach("cc" * 32)
-                await get_directory_node_reach("aa" * 32)
-            assert mock_client.get.call_count == 4
-        finally:
-            directory._reach_cache = original
-            reset_directory_nodes_cache()

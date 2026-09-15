@@ -130,7 +130,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
 
   useEffect(() => {
     let cancelled = false;
-    void api.getDirectoryMapNodes().then(
+    void api.getLiveDirectoryMapNodes().then(
       (res) => {
         if (cancelled) return;
         directoryNodesRef.current = res.nodes;
@@ -148,7 +148,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
   }, []);
 
   useEffect(() => {
-    engineRef.current?.setLocalEar(config);
+    engineRef.current?.setLocalRadio(config);
   }, [config]);
 
   useEffect(() => {
@@ -354,7 +354,6 @@ function RoleShapeIcon({ shape, color }: { shape: LiveRoleShape; color: string }
       {shape === 'square' && <rect x="1.8" y="1.8" width="6.4" height="6.4" fill={color} />}
       {shape === 'hexagon' && <polygon points="5,1 8.5,3 8.5,7 5,9 1.5,7 1.5,3" fill={color} />}
       {shape === 'triangle' && <polygon points="5,1.4 8.8,8.4 1.2,8.4" fill={color} />}
-      {shape === 'diamond' && <polygon points="5,1.2 8.8,5 5,8.8 1.2,5" fill={color} />}
     </svg>
   );
 }
@@ -382,12 +381,7 @@ function LiveHoverCard({ hover }: { hover: LiveHoverPayload }) {
   if (hover.kind === 'exact') {
     return <div className="font-medium">{hover.label}</div>;
   }
-  return (
-    <div>
-      <div className="font-medium">{t(`live.ears.${hover.source}`)}</div>
-      {hover.iata && <div className="text-muted-foreground">{hover.iata}</div>}
-    </div>
-  );
+  return <div className="font-medium">{t('live.localRadio')}</div>;
 }
 
 function nodeRoleLabel(role: DirectoryNodeRole, t: (key: string) => string): string {

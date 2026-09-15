@@ -2,18 +2,17 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 from fastapi import HTTPException
 
 from app.models import ContactUpsert
 from app.repository import (
-    AppSettingsRepository,
     ContactAdvertPathRepository,
     ContactRepository,
     MessageRepository,
 )
 from app.services.directory import reset_directory_nodes_cache
+from app.services.meshloom_community import update_community
 from app.services.rf_locate import locate_query
 
 
@@ -174,33 +173,36 @@ class TestLocateLocalZeroHop:
 
 
 class TestLocateDirectoryReach:
+    @staticmethod
+    def _community_reach(key: str, observer_key: str, *, snr: float, lat: float, lon: float):
+        async def fake_data(path: str, **_kwargs: object) -> object:
+            if path.endswith("/reach"):
+                return {
+                    "node": {"pubkey": key, "name": "Ghost", "lat": None, "lon": None},
+                    "direct_observers": [
+                        {
+                            "pubkey": observer_key,
+                            "name": "ObsA",
+                            "count": 4,
+                            "avg_snr": snr,
+                            "lat": lat,
+                            "lon": lon,
+                        }
+                    ],
+                }
+            return {}
+
+        return fake_data
+
     @pytest.mark.asyncio
-    async def test_corescope_observers_become_disks(self, test_db):
+    async def test_community_observers_become_disks(self, test_db):
         reset_directory_nodes_cache()
         key = "22" * 32
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "node": {"pubkey": key, "name": "Ghost", "lat": None, "lon": None},
-            "direct_observers": [
-                {
-                    "pubkey": "33" * 32,
-                    "name": "ObsA",
-                    "count": 4,
-                    "avg_snr": 8.1,
-                    "lat": 48.0,
-                    "lon": 2.0,
-                }
-            ],
-        }
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=self._community_reach("22" * 32, "33" * 32, snr=8.1, lat=48.0, lon=2.0),
+        ):
             result = await locate_query(key)
         assert result.directory_enabled is True
         assert result.source == "corescope"
@@ -209,71 +211,36 @@ class TestLocateDirectoryReach:
         assert result.empty_reason is None
 
     @pytest.mark.asyncio
-    async def test_corescope_500_is_not_empty(self, test_db):
+    async def test_stats_failure_is_not_empty(self, test_db):
         reset_directory_nodes_cache()
         key = "44" * 32
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(HTTPException) as exc:
-                await locate_query(key)
-        assert exc.value.status_code == 500
+        await update_community(enabled=True, iata="LYS")
 
-    @pytest.mark.asyncio
-    async def test_corescope_network_error_is_500(self, test_db):
-        reset_directory_nodes_cache()
-        key = "55" * 32
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
+        async def fake_data(*_args: object, **_kwargs: object) -> object:
+            raise HTTPException(status_code=500, detail="Stats directory unavailable")
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
             with pytest.raises(HTTPException) as exc:
                 await locate_query(key)
         assert exc.value.status_code == 500
         assert "empty" not in str(exc.value.detail).lower()
 
     @pytest.mark.asyncio
-    async def test_mixte_source_when_local_and_corescope(self, test_db):
+    async def test_mixte_source_when_local_and_directory(self, test_db):
         reset_directory_nodes_cache()
         key = "66" * 32
         await _insert_contact(key, "Both")
         await ContactAdvertPathRepository.record_observation(key, "", 1_700_000_000, hop_count=0)
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "node": {"pubkey": key, "name": "Both"},
-            "direct_observers": [
-                {
-                    "pubkey": "77" * 32,
-                    "name": "ObsB",
-                    "count": 1,
-                    "avg_snr": -2.0,
-                    "lat": 49.0,
-                    "lon": 3.0,
-                }
-            ],
-        }
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        await update_community(enabled=True, iata="LYS")
         with (
             patch("app.services.rf_locate.radio_runtime", _radio_info()),
-            patch("app.services.directory.httpx.AsyncClient", return_value=mock_client),
+            patch(
+                "app.services.directory._community_directory_data",
+                side_effect=self._community_reach(key, "77" * 32, snr=-2.0, lat=49.0, lon=3.0),
+            ),
         ):
             result = await locate_query(key)
         assert result.source == "mixte"

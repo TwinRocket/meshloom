@@ -389,7 +389,7 @@ async def locate_query(query: str, radius_km: float | None = None) -> LocateResp
         identity.public_key, radius, directory_enabled
     )
 
-    corescope_anchors: list[LocateAnchor] = []
+    directory_anchors: list[LocateAnchor] = []
     declared_gps: LocateDeclaredGps | None = None
     contact = await ContactRepository.get_by_key(identity.public_key)
     if (
@@ -416,7 +416,7 @@ async def locate_query(query: str, radius_km: float | None = None) -> LocateResp
         for observer in reach.observers:
             if observer.lat is None or observer.lon is None:
                 continue
-            corescope_anchors.append(
+            directory_anchors.append(
                 LocateAnchor(
                     kind="corescope_0hop",
                     source="corescope",
@@ -430,7 +430,7 @@ async def locate_query(query: str, radius_km: float | None = None) -> LocateResp
                 )
             )
 
-    anchors = _dedupe_anchors([*local_anchors, *first_hop_anchors, *corescope_anchors])
+    anchors = _dedupe_anchors([*local_anchors, *first_hop_anchors, *directory_anchors])
     source = _source_badge(anchors)
     empty_reason_value: LocateEmptyReason | None = None
     if not anchors:

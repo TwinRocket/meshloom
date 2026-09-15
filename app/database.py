@@ -120,8 +120,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
     vapid_public_key TEXT DEFAULT '',
     push_conversations TEXT DEFAULT '[]',
     stale_contact_days INTEGER DEFAULT 0,
-    directory_enabled INTEGER DEFAULT 0,
-    directory_url TEXT DEFAULT '',
     community_enabled INTEGER DEFAULT 0,
     community_iata TEXT DEFAULT '',
     community_broker_host TEXT DEFAULT '',

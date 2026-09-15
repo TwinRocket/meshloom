@@ -3,7 +3,7 @@ import { recordCommunityPacket, relancerLive, setLiveCloseCode } from '../stores
 import { LIVE_STAGGER_MS } from '../utils/livePackets';
 
 /**
- * Offline community rain for local UI work. The browser never calls Stats.
+ * Offline community live feed for local UI work. The browser never calls Stats.
  */
 export const LIVE_PACKET_FIXTURES: CommunityPacket[] = [
   {
@@ -112,7 +112,7 @@ export function playLivePacketFixtures(staggerMs: number = LIVE_STAGGER_MS): voi
   });
 }
 
-/** Fixture stand-in for close 4001 — Relancer refreshes the rain. */
+/** Fixture stand-in for close 4001 — Relancer refreshes the live feed. */
 export function simulateLiveJwtExpired(): void {
   setLiveCloseCode(4001);
 }

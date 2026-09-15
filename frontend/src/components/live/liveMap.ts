@@ -10,14 +10,13 @@ import {
   LIVE_PACKET_MS,
   LIVE_REMANENCE_MS,
   LIVE_STAGGER_MS,
+  LOCAL_RADIO_VISUAL,
   MAX_LIVE_SHOTS,
   buildLaserPolyline,
   buildRoleIconAtlas,
   cloneLonLat,
   cloneLonLatPath,
   dashLonLat,
-  earPulse,
-  earVisual,
   hexToRgba,
   interpolatePolyline,
   laserGlowWidth,
@@ -31,7 +30,6 @@ import {
   normalizeDirectoryRole,
   observationColor,
   observationDrawOpacity,
-  observationEarSource,
   observationPassesFilters,
   readLiveCamera,
   remanenceOpacity,
@@ -41,14 +39,13 @@ import {
   strokeStyleForConfidence,
   visibleEdgeSlices,
   writeLiveCamera,
-  type LiveEarSource,
   type LiveRoleShape,
   type LiveViewFilters,
   type LonLat,
   type Rgba,
 } from './liveRender';
 import type { LiveObservation } from '../../utils/livePackets';
-import { isStaleLiveTime, snrWeight } from '../../utils/livePackets';
+import { snrWeight } from '../../utils/livePackets';
 
 /** As close in as framing the nodes is allowed to go — a lone node must not put
  *  the camera in a street. */
@@ -89,7 +86,7 @@ export type LiveHoverPayload =
   | { kind: 'node'; name: string; role: DirectoryNodeRole; x: number; y: number }
   | { kind: 'probable'; reason: string; label?: string; x: number; y: number }
   | { kind: 'exact'; label?: string; x: number; y: number }
-  | { kind: 'ear'; source: LiveEarSource; iata: string | null; x: number; y: number };
+  | { kind: 'local'; x: number; y: number };
 
 type HoverHandler = (hover: LiveHoverPayload | null) => void;
 
@@ -124,13 +121,10 @@ interface LaserShot {
   finishedAt: number | null;
 }
 
-interface EarState {
+interface LocalRadioMarker {
   id: string;
   lon: number;
   lat: number;
-  source: LiveEarSource;
-  iata: string | null;
-  lastAt: number;
 }
 
 export interface LiveMapOptions {
@@ -157,15 +151,13 @@ export class LiveMapController {
   private localHash8 = new Set<string>();
   private seen = new Set<string>();
   private shots: LaserShot[] = [];
-  private ears = new Map<string, EarState>();
   private nodes: DirectoryMapNode[] = [];
-  private localEar: EarState | null = null;
+  private localRadio: LocalRadioMarker | null = null;
 
   private glowSprites: PathSprite[] = [];
   private coreSprites: PathSprite[] = [];
   private nodeSprites: PointSprite[] = [];
-  private earSprites: PointSprite[] = [];
-  private pulseSprites: PointSprite[] = [];
+  private localSprites: PointSprite[] = [];
   private headSprites: PointSprite[] = [];
 
   constructor(container: HTMLElement, options: LiveMapOptions = {}) {
@@ -265,18 +257,15 @@ export class LiveMapController {
     this.draw();
   }
 
-  setLocalEar(config: RadioConfig | null): void {
+  setLocalRadio(config: RadioConfig | null): void {
     if (config && isValidLocation(config.lat, config.lon)) {
-      this.localEar = {
-        id: (config.public_key || 'local-ear').slice(0, 16),
+      this.localRadio = {
+        id: (config.public_key || 'local-radio').slice(0, 16),
         lon: config.lon,
         lat: config.lat,
-        source: 'local',
-        iata: null,
-        lastAt: 0,
       };
     } else {
-      this.localEar = null;
+      this.localRadio = null;
     }
     this.draw();
   }
@@ -306,10 +295,11 @@ export class LiveMapController {
     const now = this.now();
     let stagger = 0;
     for (const obs of newcomers) {
-      this.touchEar(obs, now);
       if (!this.playing || !spawnIds.has(obs.id)) continue;
       const poly = buildLaserPolyline(obs);
-      if (poly.points.length < 2) continue;
+      // One placeable point is still an arrival: it flashes where the packet
+      // landed and is gone. Zero points is nothing to draw.
+      if (poly.points.length < 1) continue;
       const twin = obs.source === 'community' && this.localHash8.has(obs.hash8);
       this.shots.push({
         id: obs.id,
@@ -350,34 +340,9 @@ export class LiveMapController {
 
   private hasMovingWork(): boolean {
     const now = this.now();
-    if (
-      this.shots.some(
-        (shot) => shot.finishedAt == null || now - shot.finishedAt < LIVE_REMANENCE_MS
-      )
-    ) {
-      return true;
-    }
-    for (const ear of this.ears.values()) {
-      if (now - ear.lastAt < 1600) return true;
-    }
-    if (this.localEar && now - this.localEar.lastAt < 1600) return true;
-    return false;
-  }
-
-  private touchEar(obs: LiveObservation, now: number): void {
-    if (!obs.ear) return;
-    const source = observationEarSource(obs) ?? 'iata';
-    this.ears.set(obs.earId, {
-      id: obs.earId,
-      lon: obs.ear.lon,
-      lat: obs.ear.lat,
-      source,
-      iata: obs.iata,
-      lastAt: now,
-    });
-    if (this.localEar && source === 'local') {
-      this.localEar.lastAt = now;
-    }
+    return this.shots.some(
+      (shot) => shot.finishedAt == null || now - shot.finishedAt < LIVE_REMANENCE_MS
+    );
   }
 
   private persistCamera(): void {
@@ -584,7 +549,6 @@ export class LiveMapController {
     if (!this.ready || !this.overlay) return;
     this.frame += 1;
     const now = this.now();
-    const wall = Date.now();
     let glowCount = 0;
     let coreCount = 0;
     let headCount = 0;
@@ -679,57 +643,24 @@ export class LiveMapController {
       );
     }
 
-    const earList: EarState[] = [];
-    if (this.localEar) earList.push(this.localEar);
-    for (const ear of this.ears.values()) {
-      if (this.localEar && ear.id === this.localEar.id) continue;
-      earList.push(ear);
-    }
-
-    let earCount = 0;
-    let pulseCount = 0;
-    for (const ear of earList) {
-      const visual = earVisual(ear.source);
-      const stale = ear.lastAt > 0 && isStaleLiveTime(ear.lastAt, wall);
-      const fill = hexToRgba(visual.color, stale ? visual.opacity * 0.28 : visual.opacity);
-      const line = hexToRgba(visual.ring, stale ? 0.25 : 0.85);
-      const pick: LiveHoverPayload = {
-        kind: 'ear',
-        source: ear.source,
-        iata: ear.iata,
-        x: 0,
-        y: 0,
-      };
-      earCount = this.emitPoint(
-        this.earSprites,
-        earCount,
-        ear.id,
-        [ear.lon, ear.lat],
-        fill,
-        line,
-        visual.radius,
-        pick
+    let localCount = 0;
+    if (this.localRadio) {
+      localCount = this.emitPoint(
+        this.localSprites,
+        localCount,
+        this.localRadio.id,
+        [this.localRadio.lon, this.localRadio.lat],
+        hexToRgba(LOCAL_RADIO_VISUAL.color, LOCAL_RADIO_VISUAL.opacity),
+        hexToRgba(LOCAL_RADIO_VISUAL.ring, 0.85),
+        LOCAL_RADIO_VISUAL.radius,
+        { kind: 'local', x: 0, y: 0 }
       );
-      const pulse = earPulse(now - ear.lastAt);
-      if (pulse > 0) {
-        pulseCount = this.emitPoint(
-          this.pulseSprites,
-          pulseCount,
-          `${ear.id}:pulse`,
-          [ear.lon, ear.lat],
-          hexToRgba(visual.color, pulse * 0.28),
-          hexToRgba(visual.ring, pulse * 0.5),
-          visual.radius * (1 + (visual.pulseScale - 1) * (1 - pulse)),
-          pick
-        );
-      }
     }
 
     this.glowSprites.length = glowCount;
     this.coreSprites.length = coreCount;
     this.nodeSprites.length = nodeCount;
-    this.earSprites.length = earCount;
-    this.pulseSprites.length = pulseCount;
+    this.localSprites.length = localCount;
     this.headSprites.length = headCount;
 
     const trigger = this.frame;
@@ -783,8 +714,8 @@ export class LiveMapController {
           updateTriggers: { getPath: trigger, getColor: trigger, getWidth: trigger },
         }),
         new ScatterplotLayer<PointSprite>({
-          id: 'live-ears',
-          data: this.earSprites.slice(),
+          id: 'live-local-radio',
+          data: this.localSprites.slice(),
           pickable: true,
           stroked: true,
           filled: true,
@@ -795,22 +726,6 @@ export class LiveMapController {
           getLineColor: (d) => d.line,
           getRadius: (d) => d.radius,
           getLineWidth: 1.4,
-          updateTriggers: { getPosition: trigger, getFillColor: trigger, getRadius: trigger },
-        }),
-        new ScatterplotLayer<PointSprite>({
-          id: 'live-ear-pulses',
-          data: this.pulseSprites.slice(),
-          pickable: false,
-          stroked: true,
-          filled: true,
-          radiusUnits: 'pixels',
-          lineWidthUnits: 'pixels',
-          parameters: ADDITIVE,
-          getPosition: (d) => d.position,
-          getFillColor: (d) => d.fill,
-          getLineColor: (d) => d.line,
-          getRadius: (d) => d.radius,
-          getLineWidth: 1.2,
           updateTriggers: { getPosition: trigger, getFillColor: trigger, getRadius: trigger },
         }),
         new ScatterplotLayer<PointSprite>({

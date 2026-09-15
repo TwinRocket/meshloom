@@ -173,7 +173,7 @@ export function PathRouteMap({
             </Marker>
           )}
 
-          {/* Hop markers — local RF GPS first; CoreScope only when radio does not know the hop */}
+          {/* Hop markers — local RF GPS first; directory only when radio does not know the hop */}
           {resolved.hops.map((hop, hopIdx) => {
             const localGps = hop.matches.filter((m) => isValidLocation(m.lat, m.lon));
             if (localGps.length > 0) {

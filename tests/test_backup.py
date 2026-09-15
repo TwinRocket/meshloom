@@ -8,7 +8,6 @@ import pytest
 from fastapi import HTTPException
 
 from app.models import (
-    AppSettings,
     BackupContact,
     BackupExport,
     BackupRestoreRequest,
@@ -55,8 +54,6 @@ class TestJsonBackup:
         assert any(c.name == "public" for c in export.channels)
         assert export.settings is not None
         assert export.settings.stale_contact_days == 0
-        assert export.settings.directory_enabled is False
-        assert export.settings.directory_url == ""
         assert export.groups[0].name == "Home"
         assert export.groups[0].public_keys == [key]
 
@@ -131,81 +128,6 @@ class TestJsonBackup:
         assert len(groups) == 1
         assert groups[0].name == "Crew"
         assert groups[0].public_keys == [key]
-
-    @pytest.mark.asyncio
-    async def test_restore_rejects_invalid_directory_url_before_writes(self, test_db):
-        incoming = "22" * 32
-        with pytest.raises(ValueError, match="http or https"):
-            await restore_json(
-                BackupRestoreRequest(
-                    confirm=True,
-                    contacts=[
-                        BackupContact(public_key=incoming, name="Imported", type=1, favorite=True)
-                    ],
-                    settings=AppSettings(directory_url="file:///tmp/x"),
-                )
-            )
-        assert await ContactRepository.get_by_key(incoming) is None
-
-    @pytest.mark.asyncio
-    async def test_restore_directory_url_requires_spec_and_wipes_cache(self, test_db):
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from app.repository.directory import DirectoryHopCacheRepository
-        from app.services.directory import reset_directory_nodes_cache
-
-        await DirectoryHopCacheRepository.upsert("A1B2", 2, "HillTop", "corescope", 9_999_999_999)
-        reset_directory_nodes_cache()
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"openapi": "3.0.3", "info": {"title": "CoreScope API"}}
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            result = await restore_json(
-                BackupRestoreRequest(
-                    confirm=True,
-                    settings=AppSettings(directory_url="https://analyzer.example/extra"),
-                )
-            )
-
-        assert result.settings_updated is True
-        assert mock_client.get.call_args.args[0] == "https://analyzer.example/api/spec"
-        fresh = await AppSettingsRepository.get()
-        assert fresh.directory_url == "https://analyzer.example"
-        assert await DirectoryHopCacheRepository.get_many([("A1B2", 2)]) == {}
-
-    @pytest.mark.asyncio
-    async def test_restore_spec_failure_does_not_write_contacts(self, test_db):
-        from unittest.mock import AsyncMock, patch
-
-        import httpx
-
-        incoming = "44" * 32
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(HTTPException) as exc:
-                await restore_json(
-                    BackupRestoreRequest(
-                        confirm=True,
-                        contacts=[
-                            BackupContact(
-                                public_key=incoming, name="Skipped", type=1, favorite=False
-                            )
-                        ],
-                        settings=AppSettings(directory_url="https://nope.example"),
-                    )
-                )
-        assert exc.value.status_code == 400
-        assert await ContactRepository.get_by_key(incoming) is None
 
 
 class TestBackupExportShape:

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from app.models import ContactUpsert
-from app.repository import AppSettingsRepository, ContactRepository
+from app.repository import ContactRepository
 from app.routers.directory import get_directory_map_nodes, get_live_directory_map_nodes
 from app.services.directory import (
     NODES_PAGE_SIZE,
     list_directory_map_nodes,
-    parse_corescope_map_nodes,
+    parse_directory_map_nodes,
     reset_directory_nodes_cache,
 )
 
@@ -29,7 +29,7 @@ def _node(key: str, *, role: str = "repeater", name: str = "N", lat: float = 45.
 
 class TestParseMapNodesRoles:
     def test_keeps_every_role_and_normalizes_unknown(self):
-        nodes, total = parse_corescope_map_nodes(
+        nodes, total = parse_directory_map_nodes(
             {
                 "total": 5,
                 "nodes": [
@@ -129,41 +129,38 @@ class TestListDirectoryMapNodesPaging:
         assert len(result.nodes) == kept_per_page * 3
         assert result.total == total
 
-    async def test_corescope_omits_role_filter_and_pages(self, test_db):
+
+@pytest.mark.asyncio
+class TestLiveDirectoryObservers:
+    async def test_live_endpoint_drops_observers_but_map_keeps_them(self, test_db):
+        """#live draws packets and hops: an observer catalog pin is not a hop."""
         reset_directory_nodes_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        first_page = {
-            "total": 2,
-            "nodes": [
-                _node("11" * 32, role="repeater", name="R"),
-                _node("22" * 32, role="sensor", name="S", lat=46.0),
-            ],
-        }
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = first_page
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        from app.services.meshloom_community import update_community
 
-        with (
-            patch(
-                "app.services.directory._community_directory_data",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
-            patch("app.services.directory.httpx.AsyncClient", return_value=mock_client),
+        await update_community(enabled=True, iata="LYS")
+
+        async def fake_data(*_args: object, **_kwargs: object) -> object:
+            return {
+                "total": 2,
+                "nodes": [
+                    _node("aa" * 32, role="repeater", name="R"),
+                    _node("bb" * 32, role="observer", name="Ear", lat=46.0),
+                ],
+            }
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
         ):
-            result = await list_directory_map_nodes()
+            map_nodes = await get_directory_map_nodes()
+            live_nodes = await get_live_directory_map_nodes()
 
-        assert {n.role for n in result.nodes} == {"repeater", "sensor"}
-        assert mock_client.get.call_args.kwargs["params"] == {
-            "limit": NODES_PAGE_SIZE,
-            "offset": 0,
-        }
+        assert [(n.role, n.name) for n in map_nodes.nodes] == [
+            ("repeater", "R"),
+            ("observer", "Ear"),
+        ]
+        assert [(n.role, n.name) for n in live_nodes.nodes] == [("repeater", "R")]
+        assert live_nodes.total == 1
 
 
 @pytest.mark.asyncio

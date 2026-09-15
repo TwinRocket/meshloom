@@ -50,7 +50,7 @@ def _row_from_sql(row: aiosqlite.Row) -> DirectoryCacheRow:
 
 
 class DirectoryHopCacheRepository:
-    """SQLite cache for CoreScope hop names. Does not touch RF contacts."""
+    """SQLite cache for directory hop names. Does not touch RF contacts."""
 
     @staticmethod
     async def get_many(keys: list[tuple[str, int]]) -> dict[tuple[str, int], DirectoryCacheRow]:

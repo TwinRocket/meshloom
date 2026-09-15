@@ -319,6 +319,25 @@ That gives the store a load-bearing invariant: **no ancestor of `MessageList` ma
 - Packet feed/visualizer render keys and dedup logic should use `observation_id` (fallback to `id` only for older payloads).
 - The dedicated raw packet feed view now includes a frontend-only stats drawer. It tracks a separate lightweight per-observation session history for charts/rankings, so its windows are not limited by the visible packet list cap. Coverage messaging should stay honest when detailed in-memory stats history has been trimmed or the selected window predates the current browser session.
 
+### `#live` draws packets, never who heard them
+
+`LiveView` + `components/live/` animate one thing: a packet travelling its hops. The
+map has a city plan under it (`GET /api/directory/nodes/live` — companions, repeaters,
+rooms, sensors, plus local GPS contacts) and the local radio marker. That is all.
+
+There is deliberately **no observer layer**: no diamond pins, no ear registry keyed by
+`ear_id`, no pulse when a frame arrives from a given ear, no hover naming one. A v2
+frame still carries `ear` / `ear_id` — the contract is unchanged — and the laser still
+ends at the arrival point, but nothing on the map claims an identity for it. A frame
+whose only placeable point is that arrival flashes there for the length of the
+animation and is gone: an event, not a pin.
+
+Two latches keep it that way: the backend drops `role === 'observer'` from
+`/directory/nodes/live`, and `mappableDirectoryNodes` drops it again client-side.
+`NODE_ROLE_STYLE` has no observer entry, so reintroducing one is a type error rather
+than a silent redraw. "Who heard this" lives in one place only, the chat heard-by
+badge, which is a hash reach and not a live feed.
+
 ### Platform chrome
 
 The phone chrome this app draws — the floating bottom bar, the round glass back
@@ -404,6 +423,7 @@ Radio transport (`serial` / `tcp` / `ble`) is configured in the web UI and store
 
 Supported routes:
 - `#raw`
+- `#live`
 - `#map`
 - `#map/focus/{pubkey_or_prefix}`
 - `#visualizer`

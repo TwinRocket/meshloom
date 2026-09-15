@@ -483,6 +483,8 @@ export const api = {
     const qs = search.toString();
     return fetchJson<DirectoryMapNodesResponse>(`/directory/nodes${qs ? `?${qs}` : ''}`);
   },
+  /** #live city plan: directory plus local GPS contacts, observers dropped server-side. */
+  getLiveDirectoryMapNodes: () => fetchJson<DirectoryMapNodesResponse>('/directory/nodes/live'),
   searchDirectoryNodes: (q: string) =>
     fetchJson<DirectoryNodeSearchResponse>(`/directory/nodes/search?q=${encodeURIComponent(q)}`),
   getDirectoryNodeReach: (pubkey: string) =>

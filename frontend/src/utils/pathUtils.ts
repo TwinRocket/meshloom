@@ -54,7 +54,7 @@ export type HopDisplay =
   LocalHopDisplay | { kind: 'directory'; name: string; source: DirectoryHopSource };
 
 /**
- * Layer an optional CoreScope name on top of local policy.
+ * Layer an optional directory name on top of local policy.
  * Local unique type-2 always wins. 1-byte stays hex-only. Ambiguous stays ambiguous.
  */
 export function resolveHopDisplay(
@@ -76,7 +76,7 @@ export function resolveHopDisplay(
   return local;
 }
 
-/** CoreScope GPS for a hop that radio does not already know. Local RF always wins. */
+/** Directory GPS for a hop that radio does not already know. Local RF always wins. */
 export function directoryHopLocation(
   hop: Pick<PathHop, 'prefix' | 'matches'>,
   directory?: DirectoryHopHit | null

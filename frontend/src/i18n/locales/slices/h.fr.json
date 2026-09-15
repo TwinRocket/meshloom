@@ -4,14 +4,14 @@
   },
   "conversation": {
     "live": "Live",
-    "loadingLive": "Chargement de la pluie live…"
+    "loadingLive": "Chargement du flux live…"
   },
   "commandPalette": {
-    "liveRain": "Pluie live"
+    "liveRain": "Flux live"
   },
   "live": {
-    "bannerInactive": "Aucune contribution acceptée depuis 24 h. Publiez au moins une observation pour ouvrir la pluie communautaire.",
-    "bannerOptOut": "La communauté est désactivée. Activez-la dans Réglages pour recevoir la pluie.",
+    "bannerInactive": "Aucune contribution acceptée depuis 24 h. Publiez au moins une observation pour ouvrir le flux live communautaire.",
+    "bannerOptOut": "La communauté est désactivée. Activez-la dans Réglages pour recevoir le flux live.",
     "iataFilter": "IATA",
     "iataAll": "Toutes les régions",
     "typeFilter": "Type",
@@ -19,8 +19,8 @@
     "certainOnlyHelp": "Masque les sauts dont la position est seulement probable.",
     "play": "Lecture",
     "pause": "Pause",
-    "playPause": "Lecture ou pause de la pluie",
-    "mapAria": "Carte de la pluie de paquets live",
+    "playPause": "Lecture ou pause du flux live",
+    "mapAria": "Carte du flux live de paquets",
     "legendTitle": "Légende de la carte",
     "packetLegend": "Types de paquets",
     "roleLegend": "Rôles",
@@ -48,13 +48,8 @@
       "client": "Companion",
       "companion": "Companion",
       "sensor": "Capteur",
-      "observer": "Observateur",
       "unknown": "Rôle inconnu"
     },
-    "ears": {
-      "advert": "Position annoncée par le nœud",
-      "iata": "Position approchée (centroïde régional)",
-      "local": "Votre radio"
-    }
+    "localRadio": "Votre radio"
   }
 }

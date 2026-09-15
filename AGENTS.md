@@ -417,10 +417,10 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | POST | `/api/fanout/bots/disable-until-restart` | Stop bot fanout modules and keep bots disabled until the process restarts |
 | GET | `/api/statistics` | Aggregated mesh network statistics, including `region_scope_24h` regional flood-scope adoption |
 | GET | `/api/locate?q=` | RF locate zone for one uniquely resolved node (0-hop disks). 409 if the query is ambiguous |
-| GET | `/api/directory/nodes` | Community/CoreScope map nodes (all roles, paginated; empty/unknown role → `unknown`) |
-| GET | `/api/directory/nodes/{pubkey}/reach` | Proxy CoreScope 0-hop observers. HTTP 500 is a failure, not empty data |
-| GET | `/api/directory/nodes/{pubkey}/neighbors` | Proxy CoreScope neighbor affinity for optional disk calibration |
-| GET | `/api/directory/nodes/search?q=` | Proxy CoreScope name/key search (not hop prefixes) |
+| GET | `/api/directory/nodes` | Community map nodes (all roles, paginated; empty/unknown role → `unknown`) |
+| GET | `/api/directory/nodes/{pubkey}/reach` | Community 0-hop observers. HTTP 500 is a failure, not empty data |
+| GET | `/api/directory/nodes/{pubkey}/neighbors` | Community neighbor affinity for optional disk calibration |
+| GET | `/api/directory/nodes/search?q=` | Community name/key search (not hop prefixes) |
 | GET | `/api/push/vapid-public-key` | VAPID public key for browser push subscription |
 | POST | `/api/push/subscribe` | Register/upsert a push subscription |
 | GET | `/api/push/subscriptions` | List all push subscriptions |

@@ -54,7 +54,6 @@ export function SettingsRadioAppSection({
   const [discoveryBlockedTypes, setDiscoveryBlockedTypes] = useState<number[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [staleDays, setStaleDays] = useState(String(appSettings.stale_contact_days ?? 0));
-  const [directoryUrl, setDirectoryUrl] = useState(appSettings.directory_url ?? '');
   const [communityOn, setCommunityOn] = useState(false);
   const [cacheResetting, setCacheResetting] = useState(false);
 
@@ -72,17 +71,12 @@ export function SettingsRadioAppSection({
   const [intervalDraft, setIntervalDraft] = useState<number>(appSettings.telemetry_interval_hours);
 
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const manualDirectoryOn = Boolean(
-    appSettings.directory_enabled && (appSettings.directory_url || '').trim()
-  );
-  const directoryViaStats =
-    communityOn || Boolean(appSettings.directory_available && !manualDirectoryOn);
+  const directoryViaStats = communityOn || Boolean(appSettings.directory_available);
 
   useEffect(() => {
     setDiscoveryBlockedTypes(appSettings.discovery_blocked_types ?? []);
     setIntervalDraft(appSettings.telemetry_interval_hours);
     setStaleDays(String(appSettings.stale_contact_days ?? 0));
-    setDirectoryUrl(appSettings.directory_url ?? '');
   }, [appSettings]);
 
   useEffect(() => {
@@ -645,57 +639,15 @@ export function SettingsRadioAppSection({
 
       <div className="space-y-3">
         <SettingsGroupHeader title={t('settings.directoryTitle')} storedOn="server" instant />
-        {directoryViaStats ? (
-          <div
-            data-testid="directory-via-community"
-            className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-[0.8125rem] text-warning"
-          >
-            {t('settings.directoryViaStats')}
-          </div>
-        ) : (
-          <p className="text-[0.8125rem] text-muted-foreground">{t('settings.directoryHelp')}</p>
-        )}
-        <label
-          className={`flex items-start gap-2 ${directoryViaStats ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+        <div
+          data-testid={directoryViaStats ? 'directory-via-community' : 'directory-off'}
+          className={
+            directoryViaStats
+              ? 'rounded-md border border-border bg-muted/60 px-3 py-2 text-[0.8125rem] text-muted-foreground'
+              : 'rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-[0.8125rem] text-warning'
+          }
         >
-          <input
-            type="checkbox"
-            checked={directoryViaStats ? true : (appSettings.directory_enabled ?? false)}
-            disabled={directoryViaStats}
-            onChange={() => {
-              if (directoryViaStats) return;
-              const next = !(appSettings.directory_enabled ?? false);
-              void persistAppSettings({ directory_enabled: next }, () => {});
-            }}
-            className="w-4 h-4 rounded border-input accent-primary mt-0.5"
-          />
-          <div>
-            <span className="text-sm">
-              {directoryViaStats
-                ? t('settings.directoryViaStatsEnable')
-                : t('settings.directoryEnable')}
-            </span>
-          </div>
-        </label>
-        <div className="space-y-1">
-          <Label htmlFor="directory-url" className="text-xs text-muted-foreground">
-            {t('settings.directoryUrl')}
-          </Label>
-          <Input
-            id="directory-url"
-            type="url"
-            placeholder="https://corescope.example"
-            value={directoryUrl}
-            disabled={directoryViaStats}
-            onChange={(e) => setDirectoryUrl(e.target.value)}
-            onBlur={() => {
-              if (directoryViaStats) return;
-              const next = directoryUrl.trim();
-              const prev = appSettings.directory_url ?? '';
-              if (next === prev) return;
-              void persistAppSettings({ directory_url: next }, () => setDirectoryUrl(prev));
-            }}
-          />
+          {directoryViaStats ? t('settings.directoryViaStats') : t('settings.directoryOff')}
         </div>
         <Button
           variant="outline"
