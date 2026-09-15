@@ -422,6 +422,14 @@ describe('camera and spawn policy', () => {
     expect(shouldSpawnLaser(observation({ t: Date.now() }))).toBe(true);
     expect(shouldSpawnLaser(observation({ t: Date.now() - 6 * 60 * 1000 }))).toBe(false);
   });
+
+  it('keeps a 0-hop arrival as one point, so it flashes instead of drawing a line', () => {
+    const poly = buildLaserPolyline(
+      observation({ waypoints: [waypoint(43.76, 7.17, { kind: 'ear' })] })
+    );
+    expect(poly.points).toEqual([[7.17, 43.76]]);
+    expect(poly.edgeConfidence).toEqual([]);
+  });
 });
 
 describe('captured NCE Mont-Caume frame', () => {
