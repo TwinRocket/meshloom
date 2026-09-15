@@ -1,5 +1,5 @@
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import { IconLayer, PathLayer, ScatterplotLayer } from '@deck.gl/layers';
+import { IconLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import maplibregl, { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 
 import type { DirectoryMapNode, DirectoryNodeRole, RadioConfig } from '../../types';
@@ -49,6 +49,14 @@ import {
 } from './liveRender';
 import type { LiveObservation } from '../../utils/livePackets';
 import { isStaleLiveTime, snrWeight } from '../../utils/livePackets';
+import {
+  LIVE_PIN_LIT_MS,
+  applyObservationPins,
+  clusterLiveNodes,
+  clusterRadiusPx,
+  mergeLiveNodes,
+  nodeDrawOpacity,
+} from './livePins';
 
 /** As close in as framing the nodes is allowed to go — a lone node must not put
  *  the camera in a street. */
@@ -87,6 +95,7 @@ const ADDITIVE = {
 
 export type LiveHoverPayload =
   | { kind: 'node'; name: string; role: DirectoryNodeRole; x: number; y: number }
+  | { kind: 'cluster'; count: number; x: number; y: number }
   | { kind: 'probable'; reason: string; label?: string; x: number; y: number }
   | { kind: 'exact'; label?: string; x: number; y: number }
   | { kind: 'ear'; source: LiveEarSource; iata: string | null; x: number; y: number };
@@ -158,12 +167,16 @@ export class LiveMapController {
   private seen = new Set<string>();
   private shots: LaserShot[] = [];
   private ears = new Map<string, EarState>();
-  private nodes: DirectoryMapNode[] = [];
+  private directoryNodes: DirectoryMapNode[] = [];
+  private streamPins = new Map<string, DirectoryMapNode>();
+  private litUntil = new Map<string, number>();
   private localEar: EarState | null = null;
 
   private glowSprites: PathSprite[] = [];
   private coreSprites: PathSprite[] = [];
   private nodeSprites: PointSprite[] = [];
+  private clusterSprites: PointSprite[] = [];
+  private clusterLabels: Array<{ id: string; position: LonLat; text: string }> = [];
   private earSprites: PointSprite[] = [];
   private pulseSprites: PointSprite[] = [];
   private headSprites: PointSprite[] = [];
@@ -216,7 +229,10 @@ export class LiveMapController {
       if (event.originalEvent) this.userMoved = true;
     });
     this.map.on('moveend', () => this.persistCamera());
-    this.map.on('zoomend', () => this.persistCamera());
+    this.map.on('zoomend', () => {
+      this.persistCamera();
+      this.draw();
+    });
 
     this.resizeObserver = new ResizeObserver(() => {
       this.map?.resize();
@@ -282,9 +298,13 @@ export class LiveMapController {
   }
 
   setDirectoryNodes(nodes: DirectoryMapNode[]): void {
-    this.nodes = mappableDirectoryNodes(nodes);
+    this.directoryNodes = mappableDirectoryNodes(nodes);
     this.maybeFitNodes();
     this.draw();
+  }
+
+  private assembledNodes(): DirectoryMapNode[] {
+    return mergeLiveNodes(this.directoryNodes, this.streamPins.values());
   }
 
   syncObservations(observations: LiveObservation[], localHash8: Set<string>): void {
@@ -306,6 +326,7 @@ export class LiveMapController {
     const now = this.now();
     let stagger = 0;
     for (const obs of newcomers) {
+      this.ingestStreamPins(obs, now);
       this.touchEar(obs, now);
       if (!this.playing || !spawnIds.has(obs.id)) continue;
       const poly = buildLaserPolyline(obs);
@@ -361,7 +382,18 @@ export class LiveMapController {
       if (now - ear.lastAt < 1600) return true;
     }
     if (this.localEar && now - this.localEar.lastAt < 1600) return true;
+    for (const until of this.litUntil.values()) {
+      if (now < until) return true;
+    }
     return false;
+  }
+
+  private ingestStreamPins(obs: LiveObservation, now: number): void {
+    const lit = applyObservationPins(this.directoryNodes, this.streamPins, obs);
+    for (const node of lit) {
+      this.litUntil.set(node.public_key.toLowerCase(), now + LIVE_PIN_LIT_MS);
+    }
+    if (lit.length > 0) this.maybeFitNodes();
   }
 
   private touchEar(obs: LiveObservation, now: number): void {
@@ -387,11 +419,12 @@ export class LiveMapController {
   }
 
   private maybeFitNodes(): void {
-    if (!this.map || this.fitted || !shouldAutoFitCamera(this.userMoved, this.nodes.length)) {
+    const nodes = this.assembledNodes();
+    if (!this.map || this.fitted || !shouldAutoFitCamera(this.userMoved, nodes.length)) {
       return;
     }
     const bounds = new LngLatBounds();
-    for (const node of this.nodes) bounds.extend([node.lon, node.lat]);
+    for (const node of nodes) bounds.extend([node.lon, node.lat]);
     this.map.fitBounds(bounds, { padding: 56, maxZoom: LIVE_FIT_MAX_ZOOM, duration: 0 });
     this.fitted = true;
   }
@@ -662,10 +695,29 @@ export class LiveMapController {
     this.shots = nextShots;
 
     let nodeCount = 0;
-    for (const node of this.nodes) {
+    let clusterCount = 0;
+    const zoom = this.map?.getZoom() ?? 2.15;
+    const clustered = clusterLiveNodes(this.assembledNodes(), zoom);
+    for (const item of clustered) {
+      if (item.kind === 'cluster') {
+        const pick: LiveHoverPayload = { kind: 'cluster', count: item.count, x: 0, y: 0 };
+        clusterCount = this.emitPoint(
+          this.clusterSprites,
+          clusterCount,
+          item.id,
+          [item.lon, item.lat],
+          hexToRgba('#94a3b8', 0.72),
+          hexToRgba('#e2e8f0', 0.85),
+          clusterRadiusPx(item.count),
+          pick
+        );
+        continue;
+      }
+      const node = item.node;
       const style = nodeRoleStyle(node.role);
-      const fill = hexToRgba(style.color, 0.88);
-      const line = hexToRgba('#020617', 0.7);
+      const lit = (this.litUntil.get(node.public_key.toLowerCase()) ?? 0) > now;
+      const fill = hexToRgba(style.color, nodeDrawOpacity(node.last_seen, wall, lit));
+      const line = hexToRgba('#020617', lit ? 0.85 : 0.7);
       nodeCount = this.emitPoint(
         this.nodeSprites,
         nodeCount,
@@ -673,7 +725,7 @@ export class LiveMapController {
         [node.lon, node.lat],
         fill,
         line,
-        style.radius,
+        style.radius * (lit ? 1.15 : 1),
         { kind: 'node', name: node.name, role: normalizeDirectoryRole(node.role), x: 0, y: 0 },
         style.shape
       );
@@ -728,6 +780,12 @@ export class LiveMapController {
     this.glowSprites.length = glowCount;
     this.coreSprites.length = coreCount;
     this.nodeSprites.length = nodeCount;
+    this.clusterSprites.length = clusterCount;
+    this.clusterLabels = this.clusterSprites.map((sprite) => ({
+      id: `${sprite.id}:label`,
+      position: sprite.position,
+      text: sprite.pick?.kind === 'cluster' ? String(sprite.pick.count) : '',
+    }));
     this.earSprites.length = earCount;
     this.pulseSprites.length = pulseCount;
     this.headSprites.length = headCount;
@@ -735,6 +793,35 @@ export class LiveMapController {
     const trigger = this.frame;
     this.overlay.setProps({
       layers: [
+        new ScatterplotLayer<PointSprite>({
+          id: 'live-clusters',
+          data: this.clusterSprites.slice(),
+          pickable: true,
+          stroked: true,
+          filled: true,
+          radiusUnits: 'pixels',
+          lineWidthUnits: 'pixels',
+          getPosition: (d) => d.position,
+          getFillColor: (d) => d.fill,
+          getLineColor: (d) => d.line,
+          getRadius: (d) => d.radius,
+          getLineWidth: 1.2,
+          updateTriggers: { getPosition: trigger, getFillColor: trigger, getRadius: trigger },
+        }),
+        new TextLayer<{ id: string; position: LonLat; text: string }>({
+          id: 'live-cluster-labels',
+          data: this.clusterLabels,
+          pickable: false,
+          getPosition: (d) => d.position,
+          getText: (d) => d.text,
+          getSize: 11,
+          getColor: [226, 232, 240, 230],
+          getTextAnchor: 'middle',
+          getAlignmentBaseline: 'center',
+          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          fontWeight: 600,
+          updateTriggers: { getPosition: trigger, getText: trigger },
+        }),
         new IconLayer<PointSprite>({
           id: 'live-nodes',
           data: this.nodeSprites.slice(),

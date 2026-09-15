@@ -605,6 +605,7 @@ export function cloneLonLat(point: LonLat): LonLat {
 export function liveHoverKey(
   hover:
     | { kind: 'node'; name: string }
+    | { kind: 'cluster'; count: number }
     | { kind: 'probable'; reason: string; label?: string }
     | { kind: 'exact'; label?: string }
     | { kind: 'ear'; source: string; iata: string | null }
@@ -612,6 +613,7 @@ export function liveHoverKey(
 ): string {
   if (!hover) return '';
   if (hover.kind === 'node') return `node:${hover.name}`;
+  if (hover.kind === 'cluster') return `cluster:${hover.count}`;
   if (hover.kind === 'probable') return `probable:${hover.reason}:${hover.label ?? ''}`;
   if (hover.kind === 'exact') return `exact:${hover.label ?? ''}`;
   return `ear:${hover.source}:${hover.iata ?? ''}`;

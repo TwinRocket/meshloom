@@ -578,6 +578,32 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls[1][1].body).toBe(JSON.stringify({ names: ['mesh'] }));
     });
 
+    it('GETs live directory nodes and falls back to include_local', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ nodes: [], total: 0 }),
+      });
+      await api.getLiveDirectoryMapNodes();
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/directory/nodes/live');
+
+      mockFetch.mockReset();
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          text: () => Promise.resolve('{"detail":"Not Found"}'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ nodes: [], total: 0 }),
+        });
+      await api.getLiveDirectoryMapNodes();
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/directory/nodes/live');
+      expect(mockFetch.mock.calls[1][0]).toBe('./api/directory/nodes?include_local=true');
+    });
+
     it('subscribes, unsubscribes, and Relancer the Stats live relay', async () => {
       installMockFetch();
       mockFetch.mockResolvedValue({

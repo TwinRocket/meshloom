@@ -51,6 +51,7 @@
       "observer": "Observateur",
       "unknown": "Rôle inconnu"
     },
+    "clusterCount": "{{count}} nœuds",
     "ears": {
       "advert": "Position annoncée par le nœud",
       "iata": "Position approchée (centroïde régional)",

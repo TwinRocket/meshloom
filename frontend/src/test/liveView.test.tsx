@@ -18,6 +18,7 @@ vi.mock('../api', () => ({
     unsubscribeCommunityLive: vi.fn(),
     relancerCommunityLive: vi.fn(),
     getDirectoryMapNodes: vi.fn(),
+    getLiveDirectoryMapNodes: vi.fn(),
   },
 }));
 
@@ -72,6 +73,9 @@ vi.mock('@deck.gl/layers', () => ({
   IconLayer: class {
     constructor(public props: unknown) {}
   },
+  TextLayer: class {
+    constructor(public props: unknown) {}
+  },
 }));
 
 describe('LiveView', () => {
@@ -96,7 +100,7 @@ describe('LiveView', () => {
       opted_out: false,
       connected: true,
     });
-    vi.mocked(api.getDirectoryMapNodes).mockResolvedValue({
+    vi.mocked(api.getLiveDirectoryMapNodes).mockResolvedValue({
       nodes: [
         {
           public_key: 'aa',
@@ -104,7 +108,7 @@ describe('LiveView', () => {
           role: 'repeater',
           lat: 45.76,
           lon: 4.84,
-          source: 'corescope',
+          source: 'community-db',
         },
       ],
       total: 1,
@@ -184,11 +188,12 @@ describe('LiveView', () => {
     expect(screen.queryByTestId('live-packet-log')).not.toBeInTheDocument();
   });
 
-  it('loads community directory nodes as the permanent map layer', async () => {
+  it('loads live directory nodes as the permanent map layer', async () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     await waitFor(() => {
-      expect(api.getDirectoryMapNodes).toHaveBeenCalled();
+      expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled();
     });
+    expect(api.getDirectoryMapNodes).not.toHaveBeenCalled();
   });
 
   it('does not mount a Leaflet tile layer', () => {
