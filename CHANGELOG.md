@@ -1,3 +1,35 @@
+## [4.8.0] - 2026-09-16
+
+This release is about the live map. It now keeps going for as long as you leave it open, it draws every kind of traffic in its own colour, and it holds on to what arrives in a rush instead of letting it go. Meshloom also tells you when a newer version is out.
+
+### What's new
+
+- **The live map stays alive.** Until now it filled up quietly: within a minute of opening it, the space it keeps for animations was taken by packets that were queued to be drawn and never got their turn, so the map went still while traffic kept flowing in. The longer you left the tab open, the emptier it looked. It now keeps pace for as long as you watch it.
+- **Every kind of packet has its own colour.** Half the traffic used to arrive in the same neutral grey, simply because only five of the network's message kinds had a colour of their own. Requests, replies, group messages, route announcements, traces and the rest are now each recognisable at a glance, and grey has gone back to meaning what it should: something we genuinely could not identify.
+- **A busy mesh no longer loses packets on the way to the screen.** When more arrived at once than the map could animate, the surplus was dropped. It now waits its turn and is drawn a moment later, and the oldest is only ever let go once the wait itself gets too long.
+- **Hiding a packet kind no longer empties the map.** Filtering the map down to what interests you used to work against you: the hidden traffic still took up the room reserved for drawing, and within seconds nothing else could appear. Filters now do only what you asked of them.
+- **The listeners panel tells the truth about how far a message travelled.** For every node that reported hearing a message, the panel showed the same hop count, taken from the first copy of the packet anyone reported rather than from each listener's own account of the route it took. Nodes hundreds of kilometres apart were all credited with hearing it directly. Each listener now carries the route it actually reported, so the hop counts differ from one to the next the way they always should have.
+- **A node that never announced its position is no longer placed off the coast of Africa.** A radio with no GPS fix broadcasts zeroes, and zero is a real place on a map: the point where the equator meets the Greenwich meridian, in the Gulf of Guinea. Around one node in twenty was being pinned there, which put a listener 5,400 km from a message it had heard from next door and made the longest-distance figure meaningless. A radio that has not said where it is now simply has no pin.
+- **Meshloom tells you when an update is available.** A discreet notice appears when a newer release has been published, with a link to what changed. Instances that have opted out of Community still get it — a fix is worth knowing about either way.
+
+---
+
+### Français
+
+Cette version est consacrée à la carte live. Elle tient désormais la distance aussi longtemps que vous la laissez ouverte, elle dessine chaque type de trafic dans sa propre couleur, et elle conserve ce qui arrive en rafale au lieu de le laisser filer. Meshloom vous signale aussi la sortie d'une nouvelle version.
+
+#### Quoi de neuf
+
+- **La carte live ne s'endort plus.** Jusqu'ici elle se remplissait en silence : une minute après son ouverture, la place qu'elle réserve aux animations était occupée par des paquets en attente de dessin qui n'obtenaient jamais leur tour, si bien que la carte se figeait alors que le trafic continuait d'arriver. Plus l'onglet restait ouvert, plus elle paraissait vide. Elle suit maintenant le rythme aussi longtemps que vous la regardez.
+- **Chaque type de paquet a sa couleur.** La moitié du trafic arrivait dans le même gris neutre, simplement parce que cinq types de messages seulement disposaient d'une couleur propre. Les requêtes, les réponses, les messages de groupe, les annonces de route, les traces et les autres sont désormais reconnaissables d'un coup d'œil, et le gris a retrouvé son sens : quelque chose que nous n'avons vraiment pas su identifier.
+- **Un mesh chargé ne perd plus de paquets en route vers l'écran.** Quand il en arrivait plus d'un coup que la carte ne pouvait en animer, le surplus était abandonné. Il attend maintenant son tour et se dessine un instant plus tard ; seul le plus ancien finit par être laissé de côté, et uniquement si l'attente devient trop longue.
+- **Masquer un type de paquet ne vide plus la carte.** Filtrer la carte pour ne garder que ce qui vous intéresse jouait contre vous : le trafic masqué occupait toujours la place réservée au dessin, et en quelques secondes plus rien d'autre ne pouvait apparaître. Les filtres ne font désormais que ce que vous leur demandez.
+- **Le panneau des écoutes dit la vérité sur la distance parcourue par un message.** Pour chaque nœud ayant signalé avoir entendu un message, le panneau affichait le même nombre de sauts, tiré de la première copie du paquet signalée par quiconque plutôt que du trajet rapporté par chaque écoutant. Des nœuds séparés de centaines de kilomètres se voyaient tous crédités d'une écoute directe. Chaque écoutant porte désormais le trajet qu'il a réellement rapporté, si bien que les nombres de sauts diffèrent de l'un à l'autre comme ils auraient toujours dû le faire.
+- **Un nœud qui n'a jamais annoncé sa position n'est plus placé au large de l'Afrique.** Une radio sans point GPS diffuse des zéros, et zéro est un lieu réel sur une carte : l'endroit où l'équateur croise le méridien de Greenwich, dans le golfe de Guinée. Environ un nœud sur vingt s'y retrouvait épinglé, ce qui plaçait un écoutant à 5 400 km d'un message qu'il avait entendu d'à côté et rendait la distance maximale dénuée de sens. Une radio qui n'a pas dit où elle se trouve n'a désormais tout simplement pas de repère.
+- **Meshloom vous signale les mises à jour.** Un message discret apparaît lorsqu'une version plus récente a été publiée, avec un lien vers ce qui a changé. Les instances qui ont refusé Community le reçoivent aussi : un correctif mérite d'être connu dans tous les cas.
+
+---
+
 ## [4.7.6] - 2026-09-15
 
 The unread badge could show a conversation waiting while the unread filter found none to open.
