@@ -18,11 +18,13 @@ import {
   dashLonLat,
   drawableLaserPolyline,
   findPinnedHop,
+  geometryDirectoryNodes,
   hexToRgba,
   hopVertexT,
   interpolatePolyline,
   laserGlowWidth,
   laserHeadRadii,
+  laserPolylineOriginToHop,
   laserRemanenceMs,
   laserTravel,
   laserTravelMs,
@@ -51,8 +53,23 @@ import {
   type LonLat,
   type Rgba,
 } from './liveRender';
-import type { LiveObservation, LiveRouteKind } from '../../utils/livePackets';
-import { mergeRouteKind, resolveOriginPin, snrWeight } from '../../utils/livePackets';
+import type {
+  FanoutPlan,
+  LiveObservation,
+  LiveOriginPin,
+  LiveRouteKind,
+  LiveWaypoint,
+} from '../../utils/livePackets';
+import {
+  fanoutFromOrigin,
+  inferFloodForAdvert,
+  mergeRouteKind,
+  observationBucketKey,
+  observationHasLocalTwin,
+  pinsIncludingLocalRadio,
+  resolveOriginPin,
+  snrWeight,
+} from '../../utils/livePackets';
 
 /** As close in as framing the nodes is allowed to go — a lone node must not put
  *  the camera in a street. */
@@ -132,7 +149,7 @@ interface LaserShot {
 }
 
 interface HoldBucket {
-  hash8: string;
+  key: string;
   firstSeenAt: number;
   observations: LiveObservation[];
 }
@@ -140,6 +157,8 @@ interface HoldBucket {
 interface ReleasedBucket {
   routeKind: LiveRouteKind;
   originSpawned: boolean;
+  origin: LiveOriginPin | null;
+  spawnedKeys: Set<string>;
 }
 
 interface RippleSprite {
@@ -164,6 +183,9 @@ export interface LiveMapOptions {
 export interface LiveShotSnapshot {
   id: string;
   pointCount: number;
+  firstPoint?: LonLat;
+  lastPoint?: LonLat;
+  vertexKinds?: Array<LiveWaypoint['kind']>;
   finishedAt: number | null;
   startedAt: number;
   travelMs: number;
@@ -201,7 +223,9 @@ export class LiveMapController {
   private ripples: RippleSprite[] = [];
   private nextBucketStagger = 0;
   private nodes: DirectoryMapNode[] = [];
+  private geometryNodes: DirectoryMapNode[] = [];
   private localRadio: LocalRadioMarker | null = null;
+  private localRadioConfig: RadioConfig | null = null;
 
   private glowSprites: PathSprite[] = [];
   private coreSprites: PathSprite[] = [];
@@ -310,19 +334,22 @@ export class LiveMapController {
 
   setLocalRadio(config: RadioConfig | null): void {
     if (config && isValidLocation(config.lat, config.lon)) {
+      this.localRadioConfig = config;
       this.localRadio = {
         id: (config.public_key || 'local-radio').slice(0, 16),
         lon: config.lon,
         lat: config.lat,
       };
     } else {
+      this.localRadioConfig = null;
       this.localRadio = null;
     }
     this.draw();
   }
 
   setDirectoryNodes(nodes: DirectoryMapNode[]): void {
-    this.nodes = mappableDirectoryNodes(nodes);
+    this.geometryNodes = geometryDirectoryNodes(nodes);
+    this.nodes = mappableDirectoryNodes(this.geometryNodes);
     this.maybeFitNodes();
     this.draw();
   }
@@ -345,11 +372,22 @@ export class LiveMapController {
     return this.shots.map((shot) => ({
       id: shot.id,
       pointCount: shot.poly.points.length,
+      firstPoint: shot.poly.points[0],
+      lastPoint: shot.poly.points[shot.poly.points.length - 1],
+      vertexKinds: shot.poly.vertexKind.slice(),
       finishedAt: shot.finishedAt,
       startedAt: shot.startedAt,
       travelMs: shot.travelMs,
       remanenceMs: shot.remanenceMs,
     }));
+  }
+
+  drawnPublicKeys(): string[] {
+    return this.nodes.map((node) => node.public_key);
+  }
+
+  geometryPublicKeys(): string[] {
+    return this.geometryNodes.map((node) => node.public_key);
   }
 
   getRippleSnapshots(): LiveRippleSnapshot[] {
@@ -365,19 +403,34 @@ export class LiveMapController {
     return this.wallClock() - this.clockOffset;
   }
 
+  private geometryPins(): LiveOriginPin[] {
+    return pinsIncludingLocalRadio(this.geometryNodes, this.localRadioConfig);
+  }
+
   private enqueueObservation(obs: LiveObservation, now: number): void {
-    const released = this.released.get(obs.hash8);
+    const key = observationBucketKey(obs);
+    const released = this.released.get(key);
     if (released) {
-      released.routeKind = mergeRouteKind(released.routeKind, obs.routeKind);
+      released.routeKind = mergeRouteKind(released.routeKind, inferFloodForAdvert(obs));
+      if (released.routeKind === 'flood') {
+        const plan = fanoutFromOrigin(
+          { observations: [obs] },
+          this.geometryPins(),
+          released.spawnedKeys
+        );
+        this.applyFanout(plan, now, false);
+        this.rememberFanoutKeys(released, plan);
+        return;
+      }
       this.spawnShot(obs, released.routeKind, now, { originRipple: false });
       return;
     }
-    const existing = this.buckets.get(obs.hash8);
+    const existing = this.buckets.get(key);
     if (existing) {
       existing.observations.push(obs);
       return;
     }
-    this.buckets.set(obs.hash8, { hash8: obs.hash8, firstSeenAt: now, observations: [obs] });
+    this.buckets.set(key, { key, firstSeenAt: now, observations: [obs] });
   }
 
   private releaseDueBuckets(now: number): void {
@@ -385,9 +438,9 @@ export class LiveMapController {
     for (const bucket of this.buckets.values()) {
       if (now - bucket.firstSeenAt >= LIVE_HOLD_MS) due.push(bucket);
     }
-    due.sort((a, b) => a.firstSeenAt - b.firstSeenAt || a.hash8.localeCompare(b.hash8));
+    due.sort((a, b) => a.firstSeenAt - b.firstSeenAt || a.key.localeCompare(b.key));
     for (const bucket of due) {
-      this.buckets.delete(bucket.hash8);
+      this.buckets.delete(bucket.key);
       this.releaseBucket(bucket, now);
     }
   }
@@ -396,14 +449,91 @@ export class LiveMapController {
     const spawnIds = selectCatchup(bucket.observations.map((obs) => obs.id));
     const kept = bucket.observations.filter((obs) => spawnIds.has(obs.id));
     let routeKind: LiveRouteKind = 'unknown';
-    for (const obs of kept) routeKind = mergeRouteKind(routeKind, obs.routeKind);
+    for (const obs of kept) routeKind = mergeRouteKind(routeKind, inferFloodForAdvert(obs));
     const startedAt = now + this.nextBucketStagger * LIVE_STAGGER_MS;
     this.nextBucketStagger += 1;
-    this.released.set(bucket.hash8, { routeKind, originSpawned: true });
+    if (routeKind === 'flood') {
+      const plan = fanoutFromOrigin({ observations: kept }, this.geometryPins());
+      const released: ReleasedBucket = {
+        routeKind,
+        originSpawned: plan.origin != null,
+        origin: plan.origin,
+        spawnedKeys: new Set(),
+      };
+      this.released.set(bucket.key, released);
+      this.applyFanout(plan, startedAt, true);
+      this.rememberFanoutKeys(released, plan);
+      return;
+    }
+    this.released.set(bucket.key, {
+      routeKind,
+      originSpawned: true,
+      origin: null,
+      spawnedKeys: new Set(),
+    });
     this.spawnOriginRipple(kept, routeKind, startedAt);
     for (const obs of kept) {
       this.spawnShot(obs, routeKind, startedAt, { originRipple: false });
     }
+  }
+
+  private rememberFanoutKeys(released: ReleasedBucket, plan: FanoutPlan): void {
+    for (const laser of plan.lasers) released.spawnedKeys.add(laser.key);
+    for (const flash of plan.hopFlashes) released.spawnedKeys.add(flash.key);
+    for (const flash of plan.earFlashes) released.spawnedKeys.add(flash.key);
+  }
+
+  private applyFanout(plan: FanoutPlan, startedAt: number, originRipple: boolean): void {
+    const sample =
+      plan.lasers[0]?.obs ?? plan.hopFlashes[0]?.obs ?? plan.earFlashes[0]?.obs ?? null;
+    if (originRipple && plan.origin && sample) {
+      this.pushRipple(
+        `origin:${observationBucketKey(sample)}`,
+        [plan.origin.lon, plan.origin.lat],
+        sample,
+        startedAt,
+        plan.origin
+      );
+    }
+    for (const laser of plan.lasers) {
+      this.pushPolylineShot(
+        `fanout:${laser.key}`,
+        laser.obs,
+        laserPolylineOriginToHop(laser.origin, laser.hop),
+        startedAt
+      );
+    }
+    for (const flash of plan.hopFlashes) {
+      this.flashPoint(`hopflash:${flash.key}`, flash.obs, flash.lat, flash.lon, 'hop', startedAt);
+    }
+    for (const flash of plan.earFlashes) {
+      this.flashPoint(`ear:${flash.key}`, flash.obs, flash.lat, flash.lon, 'ear', startedAt);
+    }
+  }
+
+  private flashPoint(
+    id: string,
+    obs: LiveObservation,
+    lat: number,
+    lon: number,
+    kind: LiveWaypoint['kind'],
+    startedAt: number
+  ): void {
+    this.pushPolylineShot(
+      id,
+      obs,
+      {
+        points: [[lon, lat]],
+        vertexLabel: [undefined],
+        vertexKind: [kind],
+        vertexPubkey: [undefined],
+        vertexToken: [undefined],
+        edgeConfidence: [],
+        edgeReason: [],
+        edgeLabel: [],
+      },
+      startedAt
+    );
   }
 
   private spawnOriginRipple(
@@ -411,10 +541,17 @@ export class LiveMapController {
     _routeKind: LiveRouteKind,
     startedAt: number
   ): void {
+    const pins = this.geometryPins();
     for (const obs of observations) {
-      const origin = resolveOriginPin(obs, this.nodes);
+      const origin = resolveOriginPin(obs, pins);
       if (!origin) continue;
-      this.pushRipple(`origin:${obs.hash8}`, [origin.lon, origin.lat], obs, startedAt, origin);
+      this.pushRipple(
+        `origin:${observationBucketKey(obs)}`,
+        [origin.lon, origin.lat],
+        obs,
+        startedAt,
+        origin
+      );
       return;
     }
   }
@@ -426,11 +563,23 @@ export class LiveMapController {
     opts: { originRipple: boolean }
   ): void {
     const poly = drawableLaserPolyline(obs, routeKind);
+    this.pushPolylineShot(obs.id, obs, poly, startedAt);
+    if (opts.originRipple) {
+      this.spawnOriginRipple([obs], routeKind, startedAt);
+    }
+  }
+
+  private pushPolylineShot(
+    id: string,
+    obs: LiveObservation,
+    poly: LaserPolyline,
+    startedAt: number
+  ): void {
     if (poly.points.length < 1) return;
-    const twin = obs.source === 'community' && this.localHash8.has(obs.hash8);
+    const twin = obs.source === 'community' && observationHasLocalTwin(obs, this.localHash8);
     const edges = placeableEdges(poly.points.length);
     this.shots.push({
-      id: obs.id,
+      id,
       obs,
       poly,
       colorHex: observationColor(obs),
@@ -442,9 +591,6 @@ export class LiveMapController {
       remanenceMs: laserRemanenceMs(edges),
       rippledHops: new Set(),
     });
-    if (opts.originRipple) {
-      this.spawnOriginRipple([obs], routeKind, startedAt);
-    }
     if (this.shots.length > MAX_LIVE_SHOTS) {
       this.shots = this.shots.slice(this.shots.length - MAX_LIVE_SHOTS);
     }
@@ -458,7 +604,9 @@ export class LiveMapController {
     pin: { lat: number; lon: number; public_key?: string }
   ): void {
     const node = pin.public_key
-      ? this.nodes.find((item) => item.public_key.toLowerCase() === pin.public_key!.toLowerCase())
+      ? this.geometryNodes.find(
+          (item) => item.public_key.toLowerCase() === pin.public_key!.toLowerCase()
+        )
       : undefined;
     const style = nodeRoleStyle(node?.role);
     this.ripples.push({
@@ -477,7 +625,11 @@ export class LiveMapController {
       if (shot.poly.vertexKind[i] !== 'hop') continue;
       if (shot.rippledHops.has(i)) continue;
       if (headT + 1e-6 < hopVertexT(count, i)) continue;
-      const pin = findPinnedHop(shot.poly.vertexToken[i], shot.poly.vertexPubkey[i], this.nodes);
+      const pin = findPinnedHop(
+        shot.poly.vertexToken[i],
+        shot.poly.vertexPubkey[i],
+        this.geometryNodes
+      );
       shot.rippledHops.add(i);
       if (!pin) continue;
       this.pushRipple(`${shot.id}:hop:${i}`, [pin.lon, pin.lat], shot.obs, now, pin);
@@ -485,8 +637,8 @@ export class LiveMapController {
   }
 
   private isFloodShot(shot: LaserShot): boolean {
-    const released = this.released.get(shot.obs.hash8);
-    return (released?.routeKind ?? shot.obs.routeKind) === 'flood';
+    const released = this.released.get(observationBucketKey(shot.obs));
+    return (released?.routeKind ?? inferFloodForAdvert(shot.obs)) === 'flood';
   }
 
   private startLoop(): void {

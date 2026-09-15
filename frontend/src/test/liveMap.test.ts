@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveMapController } from '../components/live/liveMap';
 import { LIVE_HOLD_MS } from '../components/live/liveRender';
+import type { RadioConfig } from '../types';
 import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
 
 const { FakeMap } = vi.hoisted(() => {
@@ -83,6 +84,21 @@ function observation(overrides: Partial<LiveObservation> = {}): LiveObservation 
     routeKind: overrides.routeKind ?? 'flood',
     advertPubkey: overrides.advertPubkey ?? null,
     srcHash: overrides.srcHash ?? null,
+    packetHash: overrides.packetHash ?? '19d68fe91e75c7de',
+  };
+}
+
+function radioConfig(overrides: Partial<RadioConfig> = {}): RadioConfig {
+  return {
+    public_key: overrides.public_key ?? 'aa'.repeat(32),
+    name: overrides.name ?? 'me',
+    lat: overrides.lat ?? 45.76,
+    lon: overrides.lon ?? 4.84,
+    tx_power: 22,
+    max_tx_power: 22,
+    radio: { freq: 869.525, bw: 250, sf: 11, cr: 5 },
+    path_hash_mode: 0,
+    path_hash_mode_supported: true,
   };
 }
 
@@ -128,7 +144,7 @@ describe('LiveMapController', () => {
     expect(engine.getShotSnapshots()[0].finishedAt).not.toBeNull();
   });
 
-  it('plays one startedAt per hash8 bucket and skips A replay on a late ear', async () => {
+  it('fans out A→first hop after the hold and skips A replay on a late ear', async () => {
     let t = 2_000;
     const engine = await readyController(() => t);
     engines.push(engine);
@@ -167,12 +183,14 @@ describe('LiveMapController', () => {
       ],
       new Set()
     );
-    const first = engine.getShotSnapshots();
-    const originCount = engine
-      .getRippleSnapshots()
-      .filter((row) => row.id.startsWith('origin:')).length;
-    expect(first).toHaveLength(1);
-    expect(originCount).toBe(1);
+    const lasers = engine.getShotSnapshots().filter((shot) => shot.pointCount === 2);
+    expect(lasers).toHaveLength(1);
+    expect(lasers[0].firstPoint).toEqual([4.84, 45.76]);
+    expect(lasers[0].lastPoint).toEqual([4.92, 45.74]);
+    expect(lasers[0].vertexKinds).toEqual(['origin', 'hop']);
+    expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(
+      1
+    );
 
     t += 50;
     engine.syncObservations(
@@ -180,17 +198,132 @@ describe('LiveMapController', () => {
         observation({
           id: 'obs-late',
           advertPubkey: 'aa'.repeat(32),
+          ear: { lat: 46.2, lon: 6.1, source: 'advert' },
           waypoints: [waypoint(46.2, 6.1, { kind: 'ear' })],
         }),
       ],
       new Set()
     );
     const afterLate = engine.getShotSnapshots();
-    expect(afterLate.map((shot) => shot.id).sort()).toEqual(['obs-1', 'obs-late']);
-    expect(afterLate[0].startedAt).not.toBe(afterLate[1].startedAt);
+    expect(afterLate.filter((shot) => shot.pointCount === 2)).toHaveLength(1);
+    expect(afterLate.some((shot) => shot.lastPoint?.[0] === 6.1 && shot.pointCount === 1)).toBe(
+      true
+    );
     expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(
       1
     );
+  });
+
+  it('uses the local radio pin as origin A and ripples it', async () => {
+    let t = 4_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    engine.setLocalRadio(radioConfig());
+    engine.syncObservations(
+      [
+        observation({
+          advertPubkey: 'aa'.repeat(32),
+          waypoints: [
+            waypoint(45.74, 4.92, { kind: 'hop', token: 'bb22', pubkey: 'bb'.repeat(32) }),
+            waypoint(45.72, 5.08, { kind: 'ear' }),
+          ],
+        }),
+      ],
+      new Set()
+    );
+    t += LIVE_HOLD_MS;
+    engine.syncObservations(
+      [
+        observation({
+          advertPubkey: 'aa'.repeat(32),
+          waypoints: [
+            waypoint(45.74, 4.92, { kind: 'hop', token: 'bb22', pubkey: 'bb'.repeat(32) }),
+            waypoint(45.72, 5.08, { kind: 'ear' }),
+          ],
+        }),
+      ],
+      new Set()
+    );
+    expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(
+      1
+    );
+    const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
+    expect(laser?.firstPoint).toEqual([4.84, 45.76]);
+    expect(laser?.lastPoint).toEqual([4.92, 45.74]);
+  });
+
+  it('buckets on 16-hex packet_hash and fans out a community advert with unknown routeKind', async () => {
+    let t = 5_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    engine.setLocalRadio(radioConfig());
+    engine.syncObservations(
+      [
+        observation({
+          id: 'local-1',
+          source: 'local',
+          hash8: '19d68fe9',
+          packetHash: '19d68fe91e75c7de',
+          advertPubkey: 'aa'.repeat(32),
+          waypoints: [waypoint(45.76, 4.84, { kind: 'ear' })],
+        }),
+        observation({
+          id: 'community-1',
+          source: 'community',
+          type: 'advert',
+          routeKind: 'unknown',
+          hash8: '19d68fe9',
+          packetHash: '19d68fe91e75c7de',
+          advertPubkey: null,
+          waypoints: [
+            waypoint(45.74, 4.92, { kind: 'hop', token: 'bb22', pubkey: 'bb'.repeat(32) }),
+            waypoint(46.2, 6.1, { kind: 'ear' }),
+          ],
+        }),
+      ],
+      new Set()
+    );
+    expect(engine.pendingBucketCount()).toBe(1);
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
+    expect(laser?.firstPoint).toEqual([4.84, 45.76]);
+    expect(laser?.lastPoint).toEqual([4.92, 45.74]);
+  });
+
+  it('uses observer GPS as a hop pin without drawing an observer icon', async () => {
+    let t = 6_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    engine.setLocalRadio(radioConfig());
+    engine.setDirectoryNodes([
+      {
+        public_key: 'bb'.repeat(32),
+        name: 'Heard-by',
+        role: 'observer',
+        lat: 45.74,
+        lon: 4.92,
+        source: 'community-db',
+      },
+    ]);
+    expect(engine.geometryPublicKeys()).toEqual(['bb'.repeat(32)]);
+    expect(engine.drawnPublicKeys()).toEqual([]);
+    engine.syncObservations(
+      [
+        observation({
+          advertPubkey: 'aa'.repeat(32),
+          waypoints: [
+            waypoint(45.74, 4.92, { kind: 'hop', token: 'bb22', pubkey: 'bb'.repeat(32) }),
+          ],
+        }),
+      ],
+      new Set()
+    );
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
+    expect(laser?.lastPoint).toEqual([4.92, 45.74]);
+    expect(engine.drawnPublicKeys()).toEqual([]);
   });
 
   it('does not spawn a remaining-path laser for DIRECT', async () => {

@@ -325,18 +325,17 @@ That gives the store a load-bearing invariant: **no ancestor of `MessageList` ma
 map has a city plan under it (`GET /api/directory/nodes/live` — companions, repeaters,
 rooms, sensors, plus local GPS contacts) and the local radio marker. That is all.
 
-There is deliberately **no observer layer**: no diamond pins, no ear registry keyed by
-`ear_id`, no pulse when a frame arrives from a given ear, no hover naming one. A v2
-frame still carries `ear` / `ear_id` — the contract is unchanged — and the laser still
-ends at the arrival point, but nothing on the map claims an identity for it. A frame
-whose only placeable point is that arrival flashes there for the length of the
-animation and is gone: an event, not a pin.
+There is deliberately **no observer iconography**: no diamond pins, no ear registry
+keyed by `ear_id`, no hover naming who heard a frame, no observer legend entry.
+`NODE_ROLE_STYLE` has no observer entry, so painting one is a type error rather than
+a silent redraw. A v2 frame still carries `ear` / `ear_id` — the contract is unchanged
+— and an arrival may flash there as an event, not a pin. Lasers are flood fan-out
+from origin A to first hops; they do not terminate on the community ear.
 
-Two latches keep it that way: the backend drops `role === 'observer'` from
-`/directory/nodes/live`, and `mappableDirectoryNodes` drops it again client-side.
-`NODE_ROLE_STYLE` has no observer entry, so reintroducing one is a type error rather
-than a silent redraw. "Who heard this" lives in one place only, the chat heard-by
-badge, which is a hash reach and not a live feed.
+Observer GPS is still consumed from `/directory/nodes/live` and kept in the geometry
+pin list (`geometryDirectoryNodes`) so hops and origin A can resolve against it.
+`mappableDirectoryNodes` skips the icon only. "Who heard this" as an identity lives
+in one place only, the chat heard-by badge, which is a hash reach and not a live feed.
 
 ### Platform chrome
 

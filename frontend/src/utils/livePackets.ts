@@ -72,7 +72,7 @@ export interface LiveWaypoint {
   lat: number;
   lon: number;
   token: string;
-  kind: 'hop' | 'ear';
+  kind: 'hop' | 'ear' | 'origin';
   confidence: LiveHopConfidence;
   reason?: string;
   label?: string;
@@ -88,6 +88,8 @@ export interface LiveEar {
 export interface LiveObservation {
   id: string;
   hash8: string;
+  /** 16-hex firmware hash when known. Bucket / twin key; hash8 stays the prefix. */
+  packetHash: string | null;
   source: LiveSource;
   type: CommunityPacketType;
   snr: number | null;
@@ -126,8 +128,8 @@ export function snrWeight(snr: number | null | undefined): number {
 }
 
 /**
- * The local feed is more opaque than the community feed. When the same hash8 is
- * present on both feeds, community is dimmed further so the local drop wins.
+ * The local feed is more opaque than the community feed. When the same packet
+ * identity exists on both feeds, community is dimmed further so the local drop wins.
  */
 export function liveOpacity(
   source: LiveSource,
@@ -193,6 +195,34 @@ export function packetTypeFromRaw(payloadType: number): CommunityPacketType {
 }
 
 const FIRMWARE_HASH_RE = /^[0-9a-fA-F]{8,}$/;
+const PACKET_HASH16_RE = /^[0-9a-f]{16,}$/;
+
+/** 16-hex lowercase firmware hash, or null when only hash8 (old Stats) is available. */
+export function normalizePacketHash16(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const hex = value.trim().toLowerCase();
+  if (!PACKET_HASH16_RE.test(hex)) return null;
+  const sliced = hex.slice(0, 16);
+  if (sliced === '0'.repeat(16)) return null;
+  return sliced;
+}
+
+export function packetHashFromRaw(packet: RawPacket): string | null {
+  return normalizePacketHash16(packet.packet_hash);
+}
+
+/** Bucket / twin identity: 16-hex when present, otherwise hash8. */
+export function observationBucketKey(obs: Pick<LiveObservation, 'packetHash' | 'hash8'>): string {
+  return obs.packetHash ?? obs.hash8;
+}
+
+export function observationHasLocalTwin(
+  obs: Pick<LiveObservation, 'packetHash' | 'hash8'>,
+  localKeys: ReadonlySet<string>
+): boolean {
+  if (obs.packetHash) return localKeys.has(obs.packetHash);
+  return localKeys.has(obs.hash8);
+}
 
 /** Prefer the firmware SHA-256 the backend already computed. Decoder djb2 is fallback only. */
 export function hash8FromRaw(packet: RawPacket): string {
@@ -224,6 +254,13 @@ export function mergeRouteKind(a: LiveRouteKind, b: LiveRouteKind): LiveRouteKin
   return 'unknown';
 }
 
+/** Adverts flood even when Community left routeKind unknown. */
+export function inferFloodForAdvert(
+  obs: Pick<LiveObservation, 'type' | 'routeKind'>
+): LiveRouteKind {
+  return obs.type === 'advert' ? 'flood' : obs.routeKind;
+}
+
 export interface LiveOriginPin {
   public_key: string;
   lat: number;
@@ -232,6 +269,33 @@ export interface LiveOriginPin {
 
 function pinKey(node: { public_key: string }): string {
   return node.public_key.trim().toLowerCase();
+}
+
+function sameLocation(a: { lat: number; lon: number }, b: { lat: number; lon: number }): boolean {
+  return a.lat === b.lat && a.lon === b.lon;
+}
+
+/** Local radio GPS is a geometry pin like any directory node. */
+export function pinsIncludingLocalRadio(
+  nodes: ReadonlyArray<LiveOriginPin>,
+  config: RadioConfig | null
+): LiveOriginPin[] {
+  const pins: LiveOriginPin[] = [];
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    if (!isValidLocation(node.lat, node.lon)) continue;
+    const key = pinKey(node);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    pins.push({ public_key: key, lat: node.lat, lon: node.lon });
+  }
+  if (config && isValidLocation(config.lat, config.lon) && config.public_key) {
+    const key = pinKey(config);
+    if (key && !seen.has(key)) {
+      pins.push({ public_key: key, lat: config.lat, lon: config.lon });
+    }
+  }
+  return pins;
 }
 
 export function findPinByKey(
@@ -284,6 +348,149 @@ export function resolveOriginPin(
     return km != null && km <= LIVE_ORIGIN_ANCHOR_KM;
   });
   return nearby.length === 1 ? nearby[0] : null;
+}
+
+/** If A resolves, it is the first drawable vertex (exact). Ears stay in the list. */
+export function prependOrigin(
+  obs: Pick<LiveObservation, 'advertPubkey' | 'srcHash' | 'waypoints' | 'ear'>,
+  pins: ReadonlyArray<LiveOriginPin>
+): LiveWaypoint[] {
+  const origin = resolveOriginPin(obs, pins);
+  if (!origin) return obs.waypoints.slice();
+  const originPoint: LiveWaypoint = {
+    lat: origin.lat,
+    lon: origin.lon,
+    token: origin.public_key.slice(0, 8),
+    kind: 'origin',
+    confidence: 'exact',
+    pubkey: origin.public_key,
+  };
+  const rest = obs.waypoints.filter((point) => !sameLocation(point, origin));
+  return [originPoint, ...rest];
+}
+
+export function firstHopWaypoint(obs: Pick<LiveObservation, 'waypoints'>): LiveWaypoint | null {
+  for (const point of obs.waypoints) {
+    if (point.kind !== 'hop') continue;
+    if (point.confidence === 'unresolved') continue;
+    if (!isValidLocation(point.lat, point.lon)) continue;
+    return point;
+  }
+  return null;
+}
+
+function hopIdentity(hop: LiveWaypoint): string {
+  const pubkey = hop.pubkey?.trim().toLowerCase();
+  if (pubkey) return pubkey;
+  return `${hop.token.trim().toLowerCase()}@${hop.lat},${hop.lon}`;
+}
+
+export interface FanoutHop {
+  key: string;
+  lat: number;
+  lon: number;
+  token: string;
+  pubkey?: string;
+  label?: string;
+  confidence: Exclude<LiveHopConfidence, 'unresolved'>;
+}
+
+export interface FanoutLaser {
+  key: string;
+  origin: LiveOriginPin;
+  hop: FanoutHop;
+  obs: LiveObservation;
+}
+
+export interface FanoutPointFlash {
+  key: string;
+  lat: number;
+  lon: number;
+  kind: 'hop' | 'ear';
+  obs: LiveObservation;
+}
+
+export interface FanoutPlan {
+  origin: LiveOriginPin | null;
+  lasers: FanoutLaser[];
+  hopFlashes: FanoutPointFlash[];
+  earFlashes: FanoutPointFlash[];
+}
+
+function asFanoutHop(point: LiveWaypoint): FanoutHop {
+  return {
+    key: hopIdentity(point),
+    lat: point.lat,
+    lon: point.lon,
+    token: point.token,
+    pubkey: point.pubkey,
+    label: point.label,
+    confidence: point.confidence === 'probable' ? 'probable' : 'exact',
+  };
+}
+
+/**
+ * Flood fan-out after the hold: one laser A→each unique first hop.
+ * Ears are never laser endpoints. Missing A flashes hops instead of inventing one.
+ */
+export function fanoutFromOrigin(
+  bucket: { observations: readonly LiveObservation[] },
+  pins: ReadonlyArray<LiveOriginPin>,
+  alreadySpawnedKeys: ReadonlySet<string> = new Set()
+): FanoutPlan {
+  let origin: LiveOriginPin | null = null;
+  for (const obs of bucket.observations) {
+    origin = resolveOriginPin(obs, pins);
+    if (origin) break;
+  }
+
+  const hopByKey = new Map<string, { hop: FanoutHop; obs: LiveObservation }>();
+  for (const obs of bucket.observations) {
+    const first = firstHopWaypoint(obs);
+    if (!first) continue;
+    const hop = asFanoutHop(first);
+    if (alreadySpawnedKeys.has(hop.key) || hopByKey.has(hop.key)) continue;
+    if (origin && sameLocation(origin, hop)) continue;
+    hopByKey.set(hop.key, { hop, obs });
+  }
+
+  const lasers: FanoutLaser[] = [];
+  const hopFlashes: FanoutPointFlash[] = [];
+  if (origin) {
+    for (const { hop, obs } of hopByKey.values()) {
+      lasers.push({ key: hop.key, origin, hop, obs });
+    }
+  } else {
+    for (const { hop, obs } of hopByKey.values()) {
+      hopFlashes.push({
+        key: hop.key,
+        lat: hop.lat,
+        lon: hop.lon,
+        kind: 'hop',
+        obs,
+      });
+    }
+  }
+
+  const earFlashes: FanoutPointFlash[] = [];
+  const hopPoints = [...hopByKey.values()].map((item) => item.hop);
+  for (const obs of bucket.observations) {
+    if (!obs.ear || !isValidLocation(obs.ear.lat, obs.ear.lon)) continue;
+    const key = `ear:${obs.earId}:${obs.ear.lat},${obs.ear.lon}`;
+    if (alreadySpawnedKeys.has(key)) continue;
+    if (origin && sameLocation(origin, obs.ear)) continue;
+    if (hopPoints.some((hop) => sameLocation(hop, obs.ear!))) continue;
+    if (earFlashes.some((flash) => flash.key === key)) continue;
+    earFlashes.push({
+      key,
+      lat: obs.ear.lat,
+      lon: obs.ear.lon,
+      kind: 'ear',
+      obs,
+    });
+  }
+
+  return { origin, lasers, hopFlashes, earFlashes };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -381,6 +588,10 @@ export function asCommunityPacket(value: unknown): CommunityPacket | null {
     ear_id: value.ear_id,
   };
   if (snr !== undefined) packet.snr = snr;
+  const packetHash = normalizePacketHash16(value.packet_hash);
+  if (packetHash && packetHash.slice(0, 8) === hash8) {
+    packet.packet_hash = packetHash;
+  }
   return packet;
 }
 
@@ -515,6 +726,7 @@ export function observationFromCommunity(packet: CommunityPacket): LiveObservati
   return {
     id: frame.event_id,
     hash8: frame.hash8,
+    packetHash: frame.packet_hash ?? null,
     source: 'community',
     type: frame.type,
     snr: frame.snr ?? null,
@@ -545,6 +757,7 @@ export function observationFromRaw(
   return {
     id: `local:${packet.observation_id ?? packet.id}`,
     hash8: hash8FromRaw(packet),
+    packetHash: packetHashFromRaw(packet),
     source: 'local',
     type: packetTypeFromRaw(parsed.payloadType),
     snr: packet.snr,

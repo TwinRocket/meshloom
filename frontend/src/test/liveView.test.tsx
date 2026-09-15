@@ -186,11 +186,44 @@ describe('LiveView', () => {
     expect(screen.queryByTestId('live-packet-log')).not.toBeInTheDocument();
   });
 
-  it('loads the observer-free live directory as the permanent map layer', async () => {
+  it('loads the live directory as the permanent map layer', async () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     await waitFor(() => {
       expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled();
     });
+  });
+
+  it('keeps observer GPS in the directory pin set and has no observer legend', async () => {
+    vi.mocked(api.getLiveDirectoryMapNodes).mockResolvedValue({
+      nodes: [
+        {
+          public_key: 'aa',
+          name: 'Lyon Repeater',
+          role: 'repeater',
+          lat: 45.76,
+          lon: 4.84,
+          source: 'community-db',
+        },
+        {
+          public_key: 'ee',
+          name: 'Community ear',
+          role: 'observer',
+          lat: 45.8,
+          lon: 4.9,
+          source: 'community-db',
+        },
+      ],
+      total: 2,
+    });
+    const spy = vi.spyOn(LiveMapController.prototype, 'setDirectoryNodes');
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    await waitFor(() => {
+      const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
+      expect(last.some((node) => node.role === 'observer' && node.public_key === 'ee')).toBe(true);
+    });
+    const legend = screen.getByRole('group', { name: i18n.t('live.roleLegend') });
+    expect(legend.textContent ?? '').not.toMatch(/observ/i);
+    spy.mockRestore();
   });
 
   it('has no observer entry in the role legend', () => {
