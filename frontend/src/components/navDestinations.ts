@@ -4,7 +4,7 @@ import {
   LayoutGrid,
   Settings,
   List,
-  CloudRain,
+  Radio,
   Waypoints,
   Spline,
   Crosshair,
@@ -92,7 +92,7 @@ export const RAIL_ITEMS: RailItem[] = [
     })
   ),
   tool('raw', 'sidebar.packetFeed', List),
-  tool('live', 'sidebar.live', CloudRain),
+  tool('live', 'sidebar.live', Radio),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),
   tool('trace', 'sidebar.trace', Spline),
   tool('locate', 'locate.title', Crosshair),

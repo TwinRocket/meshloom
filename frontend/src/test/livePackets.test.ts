@@ -12,6 +12,7 @@ import {
   liveOpacity,
   liveTypeColor,
   observationBucketKey,
+  observationCoalesceKey,
   observationFromCommunity,
   observationFromRaw,
   pinsIncludingLocalRadio,
@@ -436,6 +437,24 @@ describe('firmware hash8 and origin resolution', () => {
     expect(observationFromCommunity(packet())?.advertPubkey).toBeNull();
     expect(observationFromCommunity(packet())?.srcHash).toBeNull();
     expect(observationFromCommunity(packet())?.routeKind).toBe('unknown');
+    expect(observationFromCommunity(packet({ route_kind: 'flood' }))?.routeKind).toBe('flood');
+    expect(asCommunityPacket(packet({ route_kind: 'direct' }))?.route_kind).toBe('direct');
+    expect(asCommunityPacket({ ...packet(), route_kind: 'nope' } as CommunityPacket)?.route_kind).toBeUndefined();
+  });
+
+  it('coalesces on packet hash, first hop token, and ear_id', () => {
+    const obs = observationFromCommunity(
+      packet({
+        hash8: 'ea6e0c86',
+        packet_hash: 'ea6e0c86deadbeef',
+        path: ['ab12'],
+        hop_count: 1,
+        hops: [{ token: 'ab12', lat: 43.685501, lon: 7.210411, confidence: 'exact' }],
+        ear: { lat: 43.660905, lon: 7.186681, source: 'advert' },
+        ear_id: 'ear-nice',
+      })
+    )!;
+    expect(observationCoalesceKey(obs)).toBe('ea6e0c86deadbeef:ab12:ear-nice');
   });
 
   it('uses community origin.pubkey to match the pin already on the map', () => {
@@ -502,7 +521,7 @@ describe('firmware hash8 and origin resolution', () => {
     expect(prepended[1]).toMatchObject({ kind: 'hop', lat: 45.74, lon: 4.92 });
   });
 
-  it('treats community advert unknown routeKind as flood and fans out A→first hop', () => {
+  it('does not add leftover A→hop or A→ear when the primary polyline already covers them', () => {
     const origin = { public_key: 'ab'.repeat(32), lat: 45.76, lon: 4.84 };
     const hop = { public_key: 'cd'.repeat(32), lat: 45.74, lon: 4.92 };
     const obs: LiveObservation = {
@@ -534,11 +553,9 @@ describe('firmware hash8 and origin resolution', () => {
     expect(inferFloodForAdvert(obs)).toBe('flood');
     const plan = fanoutFromOrigin({ observations: [obs] }, [origin, hop]);
     expect(plan.origin?.public_key).toBe(origin.public_key);
-    expect(plan.lasers).toHaveLength(2);
-    expect(plan.lasers[0].origin).toEqual(origin);
-    expect(plan.lasers[0].hop).toMatchObject({ lat: hop.lat, lon: hop.lon, kind: 'hop' });
-    expect(plan.lasers[1].hop).toMatchObject({ lat: 45.72, lon: 5.08, kind: 'ear' });
-    expect(plan.earFlashes).toHaveLength(0);
+    expect(plan.lasers).toEqual([]);
+    expect(plan.hopFlashes).toEqual([]);
+    expect(plan.earFlashes).toEqual([]);
   });
 
   it('draws A→ear when the advert has no hop (0-hop flood)', () => {
@@ -560,13 +577,12 @@ describe('firmware hash8 and origin resolution', () => {
       srcHash: null,
     };
     const plan = fanoutFromOrigin({ observations: [obs] }, [origin]);
-    expect(plan.lasers).toHaveLength(1);
-    expect(plan.lasers[0].hop).toMatchObject({ lat: 45.72, lon: 5.08, kind: 'ear' });
-    expect(plan.hopFlashes).toHaveLength(0);
-    expect(plan.earFlashes).toHaveLength(0);
+    expect(plan.lasers).toEqual([]);
+    expect(plan.hopFlashes).toEqual([]);
+    expect(plan.earFlashes).toEqual([]);
   });
 
-  it('flashes first hops when A cannot be resolved, and never invents an origin', () => {
+  it('does not flash hop or ear when A is missing — hop→ear is the primary draw', () => {
     const hop = {
       lat: 45.74,
       lon: 4.92,
@@ -593,7 +609,7 @@ describe('firmware hash8 and origin resolution', () => {
     const plan = fanoutFromOrigin({ observations: [obs] }, []);
     expect(plan.origin).toBeNull();
     expect(plan.lasers).toEqual([]);
-    expect(plan.hopFlashes).toHaveLength(1);
-    expect(plan.hopFlashes[0]).toMatchObject({ lat: 45.74, lon: 4.92, kind: 'hop' });
+    expect(plan.hopFlashes).toEqual([]);
+    expect(plan.earFlashes).toEqual([]);
   });
 });

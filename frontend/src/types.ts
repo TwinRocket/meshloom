@@ -625,6 +625,8 @@ export interface CommunityPacket {
   ear: CommunityPacketEar | null;
   /** Advertiser hop. Pubkey matches the pin already on the map. */
   origin?: CommunityPacketHop;
+  /** MeshCore route_type when Stats persisted it. Absent on older frames. */
+  route_kind?: 'flood' | 'direct' | 'unknown';
   snr?: number;
   iata: string;
   t: number;

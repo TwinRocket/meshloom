@@ -1745,6 +1745,7 @@ class CommunityPacketBroadcast(BaseModel):
     hops: list[CommunityPacketHop]
     ear: CommunityPacketEar | None = None
     origin: CommunityPacketHop | None = None
+    route_kind: Literal["flood", "direct", "unknown"] | None = None
     snr: float | None = None
     iata: str
     t: int

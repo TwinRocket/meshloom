@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveMapController } from '../components/live/liveMap';
-import { LIVE_HOLD_MS } from '../components/live/liveRender';
+import { LIVE_HOLD_MS, MAX_CONCURRENT_ANIMS } from '../components/live/liveRender';
 import type { RadioConfig } from '../types';
 import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
 
@@ -144,7 +144,7 @@ describe('LiveMapController', () => {
     expect(engine.getShotSnapshots()[0].finishedAt).not.toBeNull();
   });
 
-  it('fans out A→first hop after the hold and skips A replay on a late ear', async () => {
+  it('draws one A→hop→ear polyline after the coalesce and does not replay A on a late ear', async () => {
     let t = 2_000;
     const engine = await readyController(() => t);
     engines.push(engine);
@@ -183,15 +183,12 @@ describe('LiveMapController', () => {
       ],
       new Set()
     );
-    const lasers = engine.getShotSnapshots().filter((shot) => shot.pointCount === 2);
-    expect(lasers).toHaveLength(2);
-    expect(lasers.map((shot) => shot.vertexKinds)).toEqual([
-      ['origin', 'hop'],
-      ['origin', 'ear'],
-    ]);
+    const lasers = engine.getShotSnapshots();
+    expect(lasers).toHaveLength(1);
+    expect(lasers[0].pointCount).toBe(3);
+    expect(lasers[0].vertexKinds).toEqual(['origin', 'hop', 'ear']);
     expect(lasers[0].firstPoint).toEqual([4.84, 45.76]);
-    expect(lasers[0].lastPoint).toEqual([4.92, 45.74]);
-    expect(lasers[1].lastPoint).toEqual([5.08, 45.72]);
+    expect(lasers[0].lastPoint).toEqual([5.08, 45.72]);
     expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(
       1
     );
@@ -202,14 +199,18 @@ describe('LiveMapController', () => {
         observation({
           id: 'obs-late',
           advertPubkey: 'aa'.repeat(32),
+          earId: 'ear-late',
           ear: { lat: 46.2, lon: 6.1, source: 'advert' },
           waypoints: [waypoint(46.2, 6.1, { kind: 'ear' })],
         }),
       ],
       new Set()
     );
+    expect(engine.getShotSnapshots()).toHaveLength(1);
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
     const afterLate = engine.getShotSnapshots();
-    expect(afterLate.filter((shot) => shot.pointCount === 2)).toHaveLength(3);
+    expect(afterLate).toHaveLength(2);
     expect(afterLate.some((shot) => shot.lastPoint?.[0] === 6.1 && shot.pointCount === 2)).toBe(
       true
     );
@@ -251,48 +252,80 @@ describe('LiveMapController', () => {
     expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(
       1
     );
-    const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
+    const laser = engine.getShotSnapshots()[0];
+    expect(laser?.pointCount).toBe(3);
     expect(laser?.firstPoint).toEqual([4.84, 45.76]);
-    expect(laser?.lastPoint).toEqual([4.92, 45.74]);
+    expect(laser?.lastPoint).toEqual([5.08, 45.72]);
+    expect(laser?.vertexKinds?.at(-1)).toBe('ear');
   });
 
-  it('buckets on 16-hex packet_hash and fans out a community advert with unknown routeKind', async () => {
+  it('draws hop→ear for a community advert like ea6e0c86 without origin A', async () => {
     let t = 5_000;
     const engine = await readyController(() => t);
     engines.push(engine);
-    engine.setLocalRadio(radioConfig());
     engine.syncObservations(
       [
         observation({
-          id: 'local-1',
-          source: 'local',
-          hash8: '19d68fe9',
-          packetHash: '19d68fe91e75c7de',
-          advertPubkey: 'aa'.repeat(32),
-          waypoints: [waypoint(45.76, 4.84, { kind: 'ear' })],
-        }),
-        observation({
-          id: 'community-1',
+          id: 'ea6e0c86-obs',
           source: 'community',
           type: 'advert',
           routeKind: 'unknown',
-          hash8: '19d68fe9',
-          packetHash: '19d68fe91e75c7de',
+          hash8: 'ea6e0c86',
+          packetHash: 'ea6e0c86deadbeef',
           advertPubkey: null,
+          earId: 'ear-nice',
+          ear: { lat: 43.660905, lon: 7.186681, source: 'advert' },
           waypoints: [
-            waypoint(45.74, 4.92, { kind: 'hop', token: 'bb22', pubkey: 'bb'.repeat(32) }),
-            waypoint(46.2, 6.1, { kind: 'ear' }),
+            waypoint(43.685501, 7.210411, {
+              kind: 'hop',
+              token: 'ab12',
+              label: 'Fr06 catAng R2',
+            }),
+            waypoint(43.660905, 7.186681, { kind: 'ear' }),
           ],
         }),
       ],
       new Set()
     );
     expect(engine.pendingBucketCount()).toBe(1);
+    expect(engine.getShotSnapshots()).toEqual([]);
     t += LIVE_HOLD_MS;
     engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
-    const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
-    expect(laser?.firstPoint).toEqual([4.84, 45.76]);
-    expect(laser?.lastPoint).toEqual([4.92, 45.74]);
+    const shots = engine.getShotSnapshots();
+    expect(shots).toHaveLength(1);
+    expect(shots[0].pointCount).toBe(2);
+    expect(shots[0].firstPoint).toEqual([7.210411, 43.685501]);
+    expect(shots[0].lastPoint).toEqual([7.186681, 43.660905]);
+    expect(shots[0].vertexKinds).toEqual(['hop', 'ear']);
+    expect(shots[0].vertexKinds?.at(-1)).toBe('ear');
+  });
+
+  it('coalesces the same packet_hash + first hop + ear_id into one shot', async () => {
+    let t = 5_500;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const shared = {
+      source: 'community' as const,
+      type: 'advert' as const,
+      routeKind: 'unknown' as const,
+      hash8: 'ea6e0c86',
+      packetHash: 'ea6e0c86deadbeef',
+      advertPubkey: null,
+      earId: 'ear-nice',
+      ear: { lat: 43.660905, lon: 7.186681, source: 'advert' as const },
+      waypoints: [
+        waypoint(43.685501, 7.210411, { kind: 'hop', token: 'ab12' }),
+        waypoint(43.660905, 7.186681, { kind: 'ear' }),
+      ],
+    };
+    engine.syncObservations(
+      [observation({ ...shared, id: 'evt-a' }), observation({ ...shared, id: 'evt-b' })],
+      new Set()
+    );
+    expect(engine.pendingBucketCount()).toBe(1);
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    expect(engine.getShotSnapshots()).toHaveLength(1);
   });
 
   it('uses observer GPS as a hop pin without drawing an observer icon', async () => {
@@ -330,7 +363,7 @@ describe('LiveMapController', () => {
     expect(engine.drawnPublicKeys()).toEqual([]);
   });
 
-  it('does not spawn a remaining-path laser for DIRECT', async () => {
+  it('draws hop→ear for DIRECT text instead of stripping to an ear pulse', async () => {
     let t = 3_000;
     const engine = await readyController(() => t);
     engines.push(engine);
@@ -361,6 +394,27 @@ describe('LiveMapController', () => {
       ],
       new Set()
     );
-    expect(engine.getShotSnapshots()[0].pointCount).toBe(1);
+    const shot = engine.getShotSnapshots()[0];
+    expect(shot.pointCount).toBe(2);
+    expect(shot.vertexKinds).toEqual(['hop', 'ear']);
+  });
+
+  it('caps in-flight shots at MAX_CONCURRENT_ANIMS', async () => {
+    let t = 8_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    const rows = Array.from({ length: MAX_CONCURRENT_ANIMS + 5 }, (_, i) =>
+      observation({
+        id: `cap-${i}`,
+        hash8: i.toString(16).padStart(8, '0'),
+        packetHash: null,
+        earId: `ear-${i}`,
+        waypoints: [waypoint(45.72, 5.08, { kind: 'ear', token: `ear-${i}` })],
+      })
+    );
+    engine.syncObservations(rows, new Set());
+    t += LIVE_HOLD_MS;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
   });
 });

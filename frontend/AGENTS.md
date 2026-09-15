@@ -329,8 +329,15 @@ There is deliberately **no observer iconography**: no diamond pins, no ear regis
 keyed by `ear_id`, no hover naming who heard a frame, no observer legend entry.
 `NODE_ROLE_STYLE` has no observer entry, so painting one is a type error rather than
 a silent redraw. A v2 frame still carries `ear` / `ear_id` — the contract is unchanged
-— and an arrival is geometry (laser end or flash), not a pin. Lasers are flood
-fan-out from origin A to first hops and to each unique ear. No observer icon.
+— and an arrival is a polyline vertex (or a 1-point pulse), not a pin. Each
+observation draws one primary polyline: origin A when it resolves from
+`origin.pubkey` / local `advertPubkey` (never `hops[0].pubkey`), then exact/probable
+hops, then the ear. Hop→ear still draws when A is missing. `>=2` known points is a
+line; `1` is a pulse; `0` is nothing. `routeKind === 'unknown'` does not strip hops.
+A short 300 ms coalesce (packet hash + first hop token + `ear_id`) batches the same
+heard path; leftover A→first-hop fan-out only fires when that edge is not already
+on the primary. Concurrent in-flight lasers are capped (`MAX_CONCURRENT_ANIMS`).
+No observer icon.
 
 Observer GPS is still consumed from `/directory/nodes/live` and kept in the geometry
 pin list (`geometryDirectoryNodes`) so hops and origin A can resolve against it.

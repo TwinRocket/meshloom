@@ -11,6 +11,7 @@ import {
   LIVE_RIPPLE_MS,
   LIVE_STAGGER_MS,
   LOCAL_RADIO_VISUAL,
+  MAX_CONCURRENT_ANIMS,
   MAX_LIVE_SHOTS,
   buildRoleIconAtlas,
   cloneLonLat,
@@ -62,11 +63,13 @@ import type {
 } from '../../utils/livePackets';
 import {
   fanoutFromOrigin,
+  firstHopWaypoint,
   inferFloodForAdvert,
   mergeRouteKind,
-  observationBucketKey,
+  observationCoalesceKey,
   observationHasLocalTwin,
   pinsIncludingLocalRadio,
+  prependOrigin,
   resolveOriginPin,
   snrWeight,
 } from '../../utils/livePackets';
@@ -408,21 +411,17 @@ export class LiveMapController {
   }
 
   private enqueueObservation(obs: LiveObservation, now: number): void {
-    const key = observationBucketKey(obs);
+    const key = observationCoalesceKey(obs);
     const released = this.released.get(key);
     if (released) {
-      released.routeKind = mergeRouteKind(released.routeKind, inferFloodForAdvert(obs));
-      if (released.routeKind === 'flood') {
-        const plan = fanoutFromOrigin(
-          { observations: [obs] },
-          this.geometryPins(),
-          released.spawnedKeys
-        );
-        this.applyFanout(plan, now, false);
-        this.rememberFanoutKeys(released, plan);
-        return;
-      }
-      this.spawnShot(obs, released.routeKind, now, { originRipple: false });
+      released.routeKind = mergeRouteKind(released.routeKind, obs.routeKind);
+      const plan = fanoutFromOrigin(
+        { observations: [obs] },
+        this.geometryPins(),
+        released.spawnedKeys
+      );
+      this.applyFanout(plan, now, false);
+      this.rememberFanoutKeys(released, plan);
       return;
     }
     const existing = this.buckets.get(key);
@@ -449,32 +448,28 @@ export class LiveMapController {
     const spawnIds = selectCatchup(bucket.observations.map((obs) => obs.id));
     const kept = bucket.observations.filter((obs) => spawnIds.has(obs.id));
     let routeKind: LiveRouteKind = 'unknown';
-    for (const obs of kept) routeKind = mergeRouteKind(routeKind, inferFloodForAdvert(obs));
+    for (const obs of kept) routeKind = mergeRouteKind(routeKind, obs.routeKind);
     const startedAt = now + this.nextBucketStagger * LIVE_STAGGER_MS;
     this.nextBucketStagger += 1;
-    if (routeKind === 'flood') {
-      const plan = fanoutFromOrigin({ observations: kept }, this.geometryPins());
-      const released: ReleasedBucket = {
-        routeKind,
-        originSpawned: plan.origin != null,
-        origin: plan.origin,
-        spawnedKeys: new Set(),
-      };
-      this.released.set(bucket.key, released);
-      this.applyFanout(plan, startedAt, true);
-      this.rememberFanoutKeys(released, plan);
-      return;
-    }
-    this.released.set(bucket.key, {
+    const pins = this.geometryPins();
+    const representative = kept[kept.length - 1];
+    const origin = representative ? resolveOriginPin(representative, pins) : null;
+    const released: ReleasedBucket = {
       routeKind,
-      originSpawned: true,
-      origin: null,
+      originSpawned: origin != null,
+      origin,
       spawnedKeys: new Set(),
-    });
-    this.spawnOriginRipple(kept, routeKind, startedAt);
-    for (const obs of kept) {
-      this.spawnShot(obs, routeKind, startedAt, { originRipple: false });
-    }
+    };
+    this.released.set(bucket.key, released);
+    if (!representative) return;
+    this.spawnOriginRipple([representative], routeKind, startedAt);
+    this.spawnShot(representative, routeKind, startedAt, { originRipple: false });
+    const first = firstHopWaypoint(representative);
+    if (first) released.spawnedKeys.add(`${first.token.trim().toLowerCase()}@${first.lat},${first.lon}`);
+    if (first?.pubkey) released.spawnedKeys.add(first.pubkey.trim().toLowerCase());
+    const plan = fanoutFromOrigin({ observations: kept }, pins, released.spawnedKeys);
+    this.applyFanout(plan, startedAt, false);
+    this.rememberFanoutKeys(released, plan);
   }
 
   private rememberFanoutKeys(released: ReleasedBucket, plan: FanoutPlan): void {
@@ -488,7 +483,7 @@ export class LiveMapController {
       plan.lasers[0]?.obs ?? plan.hopFlashes[0]?.obs ?? plan.earFlashes[0]?.obs ?? null;
     if (originRipple && plan.origin && sample) {
       this.pushRipple(
-        `origin:${observationBucketKey(sample)}`,
+        `origin:${plan.origin.public_key}`,
         [plan.origin.lon, plan.origin.lat],
         sample,
         startedAt,
@@ -545,13 +540,9 @@ export class LiveMapController {
     for (const obs of observations) {
       const origin = resolveOriginPin(obs, pins);
       if (!origin) continue;
-      this.pushRipple(
-        `origin:${observationBucketKey(obs)}`,
-        [origin.lon, origin.lat],
-        obs,
-        startedAt,
-        origin
-      );
+      const id = `origin:${origin.public_key}`;
+      if (this.ripples.some((ripple) => ripple.id === id)) return;
+      this.pushRipple(id, [origin.lon, origin.lat], obs, startedAt, origin);
       return;
     }
   }
@@ -562,8 +553,12 @@ export class LiveMapController {
     startedAt: number,
     opts: { originRipple: boolean }
   ): void {
-    const poly = drawableLaserPolyline(obs, routeKind);
-    this.pushPolylineShot(obs.id, obs, poly, startedAt);
+    const withOrigin: LiveObservation = {
+      ...obs,
+      waypoints: prependOrigin(obs, this.geometryPins()),
+    };
+    const poly = drawableLaserPolyline(withOrigin, routeKind);
+    this.pushPolylineShot(obs.id, withOrigin, poly, startedAt);
     if (opts.originRipple) {
       this.spawnOriginRipple([obs], routeKind, startedAt);
     }
@@ -576,6 +571,8 @@ export class LiveMapController {
     startedAt: number
   ): void {
     if (poly.points.length < 1) return;
+    const inFlight = this.shots.filter((shot) => shot.finishedAt == null).length;
+    if (inFlight >= MAX_CONCURRENT_ANIMS) return;
     const twin = obs.source === 'community' && observationHasLocalTwin(obs, this.localHash8);
     const edges = placeableEdges(poly.points.length);
     this.shots.push({
@@ -637,7 +634,7 @@ export class LiveMapController {
   }
 
   private isFloodShot(shot: LaserShot): boolean {
-    const released = this.released.get(observationBucketKey(shot.obs));
+    const released = this.released.get(observationCoalesceKey(shot.obs));
     return (released?.routeKind ?? inferFloodForAdvert(shot.obs)) === 'flood';
   }
 

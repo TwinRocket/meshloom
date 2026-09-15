@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import {
-  CloudRain,
+  Radio,
   List,
   Waypoints,
   Waypoints as Trace,
@@ -49,7 +49,7 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     id: 'live',
     labelKey: 'sidebar.live',
     descriptionKey: 'toolsView.liveDescription',
-    Icon: CloudRain,
+    Icon: Radio,
   },
   {
     id: 'visualizer',

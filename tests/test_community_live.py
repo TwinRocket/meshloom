@@ -271,6 +271,15 @@ class TestSanitizeAndCloseCodes:
         assert cleaned is not None
         assert "origin" not in cleaned
 
+    def test_sanitize_keeps_optional_route_kind(self):
+        cleaned = sanitize_community_packet(_v2_packet(route_kind="flood"))
+        assert cleaned is not None
+        assert cleaned["route_kind"] == "flood"
+        assert "route_kind" not in sanitize_community_packet(_v2_packet())
+        dropped = sanitize_community_packet(_v2_packet(route_kind="nope"))
+        assert dropped is not None
+        assert "route_kind" not in dropped
+
     def test_sanitize_drops_packet_hash_that_does_not_match_hash8(self):
         assert (
             sanitize_community_packet(_v2_packet(hash8="deadbeef", packet_hash="cafef00ddeadbeef"))

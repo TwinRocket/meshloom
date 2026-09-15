@@ -298,6 +298,9 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
         out["packet_hash"] = packet_hash_out
     if origin is not None:
         out["origin"] = origin
+    route_kind = payload.get("route_kind")
+    if route_kind in ("flood", "direct", "unknown"):
+        out["route_kind"] = route_kind
     snr = payload.get("snr")
     if isinstance(snr, (int, float)) and not isinstance(snr, bool):
         out["snr"] = float(snr)

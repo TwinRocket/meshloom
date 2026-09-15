@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Crosshair,
   Hash,
-  CloudRain,
   Map,
   MessageSquare,
   Network,
@@ -74,7 +73,7 @@ interface SettingItem extends Searchable {
 const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'raw', icon: Radio, type: 'raw' },
   { id: 'map', icon: Map, type: 'map' },
-  { id: 'live', icon: CloudRain, type: 'live' },
+  { id: 'live', icon: Radio, type: 'live' },
   { id: 'visualizer', icon: Network, type: 'visualizer' },
   { id: 'search', icon: Search, type: 'search' },
   { id: 'trace', icon: Route, type: 'trace' },

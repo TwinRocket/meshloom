@@ -66,6 +66,9 @@ describe('live i18n', () => {
         expect(t(key).toLowerCase()).not.toContain('rain');
         expect(t(key).toLowerCase()).not.toContain('pluie');
       }
+      const sidebarLive = t('sidebar.live').toLowerCase();
+      expect(sidebarLive).not.toContain('rain');
+      expect(sidebarLive).not.toContain('pluie');
     }
   });
 

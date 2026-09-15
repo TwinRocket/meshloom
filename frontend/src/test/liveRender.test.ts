@@ -13,8 +13,10 @@ import {
   LASER_CORE_WIDTH_MIN,
   LASER_GLOW_ALPHA,
   LASER_GLOW_WIDTH_SCALE,
+  LIVE_HOLD_MS,
   LIVE_PACKET_MS,
   LIVE_REMANENCE_MS,
+  MAX_CONCURRENT_ANIMS,
   LIVE_RIPPLE_MS,
   LIVE_RIPPLE_SCALE,
   LIVE_ROLE_LEGEND,
@@ -268,6 +270,9 @@ describe('laser travel and remanence', () => {
     expect(laserRemanenceMs(20)).toBe(1400);
     expect(LIVE_PACKET_MS).toBe(1400);
     expect(LIVE_REMANENCE_MS).toBe(400);
+    expect(LIVE_HOLD_MS).toBeGreaterThanOrEqual(200);
+    expect(LIVE_HOLD_MS).toBeLessThanOrEqual(400);
+    expect(MAX_CONCURRENT_ANIMS).toBe(20);
     expect(laserTravel(3, 0, 1850).headT).toBe(0);
     expect(laserTravel(3, 925, 1850).headT).toBeCloseTo(0.5);
     expect(laserTravel(1, 1399, 1400).finished).toBe(false);
@@ -462,7 +467,7 @@ describe('camera and spawn policy', () => {
     expect(poly.edgeConfidence).toEqual([]);
   });
 
-  it('does not draw remaining-path hops for DIRECT or unknown route kinds', () => {
+  it('keeps hops on the polyline for DIRECT and unknown route kinds', () => {
     const hops = observation({
       routeKind: 'direct',
       waypoints: [
@@ -470,8 +475,15 @@ describe('camera and spawn policy', () => {
         waypoint(46.2, 6.1, { kind: 'ear', token: 'ear' }),
       ],
     });
-    expect(drawableLaserPolyline(hops, 'direct').points).toEqual([[6.1, 46.2]]);
-    expect(drawableLaserPolyline(hops, 'unknown').points).toEqual([[6.1, 46.2]]);
+    expect(drawableLaserPolyline(hops, 'direct').points).toEqual([
+      [4.8, 45.7],
+      [6.1, 46.2],
+    ]);
+    expect(drawableLaserPolyline(hops, 'unknown').points).toEqual([
+      [4.8, 45.7],
+      [6.1, 46.2],
+    ]);
+    expect(drawableLaserPolyline(hops, 'unknown').vertexKind).toEqual(['hop', 'ear']);
     expect(drawableLaserPolyline(hops, 'flood').points).toEqual([
       [4.8, 45.7],
       [6.1, 46.2],

@@ -216,6 +216,15 @@ export function observationBucketKey(obs: Pick<LiveObservation, 'packetHash' | '
   return obs.packetHash ?? obs.hash8;
 }
 
+/** Coalesce key: same firmware hash + first hop + ear is one heard path. */
+export function observationCoalesceKey(
+  obs: Pick<LiveObservation, 'packetHash' | 'hash8' | 'earId' | 'waypoints'>
+): string {
+  const first = firstHopWaypoint(obs);
+  const hopToken = first?.token.trim().toLowerCase() ?? '';
+  return `${observationBucketKey(obs)}:${hopToken}:${obs.earId}`;
+}
+
 export function observationHasLocalTwin(
   obs: Pick<LiveObservation, 'packetHash' | 'hash8'>,
   localKeys: ReadonlySet<string>
@@ -431,10 +440,22 @@ function asFanoutHop(point: LiveWaypoint, kind: 'hop' | 'ear' = 'hop'): FanoutHo
   };
 }
 
+function primaryPolylineCoversOriginHop(
+  obs: LiveObservation,
+  origin: LiveOriginPin,
+  hop: FanoutHop,
+  pins: ReadonlyArray<LiveOriginPin>
+): boolean {
+  const waypoints = prependOrigin(obs, pins);
+  const hasOrigin = waypoints.some((point) => point.kind === 'origin' && sameLocation(point, origin));
+  const hasHop = waypoints.some((point) => point.kind === 'hop' && sameLocation(point, hop));
+  return hasOrigin && hasHop;
+}
+
 /**
- * Flood fan-out after the hold: one laser A→each unique first hop and
- * A→each unique arrival (ear). No observer icon; the ear is geometry.
- * Missing A flashes hops instead of inventing one.
+ * Leftover flood rays only: A→first hop when that edge is not already on
+ * the primary polyline (prependOrigin + hops + ear). Never A→ear, never a
+ * 1-point flash when A is missing — hop→ear is the primary draw.
  */
 export function fanoutFromOrigin(
   bucket: { observations: readonly LiveObservation[] },
@@ -458,58 +479,14 @@ export function fanoutFromOrigin(
   }
 
   const lasers: FanoutLaser[] = [];
-  const hopFlashes: FanoutPointFlash[] = [];
   if (origin) {
     for (const { hop, obs } of hopByKey.values()) {
+      if (primaryPolylineCoversOriginHop(obs, origin, hop, pins)) continue;
       lasers.push({ key: hop.key, origin, hop, obs });
     }
-  } else {
-    for (const { hop, obs } of hopByKey.values()) {
-      hopFlashes.push({
-        key: hop.key,
-        lat: hop.lat,
-        lon: hop.lon,
-        kind: 'hop',
-        obs,
-      });
-    }
   }
 
-  const earFlashes: FanoutPointFlash[] = [];
-  const hopPoints = [...hopByKey.values()].map((item) => item.hop);
-  for (const obs of bucket.observations) {
-    if (!obs.ear || !isValidLocation(obs.ear.lat, obs.ear.lon)) continue;
-    const key = `ear:${obs.earId}:${obs.ear.lat},${obs.ear.lon}`;
-    if (alreadySpawnedKeys.has(key)) continue;
-    if (origin && sameLocation(origin, obs.ear)) continue;
-    if (hopPoints.some((hop) => sameLocation(hop, obs.ear!))) continue;
-    if (origin) {
-      if (lasers.some((laser) => laser.key === key)) continue;
-      const dest = asFanoutHop(
-        {
-          lat: obs.ear.lat,
-          lon: obs.ear.lon,
-          token: obs.earId,
-          kind: 'ear',
-          confidence: 'exact',
-        },
-        'ear'
-      );
-      dest.key = key;
-      lasers.push({ key, origin, hop: dest, obs });
-      continue;
-    }
-    if (earFlashes.some((flash) => flash.key === key)) continue;
-    earFlashes.push({
-      key,
-      lat: obs.ear.lat,
-      lon: obs.ear.lon,
-      kind: 'ear',
-      obs,
-    });
-  }
-
-  return { origin, lasers, hopFlashes, earFlashes };
+  return { origin, lasers, hopFlashes: [], earFlashes: [] };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -629,6 +606,9 @@ export function asCommunityPacket(value: unknown): CommunityPacket | null {
   if (value.origin !== undefined) {
     const origin = readOrigin(value.origin);
     if (origin) packet.origin = origin;
+  }
+  if (value.route_kind === 'flood' || value.route_kind === 'direct' || value.route_kind === 'unknown') {
+    packet.route_kind = value.route_kind;
   }
   return packet;
 }
@@ -773,7 +753,7 @@ export function observationFromCommunity(packet: CommunityPacket): LiveObservati
     earId: frame.ear_id,
     ear,
     waypoints: waypointsFromCommunity(frame),
-    routeKind: 'unknown',
+    routeKind: frame.route_kind ?? 'unknown',
     advertPubkey: frame.origin?.pubkey ?? null,
     srcHash: null,
   };

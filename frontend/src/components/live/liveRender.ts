@@ -7,7 +7,6 @@ import type {
 import { isValidLocation } from '../../utils/pathUtils';
 import {
   LIVE_TYPE_COLORS,
-  inferFloodForAdvert,
   isStaleLiveTime,
   liveOpacity,
   liveTypeColor,
@@ -31,7 +30,10 @@ export const LIVE_TRAIL_FRACTION = 0.25;
 export const LIVE_TRAIL_MS = Math.round(LIVE_PACKET_MS * LIVE_TRAIL_FRACTION);
 export const LIVE_REMANENCE_MS = 400;
 export const LIVE_STAGGER_MS = 90;
-export const LIVE_HOLD_MS = 5000;
+/** Short coalesce so a hop+ear frame draws as one polyline, not after a 5s hold. */
+export const LIVE_HOLD_MS = 300;
+/** In-flight lasers. MAX_LIVE_SHOTS only bounds retained history. */
+export const MAX_CONCURRENT_ANIMS = 20;
 export const MAX_LIVE_SHOTS = 140;
 export const MAX_LIVE_CATCHUP = 36;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
@@ -357,29 +359,13 @@ export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
   };
 }
 
-/** Flood draws the heard path including the arrival. DIRECT / unknown text
- *  stay a 1-point ear flash. Adverts are flood. */
+/** Heard path: exact/probable hops + ear. `routeKind` does not strip hops —
+ *  unknown still draws hop→ear. `>=2` points is a line; `1` is a pulse. */
 export function drawableLaserPolyline(
   obs: LiveObservation,
-  routeKind: LiveRouteKind = obs.routeKind
+  _routeKind: LiveRouteKind = obs.routeKind
 ): LaserPolyline {
-  const effective = inferFloodForAdvert({ type: obs.type, routeKind });
-  if (effective === 'flood') {
-    return buildLaserPolyline(obs);
-  }
-  const full = buildLaserPolyline(obs);
-  const earIndex = full.vertexKind.lastIndexOf('ear');
-  if (earIndex < 0) return emptyLaserPolyline();
-  return {
-    points: [full.points[earIndex]],
-    vertexLabel: [full.vertexLabel[earIndex]],
-    vertexKind: ['ear'],
-    vertexPubkey: [full.vertexPubkey[earIndex]],
-    vertexToken: [full.vertexToken[earIndex]],
-    edgeConfidence: [],
-    edgeReason: [],
-    edgeLabel: [],
-  };
+  return buildLaserPolyline(obs);
 }
 
 export function laserPolylineOriginToHop(origin: LiveOriginPin, hop: FanoutHop): LaserPolyline {
