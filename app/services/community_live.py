@@ -55,6 +55,7 @@ HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
 LiveState = Literal["connected", "reconnecting", "gate", "opted_out", "idle"]
 _HASH8_RE = re.compile(r"^[0-9a-f]{8}$")
+_PACKET_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _IATA_RE = re.compile(r"^[A-Z]{3}$")
 
@@ -180,6 +181,8 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
 
     v2 is the native shape. v1 frames are accepted when they can be normalized
     without guessing (``unresolved: true`` becomes ``confidence: unresolved``).
+    ``packet_hash`` (16 hex) is relayed when present and consistent with ``hash8``.
+    Absent ``packet_hash`` keeps the older hash8-only accept path.
     """
     payload = raw
     if isinstance(payload, (bytes, bytearray)):
@@ -209,6 +212,17 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
         hash8 = hash8[:8]
     if not _HASH8_RE.fullmatch(hash8):
         return None
+    packet_hash_out: str | None = None
+    packet_hash_raw = payload.get("packet_hash")
+    if packet_hash_raw is not None:
+        if not isinstance(packet_hash_raw, str):
+            return None
+        packet_hash = packet_hash_raw.lower()
+        if not _PACKET_HASH_RE.fullmatch(packet_hash):
+            return None
+        if hash8 != packet_hash[:8]:
+            return None
+        packet_hash_out = packet_hash
     packet_type = payload.get("type")
     if packet_type not in PACKET_TYPES:
         return None
@@ -260,6 +274,8 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
         "t": timestamp,
         "ear_id": ear_id,
     }
+    if packet_hash_out is not None:
+        out["packet_hash"] = packet_hash_out
     snr = payload.get("snr")
     if isinstance(snr, (int, float)) and not isinstance(snr, bool):
         out["snr"] = float(snr)

@@ -1738,6 +1738,7 @@ class CommunityPacketBroadcast(BaseModel):
     v: int
     event_id: str
     hash8: str
+    packet_hash: str | None = None
     type: Literal["advert", "text", "ack", "trace", "other"]
     path: list[str]
     hop_count: int

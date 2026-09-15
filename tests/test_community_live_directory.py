@@ -132,8 +132,8 @@ class TestListDirectoryMapNodesPaging:
 
 @pytest.mark.asyncio
 class TestLiveDirectoryObservers:
-    async def test_live_endpoint_drops_observers_but_map_keeps_them(self, test_db):
-        """#live draws packets and hops: an observer catalog pin is not a hop."""
+    async def test_live_endpoint_keeps_observers_for_origin_geometry(self, test_db):
+        """Live pins keep observer GPS; the client must not paint a dedicated icon."""
         reset_directory_nodes_cache()
         from app.services.meshloom_community import update_community
 
@@ -159,8 +159,11 @@ class TestLiveDirectoryObservers:
             ("repeater", "R"),
             ("observer", "Ear"),
         ]
-        assert [(n.role, n.name) for n in live_nodes.nodes] == [("repeater", "R")]
-        assert live_nodes.total == 1
+        assert [(n.role, n.name) for n in live_nodes.nodes] == [
+            ("repeater", "R"),
+            ("observer", "Ear"),
+        ]
+        assert live_nodes.total == 2
 
 
 @pytest.mark.asyncio
