@@ -1,3 +1,23 @@
+## [4.7.5] - 2026-09-15
+
+The conversation list said how the last message was encoded rather than what it was.
+
+### What's new
+
+- **A GIF, a location pin or a reaction is named in the conversation list.** These travel across the mesh as ordinary text — a GIF is sent as `g:` followed by an id — and the conversation has always drawn them as a picture, a map or an emoji. The list showed the text as it arrived, so a conversation whose last message was a GIF read `g:APqEbxBsVIkWSuFpth`. It now reads GIF, a pin shows the name its sender gave the place, and a reaction shows its emoji. An ordinary message is left exactly as written.
+
+---
+
+### Français
+
+La liste des conversations disait comment le dernier message était encodé plutôt que ce qu'il était.
+
+#### Quoi de neuf
+
+- **Un GIF, une position ou une réaction sont nommés dans la liste des conversations.** Ces contenus circulent sur le mesh sous forme de texte ordinaire — un GIF s'envoie sous la forme `g:` suivi d'un identifiant — et la conversation les a toujours dessinés comme une image, une carte ou un emoji. La liste, elle, affichait le texte tel qu'il arrivait : une conversation dont le dernier message était un GIF affichait `g:APqEbxBsVIkWSuFpth`. Elle affiche désormais GIF, une position montre le nom que son expéditeur a donné au lieu, et une réaction montre son emoji. Un message ordinaire reste exactement tel qu'il a été écrit.
+
+---
+
 ## [4.7.4] - 2026-09-15
 
 Opening the packet analyser on a phone left no way out of it.
