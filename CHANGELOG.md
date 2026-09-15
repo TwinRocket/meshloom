@@ -1,3 +1,23 @@
+## [4.7.6] - 2026-09-15
+
+The unread badge could show a conversation waiting while the unread filter found none to open.
+
+### What's new
+
+- **The unread badge and the unread filter now count the same thing.** The badge counted how many unread counters were not zero, while the filter counted conversations it could actually put on screen. A counter can outlive what it belonged to — a channel that was deleted, a contact this client has not loaded — so the badge could advertise a conversation nobody was able to open. Both now start from the conversations themselves.
+
+---
+
+### Français
+
+Le badge de non-lus pouvait annoncer une conversation en attente alors que le filtre « Non lues » n'en trouvait aucune à ouvrir.
+
+#### Quoi de neuf
+
+- **Le badge de non-lus et le filtre « Non lues » comptent désormais la même chose.** Le badge comptait les compteurs non nuls, tandis que le filtre comptait les conversations qu'il pouvait réellement afficher. Un compteur peut survivre à ce à quoi il appartenait — un canal supprimé, un contact que ce client n'a pas chargé — si bien que le badge pouvait annoncer une conversation que personne ne pouvait ouvrir. Les deux partent maintenant des conversations elles-mêmes.
+
+---
+
 ## [4.7.5] - 2026-09-15
 
 The conversation list said how the last message was encoded rather than what it was.
