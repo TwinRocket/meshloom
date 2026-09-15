@@ -352,9 +352,7 @@ function RoleShapeIcon({ shape, color }: { shape: LiveRoleShape; color: string }
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
       {shape === 'circle' && <circle cx="5" cy="5" r="3.6" fill={color} />}
       {shape === 'square' && <rect x="1.8" y="1.8" width="6.4" height="6.4" fill={color} />}
-      {shape === 'hexagon' && (
-        <polygon points="5,1 8.5,3 8.5,7 5,9 1.5,7 1.5,3" fill={color} />
-      )}
+      {shape === 'hexagon' && <polygon points="5,1 8.5,3 8.5,7 5,9 1.5,7 1.5,3" fill={color} />}
       {shape === 'triangle' && <polygon points="5,1.4 8.8,8.4 1.2,8.4" fill={color} />}
       {shape === 'diamond' && <polygon points="5,1.2 8.8,5 5,8.8 1.2,5" fill={color} />}
     </svg>

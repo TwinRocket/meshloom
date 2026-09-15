@@ -60,7 +60,19 @@ export const LIVE_MAP_ATTRIBUTION = [
   '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a>',
 ];
 
-const ROLE_ICONS = buildRoleIconAtlas();
+const builtRoleIcons = buildRoleIconAtlas();
+const ROLE_ICONS = {
+  atlas: roleIconAtlasUrl(builtRoleIcons.atlas),
+  mapping: builtRoleIcons.mapping,
+};
+
+function roleIconAtlasUrl(canvas: HTMLCanvasElement): string {
+  try {
+    return canvas.toDataURL('image/png');
+  } catch {
+    return '';
+  }
+}
 
 const ADDITIVE = {
   depthWriteEnabled: false,
@@ -735,7 +747,12 @@ export class LiveMapController {
           getColor: (d) => d.fill,
           getSize: (d) => d.radius * 2.4,
           sizeUnits: 'pixels',
-          updateTriggers: { getPosition: trigger, getColor: trigger, getSize: trigger, getIcon: trigger },
+          updateTriggers: {
+            getPosition: trigger,
+            getColor: trigger,
+            getSize: trigger,
+            getIcon: trigger,
+          },
         }),
         new PathLayer<PathSprite>({
           id: 'live-laser-glow',

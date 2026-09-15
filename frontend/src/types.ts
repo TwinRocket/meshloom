@@ -767,13 +767,7 @@ export interface DirectoryResolveHopsResponse {
 /** Roles the community directory reports. Empty/unknown collapses to `unknown`.
  *  `companion` is the live-map word; `client` remains an import alias. */
 export type DirectoryNodeRole =
-  | 'repeater'
-  | 'room'
-  | 'client'
-  | 'companion'
-  | 'sensor'
-  | 'observer'
-  | 'unknown';
+  'repeater' | 'room' | 'client' | 'companion' | 'sensor' | 'observer' | 'unknown';
 
 export type DirectoryNodeSource = 'corescope' | 'community-db' | 'local';
 

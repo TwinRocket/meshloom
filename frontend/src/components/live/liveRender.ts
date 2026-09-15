@@ -85,12 +85,7 @@ export interface ConfidenceStroke {
 export type LiveRoleShape = 'circle' | 'square' | 'hexagon' | 'triangle' | 'diamond';
 
 export type NormalizedDirectoryRole =
-  | 'repeater'
-  | 'companion'
-  | 'room'
-  | 'sensor'
-  | 'observer'
-  | 'unknown';
+  'repeater' | 'companion' | 'room' | 'sensor' | 'observer' | 'unknown';
 
 export interface NodeRoleStyle {
   color: string;
