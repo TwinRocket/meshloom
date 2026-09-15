@@ -180,6 +180,7 @@ describe('LiveView', () => {
     expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
     expect(screen.getByText(i18n.t('live.nodes.companion'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('live.nodes.repeater'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('live.nodes.observer'))).toBeInTheDocument();
     expect(screen.queryByRole('log')).not.toBeInTheDocument();
     expect(screen.queryByTestId('live-packet-log')).not.toBeInTheDocument();
   });

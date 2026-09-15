@@ -222,8 +222,11 @@ export function earVisual(source: LiveEarSource): EarVisual {
 export function normalizeDirectoryRole(
   role: DirectoryNodeRole | string | undefined
 ): NormalizedDirectoryRole {
-  if (role === 'repeater' || role === 'room' || role === 'sensor' || role === 'observer') {
+  if (role === 'repeater' || role === 'room' || role === 'sensor') {
     return role;
+  }
+  if (role === 'observer' || role === 'observers') {
+    return 'observer';
   }
   if (role === 'companion' || role === 'client' || role === 'chat') {
     return 'companion';

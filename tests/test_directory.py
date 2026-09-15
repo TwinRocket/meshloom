@@ -341,6 +341,34 @@ class TestParseCorescopeMapNodes:
             ("ef" * 32, "Companion", "companion", "corescope"),
         ]
 
+    def test_keeps_observer_role_instead_of_companion_or_unknown(self):
+        nodes, total = parse_corescope_map_nodes(
+            {
+                "total": 2,
+                "nodes": [
+                    {
+                        "public_key": "ab" * 32,
+                        "name": "NCE-OBS",
+                        "role": "observer",
+                        "lat": 43.66,
+                        "lon": 7.21,
+                    },
+                    {
+                        "public_key": "cd" * 32,
+                        "name": "LYS-OBS",
+                        "role": "observers",
+                        "lat": 45.72,
+                        "lon": 5.08,
+                    },
+                ],
+            }
+        )
+        assert total == 2
+        assert [(n.name, n.role) for n in nodes] == [
+            ("NCE-OBS", "observer"),
+            ("LYS-OBS", "observer"),
+        ]
+
     def test_keeps_community_source_and_parses_last_seen_at(self):
         nodes, total = parse_corescope_map_nodes(
             {

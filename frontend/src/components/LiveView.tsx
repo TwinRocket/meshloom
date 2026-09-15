@@ -35,6 +35,7 @@ import {
   collectIataCodes,
   emptyLiveFilters,
   localHash8Set,
+  normalizeDirectoryRole,
   type LiveRoleShape,
 } from './live/liveRender';
 
@@ -391,5 +392,5 @@ function LiveHoverCard({ hover }: { hover: LiveHoverPayload }) {
 }
 
 function nodeRoleLabel(role: DirectoryNodeRole, t: (key: string) => string): string {
-  return t(`live.nodes.${role}`);
+  return t(`live.nodes.${normalizeDirectoryRole(role)}`);
 }

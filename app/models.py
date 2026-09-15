@@ -1172,7 +1172,9 @@ class DirectoryMapNode(BaseModel):
 
     public_key: str
     name: str
-    role: Literal["repeater", "room", "client", "companion", "sensor", "unknown"] = "unknown"
+    role: Literal["repeater", "room", "client", "companion", "sensor", "observer", "unknown"] = (
+        "unknown"
+    )
     lat: float
     lon: float
     source: Literal["community-db", "corescope", "local"] = "corescope"

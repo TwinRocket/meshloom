@@ -62,4 +62,11 @@ describe('live i18n', () => {
     expect(i18n.getFixedT('fr')('live.nodes.companion')).toBe('Companion');
     expect(i18n.getFixedT('fr')('live.nodes.client')).toBe('Companion');
   });
+
+  it('labels observer Observer, never Companion', () => {
+    expect(i18n.getFixedT('en')('live.nodes.observer')).toBe('Observer');
+    expect(i18n.getFixedT('fr')('live.nodes.observer')).toBe('Observateur');
+    expect(i18n.getFixedT('en')('live.nodes.observer')).not.toBe('Companion');
+    expect(i18n.getFixedT('fr')('live.nodes.observer')).not.toBe('Companion');
+  });
 });

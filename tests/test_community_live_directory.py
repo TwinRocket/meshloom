@@ -31,24 +31,28 @@ class TestParseMapNodesRoles:
     def test_keeps_every_role_and_normalizes_unknown(self):
         nodes, total = parse_corescope_map_nodes(
             {
-                "total": 5,
+                "total": 6,
                 "nodes": [
                     _node("aa" * 32, role="repeater", name="R"),
                     _node("bb" * 32, role="room", name="Room", lat=46.0),
                     _node("cc" * 32, role="client", name="C", lat=47.0),
                     _node("dd" * 32, role="sensor", name="S", lat=48.0),
                     _node("ee" * 32, role="companion", name="X", lat=49.0),
+                    _node("11" * 32, role="observer", name="Ear", lat=51.0),
+                    _node("22" * 32, role="observers", name="Ears", lat=52.0),
                     _node("ff" * 32, role="", name="Empty", lat=50.0),
                 ],
             }
         )
-        assert total == 5
+        assert total == 6
         assert [(n.role, n.name) for n in nodes] == [
             ("repeater", "R"),
             ("room", "Room"),
             ("client", "C"),
             ("sensor", "S"),
             ("companion", "X"),
+            ("observer", "Ear"),
+            ("observer", "Ears"),
             ("unknown", "Empty"),
         ]
 

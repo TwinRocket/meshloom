@@ -61,7 +61,7 @@ REACH_CACHE_MAX = 256
 NEIGHBORS_CACHE_MAX = 256
 SEARCH_CACHE_MAX = 64
 
-MapNodeRole = Literal["repeater", "room", "client", "companion", "sensor", "unknown"]
+MapNodeRole = Literal["repeater", "room", "client", "companion", "sensor", "observer", "unknown"]
 MapNodeSource = Literal["community-db", "corescope", "local"]
 MAP_NODE_ROLES: dict[str, MapNodeRole] = {
     "repeater": "repeater",
@@ -69,6 +69,8 @@ MAP_NODE_ROLES: dict[str, MapNodeRole] = {
     "client": "client",
     "companion": "companion",
     "sensor": "sensor",
+    "observer": "observer",
+    "observers": "observer",
 }
 MAP_NODE_SOURCES: frozenset[str] = frozenset({"community-db", "corescope", "local"})
 CONTACT_TYPE_TO_MAP_ROLE: dict[int, MapNodeRole] = {

@@ -341,6 +341,14 @@ describe('stroke, color, and node/ear encoding', () => {
     expect(nodeRoleStyle('client').color).toBe(nodeRoleStyle('companion').color);
   });
 
+  it('keeps observer distinct from companion and unknown', () => {
+    expect(normalizeDirectoryRole('observer')).toBe('observer');
+    expect(normalizeDirectoryRole('observers')).toBe('observer');
+    expect(nodeRoleStyle('observer').shape).toBe('diamond');
+    expect(nodeRoleStyle('observer').color).not.toBe(nodeRoleStyle('companion').color);
+    expect(nodeRoleStyle('observer').color).not.toBe(nodeRoleStyle('unknown').color);
+  });
+
   it('keeps packet-type and role palettes disjoint and off the old shared amber', () => {
     expect(paletteColorsOverlap()).toBe(false);
     expect(Object.values(LIVE_TYPE_COLORS)).not.toContain('#f59e0b');
