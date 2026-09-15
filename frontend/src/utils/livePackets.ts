@@ -54,12 +54,13 @@ export function writeSavedMapCamera(storageKey: string, camera: SavedMapCamera):
   }
 }
 
+/** Packet-type palette. Must stay disjoint from NODE_ROLE_STYLE (no shared #f59e0b). */
 export const LIVE_TYPE_COLORS: Record<CommunityPacketType, string> = {
-  advert: '#f59e0b',
-  text: '#06b6d4',
-  ack: '#22c55e',
+  advert: '#fbbf24',
+  text: '#22d3ee',
+  ack: '#4ade80',
   trace: '#c084fc',
-  other: '#475569',
+  other: '#78716c',
 };
 
 export type LiveSource = 'local' | 'community';

@@ -30,9 +30,12 @@ import { cn } from '@/lib/utils';
 import { LiveMapController, type LiveHoverPayload } from './live/liveMap';
 import {
   LIVE_PACKET_TYPES,
+  LIVE_ROLE_LEGEND,
+  NODE_ROLE_STYLE,
   collectIataCodes,
   emptyLiveFilters,
   localHash8Set,
+  type LiveRoleShape,
 } from './live/liveRender';
 
 interface LiveViewProps {
@@ -272,31 +275,13 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
           />
           <span>{t('live.certainOnly')}</span>
         </label>
-        <div className="ml-auto flex flex-wrap items-center gap-2 text-[0.6875rem]">
-          {LIVE_PACKET_TYPES.map((type) => (
-            <span key={type} className="flex items-center gap-1">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ backgroundColor: liveTypeColor(type) }}
-              />
-              {t(`live.legend.${type}`)}
-            </span>
-          ))}
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <span className="inline-block h-0.5 w-3 bg-foreground" />
-            {t('live.confidence.exact')}
-          </span>
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <span className="inline-block h-0.5 w-3 border-t border-dashed border-foreground/70" />
-            {t('live.confidence.probable')}
-          </span>
-        </div>
       </div>
 
       <div className="relative min-h-0 flex-1" role="img" aria-label={t('live.mapAria')}>
         {/* Sized, not positioned: maplibre-gl.css forces position:relative on its own
             root, so an absolute inset-0 host collapses to zero height. */}
-        <div ref={mapHostRef} className="h-full w-full bg-[#0b0f14]" />
+        <div ref={mapHostRef} className="live-map-osm h-full w-full bg-[#0b0f14]" />
+        <LiveDualLegend />
         {hover && (
           <div
             className="pointer-events-none absolute z-10 max-w-64 rounded-md border border-border bg-background/90 px-2 py-1.5 text-xs shadow-md"
@@ -307,6 +292,72 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
         )}
       </div>
     </div>
+  );
+}
+
+function LiveDualLegend() {
+  const { t } = useTranslation();
+  return (
+    <aside
+      className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-72 rounded-md border border-border bg-background/90 px-2.5 py-2 text-[0.6875rem] shadow-md"
+      aria-label={t('live.legendTitle')}
+    >
+      <div className="font-medium uppercase tracking-wider text-muted-foreground">
+        {t('live.packetLegend')}
+      </div>
+      <div
+        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
+        role="group"
+        aria-label={t('live.packetLegend')}
+      >
+        {LIVE_PACKET_TYPES.map((type) => (
+          <span key={type} className="flex items-center gap-1">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: liveTypeColor(type) }}
+            />
+            {t(`live.legend.${type}`)}
+          </span>
+        ))}
+        <span className="flex items-center gap-1 text-muted-foreground">
+          <span className="inline-block h-0.5 w-3 bg-foreground" />
+          {t('live.confidence.exact')}
+        </span>
+        <span className="flex items-center gap-1 text-muted-foreground">
+          <span className="inline-block h-0.5 w-3 border-t border-dashed border-foreground/70" />
+          {t('live.confidence.probable')}
+        </span>
+      </div>
+      <div className="mt-2 font-medium uppercase tracking-wider text-muted-foreground">
+        {t('live.roleLegend')}
+      </div>
+      <div
+        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
+        role="group"
+        aria-label={t('live.roleLegend')}
+      >
+        {LIVE_ROLE_LEGEND.map(({ role, shape }) => (
+          <span key={role} className="flex items-center gap-1">
+            <RoleShapeIcon shape={shape} color={NODE_ROLE_STYLE[role].color} />
+            {t(`live.nodes.${role}`)}
+          </span>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function RoleShapeIcon({ shape, color }: { shape: LiveRoleShape; color: string }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+      {shape === 'circle' && <circle cx="5" cy="5" r="3.6" fill={color} />}
+      {shape === 'square' && <rect x="1.8" y="1.8" width="6.4" height="6.4" fill={color} />}
+      {shape === 'hexagon' && (
+        <polygon points="5,1 8.5,3 8.5,7 5,9 1.5,7 1.5,3" fill={color} />
+      )}
+      {shape === 'triangle' && <polygon points="5,1.4 8.8,8.4 1.2,8.4" fill={color} />}
+      {shape === 'diamond' && <polygon points="5,1.2 8.8,5 5,8.8 1.2,5" fill={color} />}
+    </svg>
   );
 }
 

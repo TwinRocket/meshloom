@@ -1,15 +1,18 @@
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import { PathLayer, ScatterplotLayer } from '@deck.gl/layers';
+import { IconLayer, PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import maplibregl, { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 
 import type { DirectoryMapNode, DirectoryNodeRole, RadioConfig } from '../../types';
+import { osmDarkRasterStyle } from '../../utils/mapTiles';
 import { isValidLocation } from '../../utils/pathUtils';
 import {
+  LASER_GLOW_ALPHA,
+  LIVE_PACKET_MS,
   LIVE_REMANENCE_MS,
-  LIVE_SEGMENT_MS,
   LIVE_STAGGER_MS,
   MAX_LIVE_SHOTS,
   buildLaserPolyline,
+  buildRoleIconAtlas,
   cloneLonLat,
   cloneLonLatPath,
   dashLonLat,
@@ -17,12 +20,15 @@ import {
   earVisual,
   hexToRgba,
   interpolatePolyline,
+  laserGlowWidth,
+  laserHeadRadii,
   laserTravel,
   laserWidth,
   liveHoverKey,
   mappableDirectoryNodes,
   nearerEndpointLabel,
   nodeRoleStyle,
+  normalizeDirectoryRole,
   observationColor,
   observationDrawOpacity,
   observationEarSource,
@@ -36,6 +42,7 @@ import {
   visibleEdgeSlices,
   writeLiveCamera,
   type LiveEarSource,
+  type LiveRoleShape,
   type LiveViewFilters,
   type LonLat,
   type Rgba,
@@ -47,13 +54,13 @@ import { isStaleLiveTime, snrWeight } from '../../utils/livePackets';
  *  the camera in a street. */
 const LIVE_FIT_MAX_ZOOM = 11;
 
-export const CARTO_DARK_MATTER_STYLE =
-  'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+export const LIVE_MAP_STYLE = osmDarkRasterStyle();
 
 export const LIVE_MAP_ATTRIBUTION = [
   '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a>',
-  '<a href="https://carto.com/">© CARTO</a>',
 ];
+
+const ROLE_ICONS = buildRoleIconAtlas();
 
 const ADDITIVE = {
   depthWriteEnabled: false,
@@ -90,6 +97,7 @@ interface PointSprite {
   fill: Rgba;
   line: Rgba;
   radius: number;
+  shape: LiveRoleShape;
   pick: LiveHoverPayload | null;
 }
 
@@ -151,9 +159,10 @@ export class LiveMapController {
   constructor(container: HTMLElement, options: LiveMapOptions = {}) {
     this.onHover = options.onHover ?? (() => {});
     const saved = readLiveCamera();
+    container.classList.add('live-map-osm');
     this.map = new maplibregl.Map({
       container,
-      style: CARTO_DARK_MATTER_STYLE,
+      style: LIVE_MAP_STYLE,
       center: [saved?.lon ?? 8, saved?.lat ?? 24],
       zoom: saved?.zoom ?? 2.15,
       attributionControl: {
@@ -165,7 +174,7 @@ export class LiveMapController {
     });
     this.map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
     this.overlay = new MapboxOverlay({
-      interleaved: true,
+      interleaved: false,
       layers: [],
       pickingRadius: 10,
       getCursor: ({ isHovering }: { isHovering: boolean }) => (isHovering ? 'pointer' : 'grab'),
@@ -460,7 +469,8 @@ export class LiveMapController {
     fill: Rgba,
     line: Rgba,
     radius: number,
-    pick: LiveHoverPayload | null
+    pick: LiveHoverPayload | null,
+    shape: LiveRoleShape = 'circle'
   ): number {
     const sprite = this.takeSprite(pool, index, () => ({
       id,
@@ -468,6 +478,7 @@ export class LiveMapController {
       fill: [0, 0, 0, 0] as Rgba,
       line: [0, 0, 0, 0] as Rgba,
       radius,
+      shape,
       pick: null,
     }));
     sprite.id = id;
@@ -475,6 +486,7 @@ export class LiveMapController {
     this.resetColor(sprite.fill, fill);
     this.resetColor(sprite.line, line);
     sprite.radius = radius;
+    sprite.shape = shape;
     sprite.pick = pick;
     return index + 1;
   }
@@ -508,7 +520,7 @@ export class LiveMapController {
     const style = strokeStyleForConfidence(confidence, width);
     const pieces = style.dashed ? dashLonLat(path[0], path[path.length - 1]) : [path];
     const pick = this.pickForSlice(confidence, reason, toLabel ?? fromLabel);
-    const glow = hexToRgba(colorHex, alpha * style.opacityScale * 0.22);
+    const glow = hexToRgba(colorHex, alpha * style.opacityScale * LASER_GLOW_ALPHA);
     const core = hexToRgba(colorHex, alpha * style.opacityScale);
     for (let i = 0; i < pieces.length; i++) {
       const piece = pieces[i];
@@ -518,7 +530,7 @@ export class LiveMapController {
         `${id}:g:${i}`,
         piece,
         glow,
-        style.width * 6.2,
+        laserGlowWidth(style.width),
         pick,
         fromLabel,
         toLabel
@@ -576,7 +588,7 @@ export class LiveMapController {
         nextShots.push(shot);
         continue;
       }
-      const travel = laserTravel(shot.poly.points.length, elapsed, LIVE_SEGMENT_MS);
+      const travel = laserTravel(shot.poly.points.length, elapsed, LIVE_PACKET_MS);
       if (travel.finished && shot.finishedAt == null) shot.finishedAt = now;
       if (shot.finishedAt != null && now - shot.finishedAt >= LIVE_REMANENCE_MS) continue;
       nextShots.push(shot);
@@ -609,8 +621,9 @@ export class LiveMapController {
             ? shot.poly.points[0]
             : interpolatePolyline(shot.poly.points, travel.headT);
         if (head) {
-          const halo = hexToRgba(shot.colorHex, shot.opacity * 0.35);
+          const halo = hexToRgba(shot.colorHex, shot.opacity * 0.28);
           const core = hexToRgba(shot.colorHex, Math.min(1, shot.opacity + 0.15));
+          const headSize = laserHeadRadii(shot.width);
           headCount = this.emitPoint(
             this.headSprites,
             headCount,
@@ -618,7 +631,7 @@ export class LiveMapController {
             head,
             halo,
             [255, 255, 255, 0],
-            11 + shot.width,
+            headSize.halo,
             null
           );
           headCount = this.emitPoint(
@@ -628,7 +641,7 @@ export class LiveMapController {
             head,
             core,
             [255, 255, 255, 220],
-            3.4 + shot.width * 0.35,
+            headSize.core,
             null
           );
         }
@@ -639,7 +652,7 @@ export class LiveMapController {
     let nodeCount = 0;
     for (const node of this.nodes) {
       const style = nodeRoleStyle(node.role);
-      const fill = hexToRgba(style.color, 0.72);
+      const fill = hexToRgba(style.color, 0.88);
       const line = hexToRgba('#020617', 0.7);
       nodeCount = this.emitPoint(
         this.nodeSprites,
@@ -649,7 +662,8 @@ export class LiveMapController {
         fill,
         line,
         style.radius,
-        { kind: 'node', name: node.name, role: node.role, x: 0, y: 0 }
+        { kind: 'node', name: node.name, role: normalizeDirectoryRole(node.role), x: 0, y: 0 },
+        style.shape
       );
     }
 
@@ -709,21 +723,19 @@ export class LiveMapController {
     const trigger = this.frame;
     this.overlay.setProps({
       layers: [
-        new ScatterplotLayer<PointSprite>({
+        new IconLayer<PointSprite>({
           id: 'live-nodes',
           data: this.nodeSprites.slice(),
           pickable: true,
           opacity: 1,
-          stroked: true,
-          filled: true,
-          radiusUnits: 'pixels',
-          lineWidthUnits: 'pixels',
+          iconAtlas: ROLE_ICONS.atlas,
+          iconMapping: ROLE_ICONS.mapping,
+          getIcon: (d) => d.shape,
           getPosition: (d) => d.position,
-          getFillColor: (d) => d.fill,
-          getLineColor: (d) => d.line,
-          getRadius: (d) => d.radius,
-          getLineWidth: 1,
-          updateTriggers: { getPosition: trigger, getFillColor: trigger, getRadius: trigger },
+          getColor: (d) => d.fill,
+          getSize: (d) => d.radius * 2.4,
+          sizeUnits: 'pixels',
+          updateTriggers: { getPosition: trigger, getColor: trigger, getSize: trigger, getIcon: trigger },
         }),
         new PathLayer<PathSprite>({
           id: 'live-laser-glow',

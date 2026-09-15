@@ -258,6 +258,12 @@ body {
   filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
 }
 
+/* `#live` uses the same OSM raster as `#map`. Invert only MapLibre's own
+   canvas so deck.gl lasers and role icons keep their encoded colours. */
+.live-map-osm .maplibregl-canvas-container > .maplibregl-canvas {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
+}
+
 /* Android chrome.
    The floating glass pill, the round back control and the header-button compose
    action are one platform's conventions. Material draws the same jobs differently:
