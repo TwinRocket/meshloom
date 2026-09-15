@@ -561,7 +561,7 @@ function CreateIntegrationDialog({
       <DialogContent
         aria-describedby={undefined}
         hideCloseButton
-        className="flex max-h-[calc(100dvh-2rem)] w-[96vw] max-w-[960px] flex-col overflow-hidden p-0 sm:rounded-xl"
+        className="flex dialog-safe-height w-[96vw] max-w-[960px] flex-col overflow-hidden p-0 sm:rounded-xl"
       >
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle>{t('settings.fanout.create.title')}</DialogTitle>
