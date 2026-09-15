@@ -623,6 +623,8 @@ export interface CommunityPacket {
   hops: CommunityPacketHop[];
   /** Null when neither an advert position nor an IATA centroid is known. */
   ear: CommunityPacketEar | null;
+  /** Advertiser hop. Pubkey matches the pin already on the map. */
+  origin?: CommunityPacketHop;
   snr?: number;
   iata: string;
   t: number;

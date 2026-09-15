@@ -357,18 +357,15 @@ export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
   };
 }
 
-/** Flood draws hops only (ears are events, not laser endpoints).
- *  DIRECT / unknown text never paint remaining-path hops. Adverts are flood. */
+/** Flood draws the heard path including the arrival. DIRECT / unknown text
+ *  stay a 1-point ear flash. Adverts are flood. */
 export function drawableLaserPolyline(
   obs: LiveObservation,
   routeKind: LiveRouteKind = obs.routeKind
 ): LaserPolyline {
   const effective = inferFloodForAdvert({ type: obs.type, routeKind });
   if (effective === 'flood') {
-    return buildLaserPolyline({
-      ...obs,
-      waypoints: obs.waypoints.filter((point) => point.kind !== 'ear'),
-    });
+    return buildLaserPolyline(obs);
   }
   const full = buildLaserPolyline(obs);
   const earIndex = full.vertexKind.lastIndexOf('ear');
@@ -386,13 +383,14 @@ export function drawableLaserPolyline(
 }
 
 export function laserPolylineOriginToHop(origin: LiveOriginPin, hop: FanoutHop): LaserPolyline {
+  const kind = hop.kind ?? 'hop';
   return {
     points: [
       [origin.lon, origin.lat],
       [hop.lon, hop.lat],
     ],
     vertexLabel: [undefined, hop.label],
-    vertexKind: ['origin', 'hop'],
+    vertexKind: ['origin', kind],
     vertexPubkey: [origin.public_key, hop.pubkey],
     vertexToken: [origin.public_key.slice(0, 8), hop.token],
     edgeConfidence: [hop.confidence],

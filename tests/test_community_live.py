@@ -230,6 +230,46 @@ class TestSanitizeAndCloseCodes:
         assert cleaned is not None
         assert cleaned["hash8"] == "deadbeef"
         assert "packet_hash" not in cleaned
+        assert "origin" not in cleaned
+
+    def test_sanitize_keeps_advert_origin_pubkey(self):
+        pubkey = "ab" * 32
+        cleaned = sanitize_community_packet(
+            _v2_packet(
+                origin={
+                    "token": pubkey[:8],
+                    "lat": 43.70,
+                    "lon": 7.25,
+                    "confidence": "exact",
+                    "pubkey": pubkey.upper(),
+                    "name": "Mobile",
+                }
+            )
+        )
+        assert cleaned is not None
+        assert cleaned["origin"]["pubkey"] == pubkey
+        assert cleaned["origin"]["lat"] == 43.70
+
+    def test_sanitize_keeps_unresolved_origin_pubkey_for_map_pin(self):
+        pubkey = "cd" * 32
+        cleaned = sanitize_community_packet(
+            _v2_packet(
+                origin={
+                    "token": pubkey[:8],
+                    "confidence": "unresolved",
+                    "reason": "no_position",
+                    "pubkey": pubkey,
+                }
+            )
+        )
+        assert cleaned is not None
+        assert cleaned["origin"]["pubkey"] == pubkey
+        assert "lat" not in cleaned["origin"]
+
+    def test_sanitize_drops_bad_origin_keeps_frame(self):
+        cleaned = sanitize_community_packet(_v2_packet(origin={"token": "nope"}))
+        assert cleaned is not None
+        assert "origin" not in cleaned
 
     def test_sanitize_drops_packet_hash_that_does_not_match_hash8(self):
         assert (

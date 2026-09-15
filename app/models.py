@@ -1744,6 +1744,7 @@ class CommunityPacketBroadcast(BaseModel):
     hop_count: int
     hops: list[CommunityPacketHop]
     ear: CommunityPacketEar | None = None
+    origin: CommunityPacketHop | None = None
     snr: float | None = None
     iata: str
     t: int

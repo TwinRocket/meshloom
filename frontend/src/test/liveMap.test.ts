@@ -184,10 +184,14 @@ describe('LiveMapController', () => {
       new Set()
     );
     const lasers = engine.getShotSnapshots().filter((shot) => shot.pointCount === 2);
-    expect(lasers).toHaveLength(1);
+    expect(lasers).toHaveLength(2);
+    expect(lasers.map((shot) => shot.vertexKinds)).toEqual([
+      ['origin', 'hop'],
+      ['origin', 'ear'],
+    ]);
     expect(lasers[0].firstPoint).toEqual([4.84, 45.76]);
     expect(lasers[0].lastPoint).toEqual([4.92, 45.74]);
-    expect(lasers[0].vertexKinds).toEqual(['origin', 'hop']);
+    expect(lasers[1].lastPoint).toEqual([5.08, 45.72]);
     expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(
       1
     );
@@ -205,8 +209,8 @@ describe('LiveMapController', () => {
       new Set()
     );
     const afterLate = engine.getShotSnapshots();
-    expect(afterLate.filter((shot) => shot.pointCount === 2)).toHaveLength(1);
-    expect(afterLate.some((shot) => shot.lastPoint?.[0] === 6.1 && shot.pointCount === 1)).toBe(
+    expect(afterLate.filter((shot) => shot.pointCount === 2)).toHaveLength(3);
+    expect(afterLate.some((shot) => shot.lastPoint?.[0] === 6.1 && shot.pointCount === 2)).toBe(
       true
     );
     expect(engine.getRippleSnapshots().filter((row) => row.id.startsWith('origin:'))).toHaveLength(

@@ -163,6 +163,25 @@ def _sanitize_hop(hop: object, *, allow_v1: bool) -> dict[str, Any] | None:
     return {"token": token, "confidence": "exact", "lat": lat, "lon": lon}
 
 
+_PUBKEY_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _sanitize_origin(raw: object) -> dict[str, Any] | None:
+    """Advertiser hop. Bad shape is dropped; the rest of the frame still rains."""
+    if raw is None:
+        return None
+    cleaned = _sanitize_hop(raw, allow_v1=False)
+    if cleaned is None or not isinstance(raw, dict):
+        return None
+    pubkey = _optional_text(raw.get("pubkey"))
+    if pubkey is None or not _PUBKEY_RE.fullmatch(pubkey):
+        if cleaned.get("confidence") == "unresolved":
+            return None
+        return cleaned
+    cleaned["pubkey"] = pubkey.lower()
+    return cleaned
+
+
 def _sanitize_ear(raw: object) -> tuple[bool, dict[str, Any] | None]:
     if raw is None:
         return True, None
@@ -261,6 +280,7 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
         ear_ok, ear = _sanitize_ear(payload.get("ear")) if "ear" in payload else (True, None)
         if not ear_ok:
             return None
+    origin = _sanitize_origin(payload.get("origin"))
     out: dict[str, Any] = {
         "v": 2,
         "event_id": event_id,
@@ -276,6 +296,8 @@ def sanitize_community_packet(raw: object) -> dict[str, Any] | None:
     }
     if packet_hash_out is not None:
         out["packet_hash"] = packet_hash_out
+    if origin is not None:
+        out["origin"] = origin
     snr = payload.get("snr")
     if isinstance(snr, (int, float)) and not isinstance(snr, bool):
         out["snr"] = float(snr)

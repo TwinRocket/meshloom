@@ -392,6 +392,7 @@ export interface FanoutHop {
   token: string;
   pubkey?: string;
   label?: string;
+  kind: 'hop' | 'ear';
   confidence: Exclude<LiveHopConfidence, 'unresolved'>;
 }
 
@@ -417,21 +418,23 @@ export interface FanoutPlan {
   earFlashes: FanoutPointFlash[];
 }
 
-function asFanoutHop(point: LiveWaypoint): FanoutHop {
+function asFanoutHop(point: LiveWaypoint, kind: 'hop' | 'ear' = 'hop'): FanoutHop {
   return {
-    key: hopIdentity(point),
+    key: kind === 'ear' ? `ear:${point.token}@${point.lat},${point.lon}` : hopIdentity(point),
     lat: point.lat,
     lon: point.lon,
     token: point.token,
     pubkey: point.pubkey,
     label: point.label,
+    kind,
     confidence: point.confidence === 'probable' ? 'probable' : 'exact',
   };
 }
 
 /**
- * Flood fan-out after the hold: one laser A→each unique first hop.
- * Ears are never laser endpoints. Missing A flashes hops instead of inventing one.
+ * Flood fan-out after the hold: one laser A→each unique first hop and
+ * A→each unique arrival (ear). No observer icon; the ear is geometry.
+ * Missing A flashes hops instead of inventing one.
  */
 export function fanoutFromOrigin(
   bucket: { observations: readonly LiveObservation[] },
@@ -480,6 +483,22 @@ export function fanoutFromOrigin(
     if (alreadySpawnedKeys.has(key)) continue;
     if (origin && sameLocation(origin, obs.ear)) continue;
     if (hopPoints.some((hop) => sameLocation(hop, obs.ear!))) continue;
+    if (origin) {
+      if (lasers.some((laser) => laser.key === key)) continue;
+      const dest = asFanoutHop(
+        {
+          lat: obs.ear.lat,
+          lon: obs.ear.lon,
+          token: obs.earId,
+          kind: 'ear',
+          confidence: 'exact',
+        },
+        'ear'
+      );
+      dest.key = key;
+      lasers.push({ key, origin, hop: dest, obs });
+      continue;
+    }
     if (earFlashes.some((flash) => flash.key === key)) continue;
     earFlashes.push({
       key,
@@ -511,6 +530,21 @@ function readEar(value: unknown): CommunityPacketEar | null | undefined {
   if (lat == null || lon == null || !isValidLocation(lat, lon)) return undefined;
   if (source !== 'advert' && source !== 'iata') return undefined;
   return { lat, lon, source };
+}
+
+const PUBKEY64_RE = /^[0-9a-fA-F]{64}$/;
+
+function readOrigin(value: unknown): CommunityPacketHop | null {
+  if (value == null) return null;
+  const hop = readHop(value);
+  if (!hop || !isRecord(value)) return null;
+  const pubkey = value.pubkey;
+  if (typeof pubkey === 'string' && PUBKEY64_RE.test(pubkey)) {
+    hop.pubkey = pubkey.toLowerCase();
+    return hop;
+  }
+  if (hop.confidence === 'unresolved') return null;
+  return hop;
 }
 
 function readHop(value: unknown): CommunityPacketHop | null {
@@ -591,6 +625,10 @@ export function asCommunityPacket(value: unknown): CommunityPacket | null {
   const packetHash = normalizePacketHash16(value.packet_hash);
   if (packetHash && packetHash.slice(0, 8) === hash8) {
     packet.packet_hash = packetHash;
+  }
+  if (value.origin !== undefined) {
+    const origin = readOrigin(value.origin);
+    if (origin) packet.origin = origin;
   }
   return packet;
 }
@@ -736,7 +774,7 @@ export function observationFromCommunity(packet: CommunityPacket): LiveObservati
     ear,
     waypoints: waypointsFromCommunity(frame),
     routeKind: 'unknown',
-    advertPubkey: null,
+    advertPubkey: frame.origin?.pubkey ?? null,
     srcHash: null,
   };
 }

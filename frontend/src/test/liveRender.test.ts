@@ -472,10 +472,13 @@ describe('camera and spawn policy', () => {
     });
     expect(drawableLaserPolyline(hops, 'direct').points).toEqual([[6.1, 46.2]]);
     expect(drawableLaserPolyline(hops, 'unknown').points).toEqual([[6.1, 46.2]]);
-    expect(drawableLaserPolyline(hops, 'flood').points).toEqual([[4.8, 45.7]]);
+    expect(drawableLaserPolyline(hops, 'flood').points).toEqual([
+      [4.8, 45.7],
+      [6.1, 46.2],
+    ]);
   });
 
-  it('treats an advert with community unknown routeKind as flood, not a 1-point remaining path', () => {
+  it('treats an advert with community unknown routeKind as flood through the arrival', () => {
     const advert = observation({
       type: 'advert',
       routeKind: 'unknown',
@@ -484,8 +487,11 @@ describe('camera and spawn policy', () => {
         waypoint(46.2, 6.1, { kind: 'ear', token: 'ear' }),
       ],
     });
-    expect(drawableLaserPolyline(advert, 'unknown').points).toEqual([[4.8, 45.7]]);
-    expect(drawableLaserPolyline(advert, 'unknown').vertexKind).toEqual(['hop']);
+    expect(drawableLaserPolyline(advert, 'unknown').points).toEqual([
+      [4.8, 45.7],
+      [6.1, 46.2],
+    ]);
+    expect(drawableLaserPolyline(advert, 'unknown').vertexKind).toEqual(['hop', 'ear']);
   });
 });
 

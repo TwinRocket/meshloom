@@ -438,6 +438,26 @@ describe('firmware hash8 and origin resolution', () => {
     expect(observationFromCommunity(packet())?.routeKind).toBe('unknown');
   });
 
+  it('uses community origin.pubkey to match the pin already on the map', () => {
+    const pin = {
+      public_key: 'ab'.repeat(32),
+      lat: 43.7,
+      lon: 7.25,
+    };
+    const frame = packet({
+      type: 'advert',
+      origin: {
+        token: pin.public_key.slice(0, 8),
+        confidence: 'unresolved',
+        reason: 'no_position',
+        pubkey: pin.public_key,
+      },
+    });
+    const obs = observationFromCommunity(frame);
+    expect(obs?.advertPubkey).toBe(pin.public_key);
+    expect(resolveOriginPin(obs!, [pin])?.public_key).toBe(pin.public_key);
+  });
+
   it('uses the local radio pin as origin A for a matching advert pubkey', () => {
     const config: RadioConfig = {
       public_key: 'ab'.repeat(32),
@@ -514,11 +534,36 @@ describe('firmware hash8 and origin resolution', () => {
     expect(inferFloodForAdvert(obs)).toBe('flood');
     const plan = fanoutFromOrigin({ observations: [obs] }, [origin, hop]);
     expect(plan.origin?.public_key).toBe(origin.public_key);
-    expect(plan.lasers).toHaveLength(1);
+    expect(plan.lasers).toHaveLength(2);
     expect(plan.lasers[0].origin).toEqual(origin);
-    expect(plan.lasers[0].hop).toMatchObject({ lat: hop.lat, lon: hop.lon });
-    expect(plan.earFlashes).toHaveLength(1);
-    expect(plan.earFlashes[0]).toMatchObject({ lat: 45.72, lon: 5.08 });
+    expect(plan.lasers[0].hop).toMatchObject({ lat: hop.lat, lon: hop.lon, kind: 'hop' });
+    expect(plan.lasers[1].hop).toMatchObject({ lat: 45.72, lon: 5.08, kind: 'ear' });
+    expect(plan.earFlashes).toHaveLength(0);
+  });
+
+  it('draws A→ear when the advert has no hop (0-hop flood)', () => {
+    const origin = { public_key: 'ab'.repeat(32), lat: 45.76, lon: 4.84 };
+    const obs: LiveObservation = {
+      id: 'c0',
+      hash8: '19d68fe9',
+      packetHash: '19d68fe91e75c7de',
+      source: 'community',
+      type: 'advert',
+      snr: 0,
+      iata: 'NCE',
+      t: Date.now(),
+      earId: 'ear-0',
+      ear: { lat: 45.72, lon: 5.08, source: 'advert' },
+      waypoints: [{ lat: 45.72, lon: 5.08, token: 'ear-0', kind: 'ear', confidence: 'exact' }],
+      routeKind: 'unknown',
+      advertPubkey: origin.public_key,
+      srcHash: null,
+    };
+    const plan = fanoutFromOrigin({ observations: [obs] }, [origin]);
+    expect(plan.lasers).toHaveLength(1);
+    expect(plan.lasers[0].hop).toMatchObject({ lat: 45.72, lon: 5.08, kind: 'ear' });
+    expect(plan.hopFlashes).toHaveLength(0);
+    expect(plan.earFlashes).toHaveLength(0);
   });
 
   it('flashes first hops when A cannot be resolved, and never invents an origin', () => {
