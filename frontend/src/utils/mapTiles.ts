@@ -31,7 +31,7 @@ export function osmDarkRasterStyle(): StyleSpecification {
       {
         id: 'background',
         type: 'background',
-        paint: { 'background-color': '#0b0f14' },
+        paint: { 'background-color': '#05070a' },
       },
       {
         id: 'osm',

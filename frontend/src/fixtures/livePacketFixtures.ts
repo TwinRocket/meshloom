@@ -1,6 +1,6 @@
 import type { CommunityPacket } from '../types';
 import { recordCommunityPacket, relancerLive, setLiveCloseCode } from '../stores/livePacketStore';
-import { LIVE_STAGGER_MS } from '../utils/livePackets';
+import { LIVE_STAGGER_MS } from '../components/live/liveRender';
 
 /**
  * Offline community live feed for local UI work. The browser never calls Stats.

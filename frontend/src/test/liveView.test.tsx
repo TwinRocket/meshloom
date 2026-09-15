@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveView } from '../components/LiveView';
+import { LiveMapController } from '../components/live/liveMap';
 import { api } from '../api';
+import type { Contact } from '../types';
 import i18n from '../i18n';
 import {
   resetLivePacketStore,
@@ -202,5 +204,42 @@ describe('LiveView', () => {
     expect(container.querySelector('.leaflet-container')).toBeNull();
     expect(screen.queryByTestId('tile-layer')).not.toBeInTheDocument();
     expect(container.querySelector('.live-map-osm')).not.toBeNull();
+  });
+
+  it('overlays a GPS contact and tombstones it when the contact leaves', async () => {
+    const gpsContact: Contact = {
+      public_key: 'dd'.repeat(32),
+      name: 'NewPin',
+      type: 1,
+      flags: 0,
+      direct_path: null,
+      direct_path_len: -1,
+      direct_path_hash_mode: 0,
+      last_advert: null,
+      lat: 45.11,
+      lon: 4.11,
+      last_seen: null,
+      on_radio: false,
+      favorite: false,
+      last_contacted: null,
+      last_read_at: null,
+      first_seen: null,
+    };
+    const spy = vi.spyOn(LiveMapController.prototype, 'setDirectoryNodes');
+    const { rerender } = render(<LiveView contacts={[]} config={null} communityEnabled />);
+    await waitFor(() => expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled());
+    rerender(<LiveView contacts={[gpsContact]} config={null} communityEnabled />);
+    await waitFor(() => {
+      const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
+      expect(
+        last.some((node) => node.public_key === 'dd'.repeat(32) && node.name === 'NewPin')
+      ).toBe(true);
+    });
+    rerender(<LiveView contacts={[]} config={null} communityEnabled />);
+    await waitFor(() => {
+      const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
+      expect(last.some((node) => node.public_key === 'dd'.repeat(32))).toBe(false);
+    });
+    spy.mockRestore();
   });
 });

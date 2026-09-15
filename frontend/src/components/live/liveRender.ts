@@ -1,4 +1,10 @@
-import type { CommunityPacketType, DirectoryMapNode, DirectoryNodeRole } from '../../types';
+import type {
+  CommunityPacketType,
+  Contact,
+  DirectoryMapNode,
+  DirectoryNodeRole,
+} from '../../types';
+import { isValidLocation } from '../../utils/pathUtils';
 import {
   LIVE_TYPE_COLORS,
   isStaleLiveTime,
@@ -6,27 +12,34 @@ import {
   liveTypeColor,
   snrWeight,
   type LiveObservation,
+  type LiveRouteKind,
   type LiveSource,
   type LiveWaypoint,
 } from '../../utils/livePackets';
 
 export const LIVE_PACKET_TYPES: CommunityPacketType[] = ['advert', 'text', 'ack', 'trace', 'other'];
 
-/** Total travel for one packet shot — a 1–2 s typed animation, not a lingering mesh. */
-export const LIVE_PACKET_MS = 1600;
-/** @deprecated Use LIVE_PACKET_MS. Kept so travel helpers stay hop-count independent. */
+/** 0-edge (1-point flash) travel. Multi-hop uses laserTravelMs(placeableEdges). */
+export const LIVE_PACKET_MS = 1400;
+/** @deprecated Use laserTravelMs(placeableEdges). */
 export const LIVE_SEGMENT_MS = LIVE_PACKET_MS;
-export const LIVE_TRAIL_MS = 380;
-export const LIVE_REMANENCE_MS = 280;
+export const LIVE_TRAIL_FRACTION = 0.25;
+export const LIVE_TRAIL_MS = Math.round(LIVE_PACKET_MS * LIVE_TRAIL_FRACTION);
+export const LIVE_REMANENCE_MS = 400;
 export const LIVE_STAGGER_MS = 90;
+export const LIVE_HOLD_MS = 5000;
 export const MAX_LIVE_SHOTS = 140;
 export const MAX_LIVE_CATCHUP = 36;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
 
-export const LASER_CORE_WIDTH_MIN = 0.85;
-export const LASER_CORE_WIDTH_MAX = 1.25;
-export const LASER_GLOW_WIDTH_SCALE = 2;
-export const LASER_GLOW_ALPHA = 0.22;
+export const LASER_CORE_WIDTH_MIN = 2.0;
+export const LASER_CORE_WIDTH_MAX = 2.8;
+export const LASER_GLOW_WIDTH_SCALE = 3.25;
+export const LASER_GLOW_ALPHA = 0.48;
+
+export const LIVE_RIPPLE_SCALE = 4;
+export const LIVE_RIPPLE_MS = 760;
+export const LIVE_PIN_VISUAL_RADIUS_SCALE = 1.2;
 
 export type LiveHopConfidence = 'exact' | 'probable' | 'unresolved';
 export type LonLat = [number, number];
@@ -47,6 +60,9 @@ export interface LiveCamera {
 export interface LaserPolyline {
   points: LonLat[];
   vertexLabel: Array<string | undefined>;
+  vertexKind: Array<LiveWaypoint['kind']>;
+  vertexPubkey: Array<string | undefined>;
+  vertexToken: Array<string | undefined>;
   edgeConfidence: Array<'exact' | 'probable'>;
   edgeReason: Array<string | undefined>;
   edgeLabel: Array<string | undefined>;
@@ -178,8 +194,33 @@ export function laserGlowWidth(coreWidth: number): number {
 
 export function laserHeadRadii(coreWidth: number): { halo: number; core: number } {
   return {
-    halo: 2.1 + coreWidth * 0.25,
-    core: 1.05 + coreWidth * 0.1,
+    halo: 3.4 + coreWidth * 0.35,
+    core: 1.7 + coreWidth * 0.15,
+  };
+}
+
+export function placeableEdges(pointCount: number): number {
+  return Math.max(0, pointCount - 1);
+}
+
+export function laserTravelMs(edges: number): number {
+  return Math.min(4000, Math.max(1400, 1400 + 450 * Math.max(0, edges)));
+}
+
+export function laserRemanenceMs(edges: number): number {
+  return Math.min(1400, Math.max(400, 400 + 250 * Math.max(0, edges)));
+}
+
+export function pinVisualRadius(roleRadius: number): number {
+  return roleRadius * LIVE_PIN_VISUAL_RADIUS_SCALE;
+}
+
+export function rippleRadii(pinRadius: number, t: number): { radius: number; lineAlpha: number } {
+  const progress = clamp01(t);
+  const visual = pinVisualRadius(pinRadius);
+  return {
+    radius: visual * (1 + (LIVE_RIPPLE_SCALE - 1) * progress),
+    lineAlpha: 1 - progress,
   };
 }
 
@@ -258,9 +299,25 @@ export function shouldSpawnLaser(obs: LiveObservation, now: number = Date.now())
   return !isStaleLiveTime(obs.t, now);
 }
 
+export function emptyLaserPolyline(): LaserPolyline {
+  return {
+    points: [],
+    vertexLabel: [],
+    vertexKind: [],
+    vertexPubkey: [],
+    vertexToken: [],
+    edgeConfidence: [],
+    edgeReason: [],
+    edgeLabel: [],
+  };
+}
+
 export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
   const points: LonLat[] = [];
   const vertexLabel: Array<string | undefined> = [];
+  const vertexKind: Array<LiveWaypoint['kind']> = [];
+  const vertexPubkey: Array<string | undefined> = [];
+  const vertexToken: Array<string | undefined> = [];
   const edgeConfidence: Array<'exact' | 'probable'> = [];
   const edgeReason: Array<string | undefined> = [];
   const edgeLabel: Array<string | undefined> = [];
@@ -277,9 +334,42 @@ export function buildLaserPolyline(obs: LiveObservation): LaserPolyline {
     }
     points.push([point.lon, point.lat]);
     vertexLabel.push(label);
+    vertexKind.push(point.kind);
+    vertexPubkey.push(point.pubkey);
+    vertexToken.push(point.token);
   }
 
-  return { points, vertexLabel, edgeConfidence, edgeReason, edgeLabel };
+  return {
+    points,
+    vertexLabel,
+    vertexKind,
+    vertexPubkey,
+    vertexToken,
+    edgeConfidence,
+    edgeReason,
+    edgeLabel,
+  };
+}
+
+/** Flood draws hops→ear. DIRECT / unknown never paint remaining-path hops. */
+export function drawableLaserPolyline(
+  obs: LiveObservation,
+  routeKind: LiveRouteKind = obs.routeKind
+): LaserPolyline {
+  const full = buildLaserPolyline(obs);
+  if (routeKind === 'flood') return full;
+  const earIndex = full.vertexKind.lastIndexOf('ear');
+  if (earIndex < 0) return emptyLaserPolyline();
+  return {
+    points: [full.points[earIndex]],
+    vertexLabel: [full.vertexLabel[earIndex]],
+    vertexKind: ['ear'],
+    vertexPubkey: [full.vertexPubkey[earIndex]],
+    vertexToken: [full.vertexToken[earIndex]],
+    edgeConfidence: [],
+    edgeReason: [],
+    edgeLabel: [],
+  };
 }
 
 export function segmentsFromObservation(
@@ -335,7 +425,7 @@ export function laserTravel(
     };
   }
   const headT = clamp01(elapsedMs / duration);
-  const trailWindow = Math.min(0.85, LIVE_TRAIL_MS / duration);
+  const trailWindow = Math.min(0.85, LIVE_TRAIL_FRACTION);
   return {
     finished: elapsedMs >= duration,
     headT,
@@ -664,6 +754,90 @@ export function twinOpacity(
   hash8HasLocalTwin: boolean
 ): number {
   return liveOpacity(source, snr, hash8HasLocalTwin);
+}
+
+function contactRole(type: number): DirectoryNodeRole {
+  if (type === 2) return 'repeater';
+  if (type === 3) return 'room';
+  if (type === 4) return 'sensor';
+  if (type === 1) return 'companion';
+  return 'unknown';
+}
+
+function isBlockedContact(
+  contact: Contact,
+  blockedKeys: readonly string[] | undefined,
+  blockedNames: readonly string[] | undefined
+): boolean {
+  const key = contact.public_key.toLowerCase();
+  if (blockedKeys?.length && blockedKeys.some((item) => item.toLowerCase() === key)) {
+    return true;
+  }
+  return !!(blockedNames?.length && contact.name != null && blockedNames.includes(contact.name));
+}
+
+export function localContactsToMapNodes(
+  contacts: readonly Contact[],
+  blockedKeys?: readonly string[],
+  blockedNames?: readonly string[]
+): DirectoryMapNode[] {
+  const nodes: DirectoryMapNode[] = [];
+  for (const contact of contacts) {
+    if (!isValidLocation(contact.lat, contact.lon)) continue;
+    if (isBlockedContact(contact, blockedKeys, blockedNames)) continue;
+    if (contact.lat == null || contact.lon == null) continue;
+    nodes.push({
+      public_key: contact.public_key.toLowerCase(),
+      name: contact.name ?? contact.public_key.slice(0, 12),
+      role: contactRole(contact.type),
+      lat: contact.lat,
+      lon: contact.lon,
+      source: 'local',
+      last_seen: contact.last_seen,
+    });
+  }
+  return nodes;
+}
+
+export function mergeLocalOverDirectory(
+  directory: readonly DirectoryMapNode[],
+  local: readonly DirectoryMapNode[],
+  tombstones: ReadonlySet<string>
+): DirectoryMapNode[] {
+  const hidden = new Set([...tombstones].map((key) => key.toLowerCase()));
+  const byKey = new Map<string, DirectoryMapNode>();
+  for (const node of directory) {
+    const key = node.public_key.toLowerCase();
+    if (hidden.has(key)) continue;
+    byKey.set(key, { ...node, public_key: key });
+  }
+  for (const node of local) {
+    const key = node.public_key.toLowerCase();
+    hidden.delete(key);
+    byKey.set(key, { ...node, public_key: key });
+  }
+  return mappableDirectoryNodes([...byKey.values()]);
+}
+
+export function hopVertexT(pointCount: number, index: number): number {
+  if (pointCount <= 1) return 0;
+  return index / (pointCount - 1);
+}
+
+export function findPinnedHop(
+  token: string | undefined,
+  pubkey: string | undefined,
+  nodes: readonly DirectoryMapNode[]
+): DirectoryMapNode | null {
+  if (pubkey) {
+    const needle = pubkey.toLowerCase();
+    const exact = nodes.find((node) => node.public_key.toLowerCase() === needle);
+    if (exact) return exact;
+  }
+  if (!token || token.trim().length < 4) return null;
+  const prefix = token.trim().toLowerCase();
+  const matches = nodes.filter((node) => node.public_key.toLowerCase().startsWith(prefix));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function clamp01(value: number): number {

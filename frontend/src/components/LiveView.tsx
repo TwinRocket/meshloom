@@ -34,7 +34,9 @@ import {
   NODE_ROLE_STYLE,
   collectIataCodes,
   emptyLiveFilters,
+  localContactsToMapNodes,
   localHash8Set,
+  mergeLocalOverDirectory,
   type LiveRoleShape,
 } from './live/liveRender';
 
@@ -42,6 +44,8 @@ interface LiveViewProps {
   contacts: Contact[];
   config: RadioConfig | null;
   communityEnabled?: boolean;
+  blockedKeys?: string[];
+  blockedNames?: string[];
 }
 
 function LiveBanner({
@@ -62,7 +66,13 @@ function LiveBanner({
   );
 }
 
-export function LiveView({ contacts, config, communityEnabled = true }: LiveViewProps) {
+export function LiveView({
+  contacts,
+  config,
+  communityEnabled = true,
+  blockedKeys = [],
+  blockedNames = [],
+}: LiveViewProps) {
   const { t } = useTranslation();
   const rawPackets = useRawPackets();
   const communityPackets = useCommunityPackets();
@@ -78,11 +88,33 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
   // The directory fetch and the engine race each other; whichever lands second
   // applies the nodes, so the payload is never dropped on the floor.
   const directoryNodesRef = useRef<DirectoryMapNode[]>([]);
+  const seenContactKeysRef = useRef<Set<string>>(new Set());
+  const tombstonesRef = useRef<Set<string>>(new Set());
 
   const optedOut = connection.optOut || !communityEnabled;
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
 
   hoverRef.current = setHover;
+
+  const publishPins = useCallback(
+    (directory: DirectoryMapNode[]) => {
+      const local = localContactsToMapNodes(contacts, blockedKeys, blockedNames);
+      const current = new Set(local.map((node) => node.public_key));
+      for (const key of current) {
+        seenContactKeysRef.current.add(key);
+        tombstonesRef.current.delete(key);
+      }
+      for (const key of seenContactKeysRef.current) {
+        if (!current.has(key)) tombstonesRef.current.add(key);
+      }
+      engineRef.current?.setDirectoryNodes(
+        mergeLocalOverDirectory(directory, local, tombstonesRef.current)
+      );
+    },
+    [blockedKeys, blockedNames, contacts]
+  );
+  const publishPinsRef = useRef(publishPins);
+  publishPinsRef.current = publishPins;
 
   useEffect(() => {
     const host = mapHostRef.current;
@@ -91,12 +123,16 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       onHover: (payload) => hoverRef.current(payload),
     });
     engineRef.current = engine;
-    engine.setDirectoryNodes(directoryNodesRef.current);
+    publishPinsRef.current(directoryNodesRef.current);
     return () => {
       engine.destroy();
       engineRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    publishPins(directoryNodesRef.current);
+  }, [publishPins]);
 
   useEffect(() => {
     if (!communityEnabled) {
@@ -134,12 +170,12 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       (res) => {
         if (cancelled) return;
         directoryNodesRef.current = res.nodes;
-        engineRef.current?.setDirectoryNodes(res.nodes);
+        publishPinsRef.current(res.nodes);
       },
       () => {
         if (cancelled) return;
         directoryNodesRef.current = [];
-        engineRef.current?.setDirectoryNodes([]);
+        publishPinsRef.current([]);
       }
     );
     return () => {
@@ -280,7 +316,7 @@ export function LiveView({ contacts, config, communityEnabled = true }: LiveView
       <div className="relative min-h-0 flex-1" role="img" aria-label={t('live.mapAria')}>
         {/* Sized, not positioned: maplibre-gl.css forces position:relative on its own
             root, so an absolute inset-0 host collapses to zero height. */}
-        <div ref={mapHostRef} className="live-map-osm h-full w-full bg-[#0b0f14]" />
+        <div ref={mapHostRef} className="live-map-osm h-full w-full bg-[#05070a]" />
         <LiveDualLegend />
         {hover && (
           <div

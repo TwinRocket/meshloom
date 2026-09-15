@@ -246,7 +246,13 @@ export function ConversationPane({
         <ToolPaneHeader title={t('conversation.live')} onBack={onBackToTools} />
         <div className="flex-1 overflow-hidden">
           <Suspense fallback={<LoadingPane label={t('conversation.loadingLive')} />}>
-            <LiveView contacts={contacts} config={config} communityEnabled={communityEnabled} />
+            <LiveView
+              contacts={contacts}
+              config={config}
+              communityEnabled={communityEnabled}
+              blockedKeys={blockedKeys}
+              blockedNames={blockedNames}
+            />
           </Suspense>
         </div>
       </>

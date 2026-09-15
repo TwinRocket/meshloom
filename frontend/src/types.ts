@@ -679,6 +679,8 @@ export interface RawPacket {
   transport_code?: number | null;
   /** Resolved region name for the transport code, if it matched a known region. */
   region?: string | null;
+  /** Firmware packet hash (16 hex). First 8 lowercase chars are #live hash8. */
+  packet_hash?: string | null;
 }
 
 export interface GroupTextSample {
