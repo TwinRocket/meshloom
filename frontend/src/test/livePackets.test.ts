@@ -180,11 +180,11 @@ describe('community waypoints', () => {
   });
 
   it('keeps legend colors on the observation type', () => {
-    expect(liveTypeColor('advert')).toBe('#f59e0b');
-    expect(liveTypeColor('text')).toBe('#06b6d4');
-    expect(liveTypeColor('ack')).toBe('#22c55e');
+    expect(liveTypeColor('advert')).toBe('#fbbf24');
+    expect(liveTypeColor('text')).toBe('#22d3ee');
+    expect(liveTypeColor('ack')).toBe('#4ade80');
     expect(liveTypeColor('trace')).toBe('#c084fc');
-    expect(liveTypeColor('other')).toBe('#475569');
+    expect(liveTypeColor('other')).toBe('#78716c');
     expect(observationFromCommunity(packet())?.type).toBe('ack');
   });
 });

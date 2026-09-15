@@ -14,6 +14,9 @@ const LIVE_KEYS = [
   'live.pause',
   'live.playPause',
   'live.mapAria',
+  'live.legendTitle',
+  'live.packetLegend',
+  'live.roleLegend',
   'live.legend.advert',
   'live.legend.text',
   'live.legend.ack',
@@ -29,7 +32,9 @@ const LIVE_KEYS = [
   'live.nodes.repeater',
   'live.nodes.room',
   'live.nodes.client',
+  'live.nodes.companion',
   'live.nodes.sensor',
+  'live.nodes.observer',
   'live.nodes.unknown',
   'live.ears.advert',
   'live.ears.iata',
@@ -49,5 +54,12 @@ describe('live i18n', () => {
     expect(i18n.exists('live.relancer')).toBe(false);
     expect(i18n.exists('live.bannerExpired')).toBe(false);
     expect(i18n.exists('live.bannerRateLimit')).toBe(false);
+  });
+
+  it('labels the companion role Companion in English and French', () => {
+    expect(i18n.getFixedT('en')('live.nodes.companion')).toBe('Companion');
+    expect(i18n.getFixedT('en')('live.nodes.client')).toBe('Companion');
+    expect(i18n.getFixedT('fr')('live.nodes.companion')).toBe('Companion');
+    expect(i18n.getFixedT('fr')('live.nodes.client')).toBe('Companion');
   });
 });

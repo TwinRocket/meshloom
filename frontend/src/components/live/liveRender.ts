@@ -1,5 +1,6 @@
 import type { CommunityPacketType, DirectoryMapNode, DirectoryNodeRole } from '../../types';
 import {
+  LIVE_TYPE_COLORS,
   isStaleLiveTime,
   liveOpacity,
   liveTypeColor,
@@ -11,14 +12,22 @@ import {
 
 export const LIVE_PACKET_TYPES: CommunityPacketType[] = ['advert', 'text', 'ack', 'trace', 'other'];
 
-export const LIVE_SEGMENT_MS = 720;
-export const LIVE_TRAIL_MS = 980;
-export const LIVE_REMANENCE_MS = 9000;
+/** Total travel for one packet shot — a 1–2 s typed animation, not a lingering mesh. */
+export const LIVE_PACKET_MS = 1600;
+/** @deprecated Use LIVE_PACKET_MS. Kept so travel helpers stay hop-count independent. */
+export const LIVE_SEGMENT_MS = LIVE_PACKET_MS;
+export const LIVE_TRAIL_MS = 380;
+export const LIVE_REMANENCE_MS = 280;
 export const LIVE_STAGGER_MS = 90;
 export const LIVE_EAR_PULSE_MS = 1400;
 export const MAX_LIVE_SHOTS = 140;
 export const MAX_LIVE_CATCHUP = 36;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
+
+export const LASER_CORE_WIDTH_MIN = 0.85;
+export const LASER_CORE_WIDTH_MAX = 1.25;
+export const LASER_GLOW_WIDTH_SCALE = 2;
+export const LASER_GLOW_ALPHA = 0.22;
 
 export type LiveHopConfidence = 'exact' | 'probable' | 'unresolved';
 export type LiveEarSource = 'advert' | 'iata' | 'local';
@@ -73,9 +82,15 @@ export interface ConfidenceStroke {
   dashed: boolean;
 }
 
+export type LiveRoleShape = 'circle' | 'square' | 'hexagon' | 'triangle' | 'diamond';
+
+export type NormalizedDirectoryRole =
+  'repeater' | 'companion' | 'room' | 'sensor' | 'observer' | 'unknown';
+
 export interface NodeRoleStyle {
   color: string;
   radius: number;
+  shape: LiveRoleShape;
 }
 
 export interface EarVisual {
@@ -86,13 +101,37 @@ export interface EarVisual {
   opacity: number;
 }
 
+const COMPANION_STYLE: NodeRoleStyle = { color: '#60a5fa', radius: 3.2, shape: 'square' };
+
+/** Role palette. Disjoint from LIVE_TYPE_COLORS; MeshLoom identity, not Wong. */
 export const NODE_ROLE_STYLE: Record<DirectoryNodeRole, NodeRoleStyle> = {
-  repeater: { color: '#f59e0b', radius: 4.4 },
-  room: { color: '#a78bfa', radius: 4.1 },
-  client: { color: '#38bdf8', radius: 3.2 },
-  sensor: { color: '#34d399', radius: 3.5 },
-  unknown: { color: '#64748b', radius: 2.8 },
+  repeater: { color: '#f43f5e', radius: 4.4, shape: 'circle' },
+  companion: COMPANION_STYLE,
+  client: COMPANION_STYLE,
+  room: { color: '#818cf8', radius: 4.1, shape: 'hexagon' },
+  sensor: { color: '#2dd4bf', radius: 3.5, shape: 'triangle' },
+  observer: { color: '#e879f9', radius: 3.4, shape: 'diamond' },
+  unknown: { color: '#64748b', radius: 2.8, shape: 'circle' },
 };
+
+export const LIVE_ROLE_LEGEND: ReadonlyArray<{
+  role: NormalizedDirectoryRole;
+  shape: LiveRoleShape;
+}> = [
+  { role: 'repeater', shape: 'circle' },
+  { role: 'companion', shape: 'square' },
+  { role: 'room', shape: 'hexagon' },
+  { role: 'sensor', shape: 'triangle' },
+  { role: 'observer', shape: 'diamond' },
+];
+
+export const LIVE_ROLE_SHAPES: readonly LiveRoleShape[] = [
+  'circle',
+  'square',
+  'hexagon',
+  'triangle',
+  'diamond',
+];
 
 export const DEFAULT_LIVE_CAMERA: LiveCamera = { lat: 24, lon: 8, zoom: 2.15 };
 
@@ -146,7 +185,18 @@ export function hexToRgba(hex: string, alpha: number): Rgba {
 }
 
 export function laserWidth(weight: number): number {
-  return 1.6 + clamp01(weight) * 3.4;
+  return LASER_CORE_WIDTH_MIN + clamp01(weight) * (LASER_CORE_WIDTH_MAX - LASER_CORE_WIDTH_MIN);
+}
+
+export function laserGlowWidth(coreWidth: number): number {
+  return coreWidth * LASER_GLOW_WIDTH_SCALE;
+}
+
+export function laserHeadRadii(coreWidth: number): { halo: number; core: number } {
+  return {
+    halo: 2.1 + coreWidth * 0.25,
+    core: 1.05 + coreWidth * 0.1,
+  };
 }
 
 export function strokeStyleForConfidence(
@@ -169,11 +219,20 @@ export function earVisual(source: LiveEarSource): EarVisual {
   return { color: '#94a3b8', ring: '#64748b', radius: 11, pulseScale: 1.55, opacity: 0.36 };
 }
 
-export function nodeRoleStyle(role: DirectoryNodeRole | string | undefined): NodeRoleStyle {
-  if (role === 'repeater' || role === 'room' || role === 'client' || role === 'sensor') {
-    return NODE_ROLE_STYLE[role];
+export function normalizeDirectoryRole(
+  role: DirectoryNodeRole | string | undefined
+): NormalizedDirectoryRole {
+  if (role === 'repeater' || role === 'room' || role === 'sensor' || role === 'observer') {
+    return role;
   }
-  return NODE_ROLE_STYLE.unknown;
+  if (role === 'companion' || role === 'client' || role === 'chat') {
+    return 'companion';
+  }
+  return 'unknown';
+}
+
+export function nodeRoleStyle(role: DirectoryNodeRole | string | undefined): NodeRoleStyle {
+  return NODE_ROLE_STYLE[normalizeDirectoryRole(role)];
 }
 
 export function observationPassesFilters(obs: LiveObservation, filters: LiveViewFilters): boolean {
@@ -278,29 +337,116 @@ export function segmentsFromObservation(
 export function laserTravel(
   pointCount: number,
   elapsedMs: number,
-  segmentMs: number = LIVE_SEGMENT_MS
+  totalMs: number = LIVE_PACKET_MS
 ): LaserTravel {
+  const duration = Math.max(totalMs, 1);
   if (pointCount <= 0) {
     return { finished: true, headT: 1, head: null, trailStartT: 1 };
   }
   if (pointCount === 1) {
-    const finished = elapsedMs >= segmentMs;
+    const finished = elapsedMs >= duration;
     return {
       finished,
-      headT: finished ? 1 : clamp01(elapsedMs / segmentMs),
+      headT: finished ? 1 : clamp01(elapsedMs / duration),
       head: null,
       trailStartT: 0,
     };
   }
-  const totalMs = (pointCount - 1) * segmentMs;
-  const headT = clamp01(elapsedMs / totalMs);
-  const trailWindow = Math.min(0.85, LIVE_TRAIL_MS / Math.max(totalMs, 1));
+  const headT = clamp01(elapsedMs / duration);
+  const trailWindow = Math.min(0.85, LIVE_TRAIL_MS / duration);
   return {
-    finished: elapsedMs >= totalMs,
+    finished: elapsedMs >= duration,
     headT,
     head: null,
     trailStartT: Math.max(0, headT - trailWindow),
   };
+}
+
+const ROLE_ICON_CELL = 64;
+
+export type RoleIconMapping = Record<
+  LiveRoleShape,
+  {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    anchorX: number;
+    anchorY: number;
+    mask: true;
+  }
+>;
+
+export function drawRoleShape(
+  ctx: Pick<
+    CanvasRenderingContext2D,
+    'beginPath' | 'moveTo' | 'lineTo' | 'closePath' | 'arc' | 'fill'
+  >,
+  shape: LiveRoleShape,
+  cx: number,
+  cy: number,
+  r: number
+): void {
+  ctx.beginPath();
+  if (shape === 'circle') {
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  } else if (shape === 'square') {
+    ctx.moveTo(cx - r, cy - r);
+    ctx.lineTo(cx + r, cy - r);
+    ctx.lineTo(cx + r, cy + r);
+    ctx.lineTo(cx - r, cy + r);
+    ctx.closePath();
+  } else if (shape === 'diamond') {
+    ctx.moveTo(cx, cy - r);
+    ctx.lineTo(cx + r, cy);
+    ctx.lineTo(cx, cy + r);
+    ctx.lineTo(cx - r, cy);
+    ctx.closePath();
+  } else {
+    const sides = shape === 'hexagon' ? 6 : 3;
+    const start = shape === 'triangle' ? -Math.PI / 2 : 0;
+    for (let i = 0; i < sides; i++) {
+      const angle = start + (i * 2 * Math.PI) / sides;
+      const x = cx + r * Math.cos(angle);
+      const y = cy + r * Math.sin(angle);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+  ctx.fill();
+}
+
+export function buildRoleIconAtlas(): { atlas: HTMLCanvasElement; mapping: RoleIconMapping } {
+  const canvas = document.createElement('canvas');
+  canvas.width = ROLE_ICON_CELL * LIVE_ROLE_SHAPES.length;
+  canvas.height = ROLE_ICON_CELL;
+  const ctx = canvas.getContext('2d');
+  const mapping = {} as RoleIconMapping;
+  LIVE_ROLE_SHAPES.forEach((shape, index) => {
+    if (ctx) {
+      ctx.save();
+      ctx.translate(index * ROLE_ICON_CELL + ROLE_ICON_CELL / 2, ROLE_ICON_CELL / 2);
+      ctx.fillStyle = '#ffffff';
+      drawRoleShape(ctx, shape, 0, 0, ROLE_ICON_CELL * 0.36);
+      ctx.restore();
+    }
+    mapping[shape] = {
+      x: index * ROLE_ICON_CELL,
+      y: 0,
+      width: ROLE_ICON_CELL,
+      height: ROLE_ICON_CELL,
+      anchorX: ROLE_ICON_CELL / 2,
+      anchorY: ROLE_ICON_CELL / 2,
+      mask: true,
+    };
+  });
+  return { atlas: canvas, mapping };
+}
+
+export function paletteColorsOverlap(): boolean {
+  const types = new Set(Object.values(LIVE_TYPE_COLORS));
+  return Object.values(NODE_ROLE_STYLE).some((style) => types.has(style.color));
 }
 
 export function interpolatePolyline(points: LonLat[], t: number): LonLat | null {

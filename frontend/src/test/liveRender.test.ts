@@ -6,8 +6,15 @@ import {
   type LiveObservation,
   type LiveWaypoint,
 } from '../utils/livePackets';
+import { LIVE_TYPE_COLORS } from '../utils/livePackets';
+import { osmDarkRasterStyle } from '../utils/mapTiles';
 import {
-  LIVE_SEGMENT_MS,
+  LASER_CORE_WIDTH_MAX,
+  LASER_GLOW_WIDTH_SCALE,
+  LIVE_PACKET_MS,
+  LIVE_REMANENCE_MS,
+  LIVE_ROLE_LEGEND,
+  NODE_ROLE_STYLE,
   buildLaserPolyline,
   cloneLonLatPath,
   collectIataCodes,
@@ -16,13 +23,17 @@ import {
   filterLiveObservations,
   hexToRgba,
   interpolatePolyline,
+  laserGlowWidth,
+  laserHeadRadii,
   laserTravel,
   laserWidth,
   liveHoverKey,
   mappableDirectoryNodes,
   nearerEndpointLabel,
   nodeRoleStyle,
+  normalizeDirectoryRole,
   observationPassesFilters,
+  paletteColorsOverlap,
   remanenceOpacity,
   segmentsFromObservation,
   selectCatchup,
@@ -230,12 +241,16 @@ describe('exact vs probable segments', () => {
 });
 
 describe('laser travel and remanence', () => {
-  it('starts at the first vertex and finishes after every segment', () => {
+  it('animates a packet in 1–2 seconds regardless of hop count', () => {
+    expect(LIVE_PACKET_MS).toBeGreaterThanOrEqual(1000);
+    expect(LIVE_PACKET_MS).toBeLessThanOrEqual(2000);
+    expect(LIVE_PACKET_MS + LIVE_REMANENCE_MS).toBeLessThanOrEqual(2000);
     expect(laserTravel(3, 0).headT).toBe(0);
     expect(laserTravel(3, 0).finished).toBe(false);
-    expect(laserTravel(3, LIVE_SEGMENT_MS).headT).toBeCloseTo(0.5);
-    expect(laserTravel(3, LIVE_SEGMENT_MS * 2).finished).toBe(true);
-    expect(laserTravel(3, LIVE_SEGMENT_MS * 2).headT).toBe(1);
+    expect(laserTravel(3, LIVE_PACKET_MS / 2).headT).toBeCloseTo(0.5);
+    expect(laserTravel(6, LIVE_PACKET_MS).finished).toBe(true);
+    expect(laserTravel(6, LIVE_PACKET_MS).headT).toBe(1);
+    expect(laserTravel(3, LIVE_PACKET_MS).finished).toBe(true);
   });
 
   it('interpolates along the polyline in lon/lat order', () => {
@@ -251,8 +266,8 @@ describe('laser travel and remanence', () => {
 
   it('fades remanence to zero by the end of its lifetime', () => {
     expect(remanenceOpacity(0)).toBe(1);
-    expect(remanenceOpacity(4500, 9000)).toBeCloseTo(0.25);
-    expect(remanenceOpacity(9000)).toBe(0);
+    expect(remanenceOpacity(LIVE_REMANENCE_MS / 2, LIVE_REMANENCE_MS)).toBeCloseTo(0.25);
+    expect(remanenceOpacity(LIVE_REMANENCE_MS)).toBe(0);
     expect(remanenceOpacity(20_000)).toBe(0);
   });
 
@@ -300,10 +315,58 @@ describe('stroke, color, and node/ear encoding', () => {
     expect(pieces[0][0]).toEqual([0, 0]);
   });
 
-  it('gives each community role a distinct color and size', () => {
-    expect(nodeRoleStyle('repeater').color).not.toBe(nodeRoleStyle('client').color);
+  it('gives each community role a distinct color, size, and shape', () => {
+    expect(nodeRoleStyle('repeater').color).not.toBe(nodeRoleStyle('companion').color);
     expect(nodeRoleStyle('repeater').radius).toBeGreaterThan(nodeRoleStyle('unknown').radius);
     expect(nodeRoleStyle('not-a-role').color).toBe(nodeRoleStyle('unknown').color);
+    expect(nodeRoleStyle('repeater').shape).toBe('circle');
+    expect(nodeRoleStyle('companion').shape).toBe('square');
+    expect(nodeRoleStyle('client').shape).toBe('square');
+    expect(nodeRoleStyle('room').shape).toBe('hexagon');
+    expect(nodeRoleStyle('sensor').shape).toBe('triangle');
+    expect(nodeRoleStyle('observer').shape).toBe('diamond');
+    expect(LIVE_ROLE_LEGEND.map((entry) => entry.shape)).toEqual([
+      'circle',
+      'square',
+      'hexagon',
+      'triangle',
+      'diamond',
+    ]);
+  });
+
+  it('maps companion aliases without collapsing them to unknown', () => {
+    expect(normalizeDirectoryRole('companion')).toBe('companion');
+    expect(normalizeDirectoryRole('client')).toBe('companion');
+    expect(normalizeDirectoryRole('chat')).toBe('companion');
+    expect(nodeRoleStyle('client').color).toBe(nodeRoleStyle('companion').color);
+  });
+
+  it('keeps packet-type and role palettes disjoint and off the old shared amber', () => {
+    expect(paletteColorsOverlap()).toBe(false);
+    expect(Object.values(LIVE_TYPE_COLORS)).not.toContain('#f59e0b');
+    expect(Object.values(NODE_ROLE_STYLE).map((style) => style.color)).not.toContain('#f59e0b');
+    const wong = ['#D55E00', '#56B4E9', '#009E73', '#F0E442', '#CC79A7'];
+    for (const color of wong) {
+      expect(Object.values(LIVE_TYPE_COLORS)).not.toContain(color);
+      expect(Object.values(NODE_ROLE_STYLE).map((style) => style.color)).not.toContain(color);
+    }
+  });
+
+  it('draws a ~1px laser core with a halo no more than twice as wide', () => {
+    expect(laserWidth(0)).toBeLessThanOrEqual(LASER_CORE_WIDTH_MAX);
+    expect(laserWidth(1)).toBeLessThanOrEqual(LASER_CORE_WIDTH_MAX);
+    expect(laserWidth(1)).toBeGreaterThanOrEqual(0.8);
+    expect(LASER_GLOW_WIDTH_SCALE).toBeLessThanOrEqual(2);
+    expect(laserGlowWidth(laserWidth(1))).toBeLessThanOrEqual(laserWidth(1) * 2);
+    const head = laserHeadRadii(laserWidth(1));
+    expect(head.halo).toBeLessThanOrEqual(3);
+    expect(head.core).toBeLessThanOrEqual(1.5);
+  });
+
+  it('uses OSM raster tiles instead of CARTO Dark Matter', () => {
+    const encoded = JSON.stringify(osmDarkRasterStyle());
+    expect(encoded).toContain('openstreetmap');
+    expect(encoded).not.toMatch(/carto/i);
   });
 
   it('makes advert ears tighter and brighter than IATA centroids', () => {

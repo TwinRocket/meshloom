@@ -21,6 +21,9 @@
     "pause": "Pause",
     "playPause": "Lecture ou pause de la pluie",
     "mapAria": "Carte de la pluie de paquets live",
+    "legendTitle": "Légende de la carte",
+    "packetLegend": "Types de paquets",
+    "roleLegend": "Rôles",
     "legend": {
       "advert": "Annonce",
       "text": "Texte",
@@ -42,8 +45,10 @@
     "nodes": {
       "repeater": "Répéteur",
       "room": "Salon",
-      "client": "Client",
+      "client": "Companion",
+      "companion": "Companion",
       "sensor": "Capteur",
+      "observer": "Observateur",
       "unknown": "Rôle inconnu"
     },
     "ears": {

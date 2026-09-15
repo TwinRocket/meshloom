@@ -69,6 +69,9 @@ vi.mock('@deck.gl/layers', () => ({
   ScatterplotLayer: class {
     constructor(public props: unknown) {}
   },
+  IconLayer: class {
+    constructor(public props: unknown) {}
+  },
 }));
 
 describe('LiveView', () => {
@@ -170,6 +173,17 @@ describe('LiveView', () => {
     expect(exact).toBeChecked();
   });
 
+  it('shows a dual legend for packet types and roles, and no packet log', () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    expect(screen.getByLabelText(i18n.t('live.legendTitle'))).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('live.nodes.companion'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('live.nodes.repeater'))).toBeInTheDocument();
+    expect(screen.queryByRole('log')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('live-packet-log')).not.toBeInTheDocument();
+  });
+
   it('loads community directory nodes as the permanent map layer', async () => {
     render(<LiveView contacts={[]} config={null} communityEnabled />);
     await waitFor(() => {
@@ -181,5 +195,6 @@ describe('LiveView', () => {
     const { container } = render(<LiveView contacts={[]} config={null} communityEnabled />);
     expect(container.querySelector('.leaflet-container')).toBeNull();
     expect(screen.queryByTestId('tile-layer')).not.toBeInTheDocument();
+    expect(container.querySelector('.live-map-osm')).not.toBeNull();
   });
 });

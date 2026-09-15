@@ -21,6 +21,9 @@
     "pause": "Pause",
     "playPause": "Play or pause the rain",
     "mapAria": "Live packet rain map",
+    "legendTitle": "Map legend",
+    "packetLegend": "Packet types",
+    "roleLegend": "Roles",
     "legend": {
       "advert": "Advert",
       "text": "Text",
@@ -42,8 +45,10 @@
     "nodes": {
       "repeater": "Repeater",
       "room": "Room",
-      "client": "Client",
+      "client": "Companion",
+      "companion": "Companion",
       "sensor": "Sensor",
+      "observer": "Observer",
       "unknown": "Unknown role"
     },
     "ears": {

@@ -764,8 +764,12 @@ export interface DirectoryResolveHopsResponse {
   resolved: Record<string, DirectoryHopHit>;
 }
 
-/** Roles the community directory reports. Empty/unknown collapses to `unknown`. */
-export type DirectoryNodeRole = 'repeater' | 'room' | 'client' | 'sensor' | 'unknown';
+/** Roles the community directory reports. Empty/unknown collapses to `unknown`.
+ *  `companion` is the live-map word; `client` remains an import alias. */
+export type DirectoryNodeRole =
+  'repeater' | 'room' | 'client' | 'companion' | 'sensor' | 'observer' | 'unknown';
+
+export type DirectoryNodeSource = 'corescope' | 'community-db' | 'local';
 
 export interface DirectoryMapNode {
   public_key: string;
@@ -773,7 +777,8 @@ export interface DirectoryMapNode {
   role: DirectoryNodeRole;
   lat: number;
   lon: number;
-  source: 'corescope';
+  source: DirectoryNodeSource;
+  last_seen?: number | null;
 }
 
 export interface DirectoryMapNodesResponse {
