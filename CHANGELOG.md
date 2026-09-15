@@ -1,3 +1,23 @@
+## [4.7.4] - 2026-09-15
+
+Opening the packet analyser on a phone left no way out of it.
+
+### What's new
+
+- **A dialog can no longer open underneath the status bar.** The packet analyser's title and its close control ended up in the strip iOS draws its own status bar over: blurred, out of reach, and with nothing else to close the screen with. Dialogs are now bounded by the space the device actually leaves them, so what they put at the top stays reachable.
+
+---
+
+### Français
+
+Ouvrir l'analyseur de paquet sur un téléphone ne laissait aucun moyen d'en sortir.
+
+#### Quoi de neuf
+
+- **Une fenêtre ne peut plus s'ouvrir sous la barre d'état.** Le titre de l'analyseur de paquet et son bouton de fermeture se retrouvaient dans la bande où iOS dessine sa propre barre d'état : flous, hors d'atteinte, et sans autre moyen de quitter l'écran. Les fenêtres sont désormais bornées par la place que l'appareil leur laisse réellement, de sorte que ce qu'elles placent en haut reste accessible.
+
+---
+
 ## [4.7.3] - 2026-09-15
 
 Two screens could not be left. Message search and the repeater dashboard take the whole screen on a phone, and neither offered a way back to where you came from.
