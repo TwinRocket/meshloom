@@ -233,9 +233,7 @@ class TestSanitizeAndCloseCodes:
 
     def test_sanitize_drops_packet_hash_that_does_not_match_hash8(self):
         assert (
-            sanitize_community_packet(
-                _v2_packet(hash8="deadbeef", packet_hash="cafef00ddeadbeef")
-            )
+            sanitize_community_packet(_v2_packet(hash8="deadbeef", packet_hash="cafef00ddeadbeef"))
             is None
         )
 
@@ -277,9 +275,7 @@ class TestSanitizeAndCloseCodes:
         assert user_visible_close_code(CLOSE_INACTIVE) == CLOSE_INACTIVE
 
     def test_dump_ws_event_community_packet(self):
-        packet = sanitize_community_packet(
-            _v2_packet(packet_hash="deadbeefcafef00d")
-        )
+        packet = sanitize_community_packet(_v2_packet(packet_hash="deadbeefcafef00d"))
         assert packet is not None
         serialized = dump_ws_event("community_packet", packet)
         envelope = json.loads(serialized)
