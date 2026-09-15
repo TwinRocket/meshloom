@@ -446,13 +446,16 @@ describe('LiveMapController', () => {
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
     engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
-    expect(engine.getShotSnapshots().map((shot) => shot.id)).not.toContain('late-20');
+    // Derive from the cap: hardcoding the index pins the test to one ceiling.
+    const firstDeferred = `late-${MAX_CONCURRENT_ANIMS}`;
+    const lastDeferred = `late-${MAX_CONCURRENT_ANIMS + 4}`;
+    expect(engine.getShotSnapshots().map((shot) => shot.id)).not.toContain(firstDeferred);
 
     t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
     engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
     const ids = engine.getShotSnapshots().map((shot) => shot.id);
-    expect(ids).toContain('late-20');
-    expect(ids).toContain('late-24');
+    expect(ids).toContain(firstDeferred);
+    expect(ids).toContain(lastDeferred);
     expect(engine.pendingAnimCount()).toBe(0);
     expect(engine.droppedPendingCount()).toBe(0);
   });

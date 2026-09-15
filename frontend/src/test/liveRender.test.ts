@@ -273,7 +273,7 @@ describe('laser travel and remanence', () => {
     expect(LIVE_REMANENCE_MS).toBe(400);
     expect(LIVE_HOLD_MS).toBeGreaterThanOrEqual(200);
     expect(LIVE_HOLD_MS).toBeLessThanOrEqual(400);
-    expect(MAX_CONCURRENT_ANIMS).toBe(20);
+    expect(MAX_CONCURRENT_ANIMS).toBe(32);
     expect(MAX_PENDING_ANIMS).toBe(48);
     expect(laserTravel(3, 0, 1850).headT).toBe(0);
     expect(laserTravel(3, 925, 1850).headT).toBeCloseTo(0.5);

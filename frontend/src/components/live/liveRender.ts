@@ -33,8 +33,13 @@ export const LIVE_REMANENCE_MS = 400;
 export const LIVE_STAGGER_MS = 90;
 /** Short coalesce so a hop+ear frame draws as one polyline, not after a 5s hold. */
 export const LIVE_HOLD_MS = 300;
-/** Simultaneous in-flight lasers. Surplus waits in MAX_PENDING_ANIMS. */
-export const MAX_CONCURRENT_ANIMS = 20;
+/** Simultaneous in-flight lasers. Surplus waits in MAX_PENDING_ANIMS.
+ *
+ * Raised from 20 after profiling a real window: 116.9fps, worst frame 16.8ms,
+ * no frame over 50ms. The limit here is legibility, not render cost — past
+ * roughly 36 the map reads as noise. Steady demand at the measured arrival rate
+ * is already ~20 slots, so this absorbs a burst instead of queueing it. */
+export const MAX_CONCURRENT_ANIMS = 32;
 /** Deferred shots waiting for a free slot. Overflow sheds the oldest. */
 export const MAX_PENDING_ANIMS = 48;
 /** Newest retained shots, including in-flight and not-yet-started. */
