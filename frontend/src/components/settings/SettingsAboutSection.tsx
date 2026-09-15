@@ -1,5 +1,6 @@
 import { Trans, useTranslation } from 'react-i18next';
-import type { HealthStatus } from '../../types';
+import type { HealthStatus, OssUpdateStatus } from '../../types';
+import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 
 const GITHUB_URL = 'https://github.com/bagl3y/meshloom';
@@ -7,13 +8,18 @@ const GITHUB_URL = 'https://github.com/bagl3y/meshloom';
 export function SettingsAboutSection({
   health,
   className,
+  updates,
+  onOpenUpdate,
 }: {
   health?: HealthStatus | null;
   className?: string;
+  updates?: OssUpdateStatus | null;
+  onOpenUpdate?: () => void;
 }) {
   const { t } = useTranslation();
   const version = health?.app_info?.version ?? 'unknown';
   const commit = health?.app_info?.commit_hash;
+  const updateAvailable = updates?.update_available === true;
 
   return (
     <div className={className}>
@@ -47,6 +53,24 @@ export function SettingsAboutSection({
               </>
             ) : null}
           </div>
+          {updateAvailable && (
+            <div className="mx-auto max-w-sm space-y-2 rounded-2xl bg-primary/10 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">
+                {t('settings.about.updateAvailable')}
+              </p>
+              <p className="text-[0.8125rem] text-muted-foreground">
+                {t('settings.about.updateAvailableHelp', {
+                  current: updates?.current ?? version,
+                  latest: updates?.latest ?? '',
+                })}
+              </p>
+              {onOpenUpdate && (
+                <Button type="button" onClick={onOpenUpdate}>
+                  {t('settings.about.showInstructions')}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <Separator />

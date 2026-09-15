@@ -28,6 +28,7 @@ interface Props {
   health?: HealthStatus | null;
   /** The section open beside this list. Desktop only; a phone shows one at a time. */
   activeSection?: SettingsSection;
+  updateAvailable?: boolean;
 }
 
 const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
@@ -44,6 +45,7 @@ export function SettingsIndexView({
   disabledSections = [],
   health,
   activeSection,
+  updateAvailable = false,
 }: Props) {
   const { t } = useTranslation();
 
@@ -92,6 +94,11 @@ export function SettingsIndexView({
                         )}
                       >
                         <span className="truncate">{t(SETTINGS_SECTION_LABELS[section])}</span>
+                        {section === 'about' && updateAvailable && (
+                          <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary">
+                            {t('updates.badgeLabel')}
+                          </span>
+                        )}
                         <ChevronRight
                           className="ml-auto h-4 w-4 shrink-0 text-muted-foreground"
                           aria-hidden="true"

@@ -7,6 +7,7 @@ import type {
   CommunityStatus,
   Contact,
   HealthStatus,
+  OssUpdateStatus,
   RadioAdvertMode,
   RadioConfig,
   RadioConfigUpdate,
@@ -68,6 +69,8 @@ interface SettingsModalBaseProps {
   trackedTelemetryContacts?: string[];
   onToggleTrackedTelemetryContact?: (publicKey: string) => Promise<void>;
   onCommunityStatusChange?: (status: CommunityStatus) => void;
+  updates?: OssUpdateStatus | null;
+  onOpenUpdate?: () => void;
 }
 
 export type SettingsModalProps = SettingsModalBaseProps &
@@ -112,6 +115,8 @@ export function SettingsModal(props: SettingsModalProps) {
     trackedTelemetryContacts,
     onToggleTrackedTelemetryContact,
     onCommunityStatusChange,
+    updates,
+    onOpenUpdate,
   } = props;
   const { t } = useTranslation();
   const externalSidebarNav = props.externalSidebarNav === true;
@@ -382,7 +387,12 @@ export function SettingsModal(props: SettingsModalProps) {
         <section className={sectionWrapperClass}>
           {renderSectionHeader('about')}
           {isSectionVisible('about') && (
-            <SettingsAboutSection health={health} className={sectionContentClass} />
+            <SettingsAboutSection
+              health={health}
+              className={sectionContentClass}
+              updates={updates}
+              onOpenUpdate={onOpenUpdate}
+            />
           )}
         </section>
       )}

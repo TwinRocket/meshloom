@@ -35,6 +35,8 @@ interface Props {
   /** Which tool is open, so a pinned tool lights up like a destination does. */
   activeToolId?: string | null;
   onSelectTool: (id: RailItemId) => void;
+  updateAvailable?: boolean;
+  onOpenUpdate?: () => void;
 }
 
 /** The bottom group's controls: same size as a destination, never marked current. */
@@ -50,6 +52,8 @@ export function DesktopRail({
   order,
   activeToolId,
   onSelectTool,
+  updateAvailable = false,
+  onOpenUpdate,
 }: Props) {
   const { t } = useTranslation();
 
@@ -108,20 +112,31 @@ export function DesktopRail({
         <RadioStatusChip health={health} compact onOpenStatus={onOpenRadioStatus} />
 
         {ANCHORED_RAIL_ITEMS.map(({ target, labelKey, Icon }) => (
-          <button
-            key={target}
-            type="button"
-            onClick={() => onSelect(target)}
-            aria-current={active === target ? 'page' : undefined}
-            aria-label={t(labelKey)}
-            title={t(labelKey)}
-            className={cn(
-              DOOR_CLASS,
-              active === target && 'bg-primary/15 text-primary hover:text-primary'
+          <div key={target} className="relative">
+            <button
+              type="button"
+              onClick={() => onSelect(target)}
+              aria-current={active === target ? 'page' : undefined}
+              aria-label={t(labelKey)}
+              title={t(labelKey)}
+              className={cn(
+                DOOR_CLASS,
+                active === target && 'bg-primary/15 text-primary hover:text-primary'
+              )}
+            >
+              <Icon className="h-[1.25rem] w-[1.25rem]" aria-hidden="true" />
+            </button>
+            {target === 'settings' && updateAvailable && (
+              <button
+                type="button"
+                onClick={() => onOpenUpdate?.()}
+                aria-label={t('updates.badgeLabel')}
+                className="absolute -right-0.5 -top-0.5 z-10 min-w-[1.15rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                !
+              </button>
             )}
-          >
-            <Icon className="h-[1.25rem] w-[1.25rem]" aria-hidden="true" />
-          </button>
+          </div>
         ))}
       </div>
     </nav>

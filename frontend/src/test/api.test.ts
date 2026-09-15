@@ -117,6 +117,23 @@ describe('fetchJson (via api methods)', () => {
       expect(result).toEqual(healthData);
     });
 
+    it('GETs /updates', async () => {
+      installMockFetch();
+      const updates = {
+        current: '1.0.0',
+        latest: '1.1.0',
+        update_available: true,
+        html_url: 'https://github.com/bagl3y/meshloom/releases/tag/v1.1.0',
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(updates),
+      });
+
+      await expect(api.getUpdates()).resolves.toEqual(updates);
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/updates');
+    });
+
     it('calls fetch with /api prefix', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({

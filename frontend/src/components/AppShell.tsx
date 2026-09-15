@@ -14,6 +14,8 @@ import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
 import { DesktopRail } from './DesktopRail';
 import { RadioStatusDialog } from './RadioStatusDialog';
+import { UpdateAvailableDialog } from './UpdateAvailableDialog';
+import { useOssUpdates } from '../hooks/useOssUpdates';
 import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
 import { ToolsView } from './ToolsView';
@@ -194,6 +196,9 @@ export function AppShell({
   // wanted, and the rail that used to answer that went with the drawer.
   const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
   const [radioStatusOpen, setRadioStatusOpen] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const ossUpdates = useOssUpdates();
+  const updateAvailable = ossUpdates?.update_available === true;
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
 
@@ -290,6 +295,7 @@ export function AppShell({
       health={statusProps.health}
       disabledSections={disabledSettingsSections}
       activeSection={settingsSection}
+      updateAvailable={updateAvailable}
       onSelectSection={(section) => {
         onSettingsSectionChange(section);
         setSettingsIndexOpen(false);
@@ -357,6 +363,8 @@ export function AppShell({
           unreadTotal={unreadTotal}
           onSelect={handleBottomNav}
           health={statusProps.health ?? null}
+          updateAvailable={updateAvailable}
+          onOpenUpdate={() => setUpdateDialogOpen(true)}
           order={navRailOrder}
           // Settings render over whatever was open, so the pane underneath must not
           // keep the rail lit: two places cannot both be where you are.
@@ -475,6 +483,8 @@ export function AppShell({
                     pageMode
                     externalSidebarNav
                     desktopSection={settingsSection}
+                    updates={ossUpdates}
+                    onOpenUpdate={() => setUpdateDialogOpen(true)}
                     onClose={onCloseSettingsView}
                     onLocalLabelChange={onLocalLabelChange}
                     onCommunityStatusChange={setCommunityStatus}
@@ -487,7 +497,13 @@ export function AppShell({
       </div>
 
       {showBottomNav && (
-        <BottomNav active={bottomNavTarget} unreadTotal={unreadTotal} onSelect={handleBottomNav} />
+        <BottomNav
+          active={bottomNavTarget}
+          unreadTotal={unreadTotal}
+          onSelect={handleBottomNav}
+          updateAvailable={updateAvailable}
+          onOpenUpdate={() => setUpdateDialogOpen(true)}
+        />
       )}
 
       <div
@@ -519,6 +535,11 @@ export function AppShell({
         health={statusProps.health ?? null}
         onClose={() => setRadioStatusOpen(false)}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
+      />
+      <UpdateAvailableDialog
+        open={updateDialogOpen}
+        updates={ossUpdates}
+        onClose={() => setUpdateDialogOpen(false)}
       />
 
       <NewMessageModal

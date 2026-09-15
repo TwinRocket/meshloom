@@ -769,7 +769,10 @@
       "reportBug": "Report a Bug",
       "changelog": "Changelog",
       "thanks": "With great appreciation to those who have made the tools upon which this is built:",
-      "debugSnapshot": "Open debug support snapshot"
+      "debugSnapshot": "Open debug support snapshot",
+      "updateAvailable": "Update available",
+      "updateAvailableHelp": "This node is v{{current}}. Latest published release is v{{latest}}.",
+      "showInstructions": "How to upgrade"
     },
     "fanout": {
       "types": {
@@ -2386,6 +2389,17 @@
     "openSettings": "Radio settings",
     "close": "Close",
     "openStatus": "Radio status — {{status}}"
+  },
+  "updates": {
+    "title": "Update available",
+    "help": "A newer Meshloom release is published. Use the recipe that matches how you installed.",
+    "current": "This node",
+    "latest": "Latest",
+    "packagesTitle": "Linux package",
+    "dockerTitle": "Docker Compose",
+    "changelog": "Release notes",
+    "close": "Close",
+    "badgeLabel": "Update available"
   },
   "messagePreview": {
     "gif": "GIF",

@@ -73,6 +73,7 @@ import type {
   CommunityAirportHit,
   CommunityStatus,
   CommunityUpdate,
+  OssUpdateStatus,
   TraceResponse,
   UnreadCounts,
 } from './types';
@@ -178,6 +179,7 @@ interface DecryptResult {
 export const api = {
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),
+  getUpdates: () => fetchJson<OssUpdateStatus>('/updates'),
 
   // Radio config
   getRadioConfig: () => fetchJson<RadioConfig>('/radio/config'),

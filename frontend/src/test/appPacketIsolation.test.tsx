@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     getContacts: vi.fn(),
     getHealth: vi.fn(),
     getCommunity: vi.fn(),
+    getUpdates: vi.fn(),
     getCommunityHashtags: vi.fn(),
     putCommunityHashtags: vi.fn(),
   },
@@ -195,6 +196,12 @@ describe('overheard packets and the chat render path', () => {
     mocks.api.getChannels.mockResolvedValue([publicChannel]);
     mocks.api.getContacts.mockResolvedValue([]);
     mocks.api.getHealth.mockResolvedValue(null);
+    mocks.api.getUpdates.mockResolvedValue({
+      current: '1.0.0',
+      latest: null,
+      update_available: false,
+      html_url: null,
+    });
     mocks.api.getCommunity.mockResolvedValue({
       enabled: true,
       locked: false,

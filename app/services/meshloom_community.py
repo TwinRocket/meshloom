@@ -313,6 +313,33 @@ def _require_enabled(state: CommunityEffective) -> None:
         raise HTTPException(status_code=403, detail="Community is disabled")
 
 
+async def fetch_meshloom_latest() -> dict[str, Any] | None:
+    """GET Stats OSS catalogue. No JWT; works when Community is opted out.
+
+    Do not route this through ``stats_request`` / ``stats_json`` — those call
+    ``_require_enabled`` and would 403 opted-out nodes.
+    """
+    state = await get_community_effective()
+    url = f"{state.api_base}/v1/meshloom/latest"
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=False, timeout=_STATS_TIMEOUT_SECONDS
+        ) as client:
+            response = await client.get(url)
+    except httpx.RequestError as exc:
+        logger.warning("Meshloom latest release fetch failed: %s", exc)
+        return None
+    if response.status_code != 200:
+        logger.warning("Meshloom latest release HTTP %s", response.status_code)
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        logger.warning("Meshloom latest release returned non-JSON")
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 async def stats_request(
     method: str,
     path: str,

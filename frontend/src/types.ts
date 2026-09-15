@@ -1270,3 +1270,11 @@ export interface CommunityAirportHit {
   country: string;
   label: string;
 }
+
+/** Cached GET /api/updates — Stats catalogue, not GitHub from the browser. */
+export interface OssUpdateStatus {
+  current: string;
+  latest: string | null;
+  update_available: boolean;
+  html_url: string | null;
+}

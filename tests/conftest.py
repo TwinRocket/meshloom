@@ -86,6 +86,20 @@ async def test_db():
 
 
 @pytest.fixture(autouse=True)
+def _quiet_oss_update_fetch(monkeypatch):
+    """Lifespan starts the OSS poll; never hit Stats from TestClient tests."""
+    from app.services.oss_updates import reset_oss_update_cache
+
+    async def _no_network():
+        return None
+
+    monkeypatch.setattr("app.services.oss_updates.fetch_meshloom_latest", _no_network)
+    reset_oss_update_cache()
+    yield
+    reset_oss_update_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_radio_ingest_gate():
     """Keep the process-wide ingest gate open between tests."""
     from app.radio import radio_manager

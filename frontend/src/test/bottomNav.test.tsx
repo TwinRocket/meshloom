@@ -60,4 +60,20 @@ describe('BottomNav', () => {
     renderNav({ unreadTotal: 0 });
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
+
+  it('shows an update badge on Settings when update_available', () => {
+    const onOpenUpdate = vi.fn();
+    renderNav({ updateAvailable: true, onOpenUpdate });
+    const badge = screen.getByRole('button', { name: i18n.t('updates.badgeLabel') });
+    expect(badge).toBeInTheDocument();
+    fireEvent.click(badge);
+    expect(onOpenUpdate).toHaveBeenCalled();
+  });
+
+  it('hides the Settings update badge when no update is available', () => {
+    renderNav({ updateAvailable: false });
+    expect(
+      screen.queryByRole('button', { name: i18n.t('updates.badgeLabel') })
+    ).not.toBeInTheDocument();
+  });
 });

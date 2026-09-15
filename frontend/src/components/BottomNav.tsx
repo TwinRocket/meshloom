@@ -22,9 +22,18 @@ interface Props {
   unreadTotal: number;
   onSelect: (target: BottomNavTarget) => void;
   className?: string;
+  updateAvailable?: boolean;
+  onOpenUpdate?: () => void;
 }
 
-export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
+export function BottomNav({
+  active,
+  unreadTotal,
+  onSelect,
+  className,
+  updateAvailable = false,
+  onOpenUpdate,
+}: Props) {
   const { t } = useTranslation();
 
   return (
@@ -46,37 +55,49 @@ export function BottomNav({ active, unreadTotal, onSelect, className }: Props) {
         {NAV_ITEMS.map(({ target, labelKey, Icon }) => {
           const isActive = active === target;
           const badge = target === 'conversations' ? unreadTotal : 0;
+          const showUpdate = target === 'settings' && updateAvailable;
           return (
-            <button
-              key={target}
-              type="button"
-              onClick={() => onSelect(target)}
-              aria-current={isActive ? 'page' : undefined}
-              className={cn(
-                'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[1.375rem] px-0.5 py-2.5',
-                'text-[0.625rem] leading-none transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                isActive
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <span className="relative">
-                <Icon className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
-                {badge > 0 && (
-                  <span
-                    className="absolute -right-2.5 -top-1.5 min-w-[1.05rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground"
-                    aria-hidden="true"
-                  >
-                    {badge > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : badge}
-                  </span>
+            <div key={target} className="relative flex min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => onSelect(target)}
+                aria-current={isActive ? 'page' : undefined}
+                className={cn(
+                  'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[1.375rem] px-0.5 py-2.5',
+                  'text-[0.625rem] leading-none transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  isActive
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
-              </span>
-              <span className="max-w-full truncate">{t(labelKey)}</span>
-              {badge > 0 && (
-                <span className="sr-only">{t('bottomNav.unread', { count: badge })}</span>
+              >
+                <span className="relative">
+                  <Icon className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+                  {badge > 0 && (
+                    <span
+                      className="absolute -right-2.5 -top-1.5 min-w-[1.05rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground"
+                      aria-hidden="true"
+                    >
+                      {badge > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : badge}
+                    </span>
+                  )}
+                </span>
+                <span className="max-w-full truncate">{t(labelKey)}</span>
+                {badge > 0 && (
+                  <span className="sr-only">{t('bottomNav.unread', { count: badge })}</span>
+                )}
+              </button>
+              {showUpdate && (
+                <button
+                  type="button"
+                  onClick={() => onOpenUpdate?.()}
+                  aria-label={t('updates.badgeLabel')}
+                  className="absolute right-[calc(50%-1.35rem)] top-1.5 z-10 min-w-[1.15rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  !
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
       </div>

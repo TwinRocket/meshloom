@@ -10,3 +10,4 @@ export { useRealtimeAppState } from './useRealtimeAppState';
 export { useConversationActions } from './useConversationActions';
 export { useConversationNavigation } from './useConversationNavigation';
 export { useFaviconBadge, useUnreadTitle } from './useFaviconBadge';
+export { useOssUpdates } from './useOssUpdates';

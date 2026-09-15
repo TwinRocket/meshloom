@@ -630,7 +630,10 @@
       "reportBug": "Signaler un bug",
       "changelog": "Journal des changements",
       "thanks": "Avec une grande reconnaissance envers ceux qui ont créé les outils sur lesquels ceci est bâti :",
-      "debugSnapshot": "Ouvrir l’instantané de support de débogage"
+      "debugSnapshot": "Ouvrir l’instantané de support de débogage",
+      "updateAvailable": "Mise à jour disponible",
+      "updateAvailableHelp": "Ce nœud est en v{{current}}. La dernière version publiée est v{{latest}}.",
+      "showInstructions": "Comment mettre à jour"
     },
     "common": {
       "storedOnRadio": "Écrit sur la radio",
