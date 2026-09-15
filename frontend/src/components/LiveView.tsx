@@ -7,6 +7,7 @@ import { api } from '../api';
 import type {
   CommunityPacketType,
   Contact,
+  Conversation,
   DirectoryMapNode,
   DirectoryNodeRole,
   RadioConfig,
@@ -37,6 +38,7 @@ import {
   localContactsToMapNodes,
   localHash8Set,
   mergeLocalOverDirectory,
+  resolveLiveKnownNodeAction,
   type LiveRoleShape,
 } from './live/liveRender';
 
@@ -46,6 +48,8 @@ interface LiveViewProps {
   communityEnabled?: boolean;
   blockedKeys?: string[];
   blockedNames?: string[];
+  onOpenContactInfo?: (publicKey: string) => void;
+  onSelectConversation?: (conversation: Conversation) => void;
 }
 
 function LiveBanner({
@@ -72,6 +76,8 @@ export function LiveView({
   communityEnabled = true,
   blockedKeys = [],
   blockedNames = [],
+  onOpenContactInfo,
+  onSelectConversation,
 }: LiveViewProps) {
   const { t } = useTranslation();
   const rawPackets = useRawPackets();
@@ -85,6 +91,7 @@ export function LiveView({
   const mapHostRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<LiveMapController | null>(null);
   const hoverRef = useRef<(payload: LiveHoverPayload | null) => void>(() => {});
+  const nodeClickRef = useRef<(publicKey: string) => void>(() => {});
   // The directory fetch and the engine race each other; whichever lands second
   // applies the nodes, so the payload is never dropped on the floor.
   const directoryNodesRef = useRef<DirectoryMapNode[]>([]);
@@ -95,6 +102,19 @@ export function LiveView({
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
 
   hoverRef.current = setHover;
+  nodeClickRef.current = (publicKey) => {
+    const action = resolveLiveKnownNodeAction(publicKey, contacts);
+    if (!action) return;
+    if (action.kind === 'info') {
+      onOpenContactInfo?.(action.publicKey);
+      return;
+    }
+    onSelectConversation?.({
+      type: 'contact',
+      id: action.publicKey,
+      name: action.name,
+    });
+  };
 
   const publishPins = useCallback(
     (directory: DirectoryMapNode[]) => {
@@ -121,6 +141,7 @@ export function LiveView({
     if (!host) return;
     const engine = new LiveMapController(host, {
       onHover: (payload) => hoverRef.current(payload),
+      onNodeClick: (publicKey) => nodeClickRef.current(publicKey),
     });
     engineRef.current = engine;
     publishPinsRef.current(directoryNodesRef.current);

@@ -111,12 +111,13 @@ const ADDITIVE = {
 } as const;
 
 export type LiveHoverPayload =
-  | { kind: 'node'; name: string; role: DirectoryNodeRole; x: number; y: number }
+  | { kind: 'node'; name: string; role: DirectoryNodeRole; publicKey: string; x: number; y: number }
   | { kind: 'probable'; reason: string; label?: string; x: number; y: number }
   | { kind: 'exact'; label?: string; x: number; y: number }
   | { kind: 'local'; x: number; y: number };
 
 type HoverHandler = (hover: LiveHoverPayload | null) => void;
+type NodeClickHandler = (publicKey: string) => void;
 
 interface PathSprite {
   id: string;
@@ -187,6 +188,7 @@ interface PendingShot {
 
 export interface LiveMapOptions {
   onHover?: HoverHandler;
+  onNodeClick?: NodeClickHandler;
   now?: () => number;
 }
 
@@ -209,6 +211,7 @@ export interface LiveRippleSnapshot {
 
 export class LiveMapController {
   private readonly onHover: HoverHandler;
+  private readonly onNodeClick: NodeClickHandler;
   private readonly wallClock: () => number;
   private map: MapLibreMap | null = null;
   private overlay: MapboxOverlay | null = null;
@@ -254,6 +257,7 @@ export class LiveMapController {
 
   constructor(container: HTMLElement, options: LiveMapOptions = {}) {
     this.onHover = options.onHover ?? (() => {});
+    this.onNodeClick = options.onNodeClick ?? (() => {});
     this.wallClock = options.now ?? (() => performance.now());
     const saved = readLiveCamera();
     container.classList.add('live-map-osm');
@@ -287,6 +291,10 @@ export class LiveMapController {
         coordinate?: number[];
       }) => {
         this.handleHover(info);
+      },
+      onClick: (info: { object?: { pick?: LiveHoverPayload | null } }) => {
+        const pick = info.object?.pick;
+        if (pick?.kind === 'node' && pick.publicKey) this.onNodeClick(pick.publicKey);
       },
     });
 
@@ -773,7 +781,14 @@ export class LiveMapController {
         hexToRgba(style.color, 0.88),
         hexToRgba('#020617', 0.7),
         style.radius,
-        { kind: 'node', name: node.name, role: normalizeDirectoryRole(node.role), x: 0, y: 0 },
+        {
+          kind: 'node',
+          name: node.name,
+          role: normalizeDirectoryRole(node.role),
+          publicKey: node.public_key,
+          x: 0,
+          y: 0,
+        },
         style.shape
       );
     }

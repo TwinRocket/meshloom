@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CommunityPacket, CommunityPacketType } from '../types';
+import type { CommunityPacket, CommunityPacketType, Contact } from '../types';
 import {
   observationFromCommunity,
   type LiveObservation,
@@ -52,6 +52,7 @@ import {
   observationPassesFilters,
   paletteColorsOverlap,
   remanenceOpacity,
+  resolveLiveKnownNodeAction,
   segmentsFromObservation,
   selectCatchup,
   shouldAutoFitCamera,
@@ -444,6 +445,39 @@ describe('stroke, color, and node/ear encoding', () => {
 });
 
 describe('camera and spawn policy', () => {
+  it('opens the info pane for a known companion and the conversation for a repeater', () => {
+    const companion = {
+      public_key: 'aa'.repeat(32),
+      name: 'Alice',
+      type: 1,
+    } as Contact;
+    const repeater = {
+      public_key: 'bb'.repeat(32),
+      name: 'FR83-RPT',
+      type: 2,
+    } as Contact;
+    const room = {
+      public_key: 'cc'.repeat(32),
+      name: 'Ops',
+      type: 3,
+    } as Contact;
+    expect(resolveLiveKnownNodeAction('AA'.repeat(32), [companion, repeater])).toEqual({
+      kind: 'info',
+      publicKey: companion.public_key,
+    });
+    expect(resolveLiveKnownNodeAction(repeater.public_key, [companion, repeater])).toEqual({
+      kind: 'conversation',
+      publicKey: repeater.public_key,
+      name: 'FR83-RPT',
+    });
+    expect(resolveLiveKnownNodeAction(room.public_key, [room])).toEqual({
+      kind: 'conversation',
+      publicKey: room.public_key,
+      name: 'Ops',
+    });
+    expect(resolveLiveKnownNodeAction('dd'.repeat(32), [companion])).toBeNull();
+  });
+
   it('never auto-fits after a saved camera or a user move', () => {
     expect(shouldAutoFitCamera(false, 10)).toBe(true);
     // A camera saved on a previous visit no longer suppresses the fit: arriving

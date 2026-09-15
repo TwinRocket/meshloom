@@ -23,7 +23,8 @@ vi.mock('../api', () => ({
   },
 }));
 
-const { FakeMap } = vi.hoisted(() => {
+const { FakeMap, overlays } = vi.hoisted(() => {
+  const overlays: Array<{ onClick?: (info: unknown) => void }> = [];
   class FakeMap {
     handlers = new Map<string, Array<(...args: unknown[]) => void>>();
     addControl = vi.fn();
@@ -41,7 +42,7 @@ const { FakeMap } = vi.hoisted(() => {
     }
     off() {}
   }
-  return { FakeMap };
+  return { FakeMap, overlays };
 });
 
 vi.mock('maplibre-gl', () => {
@@ -60,7 +61,11 @@ vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('@deck.gl/mapbox', () => ({
   MapboxOverlay: class {
     setProps = vi.fn();
-    constructor(_props: unknown) {}
+    onClick?: (info: unknown) => void;
+    constructor(props: { onClick?: (info: unknown) => void } = {}) {
+      this.onClick = props.onClick;
+      overlays.push(this);
+    }
   },
 }));
 
@@ -116,6 +121,7 @@ describe('LiveView', () => {
   afterEach(() => {
     stopLivePacketFixtures();
     resetLivePacketStore();
+    overlays.length = 0;
   });
 
   it('does not show retired Relancer or slot-busy banners', () => {
@@ -274,5 +280,84 @@ describe('LiveView', () => {
       expect(last.some((node) => node.public_key === 'dd'.repeat(32))).toBe(false);
     });
     spy.mockRestore();
+  });
+
+  it('opens contact info for a known companion and the conversation for a known repeater', async () => {
+    const companion: Contact = {
+      public_key: '11'.repeat(32),
+      name: 'Alice',
+      type: 1,
+      flags: 0,
+      direct_path: null,
+      direct_path_len: -1,
+      direct_path_hash_mode: 0,
+      last_advert: null,
+      lat: 45.11,
+      lon: 4.11,
+      last_seen: null,
+      on_radio: false,
+      favorite: false,
+      last_contacted: null,
+      last_read_at: null,
+      first_seen: null,
+    };
+    const repeater: Contact = { ...companion, public_key: '22'.repeat(32), name: 'FR83-RPT', type: 2 };
+    const onOpenContactInfo = vi.fn();
+    const onSelectConversation = vi.fn();
+    render(
+      <LiveView
+        contacts={[companion, repeater]}
+        config={null}
+        communityEnabled
+        onOpenContactInfo={onOpenContactInfo}
+        onSelectConversation={onSelectConversation}
+      />
+    );
+    await waitFor(() => expect(overlays.length).toBeGreaterThan(0));
+    const click = overlays[overlays.length - 1]?.onClick;
+    click?.({
+      object: {
+        pick: {
+          kind: 'node',
+          name: 'Alice',
+          role: 'companion',
+          publicKey: companion.public_key,
+          x: 0,
+          y: 0,
+        },
+      },
+    });
+    click?.({
+      object: {
+        pick: {
+          kind: 'node',
+          name: 'FR83-RPT',
+          role: 'repeater',
+          publicKey: repeater.public_key,
+          x: 0,
+          y: 0,
+        },
+      },
+    });
+    click?.({
+      object: {
+        pick: {
+          kind: 'node',
+          name: 'Stranger',
+          role: 'repeater',
+          publicKey: 'ff'.repeat(32),
+          x: 0,
+          y: 0,
+        },
+      },
+    });
+    expect(onOpenContactInfo).toHaveBeenCalledTimes(1);
+    expect(onOpenContactInfo).toHaveBeenCalledWith(companion.public_key);
+    expect(onSelectConversation).toHaveBeenCalledTimes(1);
+    expect(onSelectConversation).toHaveBeenCalledWith({
+      type: 'contact',
+      id: repeater.public_key,
+      name: 'FR83-RPT',
+    });
   });
 });

@@ -252,6 +252,8 @@ export function ConversationPane({
               communityEnabled={communityEnabled}
               blockedKeys={blockedKeys}
               blockedNames={blockedNames}
+              onOpenContactInfo={onOpenContactInfo}
+              onSelectConversation={onSelectConversation}
             />
           </Suspense>
         </div>

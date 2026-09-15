@@ -1,8 +1,10 @@
-import type {
-  CommunityPacketType,
-  Contact,
-  DirectoryMapNode,
-  DirectoryNodeRole,
+import {
+  CONTACT_TYPE_REPEATER,
+  CONTACT_TYPE_ROOM,
+  type CommunityPacketType,
+  type Contact,
+  type DirectoryMapNode,
+  type DirectoryNodeRole,
 } from '../../types';
 import { isValidLocation } from '../../utils/pathUtils';
 import {
@@ -685,16 +687,43 @@ export function cloneLonLat(point: LonLat): LonLat {
   return [point[0], point[1]];
 }
 
+export type LiveKnownNodeAction =
+  | { kind: 'info'; publicKey: string }
+  | { kind: 'conversation'; publicKey: string; name: string };
+
+/** Known local contacts only. Community-only pins stay hover. */
+export function resolveLiveKnownNodeAction(
+  publicKey: string,
+  contacts: readonly Contact[]
+): LiveKnownNodeAction | null {
+  const needle = publicKey.trim().toLowerCase();
+  if (!needle) return null;
+  const contact = contacts.find((item) => item.public_key.toLowerCase() === needle);
+  if (!contact) return null;
+  if (
+    contact.type === CONTACT_TYPE_REPEATER ||
+    contact.type === CONTACT_TYPE_ROOM ||
+    contact.type === 4
+  ) {
+    return {
+      kind: 'conversation',
+      publicKey: contact.public_key,
+      name: contact.name?.trim() || contact.public_key.slice(0, 12),
+    };
+  }
+  return { kind: 'info', publicKey: contact.public_key };
+}
+
 export function liveHoverKey(
   hover:
-    | { kind: 'node'; name: string }
+    | { kind: 'node'; name: string; publicKey?: string }
     | { kind: 'probable'; reason: string; label?: string }
     | { kind: 'exact'; label?: string }
     | { kind: 'local' }
     | null
 ): string {
   if (!hover) return '';
-  if (hover.kind === 'node') return `node:${hover.name}`;
+  if (hover.kind === 'node') return `node:${hover.publicKey ?? hover.name}`;
   if (hover.kind === 'probable') return `probable:${hover.reason}:${hover.label ?? ''}`;
   if (hover.kind === 'exact') return `exact:${hover.label ?? ''}`;
   return 'local';

@@ -59,7 +59,9 @@ vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('@deck.gl/mapbox', () => ({
   MapboxOverlay: class {
     setProps = vi.fn();
-    constructor(_props: unknown) {
+    onClick?: (info: unknown) => void;
+    constructor(props: { onClick?: (info: unknown) => void } = {}) {
+      this.onClick = props.onClick;
       overlays.push(this);
     }
   },
@@ -721,5 +723,31 @@ describe('LiveMapController', () => {
     const pins = lastLayer('live-nodes');
     expect(pins?.data.length).toBeGreaterThan(0);
     expect((pins?.data[0] as { id: string }).id).toBe('cc'.repeat(32));
+  });
+
+  it('forwards a node pick click to onNodeClick and ignores lasers', async () => {
+    const onNodeClick = vi.fn();
+    const host = document.createElement('div');
+    const engine = new LiveMapController(host, { now: () => 65_000, onNodeClick });
+    engines.push(engine);
+    await Promise.resolve();
+    await Promise.resolve();
+    engine.setDirectoryNodes([directoryNode({ public_key: 'ee'.repeat(32), name: 'ClickMe' })]);
+    const overlay = overlays[overlays.length - 1] as { onClick?: (info: unknown) => void };
+    overlay.onClick?.({
+      object: {
+        pick: {
+          kind: 'node',
+          name: 'ClickMe',
+          role: 'companion',
+          publicKey: 'ee'.repeat(32),
+          x: 0,
+          y: 0,
+        },
+      },
+    });
+    overlay.onClick?.({ object: { pick: { kind: 'exact', label: 'hop', x: 0, y: 0 } } });
+    expect(onNodeClick).toHaveBeenCalledTimes(1);
+    expect(onNodeClick).toHaveBeenCalledWith('ee'.repeat(32));
   });
 });
