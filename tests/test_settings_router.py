@@ -64,7 +64,6 @@ class TestUpdateSettings:
         await update_community(enabled=True, iata="LYS")
         result = await get_settings()
         assert result.directory_available is True
-        assert result.directory_enabled is False
 
     @pytest.mark.asyncio
     async def test_directory_available_false_by_default(self, test_db):

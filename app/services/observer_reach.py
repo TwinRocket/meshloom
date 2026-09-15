@@ -1,4 +1,8 @@
-"""CoreScope observer-reach lookups for flood messages, keyed by firmware packet hash."""
+"""Observer-reach lookups for flood messages, keyed by firmware packet hash.
+
+Community on: counts come from the Stats directory, one entry per stored
+observation event. Community off: there is no source and the badge is off.
+"""
 
 from __future__ import annotations
 
@@ -21,44 +25,28 @@ from app.models import (
 )
 from app.path_utils import canonical_packet_hash, corescope_packet_hash
 from app.repository import AmbiguousPublicKeyPrefixError, ContactRepository, MessageRepository
-from app.services.directory import (
-    _as_float,
-    _corescope_get_json,
-    _corescope_post_json,
-    _is_valid_map_location,
-    _require_directory_origin,
-)
+from app.services.directory import _as_float, _is_valid_map_location
 from app.services.radio_runtime import radio_runtime
 from app.services.ttl_lru import TtlLruCache
 
 logger = logging.getLogger(__name__)
 
-PACKET_TIMEOUT_SECONDS = 8.0
-OBSERVERS_TIMEOUT_SECONDS = 8.0
-SPEC_TIMEOUT_SECONDS = 5.0
-REACH_CACHE_TTL_SECONDS = 90.0
-OBSERVERS_CACHE_TTL_SECONDS = 600.0
-SPEC_CACHE_TTL_SECONDS = 600.0
 # Sealed sets are final, but "final" is only as good as what Stats stored: a
 # server-side data repair has no way to reach a client holding a sealed copy.
 # One hour bounds that staleness. It costs one Stats request per viewed message
-# per hour, served from its Postgres, and Stats' own permanent seal is what
-# actually shields the CoreScope upstreams.
+# per hour, served from its Postgres.
 SEALED_REACH_TTL_SECONDS = 3600.0
 # Unsealed sets still change; 8s matches the live poll cadence.
 LIVE_REACH_TTL_SECONDS = 8.0
 COMMUNITY_OBSERVERS_LIVE_TTL_SECONDS = 8.0
 BATCH_FALLBACK_CONCURRENCY = 4
-CORESCOPE_BATCH_MAX = 200
 MESHLOOM_BATCH_MAX = 20
 
 REACH_CACHE_MAX = 512
 OBSERVERS_CACHE_MAX = 16
-SPEC_BATCH_CACHE_MAX = 16
 
 _reach_cache: TtlLruCache[tuple[str, str], ParsedReach] = TtlLruCache(REACH_CACHE_MAX)
 _observers_cache: TtlLruCache[str, dict[str, ObserverGeo]] = TtlLruCache(OBSERVERS_CACHE_MAX)
-_spec_batch_cache: TtlLruCache[str, bool] = TtlLruCache(SPEC_BATCH_CACHE_MAX)
 
 
 @dataclass(frozen=True)
@@ -92,7 +80,6 @@ class ParsedReach:
 def reset_observer_reach_cache() -> None:
     _reach_cache.clear()
     _observers_cache.clear()
-    _spec_batch_cache.clear()
 
 
 def validate_packet_hash_param(raw: str) -> str:
@@ -130,7 +117,7 @@ def _hop_token(item: object) -> str | None:
 
 
 def path_from_path_json(path_json: object) -> list[str] | None:
-    """Hop prefixes from CoreScope path_json. None if the field is not a list."""
+    """Hop prefixes from the directory's path_json. None if the field is not a list."""
     parsed = _parse_path_json_list(path_json)
     if parsed is None:
         return None
@@ -143,7 +130,7 @@ def path_from_path_json(path_json: object) -> list[str] | None:
 
 
 def hops_from_path_json(path_json: object) -> int | None:
-    """Hop count is len(path_json). CoreScope does not guarantee a hop_count field."""
+    """Hop count is len(path_json). The directory does not guarantee a hop_count field."""
     parsed = _parse_path_json_list(path_json)
     if parsed is None:
         return None
@@ -165,7 +152,7 @@ def payload_sealed(payload: object) -> bool:
 
 
 def parse_packet_observations(payload: object) -> list[ParsedObservation]:
-    """Defensive parser for GET /api/packets/{hash} or a single observations list."""
+    """Defensive parser for one packet's stored observation events."""
     if payload is None:
         return []
     items: list[object] = []
@@ -223,7 +210,7 @@ def parse_batch_observations(payload: object) -> dict[str, list[ParsedObservatio
     return {stored: item.observations for stored, item in parsed.items()}
 
 
-def parse_corescope_observers(payload: object) -> dict[str, ObserverGeo]:
+def parse_directory_observers(payload: object) -> dict[str, ObserverGeo]:
     items: list[object] = []
     if isinstance(payload, list):
         items = payload
@@ -441,120 +428,6 @@ def _dedup_entries(
     return list(by_key.values())
 
 
-async def _spec_supports_batch(origin: str) -> bool:
-    now = time.time()
-    cached = _spec_batch_cache.get(origin, now)
-    if cached is not None:
-        return cached
-    try:
-        spec = await _corescope_get_json(origin, "/api/spec", timeout=SPEC_TIMEOUT_SECONDS)
-    except HTTPException:
-        _spec_batch_cache.set(origin, False, now + SPEC_CACHE_TTL_SECONDS, now)
-        return False
-    supported = False
-    if isinstance(spec, dict):
-        paths = spec.get("paths")
-        if isinstance(paths, dict):
-            supported = "/api/packets/observations" in paths
-    _spec_batch_cache.set(origin, supported, now + SPEC_CACHE_TTL_SECONDS, now)
-    return supported
-
-
-async def _fetch_observers(origin: str) -> dict[str, ObserverGeo]:
-    now = time.time()
-    cached = _observers_cache.get(origin, now)
-    if cached is not None:
-        return cached
-    payload = await _corescope_get_json(origin, "/api/observers", timeout=OBSERVERS_TIMEOUT_SECONDS)
-    geos = parse_corescope_observers(payload)
-    _observers_cache.set(origin, geos, now + OBSERVERS_CACHE_TTL_SECONDS, now)
-    return geos
-
-
-async def _fetch_packet_observations(origin: str, hash_lower: str) -> list[ParsedObservation]:
-    now = time.time()
-    cache_key = (origin, hash_lower)
-    cached = _reach_cache.get(cache_key, now)
-    if cached is not None:
-        return cached.observations
-    payload = await _corescope_get_json(
-        origin,
-        f"/api/packets/{hash_lower}",
-        timeout=PACKET_TIMEOUT_SECONDS,
-        empty_on_404=True,
-    )
-    observations = parse_packet_observations(payload)
-    _reach_cache.set(
-        cache_key,
-        ParsedReach(observations=observations),
-        now + REACH_CACHE_TTL_SECONDS,
-        now,
-    )
-    return observations
-
-
-async def _fetch_batch_or_fallback(
-    origin: str, hashes_lower: list[str]
-) -> dict[str, list[ParsedObservation]]:
-    now = time.time()
-    result: dict[str, list[ParsedObservation]] = {}
-    missing: list[str] = []
-    for hash_lower in hashes_lower:
-        cached = _reach_cache.get((origin, hash_lower), now)
-        if cached is not None:
-            result[hash_lower] = cached.observations
-        else:
-            missing.append(hash_lower)
-    if not missing:
-        return result
-
-    if await _spec_supports_batch(origin):
-        try:
-            payload = await _corescope_post_json(
-                origin,
-                "/api/packets/observations",
-                timeout=PACKET_TIMEOUT_SECONDS,
-                body={"hashes": missing[:CORESCOPE_BATCH_MAX]},
-                empty_on_404=True,
-            )
-        except HTTPException as exc:
-            if exc.status_code == 400:
-                payload = None
-            else:
-                raise
-        parsed = parse_batch_observations(payload) if payload is not None else None
-        if parsed is not None:
-            still_missing: list[str] = []
-            for hash_lower in missing:
-                stored = canonical_packet_hash(hash_lower)
-                observations = parsed.get(stored or hash_lower.upper(), [])
-                if _usable_observations(observations):
-                    _reach_cache.set(
-                        (origin, hash_lower),
-                        ParsedReach(observations=observations),
-                        now + REACH_CACHE_TTL_SECONDS,
-                        now,
-                    )
-                    result[hash_lower] = observations
-                else:
-                    # Memory-only batch can miss packets that SQLite detail still has.
-                    still_missing.append(hash_lower)
-            if not still_missing:
-                return result
-            missing = still_missing
-
-    semaphore = asyncio.Semaphore(BATCH_FALLBACK_CONCURRENCY)
-
-    async def one(hash_lower: str) -> tuple[str, list[ParsedObservation]]:
-        async with semaphore:
-            return hash_lower, await _fetch_packet_observations(origin, hash_lower)
-
-    fetched = await asyncio.gather(*(one(h) for h in missing))
-    for hash_lower, observations in fetched:
-        result[hash_lower] = observations
-    return result
-
-
 _COMMUNITY_ORIGIN = "community"
 
 
@@ -600,7 +473,7 @@ async def _community_observers() -> dict[str, ObserverGeo]:
     if cached is not None:
         return cached
     payload = await _community_directory_data("/v1/directory/observers")
-    geos = parse_corescope_observers(payload)
+    geos = parse_directory_observers(payload)
     _observers_cache.set(_COMMUNITY_ORIGIN, geos, now + COMMUNITY_OBSERVERS_LIVE_TTL_SECONDS, now)
     return geos
 
@@ -608,7 +481,7 @@ async def _community_observers() -> dict[str, ObserverGeo]:
 async def _community_batch_or_fallback(
     hashes_lower: list[str],
 ) -> dict[str, ParsedReach]:
-    """Stats batch query, then per-hash GET. CoreScope's observations POST is ingest."""
+    """Stats batch query, then per-hash GET for whatever the batch did not answer."""
     from app.services.directory import _community_directory_data
 
     now = time.time()
@@ -679,28 +552,18 @@ async def get_packet_observer_reach(raw_hash: str) -> PacketObserverReachRespons
     from app.services.meshloom_community import community_enabled
 
     hash_lower = validate_packet_hash_param(raw_hash)
-    if await community_enabled():
-        fetched = await _community_batch_or_fallback([hash_lower])
-        reach = fetched.get(hash_lower, ParsedReach(observations=[]))
-        try:
-            geos = await _community_observers()
-        except HTTPException:
-            geos = {}
-        entries = _dedup_entries(reach.observations, geos)
-        return await _finish_observer_reach(
-            hash_lower, entries, directory_enabled=True, sealed=reach.sealed
-        )
-
-    origin = await _require_directory_origin()
-    if origin is None:
+    if not await community_enabled():
         return PacketObserverReachResponse(directory_enabled=False)
-    observations = await _fetch_packet_observations(origin, hash_lower)
+    fetched = await _community_batch_or_fallback([hash_lower])
+    reach = fetched.get(hash_lower, ParsedReach(observations=[]))
     try:
-        geos = await _fetch_observers(origin)
+        geos = await _community_observers()
     except HTTPException:
         geos = {}
-    entries = _dedup_entries(observations, geos)
-    return await _finish_observer_reach(hash_lower, entries, directory_enabled=True)
+    entries = _dedup_entries(reach.observations, geos)
+    return await _finish_observer_reach(
+        hash_lower, entries, directory_enabled=True, sealed=reach.sealed
+    )
 
 
 async def _finish_observer_reach(
@@ -758,34 +621,16 @@ async def get_packet_observer_reach_counts(hashes: list[str]) -> PacketObserverR
             seen.add(hash_lower)
             normalized.append(hash_lower)
 
-    if await community_enabled():
-        fetched = await _community_batch_or_fallback(normalized)
-        geos: dict[str, ObserverGeo] = {}
-        counts: dict[str, int] = {}
-        sealed: dict[str, bool] = {}
-        for hash_lower in normalized:
-            reach = fetched.get(hash_lower, ParsedReach(observations=[]))
-            entries = drop_local_observer(_dedup_entries(reach.observations, geos))
-            key = hash_lower.upper()
-            counts[key] = len(entries)
-            sealed[key] = reach.sealed
-        return PacketObserverReachCountsResponse(
-            directory_enabled=True, counts=counts, sealed=sealed
-        )
-
-    origin = await _require_directory_origin()
-    if origin is None:
+    if not await community_enabled():
         return PacketObserverReachCountsResponse(directory_enabled=False)
-    fetched = await _fetch_batch_or_fallback(origin, normalized)
+    fetched = await _community_batch_or_fallback(normalized)
     geos: dict[str, ObserverGeo] = {}
-    if fetched:
-        try:
-            geos = await _fetch_observers(origin)
-        except HTTPException:
-            geos = {}
     counts: dict[str, int] = {}
-    sealed = {hash_lower.upper(): False for hash_lower in normalized}
+    sealed: dict[str, bool] = {}
     for hash_lower in normalized:
-        entries = drop_local_observer(_dedup_entries(fetched.get(hash_lower, []), geos))
-        counts[hash_lower.upper()] = len(entries)
+        reach = fetched.get(hash_lower, ParsedReach(observations=[]))
+        entries = drop_local_observer(_dedup_entries(reach.observations, geos))
+        key = hash_lower.upper()
+        counts[key] = len(entries)
+        sealed[key] = reach.sealed
     return PacketObserverReachCountsResponse(directory_enabled=True, counts=counts, sealed=sealed)

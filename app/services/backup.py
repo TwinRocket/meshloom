@@ -103,29 +103,11 @@ async def export_json() -> BackupExport:
     )
 
 
-async def _prepare_directory_restore(settings: AppSettings) -> tuple[str, bool]:
-    """Normalize and spec-check directory_url before any restore writes."""
-    from app.services.directory import normalize_directory_origin, validate_corescope_spec
-
-    origin = normalize_directory_origin(settings.directory_url)
-    if origin:
-        await validate_corescope_spec(origin)
-    current = await AppSettingsRepository.get()
-    return origin, origin != (current.directory_url or "")
-
-
 async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
     if not request.confirm:
         raise ValueError(
             "Restore requires confirm=true. This merges into the live database "
             "and does not replace meshcore.db or delete messages/packets."
-        )
-
-    prepared_directory_url: str | None = None
-    directory_origin_changed = False
-    if request.settings is not None:
-        prepared_directory_url, directory_origin_changed = await _prepare_directory_restore(
-            request.settings
         )
 
     contacts_upserted = 0
@@ -167,14 +149,7 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
 
     settings_updated = False
     if request.settings is not None:
-        assert prepared_directory_url is not None
-        await _restore_settings(request.settings, directory_url=prepared_directory_url)
-        if directory_origin_changed:
-            from app.repository.directory import DirectoryHopCacheRepository
-            from app.services.directory import reset_directory_nodes_cache
-
-            await DirectoryHopCacheRepository.wipe()
-            reset_directory_nodes_cache()
+        await _restore_settings(request.settings)
         settings_updated = True
     if request.push_defaults is not None:
         await AppSettingsRepository.set_push_defaults(request.push_defaults)
@@ -208,7 +183,7 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
     )
 
 
-async def _restore_settings(settings: AppSettings, *, directory_url: str) -> None:
+async def _restore_settings(settings: AppSettings) -> None:
     await AppSettingsRepository.update(
         max_radio_contacts=settings.max_radio_contacts,
         auto_decrypt_dm_on_advert=settings.auto_decrypt_dm_on_advert,
@@ -224,8 +199,6 @@ async def _restore_settings(settings: AppSettings, *, directory_url: str) -> Non
         telemetry_interval_hours=settings.telemetry_interval_hours,
         telemetry_routed_hourly=settings.telemetry_routed_hourly,
         stale_contact_days=settings.stale_contact_days,
-        directory_enabled=settings.directory_enabled,
-        directory_url=directory_url,
     )
 
 

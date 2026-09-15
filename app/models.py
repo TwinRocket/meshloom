@@ -447,7 +447,7 @@ class Message(BaseModel):
     )
     packet_hash: str | None = Field(
         default=None,
-        description="Firmware packet hash (16 hex uppercase) used for CoreScope observer lookup",
+        description="Firmware packet hash (16 hex uppercase) used for observer-reach lookup",
     )
     observer_reach_eligible: bool | None = Field(
         default=None,
@@ -1129,18 +1129,10 @@ class AppSettings(BaseModel):
             "as the bulk-delete UI)."
         ),
     )
-    directory_enabled: bool = Field(
-        default=False,
-        description="Opt-in CoreScope hop directory. Off by default; browser never calls it.",
-    )
-    directory_url: str = Field(
-        default="",
-        description="Operator-supplied CoreScope instance origin (http/https). Empty is fine.",
-    )
     directory_available: bool = Field(
         default=False,
         description=(
-            "Computed: Meshloom Stats is on, or a manual CoreScope URL is enabled. "
+            "Computed: Meshloom Community is on, so the Stats directory answers. "
             "Not stored. The browser uses this to show hop names / observer reach."
         ),
     )
@@ -1172,10 +1164,12 @@ class DirectoryMapNode(BaseModel):
 
     public_key: str
     name: str
-    role: Literal["repeater", "room", "client", "companion", "sensor", "unknown"] = "unknown"
+    role: Literal["repeater", "room", "client", "companion", "sensor", "observer", "unknown"] = (
+        "unknown"
+    )
     lat: float
     lon: float
-    source: Literal["community-db", "corescope", "local"] = "corescope"
+    source: Literal["community-db", "corescope", "local"] = "community-db"
     last_seen: int | None = None
 
 
@@ -1185,7 +1179,7 @@ class DirectoryMapNodesResponse(BaseModel):
 
 
 class DirectoryReachObserver(BaseModel):
-    """A CoreScope 0-hop observer. Radius is never derived from SNR."""
+    """A directory 0-hop observer. Radius is never derived from SNR."""
 
     public_key: str
     name: str
@@ -1210,7 +1204,7 @@ class DirectoryReachResponse(BaseModel):
 
 
 class DirectoryNeighbor(BaseModel):
-    """CoreScope neighbor-affinity entry. Distinct from firmware repeater neighbors."""
+    """Directory neighbor-affinity entry. Distinct from firmware repeater neighbors."""
 
     public_key: str | None = None
     prefix: str | None = None

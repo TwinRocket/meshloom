@@ -1,4 +1,4 @@
-"""Tests for migration 065: CoreScope directory settings + hop cache."""
+"""Tests for migration 065: directory hop cache (its settings are dropped by 076)."""
 
 import aiosqlite
 import pytest
@@ -34,11 +34,11 @@ class TestMigration065:
             }
             assert "directory_hop_cache" in tables
 
-            cursor = await conn.execute(
-                "SELECT directory_enabled, directory_url FROM app_settings WHERE id = 1"
-            )
-            row = await cursor.fetchone()
-            assert row["directory_enabled"] == 0
-            assert row["directory_url"] == "" or row["directory_url"] is None
+            columns = {
+                row[1]
+                for row in await (await conn.execute("PRAGMA table_info(app_settings)")).fetchall()
+            }
+            assert "directory_enabled" not in columns
+            assert "directory_url" not in columns
         finally:
             await conn.close()

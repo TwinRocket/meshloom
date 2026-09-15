@@ -66,7 +66,7 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
     },
     {
         "name": "directory",
-        "description": "Opt-in CoreScope hop directory proxy, map nodes, reach, neighbors, and cache reset.",
+        "description": "Meshloom Community hop directory, map nodes, reach, neighbors, and cache reset.",
     },
     {
         "name": "locate",

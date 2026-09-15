@@ -1,8 +1,12 @@
-"""CoreScope hop-directory client. Documented /api/spec, /api/resolve-hops, /api/nodes."""
+"""Hop directory client. Meshloom Community (Stats) only — no upstream client here.
+
+Community on: hops, nodes, reach, neighbors and search are answered by the Stats
+directory API. Community off: every surface is empty with ``directory_enabled``
+false. This process never opens a connection to a CoreScope instance.
+"""
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import re
 import time
@@ -10,9 +14,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
-from urllib.parse import urlsplit, urlunsplit
 
-import httpx
 from fastapi import HTTPException
 
 from app.models import (
@@ -29,39 +31,25 @@ from app.models import (
     DirectoryReachResponse,
     DirectoryResolveHopsResponse,
 )
-from app.repository import AppSettingsRepository, ContactRepository
+from app.repository import ContactRepository
 from app.repository.directory import (
     DIRECTORY_SOURCE_CORESCOPE,
     DirectoryHopCacheRepository,
 )
-from app.services.ttl_lru import TtlLruCache
 
 logger = logging.getLogger(__name__)
 
 ALLOWED_HOP_HEX_LENS = frozenset({4, 6})
 CACHE_TTL_SECONDS = 86400
-RESOLVE_TIMEOUT_SECONDS = 4.0
-SPEC_TIMEOUT_SECONDS = 5.0
-NODES_TIMEOUT_SECONDS = 8.0
 NODES_PAGE_SIZE = 500
 NODES_MAX_PAGES = 40
 NODES_CACHE_TTL_SECONDS = 600
-REACH_TIMEOUT_SECONDS = 8.0
-REACH_CACHE_TTL_SECONDS = 300
-NEIGHBORS_TIMEOUT_SECONDS = 8.0
-NEIGHBORS_CACHE_TTL_SECONDS = 300
-SEARCH_TIMEOUT_SECONDS = 6.0
-SEARCH_CACHE_TTL_SECONDS = 60
-MAX_JSON_BYTES = 2_000_000
 PUBKEY_HEX_LEN = 64
 MAX_HOPS = 64
 _HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
 _SKIP_CONFIDENCE = frozenset({"no_match", "conflict", "ambiguous"})
-REACH_CACHE_MAX = 256
-NEIGHBORS_CACHE_MAX = 256
-SEARCH_CACHE_MAX = 64
 
-MapNodeRole = Literal["repeater", "room", "client", "companion", "sensor", "unknown"]
+MapNodeRole = Literal["repeater", "room", "client", "companion", "sensor", "observer", "unknown"]
 MapNodeSource = Literal["community-db", "corescope", "local"]
 MAP_NODE_ROLES: dict[str, MapNodeRole] = {
     "repeater": "repeater",
@@ -69,6 +57,7 @@ MAP_NODE_ROLES: dict[str, MapNodeRole] = {
     "client": "client",
     "companion": "companion",
     "sensor": "sensor",
+    "observer": "observer",
 }
 MAP_NODE_SOURCES: frozenset[str] = frozenset({"community-db", "corescope", "local"})
 CONTACT_TYPE_TO_MAP_ROLE: dict[int, MapNodeRole] = {
@@ -77,38 +66,8 @@ CONTACT_TYPE_TO_MAP_ROLE: dict[int, MapNodeRole] = {
     3: "room",
     4: "sensor",
 }
-_nodes_cache: tuple[float, str, list[DirectoryMapNode], int | None] | None = None
-_reach_cache: TtlLruCache[tuple[str, str], DirectoryReachResponse] = TtlLruCache(REACH_CACHE_MAX)
-_neighbors_cache: TtlLruCache[tuple[str, str], DirectoryNeighborsResponse] = TtlLruCache(
-    NEIGHBORS_CACHE_MAX
-)
-_search_cache: TtlLruCache[tuple[str, str], DirectoryNodeSearchResponse] = TtlLruCache(
-    SEARCH_CACHE_MAX
-)
 
-
-def normalize_directory_origin(raw: str) -> str:
-    """Return scheme+host[+port] only. Empty input stays empty."""
-    text = raw.strip()
-    if not text:
-        return ""
-    if any(c.isspace() for c in text):
-        raise ValueError("Directory URL must not contain whitespace")
-    parsed = urlsplit(text)
-    if parsed.scheme.lower() not in {"http", "https"}:
-        raise ValueError("Directory URL must use http or https")
-    if parsed.username or parsed.password or "@" in (parsed.netloc or ""):
-        raise ValueError("Directory URL must not include credentials")
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError("Directory URL must include a host")
-    try:
-        ip = ipaddress.ip_address(hostname)
-        host = f"[{ip.compressed}]" if isinstance(ip, ipaddress.IPv6Address) else ip.compressed
-    except ValueError:
-        host = hostname.lower()
-    netloc = f"{host}:{parsed.port}" if parsed.port else host
-    return urlunsplit((parsed.scheme.lower(), netloc, "", "", ""))
+_nodes_cache: tuple[float, list[DirectoryMapNode], int | None] | None = None
 
 
 def validate_hop_prefixes(hops: list[str]) -> list[str]:
@@ -177,7 +136,7 @@ def _gps_from_resolution(value: dict[str, object]) -> tuple[str | None, float | 
     return pubkey, None, None
 
 
-def parse_corescope_resolved_hits(payload: object) -> dict[str, ParsedDirectoryHop | None]:
+def parse_directory_resolved_hits(payload: object) -> dict[str, ParsedDirectoryHop | None]:
     """Map prefix → hop (or None for a conclusive no-match). Ignore undocumented keys."""
     if not isinstance(payload, dict):
         return {}
@@ -206,60 +165,12 @@ def parse_corescope_resolved_hits(payload: object) -> dict[str, ParsedDirectoryH
     return out
 
 
-def parse_corescope_resolved(payload: object) -> dict[str, str | None]:
+def parse_directory_resolved(payload: object) -> dict[str, str | None]:
     """Map prefix → name (or None for a conclusive no-match). Ignore undocumented keys."""
     return {
         prefix: (hit.name if hit else None)
-        for prefix, hit in parse_corescope_resolved_hits(payload).items()
+        for prefix, hit in parse_directory_resolved_hits(payload).items()
     }
-
-
-async def validate_corescope_spec(origin: str) -> None:
-    """GET {origin}/api/spec must succeed with OpenAPI JSON before the URL is saved."""
-    url = f"{origin}/api/spec"
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=SPEC_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(url)
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Could not reach CoreScope spec: {exc}"
-        ) from exc
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=400,
-            detail=f"CoreScope spec check failed (HTTP {response.status_code})",
-        )
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="CoreScope spec was not JSON") from exc
-    if not isinstance(body, dict) or "openapi" not in body:
-        raise HTTPException(status_code=400, detail="CoreScope spec is not OpenAPI")
-
-
-async def _fetch_corescope_hops(
-    origin: str, prefixes: list[str]
-) -> dict[str, ParsedDirectoryHop | None]:
-    url = f"{origin}/api/resolve-hops"
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=RESOLVE_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(url, params={"hops": ",".join(prefixes)})
-    except httpx.RequestError as exc:
-        logger.warning("CoreScope resolve-hops failed: %s", exc)
-        return {}
-    if response.status_code != 200:
-        logger.warning("CoreScope resolve-hops HTTP %s", response.status_code)
-        return {}
-    try:
-        payload = response.json()
-    except ValueError:
-        logger.warning("CoreScope resolve-hops returned non-JSON")
-        return {}
-    return parse_corescope_resolved_hits(payload)
 
 
 def _hit_from_cache(row: object, hash_width: int) -> DirectoryHopHit | None:
@@ -278,13 +189,10 @@ def _hit_from_cache(row: object, hash_width: int) -> DirectoryHopHit | None:
 
 
 async def directory_is_available() -> bool:
-    """True when Meshloom Stats is on, or a manual CoreScope URL is enabled."""
+    """True only when Meshloom Community is on. There is no manual origin."""
     from app.services.meshloom_community import community_enabled
 
-    if await community_enabled():
-        return True
-    settings = await AppSettingsRepository.get()
-    return bool(settings.directory_enabled and (settings.directory_url or "").strip())
+    return await community_enabled()
 
 
 async def annotate_directory_available(settings: AppSettings) -> AppSettings:
@@ -298,7 +206,7 @@ async def _community_directory_data(
     method: str = "GET",
     body: dict[str, object] | None = None,
 ) -> object | None:
-    """Stats directory payload when community is on; None means use directory_url."""
+    """Stats directory payload when Community is on, else None (directory off)."""
     from app.services.meshloom_community import (
         community_enabled,
         stats_directory_get,
@@ -312,7 +220,7 @@ async def _community_directory_data(
     return await stats_directory_get(path, params=params)
 
 
-def _hits_from_stats_or_corescope(
+def _hits_from_directory(
     prefixes: list[str],
     fetched: dict[str, ParsedDirectoryHop | None],
 ) -> dict[str, DirectoryHopHit]:
@@ -374,29 +282,17 @@ async def resolve_directory_hops(hops: list[str]) -> DirectoryResolveHopsRespons
         "/v1/directory/resolve-hops",
         params={"hops": ",".join(misses)},
     )
-    if stats_data is not None:
-        fetched = parse_corescope_resolved_hits(stats_data)
-        await _write_hop_cache(misses, fetched)
-        resolved.update(_hits_from_stats_or_corescope(misses, fetched))
+    if stats_data is None:
         return DirectoryResolveHopsResponse(resolved=resolved)
 
-    settings = await AppSettingsRepository.get()
-    origin = (settings.directory_url or "").strip()
-    if not settings.directory_enabled or not origin:
-        return DirectoryResolveHopsResponse(resolved=resolved)
-
-    fetched = await _fetch_corescope_hops(origin, misses)
+    fetched = parse_directory_resolved_hits(stats_data)
     await _write_hop_cache(misses, fetched)
-    resolved.update(_hits_from_stats_or_corescope(misses, fetched))
+    resolved.update(_hits_from_directory(misses, fetched))
     return DirectoryResolveHopsResponse(resolved=resolved)
 
 
 async def reset_directory_cache() -> int:
-    global _nodes_cache
-    _nodes_cache = None
-    _reach_cache.clear()
-    _neighbors_cache.clear()
-    _search_cache.clear()
+    reset_directory_nodes_cache()
     from app.services.observer_reach import reset_observer_reach_cache
 
     reset_observer_reach_cache()
@@ -476,10 +372,10 @@ def _parse_map_last_seen(item: Mapping[str, object]) -> int | None:
     return _as_unix_timestamp(item.get("last_seen"))
 
 
-def parse_corescope_map_nodes(
+def parse_directory_map_nodes(
     payload: object,
     *,
-    default_source: MapNodeSource = "corescope",
+    default_source: MapNodeSource = "community-db",
 ) -> tuple[list[DirectoryMapNode], int | None]:
     """Keep documented Node fields: public_key, name, role, lat, lon, source, last_seen."""
     if not isinstance(payload, dict):
@@ -524,15 +420,12 @@ def parse_corescope_map_nodes(
 def reset_directory_nodes_cache() -> None:
     global _nodes_cache
     _nodes_cache = None
-    _reach_cache.clear()
-    _neighbors_cache.clear()
-    _search_cache.clear()
 
 
-def _cached_map_response(now: float, source: str) -> DirectoryMapNodesResponse | None:
-    if _nodes_cache is None or _nodes_cache[0] <= now or _nodes_cache[1] != source:
+def _cached_map_response(now: float) -> DirectoryMapNodesResponse | None:
+    if _nodes_cache is None or _nodes_cache[0] <= now:
         return None
-    return DirectoryMapNodesResponse(nodes=list(_nodes_cache[2]), total=_nodes_cache[3])
+    return DirectoryMapNodesResponse(nodes=list(_nodes_cache[1]), total=_nodes_cache[2])
 
 
 async def _collect_map_node_pages(
@@ -564,35 +457,6 @@ async def _collect_map_node_pages(
     return list(merged.values()), total_out
 
 
-async def _fetch_corescope_nodes_page(
-    origin: str, offset: int
-) -> tuple[list[DirectoryMapNode], int | None]:
-    url = f"{origin}/api/nodes"
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=NODES_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(
-                url,
-                params={
-                    "limit": NODES_PAGE_SIZE,
-                    "offset": offset,
-                },
-            )
-    except httpx.RequestError as exc:
-        logger.warning("CoreScope nodes failed: %s", exc)
-        return [], None
-    if response.status_code != 200:
-        logger.warning("CoreScope nodes HTTP %s", response.status_code)
-        return [], None
-    try:
-        payload = response.json()
-    except ValueError:
-        logger.warning("CoreScope nodes returned non-JSON")
-        return [], None
-    return parse_corescope_map_nodes(payload)
-
-
 async def _fetch_community_nodes_page(
     offset: int,
 ) -> tuple[list[DirectoryMapNode], int | None] | None:
@@ -602,7 +466,7 @@ async def _fetch_community_nodes_page(
     )
     if stats_data is None:
         return None
-    return parse_corescope_map_nodes(stats_data, default_source="community-db")
+    return parse_directory_map_nodes(stats_data)
 
 
 async def list_local_gps_map_nodes() -> list[DirectoryMapNode]:
@@ -639,64 +503,59 @@ def merge_directory_and_local_nodes(
     remote: list[DirectoryMapNode],
     local: list[DirectoryMapNode],
 ) -> list[DirectoryMapNode]:
-    """Dedupe by public_key. community-db / corescope win over local."""
+    """Dedupe by public_key. Directory nodes win over local."""
     remote_keys = {node.public_key for node in remote}
     extra = [node for node in local if node.public_key not in remote_keys]
     return list(remote) + extra
 
 
+def drop_observer_nodes(nodes: list[DirectoryMapNode]) -> list[DirectoryMapNode]:
+    """#live draws packets and hops. An observer catalog entry is not a hop."""
+    return [node for node in nodes if node.role != "observer"]
+
+
 async def _list_remote_directory_map_nodes() -> DirectoryMapNodesResponse:
-    """GPS pins from Community or CoreScope. Empty when the directory is off."""
+    """GPS pins from Community. Empty when Community is off."""
     global _nodes_cache
     now = time.time()
-    cached = _cached_map_response(now, "community")
+    cached = _cached_map_response(now)
     if cached is not None:
         return cached
 
     first = await _fetch_community_nodes_page(0)
-    if first is not None:
-
-        async def _community_page(offset: int) -> tuple[list[DirectoryMapNode], int | None]:
-            if offset == 0:
-                return first
-            page = await _fetch_community_nodes_page(offset)
-            return page if page is not None else ([], None)
-
-        nodes, total = await _collect_map_node_pages(_community_page)
-        _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, "community", nodes, total)
-        return DirectoryMapNodesResponse(nodes=nodes, total=total)
-
-    settings = await AppSettingsRepository.get()
-    origin = (settings.directory_url or "").strip()
-    if not settings.directory_enabled or not origin:
+    if first is None:
         return DirectoryMapNodesResponse()
 
-    now = time.time()
-    cached = _cached_map_response(now, origin)
-    if cached is not None:
-        return cached
+    async def _community_page(offset: int) -> tuple[list[DirectoryMapNode], int | None]:
+        if offset == 0:
+            return first
+        page = await _fetch_community_nodes_page(offset)
+        return page if page is not None else ([], None)
 
-    async def _corescope_page(offset: int) -> tuple[list[DirectoryMapNode], int | None]:
-        return await _fetch_corescope_nodes_page(origin, offset)
-
-    nodes, total = await _collect_map_node_pages(_corescope_page)
-    _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, origin, nodes, total)
+    nodes, total = await _collect_map_node_pages(_community_page)
+    _nodes_cache = (now + NODES_CACHE_TTL_SECONDS, nodes, total)
     return DirectoryMapNodesResponse(nodes=nodes, total=total)
 
 
-async def list_directory_map_nodes(*, include_local: bool = False) -> DirectoryMapNodesResponse:
-    """GPS pins for every directory role. Local contacts only when include_local."""
+async def list_directory_map_nodes(
+    *,
+    include_local: bool = False,
+    include_observers: bool = True,
+) -> DirectoryMapNodesResponse:
+    """GPS pins for directory roles. Local contacts only when include_local."""
     remote = await _list_remote_directory_map_nodes()
-    if not include_local:
-        return remote
-    local = await list_local_gps_map_nodes()
-    nodes = merge_directory_and_local_nodes(remote.nodes, local)
-    extra = len(nodes) - len(remote.nodes)
-    if extra == 0:
-        return remote
+    nodes = remote.nodes if include_observers else drop_observer_nodes(remote.nodes)
     total = remote.total
-    if extra:
-        total = (total if total is not None else len(remote.nodes)) + extra
+    dropped = len(remote.nodes) - len(nodes)
+    if dropped and total is not None:
+        total = max(0, total - dropped)
+    if include_local:
+        local = await list_local_gps_map_nodes()
+        merged = merge_directory_and_local_nodes(nodes, local)
+        extra = len(merged) - len(nodes)
+        if extra:
+            total = (total if total is not None else len(nodes)) + extra
+        nodes = merged
     return DirectoryMapNodesResponse(nodes=nodes, total=total)
 
 
@@ -711,87 +570,7 @@ def validate_directory_pubkey(pubkey: str) -> str:
     return key
 
 
-async def _require_directory_origin() -> str | None:
-    settings = await AppSettingsRepository.get()
-    origin = (settings.directory_url or "").strip()
-    if not settings.directory_enabled or not origin:
-        return None
-    return origin
-
-
-async def _corescope_get_json(
-    origin: str,
-    path: str,
-    *,
-    timeout: float,
-    params: dict[str, str | int] | None = None,
-    empty_on_404: bool = False,
-) -> object | None:
-    """GET JSON from the saved CoreScope origin. HTTP 5xx/network is 500, never empty."""
-    url = f"{origin}{path}"
-    try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
-            response = await client.get(url, params=params)
-    except httpx.RequestError as exc:
-        logger.warning("CoreScope %s failed: %s", path, exc)
-        raise HTTPException(status_code=500, detail="CoreScope request failed") from exc
-    if response.status_code == 404 and empty_on_404:
-        return None
-    if response.status_code == 400:
-        raise HTTPException(status_code=400, detail="CoreScope rejected the request")
-    if response.status_code != 200:
-        logger.warning("CoreScope %s HTTP %s", path, response.status_code)
-        raise HTTPException(
-            status_code=500,
-            detail=f"CoreScope request failed (HTTP {response.status_code})",
-        )
-    content = getattr(response, "content", None)
-    if isinstance(content, (bytes, bytearray)) and len(content) > MAX_JSON_BYTES:
-        raise HTTPException(status_code=500, detail="CoreScope response too large")
-    try:
-        return response.json()
-    except ValueError as exc:
-        logger.warning("CoreScope %s returned non-JSON", path)
-        raise HTTPException(status_code=500, detail="CoreScope returned non-JSON") from exc
-
-
-async def _corescope_post_json(
-    origin: str,
-    path: str,
-    *,
-    timeout: float,
-    body: dict[str, object],
-    empty_on_404: bool = False,
-) -> object | None:
-    """POST JSON to the saved CoreScope origin. HTTP 5xx/network is 500, never empty."""
-    url = f"{origin}{path}"
-    try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
-            response = await client.post(url, json=body)
-    except httpx.RequestError as exc:
-        logger.warning("CoreScope %s failed: %s", path, exc)
-        raise HTTPException(status_code=500, detail="CoreScope request failed") from exc
-    if response.status_code == 404 and empty_on_404:
-        return None
-    if response.status_code == 400:
-        raise HTTPException(status_code=400, detail="CoreScope rejected the request")
-    if response.status_code != 200:
-        logger.warning("CoreScope %s HTTP %s", path, response.status_code)
-        raise HTTPException(
-            status_code=500,
-            detail=f"CoreScope request failed (HTTP {response.status_code})",
-        )
-    content = getattr(response, "content", None)
-    if isinstance(content, (bytes, bytearray)) and len(content) > MAX_JSON_BYTES:
-        raise HTTPException(status_code=500, detail="CoreScope response too large")
-    try:
-        return response.json()
-    except ValueError as exc:
-        logger.warning("CoreScope %s returned non-JSON", path)
-        raise HTTPException(status_code=500, detail="CoreScope returned non-JSON") from exc
-
-
-def parse_corescope_reach(payload: object, pubkey: str) -> DirectoryReachResponse:
+def parse_directory_reach(payload: object, pubkey: str) -> DirectoryReachResponse:
     """Keep documented reach fields: node GPS + 0-hop direct_observers."""
     if not isinstance(payload, dict):
         return DirectoryReachResponse(directory_enabled=True)
@@ -844,7 +623,7 @@ def parse_corescope_reach(payload: object, pubkey: str) -> DirectoryReachRespons
     return DirectoryReachResponse(node=node, observers=observers, directory_enabled=True)
 
 
-def parse_corescope_neighbors(payload: object) -> DirectoryNeighborsResponse:
+def parse_directory_neighbors(payload: object) -> DirectoryNeighborsResponse:
     if not isinstance(payload, dict):
         return DirectoryNeighborsResponse(directory_enabled=True)
     raw = payload.get("neighbors")
@@ -888,7 +667,7 @@ def parse_corescope_neighbors(payload: object) -> DirectoryNeighborsResponse:
     return DirectoryNeighborsResponse(neighbors=neighbors, directory_enabled=True)
 
 
-def parse_corescope_node_search(payload: object) -> DirectoryNodeSearchResponse:
+def parse_directory_node_search(payload: object) -> DirectoryNodeSearchResponse:
     if not isinstance(payload, dict):
         return DirectoryNodeSearchResponse(directory_enabled=True)
     raw = payload.get("nodes")
@@ -926,55 +705,17 @@ def parse_corescope_node_search(payload: object) -> DirectoryNodeSearchResponse:
 async def get_directory_node_reach(pubkey: str) -> DirectoryReachResponse:
     key = validate_directory_pubkey(pubkey)
     stats_data = await _community_directory_data(f"/v1/directory/nodes/{key}/reach")
-    if stats_data is not None:
-        return parse_corescope_reach(stats_data, key)
-    origin = await _require_directory_origin()
-    if origin is None:
+    if stats_data is None:
         return DirectoryReachResponse()
-    now = time.time()
-    cached = _reach_cache.get((origin, key), now)
-    if cached is not None:
-        return cached
-    payload = await _corescope_get_json(
-        origin,
-        f"/api/nodes/{key}/reach",
-        timeout=REACH_TIMEOUT_SECONDS,
-        empty_on_404=True,
-    )
-    result = (
-        DirectoryReachResponse(directory_enabled=True)
-        if payload is None
-        else parse_corescope_reach(payload, key)
-    )
-    _reach_cache.set((origin, key), result, now + REACH_CACHE_TTL_SECONDS, now)
-    return result
+    return parse_directory_reach(stats_data, key)
 
 
 async def get_directory_node_neighbors(pubkey: str) -> DirectoryNeighborsResponse:
     key = validate_directory_pubkey(pubkey)
     stats_data = await _community_directory_data(f"/v1/directory/nodes/{key}/neighbors")
-    if stats_data is not None:
-        return parse_corescope_neighbors(stats_data)
-    origin = await _require_directory_origin()
-    if origin is None:
+    if stats_data is None:
         return DirectoryNeighborsResponse()
-    now = time.time()
-    cached = _neighbors_cache.get((origin, key), now)
-    if cached is not None:
-        return cached
-    payload = await _corescope_get_json(
-        origin,
-        f"/api/nodes/{key}/neighbors",
-        timeout=NEIGHBORS_TIMEOUT_SECONDS,
-        empty_on_404=True,
-    )
-    result = (
-        DirectoryNeighborsResponse(directory_enabled=True)
-        if payload is None
-        else parse_corescope_neighbors(payload)
-    )
-    _neighbors_cache.set((origin, key), result, now + NEIGHBORS_CACHE_TTL_SECONDS, now)
-    return result
+    return parse_directory_neighbors(stats_data)
 
 
 async def search_directory_nodes(query: str) -> DirectoryNodeSearchResponse:
@@ -982,22 +723,6 @@ async def search_directory_nodes(query: str) -> DirectoryNodeSearchResponse:
     if not q:
         raise HTTPException(status_code=400, detail="Search query is required")
     stats_data = await _community_directory_data("/v1/directory/nodes/search", params={"q": q})
-    if stats_data is not None:
-        return parse_corescope_node_search(stats_data)
-    origin = await _require_directory_origin()
-    if origin is None:
+    if stats_data is None:
         return DirectoryNodeSearchResponse()
-    now = time.time()
-    cache_key = (origin, q.lower())
-    cached = _search_cache.get(cache_key, now)
-    if cached is not None:
-        return cached
-    payload = await _corescope_get_json(
-        origin,
-        "/api/nodes/search",
-        timeout=SEARCH_TIMEOUT_SECONDS,
-        params={"q": q},
-    )
-    result = parse_corescope_node_search(payload)
-    _search_cache.set(cache_key, result, now + SEARCH_CACHE_TTL_SECONDS, now)
-    return result
+    return parse_directory_node_search(stats_data)

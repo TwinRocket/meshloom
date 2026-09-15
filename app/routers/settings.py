@@ -110,14 +110,6 @@ class AppSettingsUpdate(BaseModel):
         le=3650,
         description="Automatic stale-contact purge in days (0 = disabled)",
     )
-    directory_enabled: bool | None = Field(
-        default=None,
-        description="Enable the opt-in CoreScope hop directory (off by default)",
-    )
-    directory_url: str | None = Field(
-        default=None,
-        description="CoreScope instance origin. Validated via GET /api/spec before persist.",
-    )
 
 
 class BlockKeyRequest(BaseModel):
@@ -313,35 +305,6 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     if update.stale_contact_days is not None:
         logger.info("Updating stale_contact_days to %d", update.stale_contact_days)
         kwargs["stale_contact_days"] = update.stale_contact_days
-
-    if update.directory_enabled is not None:
-        logger.info("Updating directory_enabled to %s", update.directory_enabled)
-        kwargs["directory_enabled"] = update.directory_enabled
-        if not update.directory_enabled:
-            from app.services.directory import reset_directory_nodes_cache
-
-            reset_directory_nodes_cache()
-
-    if update.directory_url is not None:
-        from app.repository.directory import DirectoryHopCacheRepository
-        from app.services.directory import (
-            normalize_directory_origin,
-            reset_directory_nodes_cache,
-            validate_corescope_spec,
-        )
-
-        try:
-            origin = normalize_directory_origin(update.directory_url)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if origin:
-            await validate_corescope_spec(origin)
-        current = await AppSettingsRepository.get()
-        if origin != (current.directory_url or ""):
-            await DirectoryHopCacheRepository.wipe()
-            reset_directory_nodes_cache()
-        logger.info("Updating directory_url to %r", origin)
-        kwargs["directory_url"] = origin
 
     # Flood scope
     flood_scope_changed = False

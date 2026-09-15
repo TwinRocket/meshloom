@@ -1,5 +1,5 @@
 import hashlib
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -9,7 +9,6 @@ from app.models import Message
 from app.path_utils import calculate_packet_hash, canonical_packet_hash
 from app.repository import (
     AmbiguousPublicKeyPrefixError,
-    AppSettingsRepository,
     MessageRepository,
     RawPacketRepository,
 )
@@ -20,7 +19,7 @@ from app.services.observer_reach import (
     hops_from_path_json,
     parse_batch_observations,
     parse_batch_reach,
-    parse_corescope_observers,
+    parse_directory_observers,
     parse_packet_observations,
     parse_packet_reach,
     path_from_path_json,
@@ -163,7 +162,7 @@ class TestObservationParsers:
         assert len(parsed["AABBCCDDEEFF0011"].observations) == 1
 
     def test_observers_join(self):
-        geos = parse_corescope_observers(
+        geos = parse_directory_observers(
             {
                 "observers": [
                     {
@@ -250,142 +249,51 @@ class TestObserverReachPersistence:
 
 class TestObserverReachGate:
     @pytest.mark.asyncio
-    async def test_directory_off_makes_no_http_call(self, test_db):
+    async def test_community_off_asks_nobody(self, test_db):
         reset_observer_reach_cache()
-        with patch("app.services.directory.httpx.AsyncClient") as mock_client:
-            result = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
-        assert result.directory_enabled is False
-        assert result.counts == {}
-        mock_client.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_batch_falls_back_when_instance_is_old(self, test_db):
-        reset_observer_reach_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        spec = MagicMock()
-        spec.status_code = 200
-        spec.json.return_value = {"openapi": "3.0.3", "paths": {}}
-        spec.content = b"{}"
-        packet = MagicMock()
-        packet.status_code = 200
-        packet.json.return_value = {
-            "observations": [{"observer_id": "obs-1", "observer_name": "Lyon", "path_json": []}]
-        }
-        packet.content = b"{}"
-        observers = MagicMock()
-        observers.status_code = 200
-        observers.json.return_value = {"observers": []}
-        observers.content = b"{}"
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=[spec, packet, observers])
-        mock_client.post = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            result = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
-
-        assert result.directory_enabled is True
-        assert result.counts["AABBCCDDEEFF0011"] == 1
-        assert result.sealed["AABBCCDDEEFF0011"] is False
-        mock_client.post.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_empty_batch_falls_back_to_packet_detail(self, test_db):
-        reset_observer_reach_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        spec = MagicMock()
-        spec.status_code = 200
-        spec.json.return_value = {
-            "openapi": "3.0.3",
-            "paths": {"/api/packets/observations": {"post": {}}},
-        }
-        spec.content = b"{}"
-        batch = MagicMock()
-        batch.status_code = 200
-        batch.json.return_value = {"results": {"aabbccddeeff0011": []}}
-        batch.content = b"{}"
-        packet = MagicMock()
-        packet.status_code = 200
-        packet.json.return_value = {
-            "observations": [{"observer_id": "obs-1", "observer_name": "Lyon", "path_json": []}]
-        }
-        packet.content = b"{}"
-        observers = MagicMock()
-        observers.status_code = 200
-        observers.json.return_value = {"observers": []}
-        observers.content = b"{}"
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=[spec, packet, observers])
-        mock_client.post = AsyncMock(return_value=batch)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            result = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
-
-        assert result.counts["AABBCCDDEEFF0011"] == 1
-        mock_client.post.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_corescope_5xx_is_not_zero(self, test_db):
-        reset_observer_reach_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        failed = MagicMock()
-        failed.status_code = 503
-        failed.content = b"down"
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=failed)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.services.directory.httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(HTTPException) as exc:
-                await get_packet_observer_reach("AABBCCDDEEFF0011")
-        assert exc.value.status_code == 500
+        with patch(
+            "app.services.directory._community_directory_data", new=AsyncMock()
+        ) as directory_data:
+            counts = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
+            detail = await get_packet_observer_reach("AABBCCDDEEFF0011")
+        assert counts.directory_enabled is False
+        assert counts.counts == {}
+        assert detail.directory_enabled is False
+        assert detail.observer_count == 0
+        directory_data.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_detail_includes_hop_path_and_origin(self, test_db):
         reset_observer_reach_cache()
-        await AppSettingsRepository.update(
-            directory_enabled=True, directory_url="https://corescope.test"
-        )
-        packet = MagicMock()
-        packet.status_code = 200
-        packet.json.return_value = {
-            "observations": [
-                {
-                    "observer_id": "obs-1",
-                    "observer_name": "Lyon",
-                    "snr": -4.5,
-                    "path_json": ["ab", "cd"],
-                }
-            ]
-        }
-        packet.content = b"{}"
-        observers = MagicMock()
-        observers.status_code = 200
-        observers.json.return_value = {
-            "observers": [{"id": "obs-1", "name": "Lyon", "lat": 45.75, "lon": 4.85}]
-        }
-        observers.content = b"{}"
+        from app.services.meshloom_community import update_community
 
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=[packet, observers])
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        await update_community(enabled=True, iata="LYS")
+
+        async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
+            if path.endswith("/observations"):
+                return {
+                    "results": {
+                        "AABBCCDDEEFF0011": {
+                            "observations": [
+                                {
+                                    "observer_id": "obs-1",
+                                    "observer_name": "Lyon",
+                                    "snr": -4.5,
+                                    "path_json": ["ab", "cd"],
+                                }
+                            ]
+                        }
+                    }
+                }
+            if path.endswith("/observers"):
+                return {"observers": [{"id": "obs-1", "name": "Lyon", "lat": 45.75, "lon": 4.85}]}
+            return {}
 
         with (
-            patch("app.services.directory.httpx.AsyncClient", return_value=mock_client),
+            patch(
+                "app.services.directory._community_directory_data",
+                side_effect=fake_data,
+            ),
             patch(
                 "app.services.observer_reach.resolve_origin_coords",
                 new=AsyncMock(return_value=(45.76, 4.83)),
