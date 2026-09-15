@@ -366,3 +366,15 @@ body {
 [data-platform='android'] .message-input-shell button[type='submit'] {
   border-radius: 9999px;
 }
+
+/* How tall a dialog may be.
+   Dialogs are centred, so whatever height they do not use is split equally above
+   and below. A ceiling that only subtracts padding lets a tall one reach into the
+   strip iOS draws its status bar over — the packet analyser's title and its close
+   control ended up there, blurred and out of reach, with no way to leave.
+   Twice the larger inset is subtracted rather than the sum, precisely because the
+   split is equal: taking the sum would clear the smaller inset and still leave the
+   bigger one covered. */
+.dialog-safe-height {
+  max-height: calc(100dvh - 2 * max(var(--safe-area-top), var(--safe-area-bottom)) - 2rem);
+}
