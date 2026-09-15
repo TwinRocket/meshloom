@@ -464,6 +464,7 @@ async def process_raw_packet(
         else None,
         transport_code=transport_code,
         region=region,
+        packet_hash=pkt_hash,
     )
     broadcast_event("raw_packet", broadcast_payload.model_dump())
 

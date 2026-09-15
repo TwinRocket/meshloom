@@ -10,12 +10,24 @@ import { LIVE_TYPE_COLORS } from '../utils/livePackets';
 import { osmDarkRasterStyle } from '../utils/mapTiles';
 import {
   LASER_CORE_WIDTH_MAX,
+  LASER_CORE_WIDTH_MIN,
+  LASER_GLOW_ALPHA,
   LASER_GLOW_WIDTH_SCALE,
   LIVE_PACKET_MS,
   LIVE_REMANENCE_MS,
+  LIVE_RIPPLE_MS,
+  LIVE_RIPPLE_SCALE,
   LIVE_ROLE_LEGEND,
   NODE_ROLE_STYLE,
   buildLaserPolyline,
+  drawableLaserPolyline,
+  laserRemanenceMs,
+  laserTravelMs,
+  localContactsToMapNodes,
+  mergeLocalOverDirectory,
+  pinVisualRadius,
+  placeableEdges,
+  rippleRadii,
   cloneLonLatPath,
   collectIataCodes,
   dashLonLat,
@@ -142,6 +154,9 @@ function observation(overrides: Partial<LiveObservation> = {}): LiveObservation 
       waypoint(45.7, 4.8, { confidence: 'exact', token: 'aa11' }),
       waypoint(46.2, 6.1, { confidence: 'probable', token: 'bb22', reason: 'nearest-advert' }),
     ],
+    routeKind: overrides.routeKind ?? 'flood',
+    advertPubkey: overrides.advertPubkey ?? null,
+    srcHash: overrides.srcHash ?? null,
   } as LiveObservation;
 }
 
@@ -241,16 +256,19 @@ describe('exact vs probable segments', () => {
 });
 
 describe('laser travel and remanence', () => {
-  it('animates a packet in 1–2 seconds regardless of hop count', () => {
-    expect(LIVE_PACKET_MS).toBeGreaterThanOrEqual(1000);
-    expect(LIVE_PACKET_MS).toBeLessThanOrEqual(2000);
-    expect(LIVE_PACKET_MS + LIVE_REMANENCE_MS).toBeLessThanOrEqual(2000);
-    expect(laserTravel(3, 0).headT).toBe(0);
-    expect(laserTravel(3, 0).finished).toBe(false);
-    expect(laserTravel(3, LIVE_PACKET_MS / 2).headT).toBeCloseTo(0.5);
-    expect(laserTravel(6, LIVE_PACKET_MS).finished).toBe(true);
-    expect(laserTravel(6, LIVE_PACKET_MS).headT).toBe(1);
-    expect(laserTravel(3, LIVE_PACKET_MS).finished).toBe(true);
+  it('scales travel and remanence from placeableEdges, 1400 ms at one point', () => {
+    expect(placeableEdges(1)).toBe(0);
+    expect(laserTravelMs(0)).toBe(1400);
+    expect(laserRemanenceMs(0)).toBe(400);
+    expect(laserTravelMs(1)).toBe(1850);
+    expect(laserTravelMs(20)).toBe(4000);
+    expect(laserRemanenceMs(20)).toBe(1400);
+    expect(LIVE_PACKET_MS).toBe(1400);
+    expect(LIVE_REMANENCE_MS).toBe(400);
+    expect(laserTravel(3, 0, 1850).headT).toBe(0);
+    expect(laserTravel(3, 925, 1850).headT).toBeCloseTo(0.5);
+    expect(laserTravel(1, 1399, 1400).finished).toBe(false);
+    expect(laserTravel(1, 1400, 1400).finished).toBe(true);
   });
 
   it('interpolates along the polyline in lon/lat order', () => {
@@ -356,21 +374,24 @@ describe('stroke, color, and node/ear encoding', () => {
     }
   });
 
-  it('draws a ~1px laser core with a halo no more than twice as wide', () => {
-    expect(laserWidth(0)).toBeLessThanOrEqual(LASER_CORE_WIDTH_MAX);
-    expect(laserWidth(1)).toBeLessThanOrEqual(LASER_CORE_WIDTH_MAX);
-    expect(laserWidth(1)).toBeGreaterThanOrEqual(0.8);
-    expect(LASER_GLOW_WIDTH_SCALE).toBeLessThanOrEqual(2);
-    expect(laserGlowWidth(laserWidth(1))).toBeLessThanOrEqual(laserWidth(1) * 2);
+  it('draws a 2.0–2.8 neon core with a 3.25× / 0.48 glow', () => {
+    expect(LASER_CORE_WIDTH_MIN).toBe(2.0);
+    expect(LASER_CORE_WIDTH_MAX).toBe(2.8);
+    expect(laserWidth(0)).toBe(2.0);
+    expect(laserWidth(1)).toBe(2.8);
+    expect(LASER_GLOW_WIDTH_SCALE).toBe(3.25);
+    expect(LASER_GLOW_ALPHA).toBe(0.48);
+    expect(laserGlowWidth(laserWidth(1))).toBeCloseTo(2.8 * 3.25);
     const head = laserHeadRadii(laserWidth(1));
-    expect(head.halo).toBeLessThanOrEqual(3);
-    expect(head.core).toBeLessThanOrEqual(1.5);
+    expect(head.halo).toBeCloseTo(3.4 + 2.8 * 0.35);
+    expect(head.core).toBeCloseTo(1.7 + 2.8 * 0.15);
   });
 
   it('uses OSM raster tiles instead of CARTO Dark Matter', () => {
     const encoded = JSON.stringify(osmDarkRasterStyle());
     expect(encoded).toContain('openstreetmap');
     expect(encoded).not.toMatch(/carto/i);
+    expect(encoded).toContain('#05070a');
   });
 
   it('keeps one visual for your own radio and none for community ears', () => {
@@ -429,6 +450,107 @@ describe('camera and spawn policy', () => {
     );
     expect(poly.points).toEqual([[7.17, 43.76]]);
     expect(poly.edgeConfidence).toEqual([]);
+  });
+
+  it('does not draw remaining-path hops for DIRECT or unknown route kinds', () => {
+    const hops = observation({
+      routeKind: 'direct',
+      waypoints: [
+        waypoint(45.7, 4.8, { kind: 'hop', token: 'aa11' }),
+        waypoint(46.2, 6.1, { kind: 'ear', token: 'ear' }),
+      ],
+    });
+    expect(drawableLaserPolyline(hops, 'direct').points).toEqual([[6.1, 46.2]]);
+    expect(drawableLaserPolyline(hops, 'unknown').points).toEqual([[6.1, 46.2]]);
+    expect(drawableLaserPolyline(hops, 'flood').points).toHaveLength(2);
+  });
+});
+
+describe('contacts overlay and ripples', () => {
+  it('merges local contacts over directory and hides session tombstones', () => {
+    const directory = [
+      {
+        public_key: 'AA'.repeat(32),
+        name: 'Catalog',
+        role: 'repeater' as const,
+        lat: 45.7,
+        lon: 4.8,
+        source: 'community-db' as const,
+      },
+      {
+        public_key: 'bb'.repeat(32),
+        name: 'Backdrop',
+        role: 'companion' as const,
+        lat: 46.2,
+        lon: 6.1,
+        source: 'community-db' as const,
+      },
+    ];
+    const local = localContactsToMapNodes([
+      {
+        public_key: 'aa'.repeat(32),
+        name: 'LocalWin',
+        type: 2,
+        flags: 0,
+        direct_path: null,
+        direct_path_len: -1,
+        direct_path_hash_mode: 0,
+        last_advert: null,
+        lat: 45.71,
+        lon: 4.81,
+        last_seen: null,
+        on_radio: false,
+        favorite: false,
+        last_contacted: null,
+        last_read_at: null,
+        first_seen: null,
+      },
+    ]);
+    const merged = mergeLocalOverDirectory(directory, local, new Set());
+    expect(merged.map((node) => node.public_key)).toEqual(['aa'.repeat(32), 'bb'.repeat(32)]);
+    expect(merged[0].name).toBe('LocalWin');
+    expect(merged[0].lat).toBe(45.71);
+    const tombstoned = mergeLocalOverDirectory(directory, [], new Set(['aa'.repeat(32)]));
+    expect(tombstoned.map((node) => node.public_key)).toEqual(['bb'.repeat(32)]);
+  });
+
+  it('drops blocked contacts from the overlay and never upserts hops', () => {
+    const blocked = localContactsToMapNodes(
+      [
+        {
+          public_key: 'cc'.repeat(32),
+          name: 'Blocked',
+          type: 1,
+          flags: 0,
+          direct_path: null,
+          direct_path_len: -1,
+          direct_path_hash_mode: 0,
+          last_advert: null,
+          lat: 45.1,
+          lon: 4.1,
+          last_seen: null,
+          on_radio: false,
+          favorite: false,
+          last_contacted: null,
+          last_read_at: null,
+          first_seen: null,
+        },
+      ],
+      ['cc'.repeat(32)],
+      []
+    );
+    expect(blocked).toEqual([]);
+  });
+
+  it('grows a type-colored ring to 4× the visual pin in 700–800 ms', () => {
+    expect(LIVE_RIPPLE_SCALE).toBe(4);
+    expect(LIVE_RIPPLE_MS).toBeGreaterThanOrEqual(700);
+    expect(LIVE_RIPPLE_MS).toBeLessThanOrEqual(800);
+    const start = rippleRadii(4.4, 0);
+    const end = rippleRadii(4.4, 1);
+    expect(start.radius).toBeCloseTo(pinVisualRadius(4.4));
+    expect(end.radius).toBeCloseTo(pinVisualRadius(4.4) * 4);
+    expect(end.lineAlpha).toBe(0);
   });
 });
 

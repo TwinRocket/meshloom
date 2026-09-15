@@ -509,6 +509,10 @@ class RawPacketBroadcast(BaseModel):
         default=None,
         description="Resolved region name for the transport code, if it matched a known region",
     )
+    packet_hash: str | None = Field(
+        default=None,
+        description="Firmware packet hash (16 hex uppercase SHA-256). Used by #live hash8 grouping.",
+    )
 
 
 class RawPacketDetail(BaseModel):

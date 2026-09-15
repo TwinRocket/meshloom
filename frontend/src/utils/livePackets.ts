@@ -8,12 +8,12 @@ import type {
   RadioConfig,
   RawPacket,
 } from '../types';
-import { isValidLocation, MIN_NAMED_HOP_HEX_CHARS } from './pathUtils';
-import { hashString } from './contactAvatar';
+import { calculateDistance, isValidLocation, MIN_NAMED_HOP_HEX_CHARS } from './pathUtils';
 import { getPacketLabel, parsePacket } from './visualizerUtils';
 
-export const LIVE_STAGGER_MS = 150;
 export const LIVE_DIM_AFTER_MS = 5 * 60 * 1000;
+/** Unique 1-byte srcHash may name A only inside this radius of the path anchor. */
+export const LIVE_ORIGIN_ANCHOR_KM = 20;
 export const LIVE_COMMUNITY_SCHEMA = 2;
 export const LIVE_PACKET_TYPES: readonly CommunityPacketType[] = [
   'advert',
@@ -54,17 +54,19 @@ export function writeSavedMapCamera(storageKey: string, camera: SavedMapCamera):
   }
 }
 
-/** Packet-type palette. Must stay disjoint from NODE_ROLE_STYLE (no shared #f59e0b). */
+/** Packet-type palette. Must stay disjoint from NODE_ROLE_STYLE (no shared #f59e0b).
+ *  Trace is #a78bfa so it does not collide with LOCAL_RADIO_VISUAL. */
 export const LIVE_TYPE_COLORS: Record<CommunityPacketType, string> = {
-  advert: '#fbbf24',
-  text: '#22d3ee',
-  ack: '#4ade80',
-  trace: '#c084fc',
+  advert: '#fde047',
+  text: '#22f0ff',
+  ack: '#39ff88',
+  trace: '#a78bfa',
   other: '#78716c',
 };
 
 export type LiveSource = 'local' | 'community';
 export type LiveHopConfidence = 'exact' | 'probable' | 'unresolved';
+export type LiveRouteKind = 'flood' | 'direct' | 'unknown';
 
 export interface LiveWaypoint {
   lat: number;
@@ -74,6 +76,7 @@ export interface LiveWaypoint {
   confidence: LiveHopConfidence;
   reason?: string;
   label?: string;
+  pubkey?: string;
 }
 
 export interface LiveEar {
@@ -93,6 +96,9 @@ export interface LiveObservation {
   earId: string;
   ear: LiveEar | null;
   waypoints: LiveWaypoint[];
+  routeKind: LiveRouteKind;
+  advertPubkey: string | null;
+  srcHash: string | null;
 }
 
 export function isCommunityPacketType(value: unknown): value is CommunityPacketType {
@@ -186,10 +192,98 @@ export function packetTypeFromRaw(payloadType: number): CommunityPacketType {
   }
 }
 
+const FIRMWARE_HASH_RE = /^[0-9a-fA-F]{8,}$/;
+
+/** Prefer the firmware SHA-256 the backend already computed. Decoder djb2 is fallback only. */
 export function hash8FromRaw(packet: RawPacket): string {
+  const firmware = packet.packet_hash?.trim();
+  if (firmware && FIRMWARE_HASH_RE.test(firmware) && firmware !== '0'.repeat(firmware.length)) {
+    return firmware.slice(0, 8).toLowerCase();
+  }
   const parsed = parsePacket(packet.data);
-  const raw = parsed?.messageHash || hashString(packet.data).toString(16).padStart(8, '0');
+  const raw = parsed?.messageHash || '00000000';
   return raw.slice(0, 8).toLowerCase();
+}
+
+/** TRANSPORT_FLOOD/FLOOD (0/1) vs DIRECT/TRANSPORT_DIRECT (2/3). */
+export function routeKindFromRawHex(data: string): LiveRouteKind {
+  const hex = data.trim();
+  if (hex.length < 2) return 'unknown';
+  const header = Number.parseInt(hex.slice(0, 2), 16);
+  if (!Number.isFinite(header)) return 'unknown';
+  const routeType = header & 0x03;
+  if (routeType === 0x00 || routeType === 0x01) return 'flood';
+  if (routeType === 0x02 || routeType === 0x03) return 'direct';
+  return 'unknown';
+}
+
+export function mergeRouteKind(a: LiveRouteKind, b: LiveRouteKind): LiveRouteKind {
+  if (a === b) return a;
+  if (a === 'unknown') return b;
+  if (b === 'unknown') return a;
+  return 'unknown';
+}
+
+export interface LiveOriginPin {
+  public_key: string;
+  lat: number;
+  lon: number;
+}
+
+function pinKey(node: { public_key: string }): string {
+  return node.public_key.trim().toLowerCase();
+}
+
+export function findPinByKey(
+  key: string | null | undefined,
+  pins: ReadonlyArray<LiveOriginPin>
+): LiveOriginPin | null {
+  if (!key) return null;
+  const needle = key.trim().toLowerCase();
+  if (!needle) return null;
+  const matches = pins.filter((pin) => pinKey(pin) === needle || pinKey(pin).startsWith(needle));
+  if (needle.length >= 16) {
+    const exact = pins.find((pin) => pinKey(pin) === needle);
+    return exact ?? null;
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function firstHopAnchor(obs: LiveObservation): { lat: number; lon: number } | null {
+  for (const point of obs.waypoints) {
+    if (point.kind === 'hop' && isValidLocation(point.lat, point.lon)) {
+      return { lat: point.lat, lon: point.lon };
+    }
+  }
+  if (obs.ear && isValidLocation(obs.ear.lat, obs.ear.lon)) {
+    return { lat: obs.ear.lat, lon: obs.ear.lon };
+  }
+  return null;
+}
+
+/**
+ * A is before the first hop. Advert = signed key. Message = 1-byte srcHash plus
+ * exactly one pin within 20 km of the first hop GPS (or the ear if there is no hop).
+ * 0 or 2+ candidates → no origin. Never `contact_key`.
+ */
+export function resolveOriginPin(
+  obs: Pick<LiveObservation, 'advertPubkey' | 'srcHash' | 'waypoints' | 'ear'>,
+  pins: ReadonlyArray<LiveOriginPin>
+): LiveOriginPin | null {
+  if (obs.advertPubkey) {
+    const advert = findPinByKey(obs.advertPubkey, pins);
+    if (advert) return advert;
+  }
+  const src = obs.srcHash?.trim().toLowerCase() ?? '';
+  if (src.length !== 2) return null;
+  const anchor = firstHopAnchor(obs as LiveObservation);
+  if (!anchor) return null;
+  const nearby = pins.filter((pin) => {
+    if (!pinKey(pin).startsWith(src)) return false;
+    const km = calculateDistance(anchor.lat, anchor.lon, pin.lat, pin.lon);
+    return km != null && km <= LIVE_ORIGIN_ANCHOR_KM;
+  });
+  return nearby.length === 1 ? nearby[0] : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -359,6 +453,7 @@ export function waypointsFromCommunity(packet: CommunityPacket): LiveWaypoint[] 
       confidence,
       reason,
       label: hop.name,
+      ...(hop.pubkey ? { pubkey: hop.pubkey } : {}),
     });
     skippedUnresolved = false;
   }
@@ -399,6 +494,7 @@ export function waypointsFromRaw(
         confidence,
         reason: skippedUnresolved ? 'skipped_unresolved' : undefined,
         label: contact.name ?? undefined,
+        pubkey: contact.public_key,
       });
       skippedUnresolved = false;
     } else {
@@ -427,6 +523,9 @@ export function observationFromCommunity(packet: CommunityPacket): LiveObservati
     earId: frame.ear_id,
     ear,
     waypoints: waypointsFromCommunity(frame),
+    routeKind: 'unknown',
+    advertPubkey: null,
+    srcHash: null,
   };
 }
 
@@ -454,6 +553,9 @@ export function observationFromRaw(
     earId,
     ear,
     waypoints: waypointsFromRaw(packet, prefixIndex, ear, earId),
+    routeKind: routeKindFromRawHex(packet.data),
+    advertPubkey: parsed.advertPubkey,
+    srcHash: parsed.srcHash,
   };
 }
 

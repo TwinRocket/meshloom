@@ -4,11 +4,14 @@ import type { CommunityPacket, Contact, RadioConfig, RawPacket } from '../types'
 import {
   asCommunityPacket,
   buildPrefixIndex,
+  hash8FromRaw,
   isOneByteHopToken,
   liveOpacity,
   liveTypeColor,
   observationFromCommunity,
   observationFromRaw,
+  resolveOriginPin,
+  routeKindFromRawHex,
   uniqueGpsContact,
   waypointsFromCommunity,
   waypointsFromRaw,
@@ -180,10 +183,10 @@ describe('community waypoints', () => {
   });
 
   it('keeps legend colors on the observation type', () => {
-    expect(liveTypeColor('advert')).toBe('#fbbf24');
-    expect(liveTypeColor('text')).toBe('#22d3ee');
-    expect(liveTypeColor('ack')).toBe('#4ade80');
-    expect(liveTypeColor('trace')).toBe('#c084fc');
+    expect(liveTypeColor('advert')).toBe('#fde047');
+    expect(liveTypeColor('text')).toBe('#22f0ff');
+    expect(liveTypeColor('ack')).toBe('#39ff88');
+    expect(liveTypeColor('trace')).toBe('#a78bfa');
     expect(liveTypeColor('other')).toBe('#78716c');
     expect(observationFromCommunity(packet())?.type).toBe('ack');
   });
@@ -334,5 +337,80 @@ describe('probable confidence survives observation building', () => {
     const hop = cdg.waypoints.find((point) => point.kind === 'hop');
     expect(hop?.confidence).toBe('probable');
     expect(hop?.reason).toBe('geo_filtered');
+  });
+});
+
+describe('firmware hash8 and origin resolution', () => {
+  it('reads hash8 from firmware packet_hash, not the decoder djb2', () => {
+    const packet: RawPacket = {
+      id: 1,
+      timestamp: Date.now(),
+      data: '1100dead',
+      payload_type: 'ADVERT',
+      snr: null,
+      rssi: null,
+      decrypted: false,
+      decrypted_info: null,
+      packet_hash: '19D68FE91E75C7DE',
+    };
+    expect(hash8FromRaw(packet)).toBe('19d68fe9');
+    expect(routeKindFromRawHex('1100dead')).toBe('flood');
+    expect(routeKindFromRawHex('1200dead')).toBe('direct');
+  });
+
+  it('resolves A from advertPubkey or a unique 20 km srcHash pin, never contact_key', () => {
+    const pin = {
+      public_key: 'ab'.repeat(32),
+      lat: 45.76,
+      lon: 4.84,
+    };
+    const far = { public_key: 'cd'.repeat(32), lat: 48.8, lon: 2.3 };
+    expect(
+      resolveOriginPin(
+        {
+          advertPubkey: 'ab'.repeat(32),
+          srcHash: null,
+          waypoints: [],
+          ear: null,
+        },
+        [pin]
+      )?.public_key
+    ).toBe(pin.public_key);
+    expect(
+      resolveOriginPin(
+        {
+          advertPubkey: null,
+          srcHash: 'ab',
+          waypoints: [{ lat: 45.76, lon: 4.84, token: 'fe10', kind: 'hop', confidence: 'exact' }],
+          ear: null,
+        },
+        [pin]
+      )?.public_key
+    ).toBe(pin.public_key);
+    expect(
+      resolveOriginPin(
+        {
+          advertPubkey: null,
+          srcHash: 'ab',
+          waypoints: [{ lat: 45.76, lon: 4.84, token: 'fe10', kind: 'hop', confidence: 'exact' }],
+          ear: null,
+        },
+        [pin, { ...pin, public_key: 'ab'.repeat(16) + '11'.repeat(16) }]
+      )
+    ).toBeNull();
+    expect(
+      resolveOriginPin(
+        {
+          advertPubkey: null,
+          srcHash: 'ab',
+          waypoints: [],
+          ear: { lat: 48.8, lon: 2.3, source: 'local' },
+        },
+        [pin, far]
+      )
+    ).toBeNull();
+    expect(observationFromCommunity(packet())?.advertPubkey).toBeNull();
+    expect(observationFromCommunity(packet())?.srcHash).toBeNull();
+    expect(observationFromCommunity(packet())?.routeKind).toBe('unknown');
   });
 });
