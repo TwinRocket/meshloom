@@ -1,6 +1,6 @@
 """CoreScope directory hop resolver: 1-byte reject, opt-in no-op, cache, SSRF."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -360,9 +360,7 @@ class TestParseCorescopeMapNodes:
         )
         assert total == 1
         assert nodes[0].source == "community-db"
-        assert nodes[0].last_seen == int(
-            datetime(2026, 9, 15, 3, 0, tzinfo=timezone.utc).timestamp()
-        )
+        assert nodes[0].last_seen == int(datetime(2026, 9, 15, 3, 0, tzinfo=UTC).timestamp())
 
     def test_community_default_source_without_payload_field(self):
         nodes, _total = parse_corescope_map_nodes(

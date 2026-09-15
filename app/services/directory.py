@@ -8,7 +8,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -463,7 +463,7 @@ def _as_unix_timestamp(value: object) -> int | None:
         except ValueError:
             return None
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         parsed = int(dt.timestamp())
         return parsed if parsed > 0 else None
     return None
