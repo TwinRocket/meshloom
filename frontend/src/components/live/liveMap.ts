@@ -239,6 +239,11 @@ export class LiveMapController {
   private geometryNodes: DirectoryMapNode[] = [];
   private localRadio: LocalRadioMarker | null = null;
   private localRadioConfig: RadioConfig | null = null;
+  /** last_seen is omitted so telemetry churn does not re-upload static pins. */
+  private nodeFingerprint = '';
+  private localFingerprint = '';
+  private nodeRevision = 0;
+  private localRevision = 0;
 
   private glowSprites: PathSprite[] = [];
   private coreSprites: PathSprite[] = [];
@@ -357,12 +362,14 @@ export class LiveMapController {
       this.localRadioConfig = null;
       this.localRadio = null;
     }
+    this.syncLocalSprites();
     this.draw();
   }
 
   setDirectoryNodes(nodes: DirectoryMapNode[]): void {
     this.geometryNodes = geometryDirectoryNodes(nodes);
     this.nodes = mappableDirectoryNodes(this.geometryNodes);
+    this.syncNodeSprites();
     this.maybeFitNodes();
     this.draw();
   }
@@ -740,6 +747,62 @@ export class LiveMapController {
     writeLiveCamera({ lat: center.lat, lon: center.lng, zoom: this.map.getZoom() });
   }
 
+  private directoryPinFingerprint(nodes: readonly DirectoryMapNode[]): string {
+    return nodes
+      .map((node) => `${node.public_key}|${node.lat}|${node.lon}|${node.role}|${node.name}`)
+      .sort()
+      .join('\n');
+  }
+
+  private localRadioPinFingerprint(radio: LocalRadioMarker | null): string {
+    return radio ? `${radio.id}|${radio.lat}|${radio.lon}` : '';
+  }
+
+  private syncNodeSprites(): void {
+    const fingerprint = this.directoryPinFingerprint(this.nodes);
+    if (fingerprint === this.nodeFingerprint) return;
+    this.nodeFingerprint = fingerprint;
+    let nodeCount = 0;
+    for (const node of this.nodes) {
+      const style = nodeRoleStyle(node.role);
+      nodeCount = this.emitPoint(
+        this.nodeSprites,
+        nodeCount,
+        node.public_key,
+        [node.lon, node.lat],
+        hexToRgba(style.color, 0.88),
+        hexToRgba('#020617', 0.7),
+        style.radius,
+        { kind: 'node', name: node.name, role: normalizeDirectoryRole(node.role), x: 0, y: 0 },
+        style.shape
+      );
+    }
+    this.nodeSprites.length = nodeCount;
+    this.nodeRevision += 1;
+  }
+
+  private syncLocalSprites(): void {
+    const fingerprint = this.localRadioPinFingerprint(this.localRadio);
+    if (fingerprint === this.localFingerprint) return;
+    this.localFingerprint = fingerprint;
+    if (!this.localRadio) {
+      this.localSprites.length = 0;
+    } else {
+      this.emitPoint(
+        this.localSprites,
+        0,
+        this.localRadio.id,
+        [this.localRadio.lon, this.localRadio.lat],
+        hexToRgba(LOCAL_RADIO_VISUAL.color, LOCAL_RADIO_VISUAL.opacity),
+        hexToRgba(LOCAL_RADIO_VISUAL.ring, 0.85),
+        LOCAL_RADIO_VISUAL.radius,
+        { kind: 'local', x: 0, y: 0 }
+      );
+      this.localSprites.length = 1;
+    }
+    this.localRevision += 1;
+  }
+
   private maybeFitNodes(): void {
     if (!this.map || this.fitted || !shouldAutoFitCamera(this.userMoved, this.nodes.length)) {
       return;
@@ -1015,38 +1078,6 @@ export class LiveMapController {
     this.shots = nextShots;
     this.drainPendingShots(now);
 
-    let nodeCount = 0;
-    for (const node of this.nodes) {
-      const style = nodeRoleStyle(node.role);
-      const fill = hexToRgba(style.color, 0.88);
-      const line = hexToRgba('#020617', 0.7);
-      nodeCount = this.emitPoint(
-        this.nodeSprites,
-        nodeCount,
-        node.public_key,
-        [node.lon, node.lat],
-        fill,
-        line,
-        style.radius,
-        { kind: 'node', name: node.name, role: normalizeDirectoryRole(node.role), x: 0, y: 0 },
-        style.shape
-      );
-    }
-
-    let localCount = 0;
-    if (this.localRadio) {
-      localCount = this.emitPoint(
-        this.localSprites,
-        localCount,
-        this.localRadio.id,
-        [this.localRadio.lon, this.localRadio.lat],
-        hexToRgba(LOCAL_RADIO_VISUAL.color, LOCAL_RADIO_VISUAL.opacity),
-        hexToRgba(LOCAL_RADIO_VISUAL.ring, 0.85),
-        LOCAL_RADIO_VISUAL.radius,
-        { kind: 'local', x: 0, y: 0 }
-      );
-    }
-
     const nextRipples: RippleSprite[] = [];
     for (const ripple of this.ripples) {
       const age = now - ripple.startedAt;
@@ -1068,8 +1099,6 @@ export class LiveMapController {
 
     this.glowSprites.length = glowCount;
     this.coreSprites.length = coreCount;
-    this.nodeSprites.length = nodeCount;
-    this.localSprites.length = localCount;
     this.headSprites.length = headCount;
     this.rippleSprites.length = rippleCount;
 
@@ -1078,7 +1107,7 @@ export class LiveMapController {
       layers: [
         new IconLayer<PointSprite>({
           id: 'live-nodes',
-          data: this.nodeSprites.slice(),
+          data: this.nodeSprites,
           pickable: true,
           opacity: 1,
           iconAtlas: ROLE_ICONS.atlas,
@@ -1089,10 +1118,10 @@ export class LiveMapController {
           getSize: (d) => d.radius * 2.4,
           sizeUnits: 'pixels',
           updateTriggers: {
-            getPosition: trigger,
-            getColor: trigger,
-            getSize: trigger,
-            getIcon: trigger,
+            getPosition: this.nodeRevision,
+            getColor: this.nodeRevision,
+            getSize: this.nodeRevision,
+            getIcon: this.nodeRevision,
           },
         }),
         new ScatterplotLayer<PointSprite>({
@@ -1140,7 +1169,7 @@ export class LiveMapController {
         }),
         new ScatterplotLayer<PointSprite>({
           id: 'live-local-radio',
-          data: this.localSprites.slice(),
+          data: this.localSprites,
           pickable: true,
           stroked: true,
           filled: true,
@@ -1151,7 +1180,11 @@ export class LiveMapController {
           getLineColor: (d) => d.line,
           getRadius: (d) => d.radius,
           getLineWidth: 1.4,
-          updateTriggers: { getPosition: trigger, getFillColor: trigger, getRadius: trigger },
+          updateTriggers: {
+            getPosition: this.localRevision,
+            getFillColor: this.localRevision,
+            getRadius: this.localRevision,
+          },
         }),
         new ScatterplotLayer<PointSprite>({
           id: 'live-laser-heads',

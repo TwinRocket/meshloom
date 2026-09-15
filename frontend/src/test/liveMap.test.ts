@@ -10,11 +10,14 @@ import {
   MAX_LIVE_CATCHUP,
   MAX_PENDING_ANIMS,
 } from '../components/live/liveRender';
-import type { CommunityPacketType, RadioConfig } from '../types';
+import type { CommunityPacketType, DirectoryMapNode, RadioConfig } from '../types';
 import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
 
-const { FakeMap } = vi.hoisted(() => {
+const { FakeMap, maps, overlays } = vi.hoisted(() => {
+  const maps: Array<{ fireLoad: () => void }> = [];
+  const overlays: Array<{ setProps: ReturnType<typeof vi.fn> }> = [];
   class FakeMap {
+    static autoLoad = true;
     handlers = new Map<string, Array<(...args: unknown[]) => void>>();
     addControl = vi.fn();
     removeControl = vi.fn();
@@ -23,15 +26,21 @@ const { FakeMap } = vi.hoisted(() => {
     fitBounds = vi.fn();
     getCenter = () => ({ lat: 46.2, lng: 5.2 });
     getZoom = () => 6;
+    constructor() {
+      maps.push(this);
+    }
+    fireLoad() {
+      for (const cb of this.handlers.get('load') ?? []) cb();
+    }
     on(event: string, cb: (...args: unknown[]) => void) {
       const list = this.handlers.get(event) ?? [];
       list.push(cb);
       this.handlers.set(event, list);
-      if (event === 'load') queueMicrotask(() => cb());
+      if (event === 'load' && FakeMap.autoLoad) queueMicrotask(() => cb());
     }
     off() {}
   }
-  return { FakeMap };
+  return { FakeMap, maps, overlays };
 });
 
 vi.mock('maplibre-gl', () => {
@@ -50,7 +59,9 @@ vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('@deck.gl/mapbox', () => ({
   MapboxOverlay: class {
     setProps = vi.fn();
-    constructor(_props: unknown) {}
+    constructor(_props: unknown) {
+      overlays.push(this);
+    }
   },
 }));
 
@@ -107,6 +118,33 @@ function observation(overrides: Partial<LiveObservation> = {}): LiveObservation 
   };
 }
 
+type LayerProps = {
+  id: string;
+  data: unknown[];
+  updateTriggers?: Record<string, unknown>;
+};
+
+function lastLayer(id: string): LayerProps | undefined {
+  const overlay = overlays[overlays.length - 1];
+  const calls = overlay?.setProps.mock.calls ?? [];
+  const last = calls[calls.length - 1]?.[0] as
+    | { layers?: Array<{ props: LayerProps }> }
+    | undefined;
+  return last?.layers?.find((layer) => layer.props.id === id)?.props;
+}
+
+function directoryNode(overrides: Partial<DirectoryMapNode> = {}): DirectoryMapNode {
+  return {
+    public_key: overrides.public_key ?? 'cc'.repeat(32),
+    name: overrides.name ?? 'Pin',
+    role: overrides.role ?? 'companion',
+    lat: overrides.lat ?? 45.76,
+    lon: overrides.lon ?? 4.84,
+    source: overrides.source ?? 'community-db',
+    last_seen: overrides.last_seen,
+  };
+}
+
 function radioConfig(overrides: Partial<RadioConfig> = {}): RadioConfig {
   return {
     public_key: overrides.public_key ?? 'aa'.repeat(32),
@@ -135,6 +173,9 @@ describe('LiveMapController', () => {
   afterEach(() => {
     for (const engine of engines) engine.destroy();
     engines.length = 0;
+    FakeMap.autoLoad = true;
+    maps.length = 0;
+    overlays.length = 0;
   });
 
   it('holds a 1-point flash until travel ends and actually draws the head', async () => {
@@ -602,5 +643,83 @@ describe('LiveMapController', () => {
     expect(engine.getShotSnapshots().length).toBeLessThan(arrivals / 2);
     expect(engine.droppedPendingCount()).toBe(0);
     expect(engine.pendingAnimCount()).toBe(0);
+  });
+
+  it('keeps live-nodes data reference and triggers across draws without a pin change', async () => {
+    let t = 60_000;
+    const engine = await readyController(() => t);
+    engines.push(engine);
+    engine.setDirectoryNodes([directoryNode()]);
+    const first = lastLayer('live-nodes');
+    expect(first?.data.length).toBeGreaterThan(0);
+
+    t += 16;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    const second = lastLayer('live-nodes');
+    expect(second?.data).toBe(first?.data);
+    expect(second?.updateTriggers?.getPosition).toBe(first?.updateTriggers?.getPosition);
+    expect(second?.data.length).toBe(first?.data.length);
+    expect(second?.data.length).toBeGreaterThan(0);
+  });
+
+  it('ignores last_seen churn when the pin fingerprint is unchanged', async () => {
+    const engine = await readyController(() => 61_000);
+    engines.push(engine);
+    const pin = directoryNode({ last_seen: 1_700_000_000 });
+    engine.setDirectoryNodes([pin]);
+    const first = lastLayer('live-nodes');
+
+    engine.setDirectoryNodes([{ ...pin, last_seen: 1_800_000_000 }]);
+    const second = lastLayer('live-nodes');
+    expect(second?.data).toBe(first?.data);
+    expect(second?.updateTriggers?.getPosition).toBe(first?.updateTriggers?.getPosition);
+    expect(second?.data.length).toBe(first?.data.length);
+  });
+
+  it('rebuilds live-nodes when a pin is removed or moved', async () => {
+    const engine = await readyController(() => 62_000);
+    engines.push(engine);
+    const stay = directoryNode({ public_key: 'aa'.repeat(32), name: 'Stay' });
+    const leave = directoryNode({
+      public_key: 'bb'.repeat(32),
+      name: 'Leave',
+      lat: 46.1,
+      lon: 6.1,
+    });
+    engine.setDirectoryNodes([stay, leave]);
+    const first = lastLayer('live-nodes');
+    expect(first?.data.length).toBe(2);
+
+    engine.setDirectoryNodes([{ ...stay, lat: 46.2, lon: 6.2 }]);
+    const second = lastLayer('live-nodes');
+    expect(second?.data.length).toBe(1);
+    expect((second?.data[0] as { position: [number, number] }).position).toEqual([6.2, 46.2]);
+    expect(second?.updateTriggers?.getPosition).not.toBe(first?.updateTriggers?.getPosition);
+  });
+
+  it('clears live-local-radio after setLocalRadio(null)', async () => {
+    const engine = await readyController(() => 63_000);
+    engines.push(engine);
+    engine.setLocalRadio(radioConfig());
+    expect(lastLayer('live-local-radio')?.data.length).toBe(1);
+
+    engine.setLocalRadio(null);
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    const local = lastLayer('live-local-radio');
+    expect(local?.data.length).toBe(0);
+  });
+
+  it('shows pins set before map load on the first ready draw', async () => {
+    FakeMap.autoLoad = false;
+    const host = document.createElement('div');
+    const engine = new LiveMapController(host, { now: () => 64_000 });
+    engines.push(engine);
+    engine.setDirectoryNodes([directoryNode()]);
+    expect(lastLayer('live-nodes')).toBeUndefined();
+
+    maps[maps.length - 1]?.fireLoad();
+    const pins = lastLayer('live-nodes');
+    expect(pins?.data.length).toBeGreaterThan(0);
+    expect((pins?.data[0] as { id: string }).id).toBe('cc'.repeat(32));
   });
 });
