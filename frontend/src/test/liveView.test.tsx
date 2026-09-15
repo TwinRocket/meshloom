@@ -301,7 +301,12 @@ describe('LiveView', () => {
       last_read_at: null,
       first_seen: null,
     };
-    const repeater: Contact = { ...companion, public_key: '22'.repeat(32), name: 'FR83-RPT', type: 2 };
+    const repeater: Contact = {
+      ...companion,
+      public_key: '22'.repeat(32),
+      name: 'FR83-RPT',
+      type: 2,
+    };
     const onOpenContactInfo = vi.fn();
     const onSelectConversation = vi.fn();
     render(

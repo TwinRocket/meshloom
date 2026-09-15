@@ -130,8 +130,7 @@ function lastLayer(id: string): LayerProps | undefined {
   const overlay = overlays[overlays.length - 1];
   const calls = overlay?.setProps.mock.calls ?? [];
   const last = calls[calls.length - 1]?.[0] as
-    | { layers?: Array<{ props: LayerProps }> }
-    | undefined;
+    { layers?: Array<{ props: LayerProps }> } | undefined;
   return last?.layers?.find((layer) => layer.props.id === id)?.props;
 }
 

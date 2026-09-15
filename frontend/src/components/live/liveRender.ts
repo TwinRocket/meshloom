@@ -688,8 +688,7 @@ export function cloneLonLat(point: LonLat): LonLat {
 }
 
 export type LiveKnownNodeAction =
-  | { kind: 'info'; publicKey: string }
-  | { kind: 'conversation'; publicKey: string; name: string };
+  { kind: 'info'; publicKey: string } | { kind: 'conversation'; publicKey: string; name: string };
 
 /** Known local contacts only. Community-only pins stay hover. */
 export function resolveLiveKnownNodeAction(
