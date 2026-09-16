@@ -2,8 +2,11 @@
 __pycache__/
 *.py[oc]
 build/
+# The two lines below exist so `build/` above does not swallow the release
+# scripts; they re-include everything under that directory, bytecode included.
 !scripts/build/
 !scripts/build/**
+scripts/build/**/__pycache__/
 wheels/
 *.egg-info
 
