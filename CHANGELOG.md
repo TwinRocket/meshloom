@@ -1,3 +1,33 @@
+## [4.10.1] - 2026-09-16
+
+Publishing works again after the project moved to a new GitHub owner. No change to the application itself.
+
+### Fixed
+
+- **Images publish again.** The image name was built from the repository path, which is fine until an owner has a capital letter in it. `TwinRocket` does, a registry reference must be lowercase, and every build failed the moment the project moved. Nothing had been published since, which left the Home Assistant add-on pointing at an image that did not exist.
+- **The dependency layer survives a release.** A release changes one line in `pyproject.toml` and one in `uv.lock`, its own version, and those two files decided whether the build could reuse what it built last time. It could not, so every release recompiled eight C extensions under emulation for armv7: half an hour, measured, for a string the layer never reads.
+
+### Upgrading
+
+Update to 4.10.1 if you install from the Home Assistant add-on store or pull the image directly. 4.10.0 shipped the same application; it is the publishing around it that was broken.
+
+---
+
+### Français
+
+La publication fonctionne de nouveau après le changement de propriétaire du dépôt GitHub. Aucun changement dans l'application elle-même.
+
+#### Corrections
+
+- **Les images se publient de nouveau.** Le nom de l'image était construit à partir du chemin du dépôt, ce qui marche tant qu'aucune majuscule ne s'y trouve. `TwinRocket` en contient, une référence de registre doit être en minuscules, et tous les builds ont échoué dès le déplacement du projet. Plus rien n'était publié depuis, ce qui laissait l'add-on Home Assistant pointer sur une image inexistante.
+- **La couche de dépendances survit à une release.** Une release change une ligne dans `pyproject.toml` et une dans `uv.lock`, sa propre version, et ces deux fichiers décidaient si le build pouvait réutiliser ce qu'il avait construit la fois précédente. Il ne le pouvait pas, donc chaque release recompilait huit extensions C sous émulation pour armv7 : une demi-heure, mesurée, pour une chaîne que cette couche ne lit jamais.
+
+#### Mise à jour
+
+Passez en 4.10.1 si vous installez depuis le magasin d'add-ons Home Assistant ou si vous tirez l'image directement. La 4.10.0 embarquait la même application, c'est la publication autour qui était cassée.
+
+---
+
 ## [4.10.0] - 2026-09-16
 
 Meshloom says what to do when it has no radio yet, and the Home Assistant add-on stops looking abandoned.
