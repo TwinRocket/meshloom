@@ -69,7 +69,7 @@ The database stays in place: `/var/lib/meshloom` for the package, `./data` for D
 
 If Home Assistant already runs on the machine that will host Meshloom, install it as an add-on instead. The interface arrives in the sidebar, the database is kept with the rest of Home Assistant's data, and it starts and stops with it.
 
-[![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbagl3y%2Fmeshloom)
+[![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTwinRocket%2Fmeshloom)
 
 The button opens the dialog on your own instance with the address filled in; it is a redirector and learns nothing about you. By hand, the address goes under **Settings → Add-ons → Add-on store → ⋮ → Repositories**, then install **Meshloom** from the store.
 
@@ -83,6 +83,6 @@ This is not the same as [publishing the mesh to Home Assistant over MQTT](/en/do
 
 ## Other paths
 
-The script covers the common case. The rest — the Docker image `ghcr.io/bagl3y/meshloom`, Portainer, HTTPS, manual systemd setup, environment variables, or a cloned repository for development — is in [Other installation paths](/en/docs/deep/install-paths/).
+The script covers the common case. The rest — the Docker image `ghcr.io/twinrocket/meshloom`, Portainer, HTTPS, manual systemd setup, environment variables, or a cloned repository for development — is in [Other installation paths](/en/docs/deep/install-paths/).
 
 Next: [First launch](/en/docs/first-run/).

@@ -115,8 +115,8 @@ jobs:
           cat > public/index.html <<'EOF'
           <!doctype html>
           <title>Meshloom Linux repo</title>
-          <p>apt: <code>https://bagl3y.github.io/meshloom/apt</code></p>
-          <p>dnf: <code>https://bagl3y.github.io/meshloom/rpm/\$basearch</code></p>
+          <p>apt: <code>https://twinrocket.github.io/meshloom/apt</code></p>
+          <p>dnf: <code>https://twinrocket.github.io/meshloom/rpm/\$basearch</code></p>
           EOF
 
       - uses: actions/upload-pages-artifact@v3

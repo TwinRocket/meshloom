@@ -41,7 +41,7 @@ Le script est rejouable. Le relancer plus tard permet de changer l’activation 
 
 ## Docker
 
-L’image est publiée sur `ghcr.io/bagl3y/meshloom`. Le dépôt fournit `docker-compose.example.yml` comme point de départ. Les éléments qui comptent :
+L’image est publiée sur `ghcr.io/twinrocket/meshloom`. Le dépôt fournit `docker-compose.example.yml` comme point de départ. Les éléments qui comptent :
 
 - le volume `./data:/app/data`, qui contient la base SQLite
 - un mapping `devices:` optionnel pour l’USB (TCP et BLE se configurent dans l’interface)
@@ -54,7 +54,7 @@ BLE en conteneur demande des ajustements manuels supplémentaires. Voir [Transpo
 
 ## Portainer
 
-Pour une stack qui construit depuis le dépôt, utilisez [`docker-compose.dev.yaml`](https://github.com/bagl3y/meshloom/blob/main/docker-compose.dev.yaml) comme chemin de Compose, et chargez les clés de [`.env.example`](https://github.com/bagl3y/meshloom/blob/main/.env.example) dans la section Environment de Portainer, ou dans un `.env` local.
+Pour une stack qui construit depuis le dépôt, utilisez [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) comme chemin de Compose, et chargez les clés de [`.env.example`](https://github.com/TwinRocket/meshloom/blob/main/.env.example) dans la section Environment de Portainer, ou dans un `.env` local.
 
 Les clés attendues sont peu nombreuses :
 
@@ -105,7 +105,7 @@ La suite de vérifications du dépôt se lance depuis la racine :
 ./scripts/quality/all_quality.sh
 ```
 
-Le reste des conventions de contribution est dans [CONTRIBUTING.md](https://github.com/bagl3y/meshloom/blob/main/CONTRIBUTING.md).
+Le reste des conventions de contribution est dans [CONTRIBUTING.md](https://github.com/TwinRocket/meshloom/blob/main/CONTRIBUTING.md).
 
 ## Base de données et mises à jour
 

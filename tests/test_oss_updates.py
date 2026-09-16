@@ -25,7 +25,7 @@ _STATS_PAYLOAD = {
     "version": "9.9.9",
     "tag": "v9.9.9",
     "released_at": "2026-01-01T00:00:00Z",
-    "html_url": "https://github.com/bagl3y/meshloom/releases/tag/v9.9.9",
+    "html_url": "https://github.com/TwinRocket/meshloom/releases/tag/v9.9.9",
 }
 
 _OPTED_OUT = CommunityEffective(

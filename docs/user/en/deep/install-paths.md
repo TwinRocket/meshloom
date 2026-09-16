@@ -39,7 +39,7 @@ The script is repeatable. Run it again to change the bot setting or authenticati
 
 ## Docker
 
-The image is `ghcr.io/bagl3y/meshloom`. The repository includes `docker-compose.example.yml`. Important parts are:
+The image is `ghcr.io/twinrocket/meshloom`. The repository includes `docker-compose.example.yml`. Important parts are:
 
 - `./data:/app/data` for the SQLite database
 - an optional radio `devices:` mapping for USB (TCP and BLE are configured in the UI)
@@ -50,7 +50,7 @@ The example also shows `user: "${UID:-1000}:${GID:-1000}"` to avoid root-owned f
 
 ## Portainer
 
-For a stack built from the repository, use [`docker-compose.dev.yaml`](https://github.com/bagl3y/meshloom/blob/main/docker-compose.dev.yaml) and load `.env.example` values in Portainer:
+For a stack built from the repository, use [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) and load `.env.example` values in Portainer:
 
 ```text
 MESHLOOM_HTTP_PORT=8123

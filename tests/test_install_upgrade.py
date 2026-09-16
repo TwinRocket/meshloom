@@ -65,13 +65,13 @@ def test_read_project_version_prefers_build_info(tmp_path: Path) -> None:
 
 def test_compose_image_version_reads_tag(tmp_path: Path) -> None:
     compose = tmp_path / "docker-compose.yml"
-    compose.write_text("    image: ghcr.io/bagl3y/meshloom:4.1.2\n", encoding="utf-8")
+    compose.write_text("    image: ghcr.io/twinrocket/meshloom:4.1.2\n", encoding="utf-8")
     assert _bash(f'compose_image_version "{compose}"') == "4.1.2"
 
 
 def test_compose_image_version_ignores_latest(tmp_path: Path) -> None:
     compose = tmp_path / "docker-compose.yml"
-    compose.write_text("    image: ghcr.io/bagl3y/meshloom:latest\n", encoding="utf-8")
+    compose.write_text("    image: ghcr.io/twinrocket/meshloom:latest\n", encoding="utf-8")
     result = subprocess.run(
         [
             "bash",

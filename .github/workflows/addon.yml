@@ -58,7 +58,7 @@ jobs:
       - name: Check the base image covers this architecture
         id: base
         run: |
-          TAG=$(grep -oE 'ghcr\.io/bagl3y/meshloom:[^ ]+' meshloom/Dockerfile | head -1)
+          TAG=$(grep -oE 'ghcr\.io/twinrocket/meshloom:[^ ]+' meshloom/Dockerfile | head -1)
           PLATFORM="linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || 'amd64' }}"
           if docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' \
               | grep -q "\"$(echo "$PLATFORM" | sed 's#linux/##; s#arm/v7#arm\",\"variant\":\"v7#')"; then

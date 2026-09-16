@@ -75,7 +75,7 @@ def test_the_addon_builds_on_the_release_image_rather_than_running_it_as_is() ->
     assert "image" not in config
 
     dockerfile = (ADDON / "Dockerfile").read_text(encoding="utf-8")
-    assert "FROM ghcr.io/bagl3y/meshloom:" in dockerfile
+    assert "FROM ghcr.io/twinrocket/meshloom:" in dockerfile
 
 
 def test_the_release_pins_the_base_image_to_itself() -> None:
@@ -85,7 +85,7 @@ def test_the_release_pins_the_base_image_to_itself() -> None:
 
     config = _config()
     dockerfile = (ADDON / "Dockerfile").read_text(encoding="utf-8")
-    assert f"FROM ghcr.io/bagl3y/meshloom:{config['version']}" in dockerfile
+    assert f"FROM ghcr.io/twinrocket/meshloom:{config['version']}" in dockerfile
 
 
 def test_the_readme_button_points_at_this_repository() -> None:
@@ -96,7 +96,7 @@ def test_the_readme_button_points_at_this_repository() -> None:
     """
     readme = (ADDON.parent / "README.md").read_text(encoding="utf-8")
     assert "supervisor_add_addon_repository" in readme
-    assert "repository_url=https%3A%2F%2Fgithub.com%2Fbagl3y%2Fmeshloom" in readme
+    assert "repository_url=https%3A%2F%2Fgithub.com%2FTwinRocket%2Fmeshloom" in readme
 
 
 def test_the_release_script_rewrites_the_addon_version() -> None:

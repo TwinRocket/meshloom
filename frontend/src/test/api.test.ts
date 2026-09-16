@@ -123,7 +123,7 @@ describe('fetchJson (via api methods)', () => {
         current: '1.0.0',
         latest: '1.1.0',
         update_available: true,
-        html_url: 'https://github.com/bagl3y/meshloom/releases/tag/v1.1.0',
+        html_url: 'https://github.com/TwinRocket/meshloom/releases/tag/v1.1.0',
       };
       mockFetch.mockResolvedValueOnce({
         ok: true,

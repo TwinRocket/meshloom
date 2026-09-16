@@ -1,8 +1,8 @@
 # Meshloom
 
-[![All Quality](https://github.com/bagl3y/meshloom/actions/workflows/all-quality.yml/badge.svg)](https://github.com/bagl3y/meshloom/actions/workflows/all-quality.yml)
-[![Release](https://img.shields.io/github/v/release/bagl3y/meshloom?logo=github)](https://github.com/bagl3y/meshloom/releases)
-[![License](https://img.shields.io/github/license/bagl3y/meshloom)](LICENSE.md)
+[![All Quality](https://github.com/TwinRocket/meshloom/actions/workflows/all-quality.yml/badge.svg)](https://github.com/TwinRocket/meshloom/actions/workflows/all-quality.yml)
+[![Release](https://img.shields.io/github/v/release/TwinRocket/meshloom?logo=github)](https://github.com/TwinRocket/meshloom/releases)
+[![License](https://img.shields.io/github/license/TwinRocket/meshloom)](LICENSE.md)
 
 Web interface for a MeshCore companion radio: messages, contacts, and mesh observation in the browser. The server talks to the radio over USB, TCP, or Bluetooth and keeps history beyond the device’s memory.
 
@@ -24,16 +24,16 @@ On Linux the installer offers a native systemd service or Docker. Radio transpor
 
 Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**. A new install joins Meshloom Community unless you set `MESHLOOM_COMMUNITY=0`; leave or bind an IATA code under **Settings > Community**. User-facing docs live in [`docs/user/`](docs/user/) and are published at https://meshloom.app/docs/.
 
-From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/bagl3y/meshloom`. Portainer, HTTPS, systemd, and extra environment variables: [README_ADVANCED.md](README_ADVANCED.md).
+From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/twinrocket/meshloom`. Portainer, HTTPS, systemd, and extra environment variables: [README_ADVANCED.md](README_ADVANCED.md).
 
 ### On Home Assistant
 
 Meshloom runs as an add-on. The button opens the dialog on your own instance with
 the repository filled in — it is a redirector and learns nothing about you:
 
-[![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbagl3y%2Fmeshloom)
+[![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTwinRocket%2Fmeshloom)
 
-Or add `https://github.com/bagl3y/meshloom` by hand under **Settings → Add-ons →
+Or add `https://github.com/TwinRocket/meshloom` by hand under **Settings → Add-ons →
 Add-on store → ⋮ → Repositories**, then install **Meshloom**.
 
 The web interface arrives in the sidebar; the radio proxy is the only thing

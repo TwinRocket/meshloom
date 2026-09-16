@@ -16,7 +16,7 @@ source "$SCRIPT_DIR/release_common.sh"
 
 # The Docker workflow builds and pushes the multi-arch image when the version
 # tag lands; this is only used for the summary at the end.
-DOCKER_IMAGE="ghcr.io/bagl3y/meshloom"
+DOCKER_IMAGE="ghcr.io/twinrocket/meshloom"
 VERSION=""
 NOTES_FILE=""
 SKIP_QUALITY=0
@@ -107,7 +107,7 @@ release_sed_i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/packag
 # is a lie. Written here rather than by hand, for the same reason the other two are.
 echo -e "${YELLOW}Updating Home Assistant add-on...${NC}"
 release_sed_i "s/^version: \".*\"/version: \"$VERSION\"/" meshloom/config.yaml
-release_sed_i "s|^FROM ghcr.io/bagl3y/meshloom:.*|FROM ghcr.io/bagl3y/meshloom:$VERSION|" meshloom/Dockerfile
+release_sed_i "s|^FROM ghcr.io/twinrocket/meshloom:.*|FROM ghcr.io/twinrocket/meshloom:$VERSION|" meshloom/Dockerfile
 
 # Update uv.lock with new version
 echo -e "${YELLOW}Updating uv.lock...${NC}"

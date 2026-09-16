@@ -1,6 +1,6 @@
 [Unit]
 Description=Meshloom
-Documentation=https://github.com/bagl3y/meshloom
+Documentation=https://github.com/TwinRocket/meshloom
 After=network-online.target bluetooth.target
 Wants=network-online.target
 

@@ -329,7 +329,7 @@ export function RoomServerPanel({ contact, onAuthenticatedChange }: RoomServerPa
               components={{
                 github: (
                   <a
-                    href="https://github.com/bagl3y/meshloom/issues"
+                    href="https://github.com/TwinRocket/meshloom/issues"
                     target="_blank"
                     rel="noreferrer"
                     className="font-medium underline underline-offset-2 hover:text-warning/80"

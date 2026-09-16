@@ -3,7 +3,7 @@ import type { HealthStatus, OssUpdateStatus } from '../../types';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 
-const GITHUB_URL = 'https://github.com/bagl3y/meshloom';
+const GITHUB_URL = 'https://github.com/TwinRocket/meshloom';
 
 export function SettingsAboutSection({
   health,

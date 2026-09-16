@@ -407,7 +407,7 @@ mkdir -p "$REPO_DIR/data"
     if [ "$IMAGE_MODE" = "build" ]; then
         echo "    build: ."
     else
-        echo "    image: ghcr.io/bagl3y/meshloom:latest"
+        echo "    image: ghcr.io/twinrocket/meshloom:latest"
     fi
     if [[ "$RUN_AS_HOST_USER" =~ ^[Yy]$ ]]; then
         echo "    user: \"$(id -u):$(id -g)\""

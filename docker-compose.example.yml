@@ -1,7 +1,7 @@
 services:
   meshloom:
     # build: .
-    image: ghcr.io/bagl3y/meshloom:latest
+    image: ghcr.io/twinrocket/meshloom:latest
 
     # Optional on Linux: run container as your host user to avoid root-owned files in ./data
     # This is less reliable for serial-device access than running as root and may require

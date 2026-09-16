@@ -9,7 +9,7 @@ const available: OssUpdateStatus = {
   current: '3.2.0-test',
   latest: '3.3.0',
   update_available: true,
-  html_url: 'https://github.com/bagl3y/meshloom/releases/tag/v3.3.0',
+  html_url: 'https://github.com/TwinRocket/meshloom/releases/tag/v3.3.0',
 };
 
 describe('SettingsAboutSection', () => {

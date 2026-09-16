@@ -1084,14 +1084,14 @@ function MqttHaConfigEditor({
                   className="underline cursor-pointer hover:text-primary transition-colors"
                   onClick={() =>
                     window.open(
-                      'https://github.com/bagl3y/meshloom/blob/main/README_HA.md',
+                      'https://github.com/TwinRocket/meshloom/blob/main/README_HA.md',
                       '_blank'
                     )
                   }
                   onKeyDown={(e) => {
                     if (e.key === 'Enter')
                       window.open(
-                        'https://github.com/bagl3y/meshloom/blob/main/README_HA.md',
+                        'https://github.com/TwinRocket/meshloom/blob/main/README_HA.md',
                         '_blank'
                       );
                   }}

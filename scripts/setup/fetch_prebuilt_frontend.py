@@ -16,7 +16,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-REPO = "bagl3y/meshloom"
+REPO = "TwinRocket/meshloom"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 PREBUILT_PREFIX = "Meshloom/frontend/prebuilt/"
 

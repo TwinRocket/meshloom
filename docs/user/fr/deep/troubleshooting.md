@@ -111,4 +111,4 @@ L’interface s’affiche, l’historique se charge, mais les nouveaux messages 
 
 ## Rapporter un bug
 
-Avec les logs en `DEBUG` et le bloc `/api/debug` — tronqué au marqueur si vous préférez — sur le [dépôt GitHub](https://github.com/bagl3y/meshloom). Une discussion ou une issue avant une pull request est la voie attendue par le projet.
+Avec les logs en `DEBUG` et le bloc `/api/debug` — tronqué au marqueur si vous préférez — sur le [dépôt GitHub](https://github.com/TwinRocket/meshloom). Une discussion ou une issue avant une pull request est la voie attendue par le projet.

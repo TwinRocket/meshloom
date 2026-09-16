@@ -31,10 +31,10 @@ priv() {
     fi
 }
 
-REPO="bagl3y/meshloom"
+REPO="TwinRocket/meshloom"
 GIT_URL="https://github.com/${REPO}.git"
-PAGES_BASE="https://bagl3y.github.io/meshloom"
-GHCR_IMAGE="ghcr.io/bagl3y/meshloom"
+PAGES_BASE="https://twinrocket.github.io/meshloom"
+GHCR_IMAGE="ghcr.io/twinrocket/meshloom"
 API_RELEASES="https://api.github.com/repos/${REPO}/releases/latest"
 
 ML_LANG="en"

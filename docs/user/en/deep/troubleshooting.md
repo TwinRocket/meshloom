@@ -81,4 +81,4 @@ The WebSocket `/api/ws` is not passing through the proxy. Check upgrade headers 
 
 ## Report a bug
 
-Include DEBUG logs and `/api/debug` in an issue on the [GitHub repository](https://github.com/bagl3y/meshloom).
+Include DEBUG logs and `/api/debug` in an issue on the [GitHub repository](https://github.com/TwinRocket/meshloom).
