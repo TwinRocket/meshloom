@@ -6,6 +6,7 @@ import { MessageInput, type MessageInputHandle } from './MessageInput';
 import { MessageList } from './MessageList';
 import { RawPacketFeedView } from './RawPacketFeedView';
 import { RoomServerPanel } from './RoomServerPanel';
+import { SensorTelemetryPanel } from './SensorTelemetryPanel';
 import { LocatePane, locateConversation } from './LocatePane';
 import { TracePane } from './TracePane';
 import { ToolPaneHeader } from './ToolPaneHeader';
@@ -20,7 +21,7 @@ import type {
   RadioTraceHopRequest,
   RadioTraceResponse,
 } from '../types';
-import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM } from '../types';
+import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
 import {
   getContactDisplayName,
   isPrefixOnlyContact,
@@ -92,13 +93,17 @@ interface ConversationPaneProps {
   onOpenPushSettings?: () => void;
   trackedTelemetryRepeaters: string[];
   onToggleTrackedTelemetry: (publicKey: string) => Promise<void>;
+  trackedTelemetryContacts?: string[];
+  onToggleTrackedTelemetryContact?: (publicKey: string) => Promise<void>;
   repeaterAutoLoginKey: string | null;
   onClearRepeaterAutoLogin: () => void;
   blockedKeys?: string[];
   blockedNames?: string[];
   directoryEnabled?: boolean;
   communityEnabled?: boolean;
+  communityIata?: string;
   onOpenDirectorySettings?: () => void;
+  onOpenCommunitySettings?: () => void;
 }
 
 function LoadingPane({ label }: { label: string }) {
@@ -170,13 +175,17 @@ export function ConversationPane({
   onTogglePush,
   trackedTelemetryRepeaters,
   onToggleTrackedTelemetry,
+  trackedTelemetryContacts = [],
+  onToggleTrackedTelemetryContact,
   repeaterAutoLoginKey,
   onClearRepeaterAutoLogin,
   blockedKeys,
   blockedNames,
   directoryEnabled,
   communityEnabled = true,
+  communityIata,
   onOpenDirectorySettings,
+  onOpenCommunitySettings,
 }: ConversationPaneProps) {
   const { t } = useTranslation();
   const [roomAuthenticated, setRoomAuthenticated] = useState(false);
@@ -190,6 +199,7 @@ export function ConversationPane({
     return contacts.find((candidate) => candidate.public_key === activeConversation.id) ?? null;
   }, [activeConversation, contacts]);
   const activeContactIsRoom = activeContact?.type === CONTACT_TYPE_ROOM;
+  const activeContactIsSensor = activeContact?.type === CONTACT_TYPE_SENSOR;
   useEffect(() => {
     setRoomAuthenticated(false);
   }, [activeConversation?.id]);
@@ -250,10 +260,12 @@ export function ConversationPane({
               contacts={contacts}
               config={config}
               communityEnabled={communityEnabled}
+              communityIata={communityIata}
               blockedKeys={blockedKeys}
               blockedNames={blockedNames}
               onOpenContactInfo={onOpenContactInfo}
               onSelectConversation={onSelectConversation}
+              onOpenCommunitySettings={onOpenCommunitySettings}
             />
           </Suspense>
         </div>
@@ -368,6 +380,15 @@ export function ConversationPane({
       )}
       {activeConversation.type === 'contact' && isUnknownFullKeyActiveContact && (
         <ContactResolutionBanner variant="unknown-full-key" />
+      )}
+      {activeContactIsSensor && activeContact && (
+        <SensorTelemetryPanel
+          key={activeContact.public_key}
+          contact={activeContact}
+          contacts={contacts}
+          trackedTelemetryContacts={trackedTelemetryContacts}
+          onToggleTrackedTelemetryContact={onToggleTrackedTelemetryContact}
+        />
       )}
       {activeContactIsRoom && activeContact && (
         <RoomServerPanel

@@ -421,6 +421,7 @@
     "neverHeard": "Jamais entendu par ce serveur",
     "lastHeard": "Dernière écoute : {{time}}",
     "repeaterTitle": "Répéteur",
+    "sensorTitle": "Capteur",
     "openConversation": "Ouvrir la conversation avec {{name}}"
   },
   "path": {

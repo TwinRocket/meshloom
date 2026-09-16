@@ -12,12 +12,17 @@ import { useDistanceUnit } from '../../contexts/DistanceUnitContext';
 import { BulkDeleteContactsModal } from './BulkDeleteContactsModal';
 import { ContactGroupsEditor } from './ContactGroupsEditor';
 import { SettingsGroupHeader } from './settingsPrimitives';
-import type {
-  AppSettings,
-  AppSettingsUpdate,
-  Contact,
-  TelemetryHistoryEntry,
-  TelemetrySchedule,
+import {
+  MISSES_BEFORE_ALERT_MAX,
+  MISSES_BEFORE_ALERT_MIN,
+  clampMissesBeforeAlert,
+  resolveTelemetryAlertRules,
+  type AppSettings,
+  type AppSettingsUpdate,
+  type Contact,
+  type TelemetryAlertRules,
+  type TelemetryHistoryEntry,
+  type TelemetrySchedule,
 } from '../../types';
 
 export function SettingsRadioAppSection({
@@ -69,14 +74,24 @@ export function SettingsRadioAppSection({
 
   const [schedule, setSchedule] = useState<TelemetrySchedule | null>(null);
   const [intervalDraft, setIntervalDraft] = useState<number>(appSettings.telemetry_interval_hours);
+  const resolvedRules = resolveTelemetryAlertRules(appSettings.telemetry_alert_rules);
+  const [batteryDraft, setBatteryDraft] = useState(String(resolvedRules.battery_volts_min));
+  const [noiseDraft, setNoiseDraft] = useState(String(resolvedRules.noise_floor_max_dbm));
+  const [missesDraft, setMissesDraft] = useState(resolvedRules.misses_before_alert);
+  const rulesRef = useRef(resolvedRules);
 
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const directoryViaStats = communityOn || Boolean(appSettings.directory_available);
 
   useEffect(() => {
+    const nextRules = resolveTelemetryAlertRules(appSettings.telemetry_alert_rules);
+    rulesRef.current = nextRules;
     setDiscoveryBlockedTypes(appSettings.discovery_blocked_types ?? []);
     setIntervalDraft(appSettings.telemetry_interval_hours);
     setStaleDays(String(appSettings.stale_contact_days ?? 0));
+    setBatteryDraft(String(nextRules.battery_volts_min));
+    setNoiseDraft(String(nextRules.noise_floor_max_dbm));
+    setMissesDraft(nextRules.misses_before_alert);
   }, [appSettings]);
 
   useEffect(() => {
@@ -166,6 +181,42 @@ export function SettingsRadioAppSection({
     return chained;
   };
 
+  const persistAlertRules = (
+    patch: Partial<TelemetryAlertRules>,
+    revert: () => void
+  ): Promise<void> => {
+    const previous = rulesRef.current;
+    const next = {
+      ...previous,
+      ...patch,
+      ...(patch.misses_before_alert != null
+        ? { misses_before_alert: clampMissesBeforeAlert(patch.misses_before_alert) }
+        : {}),
+    };
+    rulesRef.current = next;
+    return persistAppSettings({ telemetry_alert_rules: next }, () => {
+      rulesRef.current = previous;
+      revert();
+    });
+  };
+
+  const commitNumberRule = (
+    raw: string,
+    key: 'battery_volts_min' | 'noise_floor_max_dbm',
+    setDraft: (value: string) => void
+  ) => {
+    const trimmed = raw.trim();
+    const parsed = trimmed === '' ? Number.NaN : Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(rulesRef.current[key]));
+      return;
+    }
+    if (parsed === rulesRef.current[key]) return;
+    const prev = rulesRef.current[key];
+    setDraft(String(parsed));
+    void persistAlertRules({ [key]: parsed }, () => setDraft(String(prev)));
+  };
+
   return (
     <div className={className}>
       {/* ── Tracked Repeater Telemetry ── */}
@@ -221,6 +272,93 @@ export function SettingsRadioAppSection({
               })}
             </p>
           )}
+        </div>
+
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold">{t('settings.radioApp.alertRules')}</h4>
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.radioApp.alertRulesHelp')}
+          </p>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="telemetry-battery-volts-min" className="text-sm">
+              {t('settings.radioApp.batteryVoltsMin')}
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="telemetry-battery-volts-min"
+                type="number"
+                step="0.1"
+                inputMode="decimal"
+                value={batteryDraft}
+                onChange={(e) => setBatteryDraft(e.target.value)}
+                onBlur={() => commitNumberRule(batteryDraft, 'battery_volts_min', setBatteryDraft)}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">
+                {t('settings.radioApp.batteryVoltsMinUnit')}
+              </span>
+            </div>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.radioApp.batteryVoltsMinHelp')}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="telemetry-noise-floor-max" className="text-sm">
+              {t('settings.radioApp.noiseFloorMax')}
+            </Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="telemetry-noise-floor-max"
+                type="number"
+                step="1"
+                inputMode="decimal"
+                value={noiseDraft}
+                onChange={(e) => setNoiseDraft(e.target.value)}
+                onBlur={() => commitNumberRule(noiseDraft, 'noise_floor_max_dbm', setNoiseDraft)}
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">
+                {t('settings.radioApp.noiseFloorMaxUnit')}
+              </span>
+            </div>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.radioApp.noiseFloorMaxHelp')}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="telemetry-misses-before-alert" className="text-sm">
+              {t('settings.radioApp.missesBeforeAlert')}
+            </Label>
+            <select
+              id="telemetry-misses-before-alert"
+              value={missesDraft}
+              onChange={(e) => {
+                const nextValue = Number(e.target.value);
+                if (!Number.isFinite(nextValue) || nextValue === missesDraft) return;
+                const prevValue = missesDraft;
+                setMissesDraft(nextValue);
+                void persistAlertRules({ misses_before_alert: nextValue }, () =>
+                  setMissesDraft(prevValue)
+                );
+              }}
+              className="h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              {Array.from(
+                { length: MISSES_BEFORE_ALERT_MAX - MISSES_BEFORE_ALERT_MIN + 1 },
+                (_, i) => MISSES_BEFORE_ALERT_MIN + i
+              ).map((count) => (
+                <option key={count} value={count}>
+                  {t('settings.radioApp.missesBeforeAlertOption', { count })}
+                </option>
+              ))}
+            </select>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.radioApp.missesBeforeAlertHelp')}
+            </p>
+          </div>
         </div>
 
         <label className="flex items-start gap-2 cursor-pointer">

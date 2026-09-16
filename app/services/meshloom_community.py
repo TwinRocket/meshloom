@@ -7,6 +7,7 @@ MESHCORE_COMMUNITY aliases.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -254,6 +255,108 @@ async def _reload_system_publisher() -> None:
     from app.fanout.manager import fanout_manager
 
     await fanout_manager.reload_system_module(SYSTEM_MESHLOOM_STATS_ID)
+
+
+def hashtag_publish_name(name: str) -> str:
+    """Strip a leading ``#`` so Stats receives names only, matching the OSS PUT."""
+    text = (name or "").strip()
+    if text.startswith("#"):
+        text = text[1:].strip()
+    return text
+
+
+def _hashtag_publish_names(names: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in names:
+        name = hashtag_publish_name(raw)
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        cleaned.append(name)
+        if len(cleaned) >= 50:
+            break
+    return cleaned
+
+
+async def _put_hashtag_names(names: list[str]) -> None:
+    try:
+        await stats_json("PUT", "/v1/me/hashtags", auth=True, json_body={"names": names})
+    except Exception:
+        logger.info("Community hashtag name publish skipped", exc_info=True)
+
+
+_HASH_BYTE_RE = re.compile(r"^[0-9a-f]{2}$")
+RESOLVE_HASH_BYTES_MAX = 32
+
+
+def _normalize_resolve_hash_bytes(raw: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in raw:
+        hb = (item or "").strip().lower()
+        if not _HASH_BYTE_RE.fullmatch(hb) or hb in seen:
+            continue
+        seen.add(hb)
+        out.append(hb)
+        if len(out) >= RESOLVE_HASH_BYTES_MAX:
+            break
+    return out
+
+
+async def resolve_hashtag_names(hash_bytes: list[str]) -> list[dict[str, str]]:
+    """POST /v1/hashtags/resolve. Body is hash_bytes only — never ciphertext.
+
+    Caller must have already checked Community on + IATA. ``stats_json``
+    raises when Community is off (no HTTP). Distinct names, all IATA.
+    """
+    cleaned = _normalize_resolve_hash_bytes(hash_bytes)
+    if not cleaned:
+        return []
+    payload = await stats_json(
+        "POST",
+        "/v1/hashtags/resolve",
+        auth=True,
+        json_body={"hash_bytes": cleaned},
+    )
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("hashtags")
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = hashtag_publish_name(str(row.get("name") or ""))
+        hb = str(row.get("hash_byte") or "").strip().lower()
+        if not name or not _HASH_BYTE_RE.fullmatch(hb) or name in seen:
+            continue
+        seen.add(name)
+        out.append({"name": name, "hash_byte": hb})
+    return out
+
+
+async def schedule_hashtag_names_publish(
+    names: list[str],
+    *,
+    is_hashtag: bool = True,
+) -> None:
+    """Fire-and-forget PUT of hashtag names when Community is on and IATA is set.
+
+    Private-key channels (``is_hashtag=0``) and later HMAC community channels
+    must not call this with ``is_hashtag=True``. Never raises. No creator toast.
+    """
+    if not is_hashtag:
+        return
+    cleaned = _hashtag_publish_names(names)
+    if not cleaned:
+        return
+    state = await get_community_effective()
+    if not state.enabled or not state.iata:
+        return
+    asyncio.create_task(_put_hashtag_names(cleaned))
 
 
 def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False) -> str:

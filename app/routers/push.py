@@ -52,6 +52,8 @@ class PushDefaultsModel(BaseModel):
     advert_repeater: bool
     advert_companion: bool
     advert_sensor: bool
+    channel_found: bool
+    telemetry_alert: bool
 
 
 class PushDefaultsPatch(BaseModel):
@@ -60,6 +62,8 @@ class PushDefaultsPatch(BaseModel):
     advert_repeater: bool | None = None
     advert_companion: bool | None = None
     advert_sensor: bool | None = None
+    channel_found: bool | None = None
+    telemetry_alert: bool | None = None
 
 
 class PushPreferencesResponse(BaseModel):

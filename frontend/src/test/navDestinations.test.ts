@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Radio } from 'lucide-react';
+import { Radio, Unlock } from 'lucide-react';
 
 import { RAIL_ITEMS } from '../components/navDestinations';
 
@@ -12,6 +12,13 @@ describe('navDestinations live chrome', () => {
   it('uses Radio for the live rail entry, not CloudRain', () => {
     const live = RAIL_ITEMS.find((item) => item.id === 'live');
     expect(live?.Icon).toBe(Radio);
+  });
+
+  it('uses Unlock for the channel-finder overlay', () => {
+    const cracker = RAIL_ITEMS.find((item) => item.id === 'cracker');
+    expect(cracker?.Icon).toBe(Unlock);
+    expect(cracker?.overlay).toBe(true);
+    expect(cracker?.conversation).toBeUndefined();
   });
 
   it('does not import CloudRain in live navigation components', () => {

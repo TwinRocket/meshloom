@@ -1204,6 +1204,56 @@ class TestBackgroundContactReconcile:
         mock_mc.commands.add_contact.assert_not_called()
 
 
+class TestRadioHashtagPublish:
+    @pytest.mark.asyncio
+    async def test_radio_hashtag_upsert_puts_name_when_community_joined(self, test_db):
+        from app.radio_sync import upsert_channel_from_radio_slot
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            key = await upsert_channel_from_radio_slot(
+                {
+                    "channel_name": "#fr",
+                    "channel_secret": bytes.fromhex("AA" * 16),
+                },
+                on_radio=True,
+            )
+            await asyncio.sleep(0)
+
+        assert key == "AA" * 16
+        stats.assert_awaited_once_with(
+            "PUT",
+            "/v1/me/hashtags",
+            auth=True,
+            json_body={"names": ["fr"]},
+        )
+
+    @pytest.mark.asyncio
+    async def test_radio_private_channel_upsert_skips_put(self, test_db):
+        from app.radio_sync import upsert_channel_from_radio_slot
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await upsert_channel_from_radio_slot(
+                {
+                    "channel_name": "secret",
+                    "channel_secret": bytes.fromhex("BB" * 16),
+                },
+                on_radio=True,
+            )
+            await asyncio.sleep(0)
+
+        stats.assert_not_called()
+
+
 class TestSyncAndOffloadChannels:
     """Test sync_and_offload_channels: pull channels from radio, save to DB, clear from radio."""
 
@@ -2220,6 +2270,43 @@ class TestCollectRepeaterTelemetryLpp:
             await _collect_repeater_telemetry(mc, contact)
 
         assert "lpp_sensors" not in recorded_data
+
+    @pytest.mark.asyncio
+    async def test_missing_bat_persists_null(self):
+        from app.radio_sync import _collect_repeater_telemetry
+
+        mc = MagicMock()
+        mc.commands.add_contact = AsyncMock()
+        mc.commands.req_status_sync = AsyncMock(return_value={"noise_floor": -110})
+        mc.commands.req_telemetry_sync = AsyncMock(return_value=None)
+
+        contact = MagicMock()
+        contact.public_key = "aabbccddeeff11223344"
+        contact.name = "TestRepeater"
+        contact.to_radio_dict.return_value = {}
+
+        recorded_data = {}
+
+        async def mock_record(public_key, timestamp, data):
+            recorded_data.update(data)
+
+        mock_fanout = MagicMock()
+        mock_fanout.broadcast_telemetry = AsyncMock()
+
+        with (
+            patch(
+                "app.radio_sync.RepeaterTelemetryRepository.record",
+                new_callable=AsyncMock,
+                side_effect=mock_record,
+            ),
+            patch("app.radio_sync.note_telemetry_poll", new_callable=AsyncMock),
+            patch("app.fanout.manager.fanout_manager", mock_fanout),
+        ):
+            result = await _collect_repeater_telemetry(mc, contact)
+
+        assert result is True
+        assert recorded_data["battery_volts"] is None
+        assert recorded_data["noise_floor_dbm"] == -110.0
 
 
 class TestRunTelemetryCycleRoutedOnly:

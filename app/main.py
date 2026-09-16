@@ -86,6 +86,10 @@ from app.routers import (
     ws,
 )
 from app.security import add_optional_basic_auth_middleware
+from app.services.hashtag_catalogue import (
+    start_hashtag_catalogue_polling,
+    stop_hashtag_catalogue_polling,
+)
 from app.services.oss_updates import start_oss_update_polling, stop_oss_update_polling
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import start_radio_stats_sampling, stop_radio_stats_sampling
@@ -166,6 +170,7 @@ async def lifespan(app: FastAPI):
     await ensure_default_channels()
     await start_radio_stats_sampling()
     await start_oss_update_polling()
+    start_hashtag_catalogue_polling()
     start_stale_contact_purge()
 
     # Always start connection monitor (even if initial connection failed)
@@ -208,6 +213,7 @@ async def lifespan(app: FastAPI):
     await stop_message_polling()
     await stop_radio_stats_sampling()
     await stop_oss_update_polling()
+    await stop_hashtag_catalogue_polling()
     await stop_periodic_advert()
     await stop_periodic_sync()
     await stop_telemetry_collect()

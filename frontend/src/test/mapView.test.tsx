@@ -1,11 +1,13 @@
 import { forwardRef } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import './eSlices';
 import { MapView } from '../components/MapView';
 import { api } from '../api';
 import i18n from '../i18n';
 import type { Contact } from '../types';
+import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_SENSOR } from '../types';
+import { NODE_ROLE_STYLE } from '../components/live/liveRender';
 
 vi.mock('../api', () => ({
   api: {
@@ -42,6 +44,24 @@ vi.mock('react-leaflet', () => {
         {children}
       </div>
     )),
+    Marker: ({
+      children,
+      icon,
+    }: {
+      children: React.ReactNode;
+      icon?: { options?: { html?: string } };
+    }) => {
+      const html = icon?.options?.html ?? '';
+      const fillMatch = html.match(/fill="(#[0-9a-fA-F]{3,8})"/);
+      return (
+        <div
+          data-shape={html.includes('polygon') ? 'triangle' : undefined}
+          data-fill-color={fillMatch?.[1]}
+        >
+          {children}
+        </div>
+      );
+    },
     Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     Polyline: () => null,
     LayersControl: LayersControlMock,
@@ -171,6 +191,51 @@ describe('MapView', () => {
     fireEvent.click(link);
 
     expect(onSelectContact).toHaveBeenCalledWith(contact);
+  });
+
+  it('paints a type-4 GPS contact as a teal triangle, not a companion circle or repeater', () => {
+    const gpsContact = (name: string, key: string, type: number): Contact => ({
+      public_key: key.repeat(32),
+      name,
+      type,
+      flags: 0,
+      direct_path: null,
+      direct_path_len: -1,
+      direct_path_hash_mode: -1,
+      route_override_path: null,
+      route_override_len: null,
+      route_override_hash_mode: null,
+      last_advert: null,
+      lat: 40 + type,
+      lon: -74,
+      last_seen: Math.floor(Date.now() / 1000),
+      on_radio: false,
+      favorite: false,
+      last_contacted: null,
+      last_read_at: null,
+      first_seen: null,
+    });
+    const companion = gpsContact('Companion', 'aa', 1);
+    const sensor = gpsContact('Weather', 'bb', CONTACT_TYPE_SENSOR);
+    const repeater = gpsContact('Tower', 'cc', CONTACT_TYPE_REPEATER);
+
+    render(<MapView contacts={[companion, sensor, repeater]} />);
+
+    const sensorPopup = screen.getByTestId('map-sensor-marker');
+    const sensorMarker = sensorPopup.closest('[data-shape]');
+    expect(sensorMarker).toHaveAttribute('data-shape', 'triangle');
+    expect(sensorMarker).toHaveAttribute('data-fill-color', NODE_ROLE_STYLE.sensor.color);
+    expect(within(sensorPopup).getByTitle(i18n.t('map.sensorTitle'))).toBeInTheDocument();
+    expect(within(sensorPopup).queryByTitle(i18n.t('map.repeaterTitle'))).toBeNull();
+
+    const companionName = screen.getByText('Companion');
+    expect(companionName.closest('[data-shape]')).toBeNull();
+    expect(companionName.closest('[data-fill-color]')?.getAttribute('data-fill-color')).not.toBe(
+      NODE_ROLE_STYLE.sensor.color
+    );
+
+    expect(screen.getByTitle(i18n.t('map.repeaterTitle'))).toBeInTheDocument();
+    expect(screen.getByText('Tower').closest('[data-shape]')).toBeNull();
   });
 
   it('renders the popup name as plain text when no onSelectContact is provided', () => {

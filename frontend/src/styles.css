@@ -258,6 +258,12 @@ body {
   filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
 }
 
+/* Leaflet's default DivIcon chrome is a white square; sensors are a teal triangle. */
+.leaflet-div-icon.map-sensor-marker {
+  background: transparent;
+  border: none;
+}
+
 /* `#live` uses the same OSM raster as `#map`. Invert only MapLibre's own
    canvas so deck.gl lasers and role icons keep their encoded colours. */
 .live-map-osm .maplibregl-canvas-container > .maplibregl-canvas {

@@ -7,7 +7,7 @@ import pytest
 
 from app.models import ContactUpsert
 from app.repository import AppSettingsRepository, ContactRepository
-from app.repository.settings import DEFAULT_PUSH_DEFAULTS
+from app.repository.settings import DEFAULT_PUSH_DEFAULTS, _coerce_push_defaults
 from app.services.contact_reconciliation import promote_prefix_contacts_for_contact
 from app.services.radio_identity import wipe_mesh_identity_data
 
@@ -24,8 +24,23 @@ class TestPushNotificationSettingsRepo:
         updated = await AppSettingsRepository.set_push_defaults({"new_dm": False})
         assert updated["new_dm"] is False
         assert updated["new_contact"] is True
+        assert updated["channel_found"] is True
+        assert updated["telemetry_alert"] is True
         stored = await AppSettingsRepository.get_push_defaults()
         assert stored == updated
+
+    def test_coerce_push_defaults_drops_unknown_keys(self):
+        coerced = _coerce_push_defaults({"new_dm": False, "not_a_real_key": False})
+        assert "not_a_real_key" not in coerced
+        assert coerced["new_dm"] is False
+        assert set(coerced) == set(DEFAULT_PUSH_DEFAULTS)
+
+    def test_coerce_push_defaults_keeps_channel_found_and_telemetry_alert(self):
+        coerced = _coerce_push_defaults({"channel_found": False, "telemetry_alert": False})
+        assert coerced["channel_found"] is False
+        assert coerced["telemetry_alert"] is False
+        assert coerced["new_contact"] is True
+        assert coerced["new_dm"] is True
 
     @pytest.mark.asyncio
     async def test_set_override_true_false_none(self, test_db):

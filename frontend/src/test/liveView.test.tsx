@@ -6,11 +6,7 @@ import { LiveMapController } from '../components/live/liveMap';
 import { api } from '../api';
 import type { Contact } from '../types';
 import i18n from '../i18n';
-import {
-  resetLivePacketStore,
-  setLiveCloseCode,
-  setLiveInactiveObserver,
-} from '../stores/livePacketStore';
+import { resetLivePacketStore, setLiveCloseCode } from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { stopLivePacketFixtures } from '../fixtures/livePacketFixtures';
 
@@ -127,49 +123,80 @@ describe('LiveView', () => {
   it('does not show retired Relancer or slot-busy banners', () => {
     vi.mocked(api.subscribeCommunityLive).mockReturnValue(new Promise(() => {}));
     setLiveCloseCode(4001);
-    const { rerender } = render(<LiveView contacts={[]} config={null} communityEnabled />);
+    const { rerender } = render(
+      <LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />
+    );
     expect(screen.queryByText(i18n.t('live.bannerExpired'))).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
 
     setLiveCloseCode(4003);
-    rerender(<LiveView contacts={[]} config={null} communityEnabled />);
+    rerender(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(screen.queryByText(i18n.t('live.bannerSlotBusy'))).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
   });
 
-  it('shows the opt-out banner without debug toggles', () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled={false} />);
+  it('shows one Community+IATA banner with a Settings link when opted out', () => {
+    const onOpenCommunitySettings = vi.fn();
+    render(
+      <LiveView
+        contacts={[]}
+        config={null}
+        communityEnabled={false}
+        communityIata=""
+        onOpenCommunitySettings={onOpenCommunitySettings}
+      />
+    );
     expect(screen.getByText(i18n.t('live.bannerOptOut'))).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.community.bannerOpenSettings') })
+    );
+    expect(onOpenCommunitySettings).toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'JWT expiré' })).not.toBeInTheDocument();
   });
 
-  it('shows the inactive-observer banner from store state', () => {
+  it('shows the same banner when Community is on but IATA is empty', () => {
+    const onOpenCommunitySettings = vi.fn();
+    render(
+      <LiveView
+        contacts={[]}
+        config={null}
+        communityEnabled
+        communityIata=""
+        onOpenCommunitySettings={onOpenCommunitySettings}
+      />
+    );
+    expect(screen.getByText(i18n.t('live.bannerOptOut'))).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.bannerOpenSettings') })
+    ).toBeInTheDocument();
+    expect(api.subscribeCommunityLive).not.toHaveBeenCalled();
+  });
+
+  it('does not show a 24h inactive banner or Relancer when 4002 is set', () => {
     vi.mocked(api.subscribeCommunityLive).mockReturnValue(new Promise(() => {}));
-    setLiveInactiveObserver(true);
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
-    expect(screen.getByText(i18n.t('live.bannerInactive'))).toBeInTheDocument();
+    setLiveCloseCode(4002);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    expect(screen.queryByText(i18n.t('live.bannerOptOut'))).not.toBeInTheDocument();
+    expect(i18n.exists('live.bannerInactive')).toBe(false);
+    expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
   });
 
-  it('starts the live feed playing and toggles to play when paused', () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
-    const toggle = screen.getByRole('button', { name: i18n.t('live.playPause') });
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(toggle).toHaveTextContent(i18n.t('live.pause'));
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    expect(toggle).toHaveTextContent(i18n.t('live.play'));
+  it('has no play/pause control', () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    expect(i18n.exists('live.playPause')).toBe(false);
+    expect(screen.queryByRole('button', { name: /play|pause|lecture/i })).not.toBeInTheDocument();
   });
 
   it('exposes an IATA-only filter', () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(screen.getByLabelText(i18n.t('live.iataFilter'))).toBeInTheDocument();
     expect(screen.getByRole('option', { name: i18n.t('live.iataAll') })).toBeInTheDocument();
   });
 
   it('exposes packet-type chips and an exact-only toggle', () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(screen.getByRole('group', { name: i18n.t('live.typeFilter') })).toBeInTheDocument();
     const textChip = screen.getByRole('button', { name: i18n.t('live.legend.text') });
     expect(textChip).toHaveAttribute('aria-pressed', 'true');
@@ -182,7 +209,7 @@ describe('LiveView', () => {
   });
 
   it('shows a dual legend for packet types and roles, and no packet log', () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(screen.getByLabelText(i18n.t('live.legendTitle'))).toBeInTheDocument();
     expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
@@ -193,7 +220,7 @@ describe('LiveView', () => {
   });
 
   it('loads the live directory as the permanent map layer', async () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     await waitFor(() => {
       expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled();
     });
@@ -222,7 +249,7 @@ describe('LiveView', () => {
       total: 2,
     });
     const spy = vi.spyOn(LiveMapController.prototype, 'setDirectoryNodes');
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     await waitFor(() => {
       const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
       expect(last.some((node) => node.role === 'observer' && node.public_key === 'ee')).toBe(true);
@@ -233,13 +260,15 @@ describe('LiveView', () => {
   });
 
   it('has no observer entry in the role legend', () => {
-    render(<LiveView contacts={[]} config={null} communityEnabled />);
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     const legend = screen.getByRole('group', { name: i18n.t('live.roleLegend') });
     expect(legend.textContent ?? '').not.toMatch(/observ/i);
   });
 
   it('does not mount a Leaflet tile layer', () => {
-    const { container } = render(<LiveView contacts={[]} config={null} communityEnabled />);
+    const { container } = render(
+      <LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />
+    );
     expect(container.querySelector('.leaflet-container')).toBeNull();
     expect(screen.queryByTestId('tile-layer')).not.toBeInTheDocument();
     expect(container.querySelector('.live-map-osm')).not.toBeNull();
@@ -265,16 +294,20 @@ describe('LiveView', () => {
       first_seen: null,
     };
     const spy = vi.spyOn(LiveMapController.prototype, 'setDirectoryNodes');
-    const { rerender } = render(<LiveView contacts={[]} config={null} communityEnabled />);
+    const { rerender } = render(
+      <LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />
+    );
     await waitFor(() => expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled());
-    rerender(<LiveView contacts={[gpsContact]} config={null} communityEnabled />);
+    rerender(
+      <LiveView contacts={[gpsContact]} config={null} communityEnabled communityIata="LYS" />
+    );
     await waitFor(() => {
       const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
       expect(
         last.some((node) => node.public_key === 'dd'.repeat(32) && node.name === 'NewPin')
       ).toBe(true);
     });
-    rerender(<LiveView contacts={[]} config={null} communityEnabled />);
+    rerender(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     await waitFor(() => {
       const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
       expect(last.some((node) => node.public_key === 'dd'.repeat(32))).toBe(false);
@@ -314,6 +347,7 @@ describe('LiveView', () => {
         contacts={[companion, repeater]}
         config={null}
         communityEnabled
+        communityIata="LYS"
         onOpenContactInfo={onOpenContactInfo}
         onSelectConversation={onSelectConversation}
       />

@@ -87,6 +87,10 @@ cp "$REPO_ROOT/pyproject.toml" "$REPO_ROOT/uv.lock" "$OPT/"
 [ -f "$REPO_ROOT/LICENSE.md" ] && cp "$REPO_ROOT/LICENSE.md" "$OPT/"
 [ -f "$REPO_ROOT/LICENSES.md" ] && cp "$REPO_ROOT/LICENSES.md" "$OPT/"
 cp -a "$REPO_ROOT/frontend/dist" "$OPT/frontend/dist"
+# Layer-2 bundled hashtag names: same snapshot as frontend/src/data/.
+# meshcore_channels.py looks here after the repo-tree path.
+cp "$REPO_ROOT/frontend/src/data/meshcoreChannels.snapshot.json" \
+    "$OPT/app/data/meshcoreChannels.snapshot.json"
 ln -s /var/lib/meshloom "$OPT/data"
 
 echo "[nfpm] Creating venv..."

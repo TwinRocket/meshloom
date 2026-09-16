@@ -38,6 +38,11 @@ from app.services.contact_reconciliation import (
 )
 from app.services.messages import create_fallback_channel_message
 from app.services.radio_runtime import radio_runtime as radio_manager
+from app.telemetry_alerts import (
+    is_usable_status,
+    note_telemetry_poll,
+    status_snapshot_from_radio,
+)
 from app.telemetry_interval import clamp_telemetry_interval
 from app.websocket import broadcast_error, broadcast_event
 
@@ -161,6 +166,9 @@ async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> st
         is_hashtag=is_hashtag,
         on_radio=on_radio,
     )
+    from app.services.meshloom_community import schedule_hashtag_names_publish
+
+    await schedule_hashtag_names_publish([name], is_hashtag=is_hashtag)
     return key_hex
 
 
@@ -1816,33 +1824,24 @@ async def _collect_repeater_telemetry(mc: MeshCore, contact: Contact) -> bool:
             contact.public_key[:12],
             e,
         )
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+        )
         return False
 
-    if status is None:
+    if not is_usable_status(status):
         logger.debug("Telemetry collect: no response from %s", contact.public_key[:12])
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+        )
         return False
 
     # Map to the same field names as the manual repeater status endpoint
-    data = {
-        "battery_volts": status.get("bat", 0) / 1000.0,
-        "tx_queue_len": status.get("tx_queue_len", 0),
-        "noise_floor_dbm": status.get("noise_floor", 0),
-        "last_rssi_dbm": status.get("last_rssi", 0),
-        "last_snr_db": status.get("last_snr", 0.0),
-        "packets_received": status.get("nb_recv", 0),
-        "packets_sent": status.get("nb_sent", 0),
-        "airtime_seconds": status.get("airtime", 0),
-        "rx_airtime_seconds": status.get("rx_airtime", 0),
-        "uptime_seconds": status.get("uptime", 0),
-        "sent_flood": status.get("sent_flood", 0),
-        "sent_direct": status.get("sent_direct", 0),
-        "recv_flood": status.get("recv_flood", 0),
-        "recv_direct": status.get("recv_direct", 0),
-        "flood_dups": status.get("flood_dups", 0),
-        "direct_dups": status.get("direct_dups", 0),
-        "full_events": status.get("full_evts", 0),
-        "recv_errors": status.get("recv_errors"),
-    }
+    data = status_snapshot_from_radio(status)
 
     # Best-effort LPP sensor fetch — failure here does not fail the overall
     # collection; status telemetry is still recorded without sensor data.
@@ -1872,6 +1871,14 @@ async def _collect_repeater_telemetry(mc: MeshCore, contact: Contact) -> bool:
             contact.public_key[:12],
             e,
         )
+
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot=data,
+        allow_gps_lost=False,
+    )
 
     try:
         timestamp = int(time.time())
@@ -1927,10 +1934,22 @@ async def _collect_contact_telemetry(mc: MeshCore, contact: Contact) -> bool:
             contact.public_key[:12],
             e,
         )
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+            allow_gps_lost=True,
+        )
         return False
 
     if lpp_raw is None:
         logger.debug("Contact telemetry collect: no response from %s", contact.public_key[:12])
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+            allow_gps_lost=True,
+        )
         return False
 
     lpp_sensors = []
@@ -1946,6 +1965,14 @@ async def _collect_contact_telemetry(mc: MeshCore, contact: Contact) -> bool:
     data: dict = {}
     if lpp_sensors:
         data["lpp_sensors"] = lpp_sensors
+
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot=data,
+        allow_gps_lost=True,
+    )
 
     try:
         timestamp = int(time.time())

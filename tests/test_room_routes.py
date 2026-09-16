@@ -151,6 +151,20 @@ class TestRoomStatus:
         assert response.recv_errors == 7
 
     @pytest.mark.asyncio
+    async def test_room_status_without_bat_is_null(self, test_db):
+        mc = _mock_mc()
+        await _insert_contact(ROOM_KEY, name="Room Server", contact_type=3)
+        mc.commands.req_status_sync = AsyncMock(return_value={"noise_floor": -100, "nb_recv": 1})
+
+        with (
+            patch("app.routers.rooms.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+        ):
+            response = await room_status(ROOM_KEY)
+
+        assert response.battery_volts is None
+
+    @pytest.mark.asyncio
     async def test_room_acl_maps_entries(self, test_db):
         mc = _mock_mc()
         await _insert_contact(ROOM_KEY, name="Room Server", contact_type=3)

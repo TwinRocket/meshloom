@@ -520,9 +520,9 @@ export function App() {
   );
 
   const [communityHashtagNames, setCommunityHashtagNames] = useState<string[]>([]);
-  const localHashtagsSyncedRef = useRef(false);
 
   useEffect(() => {
+    if (!showCracker) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -531,16 +531,6 @@ export function App() {
         const { hashtags } = await api.getCommunityHashtags(community.iata);
         if (cancelled) return;
         setCommunityHashtagNames(hashtags.map((item) => item.name));
-        if (!localHashtagsSyncedRef.current) {
-          const localNames = channelsRef.current
-            .filter((channel) => channel.is_hashtag)
-            .map((channel) => channel.name.replace(/^#/, ''))
-            .filter(Boolean);
-          if (localNames.length > 0) {
-            localHashtagsSyncedRef.current = true;
-            await api.putCommunityHashtags(localNames.slice(0, 50));
-          }
-        }
       } catch {
         // Community off or Stats unreachable — the finder still works offline.
       }
@@ -551,21 +541,11 @@ export function App() {
   }, [showCracker]);
 
   const handleHashtagDiscovered = useCallback((name: string) => {
-    void api
-      .putCommunityHashtags([name])
-      .then((payload) => {
-        setCommunityHashtagNames((previous) => {
-          const next = new Set(previous);
-          next.add(name);
-          for (const item of payload.hashtags) {
-            next.add(item.name);
-          }
-          return [...next];
-        });
-      })
-      .catch((error) => {
-        console.error('Failed to publish discovered hashtag name:', error);
-      });
+    // Local finder wordlist only. Backend owns Community publish
+    // (create / bulk / radio_sync / catalogue resolve).
+    setCommunityHashtagNames((previous) =>
+      previous.includes(name) ? previous : [...previous, name]
+    );
   }, []);
 
   const handleRepeaterAutoLogin = useCallback(
@@ -738,6 +718,8 @@ export function App() {
     },
     trackedTelemetryRepeaters: appSettings?.tracked_telemetry_repeaters ?? [],
     onToggleTrackedTelemetry: handleToggleTrackedTelemetry,
+    trackedTelemetryContacts: appSettings?.tracked_telemetry_contacts ?? [],
+    onToggleTrackedTelemetryContact: handleToggleTrackedTelemetryContact,
     repeaterAutoLoginKey,
     onClearRepeaterAutoLogin: () => setRepeaterAutoLoginKey(null),
     blockedKeys: appSettings?.blocked_keys,

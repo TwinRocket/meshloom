@@ -366,15 +366,19 @@ export function AppShell({
           updateAvailable={updateAvailable}
           onOpenUpdate={() => setUpdateDialogOpen(true)}
           order={navRailOrder}
+          overlayPressed={{ cracker: showCracker }}
           // Settings render over whatever was open, so the pane underneath must not
           // keep the rail lit: two places cannot both be where you are.
           activeToolId={showSettings ? null : (activeType ?? null)}
           onOpenRadioStatus={() => setRadioStatusOpen(true)}
           onSelectTool={(id) => {
+            const item = RAIL_ITEMS.find((candidate) => candidate.id === id);
+            if (item?.overlay) {
+              sidebarProps.onToggleCracker();
+              return;
+            }
             if (showSettings) onToggleSettingsView();
-            sidebarProps.onSelectConversation(
-              RAIL_ITEMS.find((item) => item.id === id)?.conversation as never
-            );
+            sidebarProps.onSelectConversation(item?.conversation as never);
           }}
         />
 
@@ -418,6 +422,8 @@ export function AppShell({
             <ConversationPane
               {...conversationPaneProps}
               communityEnabled={communityStatus?.enabled ?? true}
+              communityIata={communityStatus?.iata}
+              onOpenCommunitySettings={() => handleOpenSettings('community')}
               onBack={onClearActiveConversation}
               onBackToTools={handleBackToTools}
             />

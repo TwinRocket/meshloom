@@ -6,7 +6,13 @@ import pytest
 from fastapi import HTTPException
 from meshcore import EventType
 
-from app.models import CONTACT_TYPE_REPEATER, AppSettings, ContactUpsert
+from app.models import (
+    CONTACT_TYPE_REPEATER,
+    AppSettings,
+    ContactUpsert,
+    TelemetryAlertRuleOverride,
+    TelemetryAlertRules,
+)
 from app.repository import AppSettingsRepository, ContactRepository
 from app.routers.settings import (
     AppSettingsUpdate,
@@ -466,3 +472,78 @@ class TestRoutedHourlySetting:
 
         assert result.schedule.routed_hourly is True
         assert result.schedule.next_routed_run_at is not None
+
+
+class TestTelemetryAlertRulesPatchMerge:
+    """PATCH of globals must not wipe stored per-public_key overrides."""
+
+    @pytest.mark.asyncio
+    async def test_globals_only_keeps_overrides_explicit_write_wins(self, test_db):
+        key = "aa" * 32
+        other = "cc" * 32
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                battery_volts_min=3.5,
+                noise_floor_max_dbm=-90,
+                misses_before_alert=2,
+                overrides={key: TelemetryAlertRuleOverride(battery_volts_min=3.1)},
+            )
+        )
+
+        globals_only = await update_settings(
+            AppSettingsUpdate.model_validate(
+                {
+                    "telemetry_alert_rules": {
+                        "battery_volts_min": 3.6,
+                        "noise_floor_max_dbm": -85,
+                        "misses_before_alert": 3,
+                    }
+                }
+            )
+        )
+        assert globals_only.telemetry_alert_rules.battery_volts_min == 3.6
+        assert globals_only.telemetry_alert_rules.noise_floor_max_dbm == -85
+        assert globals_only.telemetry_alert_rules.misses_before_alert == 3
+        assert globals_only.telemetry_alert_rules.overrides[key].battery_volts_min == 3.1
+
+        null_overrides = await update_settings(
+            AppSettingsUpdate.model_validate(
+                {
+                    "telemetry_alert_rules": {
+                        "battery_volts_min": 3.7,
+                        "overrides": None,
+                    }
+                }
+            )
+        )
+        assert null_overrides.telemetry_alert_rules.battery_volts_min == 3.7
+        assert null_overrides.telemetry_alert_rules.overrides[key].battery_volts_min == 3.1
+
+        replaced = await update_settings(
+            AppSettingsUpdate.model_validate(
+                {
+                    "telemetry_alert_rules": {
+                        "battery_volts_min": 3.5,
+                        "noise_floor_max_dbm": -90,
+                        "misses_before_alert": 2,
+                        "overrides": {other: {"noise_floor_max_dbm": -70}},
+                    }
+                }
+            )
+        )
+        assert key not in replaced.telemetry_alert_rules.overrides
+        assert replaced.telemetry_alert_rules.overrides[other].noise_floor_max_dbm == -70
+
+        cleared = await update_settings(
+            AppSettingsUpdate.model_validate(
+                {
+                    "telemetry_alert_rules": {
+                        "battery_volts_min": 3.5,
+                        "noise_floor_max_dbm": -90,
+                        "misses_before_alert": 2,
+                        "overrides": {},
+                    }
+                }
+            )
+        )
+        assert cleared.telemetry_alert_rules.overrides == {}

@@ -421,6 +421,7 @@
     "neverHeard": "Never heard by this server",
     "lastHeard": "Last heard: {{time}}",
     "repeaterTitle": "Repeater",
+    "sensorTitle": "Sensor",
     "openConversation": "Open conversation with {{name}}"
   },
   "path": {

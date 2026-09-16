@@ -323,5 +323,12 @@
     "hop3Help": "Best repeater disambiguation, up to 21 hops",
     "useRadioDefault": "Use radio default for {{name}}",
     "useHops": "Use {{width}} hops for {{name}}"
+  },
+  "sensor": {
+    "title": "Sensor telemetry",
+    "historyHelp": "Any time sensor telemetry is fetched, the readings are stored for 30 days (or 1,000 samples, whichever comes first). This telemetry is stored on interactive requests here, API calls to the endpoint ({{endpoint}}), or when the contact is opted into interval telemetry polling. Fetch frequency can be configured in <settings>Settings → Radio-App Management</settings>. A maximum of {{max}} contacts may be opted in.",
+    "noHistory": "No history yet. Request telemetry above to record data points.",
+    "trackingFull": "Tracking Full ({{used}}/{{max}} slots used)",
+    "trackingFullHelp": "Disable tracking on another contact to free a slot: {{names}}"
   }
 }

@@ -16,6 +16,8 @@ export interface ConversationEnablementInput {
  * Public or hashtag ON > private channel OFF.
  *
  * Mute is a separate manager-level circuit breaker and is not evaluated here.
+ * ``channel_found`` and ``telemetry_alert`` are global defaults only — those
+ * events have no conversation_key, so overrides never apply to them.
  */
 export function conversationIsEnabled({
   stateKey,

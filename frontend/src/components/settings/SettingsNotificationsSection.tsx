@@ -42,6 +42,16 @@ const DEFAULT_KEYS: Array<{
     label: 'settings.notifications.advertSensor',
     help: 'settings.notifications.advertSensorHelp',
   },
+  {
+    key: 'channel_found',
+    label: 'settings.notifications.channelFound',
+    help: 'settings.notifications.channelFoundHelp',
+  },
+  {
+    key: 'telemetry_alert',
+    label: 'settings.notifications.telemetryAlert',
+    help: 'settings.notifications.telemetryAlertHelp',
+  },
 ];
 
 function resolveConversationName(

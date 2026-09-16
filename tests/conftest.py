@@ -43,6 +43,7 @@ async def test_db():
         repeater_pane_cache,
         repeater_telemetry,
         settings,
+        telemetry_alert_state,
     )
     from app.repository import fanout as fanout_repo
 
@@ -64,6 +65,7 @@ async def test_db():
         repeater_pane_cache,
         contact_telemetry,
         push_subscriptions,
+        telemetry_alert_state,
     ]
     originals = [(mod, mod.db) for mod in submodules]
 
@@ -83,6 +85,15 @@ async def test_db():
             mod.db = original
         packets_module.db = original_packets_db
         await db.disconnect()
+
+
+@pytest.fixture(autouse=True)
+async def _reset_hashtag_catalogue():
+    """Cancel ingest-triggered catalogue work so tasks do not leak between tests."""
+    from app.services.hashtag_catalogue import reset_for_tests
+
+    yield
+    await reset_for_tests()
 
 
 @pytest.fixture(autouse=True)

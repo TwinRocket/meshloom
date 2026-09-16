@@ -15,6 +15,7 @@ from app.models import (
     BackupExport,
     BackupRestoreRequest,
     BackupRestoreResult,
+    TelemetryAlertRules,
     UiPreferences,
 )
 from app.region_scope import normalize_region_scope
@@ -109,6 +110,10 @@ class AppSettingsUpdate(BaseModel):
         ge=0,
         le=3650,
         description="Automatic stale-contact purge in days (0 = disabled)",
+    )
+    telemetry_alert_rules: TelemetryAlertRules | None = Field(
+        default=None,
+        description="Global telemetry alert thresholds plus optional per-node overrides",
     )
 
 
@@ -305,6 +310,10 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     if update.stale_contact_days is not None:
         logger.info("Updating stale_contact_days to %d", update.stale_contact_days)
         kwargs["stale_contact_days"] = update.stale_contact_days
+
+    if update.telemetry_alert_rules is not None:
+        # Pass the PATCH fragment through; persist merges unset/null overrides.
+        kwargs["telemetry_alert_rules"] = update.telemetry_alert_rules
 
     # Flood scope
     flood_scope_changed = False

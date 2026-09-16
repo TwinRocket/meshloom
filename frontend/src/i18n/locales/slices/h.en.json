@@ -10,16 +10,12 @@
     "liveRain": "Live feed"
   },
   "live": {
-    "bannerInactive": "No accepted contribution in the last 24 hours. Publish at least one observation to open the community live feed.",
-    "bannerOptOut": "Community is turned off. Enable it in Settings to receive the live feed.",
+    "bannerOptOut": "Community and an IATA region are required to watch the live feed.",
     "iataFilter": "IATA",
     "iataAll": "All regions",
     "typeFilter": "Type",
     "certainOnly": "Certain traces only",
     "certainOnlyHelp": "Hide hops whose position is only probable.",
-    "play": "Play",
-    "pause": "Pause",
-    "playPause": "Play or pause the live feed",
     "mapAria": "Live packet map",
     "legendTitle": "Map legend",
     "packetLegend": "Packet types",

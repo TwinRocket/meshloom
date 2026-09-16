@@ -1,15 +1,17 @@
 """One Meshloom Stats live-packet socket per process, fanned out locally.
 
 Browser clients never call Stats. This relay opens
-``wss://{API}/v1/live/packets`` only when community is opted in and at least
-one Live session is present.
+``wss://{API}/v1/live/packets`` only when community is opted in, a local
+IATA is set, and at least one Live session is present.
 
 Upstream lifetime is independent of any one browser session: a page reload
 that cannot run React cleanup must not close or reopen the Stats socket.
 The reader loop reconnects itself (capped exponential backoff) on every
-close except the 24h gate (4002). JWT remint is local and happens on each
-connect attempt. ``X-Live-Instance`` identifies this process so a v2 Stats
-server can treat our reconnect as a silent same-relay takeover.
+close except reserved 4002 (unused; not a product 24h sesame). JWT remint
+is local and happens on each connect attempt. The live JWT includes the
+local IATA when set; Stats still treats the claim as optional.
+``X-Live-Instance`` identifies this process so a v2 Stats server can treat
+our reconnect as a silent same-relay takeover.
 """
 
 from __future__ import annotations
@@ -406,6 +408,14 @@ class CommunityLiveRelay:
             "state": self._live_state(opted_out=opted_out),
         }
 
+    async def _can_open_live(self, enabled: bool) -> bool:
+        if not enabled:
+            return False
+        from app.services.meshloom_community import get_community_effective
+
+        state = await get_community_effective()
+        return bool(state.iata)
+
     def _ensure_reader_locked(self) -> None:
         # create_task is synchronous. Any await between "we need a socket" and
         # assigning _reader_task lets a second subscribe open a second Stats
@@ -427,6 +437,7 @@ class CommunityLiveRelay:
         from app.services.meshloom_community import community_enabled
 
         enabled = await community_enabled()
+        can_open = await self._can_open_live(enabled)
         now = time.monotonic()
         async with self._lock:
             self._prune(now)
@@ -439,9 +450,9 @@ class CommunityLiveRelay:
             if self._idle_close_task is not None:
                 self._idle_close_task.cancel()
                 self._idle_close_task = None
-            if enabled:
+            if can_open:
                 self._ensure_reader_locked()
-        if not enabled:
+        if not can_open:
             await self.close_stats()
         return self.snapshot(session_id=sid, opted_out=not enabled)
 
@@ -457,19 +468,20 @@ class CommunityLiveRelay:
         return self.snapshot(opted_out=not await community_enabled())
 
     async def relancer(self) -> dict[str, Any]:
-        """Mint a new API JWT and reconnect. Also the only way out of a 4002 gate."""
+        """Mint a new API JWT and reconnect. Clears leftover 4002/_gate_blocked."""
         from app.services.meshloom_community import community_enabled
 
         enabled = await community_enabled()
+        can_open = await self._can_open_live(enabled)
         self._gate_blocked = False
         self._close_code = None
         await self.close_stats()
-        if enabled:
+        if can_open:
             async with self._lock:
                 self._prune(time.monotonic())
                 self._ensure_reader_locked()
         else:
-            await self._broadcast_status(opted_out=True)
+            await self._broadcast_status(opted_out=not enabled)
         return self.snapshot(opted_out=not enabled)
 
     async def sync_community(self, enabled: bool) -> None:
@@ -477,6 +489,10 @@ class CommunityLiveRelay:
             self._gate_blocked = False
             await self.close_stats()
             await self._broadcast_status(opted_out=True)
+            return
+        if not await self._can_open_live(True):
+            await self.close_stats()
+            await self._broadcast_status(opted_out=False)
             return
         async with self._lock:
             self._prune(time.monotonic())
@@ -603,12 +619,17 @@ class CommunityLiveRelay:
                 if not state.enabled:
                     opted_out = True
                     return
+                if not state.iata:
+                    logger.info("Community live skipped: IATA is not set")
+                    return
                 url = stats_live_ws_url(state.api_base)
                 if not url:
                     logger.warning("Community live skipped: API base is empty")
                     return
                 try:
-                    token = mint_stats_jwt(audience=state.api_audience, iata="", require_iata=False)
+                    token = mint_stats_jwt(
+                        audience=state.api_audience, iata=state.iata, require_iata=False
+                    )
                 except Exception:
                     if generation != self._generation:
                         return
@@ -651,8 +672,9 @@ class CommunityLiveRelay:
                 if generation != self._generation or not self._has_consumers():
                     return
                 if close_code == CLOSE_INACTIVE:
-                    self._gate_blocked = True
-                    self._close_code = CLOSE_INACTIVE
+                    # 4002 is reserved unused. Do not reconnect this generation.
+                    # Do not set _gate_blocked: 4002 is not a product 24h sesame.
+                    self._close_code = user_visible_close_code(close_code)
                     await self._broadcast_status(opted_out=False)
                     return
                 self._close_code = user_visible_close_code(close_code)

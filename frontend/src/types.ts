@@ -735,6 +735,46 @@ export interface UiPreferences {
   theme: string;
 }
 
+/** Global telemetry-alert thresholds persisted on GET/PATCH /api/settings. */
+export interface TelemetryAlertRules {
+  battery_volts_min: number;
+  noise_floor_max_dbm: number;
+  /** Consecutive polls with no usable reply before a miss alert. Bounded 1–4. */
+  misses_before_alert: number;
+}
+
+export const MISSES_BEFORE_ALERT_MIN = 1;
+export const MISSES_BEFORE_ALERT_MAX = 4;
+
+export const DEFAULT_TELEMETRY_ALERT_RULES: TelemetryAlertRules = {
+  battery_volts_min: 3.5,
+  noise_floor_max_dbm: -90,
+  misses_before_alert: 2,
+};
+
+export function clampMissesBeforeAlert(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_TELEMETRY_ALERT_RULES.misses_before_alert;
+  return Math.min(MISSES_BEFORE_ALERT_MAX, Math.max(MISSES_BEFORE_ALERT_MIN, Math.round(value)));
+}
+
+export function resolveTelemetryAlertRules(
+  rules: TelemetryAlertRules | null | undefined
+): TelemetryAlertRules {
+  return {
+    battery_volts_min:
+      rules != null && Number.isFinite(rules.battery_volts_min)
+        ? rules.battery_volts_min
+        : DEFAULT_TELEMETRY_ALERT_RULES.battery_volts_min,
+    noise_floor_max_dbm:
+      rules != null && Number.isFinite(rules.noise_floor_max_dbm)
+        ? rules.noise_floor_max_dbm
+        : DEFAULT_TELEMETRY_ALERT_RULES.noise_floor_max_dbm,
+    misses_before_alert: clampMissesBeforeAlert(
+      rules?.misses_before_alert ?? DEFAULT_TELEMETRY_ALERT_RULES.misses_before_alert
+    ),
+  };
+}
+
 export interface AppSettings {
   ui_preferences: UiPreferences;
   max_radio_contacts: number;
@@ -754,6 +794,8 @@ export interface AppSettings {
   telemetry_routed_hourly: boolean;
   stale_contact_days?: number;
   directory_available?: boolean;
+  /** Absent until the backend ships the field; UI falls back to defaults. */
+  telemetry_alert_rules?: TelemetryAlertRules;
 }
 
 export interface AppSettingsUpdate {
@@ -770,6 +812,7 @@ export interface AppSettingsUpdate {
   telemetry_interval_hours?: number;
   telemetry_routed_hourly?: boolean;
   stale_contact_days?: number;
+  telemetry_alert_rules?: TelemetryAlertRules;
 }
 
 export interface DirectoryHopHit {
@@ -913,6 +956,7 @@ export interface TrackedTelemetryResponse {
 /** Contact type constants */
 export const CONTACT_TYPE_REPEATER = 2;
 export const CONTACT_TYPE_ROOM = 3;
+export const CONTACT_TYPE_SENSOR = 4;
 
 export interface NeighborInfo {
   pubkey_prefix: string;
@@ -1093,6 +1137,8 @@ export interface PushDefaults {
   advert_repeater: boolean;
   advert_companion: boolean;
   advert_sensor: boolean;
+  channel_found: boolean;
+  telemetry_alert: boolean;
 }
 
 export interface PushPreferences {

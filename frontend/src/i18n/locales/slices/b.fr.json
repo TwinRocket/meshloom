@@ -323,5 +323,12 @@
     "hop3Help": "Meilleure distinction des répéteurs, jusqu’à 21 sauts",
     "useRadioDefault": "Utiliser le défaut radio pour {{name}}",
     "useHops": "Utiliser des sauts {{width}} pour {{name}}"
+  },
+  "sensor": {
+    "title": "Télémétrie capteur",
+    "historyHelp": "Chaque fois que la télémétrie d’un capteur est récupérée, les lectures sont conservées 30 jours (ou 1 000 échantillons, selon la première limite atteinte). Cette télémétrie est enregistrée lors des demandes interactives ici, des appels API vers le point de terminaison ({{endpoint}}), ou lorsque le contact est inscrit au sondage périodique. La fréquence se configure dans <settings>Réglages → Gestion Radio-App</settings>. Au plus {{max}} contacts peuvent l’être.",
+    "noHistory": "Pas encore d’historique. Demandez la télémétrie ci-dessus pour enregistrer des points.",
+    "trackingFull": "Suivi saturé ({{used}}/{{max}} emplacements utilisés)",
+    "trackingFullHelp": "Désactivez le suivi d’un autre contact pour libérer un emplacement : {{names}}"
   }
 }

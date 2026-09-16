@@ -16,6 +16,12 @@ from app.routers.server_control import (
 )
 from app.services.contact_access import ensure_on_radio, resolve_contact_or_404
 from app.services.radio_runtime import radio_runtime as radio_manager
+from app.telemetry_alerts import (
+    is_usable_status,
+    note_telemetry_poll,
+    repeater_status_response_kwargs,
+    status_snapshot_from_radio,
+)
 
 router = APIRouter(prefix="/contacts", tags=["rooms"])
 
@@ -57,29 +63,23 @@ async def room_status(public_key: str) -> RepeaterStatusResponse:
         await ensure_on_radio(mc, contact)
         status = await mc.commands.req_status_sync(contact.public_key, timeout=10, min_timeout=5)
 
-    if status is None:
+    if not is_usable_status(status):
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+        )
         raise HTTPException(status_code=422, detail="No status response from room server")
 
-    return RepeaterStatusResponse(
-        battery_volts=status.get("bat", 0) / 1000.0,
-        tx_queue_len=status.get("tx_queue_len", 0),
-        noise_floor_dbm=status.get("noise_floor", 0),
-        last_rssi_dbm=status.get("last_rssi", 0),
-        last_snr_db=status.get("last_snr", 0.0),
-        packets_received=status.get("nb_recv", 0),
-        packets_sent=status.get("nb_sent", 0),
-        airtime_seconds=status.get("airtime", 0),
-        rx_airtime_seconds=status.get("rx_airtime", 0),
-        uptime_seconds=status.get("uptime", 0),
-        sent_flood=status.get("sent_flood", 0),
-        sent_direct=status.get("sent_direct", 0),
-        recv_flood=status.get("recv_flood", 0),
-        recv_direct=status.get("recv_direct", 0),
-        flood_dups=status.get("flood_dups", 0),
-        direct_dups=status.get("direct_dups", 0),
-        full_events=status.get("full_evts", 0),
-        recv_errors=status.get("recv_errors"),
+    snapshot = status_snapshot_from_radio(status)
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot=snapshot,
+        allow_gps_lost=False,
     )
+    return RepeaterStatusResponse(**repeater_status_response_kwargs(snapshot))
 
 
 @router.post("/{public_key}/room/lpp-telemetry", response_model=RepeaterLppTelemetryResponse)
@@ -98,6 +98,12 @@ async def room_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryResponse:
         )
 
     if telemetry is None:
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+            allow_gps_lost=True,
+        )
         raise HTTPException(status_code=422, detail="No telemetry response from room server")
 
     sensors = [
@@ -108,6 +114,13 @@ async def room_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryResponse:
         )
         for entry in telemetry
     ]
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot={"lpp_sensors": [s.model_dump() for s in sensors]},
+        allow_gps_lost=True,
+    )
     return RepeaterLppTelemetryResponse(sensors=sensors)
 
 

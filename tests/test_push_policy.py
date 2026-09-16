@@ -20,6 +20,8 @@ _ALL_ON = PushDefaults(
     advert_repeater=True,
     advert_companion=True,
     advert_sensor=True,
+    channel_found=True,
+    telemetry_alert=True,
 )
 _DM_OFF = PushDefaults(
     new_contact=True,
@@ -27,6 +29,8 @@ _DM_OFF = PushDefaults(
     advert_repeater=True,
     advert_companion=True,
     advert_sensor=True,
+    channel_found=True,
+    telemetry_alert=True,
 )
 
 

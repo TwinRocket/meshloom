@@ -623,6 +623,14 @@ async def request_contact_telemetry(public_key: str) -> ContactTelemetryResponse
         )
 
     if telemetry is None:
+        from app.telemetry_alerts import note_telemetry_poll
+
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+            allow_gps_lost=True,
+        )
         raise HTTPException(status_code=504, detail="No telemetry response from contact")
 
     sensors: list[LppSensor] = []
@@ -636,6 +644,15 @@ async def request_contact_telemetry(public_key: str) -> ContactTelemetryResponse
 
     # Persist snapshot
     data = {"lpp_sensors": [s.model_dump() for s in sensors]}
+    from app.telemetry_alerts import note_telemetry_poll
+
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot=data,
+        allow_gps_lost=True,
+    )
     await ContactTelemetryRepository.record(
         public_key=contact.public_key,
         timestamp=fetched_at,

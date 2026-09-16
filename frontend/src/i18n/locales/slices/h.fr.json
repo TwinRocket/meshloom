@@ -10,16 +10,12 @@
     "liveRain": "Flux live"
   },
   "live": {
-    "bannerInactive": "Aucune contribution acceptée depuis 24 h. Publiez au moins une observation pour ouvrir le flux live communautaire.",
-    "bannerOptOut": "La communauté est désactivée. Activez-la dans Réglages pour recevoir le flux live.",
+    "bannerOptOut": "La communauté et un code IATA sont requis pour regarder le flux live.",
     "iataFilter": "IATA",
     "iataAll": "Toutes les régions",
     "typeFilter": "Type",
     "certainOnly": "Traces certaines uniquement",
     "certainOnlyHelp": "Masque les sauts dont la position est seulement probable.",
-    "play": "Lecture",
-    "pause": "Pause",
-    "playPause": "Lecture ou pause du flux live",
     "mapAria": "Carte du flux live de paquets",
     "legendTitle": "Légende de la carte",
     "packetLegend": "Types de paquets",

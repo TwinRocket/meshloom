@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pause, Play } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { api } from '../api';
@@ -46,10 +45,17 @@ interface LiveViewProps {
   contacts: Contact[];
   config: RadioConfig | null;
   communityEnabled?: boolean;
+  /** Undefined until Community status is known. Empty means IATA is missing. */
+  communityIata?: string;
   blockedKeys?: string[];
   blockedNames?: string[];
   onOpenContactInfo?: (publicKey: string) => void;
   onSelectConversation?: (conversation: Conversation) => void;
+  onOpenCommunitySettings?: () => void;
+}
+
+function communityReadyForLive(enabled: boolean, iata: string | undefined): boolean {
+  return enabled && typeof iata === 'string' && iata.trim() !== '';
 }
 
 function LiveBanner({
@@ -74,16 +80,17 @@ export function LiveView({
   contacts,
   config,
   communityEnabled = true,
+  communityIata,
   blockedKeys = [],
   blockedNames = [],
   onOpenContactInfo,
   onSelectConversation,
+  onOpenCommunitySettings,
 }: LiveViewProps) {
   const { t } = useTranslation();
   const rawPackets = useRawPackets();
   const communityPackets = useCommunityPackets();
   const connection = useLiveConnectionState();
-  const [playing, setPlaying] = useState(true);
   const [iataFilter, setIataFilter] = useState('');
   const [hiddenTypes, setHiddenTypes] = useState<Set<CommunityPacketType>>(() => new Set());
   const [certainOnly, setCertainOnly] = useState(false);
@@ -98,6 +105,7 @@ export function LiveView({
   const seenContactKeysRef = useRef<Set<string>>(new Set());
   const tombstonesRef = useRef<Set<string>>(new Set());
 
+  const communityReady = communityReadyForLive(communityEnabled, communityIata);
   const optedOut = connection.optOut || !communityEnabled;
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
 
@@ -156,8 +164,8 @@ export function LiveView({
   }, [publishPins]);
 
   useEffect(() => {
-    if (!communityEnabled) {
-      applyLiveStatus({ close_code: null, opted_out: true });
+    if (!communityReady) {
+      applyLiveStatus({ close_code: null, opted_out: !communityEnabled });
       return;
     }
     let sessionId: string | null = null;
@@ -183,7 +191,7 @@ export function LiveView({
       window.clearInterval(beat);
       if (sessionId) void api.unsubscribeCommunityLive(sessionId);
     };
-  }, [communityEnabled]);
+  }, [communityEnabled, communityReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,10 +215,6 @@ export function LiveView({
   useEffect(() => {
     engineRef.current?.setLocalRadio(config);
   }, [config]);
-
-  useEffect(() => {
-    engineRef.current?.setPlaying(playing);
-  }, [playing]);
 
   const filters = useMemo(
     () => ({ ...emptyLiveFilters(), iata: iataFilter, hiddenTypes, exactOnly: certainOnly }),
@@ -252,32 +256,27 @@ export function LiveView({
     });
   }, []);
 
-  const bannerKey = !communityEnabled ? 'live.bannerOptOut' : liveBannerI18nKey(connection);
+  const iataKnown = communityIata !== undefined;
+  const needsCommunitySetup =
+    iataKnown && (!communityEnabled || communityIata.trim() === '' || connection.optOut);
+  const bannerKey = needsCommunitySetup ? 'live.bannerOptOut' : liveBannerI18nKey(connection);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {bannerKey && <LiveBanner tone="muted">{t(bannerKey)}</LiveBanner>}
+      {bannerKey && (
+        <LiveBanner tone="muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{t(bannerKey)}</span>
+            {onOpenCommunitySettings && (
+              <Button type="button" size="sm" variant="outline" onClick={onOpenCommunitySettings}>
+                {t('settings.community.bannerOpenSettings')}
+              </Button>
+            )}
+          </div>
+        </LiveBanner>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
-        <Button
-          size="sm"
-          variant="secondary"
-          aria-label={t('live.playPause')}
-          aria-pressed={playing}
-          onClick={() => setPlaying((current) => !current)}
-        >
-          {playing ? (
-            <>
-              <Pause className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-              {t('live.pause')}
-            </>
-          ) : (
-            <>
-              <Play className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-              {t('live.play')}
-            </>
-          )}
-        </Button>
         <label className="flex items-center gap-1.5">
           <span className="text-muted-foreground">{t('live.iataFilter')}</span>
           <select

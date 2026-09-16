@@ -228,6 +228,36 @@ async def test_push_subscription_persists_language(test_db):
     assert updated["language"] == "en"
 
 
+def test_build_payload_channel_found_french_and_english():
+    from app.push.manager import _build_payload
+
+    fr = json.loads(
+        _build_payload(
+            {
+                "event": "channel_found",
+                "name": "#fr",
+                "channel_key": "aa" * 16,
+            }
+        )
+    )
+    assert fr["title"] == "Nouveau canal détecté : #fr"
+    assert fr["tag"] == "meshcore-channel-found-#fr"
+    assert fr["url_hash"] == "#channel/" + "aa" * 16
+
+    en = json.loads(
+        _build_payload(
+            {
+                "event": "channel_found",
+                "name": "#fr",
+                "channel_key": "bb" * 16,
+            },
+            language="en",
+        )
+    )
+    assert en["title"] == "New channel detected: #fr"
+    assert en["url_hash"] == "#channel/" + "bb" * 16
+
+
 def test_build_payload_first_seen_french_and_english():
     from app.push.manager import _build_payload
 
@@ -258,6 +288,42 @@ def test_build_payload_first_seen_french_and_english():
     )
     assert en["title"] == "New repeater: Hill"
     assert en["tag"] == "meshcore-first-seen-" + "bb" * 32
+
+
+def test_build_payload_telemetry_alert_french_and_english():
+    from app.push.manager import _build_payload
+
+    fr = json.loads(
+        _build_payload(
+            {
+                "event": "telemetry_alert",
+                "public_key": "aa" * 32,
+                "name": "Hill",
+                "rule_id": "battery",
+                "value": 3.2,
+                "threshold": 3.5,
+            }
+        )
+    )
+    assert fr["title"] == "Batterie faible : Hill"
+    assert fr["tag"] == "meshcore-telemetry-battery-" + "aa" * 32
+    assert fr["url_hash"] == "#contact/" + "aa" * 32
+
+    en = json.loads(
+        _build_payload(
+            {
+                "event": "telemetry_alert",
+                "public_key": "bb" * 32,
+                "name": "Hill",
+                "rule_id": "silence",
+                "value": 2,
+                "threshold": 2,
+            },
+            language="en",
+        )
+    )
+    assert en["title"] == "Hill is not responding"
+    assert en["tag"] == "meshcore-telemetry-silence-" + "bb" * 32
 
 
 # ── dispatch_message / first-seen ────────────────────────────────────────
@@ -456,6 +522,42 @@ async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
             "advert_companion": False,
             "advert_repeater": True,
             "advert_sensor": True,
+        }
+    )
+    await maybe_notify_contact_first_seen(contact, origin="rf_advert")
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_first_seen_type4_notifies_if_advert_sensor(test_db, monkeypatch):
+    from app.models import Contact
+    from app.push.first_seen import maybe_notify_contact_first_seen
+    from app.radio import radio_manager
+    from app.repository.settings import AppSettingsRepository
+
+    monkeypatch.setattr(radio_manager, "_setup_complete", True)
+    await _add_push_sub()
+    sent = _patch_push_send(monkeypatch)
+    contact = Contact(public_key="aa" * 32, name="Sensor", type=4)
+
+    await AppSettingsRepository.set_push_defaults(
+        {
+            "new_contact": False,
+            "advert_companion": False,
+            "advert_repeater": False,
+            "advert_sensor": True,
+        }
+    )
+    await maybe_notify_contact_first_seen(contact, origin="rf_advert")
+    assert len(sent) == 1
+
+    sent.clear()
+    await AppSettingsRepository.set_push_defaults(
+        {
+            "new_contact": False,
+            "advert_companion": False,
+            "advert_repeater": False,
+            "advert_sensor": False,
         }
     )
     await maybe_notify_contact_first_seen(contact, origin="rf_advert")

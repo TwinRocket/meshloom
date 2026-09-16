@@ -12,7 +12,7 @@ import { asCommunityPacket } from '../utils/livePackets';
 
 export const MAX_LIVE_COMMUNITY_PACKETS = 200;
 
-export type LiveBannerKind = 'inactive' | 'opt_out';
+export type LiveBannerKind = 'opt_out';
 
 export interface LiveConnectionState {
   closeCode: LiveCloseCode | null;
@@ -64,9 +64,8 @@ export function normalizeLiveCloseCode(value: unknown): LiveCloseCode | null {
   return null;
 }
 
-function liveBanner(optOut: boolean, inactiveObserver: boolean): LiveBannerKind | null {
+function liveBanner(optOut: boolean): LiveBannerKind | null {
   if (optOut) return 'opt_out';
-  if (inactiveObserver) return 'inactive';
   return null;
 }
 
@@ -79,13 +78,13 @@ function deriveConnection(input: {
   const closeCode = input.closeCode;
   const optOut = input.optOut;
   const inactiveObserver = closeCode === LIVE_CLOSE_INACTIVE;
-  const connected = !optOut && !inactiveObserver && input.connected === true && closeCode == null;
+  const connected = !optOut && input.connected === true && closeCode == null;
   const reconnecting =
     !optOut &&
-    !inactiveObserver &&
     !connected &&
     (input.reconnecting === true ||
       closeCode === LIVE_CLOSE_JWT_EXPIRED ||
+      closeCode === LIVE_CLOSE_INACTIVE ||
       closeCode === LIVE_CLOSE_RATE_LIMIT ||
       closeCode === LIVE_CLOSE_SUPERSEDED ||
       (closeCode == null && input.connected !== true));
@@ -95,7 +94,7 @@ function deriveConnection(input: {
     reconnecting,
     optOut,
     inactiveObserver,
-    banner: liveBanner(optOut, inactiveObserver),
+    banner: liveBanner(optOut),
   };
 }
 
@@ -116,10 +115,7 @@ function setConnection(next: LiveConnectionState): void {
   emit();
 }
 
-export function liveBannerI18nKey(
-  state: LiveConnectionState
-): 'live.bannerInactive' | 'live.bannerOptOut' | null {
-  if (state.banner === 'inactive') return 'live.bannerInactive';
+export function liveBannerI18nKey(state: LiveConnectionState): 'live.bannerOptOut' | null {
   if (state.banner === 'opt_out') return 'live.bannerOptOut';
   return null;
 }

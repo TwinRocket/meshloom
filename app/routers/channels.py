@@ -15,6 +15,7 @@ from app.models import Channel, ChannelDetail, ChannelMessageCounts, ChannelTopS
 from app.packet_processor import create_message_from_decrypted
 from app.region_scope import UNSCOPED_OVERRIDE_MARKER, is_unscoped, normalize_region_scope
 from app.repository import ChannelRepository, MessageRepository, RawPacketRepository
+from app.services.meshloom_community import schedule_hashtag_names_publish
 from app.websocket import broadcast_event, broadcast_success
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,7 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
     if stored is None:
         raise HTTPException(status_code=500, detail="Channel was created but could not be reloaded")
 
+    await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
     _broadcast_channel_update(stored)
     return stored
 
@@ -297,6 +299,8 @@ async def bulk_create_hashtag_channels(
         created_channels.append(stored)
         decrypt_targets.append((bytes.fromhex(stored.key), stored.key, stored.name))
         _broadcast_channel_update(stored)
+
+    await schedule_hashtag_names_publish([channel.name for channel in created_channels])
 
     if request.try_historical and decrypt_targets:
         decrypt_total_packets = await RawPacketRepository.get_undecrypted_count()

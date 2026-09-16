@@ -63,9 +63,78 @@ def _first_seen_titles(data: dict, lang: str) -> tuple[str, str]:
     return title, body
 
 
+def _telemetry_alert_titles(data: dict, lang: str) -> tuple[str, str]:
+    name = (data.get("name") or "").strip()
+    pubkey = str(data.get("public_key") or "")
+    label = name or (pubkey[:12] if pubkey else "")
+    rule_id = str(data.get("rule_id") or "")
+    value = data.get("value")
+    threshold = data.get("threshold")
+
+    if lang == "en":
+        if rule_id == "battery":
+            title = f"Low battery: {label}" if label else "Low battery"
+            body = f"{value:.2f} V (threshold {threshold} V)" if value is not None else title
+        elif rule_id == "noise":
+            title = f"High noise floor: {label}" if label else "High noise floor"
+            body = f"{value} dBm (threshold {threshold} dBm)" if value is not None else title
+        elif rule_id == "gps_lost":
+            title = f"{label} lost GPS fix" if label else "GPS fix lost"
+            body = title
+        else:
+            title = f"{label} is not responding" if label else "Node is not responding"
+            body = f"No usable telemetry after {int(value) if value is not None else '?'} poll(s)"
+    else:
+        if rule_id == "battery":
+            title = f"Batterie faible : {label}" if label else "Batterie faible"
+            body = f"{value:.2f} V (seuil {threshold} V)" if value is not None else title
+        elif rule_id == "noise":
+            title = f"Bruit élevé : {label}" if label else "Bruit élevé"
+            body = f"{value} dBm (seuil {threshold} dBm)" if value is not None else title
+        elif rule_id == "gps_lost":
+            title = f"{label} a perdu le GPS" if label else "GPS perdu"
+            body = title
+        else:
+            title = f"{label} ne répond plus" if label else "Nœud sans réponse"
+            body = (
+                f"Pas de télémétrie utilisable après "
+                f"{int(value) if value is not None else '?'} sondage(s)"
+            )
+    return title, body
+
+
 def _build_payload(data: dict, language: str = "fr") -> str:
     """Build the push notification JSON payload from a message or first-seen event."""
     lang = language if language in ("fr", "en") else "fr"
+
+    if data.get("event") == "channel_found":
+        name = (data.get("name") or "").strip()
+        key = str(data.get("channel_key") or "")
+        if lang == "en":
+            title = f"New channel detected: {name}" if name else "New channel detected"
+        else:
+            title = f"Nouveau canal détecté : {name}" if name else "Nouveau canal détecté"
+        return json.dumps(
+            {
+                "title": title,
+                "body": title,
+                "tag": f"meshcore-channel-found-{name or key}",
+                "url_hash": f"#channel/{key}" if key else "",
+            }
+        )
+
+    if data.get("event") == "telemetry_alert":
+        title, body = _telemetry_alert_titles(data, lang)
+        pubkey = str(data.get("public_key") or "")
+        rule_id = str(data.get("rule_id") or "")
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "tag": f"meshcore-telemetry-{rule_id}-{pubkey}",
+                "url_hash": f"#contact/{pubkey}" if pubkey else "",
+            }
+        )
 
     if data.get("event") == "first_seen":
         title, body = _first_seen_titles(data, lang)

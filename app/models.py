@@ -604,7 +604,9 @@ class RepeaterLoginResponse(BaseModel):
 class RepeaterStatusResponse(BaseModel):
     """Status telemetry from a repeater (single attempt, no retries)."""
 
-    battery_volts: float = Field(description="Battery voltage in volts")
+    battery_volts: float | None = Field(
+        default=None, description="Battery voltage in volts (null when bat is absent)"
+    )
     tx_queue_len: int = Field(description="Transmit queue length")
     noise_floor_dbm: int = Field(description="Noise floor in dBm")
     last_rssi_dbm: int = Field(description="Last RSSI in dBm")
@@ -1038,6 +1040,28 @@ class UiPreferences(BaseModel):
     )
 
 
+class TelemetryAlertRuleOverride(BaseModel):
+    """Optional per-node replacements for the global telemetry alert thresholds."""
+
+    battery_volts_min: float | None = None
+    noise_floor_max_dbm: float | None = None
+    misses_before_alert: int | None = Field(default=None, ge=1, le=4)
+
+
+class TelemetryAlertRules(BaseModel):
+    """Global telemetry alert thresholds plus optional per-public-key overrides."""
+
+    battery_volts_min: float = Field(default=3.5, description="Low-battery threshold in volts")
+    noise_floor_max_dbm: float = Field(
+        default=-90, description="Alert when noise floor is louder than this (dBm)"
+    )
+    misses_before_alert: int = Field(default=2, ge=1, le=4)
+    overrides: dict[str, TelemetryAlertRuleOverride] | None = Field(
+        default_factory=dict,
+        description="Per-public-key threshold overrides; omit or null on PATCH to keep stored",
+    )
+
+
 class AppSettings(BaseModel):
     """Application settings stored in the database."""
 
@@ -1116,6 +1140,10 @@ class AppSettings(BaseModel):
             "When enabled, tracked repeaters/contacts with a direct or routed (non-flood) "
             "path are polled every hour instead of on the normal scheduled interval."
         ),
+    )
+    telemetry_alert_rules: TelemetryAlertRules = Field(
+        default_factory=TelemetryAlertRules,
+        description="Global telemetry alert thresholds plus optional per-node overrides",
     )
     auto_resend_channel: bool = Field(
         default=False,

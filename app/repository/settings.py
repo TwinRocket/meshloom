@@ -8,7 +8,7 @@ import aiosqlite
 from pydantic import ValidationError
 
 from app.database import db
-from app.models import AppSettings, UiPreferences
+from app.models import AppSettings, TelemetryAlertRules, UiPreferences
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
 from app.telemetry_interval import DEFAULT_TELEMETRY_INTERVAL_HOURS
 
@@ -25,6 +25,8 @@ DEFAULT_PUSH_DEFAULTS: dict[str, bool] = {
     "advert_repeater": True,
     "advert_companion": True,
     "advert_sensor": True,
+    "channel_found": True,
+    "telemetry_alert": True,
 }
 
 
@@ -34,6 +36,21 @@ class PushDefaults(TypedDict):
     advert_repeater: bool
     advert_companion: bool
     advert_sensor: bool
+    channel_found: bool
+    telemetry_alert: bool
+
+
+def _known_push_defaults(parsed: Mapping[str, Any]) -> PushDefaults:
+    """Keep only known keys; missing ones take the built-in default."""
+    return PushDefaults(
+        new_contact=bool(parsed["new_contact"]) if "new_contact" in parsed else True,
+        new_dm=bool(parsed["new_dm"]) if "new_dm" in parsed else True,
+        advert_repeater=bool(parsed["advert_repeater"]) if "advert_repeater" in parsed else True,
+        advert_companion=bool(parsed["advert_companion"]) if "advert_companion" in parsed else True,
+        advert_sensor=bool(parsed["advert_sensor"]) if "advert_sensor" in parsed else True,
+        channel_found=bool(parsed["channel_found"]) if "channel_found" in parsed else True,
+        telemetry_alert=bool(parsed["telemetry_alert"]) if "telemetry_alert" in parsed else True,
+    )
 
 
 def _parse_push_defaults(raw: object) -> PushDefaults:
@@ -45,13 +62,7 @@ def _parse_push_defaults(raw: object) -> PushDefaults:
                 parsed = loaded
         except (json.JSONDecodeError, TypeError):
             parsed = {}
-    return PushDefaults(
-        new_contact=bool(parsed["new_contact"]) if "new_contact" in parsed else True,
-        new_dm=bool(parsed["new_dm"]) if "new_dm" in parsed else True,
-        advert_repeater=bool(parsed["advert_repeater"]) if "advert_repeater" in parsed else True,
-        advert_companion=bool(parsed["advert_companion"]) if "advert_companion" in parsed else True,
-        advert_sensor=bool(parsed["advert_sensor"]) if "advert_sensor" in parsed else True,
-    )
+    return _known_push_defaults(parsed)
 
 
 def _coerce_push_defaults(defaults: Mapping[str, bool]) -> PushDefaults:
@@ -59,13 +70,7 @@ def _coerce_push_defaults(defaults: Mapping[str, bool]) -> PushDefaults:
     for key in DEFAULT_PUSH_DEFAULTS:
         if key in defaults:
             merged[key] = bool(defaults[key])
-    return PushDefaults(
-        new_contact=merged["new_contact"],
-        new_dm=merged["new_dm"],
-        advert_repeater=merged["advert_repeater"],
-        advert_companion=merged["advert_companion"],
-        advert_sensor=merged["advert_sensor"],
-    )
+    return _known_push_defaults(merged)
 
 
 def _parse_push_overrides(raw: object) -> dict[str, bool]:
@@ -106,7 +111,7 @@ class AppSettingsRepository:
                    tracked_telemetry_repeaters, tracked_telemetry_contacts,
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
-                   stale_contact_days,
+                   stale_contact_days, telemetry_alert_rules,
                    ui_preferences
             FROM app_settings WHERE id = 1
             """
@@ -220,6 +225,13 @@ class AppSettingsRepository:
         except (KeyError, TypeError, ValueError):
             stale_contact_days = 0
 
+        try:
+            from app.telemetry_alerts import coerce_telemetry_alert_rules
+
+            telemetry_alert_rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"])
+        except (KeyError, TypeError):
+            telemetry_alert_rules = TelemetryAlertRules()
+
         return AppSettings(
             max_radio_contacts=row["max_radio_contacts"],
             auto_decrypt_dm_on_advert=bool(row["auto_decrypt_dm_on_advert"]),
@@ -238,6 +250,7 @@ class AppSettingsRepository:
             telemetry_interval_hours=telemetry_interval_hours,
             telemetry_routed_hourly=telemetry_routed_hourly,
             stale_contact_days=stale_contact_days,
+            telemetry_alert_rules=telemetry_alert_rules,
         )
 
     @staticmethod
@@ -260,6 +273,7 @@ class AppSettingsRepository:
         telemetry_interval_hours: int | None = None,
         telemetry_routed_hourly: bool | None = None,
         stale_contact_days: int | None = None,
+        telemetry_alert_rules: TelemetryAlertRules | None = None,
         ui_preferences: UiPreferences | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
@@ -338,6 +352,16 @@ class AppSettingsRepository:
             updates.append("stale_contact_days = ?")
             params.append(stale_contact_days)
 
+        if telemetry_alert_rules is not None:
+            from app.telemetry_alerts import merge_telemetry_alert_rules
+
+            current = await AppSettingsRepository._get_in_conn(conn)
+            merged = merge_telemetry_alert_rules(
+                current.telemetry_alert_rules, telemetry_alert_rules
+            )
+            updates.append("telemetry_alert_rules = ?")
+            params.append(merged.model_dump_json())
+
         if updates:
             query = f"UPDATE app_settings SET {', '.join(updates)} WHERE id = 1"
             async with conn.execute(query, params):
@@ -370,6 +394,7 @@ class AppSettingsRepository:
         telemetry_interval_hours: int | None = None,
         telemetry_routed_hourly: bool | None = None,
         stale_contact_days: int | None = None,
+        telemetry_alert_rules: TelemetryAlertRules | None = None,
         ui_preferences: UiPreferences | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
@@ -393,6 +418,7 @@ class AppSettingsRepository:
                 telemetry_interval_hours=telemetry_interval_hours,
                 telemetry_routed_hourly=telemetry_routed_hourly,
                 stale_contact_days=stale_contact_days,
+                telemetry_alert_rules=telemetry_alert_rules,
             )
             return await AppSettingsRepository._get_in_conn(conn)
 

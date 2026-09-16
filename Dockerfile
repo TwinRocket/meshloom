@@ -33,6 +33,10 @@ RUN uv sync --frozen --no-dev
 # Copy application code
 COPY app/ ./app/
 
+# Layer-2 bundled hashtag names: same CC0 snapshot the backend loads
+# (repo path first, then this packaged copy next to meshcore_channels.py).
+COPY frontend/src/data/meshcoreChannels.snapshot.json ./app/data/meshcoreChannels.snapshot.json
+
 # Copy license attributions
 COPY LICENSES.md ./
 

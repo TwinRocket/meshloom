@@ -6,7 +6,15 @@ import { ConversationPane } from '../components/ConversationPane';
 import i18n from '../i18n';
 import sliceEn from '../i18n/locales/slices/b.en.json';
 import sliceFr from '../i18n/locales/slices/b.fr.json';
-import type { Channel, Contact, Conversation, HealthStatus, Message, RadioConfig } from '../types';
+import {
+  CONTACT_TYPE_SENSOR,
+  type Channel,
+  type Contact,
+  type Conversation,
+  type HealthStatus,
+  type Message,
+  type RadioConfig,
+} from '../types';
 
 i18n.addResourceBundle('en', 'translation', sliceEn, true, true);
 i18n.addResourceBundle('fr', 'translation', sliceFr, true, true);
@@ -58,6 +66,12 @@ vi.mock('../components/RoomServerPanel', () => ({
       </div>
     );
   },
+}));
+
+vi.mock('../components/SensorTelemetryPanel', () => ({
+  SensorTelemetryPanel: ({ contact }: { contact: Contact }) => (
+    <div data-testid="sensor-telemetry-panel" data-mounted-for={contact.public_key} />
+  ),
 }));
 
 vi.mock('../components/MapView', () => ({
@@ -236,6 +250,46 @@ describe('ConversationPane', () => {
 
     expect(await screen.findByTestId('repeater-dashboard')).toBeInTheDocument();
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+  });
+
+  it('renders sensor telemetry panel above chat for sensor contacts', async () => {
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: {
+            type: 'contact',
+            id: 'ee'.repeat(32),
+            name: 'Weather',
+          },
+          contacts: [
+            {
+              public_key: 'ee'.repeat(32),
+              name: 'Weather',
+              type: CONTACT_TYPE_SENSOR,
+              flags: 0,
+              direct_path: null,
+              direct_path_len: 0,
+              direct_path_hash_mode: 0,
+              last_advert: null,
+              lat: null,
+              lon: null,
+              last_seen: null,
+              on_radio: false,
+              favorite: false,
+              last_contacted: null,
+              last_read_at: null,
+              first_seen: null,
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(await screen.findByTestId('sensor-telemetry-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('message-list')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-header')).toBeInTheDocument();
+    expect(screen.getByTestId('message-input')).toBeInTheDocument();
+    expect(screen.queryByTestId('repeater-dashboard')).not.toBeInTheDocument();
   });
 
   it('renders chat chrome for normal channel conversations', async () => {

@@ -37,4 +37,40 @@ describe('DesktopRail', () => {
       screen.queryByRole('button', { name: i18n.t('updates.badgeLabel'), hidden: true })
     ).not.toBeInTheDocument();
   });
+
+  it('toggles the channel-finder overlay instead of opening a conversation', () => {
+    const onSelectTool = vi.fn();
+    render(
+      <DesktopRail
+        active={null}
+        unreadTotal={0}
+        onSelect={vi.fn()}
+        health={health}
+        onOpenRadioStatus={vi.fn()}
+        onSelectTool={onSelectTool}
+        overlayPressed={{ cracker: false }}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('sidebar.showChannelFinder'), hidden: true })
+    );
+    expect(onSelectTool).toHaveBeenCalledWith('cracker');
+  });
+
+  it('marks the channel-finder overlay as pressed when it is open', () => {
+    render(
+      <DesktopRail
+        active={null}
+        unreadTotal={0}
+        onSelect={vi.fn()}
+        health={health}
+        onOpenRadioStatus={vi.fn()}
+        onSelectTool={vi.fn()}
+        overlayPressed={{ cracker: true }}
+      />
+    );
+    expect(
+      screen.getByRole('button', { name: i18n.t('sidebar.showChannelFinder'), hidden: true })
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
 });

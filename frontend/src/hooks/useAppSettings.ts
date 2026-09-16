@@ -6,6 +6,23 @@ import i18n from '../i18n';
 import { initLastMessageTimes } from '../utils/conversationState';
 import { applyTheme, cacheTheme, getSavedTheme, serverChoseTheme } from '../utils/theme';
 import type { AppSettings, AppSettingsUpdate } from '../types';
+import { RAIL_OVERLAY_BACKFILL_KEY, backfillRailOverlaysOnce } from '../components/navDestinations';
+
+function railOverlayAlreadyBackfilled(): boolean {
+  try {
+    return localStorage.getItem(RAIL_OVERLAY_BACKFILL_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markRailOverlayBackfilled(): void {
+  try {
+    localStorage.setItem(RAIL_OVERLAY_BACKFILL_KEY, '1');
+  } catch {
+    // Private mode or quota — the next load may backfill again.
+  }
+}
 
 /**
  * Take the instance's theme, and keep a local copy of it.
@@ -39,9 +56,30 @@ export function useAppSettings() {
   const fetchAppSettings = useCallback(async () => {
     try {
       const data = await takePrefetchOrFetch('settings', api.getSettings);
-      setAppSettings(data);
+      const alreadyBackfilled = railOverlayAlreadyBackfilled();
+      const backfill = backfillRailOverlaysOnce(data.ui_preferences?.nav_rail, alreadyBackfilled);
+      const next = backfill.shouldPersist
+        ? {
+            ...data,
+            ui_preferences: {
+              theme: data.ui_preferences?.theme ?? '',
+              nav_rail: backfill.ids,
+            },
+          }
+        : data;
+      setAppSettings(next);
       initLastMessageTimes(data.last_message_times ?? {});
       adoptStoredTheme(data.ui_preferences?.theme);
+      if (backfill.shouldPersist) {
+        try {
+          await api.updateSettings({ ui_preferences: next.ui_preferences });
+          markRailOverlayBackfilled();
+        } catch (err) {
+          console.error('Failed to backfill desktop rail:', err);
+        }
+      } else if (!alreadyBackfilled) {
+        markRailOverlayBackfilled();
+      }
     } catch (err) {
       console.error('Failed to fetch app settings:', err);
     }

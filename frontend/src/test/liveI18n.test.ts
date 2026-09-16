@@ -3,16 +3,12 @@ import { describe, expect, it } from 'vitest';
 import i18n from '../i18n';
 
 const LIVE_KEYS = [
-  'live.bannerInactive',
   'live.bannerOptOut',
   'live.iataFilter',
   'live.iataAll',
   'live.typeFilter',
   'live.certainOnly',
   'live.certainOnlyHelp',
-  'live.play',
-  'live.pause',
-  'live.playPause',
   'live.mapAria',
   'live.legendTitle',
   'live.packetLegend',
@@ -55,11 +51,15 @@ describe('live i18n', () => {
     }
   });
 
-  it('does not keep the retired slot-busy or Relancer copy', () => {
+  it('does not keep the retired slot-busy, Relancer, play/pause, or 24h copy', () => {
     expect(i18n.exists('live.bannerSlotBusy')).toBe(false);
     expect(i18n.exists('live.relancer')).toBe(false);
     expect(i18n.exists('live.bannerExpired')).toBe(false);
     expect(i18n.exists('live.bannerRateLimit')).toBe(false);
+    expect(i18n.exists('live.bannerInactive')).toBe(false);
+    expect(i18n.exists('live.play')).toBe(false);
+    expect(i18n.exists('live.pause')).toBe(false);
+    expect(i18n.exists('live.playPause')).toBe(false);
   });
 
   it('drops the observer role and the community ear labels', () => {
@@ -78,6 +78,7 @@ describe('live i18n', () => {
       const sidebarLive = t('sidebar.live').toLowerCase();
       expect(sidebarLive).not.toContain('rain');
       expect(sidebarLive).not.toContain('pluie');
+      expect(t('live.bannerOptOut').toLowerCase()).not.toContain('24');
     }
   });
 

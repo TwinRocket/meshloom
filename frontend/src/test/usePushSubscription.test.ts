@@ -16,6 +16,8 @@ const ALL_ON_DEFAULTS = {
   advert_repeater: true,
   advert_companion: true,
   advert_sensor: true,
+  channel_found: true,
+  telemetry_alert: true,
 };
 
 const EMPTY_PREFERENCES = {

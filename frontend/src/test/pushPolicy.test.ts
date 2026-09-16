@@ -15,6 +15,8 @@ const ALL_ON: PushDefaults = {
   advert_repeater: true,
   advert_companion: true,
   advert_sensor: true,
+  channel_found: true,
+  telemetry_alert: true,
 };
 
 const DM_OFF: PushDefaults = {
@@ -23,6 +25,8 @@ const DM_OFF: PushDefaults = {
   advert_repeater: true,
   advert_companion: true,
   advert_sensor: true,
+  channel_found: true,
+  telemetry_alert: true,
 };
 
 type PolicyCase = {

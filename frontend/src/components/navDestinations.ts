@@ -9,6 +9,7 @@ import {
   Spline,
   Crosshair,
   Search,
+  Unlock,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation } from '../types';
@@ -37,9 +38,9 @@ export const NAV_ITEMS: { target: BottomNavTarget; labelKey: string; Icon: Lucid
 export const UNREAD_BADGE_MAX = 99;
 
 export type RailItemId =
-  BottomNavTarget | 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search';
+  BottomNavTarget | 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'cracker';
 
-interface RailItem {
+export interface RailItem {
   id: RailItemId;
   labelKey: string;
   Icon: LucideIcon;
@@ -48,16 +49,30 @@ interface RailItem {
    *  Without this, the rail can be emptied of the very entry that leads back to the
    *  page where it is configured — the pin with no way to unpin itself. */
   permanent: boolean;
-  /** The conversation a tool opens. Absent for the four bar destinations. */
+  /** The conversation a tool opens. Absent for bar destinations and overlays. */
   conversation?: Conversation;
+  /** Overlay toggle — not a conversation and not a hash route. */
+  overlay?: boolean;
 }
 
-const tool = (id: Exclude<RailItemId, BottomNavTarget>, labelKey: string, Icon: LucideIcon) => ({
+const tool = (
+  id: Exclude<RailItemId, BottomNavTarget | 'cracker'>,
+  labelKey: string,
+  Icon: LucideIcon
+) => ({
   id,
   labelKey,
   Icon,
   permanent: false,
   conversation: { type: id, id, name: id } as Conversation,
+});
+
+const overlay = (id: 'cracker', labelKey: string, Icon: LucideIcon): RailItem => ({
+  id,
+  labelKey,
+  Icon,
+  permanent: false,
+  overlay: true,
 });
 
 /**
@@ -97,6 +112,7 @@ export const RAIL_ITEMS: RailItem[] = [
   tool('trace', 'sidebar.trace', Spline),
   tool('locate', 'locate.title', Crosshair),
   tool('search', 'sidebar.messageSearch', Search),
+  overlay('cracker', 'sidebar.showChannelFinder', Unlock),
 ];
 
 const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
@@ -110,6 +126,9 @@ const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
  * use is an easier thing to think of than adding what you never saw.
  */
 export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id);
+
+/** localStorage flag so a stored rail is only given the overlay once. */
+export const RAIL_OVERLAY_BACKFILL_KEY = 'meshloom-rail-overlay-cracker';
 
 /** The bottom group's entries, in the order they are drawn. */
 export const ANCHORED_RAIL_ITEMS = ANCHORED_RAIL_IDS.map((id) =>
@@ -145,4 +164,25 @@ export function resolveRail(stored: string[] | undefined): RailItem[] {
     if (item.permanent && !seen.has(item.id)) items.push(item);
   }
   return items;
+}
+
+/**
+ * Add the channel-finder overlay to a stored rail that predates it.
+ *
+ * Empty stored lists already resolve to DEFAULT_RAIL (which includes the overlay).
+ * A non-empty stored list that never knew about it gets the entry appended once;
+ * after that persist, removing it is a choice and is left alone.
+ */
+export function backfillRailOverlaysOnce(
+  stored: string[] | undefined,
+  alreadyBackfilled: boolean
+): { ids: RailItemId[]; shouldPersist: boolean } {
+  const ids = resolveRail(stored).map((item) => item.id);
+  if (ids.includes('cracker') || alreadyBackfilled) {
+    return { ids, shouldPersist: false };
+  }
+  return {
+    ids: [...ids, 'cracker'],
+    shouldPersist: Array.isArray(stored) && stored.length > 0,
+  };
 }

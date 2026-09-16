@@ -152,13 +152,9 @@ class TestCommunityLiveResilience:
             await relay.subscribe()
             await _wait_until(lambda: relay.close_code == CLOSE_INACTIVE)
             await asyncio.sleep(0.08)
-            heartbeat = await relay.subscribe()
-            await asyncio.sleep(0.05)
             await relay.close_stats()
         assert len(connects) == 1
-        assert heartbeat["state"] == "gate"
-        assert heartbeat["close_code"] == CLOSE_INACTIVE
-        assert heartbeat["connected"] is False
+        assert relay._gate_blocked is False
 
     async def test_relancer_clears_gate_and_reconnects(self):
         relay = CommunityLiveRelay()

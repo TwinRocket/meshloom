@@ -41,6 +41,12 @@ from app.routers.server_control import (
 )
 from app.services.contact_access import ensure_on_radio, resolve_contact_or_404
 from app.services.radio_runtime import radio_runtime as radio_manager
+from app.telemetry_alerts import (
+    is_usable_status,
+    note_telemetry_poll,
+    repeater_status_response_kwargs,
+    status_snapshot_from_radio,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +146,7 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
         status = await mc.commands.req_status_sync(contact.public_key, timeout=10, min_timeout=5)
 
         # Best-effort LPP sensor fetch while we still hold the lock
-        if status is not None:
+        if is_usable_status(status):
             try:
                 lpp_raw = await mc.commands.req_telemetry_sync(
                     contact.public_key, timeout=10, min_timeout=5
@@ -148,33 +154,20 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
             except Exception as e:
                 logger.debug("LPP sensor fetch failed for %s (non-fatal): %s", public_key[:12], e)
 
-    if status is None:
+    if not is_usable_status(status):
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+        )
         raise HTTPException(status_code=422, detail="No status response from repeater")
 
-    response = RepeaterStatusResponse(
-        battery_volts=status.get("bat", 0) / 1000.0,
-        tx_queue_len=status.get("tx_queue_len", 0),
-        noise_floor_dbm=status.get("noise_floor", 0),
-        last_rssi_dbm=status.get("last_rssi", 0),
-        last_snr_db=status.get("last_snr", 0.0),
-        packets_received=status.get("nb_recv", 0),
-        packets_sent=status.get("nb_sent", 0),
-        airtime_seconds=status.get("airtime", 0),
-        rx_airtime_seconds=status.get("rx_airtime", 0),
-        uptime_seconds=status.get("uptime", 0),
-        sent_flood=status.get("sent_flood", 0),
-        sent_direct=status.get("sent_direct", 0),
-        recv_flood=status.get("recv_flood", 0),
-        recv_direct=status.get("recv_direct", 0),
-        flood_dups=status.get("flood_dups", 0),
-        direct_dups=status.get("direct_dups", 0),
-        full_events=status.get("full_evts", 0),
-        recv_errors=status.get("recv_errors"),
-    )
+    snapshot = status_snapshot_from_radio(status)
+    response = RepeaterStatusResponse(**repeater_status_response_kwargs(snapshot))
 
     # Record to telemetry history as a JSON blob (best-effort)
     now = int(time.time())
-    status_dict = response.model_dump(exclude={"telemetry_history"})
+    status_dict = dict(snapshot)
 
     # Attach scalar LPP sensors to the stored snapshot (same logic as auto-collect)
     if lpp_raw:
@@ -192,6 +185,14 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
             )
         if lpp_sensors:
             status_dict["lpp_sensors"] = lpp_sensors
+
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot=status_dict,
+        allow_gps_lost=False,
+    )
 
     try:
         await RepeaterTelemetryRepository.record(
@@ -255,6 +256,11 @@ async def repeater_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryRespons
         )
 
     if telemetry is None:
+        await note_telemetry_poll(
+            public_key=contact.public_key,
+            name=contact.name or "",
+            outcome="miss",
+        )
         raise HTTPException(status_code=422, detail="No telemetry response from repeater")
 
     sensors: list[LppSensor] = []
@@ -263,6 +269,14 @@ async def repeater_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryRespons
         type_name = str(entry.get("type", "unknown"))
         value = entry.get("value", 0)
         sensors.append(LppSensor(channel=channel, type_name=type_name, value=value))
+
+    await note_telemetry_poll(
+        public_key=contact.public_key,
+        name=contact.name or "",
+        outcome="success",
+        snapshot={"lpp_sensors": [s.model_dump() for s in sensors]},
+        allow_gps_lost=False,
+    )
 
     return await _cache_pane(
         public_key, "lpp_telemetry", RepeaterLppTelemetryResponse(sensors=sensors)

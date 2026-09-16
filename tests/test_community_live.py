@@ -378,6 +378,37 @@ class TestCommunityLiveRelay:
         assert status["state"] == "opted_out"
         connect.assert_not_called()
 
+    async def test_enabled_without_iata_never_opens_stats_socket(self):
+        relay = CommunityLiveRelay()
+        connect = AsyncMock()
+        no_iata = CommunityEffective(
+            enabled=True,
+            locked=False,
+            iata="",
+            broker_host="mqtt.meshloom.app",
+            api_base="https://api.meshloom.app",
+            api_audience="api.meshloom.app",
+            mqtt_audience="mqtt.meshloom.app",
+        )
+        with (
+            patch(
+                "app.services.meshloom_community.community_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new_callable=AsyncMock,
+                return_value=no_iata,
+            ),
+            patch.object(relay, "_connect", connect),
+            patch.object(relay, "_broadcast_status", AsyncMock()),
+        ):
+            status = await relay.subscribe()
+        assert status["opted_out"] is False
+        assert status["connected"] is False
+        connect.assert_not_called()
+
     async def test_subscribe_opens_one_socket_and_fans_out_sanitized_frame(self):
         relay = CommunityLiveRelay()
         socket = FakeStatsSocket([json.dumps(_v2_packet(raw="ff00"))])
@@ -414,6 +445,7 @@ class TestCommunityLiveRelay:
 
         mint.assert_called_once()
         assert mint.call_args.kwargs["require_iata"] is False
+        assert mint.call_args.kwargs["iata"] == "LYS"
         assert mint.call_args.kwargs["audience"] == "api.meshloom.app"
         frames = [data for event, data in broadcasts if event == "community_packet"]
         assert frames

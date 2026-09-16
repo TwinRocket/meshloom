@@ -399,6 +399,10 @@ async def process_raw_packet(
         )
         if decrypt_result:
             result.update(decrypt_result)
+        else:
+            from app.services.hashtag_catalogue import schedule_unknown_group_text_resolve
+
+            schedule_unknown_group_text_resolve()
 
     elif payload_type == PayloadType.ADVERT:
         # Process all advert arrivals (even payload-hash duplicates) so the

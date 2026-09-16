@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import {
   addToRail,
+  backfillRailOverlaysOnce,
   resolveRail,
   DEFAULT_RAIL,
   RAIL_ITEMS,
@@ -51,6 +52,7 @@ describe('resolveRail', () => {
     // never saw, and the tools have no other entry on desktop.
     expect(DEFAULT_RAIL).toContain('live');
     expect(DEFAULT_RAIL).toContain('search');
+    expect(DEFAULT_RAIL).toContain('cracker');
     expect(resolveRail([]).map((i) => i.id)).toEqual(DEFAULT_RAIL);
   });
 
@@ -72,6 +74,7 @@ describe('resolveRail', () => {
     const optional = RAIL_ITEMS.filter((i) => !i.permanent).map((i) => i.id);
     expect(optional).toContain('live');
     expect(optional).toContain('raw');
+    expect(optional).toContain('cracker');
     expect(resolveRail(['conversations', 'live']).map((i) => i.id)).toContain('live');
   });
 });
@@ -127,10 +130,13 @@ describe('SettingsNavigationSection', () => {
         name: i18n.t('settingsNavigation.moveUp', { name: i18n.t('bottomNav.conversations') }),
       })
     ).toBeDisabled();
+    const lastId = DEFAULT_RAIL[DEFAULT_RAIL.length - 1];
+    const lastItem = RAIL_ITEMS.find((item) => item.id === lastId);
+    expect(lastItem).toBeDefined();
     expect(
       screen.getByRole('button', {
         name: i18n.t('settingsNavigation.moveDown', {
-          name: i18n.t('sidebar.messageSearch'),
+          name: i18n.t(lastItem!.labelKey),
         }),
       })
     ).toBeDisabled();
@@ -141,6 +147,32 @@ describe('SettingsNavigationSection', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settingsNavigation.reset') }));
     expect(onChange).toHaveBeenCalledWith(DEFAULT_RAIL);
     expect(rowNames().length).toBeGreaterThan(0);
+  });
+});
+
+describe('channel finder overlay', () => {
+  it('is on the default rail as an overlay, not a conversation', () => {
+    const cracker = RAIL_ITEMS.find((item) => item.id === 'cracker');
+    expect(cracker?.overlay).toBe(true);
+    expect(cracker?.conversation).toBeUndefined();
+    expect(cracker?.labelKey).toBe('sidebar.showChannelFinder');
+  });
+
+  it('backfills a stored rail that predates the overlay, once', () => {
+    const stored = ['conversations', 'map', 'live'];
+    const first = backfillRailOverlaysOnce(stored, false);
+    expect(first.shouldPersist).toBe(true);
+    expect(first.ids).toEqual(['conversations', 'map', 'live', 'cracker']);
+
+    const afterRemoval = backfillRailOverlaysOnce(stored, true);
+    expect(afterRemoval.shouldPersist).toBe(false);
+    expect(afterRemoval.ids).toEqual(['conversations', 'map', 'live']);
+  });
+
+  it('does not persist when the defaults already include the overlay', () => {
+    const empty = backfillRailOverlaysOnce([], false);
+    expect(empty.ids).toContain('cracker');
+    expect(empty.shouldPersist).toBe(false);
   });
 });
 

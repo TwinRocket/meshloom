@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import {
@@ -19,7 +19,7 @@ import { lppDisplayUnit } from './repeaterPaneShared';
 import { useDistanceUnit } from '../../contexts/DistanceUnitContext';
 import type { TelemetryHistoryEntry, TelemetryLppSensor, Contact } from '../../types';
 
-const MAX_TRACKED = 8;
+export const MAX_TRACKED = 8;
 
 type BuiltinMetric =
   'battery_volts' | 'noise_floor_dbm' | 'packets' | 'recv_errors' | 'uptime_seconds';
@@ -189,39 +189,47 @@ interface CsvColumn {
 /** Columns mirror the flattened point shape built by `chartData` below, so every
  *  metric the pane can plot — builtins, their derived series, and each
  *  discovered LPP sensor — gets a column. Keep the two in step. */
-function buildCsvColumns(lppMetrics: { key: string; config: MetricConfig }[]): CsvColumn[] {
+function buildCsvColumns(
+  lppMetrics: { key: string; config: MetricConfig }[],
+  includeBuiltin = true
+): CsvColumn[] {
   const withUnit = (label: string, unit: string) =>
     unit ? i18n.t('repeater.csvUnit', { label, unit }) : label;
+  const builtinColumns: CsvColumn[] = includeBuiltin
+    ? [
+        {
+          key: 'battery_volts',
+          header: withUnit(
+            builtinMetricLabel('battery_volts'),
+            BUILTIN_METRIC_CONFIG.battery_volts.unit
+          ),
+        },
+        {
+          key: 'noise_floor_dbm',
+          header: withUnit(
+            builtinMetricLabel('noise_floor_dbm'),
+            BUILTIN_METRIC_CONFIG.noise_floor_dbm.unit
+          ),
+        },
+        { key: 'packets_received', header: i18n.t('repeater.csvPacketsReceived') },
+        { key: 'packets_sent', header: i18n.t('repeater.csvPacketsSent') },
+        { key: 'packets_received_delta', header: i18n.t('repeater.csvPacketsReceivedDelta') },
+        { key: 'packets_sent_delta', header: i18n.t('repeater.csvPacketsSentDelta') },
+        { key: 'recv_errors', header: i18n.t('repeater.csvRxErrors') },
+        { key: 'recv_error_pct', header: i18n.t('repeater.csvRxErrorRate') },
+        {
+          key: 'uptime_seconds',
+          header: withUnit(
+            builtinMetricLabel('uptime_seconds'),
+            BUILTIN_METRIC_CONFIG.uptime_seconds.unit
+          ),
+        },
+      ]
+    : [];
   return [
     { key: 'timestamp_iso', header: i18n.t('repeater.csvTimestampIso') },
     { key: 'timestamp', header: i18n.t('repeater.csvUnixTimestamp') },
-    {
-      key: 'battery_volts',
-      header: withUnit(
-        builtinMetricLabel('battery_volts'),
-        BUILTIN_METRIC_CONFIG.battery_volts.unit
-      ),
-    },
-    {
-      key: 'noise_floor_dbm',
-      header: withUnit(
-        builtinMetricLabel('noise_floor_dbm'),
-        BUILTIN_METRIC_CONFIG.noise_floor_dbm.unit
-      ),
-    },
-    { key: 'packets_received', header: i18n.t('repeater.csvPacketsReceived') },
-    { key: 'packets_sent', header: i18n.t('repeater.csvPacketsSent') },
-    { key: 'packets_received_delta', header: i18n.t('repeater.csvPacketsReceivedDelta') },
-    { key: 'packets_sent_delta', header: i18n.t('repeater.csvPacketsSentDelta') },
-    { key: 'recv_errors', header: i18n.t('repeater.csvRxErrors') },
-    { key: 'recv_error_pct', header: i18n.t('repeater.csvRxErrorRate') },
-    {
-      key: 'uptime_seconds',
-      header: withUnit(
-        builtinMetricLabel('uptime_seconds'),
-        BUILTIN_METRIC_CONFIG.uptime_seconds.unit
-      ),
-    },
+    ...builtinColumns,
     ...lppMetrics.map((m) => ({
       key: m.key,
       // Unit already reflects the active distance-unit preference, as the chart does.
@@ -254,34 +262,34 @@ export function buildTelemetryCsv(
   return lines.join('\r\n');
 }
 
-interface TelemetryHistoryPaneProps {
+interface TelemetryHistoryChartProps {
   entries: TelemetryHistoryEntry[];
   publicKey: string;
-  contacts: Contact[];
-  trackedTelemetryRepeaters: string[];
-  onToggleTrackedTelemetry: (publicKey: string) => Promise<void>;
+  csvName: string;
+  title: string;
+  includeBuiltin?: boolean;
+  emptyLabel: string;
+  toolbar?: ReactNode;
 }
 
-export function TelemetryHistoryPane({
+export function TelemetryHistoryChart({
   entries,
   publicKey,
-  contacts,
-  trackedTelemetryRepeaters,
-  onToggleTrackedTelemetry,
-}: TelemetryHistoryPaneProps) {
+  csvName,
+  title,
+  includeBuiltin = true,
+  emptyLabel,
+  toolbar,
+}: TelemetryHistoryChartProps) {
   const { t } = useTranslation();
   const { distanceUnit } = useDistanceUnit();
-  const [metric, setMetric] = useState<string>('battery_volts');
-  const [toggling, setToggling] = useState(false);
+  const [metric, setMetric] = useState<string>(includeBuiltin ? 'battery_volts' : '');
   const [brushRange, setBrushRange] = useState<{ start: number; end: number } | null>(null);
 
-  // Reset the zoom window when switching to a different repeater.
+  // Reset the zoom window when switching to a different contact.
   useEffect(() => {
     setBrushRange(null);
   }, [publicKey]);
-
-  const isTracked = trackedTelemetryRepeaters.includes(publicKey);
-  const slotsFull = trackedTelemetryRepeaters.length >= MAX_TRACKED && !isTracked;
 
   // Discover unique LPP sensors across all history entries
   const lppMetrics = useMemo(() => {
@@ -312,12 +320,13 @@ export function TelemetryHistoryPane({
   }, [entries, distanceUnit]);
 
   const allMetricKeys = useMemo(
-    () => [...BUILTIN_METRICS, ...lppMetrics.map((m) => m.key)],
-    [lppMetrics]
+    () => [...(includeBuiltin ? BUILTIN_METRICS : []), ...lppMetrics.map((m) => m.key)],
+    [includeBuiltin, lppMetrics]
   );
 
+  const defaultMetric = includeBuiltin ? 'battery_volts' : (lppMetrics[0]?.key ?? '');
   // If the selected metric disappears (e.g. different repeater), reset to default
-  const activeMetric = allMetricKeys.includes(metric) ? metric : 'battery_volts';
+  const activeMetric = allMetricKeys.includes(metric) ? metric : defaultMetric;
 
   const isBuiltin = BUILTIN_METRICS.includes(activeMetric as BuiltinMetric);
   const activeConfig: MetricConfig = useMemo(
@@ -548,48 +557,26 @@ export function TelemetryHistoryPane({
     );
   };
 
-  const handleToggle = async () => {
-    setToggling(true);
-    try {
-      await onToggleTrackedTelemetry(publicKey);
-    } finally {
-      setToggling(false);
-    }
-  };
-
-  const repeaterName = useMemo(
-    () => contacts.find((c) => c.public_key === publicKey)?.name ?? publicKey.slice(0, 12),
-    [contacts, publicKey]
-  );
-
   // Exports the full stored history, not the brushed viewport — the button is
   // about archiving the data, while the brush is a chart-reading aid.
   const handleDownloadCsv = () => {
-    const csv = buildTelemetryCsv(chartData, buildCsvColumns(lppMetrics));
+    const csv = buildTelemetryCsv(chartData, buildCsvColumns(lppMetrics, includeBuiltin));
     // Excel only detects UTF-8 in a CSV via the BOM, and LPP units include
     // non-ASCII characters such as "°C".
     const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = telemetryCsvFilename(repeaterName, new Date());
+    a.download = telemetryCsvFilename(csvName, new Date());
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const trackedNames = useMemo(() => {
-    if (!slotsFull) return [];
-    return trackedTelemetryRepeaters.map((key) => {
-      const contact = contacts.find((c) => c.public_key === key);
-      return { key, name: contact?.name ?? key.slice(0, 12) };
-    });
-  }, [slotsFull, trackedTelemetryRepeaters, contacts]);
 
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b border-border">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">{t('repeater.telemetryHistory')}</h3>
+          <h3 className="text-sm font-medium">{title}</h3>
           {entries.length > 0 && (
             <span className="text-[0.625rem] text-muted-foreground">
               {t('repeater.samples', { count: entries.length })}
@@ -609,80 +596,32 @@ export function TelemetryHistoryPane({
         )}
       </div>
       <div className="p-3">
-        {/* Explanation + tracking toggle */}
-        <div className="mb-3 space-y-3">
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <Trans
-              i18nKey="repeater.historyHelp"
-              values={{
-                endpoint: 'POST /api/contacts/<key>/repeater/status',
-                max: MAX_TRACKED,
-              }}
-              components={{
-                settings: (
-                  <a
-                    href="#settings/radio-app"
-                    className="underline text-primary hover:text-primary/80 transition-colors"
-                  />
-                ),
-              }}
-            />
-          </p>
-
-          {isTracked ? (
-            <Button
-              variant="outline"
-              onClick={handleToggle}
-              disabled={toggling}
-              className="border-destructive/50 text-destructive hover:bg-destructive/10"
-            >
-              {toggling ? t('repeater.updating') : t('repeater.removeTracking')}
-            </Button>
-          ) : slotsFull ? (
-            <div className="space-y-2">
-              <Button variant="outline" disabled>
-                {t('repeater.trackingFull', {
-                  used: trackedTelemetryRepeaters.length,
-                  max: MAX_TRACKED,
-                })}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                {t('repeater.trackingFullHelp', {
-                  names: trackedNames.map((item) => item.name).join(', '),
-                })}
-              </p>
-            </div>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={handleToggle}
-              disabled={toggling}
-              className="border-green-600/50 text-green-600 hover:bg-green-600/10"
-            >
-              {toggling ? t('repeater.updating') : t('repeater.optInTracking')}
-            </Button>
-          )}
-        </div>
-
-        <Separator className="mb-3" />
+        {toolbar ? (
+          <>
+            <div className="mb-3 space-y-3">{toolbar}</div>
+            <Separator className="mb-3" />
+          </>
+        ) : null}
 
         {/* Metric selector */}
         <div className="flex flex-wrap gap-1 mb-2">
-          {BUILTIN_METRICS.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMetric(m)}
-              className={cn(
-                'text-[0.6875rem] px-2 py-0.5 rounded transition-colors',
-                activeMetric === m
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              )}
-            >
-              {builtinMetricLabel(m)}
-            </button>
-          ))}
+          {includeBuiltin
+            ? BUILTIN_METRICS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMetric(m)}
+                  className={cn(
+                    'text-[0.6875rem] px-2 py-0.5 rounded transition-colors',
+                    activeMetric === m
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  )}
+                >
+                  {builtinMetricLabel(m)}
+                </button>
+              ))
+            : null}
           {lppMetrics.map((m) => (
             <button
               key={m.key}
@@ -701,7 +640,7 @@ export function TelemetryHistoryPane({
         </div>
 
         {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic">{t('repeater.noHistory')}</p>
+          <p className="text-sm text-muted-foreground italic">{emptyLabel}</p>
         ) : (
           <ResponsiveContainer width="100%" height={210}>
             <AreaChart
@@ -799,5 +738,109 @@ export function TelemetryHistoryPane({
         )}
       </div>
     </div>
+  );
+}
+
+interface TelemetryHistoryPaneProps {
+  entries: TelemetryHistoryEntry[];
+  publicKey: string;
+  contacts: Contact[];
+  trackedTelemetryRepeaters: string[];
+  onToggleTrackedTelemetry: (publicKey: string) => Promise<void>;
+}
+
+export function TelemetryHistoryPane({
+  entries,
+  publicKey,
+  contacts,
+  trackedTelemetryRepeaters,
+  onToggleTrackedTelemetry,
+}: TelemetryHistoryPaneProps) {
+  const { t } = useTranslation();
+  const [toggling, setToggling] = useState(false);
+  const isTracked = trackedTelemetryRepeaters.includes(publicKey);
+  const slotsFull = trackedTelemetryRepeaters.length >= MAX_TRACKED && !isTracked;
+  const csvName =
+    contacts.find((c) => c.public_key === publicKey)?.name ?? publicKey.slice(0, 12);
+
+  const handleToggle = async () => {
+    setToggling(true);
+    try {
+      await onToggleTrackedTelemetry(publicKey);
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const trackedNames = slotsFull
+    ? trackedTelemetryRepeaters.map((key) => {
+        const contact = contacts.find((c) => c.public_key === key);
+        return contact?.name ?? key.slice(0, 12);
+      })
+    : [];
+
+  return (
+    <TelemetryHistoryChart
+      entries={entries}
+      publicKey={publicKey}
+      csvName={csvName}
+      title={t('repeater.telemetryHistory')}
+      emptyLabel={t('repeater.noHistory')}
+      toolbar={
+        <>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <Trans
+              i18nKey="repeater.historyHelp"
+              values={{
+                endpoint: 'POST /api/contacts/<key>/repeater/status',
+                max: MAX_TRACKED,
+              }}
+              components={{
+                settings: (
+                  <a
+                    href="#settings/radio-app"
+                    className="underline text-primary hover:text-primary/80 transition-colors"
+                  />
+                ),
+              }}
+            />
+          </p>
+
+          {isTracked ? (
+            <Button
+              variant="outline"
+              onClick={handleToggle}
+              disabled={toggling}
+              className="border-destructive/50 text-destructive hover:bg-destructive/10"
+            >
+              {toggling ? t('repeater.updating') : t('repeater.removeTracking')}
+            </Button>
+          ) : slotsFull ? (
+            <div className="space-y-2">
+              <Button variant="outline" disabled>
+                {t('repeater.trackingFull', {
+                  used: trackedTelemetryRepeaters.length,
+                  max: MAX_TRACKED,
+                })}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {t('repeater.trackingFullHelp', {
+                  names: trackedNames.join(', '),
+                })}
+              </p>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={handleToggle}
+              disabled={toggling}
+              className="border-green-600/50 text-green-600 hover:bg-green-600/10"
+            >
+              {toggling ? t('repeater.updating') : t('repeater.optInTracking')}
+            </Button>
+          )}
+        </>
+      }
+    />
   );
 }

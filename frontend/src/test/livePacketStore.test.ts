@@ -69,17 +69,17 @@ describe('livePacketStore', () => {
     });
   });
 
-  it('applies backend community_live close codes', () => {
+  it('does not treat 4002 as a 24h viewer lock or banner', () => {
     applyLiveStatus({ close_code: 4002, opted_out: false });
     expect(getLiveConnectionState()).toMatchObject({
       closeCode: 4002,
       optOut: false,
       inactiveObserver: true,
       connected: false,
-      reconnecting: false,
-      banner: 'inactive',
+      reconnecting: true,
+      banner: null,
     });
-    expect(liveBannerI18nKey(getLiveConnectionState())).toBe('live.bannerInactive');
+    expect(liveBannerI18nKey(getLiveConnectionState())).toBeNull();
   });
 
   it('treats 4003 as 4005 and never raises a user-visible error', () => {
@@ -119,7 +119,7 @@ describe('livePacketStore', () => {
     });
   });
 
-  it('distinguishes connected, reconnecting, opt-out, and the 24h gate', () => {
+  it('distinguishes connected, reconnecting, and opt-out', () => {
     applyLiveStatus({ close_code: null, opted_out: false, connected: true });
     expect(getLiveConnectionState()).toMatchObject({
       connected: true,

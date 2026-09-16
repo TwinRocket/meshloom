@@ -34,6 +34,8 @@ interface Props {
   order?: string[];
   /** Which tool is open, so a pinned tool lights up like a destination does. */
   activeToolId?: string | null;
+  /** Overlay toggles (not conversations) that should look pressed. */
+  overlayPressed?: Partial<Record<RailItemId, boolean>>;
   onSelectTool: (id: RailItemId) => void;
   updateAvailable?: boolean;
   onOpenUpdate?: () => void;
@@ -51,6 +53,7 @@ export function DesktopRail({
   onOpenRadioStatus,
   order,
   activeToolId,
+  overlayPressed,
   onSelectTool,
   updateAvailable = false,
   onOpenUpdate,
@@ -63,16 +66,21 @@ export function DesktopRail({
       data-desktop-rail=""
       className="group/rail hidden w-14 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-border bg-muted/30 py-3 md:flex"
     >
-      {resolveRail(order).map(({ id, labelKey, Icon, permanent }) => {
+      {resolveRail(order).map(({ id, labelKey, Icon, permanent, overlay }) => {
         const target = id as BottomNavTarget;
-        const current = permanent ? active === target : activeToolId === id;
+        const current = overlay
+          ? Boolean(overlayPressed?.[id])
+          : permanent
+            ? active === target
+            : activeToolId === id;
         const badge = id === 'conversations' && unreadTotal > 0;
         return (
           <button
             key={id}
             type="button"
             onClick={() => (permanent ? onSelect(target) : onSelectTool(id))}
-            aria-current={current ? 'page' : undefined}
+            aria-current={!overlay && current ? 'page' : undefined}
+            aria-pressed={overlay ? current : undefined}
             aria-label={t(labelKey)}
             title={t(labelKey)}
             className={cn(

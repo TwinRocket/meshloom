@@ -1038,6 +1038,40 @@ class TestRepeaterStatus:
         assert exc.value.status_code == 422
 
     @pytest.mark.asyncio
+    async def test_status_without_bat_is_null_not_zero(self, test_db):
+        mc = _mock_mc()
+        await _insert_contact(KEY_A, name="Repeater", contact_type=2)
+        mc.commands.req_status_sync = AsyncMock(
+            return_value={"noise_floor": -110, "nb_recv": 1, "nb_sent": 0}
+        )
+
+        with (
+            patch("app.routers.repeaters.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+        ):
+            response = await repeater_status(KEY_A)
+
+        assert response.battery_volts is None
+
+    @pytest.mark.asyncio
+    async def test_empty_status_is_miss_not_zero_snapshot(self, test_db):
+        from app.repository.repeater_telemetry import RepeaterTelemetryRepository
+
+        mc = _mock_mc()
+        await _insert_contact(KEY_A, name="Repeater", contact_type=2)
+        mc.commands.req_status_sync = AsyncMock(return_value={})
+
+        with (
+            patch("app.routers.repeaters.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await repeater_status(KEY_A)
+        assert exc.value.status_code == 422
+        history = await RepeaterTelemetryRepository.get_history(KEY_A, 0)
+        assert history == []
+
+    @pytest.mark.asyncio
     async def test_400_not_repeater(self, test_db):
         mc = _mock_mc()
         await _insert_contact(KEY_A, name="Client", contact_type=1)

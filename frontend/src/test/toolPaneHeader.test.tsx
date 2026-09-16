@@ -48,8 +48,11 @@ describe('tool panes', () => {
   it('every tool on the rail is reachable and leaves a way back', () => {
     // The rail is the only route to these on desktop, and Tools the only route on a
     // phone; either way each one opens full screen.
-    for (const item of RAIL_ITEMS.filter((i) => !i.permanent)) {
+    for (const item of RAIL_ITEMS.filter((i) => !i.permanent && !i.overlay)) {
       expect(item.conversation).toBeDefined();
+    }
+    for (const item of RAIL_ITEMS.filter((i) => i.overlay)) {
+      expect(item.conversation).toBeUndefined();
     }
   });
 });

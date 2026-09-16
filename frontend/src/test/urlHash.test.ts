@@ -38,6 +38,12 @@ describe('parseHashConversation', () => {
     expect(result).toBeNull();
   });
 
+  it('does not treat #cracker as a conversation', () => {
+    window.location.hash = '#cracker';
+
+    expect(parseHashConversation()).toBeNull();
+  });
+
   it('parses #raw as raw type', () => {
     window.location.hash = '#raw';
 

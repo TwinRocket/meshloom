@@ -1,5 +1,6 @@
 """Tests for the channels router endpoints."""
 
+import asyncio
 import time
 from hashlib import sha256
 from unittest.mock import AsyncMock, patch
@@ -8,6 +9,7 @@ import pytest
 
 from app.channel_constants import PUBLIC_CHANNEL_KEY, PUBLIC_CHANNEL_NAME
 from app.repository import ChannelRepository, MessageRepository
+from app.services.meshloom_community import update_community
 
 
 class TestChannelFloodScopeOverride:
@@ -51,6 +53,75 @@ class TestChannelFloodScopeOverride:
         channel = await ChannelRepository.get_by_key(key)
         assert channel is not None
         assert channel.flood_scope_override == "*"
+
+
+class TestCreateChannelHashtagPublish:
+    @pytest.mark.asyncio
+    async def test_create_hashtag_puts_name_when_community_joined(self, test_db):
+        from app.routers.channels import CreateChannelRequest, create_channel
+
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await create_channel(CreateChannelRequest(name="#fr"))
+            await asyncio.sleep(0)
+
+        stats.assert_awaited_once_with(
+            "PUT",
+            "/v1/me/hashtags",
+            auth=True,
+            json_body={"names": ["fr"]},
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_hashtag_skips_put_when_community_off(self, test_db):
+        from app.routers.channels import CreateChannelRequest, create_channel
+
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await create_channel(CreateChannelRequest(name="#fr"))
+            await asyncio.sleep(0)
+
+        stats.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_private_key_channel_skips_put(self, test_db):
+        from app.routers.channels import CreateChannelRequest, create_channel
+
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await create_channel(
+                CreateChannelRequest(name="secret", key="AA" * 16),
+            )
+            await asyncio.sleep(0)
+
+        stats.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bulk_hashtag_puts_new_names_when_community_joined(self, test_db, client):
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            response = await client.post(
+                "/api/channels/bulk-hashtag",
+                json={"channel_names": ["fr", "ops"], "try_historical": False},
+            )
+            await asyncio.sleep(0)
+
+        assert response.status_code == 200
+        stats.assert_awaited_once()
+        assert stats.await_args.args[0] == "PUT"
+        assert stats.await_args.args[1] == "/v1/me/hashtags"
+        assert stats.await_args.kwargs["json_body"] == {"names": ["fr", "ops"]}
 
 
 class TestCreateChannel:

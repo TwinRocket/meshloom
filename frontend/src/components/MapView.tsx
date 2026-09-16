@@ -5,18 +5,25 @@ import {
   MapContainer,
   TileLayer,
   CircleMarker,
+  Marker,
   Popup,
   useMap,
   useMapEvents,
   LayersControl,
 } from 'react-leaflet';
-import type { LatLngBoundsExpression, CircleMarker as LeafletCircleMarker } from 'leaflet';
+import L from 'leaflet';
+import type {
+  LatLngBoundsExpression,
+  CircleMarker as LeafletCircleMarker,
+  Marker as LeafletMarker,
+} from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Contact, DirectoryMapNode, RadioConfig } from '../types';
 import { api } from '../api';
 import { formatTime } from '../utils/messageParser';
 import { isValidLocation } from '../utils/pathUtils';
-import { CONTACT_TYPE_REPEATER } from '../types';
+import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_SENSOR } from '../types';
+import { NODE_ROLE_STYLE } from './live/liveRender';
 import { Maximize2 } from 'lucide-react';
 import { DirectoryGlobeIcon } from './messagePath/DirectoryGlobeIcon';
 import { cn } from '@/lib/utils';
@@ -204,6 +211,20 @@ const MAP_RECENCY_COLORS = {
 const MAP_MARKER_STROKE = '#0f172a';
 const MAP_REPEATER_RING = '#f8fafc';
 const MAP_DIRECTORY_COLOR = '#f97316';
+/** Same teal as `#live` NODE_ROLE_STYLE.sensor — role colour, not a second palette. */
+const MAP_SENSOR_FILL = NODE_ROLE_STYLE.sensor.color;
+
+type MapFocusMarker = Pick<LeafletCircleMarker | LeafletMarker, 'openPopup'>;
+
+function makeSensorTriangleIcon(): L.DivIcon {
+  // CircleMarker cannot be a triangle. DivIcon SVG matches `#live` RoleShapeIcon.
+  return L.divIcon({
+    className: 'map-sensor-marker',
+    iconSize: [16, 16],
+    iconAnchor: [8, 10],
+    html: `<svg width="16" height="16" viewBox="0 0 10 10" aria-hidden="true"><polygon points="5,1.4 8.8,8.4 1.2,8.4" fill="${MAP_SENSOR_FILL}" stroke="${MAP_MARKER_STROKE}" stroke-width="0.8" stroke-linejoin="round"/></svg>`,
+  });
+}
 
 // --- "Heard since" filter ---
 // Relative presets mirror the marker recency legend so the chips and the dot
@@ -552,9 +573,9 @@ export function MapView({
     focusedContact != null && !isWithinSinceWindow(focusedContact.last_seen);
 
   // Track marker refs to open popup programmatically
-  const markerRefs = useRef<Record<string, LeafletCircleMarker | null>>({});
+  const markerRefs = useRef<Record<string, MapFocusMarker | null>>({});
 
-  const setMarkerRef = useCallback((key: string, ref: LeafletCircleMarker | null) => {
+  const setMarkerRef = useCallback((key: string, ref: MapFocusMarker | null) => {
     if (ref === null) {
       delete markerRefs.current[key];
       return;
@@ -797,59 +818,80 @@ export function MapView({
 
           {mappableContacts.map((contact) => {
             const isRepeater = contact.type === CONTACT_TYPE_REPEATER;
+            const isSensor = contact.type === CONTACT_TYPE_SENSOR;
             const color = getMarkerColor(contact.last_seen);
             const displayName = contact.name || contact.public_key.slice(0, 12);
             const lastHeardLabel =
               contact.last_seen != null ? formatTime(contact.last_seen) : t('map.neverHeard');
             const radius = isRepeater ? 10 : 7;
+            const popup = (
+              <Popup>
+                <div className="text-sm" data-testid={isSensor ? 'map-sensor-marker' : undefined}>
+                  <div className="font-medium flex items-center gap-1">
+                    {isRepeater && (
+                      <span title={t('map.repeaterTitle')} aria-hidden="true">
+                        🛜
+                      </span>
+                    )}
+                    {isSensor && (
+                      <span title={t('map.sensorTitle')} aria-hidden="true">
+                        <svg width="10" height="10" viewBox="0 0 10 10">
+                          <polygon points="5,1.4 8.8,8.4 1.2,8.4" fill={MAP_SENSOR_FILL} />
+                        </svg>
+                      </span>
+                    )}
+                    {onSelectContact ? (
+                      <button
+                        type="button"
+                        className="p-0 bg-transparent border-0 font-inherit text-primary underline hover:text-primary/80 cursor-pointer"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectContact(contact);
+                        }}
+                        title={t('map.openConversation', { name: displayName })}
+                      >
+                        {displayName}
+                      </button>
+                    ) : (
+                      displayName
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {t('map.lastHeard', { time: lastHeardLabel })}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1 font-mono">
+                    {contact.lat!.toFixed(5)}, {contact.lon!.toFixed(5)}
+                  </div>
+                </div>
+              </Popup>
+            );
 
             return (
               <Fragment key={contact.public_key}>
-                <CircleMarker
-                  key={contact.public_key}
-                  ref={(ref) => setMarkerRef(contact.public_key, ref)}
-                  center={[contact.lat!, contact.lon!]}
-                  radius={radius}
-                  pathOptions={{
-                    color: isRepeater ? MAP_REPEATER_RING : MAP_MARKER_STROKE,
-                    fillColor: color,
-                    fillOpacity: 0.9,
-                    weight: isRepeater ? 3 : 2,
-                  }}
-                >
-                  <Popup>
-                    <div className="text-sm">
-                      <div className="font-medium flex items-center gap-1">
-                        {isRepeater && (
-                          <span title={t('map.repeaterTitle')} aria-hidden="true">
-                            🛜
-                          </span>
-                        )}
-                        {onSelectContact ? (
-                          <button
-                            type="button"
-                            className="p-0 bg-transparent border-0 font-inherit text-primary underline hover:text-primary/80 cursor-pointer"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onSelectContact(contact);
-                            }}
-                            title={t('map.openConversation', { name: displayName })}
-                          >
-                            {displayName}
-                          </button>
-                        ) : (
-                          displayName
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {t('map.lastHeard', { time: lastHeardLabel })}
-                      </div>
-                      <div className="text-xs text-gray-400 mt-1 font-mono">
-                        {contact.lat!.toFixed(5)}, {contact.lon!.toFixed(5)}
-                      </div>
-                    </div>
-                  </Popup>
-                </CircleMarker>
+                {isSensor ? (
+                  <Marker
+                    ref={(ref) => setMarkerRef(contact.public_key, ref)}
+                    position={[contact.lat!, contact.lon!]}
+                    icon={makeSensorTriangleIcon()}
+                  >
+                    {popup}
+                  </Marker>
+                ) : (
+                  <CircleMarker
+                    key={contact.public_key}
+                    ref={(ref) => setMarkerRef(contact.public_key, ref)}
+                    center={[contact.lat!, contact.lon!]}
+                    radius={radius}
+                    pathOptions={{
+                      color: isRepeater ? MAP_REPEATER_RING : MAP_MARKER_STROKE,
+                      fillColor: color,
+                      fillOpacity: 0.9,
+                      weight: isRepeater ? 3 : 2,
+                    }}
+                  >
+                    {popup}
+                  </CircleMarker>
+                )}
               </Fragment>
             );
           })}
