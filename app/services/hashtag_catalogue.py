@@ -1,8 +1,8 @@
 """Unlock unknown GroupText from the bundled name list, then Stats resolve.
 
 Layer 2 (bundled names) always runs. Layer 3 (POST /v1/hashtags/resolve) runs
-only when Community is on and an IATA is set. The browser never calls Stats.
-No sample-queue upload lives here.
+only when Community is on and an IATA is set. After both plus local MAC still
+fail, POST /v1/hashtags/samples once per hash_byte. The browser never calls Stats.
 """
 
 from __future__ import annotations
@@ -17,13 +17,14 @@ from app.data.meshcore_channels import (
     channel_key_hash_byte,
     hashtag_key_from_name,
 )
-from app.decoder import try_decrypt_packet_with_channel_key
+from app.decoder import extract_payload, try_decrypt_packet_with_channel_key
 from app.repository.channels import ChannelRepository
 from app.repository.raw_packets import RawPacketRepository
 from app.repository.settings import AppSettingsRepository
 from app.services.meshloom_community import (
     get_community_effective,
     schedule_hashtag_names_publish,
+    upload_hashtag_sample,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,10 +37,13 @@ _SAMPLE_WINDOW_DAYS = 30
 _DEBOUNCE_SECONDS = 1.0
 CATALOGUE_PASS_INTERVAL_SECONDS = 300
 _HASH_BYTE_RE = re.compile(r"^[0-9a-f]{2}$")
+_SAMPLE_PAYLOAD_HEX_MIN = 8
+_SAMPLE_PAYLOAD_HEX_MAX = 512
 
 _pass_lock = asyncio.Lock()
 _debounce_task: asyncio.Task[None] | None = None
 _poll_task: asyncio.Task[None] | None = None
+_uploaded_hash_bytes: set[str] = set()
 
 
 def _display_name(name: str) -> str:
@@ -158,8 +162,41 @@ async def _resolve_remaining(hash_bytes: list[str]) -> list[dict[str, str]]:
         return []
 
 
+def _sample_payload_hex(hash_byte: str, packets: list[bytes]) -> str | None:
+    """GroupText payload only. Skip if extract fails or first byte mismatches."""
+    for packet in packets:
+        payload = extract_payload(packet)
+        if payload is None or not payload:
+            continue
+        if format(payload[0], "02x") != hash_byte:
+            continue
+        payload_hex = payload.hex()
+        if not (_SAMPLE_PAYLOAD_HEX_MIN <= len(payload_hex) <= _SAMPLE_PAYLOAD_HEX_MAX):
+            continue
+        if len(payload_hex) % 2:
+            continue
+        return payload_hex
+    return None
+
+
+async def _upload_unknown_samples(
+    remaining: list[str],
+    samples: dict[str, list[bytes]],
+    resolved_bytes: set[str],
+) -> None:
+    """One Stats upsert per hash_byte after bundled + resolve + MAC fail."""
+    for hb in remaining:
+        if hb in resolved_bytes or hb in _uploaded_hash_bytes:
+            continue
+        payload_hex = _sample_payload_hex(hb, samples.get(hb, []))
+        if payload_hex is None:
+            continue
+        if await upload_hashtag_sample(hb, payload_hex):
+            _uploaded_hash_bytes.add(hb)
+
+
 async def run_catalogue_pass() -> list[str]:
-    """Try bundled names, then Stats resolve, against capped unknown samples."""
+    """Try bundled names, then Stats resolve, then one sample upsert per miss."""
     async with _pass_lock:
         samples = await _unknown_samples()
         if not samples:
@@ -183,14 +220,18 @@ async def run_catalogue_pass() -> list[str]:
             return opened
 
         resolved = await _resolve_remaining(_normalize_hash_bytes(remaining))
+        resolved_bytes: set[str] = set()
         for item in resolved:
             name = item.get("name") or ""
             hb = (item.get("hash_byte") or "").lower()
+            if hb:
+                resolved_bytes.add(hb)
             packets = samples.get(hb, [])
             if not packets:
                 continue
             if await _apply_matched_name(name, packets):
                 opened.append(_publish_name(name))
+        await _upload_unknown_samples(remaining, samples, resolved_bytes)
         return opened
 
 
@@ -249,4 +290,6 @@ async def stop_hashtag_catalogue_polling() -> None:
 
 
 async def reset_for_tests() -> None:
+    global _uploaded_hash_bytes
     await stop_hashtag_catalogue_polling()
+    _uploaded_hash_bytes = set()

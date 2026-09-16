@@ -120,9 +120,7 @@ describe('SensorTelemetryPanel', () => {
   });
 
   it('shows notFetched when history has no lpp_sensors field', async () => {
-    contactTelemetryHistory.mockResolvedValue([
-      { timestamp: 1_700_000_000, data: {} },
-    ]);
+    contactTelemetryHistory.mockResolvedValue([{ timestamp: 1_700_000_000, data: {} }]);
 
     render(
       <SensorTelemetryPanel

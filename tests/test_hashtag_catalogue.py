@@ -18,7 +18,7 @@ from app.data.meshcore_channels import (
     packaged_snapshot_path,
     snapshot_path,
 )
-from app.decoder import encrypt_group_text
+from app.decoder import encrypt_group_text, extract_payload
 from app.packet_processor import process_raw_packet
 from app.repository.channels import ChannelRepository
 from app.repository.messages import MessageRepository
@@ -59,8 +59,7 @@ class TestBundledListShare:
 
     def test_packaged_snapshot_lives_next_to_loader(self):
         assert packaged_snapshot_path() == (
-            Path(meshcore_channels.__file__).resolve().parent
-            / "meshcoreChannels.snapshot.json"
+            Path(meshcore_channels.__file__).resolve().parent / "meshcoreChannels.snapshot.json"
         )
 
     def test_packaged_fallback_when_repo_snapshot_absent(self, tmp_path, monkeypatch):
@@ -151,6 +150,7 @@ class TestCommunityResolve:
         assert packet_hex not in json.dumps(body)
         assert "ciphertext" not in json.dumps(body)
         assert not any(path.startswith("/v1/iata/") for _method, path, _body in calls)
+        assert not any(path == "/v1/hashtags/samples" for _method, path, _body in calls)
 
         stored = await ChannelRepository.get_by_key(key.hex().upper())
         assert stored is not None
@@ -188,6 +188,119 @@ class TestCommunityResolve:
         stats.assert_not_called()
         assert opened == []
         assert await ChannelRepository.get_by_key(key.hex().upper()) is None
+
+    @pytest.mark.asyncio
+    async def test_community_on_without_iata_skips_sample_upload(self, test_db, monkeypatch):
+        monkeypatch.delenv("MESHLOOM_COMMUNITY_IATA", raising=False)
+        name = "lys-published-xyz"
+        key = hashtag_key_from_name(name)
+        raw = _group_text_packet(key, int(time.time()), "Bob: still locked")
+        await _store_unknown(raw)
+        await update_community(enabled=True, iata="")
+
+        with patch("app.services.meshloom_community.stats_json", new=AsyncMock()) as stats:
+            opened = await run_catalogue_pass()
+
+        stats.assert_not_called()
+        assert opened == []
+
+
+class TestSampleQueueUpload:
+    @pytest.mark.asyncio
+    async def test_resolve_name_skips_sample_even_when_mac_fails(self, test_db):
+        name = "lys-published-xyz"
+        key = hashtag_key_from_name(name)
+        hb = channel_key_hash_byte(key)
+        raw = _group_text_packet(key, int(time.time()), "Bob: from lys")
+        await _store_unknown(raw)
+        await update_community(enabled=True, iata="BOD")
+
+        calls: list[tuple[str, str, object]] = []
+
+        async def fake_stats(method: str, path: str, **kwargs):
+            calls.append((method, path, kwargs.get("json_body")))
+            if method == "POST" and path == "/v1/hashtags/resolve":
+                return {"hashtags": [{"name": "wrong-name-no-mac", "hash_byte": hb}]}
+            return {"stored": True}
+
+        with patch(
+            "app.services.meshloom_community.stats_json", new=AsyncMock(side_effect=fake_stats)
+        ):
+            opened = await run_catalogue_pass()
+
+        assert opened == []
+        assert not any(path == "/v1/hashtags/samples" for _method, path, _body in calls)
+        assert await ChannelRepository.get_by_key(key.hex().upper()) is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_after_resolve_uploads_payload_once(self, test_db):
+        name = "unknown-sample-queue-xyz"
+        key = hashtag_key_from_name(name)
+        hb = channel_key_hash_byte(key)
+        raw = _group_text_packet(key, int(time.time()), "Bob: still locked")
+        await _store_unknown(raw)
+        await update_community(enabled=True, iata="BOD")
+
+        calls: list[tuple[str, str, object]] = []
+
+        async def fake_stats(method: str, path: str, **kwargs):
+            calls.append((method, path, kwargs.get("json_body")))
+            if method == "POST" and path == "/v1/hashtags/resolve":
+                return {"hashtags": []}
+            return {"stored": True}
+
+        with patch(
+            "app.services.meshloom_community.stats_json", new=AsyncMock(side_effect=fake_stats)
+        ):
+            opened = await run_catalogue_pass()
+            opened_again = await run_catalogue_pass()
+
+        assert opened == []
+        assert opened_again == []
+        resolve_calls = [c for c in calls if c[0] == "POST" and c[1] == "/v1/hashtags/resolve"]
+        sample_calls = [c for c in calls if c[0] == "POST" and c[1] == "/v1/hashtags/samples"]
+        assert len(resolve_calls) >= 1
+        assert len(sample_calls) == 1
+        assert calls.index(resolve_calls[0]) < calls.index(sample_calls[0])
+        body = sample_calls[0][2]
+        payload = extract_payload(raw)
+        assert payload is not None
+        expected_hex = payload.hex()
+        assert body == {"hash_byte": hb, "payload_hex": expected_hex}
+        assert expected_hex[:2] == hb
+        assert raw.hex() != expected_hex
+        dumped = json.dumps(body)
+        assert raw.hex() not in dumped
+        assert key.hex() not in dumped
+        assert key.hex().lower() not in dumped
+        assert "still locked" not in dumped
+
+    @pytest.mark.asyncio
+    async def test_sample_stats_error_does_not_raise(self, test_db):
+        name = "unknown-sample-queue-xyz"
+        key = hashtag_key_from_name(name)
+        raw = _group_text_packet(key, int(time.time()), "Bob: still locked")
+        await _store_unknown(raw)
+        await update_community(enabled=True, iata="BOD")
+
+        calls: list[tuple[str, str]] = []
+
+        async def fake_stats(method: str, path: str, **kwargs):
+            calls.append((method, path))
+            if path == "/v1/hashtags/samples":
+                raise RuntimeError("stats down")
+            return {"hashtags": []}
+
+        with patch(
+            "app.services.meshloom_community.stats_json", new=AsyncMock(side_effect=fake_stats)
+        ):
+            opened = await run_catalogue_pass()
+            opened_again = await run_catalogue_pass()
+
+        assert opened == []
+        assert opened_again == []
+        sample_calls = [c for c in calls if c == ("POST", "/v1/hashtags/samples")]
+        assert len(sample_calls) == 2
 
 
 class TestCreateDoesNotNotify:

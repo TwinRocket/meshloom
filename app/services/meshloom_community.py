@@ -279,11 +279,30 @@ def _hashtag_publish_names(names: list[str]) -> list[str]:
     return cleaned
 
 
+def _path_requires_iata(path: str) -> bool:
+    return path.startswith("/v1/me/") or path == "/v1/hashtags/samples"
+
+
 async def _put_hashtag_names(names: list[str]) -> None:
     try:
         await stats_json("PUT", "/v1/me/hashtags", auth=True, json_body={"names": names})
     except Exception:
         logger.info("Community hashtag name publish skipped", exc_info=True)
+
+
+async def upload_hashtag_sample(hash_byte: str, payload_hex: str) -> bool:
+    """POST /v1/hashtags/samples. True only if stats_json succeeded. Never raises."""
+    try:
+        await stats_json(
+            "POST",
+            "/v1/hashtags/samples",
+            auth=True,
+            json_body={"hash_byte": hash_byte, "payload_hex": payload_hex},
+        )
+    except Exception:
+        logger.info("Community hashtag sample upload skipped", exc_info=True)
+        return False
+    return True
 
 
 _HASH_BYTE_RE = re.compile(r"^[0-9a-f]{2}$")
@@ -458,11 +477,12 @@ async def stats_request(
     _require_enabled(state)
     headers: dict[str, str] = {}
     if auth:
-        # jwt.md: API `iata` is required for `/v1/me/*`, not directory reads.
-        # First IATA bind has no stored code yet: mint with the requested code.
+        # jwt.md: API `iata` is required for `/v1/me/*` and sample upserts,
+        # not directory reads. First IATA bind has no stored code yet:
+        # mint with the requested code.
         mint_iata = _normalize_iata(iata) if iata is not None else state.iata
         headers["Authorization"] = (
-            f"Bearer {mint_stats_jwt(audience=state.api_audience, iata=mint_iata, require_iata=path.startswith('/v1/me/'))}"
+            f"Bearer {mint_stats_jwt(audience=state.api_audience, iata=mint_iata, require_iata=_path_requires_iata(path))}"
         )
     url = f"{state.api_base}{path}"
     try:

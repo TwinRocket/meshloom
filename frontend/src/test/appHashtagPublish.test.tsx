@@ -80,7 +80,9 @@ vi.mock('../hooks', async (importOriginal) => {
     }),
   };
 });
-vi.mock('../components/MessageList', () => ({ MessageList: () => <div data-testid="message-list" /> }));
+vi.mock('../components/MessageList', () => ({
+  MessageList: () => <div data-testid="message-list" />,
+}));
 vi.mock('../components/MessageInput', () => ({
   MessageInput: React.forwardRef((_props, ref) => {
     React.useImperativeHandle(ref, () => ({ appendText: vi.fn(), focus: vi.fn() }));

@@ -9,10 +9,7 @@ import type { Contact, LppSensor, TelemetryHistoryEntry } from '../types';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
 import { LppSensorRow, formatLppLabel } from './repeater/repeaterPaneShared';
-import {
-  MAX_TRACKED,
-  TelemetryHistoryChart,
-} from './repeater/RepeaterTelemetryHistoryPane';
+import { MAX_TRACKED, TelemetryHistoryChart } from './repeater/RepeaterTelemetryHistoryPane';
 
 interface SensorTelemetryPanelProps {
   contact: Contact;

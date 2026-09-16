@@ -265,6 +265,36 @@ class TestJwtIataClaim:
         assert mint.call_args.kwargs["require_iata"] is True
         assert mint.call_args.kwargs["iata"] == "LYS"
 
+    @pytest.mark.asyncio
+    async def test_hashtag_sample_auth_requires_iata(self):
+        state = CommunityEffective(
+            enabled=True,
+            locked=False,
+            iata="BOD",
+            broker_host=DEFAULT_BROKER_HOST,
+            api_base=DEFAULT_API_BASE,
+            api_audience="api.example.invalid",
+            mqtt_audience="mqtt.example.invalid",
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.request = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=state),
+            ),
+            patch("app.services.meshloom_community.mint_stats_jwt", return_value="tok") as mint,
+            patch("app.services.meshloom_community.httpx.AsyncClient", return_value=mock_client),
+        ):
+            await stats_request("POST", "/v1/hashtags/samples", auth=True)
+        mint.assert_called_once()
+        assert mint.call_args.kwargs["require_iata"] is True
+        assert mint.call_args.kwargs["iata"] == "BOD"
+
 
 class TestPublisherRequiresIata:
     def test_not_configured_without_iata(self):

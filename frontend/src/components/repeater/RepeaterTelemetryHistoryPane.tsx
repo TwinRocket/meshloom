@@ -760,8 +760,7 @@ export function TelemetryHistoryPane({
   const [toggling, setToggling] = useState(false);
   const isTracked = trackedTelemetryRepeaters.includes(publicKey);
   const slotsFull = trackedTelemetryRepeaters.length >= MAX_TRACKED && !isTracked;
-  const csvName =
-    contacts.find((c) => c.public_key === publicKey)?.name ?? publicKey.slice(0, 12);
+  const csvName = contacts.find((c) => c.public_key === publicKey)?.name ?? publicKey.slice(0, 12);
 
   const handleToggle = async () => {
     setToggling(true);
