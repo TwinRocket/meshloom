@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 from app.models import TelemetryAlertRuleOverride, TelemetryAlertRules
 from app.repository.contact_telemetry import ContactTelemetryRepository
@@ -55,7 +55,7 @@ def noise_floor_from_status(status: Mapping[str, Any] | None) -> float | None:
         return None
 
 
-def is_usable_status(status: object) -> bool:
+def is_usable_status(status: object) -> TypeGuard[dict[str, Any]]:
     """Empty dict / None / non-dict is a miss, not a zero snapshot."""
     return isinstance(status, dict) and len(status) > 0
 
@@ -350,7 +350,11 @@ async def _apply_silence(
     if increment:
         misses += 1
         should_fire = misses >= rules.misses_before_alert and not latched
-        fired_at = state["last_fired_at"] if latched else (now if should_fire else None)
+        fired_at = (
+            state["last_fired_at"]
+            if state is not None and latched
+            else (now if should_fire else None)
+        )
         await TelemetryAlertStateRepository.upsert(
             public_key,
             RULE_SILENCE,
@@ -551,7 +555,7 @@ async def _apply_gps_lost(
     await TelemetryAlertStateRepository.upsert(
         public_key,
         RULE_GPS_LOST,
-        last_fired_at=state["last_fired_at"] if latched else None,
+        last_fired_at=state["last_fired_at"] if state is not None and latched else None,
         last_value=0.0,
     )
 
