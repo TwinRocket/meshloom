@@ -1,3 +1,41 @@
+## [4.9.0] - 2026-09-16
+
+Meshloom installs as a Home Assistant add-on, and now runs on a Raspberry Pi 3.
+
+### What's new
+
+- **Install it from Home Assistant.** If Home Assistant already runs on the machine that will host Meshloom, add the repository to its add-on store and install Meshloom there. The interface arrives in the sidebar, the database is kept with the rest of Home Assistant's data, and it starts and stops with it. The install guide has a one-click button for adding the repository.
+- **A Raspberry Pi 3 is enough.** Images are now built for armv7 alongside the 64-bit ones, so the older Pi that many Home Assistant installations run on is covered.
+- **The radio proxy port belongs to whoever publishes it.** Inside the add-on, Home Assistant decides which port is reachable, so Meshloom shows the port and says where to change it rather than accepting a value that would leave the proxy listening where nothing is forwarded. Nothing changes for any other installation.
+- **An address can be stated rather than guessed.** `MESHCORE_PUBLIC_URL` tells Meshloom the address it is reached at from outside. Proxy headers describe the hop that happened to arrive, and a tunnel can rewrite or strip them; when it does, links built from what arrived point somewhere reachable only from inside. Setting it settles the question once.
+
+### Upgrading
+
+Nothing to do, and nothing changes for an existing installation: both new settings do nothing unless set, and the add-on is a way to install in addition to the ones that exist rather than a change to them.
+
+Release images take longer to build now, since armv7 is compiled under emulation.
+
+---
+
+### Français
+
+Meshloom s'installe comme add-on Home Assistant, et tourne désormais sur un Raspberry Pi 3.
+
+#### Quoi de neuf
+
+- **Installation depuis Home Assistant.** Si Home Assistant tourne déjà sur la machine qui hébergera Meshloom, ajoutez le dépôt à sa boutique de modules complémentaires et installez Meshloom depuis là. L'interface arrive dans la barre latérale, la base est conservée avec le reste des données de Home Assistant, et Meshloom démarre et s'arrête avec lui. Le guide d'installation contient un bouton pour ajouter le dépôt en un clic.
+- **Un Raspberry Pi 3 suffit.** Les images sont maintenant construites pour armv7 en plus des architectures 64 bits, ce qui couvre le Pi plus ancien sur lequel tournent beaucoup d'installations Home Assistant.
+- **Le port du proxy radio appartient à qui le publie.** Dans l'add-on, c'est Home Assistant qui décide du port joignable : Meshloom affiche donc le port et indique où le changer, au lieu d'accepter une valeur qui laisserait le proxy à l'écoute là où rien n'est redirigé. Rien ne change pour les autres installations.
+- **Une adresse peut être déclarée plutôt que devinée.** `MESHCORE_PUBLIC_URL` indique à Meshloom l'adresse à laquelle il est joint depuis l'extérieur. Les en-têtes de proxy décrivent le saut qui est arrivé, et un tunnel peut les réécrire ou les supprimer ; les liens construits à partir de ce qui est arrivé pointent alors vers un endroit joignable seulement de l'intérieur. La renseigner tranche la question une fois pour toutes.
+
+#### Mise à jour
+
+Rien à faire, et rien ne change pour une installation existante : les deux nouveaux réglages n'ont aucun effet tant qu'ils ne sont pas renseignés, et l'add-on est une façon d'installer en plus des existantes, pas une modification de celles-ci.
+
+Les images de release mettent désormais plus longtemps à se construire, armv7 étant compilé sous émulation.
+
+---
+
 ## [4.8.0] - 2026-09-16
 
 This release is about the live map. It now keeps going for as long as you leave it open, it draws every kind of traffic in its own colour, and it holds on to what arrives in a rush instead of letting it go. Meshloom also tells you when a newer version is out.
