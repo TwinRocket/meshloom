@@ -1653,9 +1653,15 @@ class TestChannelEchoWatchdog:
 
         mc = _make_mc(name="MyNode")
         radio_manager._meshcore = mc
-        # Lock the radio so the non-blocking acquire raises RadioOperationBusyError
-        if radio_manager._operation_lock is None:
-            radio_manager._operation_lock = asyncio.Lock()
+        # Lock the radio so the non-blocking acquire raises RadioOperationBusyError.
+        #
+        # A fresh lock rather than whatever a previous test left on the manager: an
+        # asyncio.Lock binds to the loop that first acquires it, and pytest-asyncio
+        # gives each test its own. Reusing one is fine until the two tests land in
+        # the same xdist worker, and then this fails on a line that has nothing to
+        # do with what it asserts.
+        previous_lock = radio_manager._operation_lock
+        radio_manager._operation_lock = asyncio.Lock()
         await radio_manager._operation_lock.acquire()
 
         try:
@@ -1668,6 +1674,7 @@ class TestChannelEchoWatchdog:
             )
         finally:
             radio_manager._operation_lock.release()
+            radio_manager._operation_lock = previous_lock
 
         mc.commands.send_chan_msg.assert_not_called()
 
