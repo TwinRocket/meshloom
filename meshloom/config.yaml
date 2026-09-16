@@ -24,8 +24,15 @@ panel_title: Meshloom
 # the Network panel rather than inside Meshloom — see the note on ports below.
 ports:
   5051/tcp: 5051
+  # Unpublished by default: ingress already serves the interface, authenticated by
+  # Home Assistant and without opening anything. Give it a host port only to reach
+  # Meshloom on a hostname of its own — a tunnel pointing at it directly, which
+  # ingress cannot provide since it lives under Home Assistant's own address. Web
+  # Push needs such a hostname, and `public_url` is where you then state it.
+  8000/tcp: null
 ports_description:
   5051/tcp: Radio proxy — other MeshCore clients connect here
+  8000/tcp: Web interface — only needed to reach it outside Home Assistant, e.g. through a tunnel on its own hostname
 
 # The radio is usually a USB serial adapter.
 uart: true

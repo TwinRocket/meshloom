@@ -37,12 +37,19 @@ def test_the_published_port_and_the_option_are_the_same_port() -> None:
     assert str(config["options"]["proxy_port"]) in forwarded
 
 
-def test_the_web_interface_is_not_published_on_the_host() -> None:
-    """It is reached through ingress, which authenticates with Home Assistant."""
+def test_the_web_interface_is_not_published_until_asked() -> None:
+    """Ingress is the way in, and it opens nothing on the host.
+
+    The port is still declared so it can be published, because ingress serves the
+    interface under Home Assistant's own address and a tunnel that wants to give
+    Meshloom a hostname of its own has nothing to point at otherwise. Declared and
+    left unset is the difference between offering that and doing it unasked.
+    """
     config = _config()
     assert config["ingress"] is True
     assert config["ingress_port"] == 8000
-    assert "8000/tcp" not in config["ports"]
+    assert config["ports"]["8000/tcp"] is None
+    assert "8000/tcp" in config["ports_description"]
 
 
 def test_the_radio_can_be_reached() -> None:
