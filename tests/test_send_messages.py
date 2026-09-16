@@ -1660,7 +1660,6 @@ class TestChannelEchoWatchdog:
         # gives each test its own. Reusing one is fine until the two tests land in
         # the same xdist worker, and then this fails on a line that has nothing to
         # do with what it asserts.
-        previous_lock = radio_manager._operation_lock
         radio_manager._operation_lock = asyncio.Lock()
         await radio_manager._operation_lock.acquire()
 
@@ -1673,8 +1672,12 @@ class TestChannelEchoWatchdog:
                 error_broadcast_fn=MagicMock(),
             )
         finally:
+            # Cleared rather than put back: the manager makes a new one on demand,
+            # and the non-blocking path reads `.locked()` before it ever tries to
+            # acquire — so a lock left behind here, held or bound to a loop that
+            # has ended, makes the radio look busy to whichever test runs next.
             radio_manager._operation_lock.release()
-            radio_manager._operation_lock = previous_lock
+            radio_manager._operation_lock = None
 
         mc.commands.send_chan_msg.assert_not_called()
 
