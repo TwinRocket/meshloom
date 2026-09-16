@@ -1,0 +1,79 @@
+name: Home Assistant add-on
+
+# The add-on is a manifest plus one image layer, and both can be wrong in ways the
+# rest of the suite never sees: a manifest the supervisor rejects, a base image tag
+# that does not exist, an entrypoint that cannot run on the image it ships with.
+# Each of those has already happened once here.
+on:
+  push:
+    paths:
+      - "meshloom/**"
+      - "repository.yaml"
+      - ".github/workflows/addon.yml"
+  pull_request:
+    paths:
+      - "meshloom/**"
+      - "repository.yaml"
+      - ".github/workflows/addon.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      # The supervisor's own rules: option and schema agreement, valid keys, the
+      # shape of the ports map. It reads the manifest the way Home Assistant will.
+      - name: Lint the add-on
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./meshloom"
+
+  builds:
+    name: Builds on ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, aarch64]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Proves the base image tag the manifest names actually exists for this
+      # architecture, and that the entrypoint lands where the image can run it.
+      # Not pushed: this asks whether it builds, not whether to publish it.
+      - name: Build the add-on image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./meshloom
+          platforms: linux/${{ matrix.arch == 'aarch64' && 'arm64' || 'amd64' }}
+          push: false
+          load: ${{ matrix.arch == 'amd64' }}
+          tags: meshloom-addon:ci
+
+      # The entrypoint could not run at all on its own image once — a shebang the
+      # image had no interpreter for. Running it here is what would have caught it.
+      - name: Run the entrypoint on the image it ships with
+        if: matrix.arch == 'amd64'
+        run: |
+          docker run --rm --entrypoint python3 meshloom-addon:ci -c "
+          import runpy
+          addon = runpy.run_path('/usr/local/bin/meshloom-addon')
+          env = addon['build_environment']({'proxy_port': 5051})
+          assert env['MESHCORE_RADIO_PROXY_PORT'] == '5051', env
+          assert env['MESHCORE_MANAGED_PORTS'] == 'true', env
+          assert addon['read_options']() == {}, 'no options file must not raise'
+          print('the entrypoint runs on the published image')
+          "
