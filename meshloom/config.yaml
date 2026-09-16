@@ -6,10 +6,6 @@ url: https://github.com/bagl3y/meshloom
 arch:
   - amd64
   - aarch64
-# The multi-arch manifest published for every release: Docker resolves the right
-# build per machine, so there is nothing to publish per architecture and nothing
-# for the user to build at install time.
-image: ghcr.io/bagl3y/meshloom
 init: false
 
 # The web interface is reached through the sidebar. Nothing is published on the

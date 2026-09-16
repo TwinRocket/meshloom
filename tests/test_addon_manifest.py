@@ -57,11 +57,28 @@ def test_every_option_is_described_by_the_schema() -> None:
     assert set(config["options"]) == set(config["schema"])
 
 
-def test_run_sh_hands_the_host_port_to_meshloom_and_locks_it() -> None:
-    """The lock is the point: the app must not offer a field that cannot work."""
-    run = (ADDON / "run.sh").read_text(encoding="utf-8")
-    assert "MESHCORE_RADIO_PROXY_PORT" in run
-    assert "MESHCORE_MANAGED_PORTS" in run
+def test_the_addon_builds_on_the_release_image_rather_than_running_it_as_is() -> None:
+    """An add-on that names `image:` is run exactly as published.
+
+    Nothing would then translate the options Home Assistant writes, and every one
+    of them — the proxy port included — would be silently ignored. The add-on adds
+    one layer for that translation instead.
+    """
+    config = _config()
+    assert "image" not in config
+
+    dockerfile = (ADDON / "Dockerfile").read_text(encoding="utf-8")
+    assert "FROM ghcr.io/bagl3y/meshloom:" in dockerfile
+
+
+def test_the_release_pins_the_base_image_to_itself() -> None:
+    """Otherwise the add-on advertises one release and installs another."""
+    publish = (ADDON.parent / "scripts" / "build" / "publish.sh").read_text(encoding="utf-8")
+    assert "meshloom/Dockerfile" in publish
+
+    config = _config()
+    dockerfile = (ADDON / "Dockerfile").read_text(encoding="utf-8")
+    assert f"FROM ghcr.io/bagl3y/meshloom:{config['version']}" in dockerfile
 
 
 def test_the_readme_button_points_at_this_repository() -> None:

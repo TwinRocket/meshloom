@@ -7,7 +7,9 @@ MQTT discovery so the mesh appears in Home Assistant.
 
 1. Plug the radio into the machine running Home Assistant, or leave it on the
    network if you reach it over TCP.
-2. Install and start the add-on, then open it from the sidebar.
+2. Install and start the add-on, then open it from the sidebar. The first install
+   builds one small layer on top of the published Meshloom image, so it takes a
+   little longer than starting it again later does.
 3. Go to **Settings → Radio** and choose the transport — the serial device, or the
    host and port of a radio reachable over the network.
 
