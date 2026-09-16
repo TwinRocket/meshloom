@@ -30,6 +30,21 @@ class Settings(BaseSettings):
     basic_auth_username: str = ""
     basic_auth_password: str = ""
     vapid_subject: str = DEFAULT_VAPID_SUBJECT
+    managed_ports: bool = Field(
+        default=False,
+        description=(
+            "Set by a host that decides the listening ports itself, such as the "
+            "Home Assistant add-on. The proxy port then comes from the host and "
+            "editing it here would be silently ignored."
+        ),
+    )
+    public_url: str = Field(
+        default="",
+        description=(
+            "External address this instance is reached at, when a tunnel or proxy "
+            "gives it one. Used where a link has to survive leaving the page."
+        ),
+    )
 
     @field_validator("vapid_subject", mode="before")
     @classmethod

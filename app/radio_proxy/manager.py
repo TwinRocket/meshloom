@@ -306,6 +306,8 @@ class RadioProxyManager:
         return sum(session.dropped_logs for session in self._sessions)
 
     def status_dict(self) -> dict[str, Any]:
+        from app.config import settings as server_settings
+
         return {
             "enabled": self._settings.enabled,
             "bind": self._settings.bind,
@@ -318,6 +320,7 @@ class RadioProxyManager:
             "last_error": self._last_error,
             "instance_id": self.instance_id,
             "model": proxy_model_string(self.instance_id),
+            "port_managed_by_host": server_settings.managed_ports,
         }
 
     def would_loop_transport(self, host: str, port: int) -> bool:

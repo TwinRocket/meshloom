@@ -1811,6 +1811,15 @@ class RadioProxyStatus(BaseModel):
     last_error: str | None = None
     instance_id: str = ""
     model: str = ""
+    port_managed_by_host: bool = Field(
+        default=False,
+        description=(
+            "The host decides the listening port — the Home Assistant add-on maps a "
+            "fixed container port, and the reachable port is remapped there. Changing "
+            "it here would leave the proxy listening where nothing is forwarded, so "
+            "the field says so instead of accepting a value that cannot work."
+        ),
+    )
 
 
 class RadioProxyUpdate(BaseModel):

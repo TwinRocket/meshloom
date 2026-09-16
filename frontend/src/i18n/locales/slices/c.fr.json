@@ -636,7 +636,8 @@
       "saving": "Enregistrement…",
       "saved": "Réglages proxy enregistrés",
       "saveFailed": "Impossible d'enregistrer le proxy",
-      "loadFailed": "Impossible de charger le proxy"
+      "loadFailed": "Impossible de charger le proxy",
+      "portManagedByHost": "Défini par l'hôte qui exécute cette instance. Changez le port publié dans ses propres réglages réseau — Home Assistant le fait dans le panneau Réseau de l'add-on."
     },
     "about": {
       "madeBy": "Fait avec amour et en open source par <author>Pascal M</author>",
