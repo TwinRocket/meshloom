@@ -1,3 +1,43 @@
+## [4.10.0] - 2026-09-16
+
+Meshloom says what to do when it has no radio yet, and the Home Assistant add-on stops looking abandoned.
+
+### What's new
+
+- **A new installation tells you what it needs.** Until a radio is configured there are no contacts, no messages and no packets, so every view was empty for a reason none of them could explain. A banner now says so and opens the radio settings. It appears only while the server reports no transport at all, and never covers the settings page it points at.
+- **The add-on has an icon, a logo and a description.** It appeared in the Home Assistant store as a grey placeholder with one line of text. Its page now says what Meshloom does before it says how to install it.
+
+### Under the hood
+
+- **Release images build in a fraction of the time.** A commit-dependent value sat above the dependency layer in the Dockerfile, so every push rebuilt it — which on armv7 means compiling eight C extensions under emulation, measured at 21 minutes 47 seconds per build. It now rebuilds only when the dependencies actually change. Each architecture also builds on its own runner instead of sharing one, and arm64 no longer runs under emulation at all.
+- **A test that failed at random no longer does.** It reused a lock left behind by another test, which made it fail depending on which worker it landed on rather than on anything in the code.
+
+### Upgrading
+
+Nothing to do. The banner only appears where there is genuinely nothing configured, and an older server that does not report the field is left alone rather than assumed to be broken.
+
+---
+
+### Français
+
+Meshloom dit quoi faire quand aucune radio n'est configurée, et l'add-on Home Assistant cesse d'avoir l'air à l'abandon.
+
+#### Quoi de neuf
+
+- **Une installation neuve annonce ce qui lui manque.** Tant qu'aucune radio n'est configurée, il n'y a ni contacts, ni messages, ni paquets : chaque vue était vide pour une raison qu'aucune d'elles ne pouvait expliquer. Un bandeau le dit désormais et ouvre les réglages radio. Il n'apparaît que si le serveur signale l'absence totale de transport, et jamais par-dessus la page vers laquelle il renvoie.
+- **L'add-on a une icône, un logo et une description.** Il apparaissait dans le magasin Home Assistant comme un cadre gris avec une ligne de texte. Sa page dit maintenant ce que fait Meshloom avant d'expliquer comment l'installer.
+
+#### Sous le capot
+
+- **Les images de release se construisent bien plus vite.** Une valeur dépendant du commit se trouvait au-dessus de la couche de dépendances dans le Dockerfile : chaque push la reconstruisait, ce qui sur armv7 signifie compiler huit extensions C sous émulation — 21 minutes 47 secondes par build, mesurées. Elle n'est plus reconstruite que lorsque les dépendances changent réellement. Chaque architecture se construit en outre sur sa propre machine au lieu de les partager, et arm64 ne passe plus du tout par l'émulation.
+- **Un test qui échouait au hasard ne le fait plus.** Il réutilisait un verrou laissé par un autre test, ce qui le faisait échouer selon la machine sur laquelle il tombait plutôt que selon le code.
+
+#### Mise à jour
+
+Rien à faire. Le bandeau n'apparaît que là où rien n'est réellement configuré, et un serveur plus ancien qui ne renseigne pas le champ est laissé tranquille plutôt que supposé en panne.
+
+---
+
 ## [4.9.1] - 2026-09-16
 
 The Home Assistant add-on's panel opened blank. It works now.
