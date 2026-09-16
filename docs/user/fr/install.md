@@ -65,6 +65,22 @@ sudo docker compose pull && sudo docker compose up -d
 
 La base de données reste en place : `/var/lib/meshloom` pour le paquet, `./data` pour Docker. Les migrations de schéma s’exécutent au démarrage.
 
+## Sur Home Assistant
+
+Si Home Assistant tourne déjà sur la machine qui hébergera Meshloom, installez-le plutôt comme add-on. L'interface arrive dans la barre latérale, la base est conservée avec le reste des données de Home Assistant, et Meshloom démarre et s'arrête avec lui.
+
+[![Ajouter le dépôt à votre Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbagl3y%2Fmeshloom)
+
+Le bouton ouvre la fenêtre sur votre propre instance avec l'adresse déjà remplie ; c'est un redirecteur, il n'apprend rien sur vous. À la main, l'adresse se saisit dans **Paramètres → Modules complémentaires → Boutique → ⋮ → Dépôts**, puis on installe **Meshloom**.
+
+Deux choses s'y passent différemment :
+
+**Le port du proxy radio se règle dans Home Assistant, pas dans Meshloom.** L'interface passe par la barre latérale et ne publie rien : le proxy est la seule chose présente sur le réseau. Son port se change dans le panneau **Réseau** de l'add-on ; le champ dans Meshloom l'affiche et le dit, parce qu'une valeur saisie là laisserait le proxy à l'écoute là où rien n'est redirigé.
+
+**Les notifications ont besoin d'une adresse à elles.** La barre latérale n'a pas d'adresse publique durable, donc Web Push ne peut pas fonctionner par ce seul chemin. Donner un vrai nom d'hôte à l'instance — l'add-on Cloudflared le fait sans ouvrir de port sur votre box — et le saisir comme `public_url` de l'add-on est ce qui rend les notifications possibles.
+
+Ce n'est pas la même chose que [publier le mesh vers Home Assistant en MQTT](/fr/docs/deep/home-assistant/), qui fonctionne depuis n'importe quelle installation et ne demande aucun add-on.
+
 ## Les autres chemins
 
 Le script couvre le cas courant. Le reste — image Docker `ghcr.io/bagl3y/meshloom`, Portainer, HTTPS, systemd à la main, variables d’environnement, ou un dépôt cloné pour développer — est dans [Autres chemins d’installation](/docs/deep/install-paths/).

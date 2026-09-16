@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, aarch64]
+        arch: [amd64, aarch64, armv7]
     steps:
       - uses: actions/checkout@v5
 
@@ -58,7 +58,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./meshloom
-          platforms: linux/${{ matrix.arch == 'aarch64' && 'arm64' || 'amd64' }}
+          platforms: linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || 'amd64' }}
           push: false
           load: ${{ matrix.arch == 'amd64' }}
           tags: meshloom-addon:ci

@@ -105,3 +105,17 @@ def test_the_release_script_rewrites_the_addon_version() -> None:
     # The pattern the script substitutes on has to match what the file actually
     # contains, or the rewrite silently does nothing.
     assert any(line.startswith('version: "') for line in config_text.splitlines())
+
+
+def test_the_architectures_cover_the_hardware_home_assistant_runs_on() -> None:
+    """armv7 is a Raspberry Pi 3, which is squarely in scope for Home Assistant."""
+    config = _config()
+    assert set(config["arch"]) >= {"amd64", "aarch64", "armv7"}
+
+
+def test_the_release_build_covers_the_architectures_the_addon_claims() -> None:
+    """An architecture the manifest offers and the image is not built for is an
+    add-on that installs nowhere."""
+    workflow = (ADDON.parent / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
+    for platform in ("linux/amd64", "linux/arm64", "linux/arm/v7"):
+        assert platform in workflow

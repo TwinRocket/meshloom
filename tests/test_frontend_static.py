@@ -350,3 +350,48 @@ def test_following_the_os_is_never_injected_as_a_theme(tmp_path, monkeypatch):
         body = client.get("/").text
         assert "data-theme=" not in body
         assert "data-theme-server" in body
+
+
+def test_a_configured_public_url_outranks_the_headers(tmp_path, monkeypatch):
+    """Headers describe the hop that arrived, which a tunnel can rewrite.
+
+    A link built from what arrived then points somewhere reachable only from
+    inside — exactly the case a tunnel is used to avoid.
+    """
+    from app.config import settings
+    from app.frontend_static import _resolve_request_base
+
+    monkeypatch.setattr(settings, "public_url", "https://home.example.org/")
+
+    class _Request:
+        headers = {"x-forwarded-proto": "http", "x-forwarded-host": "192.168.1.10"}
+        base_url = "http://172.30.33.2:8000/"
+
+    assert _resolve_request_base(_Request()) == "https://home.example.org/"
+
+
+def test_the_headers_still_answer_when_nothing_is_configured(monkeypatch):
+    from app.config import settings
+    from app.frontend_static import _resolve_request_base
+
+    monkeypatch.setattr(settings, "public_url", "")
+
+    class _Request:
+        headers = {"x-forwarded-proto": "https", "x-forwarded-host": "mesh.example.org"}
+        base_url = "http://172.30.33.2:8000/"
+
+    assert _resolve_request_base(_Request()) == "https://mesh.example.org/"
+
+
+def test_a_public_url_without_a_trailing_slash_still_ends_in_one(monkeypatch):
+    """Callers append paths directly, so the shape is part of the contract."""
+    from app.config import settings
+    from app.frontend_static import _resolve_request_base
+
+    monkeypatch.setattr(settings, "public_url", "https://home.example.org")
+
+    class _Request:
+        headers: dict[str, str] = {}
+        base_url = "http://127.0.0.1:8000/"
+
+    assert _resolve_request_base(_Request()) == "https://home.example.org/"

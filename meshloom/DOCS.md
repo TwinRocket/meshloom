@@ -3,6 +3,12 @@
 A MeshCore client: conversations, a map of what your node hears, packet tools, and
 MQTT discovery so the mesh appears in Home Assistant.
 
+## What it runs on
+
+amd64, aarch64 and armv7 — so a Raspberry Pi 3 is covered as well as a Pi 4, an
+Intel box or a NAS. The armv7 image compiles two dependencies that publish no
+wheel for it, so the first build of the add-on takes noticeably longer there.
+
 ## Getting started
 
 1. Plug the radio into the machine running Home Assistant, or leave it on the

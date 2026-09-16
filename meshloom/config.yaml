@@ -6,6 +6,8 @@ url: https://github.com/bagl3y/meshloom
 arch:
   - amd64
   - aarch64
+  # A Raspberry Pi 3 running Home Assistant is armv7.
+  - armv7
 init: false
 
 # The web interface is reached through the sidebar. Nothing is published on the
