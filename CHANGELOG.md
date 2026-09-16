@@ -1,3 +1,33 @@
+## [4.9.1] - 2026-09-16
+
+The Home Assistant add-on's panel opened blank. It works now.
+
+### What's new
+
+- **The add-on panel shows Meshloom.** Opening it from the sidebar gave a blank panel while the log showed a perfectly healthy start. Home Assistant serves an add-on inside a frame, and Meshloom refused to be framed at all — the browser gave up before it asked for anything. It now accepts being framed by a page on the same address, which is what Home Assistant does, and refuses everything else as before.
+- **Meshloom can have an address of its own.** The panel is served under Home Assistant's own address, which means it cannot have a hostname of its own — and Web Push needs one. The add-on's **Network** panel now offers the web port. It is blank by default and nothing is opened until a port is filled in; set one, point a tunnel at it, and set `public_url` to the hostname you chose. Use `basic_auth_username` / `basic_auth_password` unless the tunnel authenticates for you.
+
+### Upgrading
+
+Update the add-on and reload the panel. Nothing changes for any other installation: the framing allowance is off unless the host asks for it, and the add-on is the only thing that does.
+
+---
+
+### Français
+
+Le panneau de l'add-on Home Assistant s'ouvrait vide. C'est réparé.
+
+#### Quoi de neuf
+
+- **Le panneau de l'add-on affiche Meshloom.** L'ouvrir depuis la barre latérale donnait un panneau vide alors que le journal montrait un démarrage parfaitement sain. Home Assistant sert un add-on dans un cadre, et Meshloom refusait tout encadrement — le navigateur renonçait avant même de demander quoi que ce soit. Il accepte désormais d'être encadré par une page de la même adresse, ce que fait Home Assistant, et refuse tout le reste comme avant.
+- **Meshloom peut avoir une adresse à lui.** Le panneau est servi sous l'adresse de Home Assistant, donc il ne peut pas avoir de nom d'hôte propre — et le Web Push en exige un. Le panneau **Réseau** de l'add-on propose maintenant le port web. Il est vide par défaut et rien n'est ouvert tant qu'aucun port n'y est mis ; renseignez-en un, faites pointer un tunnel dessus, et mettez dans `public_url` le nom d'hôte choisi. Utilisez `basic_auth_username` / `basic_auth_password` à moins que le tunnel n'authentifie à votre place.
+
+#### Mise à jour
+
+Mettez l'add-on à jour et rechargez le panneau. Rien ne change pour les autres installations : l'autorisation d'encadrement reste inactive tant que l'hôte ne la demande pas, et l'add-on est seul à le faire.
+
+---
+
 ## [4.9.0] - 2026-09-16
 
 Meshloom installs as a Home Assistant add-on, and now runs on a Raspberry Pi 3.

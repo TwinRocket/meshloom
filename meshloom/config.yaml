@@ -1,5 +1,5 @@
 name: Meshloom
-version: "4.9.0"
+version: "4.9.1"
 slug: meshloom
 description: MeshCore client — conversations, map, packet tools, and MQTT discovery into Home Assistant
 url: https://github.com/bagl3y/meshloom
