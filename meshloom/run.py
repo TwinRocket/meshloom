@@ -56,6 +56,10 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
         # value inside Meshloom would leave the proxy listening where nothing
         # arrives, so Meshloom is told to say so rather than offer the field.
         "MESHCORE_MANAGED_PORTS": "true",
+        # Ingress serves this inside an iframe on Home Assistant's own origin, and
+        # the default headers refuse to be framed at all — which shows as a blank
+        # panel with a perfectly healthy 200 in the log.
+        "MESHCORE_EMBEDDABLE_SAME_ORIGIN": "true",
     }
 
     for option, variable in PASS_THROUGH.items():

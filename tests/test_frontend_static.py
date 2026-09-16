@@ -395,3 +395,32 @@ def test_a_public_url_without_a_trailing_slash_still_ends_in_one(monkeypatch):
         base_url = "http://127.0.0.1:8000/"
 
     assert _resolve_request_base(_Request()) == "https://home.example.org/"
+
+
+def test_framing_is_refused_by_default(monkeypatch):
+    """Reached directly, refusing to be framed is what stops another site from
+    wrapping this one."""
+    from fastapi.testclient import TestClient as _TestClient
+
+    from app.config import settings
+    from app.main import app as meshloom_app
+
+    monkeypatch.setattr(settings, "embeddable_same_origin", False)
+    with _TestClient(meshloom_app) as client:
+        headers = client.get("/api/health").headers
+        assert headers["X-Frame-Options"] == "DENY"
+        assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+
+
+def test_framing_is_allowed_from_the_same_origin_when_asked(monkeypatch):
+    """Home Assistant's ingress frames the add-on on its own origin."""
+    from fastapi.testclient import TestClient as _TestClient
+
+    from app.config import settings
+    from app.main import app as meshloom_app
+
+    monkeypatch.setattr(settings, "embeddable_same_origin", True)
+    with _TestClient(meshloom_app) as client:
+        headers = client.get("/api/health").headers
+        assert headers["X-Frame-Options"] == "SAMEORIGIN"
+        assert "frame-ancestors 'self'" in headers["Content-Security-Policy"]

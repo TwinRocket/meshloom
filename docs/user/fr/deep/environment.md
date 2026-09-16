@@ -46,6 +46,7 @@ Tant que `radio_transport` n’est pas défini, la radio reste en pause. Ne déf
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Repli du sujet VAPID si `app_settings.vapid_subject` est vide |
 | `MESHCORE_PUBLIC_URL` | *(vide)* | L'adresse à laquelle cette instance est jointe depuis l'extérieur. Prime sur les en-têtes `X-Forwarded-*`, qu'un tunnel peut réécrire ou supprimer — à renseigner quand un lien construit à partir de ce qui est arrivé pointerait vers un endroit joignable seulement de l'intérieur |
 | `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d'écoute, comme l'add-on Home Assistant. Le port du proxy vient alors de l'hôte, et le champ dans les réglages le dit au lieu d'accepter une valeur sans effet |
+| `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Autorise une page de la même origine à afficher Meshloom dans un cadre. L'ingress de Home Assistant fait exactement cela, et les en-têtes par défaut le refusent — ce qui se voit comme un panneau blanc avec un 200 parfaitement sain dans le journal |
 | `MESHLOOM_COMMUNITY` | *(on pour une base neuve)* | Seed Community sur une base toute neuve. Absent ou `1` = on ; `0` / `false` / `off` = opt-out. Les bases existantes ne sont jamais basculées |
 | `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code IATA à 3 lettres optionnel à seeder sur une base neuve |
 | `MESHLOOM_COMMUNITY_LOCKED` | `false` | À `1`, l’interface ne peut pas activer Community |
