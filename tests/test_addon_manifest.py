@@ -140,3 +140,14 @@ def test_the_addon_ships_the_images_the_store_shows() -> None:
     assert logo.is_file()
     assert icon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert logo.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_the_image_reference_cannot_carry_capitals() -> None:
+    """A registry reference must be lowercase; a GitHub owner need not be.
+
+    Every push failed the moment this repository moved to an owner with capitals
+    in it, and nothing caught it before the registry did.
+    """
+    workflow = (ADDON.parent / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
+    assert "ghcr.io/${{ github.repository }}" not in workflow
+    assert "${GITHUB_REPOSITORY,,}" in workflow
