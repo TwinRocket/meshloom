@@ -20,11 +20,7 @@ RUN VITE_COMMIT_HASH=${COMMIT_HASH} npm run build
 # Stage 2: Python runtime
 FROM python:3.14-slim
 
-ARG COMMIT_HASH=unknown
-
 WORKDIR /app
-
-ENV COMMIT_HASH=${COMMIT_HASH}
 
 # Install uv from PyPI rather than from its published image: that image exists for
 # amd64 and arm64 only, so a `COPY --from` cannot build for armv7 — which is what
@@ -64,6 +60,13 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
+
+# Last, because its value changes with every commit and an ENV layer invalidates
+# everything built after it. Declared any earlier, it rebuilt the dependency
+# layer on every push — which on armv7 means compiling eight C extensions under
+# emulation: 21 minutes, measured, for a string only read at runtime.
+ARG COMMIT_HASH=unknown
+ENV COMMIT_HASH=${COMMIT_HASH}
 
 EXPOSE 8000
 

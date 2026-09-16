@@ -4,6 +4,11 @@ name: Docker
 # main (tagged :edge), on published releases and version tags (tagged :latest
 # and :X.Y.Z), and on demand. Pull requests build only, to catch Dockerfile
 # breakage without publishing.
+#
+# One job per architecture rather than one job building all of them: buildx on a
+# single runner shares four cores between three platforms, two of which run under
+# emulation. Split, the release waits for the slowest architecture instead of the
+# sum of all three.
 
 on:
   push:
@@ -24,9 +29,35 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  build:
+  matrix:
+    name: Architectures
     runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      # A pull request builds one architecture. The other two only ever run under
+      # emulation, and a Dockerfile mistake shows up on the first one.
+      - name: Decide what to build
+        id: pick
+        run: |
+          amd64='{"platform":"linux/amd64","slug":"amd64","runner":"ubuntu-latest"}'
+          arm64='{"platform":"linux/arm64","slug":"arm64","runner":"ubuntu-24.04-arm"}'
+          armv7='{"platform":"linux/arm/v7","slug":"armv7","runner":"ubuntu-latest"}'
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "include=[$amd64]" >> "$GITHUB_OUTPUT"
+          else
+            echo "include=[$amd64,$arm64,$armv7]" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: ${{ matrix.slug }}
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
     permissions:
       contents: read
       packages: write
@@ -35,7 +66,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      # arm64 builds on arm64 hardware, so it needs no emulation. armv7 does:
+      # no runner executes 32-bit ARM, and no Debian-based image publishes the
+      # compilers it needs for another architecture.
       - name: Set up QEMU
+        if: matrix.slug == 'armv7'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Buildx
@@ -43,6 +78,67 @@ jobs:
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed by digest and assembled into one tag afterwards: each job pushes an
+      # image nobody can pull yet, and the merge job is what makes the tag exist.
+      # A tag written three times would otherwise be whichever job finished last.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: COMMIT_HASH=${{ github.sha }}
+          outputs: ${{ github.event_name != 'pull_request' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
+          provenance: false
+          # Kept in the registry rather than in the Actions cache: the Actions
+          # cache is scoped per ref and evicted after a week, so a release tag —
+          # the build that can least afford a cold start — was the one guaranteed
+          # to miss it. A registry ref is the same for every branch and tag.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.slug }}
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}:buildcache-{1},mode=max', env.IMAGE, matrix.slug) || '' }}
+
+      - name: Export the digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload the digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.slug }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  merge:
+    name: Manifest
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download the digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -58,21 +154,16 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
-            type=ref,event=pr
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=sha,format=short
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          # PRs from forks cannot push; build for the runner arch only so the
-          # check stays fast, and publish the full matrix on trusted refs.
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64,linux/arm/v7' }}
-          push: ${{ github.event_name != 'pull_request' }}
-          build-args: COMMIT_HASH=${{ github.sha }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create the manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Show what was published
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"

@@ -2430,5 +2430,10 @@
     "location": "Location",
     "locationNamed": "Location · {{label}}",
     "reaction": "Reacted {{emoji}}"
+  },
+  "radioSetup": {
+    "bannerTitle": "No radio connected",
+    "bannerBody": "Meshloom reads and writes the mesh through a MeshCore radio. Tell it where yours is — a serial device plugged into this machine, or a host and port on the network.",
+    "bannerAction": "Connect a radio"
   }
 }

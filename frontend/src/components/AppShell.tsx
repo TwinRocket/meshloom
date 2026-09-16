@@ -10,6 +10,7 @@ import {
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
+import { RadioSetupBanner } from './RadioSetupBanner';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
 import { DesktopRail } from './DesktopRail';
@@ -348,6 +349,12 @@ export function AppShell({
         </div>
       )}
 
+      {!(showSettings && settingsSection === 'radio') && (
+        <RadioSetupBanner
+          health={statusProps.health ?? null}
+          onOpenRadioSettings={() => handleOpenSettings('radio')}
+        />
+      )}
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner
           enabled={communityStatus.enabled}
