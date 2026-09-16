@@ -1,5 +1,7 @@
 import type { TFunction } from 'i18next';
 
+import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
+
 import type {
   AppSettings,
   AppSettingsUpdate,
@@ -131,13 +133,26 @@ export function formatApiError(err: unknown, t: TFunction): string {
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
-  const res = await fetch(`${API_BASE}${url}`, {
-    ...options,
-    headers: {
-      ...(hasBody && { 'Content-Type': 'application/json' }),
-      ...options?.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${url}`, {
+      ...options,
+      headers: {
+        ...(hasBody && { 'Content-Type': 'application/json' }),
+        ...options?.headers,
+      },
+    });
+  } catch (err) {
+    // An authentication proxy refusing a JSON request throws the same way an
+    // unreachable server does, so ask before blaming the network.
+    if (await edgeSessionLost()) reportEdgeSessionExpired();
+    throw err;
+  }
+  // A response from another origin is the proxy's login page, whatever its status.
+  if (isEdgeRedirect(res)) {
+    reportEdgeSessionExpired();
+    throw new ApiError('Authentication required', res.status);
+  }
   if (!res.ok) {
     const errorText = await res.text();
     // FastAPI returns errors as {"detail": "message"}, extract the message

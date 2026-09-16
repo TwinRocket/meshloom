@@ -10,6 +10,7 @@ import {
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
+import { EdgeSessionExpiredDialog } from './EdgeSessionExpiredDialog';
 import { RadioSetupBanner } from './RadioSetupBanner';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
@@ -573,6 +574,7 @@ export function AppShell({
         onOpenSettings={handleOpenSettings}
         onRepeaterAutoLogin={onRepeaterAutoLogin}
       />
+      <EdgeSessionExpiredDialog />
       <SecurityWarningModal health={statusProps.health} />
       <RadioIdentityModal
         health={statusProps.health}

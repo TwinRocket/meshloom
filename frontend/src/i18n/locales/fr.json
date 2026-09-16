@@ -2435,5 +2435,10 @@
     "bannerTitle": "Aucune radio connectée",
     "bannerBody": "Meshloom lit et écrit sur le mesh par l'intermédiaire d'une radio MeshCore. Indiquez où se trouve la vôtre : un périphérique série branché sur cette machine, ou un hôte et un port sur le réseau.",
     "bannerAction": "Connecter une radio"
+  },
+  "edgeSession": {
+    "title": "Votre session a expiré",
+    "body": "Le service placé devant Meshloom vous a déconnecté, plus rien sur cette page ne peut donc l'atteindre. Vous reconnecter recharge Meshloom là où vous en étiez.",
+    "action": "Se reconnecter"
   }
 }
