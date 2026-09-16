@@ -124,6 +124,26 @@ def _reset_radio_ingest_gate():
 
 
 @pytest.fixture(autouse=True)
+def _reset_radio_operation_lock():
+    """Hand every test an unheld radio lock.
+
+    The lock lives on a process-wide manager and the non-blocking path reads
+    `.locked()` before it tries to acquire, so a test that leaves it held makes
+    the radio look busy to every test after it in the same xdist worker. What
+    that looks like is a watchdog that quietly declines to send and an assertion
+    failing somewhere unrelated, on some runs and not others.
+
+    Cleared rather than replaced: the manager builds one on demand, bound to the
+    loop that is actually running.
+    """
+    from app.radio import radio_manager
+
+    radio_manager._operation_lock = None
+    yield
+    radio_manager._operation_lock = None
+
+
+@pytest.fixture(autouse=True)
 async def _reset_radio_proxy_runtime():
     """Stop the process-wide proxy so TCP sessions and locks do not leak."""
     from app.radio_proxy.manager import radio_proxy_manager
