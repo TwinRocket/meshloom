@@ -51,10 +51,28 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
+      # An architecture is only buildable once a release has published the base
+      # image for it: the add-on pins its base tag, and a tag cut before an
+      # architecture existed has no layer for it. Said out loud rather than hidden,
+      # so a genuine break still reads as a break.
+      - name: Check the base image covers this architecture
+        id: base
+        run: |
+          TAG=$(grep -oE 'ghcr\.io/bagl3y/meshloom:[^ ]+' meshloom/Dockerfile | head -1)
+          PLATFORM="linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || 'amd64' }}"
+          if docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' \
+              | grep -q "\"$(echo "$PLATFORM" | sed 's#linux/##; s#arm/v7#arm\",\"variant\":\"v7#')"; then
+            echo "covered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "covered=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG has no $PLATFORM layer yet — it predates that architecture. The add-on gains it with the next release."
+          fi
+
       # Proves the base image tag the manifest names actually exists for this
       # architecture, and that the entrypoint lands where the image can run it.
       # Not pushed: this asks whether it builds, not whether to publish it.
       - name: Build the add-on image
+        if: steps.base.outputs.covered == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./meshloom
@@ -66,7 +84,7 @@ jobs:
       # The entrypoint could not run at all on its own image once — a shebang the
       # image had no interpreter for. Running it here is what would have caught it.
       - name: Run the entrypoint on the image it ships with
-        if: matrix.arch == 'amd64'
+        if: matrix.arch == 'amd64' && steps.base.outputs.covered == 'true'
         run: |
           docker run --rm --entrypoint python3 meshloom-addon:ci -c "
           import runpy
