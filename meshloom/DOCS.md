@@ -1,13 +1,24 @@
 # Meshloom
 
-A MeshCore client: conversations, a map of what your node hears, packet tools, and
-MQTT discovery so the mesh appears in Home Assistant.
+Meshloom is a web client for a MeshCore radio. Plug the radio into the machine
+running Home Assistant and the mesh becomes something you can read and answer
+from the sidebar.
+
+- **Conversations** with contacts, channels and room servers, with history kept
+  across restarts and unread state that survives closing the tab.
+- **A map** of every node your radio has heard, with the path a message took and
+  where each hop sat when it repeated.
+- **Packet tools** — a live feed, a 3-D view of the mesh, route tracing and node
+  lookup — for when the question is why something did not arrive.
+- **MQTT discovery**, so nodes, signal and battery arrive in Home Assistant as
+  entities you can put on a dashboard or drive an automation with.
 
 ## What it runs on
 
 amd64, aarch64 and armv7 — so a Raspberry Pi 3 is covered as well as a Pi 4, an
-Intel box or a NAS. The armv7 image compiles two dependencies that publish no
-wheel for it, so the first build of the add-on takes noticeably longer there.
+Intel box or a NAS. The add-on adds one small layer to the published Meshloom
+image rather than rebuilding it, so installing takes about as long on a Pi as
+anywhere else.
 
 ## Getting started
 

@@ -126,3 +126,17 @@ def test_the_release_build_covers_the_architectures_the_addon_claims() -> None:
     workflow = (ADDON.parent / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
     for platform in ("linux/amd64", "linux/arm64", "linux/arm/v7"):
         assert platform in workflow
+
+
+def test_the_addon_ships_the_images_the_store_shows() -> None:
+    """Without these the add-on appears in the store as a grey placeholder.
+
+    Home Assistant looks for these two names beside config.yaml and nothing
+    reports their absence: the add-on installs and runs exactly the same.
+    """
+    icon = ADDON / "icon.png"
+    logo = ADDON / "logo.png"
+    assert icon.is_file()
+    assert logo.is_file()
+    assert icon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert logo.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
