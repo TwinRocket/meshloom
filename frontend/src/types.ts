@@ -53,6 +53,9 @@ export interface RadioTransportConfig {
 }
 
 export interface RadioProxyStatus {
+  /** The host decides the listening port; the field says so rather than accepting
+   *  a value that cannot take effect. */
+  port_managed_by_host?: boolean;
   enabled: boolean;
   bind: string;
   port: number;

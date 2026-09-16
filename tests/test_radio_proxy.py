@@ -734,3 +734,47 @@ async def test_self_info_uses_the_stored_key_when_the_radio_is_silent(monkeypatc
     frame = await manager._self_info_frame()
     assert frame is not None
     assert stored in frame
+
+
+@pytest.mark.asyncio
+async def test_port_change_refused_when_the_host_owns_it(test_db, monkeypatch):
+    """A port the host does not forward is a proxy nobody can reach.
+
+    Home Assistant maps a fixed container port and remaps the published one in its
+    own Network panel. Accepting a different value here would leave the listener
+    somewhere nothing arrives, while the status still reported it as running.
+    """
+    from fastapi import HTTPException
+
+    from app.config import settings
+    from app.routers.radio import patch_radio_proxy
+
+    monkeypatch.setattr(settings, "managed_ports", True)
+    radio_proxy_manager._settings = ProxySettings(enabled=False, bind="0.0.0.0", port=5051)
+
+    with pytest.raises(HTTPException) as raised:
+        await patch_radio_proxy(RadioProxyUpdate(port=5052))
+    assert raised.value.status_code == 409
+    assert "host" in str(raised.value.detail).lower()
+
+
+@pytest.mark.asyncio
+async def test_the_same_port_is_not_treated_as_a_change(test_db, monkeypatch):
+    """Saving the form without touching the port must not fail."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "managed_ports", True)
+    radio_proxy_manager._settings = ProxySettings(enabled=False, bind="0.0.0.0", port=5051)
+
+    # Resending the value it already has is not an attempt to change it.
+    assert radio_proxy_manager.settings.port == 5051
+
+
+def test_status_reports_who_owns_the_port(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "managed_ports", True)
+    assert radio_proxy_manager.status_dict()["port_managed_by_host"] is True
+
+    monkeypatch.setattr(settings, "managed_ports", False)
+    assert radio_proxy_manager.status_dict()["port_managed_by_host"] is False

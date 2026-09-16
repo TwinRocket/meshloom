@@ -103,6 +103,12 @@ release_sed_i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
 echo -e "${YELLOW}Updating frontend/package.json...${NC}"
 release_sed_i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/package.json
 
+# The add-on advertises the image it installs, so its version is the release's or it
+# is a lie. Written here rather than by hand, for the same reason the other two are.
+echo -e "${YELLOW}Updating Home Assistant add-on...${NC}"
+release_sed_i "s/^version: \".*\"/version: \"$VERSION\"/" meshloom/config.yaml
+release_sed_i "s|^FROM ghcr.io/bagl3y/meshloom:.*|FROM ghcr.io/bagl3y/meshloom:$VERSION|" meshloom/Dockerfile
+
 # Update uv.lock with new version
 echo -e "${YELLOW}Updating uv.lock...${NC}"
 uv sync

@@ -1,0 +1,59 @@
+name: Meshloom
+version: "4.7.6"
+slug: meshloom
+description: MeshCore client — conversations, map, packet tools, and MQTT discovery into Home Assistant
+url: https://github.com/bagl3y/meshloom
+arch:
+  - amd64
+  - aarch64
+  # A Raspberry Pi 3 running Home Assistant is armv7.
+  - armv7
+init: false
+
+# The web interface is reached through the sidebar. Nothing is published on the
+# host for it: ingress terminates TLS and authenticates with Home Assistant, and
+# the app already builds its asset URLs relative to whatever prefix it is served
+# under, so no base-path configuration is needed.
+ingress: true
+ingress_port: 8000
+panel_icon: mdi:radio-tower
+panel_title: Meshloom
+
+# The radio proxy is a plain TCP listener, which ingress does not carry. It is the
+# only thing that needs a port on the host, and the host side is remapped here in
+# the Network panel rather than inside Meshloom — see the note on ports below.
+ports:
+  5051/tcp: 5051
+ports_description:
+  5051/tcp: Radio proxy — other MeshCore clients connect here
+
+# The radio is usually a USB serial adapter.
+uart: true
+usb: true
+
+# Everything the instance keeps: database, keys, settings.
+map:
+  - addon_config:rw
+
+options:
+  log_level: INFO
+  proxy_port: 5051
+  public_url: ""
+  basic_auth_username: ""
+  basic_auth_password: ""
+  vapid_subject: ""
+  disable_bots: false
+
+schema:
+  log_level: list(DEBUG|INFO|WARNING|ERROR)
+  # The container-side port. It has to match the `ports` key above, so it is stated
+  # once here and pushed into Meshloom at startup; the field is read-only in the app
+  # for that reason.
+  proxy_port: port
+  # Set this when a tunnel gives the instance a durable address. Web Push needs one:
+  # ingress alone has no stable external URL.
+  public_url: str?
+  basic_auth_username: str?
+  basic_auth_password: password?
+  vapid_subject: str?
+  disable_bots: bool?

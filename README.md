@@ -26,6 +26,23 @@ Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**.
 
 From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/bagl3y/meshloom`. Portainer, HTTPS, systemd, and extra environment variables: [README_ADVANCED.md](README_ADVANCED.md).
 
+### On Home Assistant
+
+Meshloom runs as an add-on. The button opens the dialog on your own instance with
+the repository filled in — it is a redirector and learns nothing about you:
+
+[![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fbagl3y%2Fmeshloom)
+
+Or add `https://github.com/bagl3y/meshloom` by hand under **Settings → Add-ons →
+Add-on store → ⋮ → Repositories**, then install **Meshloom**.
+
+The web interface arrives in the sidebar; the radio proxy is the only thing
+published on the host, and its port is set in the add-on's **Network** panel.
+Details: [`meshloom/DOCS.md`](meshloom/DOCS.md).
+
+This is not the same as [publishing to Home Assistant over MQTT](README_HA.md),
+which works from any install and needs no add-on.
+
 ## Update
 
 ```bash
@@ -40,4 +57,5 @@ The database stays in place (`/var/lib/meshloom` for the package, `./data` for D
 
 - User docs (source): [`docs/user/`](docs/user/) — published at https://meshloom.app/docs/
 - API docs once the server is up: http://127.0.0.1:8000/docs
-- Home Assistant: [README_HA.md](README_HA.md)
+- Home Assistant — publishing the mesh over MQTT: [README_HA.md](README_HA.md)
+- Home Assistant — running Meshloom as an add-on: [`meshloom/DOCS.md`](meshloom/DOCS.md)

@@ -26,6 +26,9 @@ const EMPTY: RadioProxyStatus = {
 export function SettingsProxySection({ className }: { className?: string }) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<RadioProxyStatus>(EMPTY);
+  // The host maps a fixed container port and remaps the reachable one itself, so a
+  // value set here would leave the proxy listening where nothing is forwarded.
+  const portManagedByHost = status.port_managed_by_host === true;
   const [bind, setBind] = useState(EMPTY.bind);
   const [port, setPort] = useState(String(EMPTY.port));
   const [maxClients, setMaxClients] = useState(String(EMPTY.max_clients));
@@ -113,8 +116,17 @@ export function SettingsProxySection({ className }: { className?: string }) {
           <Input
             id="radio-proxy-port"
             value={port}
+            disabled={portManagedByHost}
             onChange={(event) => setPort(event.target.value)}
+            aria-describedby={portManagedByHost ? 'radio-proxy-port-managed' : undefined}
           />
+          {/* Disabled with the reason, never disabled and silent: the value cannot
+              work here, and where it can be changed is the part worth saying. */}
+          {portManagedByHost && (
+            <p id="radio-proxy-port-managed" className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.proxy.portManagedByHost')}
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="radio-proxy-max">{t('settings.proxy.maxClients')}</Label>

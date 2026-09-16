@@ -1,0 +1,97 @@
+name: Home Assistant add-on
+
+# The add-on is a manifest plus one image layer, and both can be wrong in ways the
+# rest of the suite never sees: a manifest the supervisor rejects, a base image tag
+# that does not exist, an entrypoint that cannot run on the image it ships with.
+# Each of those has already happened once here.
+on:
+  push:
+    paths:
+      - "meshloom/**"
+      - "repository.yaml"
+      - ".github/workflows/addon.yml"
+  pull_request:
+    paths:
+      - "meshloom/**"
+      - "repository.yaml"
+      - ".github/workflows/addon.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      # The supervisor's own rules: option and schema agreement, valid keys, the
+      # shape of the ports map. It reads the manifest the way Home Assistant will.
+      - name: Lint the add-on
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./meshloom"
+
+  builds:
+    name: Builds on ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, aarch64, armv7]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # An architecture is only buildable once a release has published the base
+      # image for it: the add-on pins its base tag, and a tag cut before an
+      # architecture existed has no layer for it. Said out loud rather than hidden,
+      # so a genuine break still reads as a break.
+      - name: Check the base image covers this architecture
+        id: base
+        run: |
+          TAG=$(grep -oE 'ghcr\.io/bagl3y/meshloom:[^ ]+' meshloom/Dockerfile | head -1)
+          PLATFORM="linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || 'amd64' }}"
+          if docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' \
+              | grep -q "\"$(echo "$PLATFORM" | sed 's#linux/##; s#arm/v7#arm\",\"variant\":\"v7#')"; then
+            echo "covered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "covered=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG has no $PLATFORM layer yet — it predates that architecture. The add-on gains it with the next release."
+          fi
+
+      # Proves the base image tag the manifest names actually exists for this
+      # architecture, and that the entrypoint lands where the image can run it.
+      # Not pushed: this asks whether it builds, not whether to publish it.
+      - name: Build the add-on image
+        if: steps.base.outputs.covered == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./meshloom
+          platforms: linux/${{ matrix.arch == 'aarch64' && 'arm64' || matrix.arch == 'armv7' && 'arm/v7' || 'amd64' }}
+          push: false
+          load: ${{ matrix.arch == 'amd64' }}
+          tags: meshloom-addon:ci
+
+      # The entrypoint could not run at all on its own image once — a shebang the
+      # image had no interpreter for. Running it here is what would have caught it.
+      - name: Run the entrypoint on the image it ships with
+        if: matrix.arch == 'amd64' && steps.base.outputs.covered == 'true'
+        run: |
+          docker run --rm --entrypoint python3 meshloom-addon:ci -c "
+          import runpy
+          addon = runpy.run_path('/usr/local/bin/meshloom-addon')
+          env = addon['build_environment']({'proxy_port': 5051})
+          assert env['MESHCORE_RADIO_PROXY_PORT'] == '5051', env
+          assert env['MESHCORE_MANAGED_PORTS'] == 'true', env
+          assert addon['read_options']() == {}, 'no options file must not raise'
+          print('the entrypoint runs on the published image')
+          "

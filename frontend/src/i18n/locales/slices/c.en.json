@@ -636,7 +636,8 @@
       "saving": "Saving…",
       "saved": "Proxy settings saved",
       "saveFailed": "Could not save proxy settings",
-      "loadFailed": "Could not load proxy settings"
+      "loadFailed": "Could not load proxy settings",
+      "portManagedByHost": "Set by the host running this instance. Change the published port in its own network settings — Home Assistant does this in the add-on’s Network panel."
     },
     "about": {
       "madeBy": "Made with love and open source by <author>Pascal M</author>",

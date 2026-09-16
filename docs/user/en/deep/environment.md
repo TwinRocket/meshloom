@@ -40,6 +40,8 @@ Until `radio_transport` is set, the radio stays paused. Do not set `MESHCORE_SER
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | SQLite database path |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | VAPID subject fallback when `app_settings.vapid_subject` is empty |
+| `MESHCORE_PUBLIC_URL` | *(empty)* | The address this instance is reached at from outside. Outranks the `X-Forwarded-*` headers, which a tunnel can rewrite or strip — set it when a link built from what arrived would point somewhere only reachable from inside |
+| `MESHCORE_MANAGED_PORTS` | `false` | Set by a host that decides the listening ports itself, such as the Home Assistant add-on. The proxy port then comes from the host, and the field in Settings says so rather than accepting a value that cannot take effect |
 | `MESHLOOM_COMMUNITY` | *(on for new DBs)* | Seed Community on a brand-new database. Unset or `1` seeds on; `0` / `false` / `off` seeds opted out. Existing databases are never flipped |
 | `MESHLOOM_COMMUNITY_IATA` | *(empty)* | Optional 3-letter IATA to seed on a brand-new database |
 | `MESHLOOM_COMMUNITY_LOCKED` | `false` | When `1`, the UI cannot enable Community |

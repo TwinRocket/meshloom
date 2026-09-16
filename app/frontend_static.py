@@ -127,7 +127,18 @@ def _resolve_request_base(request: Request) -> str:
     - ``X-Forwarded-Proto`` + ``X-Forwarded-Host``: override scheme and host.
     - ``X-Forwarded-Prefix`` (or ``X-Forwarded-Path``): sub-path prefix added
       by the proxy (e.g. ``/meshcore``).
+
+    ``MESHCORE_PUBLIC_URL`` outranks all of it. Headers describe the hop that
+    happened to arrive; a tunnel or a chain of proxies can strip or rewrite them,
+    and then a link built from what arrived points somewhere only reachable from
+    inside. Setting it says what the address is, once, for every request.
     """
+    from app.config import settings as server_settings
+
+    configured = server_settings.public_url.strip()
+    if configured:
+        return configured.rstrip("/") + "/"
+
     forwarded_proto = request.headers.get("x-forwarded-proto")
     forwarded_host = request.headers.get("x-forwarded-host")
     origin = str(request.base_url).rstrip("/")
