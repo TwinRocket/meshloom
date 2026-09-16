@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     basic_auth_username: str = ""
     basic_auth_password: str = ""
     vapid_subject: str = DEFAULT_VAPID_SUBJECT
+    embeddable_same_origin: bool = Field(
+        default=False,
+        description=(
+            "Allow a page from the same origin to embed this instance in a frame. "
+            "Home Assistant's ingress serves the add-on inside an iframe on its own "
+            "origin, which the default headers forbid outright."
+        ),
+    )
     managed_ports: bool = Field(
         default=False,
         description=(

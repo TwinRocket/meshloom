@@ -77,3 +77,13 @@ def test_every_option_in_the_manifest_is_understood_here() -> None:
     config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
     handled = set(addon.PASS_THROUGH) | {"proxy_port", "disable_bots"}
     assert set(config["options"]) <= handled
+
+
+def test_the_addon_allows_home_assistant_to_frame_it() -> None:
+    """Ingress is an iframe on Home Assistant's origin.
+
+    The default headers refuse framing outright, which shows as a blank panel and
+    a healthy 200 in the log — the browser gives up before requesting an asset.
+    """
+    env = addon.build_environment({})
+    assert env["MESHCORE_EMBEDDABLE_SAME_ORIGIN"] == "true"

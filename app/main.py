@@ -275,8 +275,21 @@ async def log_server_errors(request: Request, call_next):
     # return the "Access blocked" placeholder image. Origin-only on cross-origin
     # still hides local paths.
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    # Refusing to be framed is right when the address is reached directly: it is
+    # what stops another site from wrapping this one. Home Assistant's ingress,
+    # though, *is* a frame — on its own origin, behind its own authentication — so
+    # under it the same rule leaves a blank panel and a 200 in the log, with the
+    # browser refusing to render before it asks for a single asset.
+    #
+    # Same-origin rather than a named parent: the ingress path is served from the
+    # Home Assistant origin itself, so "self" is exactly the relation that holds,
+    # and nothing else gains the right to frame this.
+    if server_settings.embeddable_same_origin:
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
+    else:
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
     return response
 
 
