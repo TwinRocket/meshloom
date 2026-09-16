@@ -128,10 +128,13 @@ export function ObserverReachMap({
   const selected = observers.find(
     (observer, index) => observerKey(observer, index) === selectedKey
   );
+  const mappedObservers = observers
+    .map((observer, index) => ({ observer, index }))
+    .filter(({ observer, index }) => !selectedKey || observerKey(observer, index) === selectedKey);
 
   const points: [number, number][] = [];
   if (origin) points.push([origin.lat, origin.lon]);
-  for (const observer of observers) {
+  for (const { observer } of mappedObservers) {
     if (observer.lat != null && observer.lon != null) {
       points.push([observer.lat, observer.lon]);
     }
@@ -195,7 +198,7 @@ export function ObserverReachMap({
             </Popup>
           </NumberedMarker>
         ))}
-        {observers.map((observer, index) => {
+        {mappedObservers.map(({ observer, index }) => {
           if (observer.lat == null || observer.lon == null) return null;
           const key = observerKey(observer, index);
           const selectedMarker = key === selectedKey;
