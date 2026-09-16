@@ -17,7 +17,27 @@ COPY frontend/ ./
 RUN VITE_COMMIT_HASH=${COMMIT_HASH} npm run build
 
 
-# Stage 2: Python runtime
+# Stage 2: the dependency manifests, with this project's own version taken out.
+#
+# A release changes one line in pyproject.toml and one in uv.lock — its version —
+# and nothing else. Copied as they are, that line is part of the cache key of the
+# dependency install below, so the release was the one build guaranteed to
+# recompile eight C extensions under emulation for armv7. Thirty-one minutes,
+# measured on 4.10.0, for a string the layer does not use.
+#
+# Normalised here instead. `COPY --from` is keyed on what the files contain, so
+# two releases hand that layer the same bytes. This stage runs on the build
+# machine and costs a second.
+FROM --platform=$BUILDPLATFORM python:3.14-slim AS deps-manifest
+
+WORKDIR /manifest
+
+COPY pyproject.toml uv.lock ./
+COPY scripts/build/neutralize_project_version.py ./
+RUN python neutralize_project_version.py .
+
+
+# Stage 3: Python runtime
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -30,8 +50,9 @@ ARG UV_VERSION=0.6.17
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 
 
-# Copy dependency files first for layer caching
-COPY pyproject.toml uv.lock ./
+# Copy dependency files first for layer caching, version-neutral so that a
+# release does not invalidate what follows.
+COPY --from=deps-manifest /manifest/pyproject.toml /manifest/uv.lock ./
 
 # Install dependencies (no dev/test deps).
 #
@@ -44,6 +65,10 @@ RUN apt-get update \
     && uv sync --frozen --no-dev \
     && apt-get purge -y --auto-remove build-essential libffi-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# The real manifests, once nothing expensive depends on them. The running app
+# reads its version from pyproject.toml, and 0.0.0 is not the version it shipped.
+COPY pyproject.toml uv.lock ./
 
 # Copy application code
 COPY app/ ./app/
