@@ -6,7 +6,19 @@ from pathlib import Path
 
 import yaml
 
-ADDON = Path(__file__).resolve().parents[1] / "addon" / "meshloom"
+ADDON = Path(__file__).resolve().parents[1] / "meshloom"
+
+
+def test_the_repository_manifest_sits_where_home_assistant_looks() -> None:
+    """At the repository root, beside a folder per add-on.
+
+    Anywhere else and adding the repository in Home Assistant finds nothing: the
+    dialog accepts the URL and then reports no add-ons, which reads as a broken
+    project rather than a misplaced file.
+    """
+    root = ADDON.parent
+    assert (root / "repository.yaml").is_file()
+    assert (ADDON / "config.yaml").is_file()
 
 
 def _config() -> dict:
@@ -50,3 +62,29 @@ def test_run_sh_hands_the_host_port_to_meshloom_and_locks_it() -> None:
     run = (ADDON / "run.sh").read_text(encoding="utf-8")
     assert "MESHCORE_RADIO_PROXY_PORT" in run
     assert "MESHCORE_MANAGED_PORTS" in run
+
+
+def test_the_readme_button_points_at_this_repository() -> None:
+    """The one-click button carries the repository URL, so it can point elsewhere.
+
+    A button that opens the dialog with the wrong URL fails after the reader has
+    already agreed to it, which is worse than no button.
+    """
+    readme = (ADDON.parent / "README.md").read_text(encoding="utf-8")
+    assert "supervisor_add_addon_repository" in readme
+    assert "repository_url=https%3A%2F%2Fgithub.com%2Fbagl3y%2Fmeshloom" in readme
+
+
+def test_the_release_script_rewrites_the_addon_version() -> None:
+    """The add-on advertises the image it installs; a stale version is a lie.
+
+    Kept honest by the release rather than by discipline — the same reason
+    pyproject.toml and package.json are rewritten there.
+    """
+    publish = (ADDON.parent / "scripts" / "build" / "publish.sh").read_text(encoding="utf-8")
+    assert "meshloom/config.yaml" in publish
+
+    config_text = (ADDON / "config.yaml").read_text(encoding="utf-8")
+    # The pattern the script substitutes on has to match what the file actually
+    # contains, or the rewrite silently does nothing.
+    assert any(line.startswith('version: "') for line in config_text.splitlines())
