@@ -103,9 +103,11 @@ If `frontend/dist` is absent, the backend checks `frontend/prebuilt`. If neither
 
 `MESHCORE_DATABASE_PATH` moves the database. Updates do not replace it; SQLite migrations run at startup in `user_version` order.
 
+Settings → About applies a Meshloom-only upgrade when the helper is present. Otherwise:
+
 ```bash
-sudo apt upgrade
-sudo dnf upgrade
+sudo apt-get install --only-upgrade meshloom
+sudo dnf install meshloom
 sudo docker compose pull && sudo docker compose up -d
 ```
 

@@ -90,7 +90,10 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
     },
     {
         "name": "updates",
-        "description": "Cached latest Meshloom OSS release from Stats (no JWT; works opted out).",
+        "description": (
+            "Cached latest Meshloom OSS release from Stats (no JWT; works opted out), "
+            "plus in-app apply status when a package/compose helper is present."
+        ),
     },
 ]
 

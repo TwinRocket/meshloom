@@ -1,0 +1,19 @@
+# Example only. Do not bake secrets into a published image.
+# Raspberry Pi Imager 2.0.6+ writes the real file to the boot partition.
+# Mark interfaces optional so first boot does not wait for a missing link.
+
+network:
+  version: 2
+  renderer: NetworkManager
+  ethernets:
+    eth0:
+      dhcp4: true
+      optional: true
+  wifis:
+    wlan0:
+      dhcp4: true
+      regulatory-domain: "FR"
+      optional: true
+      access-points:
+        "YourSSID":
+          password: "your-wifi-password"

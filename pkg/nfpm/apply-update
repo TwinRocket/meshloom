@@ -1,0 +1,223 @@
+#!/bin/sh
+# Privileged helper: upgrade only the meshloom package (never the whole system).
+# Writes /var/lib/meshloom/update-job.json (or MESHLOOM_UPDATE_JOB_PATH) as it runs.
+set -e
+
+JOB_PATH="${MESHLOOM_UPDATE_JOB_PATH:-/var/lib/meshloom/update-job.json}"
+STATE=applying
+PHASE=preparing
+PERCENT=
+ERROR=
+STARTED_AT=$(date +%s)
+LAST_ATTEMPT=
+TARGET=
+FINISHED=0
+FIFO=
+
+load_identity() {
+    # Python start_apply writes target/last_attempt first. Keep them across
+    # every helper rewrite so auto_update does not treat a success as unknown.
+    [ -f "$JOB_PATH" ] || return 0
+    existing_target=$(sed -n 's/.*"target":"\([^"]*\)".*/\1/p' "$JOB_PATH" | head -n 1)
+    existing_last=$(sed -n 's/.*"last_attempt":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
+    existing_started=$(sed -n 's/.*"started_at":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
+    if [ -n "$existing_target" ]; then
+        TARGET=$existing_target
+    fi
+    if [ -n "$existing_last" ]; then
+        LAST_ATTEMPT=$existing_last
+    fi
+    if [ -n "$existing_started" ]; then
+        STARTED_AT=$existing_started
+    fi
+}
+
+json_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n\r' '  '
+}
+
+write_job() {
+    job_dir=$(dirname "$JOB_PATH")
+    mkdir -p /var/lib/meshloom "$job_dir"
+
+    if [ -n "$PERCENT" ]; then
+        percent_json=$PERCENT
+    else
+        percent_json=null
+    fi
+
+    if [ -n "$ERROR" ]; then
+        error_json="\"$(json_escape "$ERROR")\""
+    else
+        error_json=null
+    fi
+
+    last_json=$STARTED_AT
+    if [ -n "$LAST_ATTEMPT" ]; then
+        last_json=$LAST_ATTEMPT
+    fi
+    target_json=""
+    if [ -n "$TARGET" ]; then
+        target_json=",\"target\":\"$(json_escape "$TARGET")\""
+    fi
+
+    tmp="${JOB_PATH}.tmp.$$"
+    printf '%s\n' "{\"state\":\"${STATE}\",\"phase\":\"${PHASE}\",\"percent\":${percent_json},\"error\":${error_json},\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$tmp"
+    mv -f "$tmp" "$JOB_PATH"
+    chmod 644 "$JOB_PATH" 2>/dev/null || true
+}
+
+load_last_progress() {
+    # Keep the last phase/percent already published (e.g. from APT::Status-Fd).
+    if [ ! -f "$JOB_PATH" ]; then
+        return 0
+    fi
+    last_phase=$(sed -n 's/.*"phase":"\([^"]*\)".*/\1/p' "$JOB_PATH")
+    last_percent=$(sed -n 's/.*"percent":\([^,}]*\).*/\1/p' "$JOB_PATH")
+    if [ -n "$last_phase" ]; then
+        PHASE=$last_phase
+    fi
+    if [ -n "$last_percent" ] && [ "$last_percent" != "null" ]; then
+        PERCENT=$last_percent
+    fi
+}
+
+fail() {
+    FINISHED=1
+    STATE=failed
+    ERROR=$1
+    load_last_progress
+    write_job
+    echo "meshloom apply-update: failed: $ERROR" >&2
+    exit 1
+}
+
+succeed() {
+    FINISHED=1
+    STATE=succeeded
+    PHASE=done
+    PERCENT=100
+    ERROR=
+    write_job
+}
+
+on_exit() {
+    rc=$?
+    [ -n "$FIFO" ] && rm -f "$FIFO"
+    if [ "$FINISHED" -eq 0 ]; then
+        FINISHED=1
+        STATE=failed
+        if [ -z "$ERROR" ]; then
+            ERROR="update failed (exit $rc)"
+        fi
+        load_last_progress
+        write_job
+    fi
+}
+
+take_apt_percent() {
+    # rest after kind: is "<field>:<percent>:<description>"
+    after=${1#*:}
+    raw=${after%%:*}
+    raw=${raw%%.*}
+    case "$raw" in
+        '' | *[!0-9]*) return 0 ;;
+    esac
+    if [ "$raw" -gt 100 ]; then
+        raw=100
+    fi
+    PERCENT=$raw
+}
+
+parse_apt_status() {
+    while IFS= read -r line || [ -n "$line" ]; do
+        kind=${line%%:*}
+        rest=${line#*:}
+        case "$kind" in
+            dlstatus)
+                PHASE=downloading
+                take_apt_percent "$rest"
+                write_job
+                ;;
+            pmstatus)
+                PHASE=installing
+                take_apt_percent "$rest"
+                write_job
+                ;;
+        esac
+    done
+}
+
+run_apt_install() {
+    # "$@" is the apt-get argv after the binary (install ...).
+    # APT::Status-Fd reports dlstatus/pmstatus percents when apt keeps the fd.
+    # If the fifo cannot be created, keep phase and leave percent null.
+    # INSTALL_RC is used instead of a non-zero return so set -e stays safe.
+    INSTALL_RC=0
+    FIFO="/var/lib/meshloom/apt-status.$$"
+    rm -f "$FIFO"
+    if mkfifo "$FIFO"; then
+        parse_apt_status <"$FIFO" &
+        status_pid=$!
+        DEBIAN_FRONTEND=noninteractive apt-get -o APT::Status-Fd=3 "$@" 3>"$FIFO" || INSTALL_RC=$?
+        wait "$status_pid" 2>/dev/null || true
+        rm -f "$FIFO"
+        FIFO=
+        return 0
+    fi
+    FIFO=
+    DEBIAN_FRONTEND=noninteractive apt-get "$@" || INSTALL_RC=$?
+}
+
+trap on_exit EXIT
+trap 'on_exit; exit 130' INT
+trap 'on_exit; exit 143' TERM
+
+if [ "$(id -u)" -ne 0 ]; then
+    fail "must run as root"
+fi
+
+mkdir -p /var/lib/meshloom
+load_identity
+write_job
+
+if command -v apt-get >/dev/null 2>&1; then
+    echo "meshloom apply-update: using apt-get (meshloom package only)"
+    export DEBIAN_FRONTEND=noninteractive
+
+    PHASE=preparing
+    PERCENT=
+    write_job
+    apt-get update || fail "apt-get update failed"
+
+    # --only-upgrade is empty when meshloom is not installed (it would
+    # upgrade nothing). Fall back to a targeted install of meshloom only.
+    if command -v dpkg-query >/dev/null 2>&1 \
+        && dpkg-query -W -f='${Status}\n' meshloom 2>/dev/null | grep -q 'ok installed'; then
+        PHASE=downloading
+        PERCENT=
+        write_job
+        run_apt_install install -y --only-upgrade meshloom
+        [ "$INSTALL_RC" -eq 0 ] || fail "apt-get install --only-upgrade meshloom failed"
+    else
+        PHASE=downloading
+        PERCENT=
+        write_job
+        run_apt_install install -y meshloom
+        [ "$INSTALL_RC" -eq 0 ] || fail "apt-get install meshloom failed"
+    fi
+elif command -v dnf >/dev/null 2>&1; then
+    echo "meshloom apply-update: using dnf (meshloom package only)"
+    PHASE=installing
+    PERCENT=
+    write_job
+    dnf install -y meshloom || fail "dnf install meshloom failed"
+else
+    fail "no supported package manager (need apt-get or dnf)"
+fi
+
+PHASE=restarting
+PERCENT=90
+write_job
+succeed
+echo "meshloom apply-update: succeeded"

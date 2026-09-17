@@ -121,9 +121,11 @@ La base SQLite est le seul état persistant qui compte. Son emplacement dépend 
 
 Les mises à jour ne touchent pas la base. Les migrations de schéma s’appliquent au démarrage, dans l’ordre, en s’appuyant sur le `user_version` de SQLite.
 
+Réglages → À propos applique une mise à jour Meshloom seule quand le helper est présent. Sinon :
+
 ```bash
-sudo apt upgrade                          # Debian / Ubuntu
-sudo dnf upgrade                          # Fedora / Rocky / Alma
+sudo apt-get install --only-upgrade meshloom
+sudo dnf install meshloom
 sudo docker compose pull && sudo docker compose up -d
 ```
 

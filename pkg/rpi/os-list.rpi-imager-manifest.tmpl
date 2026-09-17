@@ -1,0 +1,40 @@
+{
+  "imager": {
+    "devices": [
+      {
+        "name": "Raspberry Pi 5",
+        "tags": ["pi5-64bit"],
+        "description": "Raspberry Pi 5"
+      },
+      {
+        "name": "Raspberry Pi 4",
+        "tags": ["pi4-64bit"],
+        "description": "Raspberry Pi 4 / 400"
+      },
+      {
+        "name": "Raspberry Pi 3 / Zero 2 W",
+        "tags": ["pi3-64bit"],
+        "description": "Raspberry Pi 3B / 3B+ / 3A+, Compute Module 3, and Zero 2 W"
+      }
+    ]
+  },
+  "os_list": [
+    {
+      "name": "Meshloom",
+      "description": "Raspberry Pi OS Lite 64-bit with Meshloom preinstalled (Pi 3, Zero 2 W, and later)",
+      "url": "__IMAGE_URL__",
+      "icon": "https://meshloom.app/favicon.svg",
+      "release_date": "__RELEASE_DATE__",
+      "extract_size": __EXTRACT_SIZE__,
+      "extract_sha256": "__EXTRACT_SHA256__",
+      "image_download_size": __DOWNLOAD_SIZE__,
+      "image_download_sha256": "__DOWNLOAD_SHA256__",
+      "init_format": "cloudinit-rpi",
+      "devices": [
+        "pi5-64bit",
+        "pi4-64bit",
+        "pi3-64bit"
+      ]
+    }
+  ]
+}

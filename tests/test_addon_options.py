@@ -79,6 +79,11 @@ def test_every_option_in_the_manifest_is_understood_here() -> None:
     assert set(config["options"]) <= handled
 
 
+def test_the_addon_declares_its_install_kind() -> None:
+    """The updater must not guess Home Assistant; this entrypoint names it."""
+    assert addon.build_environment({})["MESHLOOM_INSTALL_KIND"] == "addon"
+
+
 def test_the_addon_allows_home_assistant_to_frame_it() -> None:
     """Ingress is an iframe on Home Assistant's origin.
 

@@ -89,6 +89,7 @@ app/
     ├── locate.py
     ├── community.py         # Meshloom Community join, IATA, hashtag names, Stats proxies
     ├── push.py
+    ├── updates.py
     └── ws.py
 ```
 
@@ -346,6 +347,11 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 - `DELETE /fanout/{id}` — delete fanout config (stops module)
 - `POST /fanout/bots/disable-until-restart` — stop bot modules and keep bots disabled until restart
 
+### Updates
+- `GET /updates` — cached Stats catalogue (`current`, `latest`, `update_available`, `html_url`) plus `install_kind`, `apply_supported`, `auto_update`, and helper `job` progress
+- `POST /updates/apply` — 202 with the same body when `apply_supported`; 409 if apply is unsupported or a job is already applying. package starts `meshloom-update.service` (pkg/nfpm helper); compose writes `request-update` next to the job file. Never apt-upgrades the OS
+- `PATCH /updates/settings` — persist `auto_update` (not via `PATCH /settings`). After the 300s catalogue poll, auto-apply when supported and an update is available; 6h backoff after a failed job
+
 ### Statistics
 - `GET /statistics` — aggregated mesh network stats (entity counts, message/packet splits, activity windows, busiest channels, `region_scope_24h` regional adoption)
 
@@ -456,6 +462,7 @@ Repository writes should prefer typed models such as `ContactUpsert` over ad hoc
 - `blocked_keys`, `blocked_names`, `discovery_blocked_types`
 - `tracked_telemetry_repeaters`, `tracked_telemetry_contacts`
 - `auto_resend_channel`
+- `auto_update`
 - `telemetry_interval_hours`
 - `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `vapid_private_key`, `vapid_public_key`
 
@@ -540,6 +547,9 @@ tests/
 ├── test_service_installer.py   # Service installer script behavior
 ├── test_sqs_fanout.py          # SQS fanout module
 ├── test_statistics.py          # Statistics aggregation
+├── test_install_kind.py        # MESHLOOM_INSTALL_KIND / helper / container detection
+├── test_update_apply.py        # Apply job files, 409s, PATCH auto_update
+├── test_rpi_overlay.py         # Pi image overlay never pins Community off
 ├── test_telemetry_interval.py  # Telemetry interval scheduling math
 ├── test_version_info.py        # Version/build metadata resolution
 ├── test_websocket.py           # WS manager broadcast/cleanup

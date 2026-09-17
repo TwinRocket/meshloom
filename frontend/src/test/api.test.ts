@@ -124,6 +124,16 @@ describe('fetchJson (via api methods)', () => {
         latest: '1.1.0',
         update_available: true,
         html_url: 'https://github.com/TwinRocket/meshloom/releases/tag/v1.1.0',
+        install_kind: 'package',
+        apply_supported: true,
+        auto_update: false,
+        job: {
+          state: 'idle',
+          phase: null,
+          percent: null,
+          error: null,
+          started_at: null,
+        },
       };
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -132,6 +142,65 @@ describe('fetchJson (via api methods)', () => {
 
       await expect(api.getUpdates()).resolves.toEqual(updates);
       expect(mockFetch.mock.calls[0][0]).toBe('./api/updates');
+    });
+
+    it('POSTs /updates/apply', async () => {
+      installMockFetch();
+      const updates = {
+        current: '1.0.0',
+        latest: '1.1.0',
+        update_available: true,
+        html_url: null,
+        install_kind: 'package',
+        apply_supported: true,
+        auto_update: false,
+        job: {
+          state: 'applying',
+          phase: 'preparing',
+          percent: 10,
+          error: null,
+          started_at: 1,
+        },
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(updates),
+      });
+
+      await expect(api.applyUpdate()).resolves.toEqual(updates);
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/updates/apply');
+      expect(mockFetch.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+    });
+
+    it('PATCHes /updates/settings', async () => {
+      installMockFetch();
+      const updates = {
+        current: '1.0.0',
+        latest: '1.1.0',
+        update_available: true,
+        html_url: null,
+        install_kind: 'package',
+        apply_supported: true,
+        auto_update: true,
+        job: {
+          state: 'idle',
+          phase: null,
+          percent: null,
+          error: null,
+          started_at: null,
+        },
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(updates),
+      });
+
+      await expect(api.patchUpdateSettings({ auto_update: true })).resolves.toEqual(updates);
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/updates/settings');
+      expect(mockFetch.mock.calls[0][1]).toMatchObject({
+        method: 'PATCH',
+        body: JSON.stringify({ auto_update: true }),
+      });
     });
 
     it('calls fetch with /api prefix', async () => {

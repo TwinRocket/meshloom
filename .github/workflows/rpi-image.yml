@@ -1,0 +1,78 @@
+name: Raspberry Pi image
+
+# Rebuild an image for a version that already has an arm64 .deb on GitHub.
+# Normal releases bake the image in the Release workflow after nfpm/publish.
+# Do not run on pull requests.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Meshloom version whose arm64 .deb to bake (no v prefix)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rpi-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            kpartx xz-utils fdisk cloud-guest-utils e2fsprogs
+
+      - name: Resolve version
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download arm64 package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p incoming
+          VERSION="${{ steps.ver.outputs.version }}"
+          gh release download "v${VERSION}" --repo "${{ github.repository }}" \
+            --dir incoming --pattern "*_arm64.deb" || \
+          gh release download "${VERSION}" --repo "${{ github.repository }}" \
+            --dir incoming --pattern "*_arm64.deb"
+          ls -la incoming
+
+      - name: Build image
+        run: |
+          chmod +x scripts/build/build_rpi_image.sh
+          sudo scripts/build/build_rpi_image.sh \
+            --deb incoming/*_arm64.deb \
+            --output-dir dist \
+            --version "${{ steps.ver.outputs.version }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshloom-rpi-lite-arm64
+          path: |
+            dist/meshloom-rpi-lite-arm64.img.xz
+            dist/meshloom.rpi-imager-manifest
+          if-no-files-found: error
+
+      - name: Attach to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          gh release upload "${VERSION}" \
+            dist/meshloom-rpi-lite-arm64.img.xz \
+            dist/meshloom.rpi-imager-manifest \
+            --repo "${{ github.repository }}" \
+            --clobber

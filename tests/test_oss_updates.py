@@ -153,23 +153,31 @@ class TestSemVerAndCache:
 
 
 class TestUpdatesEndpoint:
-    def test_get_updates_returns_cached_status(self):
+    def test_get_updates_returns_cached_status(self, tmp_path, monkeypatch):
         import app.services.oss_updates as oss_updates
 
         oss_updates._latest_payload = dict(_STATS_PAYLOAD)
+        monkeypatch.setenv("MESHLOOM_UPDATE_JOB_PATH", str(tmp_path / "update-job.json"))
         from app.main import app
 
-        with patch(
-            "app.routers.updates.get_update_status",
-            return_value={
-                "current": "1.0.0",
-                "latest": "9.9.9",
-                "update_available": True,
-                "html_url": _STATS_PAYLOAD["html_url"],
-            },
+        with (
+            patch(
+                "app.routers.updates.get_update_status",
+                return_value={
+                    "current": "1.0.0",
+                    "latest": "9.9.9",
+                    "update_available": True,
+                    "html_url": _STATS_PAYLOAD["html_url"],
+                },
+            ),
+            patch(
+                "app.routers.updates.AppSettingsRepository.get",
+                new=AsyncMock(return_value=type("S", (), {"auto_update": False})()),
+            ),
         ):
-            client = TestClient(app)
-            response = client.get("/api/updates")
+            with TestClient(app) as client:
+                response = client.get("/api/updates")
+                health = client.get("/api/health").json()
 
         assert response.status_code == 200
         data = response.json()
@@ -177,5 +185,14 @@ class TestUpdatesEndpoint:
         assert data["latest"] == "9.9.9"
         assert data["update_available"] is True
         assert data["html_url"] == _STATS_PAYLOAD["html_url"]
-        health = client.get("/api/health").json()
+        assert data["install_kind"] in {"package", "compose", "addon", "container", "source"}
+        assert data["apply_supported"] is False or data["install_kind"] in {"package", "compose"}
+        assert data["auto_update"] is False
+        assert data["job"] == {
+            "state": "idle",
+            "phase": None,
+            "percent": None,
+            "error": None,
+            "started_at": None,
+        }
         assert "update_available" not in health

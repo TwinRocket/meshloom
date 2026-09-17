@@ -1,0 +1,20 @@
+[Unit]
+Description=Meshloom HDMI address display
+Documentation=https://github.com/TwinRocket/meshloom
+After=network-online.target meshloom.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/meshloom/meshloom-console
+Restart=always
+RestartSec=2
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

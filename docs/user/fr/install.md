@@ -55,15 +55,19 @@ sudo systemctl status meshloom
 
 ## Mettre à jour
 
-Selon le mode retenu :
+Quand le helper est présent, **Réglages → À propos** installe la nouvelle release Meshloom. Les mises à jour automatiques restent éteintes tant que vous ne les activez pas. Ce chemin ne lance jamais un `apt upgrade` du système.
+
+Si À propos indique que vous devez mettre à jour Meshloom manuellement, suivez la recette ou relancez l’installeur (il (re)pose un helper manquant) :
 
 ```bash
-sudo apt upgrade                          # Debian / Ubuntu
-sudo dnf upgrade                          # Fedora / Rocky / Alma
+sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
+sudo dnf install meshloom                      # Fedora / Rocky / Alma
 sudo docker compose pull && sudo docker compose up -d
 ```
 
 La base de données reste en place : `/var/lib/meshloom` pour le paquet, `./data` pour Docker. Les migrations de schéma s’exécutent au démarrage.
+
+Un Raspberry Pi peut aussi partir de [l’image préinstallée](/docs/rpi/) au lieu de ce one-liner.
 
 ## Sur Home Assistant
 

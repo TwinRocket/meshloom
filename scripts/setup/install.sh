@@ -623,6 +623,19 @@ compose_image_version() {
     printf '%s' "$v"
 }
 
+rewrite_compose_image_tag() {
+    # Pin the Meshloom GHCR image so compose pull fetches that release.
+    local file="$1" tag="$2"
+    tag="${tag#v}"
+    [ -n "$tag" ] || return 1
+    [ -f "$file" ] || return 1
+    awk -v tag="$tag" '
+        $1 == "image:" { sub(/:[^[:space:]]+$/, ":" tag) }
+        { print }
+    ' "$file" >"${file}.new"
+    mv "${file}.new" "$file"
+}
+
 detect_installed_version() {
     local v="" wd="" conf=""
     INSTALLED_VERSION=""
@@ -1061,14 +1074,256 @@ persist_installer_state() {
     fi
 }
 
+# Idempotent: re-running the installer (upgrade or reinstall) installs a missing
+# apply helper. Package units ship in the .deb; Compose units are written here
+# because the curl one-liner has no sibling files on disk.
+_package_update_helper_present() {
+    [ -x /usr/lib/meshloom/apply-update ] && [ -f /usr/lib/systemd/system/meshloom-update.service ]
+}
+
+_env_ensure_key() {
+    local dest="$1" key="$2" value="$3"
+    if as_root grep -qE "^${key}=" "$dest"; then
+        return 0
+    fi
+    printf '%s=%s\n' "$key" "$value" | as_root tee -a "$dest" >/dev/null
+}
+
+_restore_package_update_helper() {
+    if [ "${PKG_MGR:-}" = "apt" ]; then
+        as_root apt-get update || true
+        as_root apt-get install -y --only-upgrade meshloom || true
+        if ! _package_update_helper_present; then
+            as_root apt-get install --reinstall -y meshloom || true
+        fi
+    elif [ "${PKG_MGR:-}" = "dnf" ]; then
+        as_root dnf install -y meshloom || true
+        if ! _package_update_helper_present; then
+            as_root dnf reinstall -y meshloom || true
+        fi
+    fi
+}
+
+_install_package_update_helper_fallback() {
+    as_root mkdir -p /usr/lib/meshloom /usr/lib/systemd/system /usr/share/polkit-1/rules.d
+    as_root tee /usr/lib/meshloom/apply-update >/dev/null <<'EOF'
+#!/bin/sh
+# Fallback helper written by install.sh when the packaged files are missing.
+set -e
+JOB_PATH="${MESHLOOM_UPDATE_JOB_PATH:-/var/lib/meshloom/update-job.json}"
+STARTED_AT=$(date +%s)
+LAST_ATTEMPT=
+TARGET=
+load_identity() {
+    [ -f "$JOB_PATH" ] || return 0
+    existing_target=$(sed -n 's/.*"target":"\([^"]*\)".*/\1/p' "$JOB_PATH" | head -n 1)
+    existing_last=$(sed -n 's/.*"last_attempt":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
+    existing_started=$(sed -n 's/.*"started_at":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
+    [ -n "$existing_target" ] && TARGET=$existing_target
+    [ -n "$existing_last" ] && LAST_ATTEMPT=$existing_last
+    [ -n "$existing_started" ] && STARTED_AT=$existing_started
+}
+write_job() {
+    last_json=${LAST_ATTEMPT:-$STARTED_AT}
+    target_json=""
+    [ -n "$TARGET" ] && target_json=",\"target\":\"${TARGET}\""
+    mkdir -p "$(dirname "$JOB_PATH")"
+    printf '%s\n' "{\"state\":\"$1\",\"phase\":\"$2\",\"percent\":null,\"error\":$3,\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$JOB_PATH"
+}
+load_identity
+write_job applying preparing null
+if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update || { write_job failed preparing "\"apt-get update failed\""; exit 1; }
+    write_job applying downloading null
+    if command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${Status}\n' meshloom 2>/dev/null | grep -q 'ok installed'; then
+        apt-get install -y --only-upgrade meshloom || { write_job failed downloading "\"apt-get install --only-upgrade meshloom failed\""; exit 1; }
+    else
+        apt-get install -y meshloom || { write_job failed downloading "\"apt-get install meshloom failed\""; exit 1; }
+    fi
+elif command -v dnf >/dev/null 2>&1; then
+    write_job applying installing null
+    dnf install -y meshloom || { write_job failed installing "\"dnf install meshloom failed\""; exit 1; }
+else
+    write_job failed preparing "\"no supported package manager\""
+    exit 1
+fi
+write_job applying restarting null
+write_job succeeded done null
+EOF
+    as_root chmod 0755 /usr/lib/meshloom/apply-update
+    as_root tee /usr/lib/systemd/system/meshloom-update.service >/dev/null <<'EOF'
+[Unit]
+Description=Meshloom package update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/lib/meshloom/apply-update
+TimeoutStartSec=30min
+EOF
+    as_root tee /usr/share/polkit-1/rules.d/60-meshloom-update.rules >/dev/null <<'EOF'
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "meshloom-update.service" &&
+        action.lookup("verb") == "start" &&
+        subject.user == "meshloom") {
+        return polkit.Result.YES;
+    }
+});
+EOF
+}
+
+ensure_update_helper() {
+    local kind="$1" compose_dir="${2:-}"
+    case "$kind" in
+        package)
+            if _package_update_helper_present; then
+                as_root systemctl daemon-reload || true
+                return 0
+            fi
+            _restore_package_update_helper
+            if _package_update_helper_present; then
+                as_root systemctl daemon-reload || true
+                return 0
+            fi
+            _install_package_update_helper_fallback
+            as_root systemctl daemon-reload || true
+            ;;
+        compose)
+            [ -n "$compose_dir" ] || return 0
+            _install_compose_update_helper "$compose_dir"
+            ;;
+    esac
+}
+
+_install_compose_update_helper() {
+    local compose_dir="$1"
+    local unit_dir="/etc/systemd/system"
+    local env_file="/etc/meshloom/compose-update.env"
+    local data_dir="${compose_dir}/data"
+    as_root mkdir -p /etc/meshloom /usr/lib/meshloom "$data_dir"
+    {
+        printf 'MESHLOOM_COMPOSE_DIR=%s\n' "$compose_dir"
+        printf 'MESHLOOM_GHCR_IMAGE=%s\n' "$GHCR_IMAGE"
+        printf 'MESHLOOM_RELEASES_API=%s\n' "$API_RELEASES"
+    } | as_root tee "$env_file" >/dev/null
+    as_root tee /usr/lib/meshloom/compose-update >/dev/null <<'EOF'
+#!/bin/sh
+set -eu
+# Host-side helper for installer-managed Docker. Never bind-mount docker.sock
+# into the Meshloom container. Rewrite the pinned image tag, then pull/up.
+. /etc/meshloom/compose-update.env
+JOB="${MESHLOOM_COMPOSE_DIR}/data/update-job.json"
+REQ="${MESHLOOM_COMPOSE_DIR}/data/request-update"
+COMPOSE="${MESHLOOM_COMPOSE_DIR}/docker-compose.yml"
+mkdir -p "$(dirname "$JOB")"
+# PathExists only retriggers on absent → present. Drop a leftover request first.
+rm -f "$REQ"
+
+json_field() {
+    [ -f "$JOB" ] || return 0
+    sed -n "s/.*\"$1\":\"\\([^\"]*\\)\".*/\\1/p" "$JOB" | head -n 1
+}
+json_int() {
+    [ -f "$JOB" ] || return 0
+    sed -n "s/.*\"$1\":\\([0-9][0-9]*\\).*/\\1/p" "$JOB" | head -n 1
+}
+
+now="$(date +%s)"
+started="$(json_int started_at || true)"
+[ -n "${started:-}" ] || started="$now"
+last="$(json_int last_attempt || true)"
+[ -n "${last:-}" ] || last="$now"
+target="$(json_field target || true)"
+if [ -z "${target:-}" ]; then
+    target="$(curl -fsSL --max-time 15 "${MESHLOOM_RELEASES_API}" 2>/dev/null |
+        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 || true)"
+fi
+target="${target#v}"
+
+write_job() {
+    state="$1"
+    phase="$2"
+    percent="$3"
+    error="$4"
+    target_json=""
+    if [ -n "$target" ]; then
+        target_json=",\"target\":\"${target}\""
+    fi
+    printf '%s\n' "{\"state\":\"${state}\",\"phase\":\"${phase}\",\"percent\":${percent},\"error\":${error},\"started_at\":${started},\"last_attempt\":${last}${target_json}}" >"$JOB"
+}
+
+write_job applying downloading null null
+if [ -z "$target" ]; then
+    write_job failed downloading null "\"could not resolve image tag\""
+    exit 1
+fi
+if [ -f "$COMPOSE" ]; then
+    awk -v tag="$target" '
+        $1 == "image:" { sub(/:[^[:space:]]+$/, ":" tag) }
+        { print }
+    ' "$COMPOSE" >"${COMPOSE}.new"
+    mv "${COMPOSE}.new" "$COMPOSE"
+fi
+cd "$MESHLOOM_COMPOSE_DIR"
+if docker compose pull; then
+    write_job applying installing null null
+    write_job applying restarting 90 null
+    if docker compose up -d; then
+        write_job succeeded done 100 null
+        exit 0
+    fi
+fi
+write_job failed downloading null "\"docker compose pull/up failed\""
+exit 1
+EOF
+    as_root chmod 0755 /usr/lib/meshloom/compose-update
+    as_root tee "${unit_dir}/meshloom-compose-update.service" >/dev/null <<EOF
+[Unit]
+Description=Meshloom Docker Compose apply
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/meshloom/compose-update.env
+ExecStart=/usr/lib/meshloom/compose-update
+EOF
+    as_root tee "${unit_dir}/meshloom-compose-update.path" >/dev/null <<EOF
+[Unit]
+Description=Watch Meshloom compose update request
+
+[Path]
+PathExists=${data_dir}/request-update
+PathChanged=${data_dir}/request-update
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    as_root systemctl daemon-reload || true
+    as_root systemctl enable --now meshloom-compose-update.path || true
+}
+
 write_meshloom_env() {
     local dest="$1"
-    {
-        echo "# Generated by Meshloom install.sh"
-        echo "# Radio transport is configured in the web UI (app_settings), not here."
-        echo "MESHCORE_DATABASE_PATH=/var/lib/meshloom/meshcore.db"
-    } | as_root tee "$dest" >/dev/null
-    as_root chmod 640 "$dest"
+    as_root mkdir -p "$(dirname "$dest")"
+    if [ ! -f "$dest" ]; then
+        {
+            echo "# Generated by Meshloom install.sh"
+            echo "# Radio transport is configured in the web UI (app_settings), not here."
+            echo "MESHCORE_DATABASE_PATH=/var/lib/meshloom/meshcore.db"
+            echo "MESHLOOM_INSTALL_KIND=package"
+        } | as_root tee "$dest" >/dev/null
+        as_root chmod 640 "$dest"
+        return
+    fi
+    # Do not clobber a packaged env. Only fill missing keys the one-liner owns.
+    _env_ensure_key "$dest" MESHCORE_DATABASE_PATH /var/lib/meshloom/meshcore.db
+    _env_ensure_key "$dest" MESHLOOM_INSTALL_KIND package
+    as_root chmod 640 "$dest" || true
 }
 
 start_meshloom_unit() {
@@ -1109,6 +1364,7 @@ EOF
     write_meshloom_env /etc/meshloom/meshloom.env
     start_meshloom_unit
     persist_installer_state
+    ensure_update_helper package
     phase_ok
 }
 
@@ -1151,6 +1407,7 @@ install_from_release_asset() {
     write_meshloom_env /etc/meshloom/meshloom.env
     start_meshloom_unit
     persist_installer_state
+    ensure_update_helper package
     phase_ok
 }
 
@@ -1251,18 +1508,14 @@ yaml_quote() {
 
 write_docker_compose() {
     local dir="$1"
-    local image="${GHCR_IMAGE}:latest"
     local tag
     tag="$(latest_release_tag || true)"
-    if [ -n "$tag" ]; then
-        image="${GHCR_IMAGE}:${tag#v}"
-    fi
     mkdir -p "${dir}/data"
     {
         echo "# Generated by Meshloom install.sh"
         echo "services:"
         echo "  meshloom:"
-        echo "    image: ${image}"
+        echo "    image: ${GHCR_IMAGE}:latest"
         echo "    ports:"
         echo "      - \"8000:8000\""
         echo "    volumes:"
@@ -1281,8 +1534,14 @@ write_docker_compose() {
         fi
         echo "    environment:"
         echo "      MESHCORE_DATABASE_PATH: $(yaml_quote "data/meshcore.db")"
+        echo "      MESHLOOM_INSTALL_KIND: compose"
+        echo "      MESHLOOM_UPDATE_HELPER: compose"
+        echo "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
         echo "    restart: unless-stopped"
     } >"${dir}/docker-compose.yml"
+    if [ -n "$tag" ]; then
+        rewrite_compose_image_tag "${dir}/docker-compose.yml" "$tag"
+    fi
 }
 
 install_docker_stack() {
@@ -1310,6 +1569,7 @@ install_docker_stack() {
         phase_ok
     fi
     persist_installer_state
+    ensure_update_helper compose "$INSTALL_DIR"
     printf '\n'
     if [ "$UPGRADE_KIND" = "upgrade" ]; then
         ui_ok "  $(t done_upgrade)"

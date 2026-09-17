@@ -17,6 +17,18 @@ contents:
     dst: /usr/lib/systemd/system/meshloom.service
     file_info:
       mode: 0644
+  - src: __PKGDIR__/apply-update
+    dst: /usr/lib/meshloom/apply-update
+    file_info:
+      mode: 0755
+  - src: __PKGDIR__/meshloom-update.service
+    dst: /usr/lib/systemd/system/meshloom-update.service
+    file_info:
+      mode: 0644
+  - src: __PKGDIR__/meshloom-update.polkit
+    dst: /usr/share/polkit-1/rules.d/60-meshloom-update.rules
+    file_info:
+      mode: 0644
   - src: __PKGDIR__/meshloom.env
     dst: /etc/meshloom/meshloom.env
     type: config|noreplace

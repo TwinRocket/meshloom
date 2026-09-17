@@ -60,6 +60,8 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
         # the default headers refuse to be framed at all — which shows as a blank
         # panel with a perfectly healthy 200 in the log.
         "MESHCORE_EMBEDDABLE_SAME_ORIGIN": "true",
+        # Declared, not sniffed: the in-app updater must not offer apt/compose apply.
+        "MESHLOOM_INSTALL_KIND": "addon",
     }
 
     for option, variable in PASS_THROUGH.items():

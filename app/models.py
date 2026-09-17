@@ -1161,6 +1161,10 @@ class AppSettings(BaseModel):
             "as the bulk-delete UI)."
         ),
     )
+    auto_update: bool = Field(
+        default=False,
+        description="When true, apply a newer Meshloom package/image through the helper",
+    )
     directory_available: bool = Field(
         default=False,
         description=(

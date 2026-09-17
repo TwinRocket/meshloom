@@ -1,3 +1,37 @@
+## [Unreleased]
+
+---
+
+## [4.12.0] - 2026-09-17
+
+This release is about putting Meshloom on a Raspberry Pi and keeping a node current from the app. You flash a card that already has Meshloom on it, you open Settings → About when a newer version is out, and the node installs Meshloom — not the rest of the operating system.
+
+### What's new
+- **A Raspberry Pi image you can flash.** A Pi used to mean installing the OS, then Meshloom, then hoping the first boot had a network. `meshloom-rpi-lite-arm64.img.xz` is a Lite 64-bit card with Meshloom already on it, for the Pi 3 and later including the Zero 2 W. The first boot works offline. Wi-Fi, the user and SSH are set in Raspberry Pi Imager 2.0.6 or newer. A screen, if you have one, shows `http://meshloom.local:8000`.
+- **About can install the next release.** 4.8 told you a newer version was out. This one can put it on the node, when the apply helper is there — a package install, or Docker that the installer set up. Automatic updates stay off until you turn them on. That path upgrades Meshloom only. It never runs a silent `apt upgrade` of the OS.
+- **The other installs keep an honest recipe.** A Home Assistant add-on still updates in Home Assistant. A container or a source tree without a helper still says to update Meshloom by hand. Re-running the installer will put the helper on if it was missing.
+
+### Upgrading
+
+Package and installer-managed Docker nodes pick this up on the next upgrade. An older node that re-runs the one-liner gets the helper if it was missing. Automatic updates stay off. The Pi image is a new file on the GitHub release; flashing it is how you start from a card, not how you upgrade a node that already runs.
+
+---
+
+### Français
+
+Cette version est consacrée à installer Meshloom sur un Raspberry Pi, et à le tenir à jour depuis l'application. Vous flashez une carte qui embarque déjà Meshloom, vous ouvrez Réglages → À propos quand une version plus récente est sortie, et le nœud installe Meshloom — pas le reste du système.
+
+#### Quoi de neuf
+- **Une image Raspberry Pi à flasher.** Un Pi voulait dire installer le système, puis Meshloom, puis espérer que le premier démarrage ait un réseau. `meshloom-rpi-lite-arm64.img.xz` est une carte Lite 64-bit avec Meshloom déjà dessus, pour le Pi 3 et plus, Zero 2 W compris. Le premier démarrage marche hors ligne. Le Wi-Fi, l'utilisateur et SSH se règlent dans Raspberry Pi Imager 2.0.6 ou plus récent. Un écran, s'il y en a un, affiche `http://meshloom.local:8000`.
+- **À propos peut installer la prochaine release.** La 4.8 vous disait qu'une version plus récente était sortie. Celle-ci peut la poser sur le nœud, quand le helper d'application est là — une install paquet, ou un Docker que l'installateur a mis en place. Les mises à jour automatiques restent éteintes tant que vous ne les activez pas. Ce chemin ne met à jour que Meshloom. Il ne lance jamais un `apt upgrade` silencieux du système.
+- **Les autres installs gardent une recette honnête.** Un add-on Home Assistant se met toujours à jour dans Home Assistant. Un conteneur ou une arborescence source sans helper dit encore de mettre à jour Meshloom à la main. Relancer l'installateur pose le helper s'il manquait.
+
+#### Mise à jour
+
+Les nœuds paquet et Docker gérés par l'installateur le reçoivent à la prochaine mise à jour. Un nœud plus ancien qui relance le one-liner récupère le helper s'il manquait. Les mises à jour automatiques restent éteintes. L'image Pi est un nouveau fichier sur la release GitHub ; la flasher, c'est partir d'une carte, pas mettre à jour un nœud qui tourne déjà.
+
+---
+
 ## [4.11.0] - 2026-09-17
 
 This release is about living with Meshloom on a foldable, a tablet and a desk. The list and the chat share the screen the way two apps do: you drag the split, you close it when you need the room, and it remembers how you left it. Conversations themselves are a little quieter, and the Meshloom mark finally has a home on the rail.

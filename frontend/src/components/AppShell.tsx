@@ -214,7 +214,7 @@ export function AppShell({
   const [radioStatusOpen, setRadioStatusOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const ossUpdates = useOssUpdates();
-  const updateAvailable = ossUpdates?.update_available === true;
+  const updateAvailable = ossUpdates.status?.update_available === true;
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
 
@@ -527,8 +527,10 @@ export function AppShell({
                     pageMode
                     externalSidebarNav
                     desktopSection={settingsSection}
-                    updates={ossUpdates}
+                    updates={ossUpdates.status}
                     onOpenUpdate={() => setUpdateDialogOpen(true)}
+                    onApplyUpdate={() => void ossUpdates.apply()}
+                    onAutoUpdateChange={(enabled) => void ossUpdates.setAutoUpdate(enabled)}
                     onClose={onCloseSettingsView}
                     onLocalLabelChange={onLocalLabelChange}
                     onCommunityStatusChange={setCommunityStatus}
@@ -583,9 +585,18 @@ export function AppShell({
         onAdvertise={settingsProps.onAdvertise}
       />
       <UpdateAvailableDialog
-        open={updateDialogOpen}
-        updates={ossUpdates}
-        onClose={() => setUpdateDialogOpen(false)}
+        open={updateDialogOpen || ossUpdates.showProgress}
+        updates={ossUpdates.status}
+        applying={ossUpdates.applying}
+        progressPercent={ossUpdates.progressPercent}
+        progressPhase={ossUpdates.progressPhase}
+        applyError={ossUpdates.applyError}
+        onApply={() => void ossUpdates.apply()}
+        onAutoUpdate={(enabled) => void ossUpdates.setAutoUpdate(enabled)}
+        onClose={() => {
+          setUpdateDialogOpen(false);
+          ossUpdates.dismissProgress();
+        }}
       />
 
       <NewMessageModal

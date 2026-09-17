@@ -55,15 +55,19 @@ sudo systemctl status meshloom
 
 ## Update
 
-Depending on the mode you chose:
+When the helper is present, **Settings → About** installs the new Meshloom release. Automatic updates are off until you enable them there. That path never runs a full `apt upgrade`.
+
+If About says you must update Meshloom manually, use the matching recipe or re-run the installer (it (re)installs a missing helper):
 
 ```bash
-sudo apt upgrade                          # Debian / Ubuntu
-sudo dnf upgrade                          # Fedora / Rocky / Alma
+sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
+sudo dnf install meshloom                      # Fedora / Rocky / Alma
 sudo docker compose pull && sudo docker compose up -d
 ```
 
 The database stays in place: `/var/lib/meshloom` for the package, `./data` for Docker. Schema migrations run at startup.
+
+A Raspberry Pi can also start from the [preinstalled image](/en/docs/rpi/) instead of this one-liner.
 
 ## On Home Assistant
 
