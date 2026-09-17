@@ -296,7 +296,7 @@ def test_skip_deps_does_not_redownload_python() -> None:
     script = (
         Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
     ).read_text(encoding="utf-8")
-    skip_at = script.index("elif [ \"$SKIP_DEPS\" -eq 1 ]; then")
+    skip_at = script.index('elif [ "$SKIP_DEPS" -eq 1 ]; then')
     else_at = script.index("\nelse\n", skip_at)
     skip_block = script[skip_at:else_at]
     assert "download_standalone_python" not in skip_block
@@ -305,9 +305,9 @@ def test_skip_deps_does_not_redownload_python() -> None:
 
 def test_armhf_workflow_caches_neutralized_deps() -> None:
     """A version bump must not recompile the armhf tree; the cache key is the lock."""
-    dockerfile = (
-        Path(__file__).resolve().parents[1] / "Dockerfile.nfpm-armhf"
-    ).read_text(encoding="utf-8")
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile.nfpm-armhf").read_text(
+        encoding="utf-8"
+    )
     workflow = (
         Path(__file__).resolve().parents[1] / ".github" / "workflows" / "nfpm-armhf.yml"
     ).read_text(encoding="utf-8")
