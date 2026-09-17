@@ -1,21 +1,23 @@
-### [4.12.3] - 2026-09-17
+### [4.13.0] - 2026-09-17
 
 #### Added & Changed
 
 * **Desktop Messaging Behavior:** Pressing `Enter` on desktop environments now sends the message, reverting the behavior introduced in 4.11. `Shift+Enter` inserts a line break. Touchscreen devices retain the standard newline behavior.
-* **Map Enhancements:** Detailed view for repeater neighbors now displays SNR, distance, and GPS coordinates directly on the map pin.
-* **Map Labels:** Added a persistent display option that leaves labels visible on all mapped neighbors to prevent having to repeatedly search for the same marker.
+* **Map Enhancements:** Detailed view for repeater neighbors now displays SNR, distance, and GPS coordinates directly on the map pin. Added a persistent display option that leaves labels visible on all mapped neighbors. Fixed a rendering bug where text-wrapping tooltips would incorrectly collapse.
+* **Updates Management:** Added a dedicated settings page (Settings → Updates). Users can now check for updates, install immediately, or schedule automatic updates (specific weekdays and times). Update notifications are now unobtrusive, indicated by a single pulse on the radio status indicator.
+* **Radio Location Picker:** Settings → Radio now features an interactive map for setting coordinates. The map centers on existing coordinates, falling back to the Community IATA location, the browser's timezone city, or a global view. Clicking the map automatically populates the coordinate fields.
 
 #### Fixed
 
-* **Raspberry Pi Installer:** Resolved an "illegal instruction" crash for Raspberry Pi 1 and the original Pi Zero (`armv6l` architectures). The installer no longer erroneously attempts to install the 32-bit `armv7l` package and now correctly defaults to a source installation.
-* **API Rate Limiting:** The Community service now properly handles HTTP 429 responses from the Stats API. Instead of continuously retrying failed requests after hitting the quota (30 upserts/hour/key), it backs off until the hourly limit resets.
-* **UI Tooltips:** Fixed a rendering bug where text-wrapping tooltips on map pins would incorrectly collapse.
+* **Raspberry Pi Installer:** Resolved an "illegal instruction" crash for Raspberry Pi 1 and the original Pi Zero (`armv6l` architectures). The installer no longer erroneously attempts to install the 32-bit `armv7l` package and correctly defaults to a source installation.
+* **API Rate Limiting:** The Community service now properly handles HTTP 429 responses from the Stats API (limit: 30 upserts/hour/key) by pausing requests until the hourly limit resets, rather than continuously retrying.
+* **Airport Search:** The Community airport list now includes latitude and longitude data provided by Stats, which feeds into the new location picker's IATA fallback.
 
 #### Infrastructure & Documentation
 
-* **Raspberry Pi Docs:** Updated the compatibility matrix to clearly define supported installation routes per board (e.g., clarifying that Pi 2 is strictly 32-bit and providing verified metrics).
-* **CI/CD Pipeline (meshloom.app):** Automated deployments for the companion site. Commits modifying user documentation now trigger a webhook to automatically rebuild the site, removing the need for manual redeploys.
+* **Raspberry Pi Docs:** Updated the compatibility matrix to clearly define supported installation routes per board (e.g., clarifying that Pi 2 is strictly 32-bit).
+* **CI/CD Pipeline (meshloom.app):** Commits modifying user documentation now trigger a webhook to automatically rebuild the companion site.
+* **Build Pipeline Optimization:** The 32-bit package build (QEMU) is now decoupled from the main release workflow. Main releases (amd64, arm64, GitHub) deploy first, while the `armhf` build follows asynchronously. Compiled `armv7` wheels are now cached in GHCR, significantly reducing build times for C extensions.
 
 ---
 
@@ -23,20 +25,23 @@
 
 #### Ajouts et Modifications
 
-* **Messagerie sur bureau :** L'appui sur `Entrée` envoie désormais le message (annulation de la modification introduite en 4.11). `Maj+Entrée` permet d'insérer un saut de ligne. Les appareils tactiles conservent le comportement précédent (`Entrée` pour un saut de ligne).
-* **Améliorations de la carte :** La vue détaillée des voisins (répéteurs) affiche désormais le SNR, la distance et les coordonnées GPS directement sur l'épingle.
-* **Étiquettes de la carte :** Ajout d'une option d'affichage permanent qui maintient les libellés de tous les voisins cartographiés visibles.
+* **Messagerie sur bureau :** L'appui sur `Entrée` envoie désormais le message. `Maj+Entrée` permet d'insérer un saut de ligne. Les appareils tactiles conservent le saut de ligne sur `Entrée`.
+* **Améliorations de la carte :** La vue détaillée des voisins affiche le SNR, la distance et les coordonnées GPS directement sur l'épingle. Ajout d'une option d'affichage permanent des libellés pour tous les voisins cartographiés. Les infobulles s'affichent désormais correctement sans s'écraser.
+* **Gestion des mises à jour :** Nouvelle page dédiée (Réglages → Mises à jour) pour vérifier, installer immédiatement ou planifier les mises à jour automatiques (jours de la semaine et heure). La notification de mise à jour est désormais discrète (une seule impulsion sur l'indicateur d'état radio).
+* **Sélecteur de position radio :** L'onglet Réglages → Radio intègre désormais une carte interactive. Elle se centre sur les coordonnées existantes, ou à défaut sur l'IATA Community, la ville du fuseau horaire du navigateur, ou une vue globale. Un clic sur la carte remplit automatiquement les champs.
 
 #### Corrections
 
-* **Installateur Raspberry Pi :** Résolution d'un crash ("instruction illégale") sur les Raspberry Pi 1 et Zero d'origine (architectures `armv6l`). L'installateur ne tente plus d'utiliser le paquet 32 bits (`armv7l`) et bascule désormais correctement sur une installation depuis les sources.
-* **Rate Limiting (API Stats) :** Le service Community gère désormais correctement les erreurs HTTP 429. Au lieu de retenter les envois en boucle après avoir atteint le quota (30 envois/heure/clé), il suspend les requêtes jusqu'à la réinitialisation de la fenêtre horaire.
-* **Interface / Infobulles :** Correction d'un bug d'affichage où les infobulles (tooltips) des marqueurs s'écrasaient au lieu de s'afficher correctement.
+* **Installateur Raspberry Pi :** Résolution d'un crash sur les Raspberry Pi 1 et Zero d'origine (`armv6l`). L'installateur ne tente plus d'utiliser le paquet 32 bits (`armv7l`) et bascule correctement sur une installation depuis les sources.
+* **Rate Limiting (API Stats) :** Le service Community gère correctement les erreurs HTTP 429 (limite de 30 envois/heure/clé). Au lieu de retenter en boucle, il suspend les requêtes jusqu'à la fin de l'heure en cours.
+* **Recherche d'aéroports :** La liste des aéroports Community inclut désormais la latitude et la longitude fournies par Stats, utilisées par le nouveau sélecteur de position.
 
 #### Infrastructure & Documentation
 
-* **Documentation Raspberry Pi :** Mise à jour du tableau de compatibilité pour clarifier les méthodes d'installation par modèle (précisant notamment que le Pi 2 est exclusivement 32 bits et en utilisant des métriques vérifiées).
-* **Pipeline CI/CD (meshloom.app) :** Déploiements automatisés. Toute modification de la documentation utilisateur déclenche désormais une reconstruction automatique du site web, éliminant le besoin de déclencher des déploiements manuels.
+* **Documentation Raspberry Pi :** Mise à jour du tableau de compatibilité clarifiant les méthodes d'installation par modèle (ex: le Pi 2 est exclusivement 32 bits).
+* **Pipeline CI/CD (meshloom.app) :** Toute modification de la documentation utilisateur déclenche une reconstruction automatique du site web.
+* **Optimisation du pipeline de build :** La compilation du paquet 32 bits (sous QEMU) est détachée du flux principal. Les versions amd64, arm64 et GitHub sont publiées en premier, suivies par `armhf`. Les wheels compilés `armv7` sont désormais mis en cache dans GHCR, réduisant drastiquement le temps de compilation des extensions C.
+---
 
 ## [4.12.2] - 2026-09-17
 

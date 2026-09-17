@@ -636,6 +636,8 @@ class TestAirportSearch:
                 "cityonly": "Lyon",
                 "country": "France",
                 "shortdisplayname": "Lyon, France (LYS)",
+                "lat": 45.7256,
+                "lng": 5.0811,
             },
             {"ap": "XX", "airportname": "too-short"},
         ]
@@ -651,5 +653,37 @@ class TestAirportSearch:
         assert len(hits) == 1
         assert hits[0].iata == "LYS"
         assert hits[0].name == "Lyon-Saint-Exupéry"
+        assert hits[0].lat == 45.7256
+        assert hits[0].lon == 5.0811
         mock_client.get.assert_awaited()
         assert mock_client.get.await_args.kwargs["params"]["locale"] == "fr"
+
+    @pytest.mark.asyncio
+    async def test_airport_coords_are_optional(self, monkeypatch):
+        from app.services import meshloom_community
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = [
+            {
+                "ap": "CDG",
+                "airportname": "Charles de Gaulle",
+                "cityonly": "Paris",
+                "country": "France",
+                "shortdisplayname": "Paris, France (CDG)",
+                "lat": True,
+                "lng": 2.55,
+            }
+        ]
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        monkeypatch.setattr(
+            meshloom_community.httpx, "AsyncClient", MagicMock(return_value=mock_client)
+        )
+
+        hits = await meshloom_community.search_community_airports("CDG")
+        assert len(hits) == 1
+        assert hits[0].lat is None
+        assert hits[0].lon is None

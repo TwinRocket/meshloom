@@ -8,11 +8,15 @@ on:
     paths:
       - "pkg/nfpm/**"
       - "scripts/build/build_nfpm_packages.sh"
+      - "scripts/build/neutralize_project_version.py"
+      - "Dockerfile.nfpm-armhf"
+      - "Dockerfile.nfpm-armhf.dockerignore"
       - "app/**"
       - "pyproject.toml"
       - "uv.lock"
       - "frontend/**"
       - ".github/workflows/nfpm.yml"
+      - ".github/workflows/nfpm-armhf.yml"
 
 permissions:
   contents: read
@@ -39,9 +43,9 @@ jobs:
             | tar -xz nfpm
           sudo install -m 0755 nfpm /usr/local/bin/nfpm
 
-      # Built in two steps although amd64 needs only one, because that is the
-      # path a release takes for armhf and nothing else exercises it. A release
-      # is a poor place to discover that the split is broken.
+      # Three steps: the armhf release path is --deps-only, --skip-deps, then
+      # --package-only. Exercising that split here (still amd64, no QEMU)
+      # is cheaper than discovering it when publishing.
       - name: Build amd64 packages
         run: |
           chmod +x scripts/build/build_nfpm_packages.sh
@@ -50,7 +54,12 @@ jobs:
             --version "$VERSION" \
             --arch amd64 \
             --stage-dir stage-amd64 \
-            --stage-only
+            --deps-only
+          scripts/build/build_nfpm_packages.sh \
+            --version "$VERSION" \
+            --arch amd64 \
+            --stage-dir stage-amd64 \
+            --skip-deps
           scripts/build/build_nfpm_packages.sh \
             --version "$VERSION" \
             --arch amd64 \

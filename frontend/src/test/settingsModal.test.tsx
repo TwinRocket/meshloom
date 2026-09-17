@@ -1,6 +1,29 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../components/LocationPickerModal', () => ({
+  LocationPickerModal: ({
+    open,
+    onApply,
+    onOpenChange,
+  }: {
+    open: boolean;
+    onApply: (lat: number, lon: number) => void;
+    onOpenChange: (open: boolean) => void;
+  }) =>
+    open ? (
+      <button
+        type="button"
+        onClick={() => {
+          onApply(45.764043, 4.835659);
+          onOpenChange(false);
+        }}
+      >
+        apply-map-pick
+      </button>
+    ) : null,
+}));
+
 import { SettingsModal } from '../components/SettingsModal';
 import i18n from '../i18n';
 import type {
@@ -658,6 +681,18 @@ describe('SettingsModal', () => {
     renderModal({ config: { ...baseConfig, lat: 0, lon: 0 } });
     openRadioSection();
     expect(screen.getByRole('button', { name: i18n.t('share.shareLocation') })).toBeDisabled();
+  });
+
+  it('fills lat/lon from a map pick without saving radio config yet', async () => {
+    const { onSave } = renderModal();
+    openRadioSection();
+
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.pickOnMap') }));
+    fireEvent.click(await screen.findByRole('button', { name: 'apply-map-pick' }));
+
+    expect(screen.getByLabelText(i18n.t('settings.radio.latitude'))).toHaveValue(45.764043);
+    expect(screen.getByLabelText(i18n.t('settings.radio.longitude'))).toHaveValue(4.835659);
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it('saves advert location source through radio config save', async () => {

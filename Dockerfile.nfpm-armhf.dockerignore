@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node — dist is built on the host and copied into the late tree layer.
+frontend/node_modules/
+
+# Data
+data/
+*.db
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Tests
+tests/
+frontend/src/test/
+
+# Docs
+*.md
+!README.md
+!LICENSE.md
+!LICENSES.md
+
+# Other
+references/
+*.pem
+.env*

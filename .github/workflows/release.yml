@@ -3,7 +3,9 @@ name: Release
 # Builds the prebuilt-frontend zip, Linux .deb/.rpm packages, publishes the
 # GitHub release, then bakes the Raspberry Pi Lite image from the arm64 .deb
 # in this same run (a second workflow would not start: GITHUB_TOKEN releases
-# do not trigger on.release). Cut a release with scripts/build/publish.sh, then:
+# do not trigger on.release). The armhf package is workflow_dispatch'd after
+# publish so QEMU does not block a re-run. Cut a release with
+# scripts/build/publish.sh, then:
 #   git tag X.Y.Z && git push origin X.Y.Z
 
 on:
@@ -126,74 +128,6 @@ jobs:
           name: nfpm-${{ matrix.arch }}
           path: dist/*
 
-  # Its own job rather than a third leg of the matrix above, because it is the
-  # slow one: armv7 has no runner, so the tree is assembled under emulation, and
-  # the dependencies without an armv7 wheel are compiled there. Keeping it out of
-  # `publish` means the release, the apt repo and the Pi image do not wait on it,
-  # and a failure here names itself instead of reddening the whole run.
-  nfpm-armhf:
-    name: Packages (armhf)
-    needs: [version, frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: frontend/dist
-
-      - uses: docker/setup-qemu-action@v3
-
-      # Assembled inside an armv7 userland: the tree holds an armv7 interpreter
-      # that the script has to run, and the dependencies it builds need an armv7
-      # compiler. nFPM publishes no armv7 binary, so packing happens after, on
-      # the runner.
-      - name: Assemble the tree under emulation
-        run: |
-          chmod +x scripts/build/build_nfpm_packages.sh
-          docker run --rm --platform linux/arm/v7 \
-            -v "$PWD:/w" -w /w \
-            arm32v7/debian:trixie-slim \
-            bash -c '
-              set -eux
-              apt-get update
-              apt-get install -y --no-install-recommends \
-                ca-certificates curl xz-utils build-essential libffi-dev python3 python3-pip
-              # Same pin as the Dockerfile, and from PyPI for the same reason:
-              # no armv7 build is published anywhere else.
-              pip install --break-system-packages --no-cache-dir "uv==0.6.17"
-              scripts/build/build_nfpm_packages.sh \
-                --version "${{ needs.version.outputs.version }}" \
-                --arch armhf \
-                --stage-dir /w/stage-armhf \
-                --stage-only \
-                --skip-frontend
-            '
-
-      - name: Install nFPM
-        run: |
-          NFPM_VER=2.46.3
-          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" \
-            | tar -xz nfpm
-          sudo install -m 0755 nfpm /usr/local/bin/nfpm
-
-      - name: Pack
-        run: |
-          sudo chown -R "$(id -u):$(id -g)" stage-armhf
-          scripts/build/build_nfpm_packages.sh \
-            --version "${{ needs.version.outputs.version }}" \
-            --arch armhf \
-            --stage-dir stage-armhf \
-            --package-only \
-            --output-dir dist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nfpm-armhf
-          path: dist/*
-
   publish:
     needs: [version, frontend, nfpm]
     runs-on: ubuntu-latest
@@ -236,28 +170,30 @@ jobs:
             --full-git-hash "$(git rev-parse HEAD)" \
             "${ASSET_ARGS[@]}"
 
-  # Same GITHUB_TOKEN problem as the Pi image: a separate on.release workflow
-  # never starts, so the apt/dnf Pages repo has to be built in this run.
-  # Added to the release after the fact so publish never waits on emulation.
-  attach-armhf:
-    name: Attach armhf package
-    needs: [version, publish, nfpm-armhf]
+  # armhf lives in nfpm-armhf.yml: a GITHUB_TOKEN release does not trigger
+  # on.release, but it can workflow_dispatch. That keeps QEMU off this run so
+  # a failed publish can be re-run without waiting on emulation.
+  dispatch-armhf:
+    name: Dispatch armhf package
+    needs: [version, publish]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: nfpm-armhf
-          path: dist
-      - env:
+      - name: Start armhf workflow
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ needs.version.outputs.version }}" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          gh workflow run nfpm-armhf.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f version="${{ needs.version.outputs.version }}"
 
-  # Waits for the armhf package so the repository carries it, but runs without it
-  # rather than leaving amd64 and arm64 users on a stale index.
+  # Publishes amd64/arm64 immediately. The armhf workflow refreshes the index
+  # once that package is attached, rather than holding this run for QEMU.
   linux-repo:
-    needs: [publish, attach-armhf]
-    if: always() && needs.publish.result == 'success'
+    needs: [publish]
     uses: ./.github/workflows/publish-linux-repo.yml
     secrets: inherit
     permissions:

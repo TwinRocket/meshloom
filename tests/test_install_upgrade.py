@@ -241,6 +241,27 @@ def test_each_half_asks_only_for_the_tool_it_uses() -> None:
     )
     assert "nFPM is required" not in staging
 
+    deps = _build_script_error(
+        ["--version", "9.9.9", "--arch", "armhf", "--stage-dir", "/tmp/x", "--deps-only"]
+    )
+    assert "nFPM is required" not in deps
+    assert "uv is required" in deps
+
+    skip_deps = _build_script_error(
+        [
+            "--version",
+            "9.9.9",
+            "--arch",
+            "armhf",
+            "--stage-dir",
+            "/tmp/x",
+            "--skip-deps",
+            "--skip-frontend",
+        ]
+    )
+    assert "nFPM is required" not in skip_deps
+    assert "uv is required" not in skip_deps
+
     packaging = _build_script_error(
         ["--version", "9.9.9", "--arch", "armhf", "--stage-dir", "/tmp/x", "--package-only"]
     )
@@ -248,10 +269,65 @@ def test_each_half_asks_only_for_the_tool_it_uses() -> None:
 
 
 def test_the_exclusive_options_are_refused_together() -> None:
-    error = _build_script_error(
-        ["--version", "9.9.9", "--arch", "amd64", "--stage-only", "--package-only"]
+    exclusive_pairs = (
+        ("--stage-only", "--package-only"),
+        ("--deps-only", "--package-only"),
+        ("--skip-deps", "--package-only"),
+        ("--deps-only", "--skip-deps"),
+        ("--deps-only", "--stage-only"),
+        ("--skip-deps", "--stage-only"),
     )
-    assert "exclusive" in error
+    for left, right in exclusive_pairs:
+        error = _build_script_error(
+            ["--version", "9.9.9", "--arch", "amd64", left, right, "--stage-dir", "/tmp/x"]
+        )
+        assert "exclusive" in error, (left, right)
+
+
+def test_deps_split_needs_a_stage_dir() -> None:
+    deps = _build_script_error(["--version", "9.9.9", "--arch", "amd64", "--deps-only"])
+    skip = _build_script_error(["--version", "9.9.9", "--arch", "amd64", "--skip-deps"])
+    assert "stage-dir" in deps
+    assert "stage-dir" in skip
+
+
+def test_skip_deps_does_not_redownload_python() -> None:
+    """The cached layer is the compiled tree; --skip-deps must not fetch it again."""
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+    ).read_text(encoding="utf-8")
+    skip_at = script.index("elif [ \"$SKIP_DEPS\" -eq 1 ]; then")
+    else_at = script.index("\nelse\n", skip_at)
+    skip_block = script[skip_at:else_at]
+    assert "download_standalone_python" not in skip_block
+    assert "copy_project_files" in skip_block
+
+
+def test_armhf_workflow_caches_neutralized_deps() -> None:
+    """A version bump must not recompile the armhf tree; the cache key is the lock."""
+    dockerfile = (
+        Path(__file__).resolve().parents[1] / "Dockerfile.nfpm-armhf"
+    ).read_text(encoding="utf-8")
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "nfpm-armhf.yml"
+    ).read_text(encoding="utf-8")
+    assert "neutralize_project_version.py" in dockerfile
+    assert "--deps-only" in dockerfile
+    assert "--skip-deps" in dockerfile
+    assert "buildcache-nfpm-armhf" in workflow
+    assert "type=local,dest=stage-armhf" in workflow
+    assert "docker create" not in workflow
+    release = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
+    ).read_text(encoding="utf-8")
+    assert "gh workflow run nfpm-armhf.yml" in release
+    assert "linux/arm/v7" not in release
+    nfpm_pr = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "nfpm.yml"
+    ).read_text(encoding="utf-8")
+    assert "--deps-only" in nfpm_pr
+    assert "--skip-deps" in nfpm_pr
+    assert "linux/arm/v7" not in nfpm_pr
 
 
 def test_packaging_works_from_a_relative_stage_dir(tmp_path: Path) -> None:

@@ -1,0 +1,137 @@
+name: Packages (armhf)
+
+# 32-bit Raspberry Pi package. Assembled under QEMU, packed on the host.
+# Dispatched from Release after publish, or by hand with a version input.
+# Recipe (this file, Dockerfile, script) comes from the default branch; app
+# sources come from the tag so a rattrapage uses the already-fixed builder.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Meshloom version to package (no v prefix)"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: nfpm-armhf-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: ver
+        run: echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ inputs.version }}
+
+      # Recipe always comes from default branch. Dispatching from a tag would
+      # reuse a pre-fix Dockerfile the same way rpi-image.yml avoids that.
+      - name: Check out recipe
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Check out tagged sources
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.ver.outputs.version }}
+          path: tag-src
+
+      - name: Overlay tagged sources
+        run: |
+          rm -rf app frontend
+          cp -a tag-src/app tag-src/frontend .
+          cp tag-src/pyproject.toml tag-src/uv.lock .
+          [ -f tag-src/LICENSE.md ] && cp tag-src/LICENSE.md .
+          [ -f tag-src/LICENSES.md ] && cp tag-src/LICENSES.md .
+          rm -rf tag-src
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Image name
+        id: image
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble tree
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.nfpm-armhf
+          platforms: linux/arm/v7
+          provenance: false
+          build-args: VERSION=${{ steps.ver.outputs.version }}
+          outputs: type=local,dest=stage-armhf
+          cache-from: type=registry,ref=${{ steps.image.outputs.image }}:buildcache-nfpm-armhf
+          cache-to: type=registry,ref=${{ steps.image.outputs.image }}:buildcache-nfpm-armhf,mode=max
+
+      - name: Install nFPM
+        run: |
+          NFPM_VER=2.46.3
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" \
+            | tar -xz nfpm
+          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+
+      - name: Pack
+        run: |
+          chmod +x scripts/build/build_nfpm_packages.sh
+          scripts/build/build_nfpm_packages.sh \
+            --version "${{ steps.ver.outputs.version }}" \
+            --arch armhf \
+            --stage-dir stage-armhf \
+            --package-only \
+            --output-dir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfpm-armhf
+          path: dist/*
+
+      - name: Attach armhf package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.ver.outputs.version }}" dist/* \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  linux-repo:
+    needs: [package]
+    uses: ./.github/workflows/publish-linux-repo.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

@@ -1754,6 +1754,8 @@ class CommunityAirportHit(BaseModel):
     city: str
     country: str
     label: str
+    lat: float | None = None
+    lon: float | None = None
 
 
 class CommunityAirportSearchResponse(BaseModel):

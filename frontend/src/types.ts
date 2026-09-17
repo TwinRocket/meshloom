@@ -1336,6 +1336,8 @@ export interface CommunityAirportHit {
   city: string;
   country: string;
   label: string;
+  lat?: number | null;
+  lon?: number | null;
 }
 
 export type OssUpdateInstallKind = 'package' | 'compose' | 'addon' | 'container' | 'source';

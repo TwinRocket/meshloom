@@ -1,0 +1,59 @@
+# Assemble the armhf nFPM tree. The expensive layer is standalone Python plus
+# compiled C extensions under QEMU. Neutralize this project's version first so
+# a release bump does not invalidate that layer — same invariant as Dockerfile.
+
+ARG UV_VERSION=0.6.17
+
+FROM arm32v7/debian:trixie-slim AS toolchain
+
+ARG UV_VERSION
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        xz-utils \
+        build-essential \
+        libffi-dev \
+        python3 \
+        python3-pip \
+    && pip install --break-system-packages --no-cache-dir "uv==${UV_VERSION}" \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM toolchain AS deps
+
+WORKDIR /src
+
+COPY pyproject.toml uv.lock ./
+COPY scripts/build/neutralize_project_version.py scripts/build/build_nfpm_packages.sh scripts/build/
+RUN python3 scripts/build/neutralize_project_version.py . \
+    && chmod +x scripts/build/build_nfpm_packages.sh \
+    && scripts/build/build_nfpm_packages.sh \
+        --version 0.0.0 \
+        --arch armhf \
+        --stage-dir / \
+        --deps-only
+
+FROM deps AS tree
+
+ARG VERSION=0.0.0
+
+WORKDIR /src
+
+COPY app/ app/
+COPY frontend/dist frontend/dist
+COPY frontend/src/data/meshcoreChannels.snapshot.json \
+    frontend/src/data/meshcoreChannels.snapshot.json
+COPY pyproject.toml uv.lock ./
+COPY LICENSE.md LICENSES.md ./
+RUN chmod +x scripts/build/build_nfpm_packages.sh \
+    && scripts/build/build_nfpm_packages.sh \
+        --version "${VERSION}" \
+        --arch armhf \
+        --stage-dir / \
+        --skip-deps \
+        --skip-frontend
+
+FROM scratch
+
+COPY --from=tree /opt/meshloom /opt/meshloom

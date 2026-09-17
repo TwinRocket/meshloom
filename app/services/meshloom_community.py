@@ -632,6 +632,25 @@ def _airport_locale(locale: str) -> str:
     return "fr" if locale.lower().startswith("fr") else "en"
 
 
+def _airport_coords(item: dict[str, object]) -> tuple[float | None, float | None]:
+    raw_lat = item.get("lat")
+    raw_lon = item.get("lng")
+    if raw_lon is None:
+        raw_lon = item.get("lon")
+    if isinstance(raw_lat, bool) or isinstance(raw_lon, bool):
+        return None, None
+    try:
+        lat = float(raw_lat)  # type: ignore[arg-type]
+        lon = float(raw_lon)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None, None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None, None
+    if lat == 0.0 and lon == 0.0:
+        return None, None
+    return lat, lon
+
+
 def _airport_hit(item: object) -> CommunityAirportHit | None:
     if not isinstance(item, dict):
         return None
@@ -646,12 +665,15 @@ def _airport_hit(item: object) -> CommunityAirportHit | None:
     country = item.get("country") or ""
     label_raw = item.get("shortdisplayname") or item.get("displayname")
     label = label_raw.strip() if isinstance(label_raw, str) and label_raw.strip() else iata
+    lat, lon = _airport_coords(item)
     return CommunityAirportHit(
         iata=iata,
         name=name.strip() if isinstance(name, str) and name.strip() else iata,
         city=city.strip() if isinstance(city, str) else "",
         country=country.strip() if isinstance(country, str) else "",
         label=label,
+        lat=lat,
+        lon=lon,
     )
 
 

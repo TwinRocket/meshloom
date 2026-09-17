@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { ChevronDown, Download, MapPinned, Share2, Upload } from 'lucide-react';
+import { ChevronDown, Download, Map, MapPinned, Share2, Upload } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Button } from '../ui/button';
@@ -26,6 +26,7 @@ import {
 } from '../ui/dialog';
 import { api, formatApiError } from '../../api';
 import { RADIO_PRESETS } from '../../utils/radioPresets';
+import { formatPickedCoordinate } from '../../utils/locationPicker';
 import { stripRegionScopePrefix } from '../../utils/regionScope';
 import {
   isRadioIdentityGate,
@@ -44,6 +45,10 @@ import {
   type RadioTransportKind,
   type RadioTransportUpdate,
 } from '../../types';
+
+const LocationPickerModal = lazy(() =>
+  import('../LocationPickerModal').then((m) => ({ default: m.LocationPickerModal }))
+);
 
 const EMPTY_TRANSPORT: RadioTransportConfig = {
   configured: false,
@@ -577,6 +582,7 @@ export function SettingsRadioSection({
   const [telemetryModeLoc, setTelemetryModeLoc] = useState(0);
   const [telemetryModeEnv, setTelemetryModeEnv] = useState(0);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1561,6 +1567,15 @@ export function SettingsRadioSection({
                           </>
                         )}
                       </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setMapPickerOpen(true)}
+                      >
+                        <Map className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                        {t('settings.radio.pickOnMap')}
+                      </Button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -2174,6 +2189,21 @@ export function SettingsRadioSection({
             </TabsContent>
 
             {/* ── Private Key Import Warning ── */}
+            {mapPickerOpen && (
+              <Suspense fallback={null}>
+                <LocationPickerModal
+                  open={mapPickerOpen}
+                  onOpenChange={setMapPickerOpen}
+                  initialLat={lat}
+                  initialLon={lon}
+                  onApply={(nextLat, nextLon) => {
+                    setLat(formatPickedCoordinate(nextLat));
+                    setLon(formatPickedCoordinate(nextLon));
+                    toast.success(t('settings.radio.locationUpdated'));
+                  }}
+                />
+              </Suspense>
+            )}
             <Dialog
               open={keyImportDialogOpen}
               onOpenChange={(open) => {
