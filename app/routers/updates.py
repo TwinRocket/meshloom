@@ -70,6 +70,8 @@ async def apply_updates() -> UpdateStatusResponse:
     status = await build_update_status()
     if not status.apply_supported:
         raise HTTPException(status_code=409, detail="apply_not_supported")
+    if not status.update_available:
+        raise HTTPException(status_code=409, detail="update_not_available")
     if status.job.state == "applying":
         raise HTTPException(status_code=409, detail="apply_in_progress")
     try:

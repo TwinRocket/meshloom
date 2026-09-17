@@ -214,6 +214,36 @@ class TestUpdatesRouter:
         assert response.status_code == 409
         assert response.json()["detail"] == "apply_in_progress"
 
+    def test_apply_without_update_is_409(self, job_dir: Path) -> None:
+        from app.main import app
+
+        with (
+            patch(
+                "app.routers.updates.get_update_status",
+                return_value={
+                    "current": "1.0.0",
+                    "latest": "1.0.0",
+                    "update_available": False,
+                    "html_url": None,
+                },
+            ),
+            patch(
+                "app.routers.updates.detect_install_kind",
+                return_value=("package", True),
+            ),
+            patch(
+                "app.routers.updates.AppSettingsRepository.get",
+                new=AsyncMock(return_value=_settings()),
+            ),
+            patch("app.routers.updates.start_apply", new=AsyncMock()) as start,
+        ):
+            with TestClient(app) as client:
+                response = client.post("/api/updates/apply")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "update_not_available"
+        start.assert_not_called()
+
     def test_apply_starts_helper(self, job_dir: Path) -> None:
         from app.main import app
 

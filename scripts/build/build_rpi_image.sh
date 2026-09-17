@@ -17,7 +17,13 @@ RPI_DIR="$REPO_ROOT/pkg/rpi"
 
 DEB=""
 OUTPUT_DIR="$REPO_ROOT/dist"
-IMAGE_URL="${MESHLOOM_RPI_BASE_URL:-}"
+# Dated Lite 64-bit (2026-06-18). Override with MESHLOOM_RPI_BASE_URL /
+# MESHLOOM_RPI_BASE_SHA256 for a newer official image.
+DEFAULT_IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-06-19/2026-06-18-raspios-trixie-arm64-lite.img.xz"
+DEFAULT_IMAGE_SHA256="acff736ca7945e3b305f07cda4abdb870910e12634991da69783611756e381b3"
+MIN_FREE_KB=$((12 * 1024 * 1024))
+IMAGE_URL="${MESHLOOM_RPI_BASE_URL:-$DEFAULT_IMAGE_URL}"
+IMAGE_SHA256="${MESHLOOM_RPI_BASE_SHA256:-}"
 VERSION=""
 WORKDIR=""
 LOOP=""
@@ -53,10 +59,41 @@ done
 [ "$(uname -s)" = "Linux" ] || { echo "This script must run on Linux." >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (loop mounts and chroot)." >&2; exit 1; }
 
-if [ -z "$IMAGE_URL" ]; then
-    # Official Lite 64-bit latest index; pin by env for reproducible builds.
-    IMAGE_URL="https://downloads.raspberrypi.com/raspios_lite_arm64_latest"
+if [ -z "$IMAGE_SHA256" ] && [ "$IMAGE_URL" = "$DEFAULT_IMAGE_URL" ]; then
+    IMAGE_SHA256="$DEFAULT_IMAGE_SHA256"
 fi
+
+free_kb() {
+    df -Pk "$1" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+reclaim_runner_disk() {
+    # GitHub-hosted images keep unused toolchains. Drop them only when tight.
+    local path
+    for path in /usr/share/dotnet /usr/share/swift /usr/local/lib/android; do
+        if [ -d "$path" ]; then
+            echo "[rpi] Reclaiming $path"
+            rm -rf "$path"
+        fi
+    done
+}
+
+require_disk() {
+    local dest="$1" label="$2" have
+    have="$(free_kb "$dest")"
+    [ -n "$have" ] || return 0
+    if [ "$have" -ge "$MIN_FREE_KB" ]; then
+        echo "[rpi] Free on $label: ${have}K"
+        return 0
+    fi
+    echo "[rpi] Only ${have}K free on $label (need ${MIN_FREE_KB}K); reclaiming runner toolchains"
+    reclaim_runner_disk
+    have="$(free_kb "$dest")"
+    if [ -n "$have" ] && [ "$have" -lt "$MIN_FREE_KB" ]; then
+        echo "Not enough disk on $label: ${have}K free, need ${MIN_FREE_KB}K" >&2
+        exit 1
+    fi
+}
 
 WORKDIR="$(mktemp -d /tmp/meshloom-rpi.XXXXXX)"
 cleanup() {
@@ -82,8 +119,13 @@ trap cleanup EXIT
 mkdir -p "$OUTPUT_DIR"
 echo "[rpi] Disk before download:"
 df -h "$OUTPUT_DIR" "$WORKDIR" || df -h
-echo "[rpi] Downloading base image..."
+require_disk "$WORKDIR" "workdir"
+require_disk "$OUTPUT_DIR" "output"
+echo "[rpi] Downloading pinned base image..."
 curl -fL "$IMAGE_URL" -o "$WORKDIR/base.img.xz"
+if [ -n "$IMAGE_SHA256" ]; then
+    echo "$IMAGE_SHA256  $WORKDIR/base.img.xz" | sha256sum -c -
+fi
 unxz -f "$WORKDIR/base.img.xz"
 IMG="$WORKDIR/base.img"
 

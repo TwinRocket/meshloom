@@ -1148,6 +1148,7 @@ else
     write_job failed preparing "\"no supported package manager\""
     exit 1
 fi
+write_job applying restarting null
 write_job succeeded done null
 EOF
     as_root chmod 0755 /usr/lib/meshloom/apply-update
@@ -1270,6 +1271,7 @@ fi
 cd "$MESHLOOM_COMPOSE_DIR"
 if docker compose pull; then
     write_job applying installing null null
+    write_job applying restarting 90 null
     if docker compose up -d; then
         write_job succeeded done 100 null
         exit 0

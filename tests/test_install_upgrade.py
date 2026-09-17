@@ -135,6 +135,7 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "docker compose pull" in text
     assert "PathChanged=" in text
     assert "could not resolve image tag" in text
+    assert "write_job applying restarting" in text
     assert "_install_package_update_helper_fallback" in text
     assert "MESHLOOM_INSTALL_KIND=package" in text
     assert "MESHCORE_DISABLE_BOTS" not in text

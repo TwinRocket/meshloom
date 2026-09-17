@@ -216,5 +216,8 @@ else
     fail "no supported package manager (need apt-get or dnf)"
 fi
 
+PHASE=restarting
+PERCENT=90
+write_job
 succeed
 echo "meshloom apply-update: succeeded"

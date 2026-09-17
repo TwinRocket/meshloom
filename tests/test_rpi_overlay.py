@@ -1,5 +1,10 @@
 """The Pi image must not pin Community off; unset means the product default (on)."""
 
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -43,7 +48,28 @@ def test_rpi_image_bake_is_release_safe() -> None:
     assert "df -h" in script
     assert "meshloom.rpi-imager-manifest" in script
     assert "--version" in script
+    assert "raspios_lite_arm64-2026-06-19" in script
+    assert "acff736ca7945e3b305f07cda4abdb870910e12634991da69783611756e381b3" in script
+    assert "raspios_lite_arm64_latest" not in script
+    assert "MIN_FREE_KB" in script
+    assert "reclaim_runner_disk" in script
+    assert "sha256sum -c" in script
     assert "image_download_sha256" in manifest
     assert "init_format" in manifest
+    assert "Zero 2 W" in manifest
+    assert "pi3-64bit" in manifest
     assert "cloud-guest-utils" in workflow
     assert "meshloom.rpi-imager-manifest" in workflow
+
+
+def test_rpi_image_script_parses() -> None:
+    bash = shutil.which("bash")
+    if bash is None or os.name == "nt":
+        return
+    result = subprocess.run(
+        [bash, "-n", str(REPO / "scripts/build/build_rpi_image.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
