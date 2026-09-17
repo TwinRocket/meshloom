@@ -33,7 +33,10 @@ describe('RadioStatusChip', () => {
   it('shows the short word and the transport on the rail, not a coloured dot', () => {
     render(<RadioStatusChip health={connected} compact />);
     const status = screen.getByRole('status');
-    expect(status).toHaveAttribute('title', `${i18n.t('statusBar.radioOk')} — TCP: 192.168.1.204:5051`);
+    expect(status).toHaveAttribute(
+      'title',
+      `${i18n.t('statusBar.radioOk')} — TCP: 192.168.1.204:5051`
+    );
     expect(screen.getByText(i18n.t('statusBar.radioOkShort'))).toBeInTheDocument();
     expect(screen.getByText('TCP')).toBeInTheDocument();
     expect(screen.queryByText(i18n.t('statusBar.radioOk'))).not.toBeInTheDocument();

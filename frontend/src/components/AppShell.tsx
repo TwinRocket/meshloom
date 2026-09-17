@@ -57,10 +57,7 @@ const SearchView = lazy(() => import('./SearchView').then((m) => ({ default: m.S
 
 /** The middle column is the destination's own list. A map or tool has none.
  *  Folding it is a reader preference, not a different destination. */
-export function shouldShowDestinationList(
-  target: BottomNavTarget,
-  userCollapsed = false
-): boolean {
+export function shouldShowDestinationList(target: BottomNavTarget, userCollapsed = false): boolean {
   if (userCollapsed) return false;
   return target === 'settings' || target === 'conversations';
 }
@@ -251,10 +248,7 @@ export function AppShell({
     sidebarProps.unreadCounts ?? {}
   );
   const listAllowed = shouldShowDestinationList(bottomNavTarget);
-  const showDestinationList = shouldShowDestinationList(
-    bottomNavTarget,
-    conversationListCollapsed
-  );
+  const showDestinationList = shouldShowDestinationList(bottomNavTarget, conversationListCollapsed);
 
   const handleBackToTools = useCallback(() => {
     setMobileScreen('tools');

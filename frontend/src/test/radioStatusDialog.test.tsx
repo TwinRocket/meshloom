@@ -92,6 +92,8 @@ describe('RadioStatusDialog', () => {
   it('does not offer to advert when the radio cannot send', () => {
     open({ health: { radio_connected: false, connection_info: null } as HealthStatus });
     expect(screen.getByRole('button', { name: i18n.t('radioStatus.advertFlood') })).toBeDisabled();
-    expect(screen.getByRole('button', { name: i18n.t('radioStatus.advertZeroHop') })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: i18n.t('radioStatus.advertZeroHop') })
+    ).toBeDisabled();
   });
 });

@@ -349,9 +349,15 @@ export function ConversationListView({
               onClick={toggleFavoritesCollapsed}
             >
               {favoritesCollapsed ? (
-                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <ChevronRight
+                  className="h-3 w-3 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
               ) : (
-                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <ChevronDown
+                  className="h-3 w-3 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
               )}
               <h2 className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
                 {t('conversationList.favorites')}
