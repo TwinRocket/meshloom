@@ -17,6 +17,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   version:
@@ -165,6 +167,17 @@ jobs:
             --version "${{ needs.version.outputs.version }}" \
             --full-git-hash "$(git rev-parse HEAD)" \
             "${ASSET_ARGS[@]}"
+
+  # Same GITHUB_TOKEN problem as the Pi image: a separate on.release workflow
+  # never starts, so the apt/dnf Pages repo has to be built in this run.
+  linux-repo:
+    needs: [publish]
+    uses: ./.github/workflows/publish-linux-repo.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
 
   # Same workflow as nfpm/publish so the .deb is already an artifact and the
   # GITHUB_TOKEN can attach the image. A separate on.release workflow would
