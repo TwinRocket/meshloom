@@ -111,9 +111,9 @@ describe('useAppSettings rail overlay backfill', () => {
       await result.current.fetchAppSettings();
     });
 
-    expect(result.current.appSettings?.ui_preferences.nav_rail).toEqual([...stored, 'cracker']);
+    expect(result.current.appSettings?.ui_preferences.nav_rail).toEqual(['map', 'live', 'cracker']);
     expect(mocks.api.updateSettings).toHaveBeenCalledWith({
-      ui_preferences: { theme: '', nav_rail: [...stored, 'cracker'] },
+      ui_preferences: { theme: '', nav_rail: ['map', 'live', 'cracker'] },
     });
     expect(localStorage.getItem(RAIL_OVERLAY_BACKFILL_KEY)).toBe('1');
   });

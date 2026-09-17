@@ -68,6 +68,39 @@ describe('DesktopRail', () => {
     expect(onSelectTool).toHaveBeenCalledWith('cracker');
   });
 
+  it('opens conversations from the home mark, not a chat glyph', () => {
+    const onSelect = vi.fn();
+    render(
+      <DesktopRail
+        active="conversations"
+        unreadTotal={3}
+        onSelect={onSelect}
+        health={health}
+        onOpenRadioStatus={vi.fn()}
+        onSelectTool={vi.fn()}
+      />
+    );
+    const home = screen.getByRole('button', {
+      name: i18n.t('bottomNav.conversations'),
+      hidden: true,
+    });
+    expect(home).toHaveAttribute('aria-current', 'page');
+    expect(home.querySelector('img')).toHaveAttribute('src', './meshloom-mark.svg');
+    expect(home).toHaveTextContent('3');
+    fireEvent.click(home);
+    expect(onSelect).toHaveBeenCalledWith('conversations');
+  });
+
+  it('does not offer a second conversations glyph on the arrangeable rail', () => {
+    renderRail(false);
+    expect(
+      screen.getAllByRole('button', {
+        name: i18n.t('bottomNav.conversations'),
+        hidden: true,
+      })
+    ).toHaveLength(1);
+  });
+
   it('marks the channel-finder overlay as pressed when it is open', () => {
     render(
       <DesktopRail

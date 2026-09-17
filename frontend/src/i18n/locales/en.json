@@ -2406,7 +2406,7 @@
   },
   "settingsNavigation": {
     "railTitle": "Left rail",
-    "railHelp": "What the rail beside the conversations holds, and in what order. Desktop only — the bar on a phone holds four.",
+    "railHelp": "The Meshloom mark at the top always opens conversations. Arrange the rest of the rail here. Desktop only — the bar on a phone holds four.",
     "permanent": "Always",
     "moveUp": "Move {{name}} up",
     "moveDown": "Move {{name}} down",

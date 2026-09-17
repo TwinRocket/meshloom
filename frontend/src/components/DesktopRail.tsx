@@ -18,9 +18,8 @@ import { cn } from '../lib/utils';
  * column that mixed the tools with the conversations in a single scroll — with
  * thirty channels the tools left the screen entirely.
  *
- * Icons alone, with the name as a tooltip and an accessible label: the rail is
- * four items that do not change, and a column of words beside a list of
- * conversations reads as a second list.
+ * The Meshloom mark is anchored at the top and always opens conversations. The
+ * rest is icons alone, with the name as a tooltip and an accessible label.
  */
 
 interface Props {
@@ -60,12 +59,43 @@ export function DesktopRail({
 }: Props) {
   const { t } = useTranslation();
 
+  const conversationsCurrent = active === 'conversations';
+
   return (
     <nav
       aria-label={t('bottomNav.label')}
       data-desktop-rail=""
       className="group/rail hidden w-14 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-border bg-muted/30 py-3 md:flex"
     >
+      {/* Anchored, not the first arrangeable slot: a custom rail order must not
+          move the brand. Same destination as the phone's Chat button. The mark
+          keeps its own colours; only the tile lights when this is where you are. */}
+      <button
+        type="button"
+        onClick={() => onSelect('conversations')}
+        aria-current={conversationsCurrent ? 'page' : undefined}
+        aria-label={t('bottomNav.conversations')}
+        title={t('bottomNav.conversations')}
+        className={cn(
+          'relative mb-1 inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          conversationsCurrent ? 'bg-primary/15' : 'hover:bg-accent/50'
+        )}
+      >
+        <img
+          src="./meshloom-mark.svg"
+          alt=""
+          className="h-7 w-7 object-contain [filter:drop-shadow(0_0_6px_rgba(34,211,238,0.28))]"
+        />
+        {unreadTotal > 0 && (
+          <span
+            className="absolute -right-0.5 -top-0.5 min-w-[1.05rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground"
+            aria-hidden="true"
+          >
+            {unreadTotal > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : unreadTotal}
+          </span>
+        )}
+      </button>
       {resolveRail(order).map(({ id, labelKey, Icon, permanent, overlay }) => {
         const target = id as BottomNavTarget;
         const current = overlay
@@ -73,7 +103,6 @@ export function DesktopRail({
           : permanent
             ? active === target
             : activeToolId === id;
-        const badge = id === 'conversations' && unreadTotal > 0;
         return (
           <button
             key={id}
@@ -92,14 +121,6 @@ export function DesktopRail({
             )}
           >
             <Icon className="h-[1.25rem] w-[1.25rem]" aria-hidden="true" />
-            {badge && (
-              <span
-                className="absolute -right-0.5 -top-0.5 min-w-[1.05rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground"
-                aria-hidden="true"
-              >
-                {unreadTotal > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : unreadTotal}
-              </span>
-            )}
           </button>
         );
       })}
