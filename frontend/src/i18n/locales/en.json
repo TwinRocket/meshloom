@@ -1494,6 +1494,10 @@
     "radioConnecting": "Radio Connecting",
     "radioInitializing": "Radio Initializing",
     "radioOk": "Radio OK",
+    "radioOkShort": "OK",
+    "radioPausedShort": "Pause",
+    "radioConnectingShort": "…",
+    "radioDisconnectedShort": "Off",
     "radioDisconnected": "Radio Disconnected",
     "reconnect": "Reconnect",
     "reconnecting": "Reconnecting...",
@@ -2415,7 +2419,13 @@
     "disconnectedHelp": "Nothing can be sent and nothing is being heard until the radio is reachable again.",
     "openSettings": "Radio settings",
     "close": "Close",
-    "openStatus": "Radio status — {{status}}"
+    "openStatus": "Radio status — {{status}}",
+    "name": "Name",
+    "advert": "Advertise",
+    "advertHelp": "Flood reaches the mesh through repeaters. Zero-hop stays local and uses less airtime.",
+    "advertFlood": "Flood",
+    "advertZeroHop": "Zero-hop",
+    "sending": "Sending…"
   },
   "updates": {
     "title": "Update available",

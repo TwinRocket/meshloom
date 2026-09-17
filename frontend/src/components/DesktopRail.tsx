@@ -28,7 +28,7 @@ interface Props {
   unreadTotal: number;
   onSelect: (target: BottomNavTarget) => void;
   health: HealthStatus | null;
-  /** Opens the read-out the dot summarises. */
+  /** Opens the read-out the rail status summarises. */
   onOpenRadioStatus: () => void;
   /** The rail's contents, in order, as configured in Settings. */
   order?: string[];
@@ -114,9 +114,9 @@ export function DesktopRail({
           the bottom": what must not be marked is a catalogue, which would light up
           beside the thing opened from it. There is no catalogue here. */}
       <div className="mt-auto flex flex-col items-center gap-1 pt-2">
-        {/* The dot is enough to notice something is wrong and never enough to act
-            on it, so it opens what it is a summary of rather than the settings —
-            which is where the gear beneath it already goes. */}
+        {/* Word and transport, not a coloured dot: this is the one desktop
+            status, so it has to say what it is before anyone opens it. The
+            gear beneath it still goes to the settings. */}
         <RadioStatusChip health={health} compact onOpenStatus={onOpenRadioStatus} />
 
         {ANCHORED_RAIL_ITEMS.map(({ target, labelKey, Icon }) => (

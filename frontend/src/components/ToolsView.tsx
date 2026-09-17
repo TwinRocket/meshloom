@@ -101,7 +101,7 @@ export function ToolsView({
         <RadioStatusChip
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}
-          className="ml-auto max-w-[9rem]"
+          className="ml-auto max-w-[9rem] md:hidden"
         />
       </div>
 

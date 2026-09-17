@@ -5,7 +5,11 @@ import { DesktopRail } from '../components/DesktopRail';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
 
-const health = { radio_connected: true, radio_state: 'connected' } as HealthStatus;
+const health = {
+  radio_connected: true,
+  radio_state: 'connected',
+  connection_info: 'TCP: 192.168.1.204:5051',
+} as HealthStatus;
 
 function renderRail(updateAvailable: boolean, onOpenUpdate = vi.fn()) {
   render(
@@ -24,6 +28,12 @@ function renderRail(updateAvailable: boolean, onOpenUpdate = vi.fn()) {
 }
 
 describe('DesktopRail', () => {
+  it('shows the radio word and transport above settings, not a coloured dot', () => {
+    renderRail(false);
+    expect(screen.getByText(i18n.t('statusBar.radioOkShort'), { hidden: true })).toBeInTheDocument();
+    expect(screen.getByText('TCP', { hidden: true })).toBeInTheDocument();
+  });
+
   it('badges the settings gear when an update is available', () => {
     const { onOpenUpdate } = renderRail(true);
     const badge = screen.getByRole('button', { name: i18n.t('updates.badgeLabel'), hidden: true });

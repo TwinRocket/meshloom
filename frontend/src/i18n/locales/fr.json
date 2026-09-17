@@ -1494,6 +1494,10 @@
     "radioConnecting": "Radio en connexion",
     "radioInitializing": "Radio en initialisation",
     "radioOk": "Radio OK",
+    "radioOkShort": "OK",
+    "radioPausedShort": "Pause",
+    "radioConnectingShort": "…",
+    "radioDisconnectedShort": "Off",
     "radioDisconnected": "Radio déconnectée",
     "reconnect": "Reconnecter",
     "reconnecting": "Reconnexion…",
@@ -2415,7 +2419,13 @@
     "disconnectedHelp": "Rien ne peut partir et rien n'est entendu tant que la radio n'est pas joignable.",
     "openSettings": "Réglages radio",
     "close": "Fermer",
-    "openStatus": "État de la radio — {{status}}"
+    "openStatus": "État de la radio — {{status}}",
+    "name": "Nom",
+    "advert": "Annoncer",
+    "advertHelp": "Le flood passe par les répéteurs. Le zéro saut reste local et prend moins de temps d’antenne.",
+    "advertFlood": "Flood",
+    "advertZeroHop": "Zéro saut",
+    "sending": "Envoi…"
   },
   "updates": {
     "title": "Mise à jour disponible",

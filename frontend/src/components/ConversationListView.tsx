@@ -250,10 +250,13 @@ export function ConversationListView({
               <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
+          {/* Phone-only: the desktop rail already carries this status, and a second
+              pill here sat between the title and New with nothing to say that the
+              rail tile does not. */}
           <RadioStatusChip
             health={health ?? null}
             onOpenStatus={onOpenRadioStatus}
-            className="ml-auto max-w-[9rem]"
+            className="ml-auto max-w-[9rem] md:hidden"
           />
           {/* Both halves are always rendered and the platform stylesheet picks:
               a labelled pill in the header here, a floating action button with the
@@ -264,7 +267,7 @@ export function ConversationListView({
             onClick={onNewMessage}
             data-compose-action=""
             aria-label={t('conversationList.new')}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
           >
             <Plus className="hidden h-5 w-5" aria-hidden="true" data-compose-icon="" />
             <span data-compose-label="">{t('conversationList.new')}</span>

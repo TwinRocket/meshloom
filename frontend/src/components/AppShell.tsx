@@ -322,6 +322,7 @@ export function AppShell({
   const destinationList = showSettings ? (
     <SettingsIndexView
       health={statusProps.health}
+      onOpenRadioStatus={() => setRadioStatusOpen(true)}
       disabledSections={disabledSettingsSections}
       activeSection={settingsSection}
       updateAvailable={updateAvailable}
@@ -582,8 +583,10 @@ export function AppShell({
       <RadioStatusDialog
         open={radioStatusOpen}
         health={statusProps.health ?? null}
+        config={statusProps.config}
         onClose={() => setRadioStatusOpen(false)}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
+        onAdvertise={settingsProps.onAdvertise}
       />
       <UpdateAvailableDialog
         open={updateDialogOpen}

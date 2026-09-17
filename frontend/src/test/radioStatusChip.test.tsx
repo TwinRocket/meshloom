@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { RadioStatusChip } from '../components/RadioStatusChip';
+import { RadioStatusChip, radioTransportHint } from '../components/RadioStatusChip';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
 
@@ -9,7 +9,20 @@ import type { HealthStatus } from '../types';
  * might try next depends on it, so it must never be carried by colour alone.
  */
 
-const connected = { radio_connected: true, radio_state: 'connected' } as HealthStatus;
+const connected = {
+  radio_connected: true,
+  radio_state: 'connected',
+  connection_info: 'TCP: 192.168.1.204:5051',
+} as HealthStatus;
+
+describe('radioTransportHint', () => {
+  it('keeps the transport kind and drops the address', () => {
+    expect(radioTransportHint('TCP: 192.168.1.204:5051')).toBe('TCP');
+    expect(radioTransportHint('Serial: /dev/ttyUSB0')).toBe('Serial');
+    expect(radioTransportHint('BLE: AA:BB:CC:DD:EE:FF')).toBe('BLE');
+    expect(radioTransportHint(null)).toBeNull();
+  });
+});
 
 describe('RadioStatusChip', () => {
   it('says the state in words, not only in colour', () => {
@@ -17,13 +30,13 @@ describe('RadioStatusChip', () => {
     expect(screen.getByText(i18n.t('statusBar.radioOk'))).toBeInTheDocument();
   });
 
-  it('keeps the word reachable when the compact form hides it', () => {
-    // A screen reader still hears it; a sighted reader needs the hover, or the
-    // chip is a coloured dot and nothing else.
+  it('shows the short word and the transport on the rail, not a coloured dot', () => {
     render(<RadioStatusChip health={connected} compact />);
     const status = screen.getByRole('status');
-    expect(status).toHaveAttribute('title', i18n.t('statusBar.radioOk'));
-    expect(screen.getByText(i18n.t('statusBar.radioOk'))).toHaveClass('sr-only');
+    expect(status).toHaveAttribute('title', `${i18n.t('statusBar.radioOk')} — TCP: 192.168.1.204:5051`);
+    expect(screen.getByText(i18n.t('statusBar.radioOkShort'))).toBeInTheDocument();
+    expect(screen.getByText('TCP')).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('statusBar.radioOk'))).not.toBeInTheDocument();
   });
 
   it('is a status, not a control, unless it is given somewhere to go', () => {

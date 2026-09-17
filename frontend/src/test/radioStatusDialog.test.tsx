@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { RadioStatusDialog } from '../components/RadioStatusDialog';
 import i18n from '../i18n';
-import type { HealthStatus } from '../types';
+import type { HealthStatus, RadioConfig } from '../types';
 
 /**
- * The dot in the rail is enough to notice something is wrong and never enough to
- * act on it. This is what it summarises, so what it says has to be answerable.
+ * The rail status is enough to notice something is wrong and never enough to
+ * act on it. This is what it summarises, so what it says has to be answerable,
+ * including sending an advert without opening the radio settings.
  */
 
 const health = {
@@ -18,24 +19,30 @@ const health = {
   app_info: { version: '4.7.1' },
 } as unknown as HealthStatus;
 
+const config = { name: 'Pascal' } as RadioConfig;
+
 function open(overrides?: Partial<React.ComponentProps<typeof RadioStatusDialog>>) {
   const onClose = vi.fn();
   const onOpenRadioSettings = vi.fn();
+  const onAdvertise = vi.fn(async () => {});
   render(
     <RadioStatusDialog
       open
       health={health}
+      config={config}
       onClose={onClose}
       onOpenRadioSettings={onOpenRadioSettings}
+      onAdvertise={onAdvertise}
       {...overrides}
     />
   );
-  return { onClose, onOpenRadioSettings };
+  return { onClose, onOpenRadioSettings, onAdvertise };
 }
 
 describe('RadioStatusDialog', () => {
   it('answers which radio, over what, and through what', () => {
     open();
+    expect(screen.getByText('Pascal')).toBeInTheDocument();
     expect(screen.getByText('TCP: 192.168.1.204:5051')).toBeInTheDocument();
     expect(screen.getByText('Heltec V4.3 OLED')).toBeInTheDocument();
     expect(screen.getByText('v1.17.1')).toBeInTheDocument();
@@ -72,5 +79,19 @@ describe('RadioStatusDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('radioStatus.openSettings') }));
     expect(onOpenRadioSettings).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('sends a flood or zero-hop advert from the status itself', async () => {
+    const { onAdvertise } = open();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('radioStatus.advertFlood') }));
+    await waitFor(() => expect(onAdvertise).toHaveBeenCalledWith('flood'));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('radioStatus.advertZeroHop') }));
+    await waitFor(() => expect(onAdvertise).toHaveBeenCalledWith('zero_hop'));
+  });
+
+  it('does not offer to advert when the radio cannot send', () => {
+    open({ health: { radio_connected: false, connection_info: null } as HealthStatus });
+    expect(screen.getByRole('button', { name: i18n.t('radioStatus.advertFlood') })).toBeDisabled();
+    expect(screen.getByRole('button', { name: i18n.t('radioStatus.advertZeroHop') })).toBeDisabled();
   });
 });

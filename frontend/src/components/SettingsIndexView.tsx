@@ -26,6 +26,8 @@ interface Props {
   onSelectSection: (section: SettingsSection) => void;
   disabledSections?: SettingsSection[];
   health?: HealthStatus | null;
+  /** Opens the radio read-out the phone-header chip summarises. */
+  onOpenRadioStatus?: () => void;
   /** The section open beside this list. Desktop only; a phone shows one at a time. */
   activeSection?: SettingsSection;
   updateAvailable?: boolean;
@@ -46,6 +48,7 @@ export function SettingsIndexView({
   onSelectSection,
   disabledSections = [],
   health,
+  onOpenRadioStatus,
   activeSection,
   updateAvailable = false,
   onCollapseList,
@@ -66,7 +69,11 @@ export function SettingsIndexView({
             <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
           </button>
         )}
-        <RadioStatusChip health={health ?? null} className="ml-auto max-w-[9rem]" />
+        <RadioStatusChip
+          health={health ?? null}
+          onOpenStatus={onOpenRadioStatus}
+          className="ml-auto max-w-[9rem] md:hidden"
+        />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
