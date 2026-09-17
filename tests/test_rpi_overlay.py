@@ -54,6 +54,8 @@ def test_rpi_image_bake_is_release_safe() -> None:
     assert "MIN_FREE_KB" in script
     assert "reclaim_runner_disk" in script
     assert "sha256sum -c" in script
+    assert '[ -n "$have" ] || return 0' not in script
+    assert "Could not measure free disk" in script
     assert "image_download_sha256" in manifest
     assert "init_format" in manifest
     assert "Zero 2 W" in manifest

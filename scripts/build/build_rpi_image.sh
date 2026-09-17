@@ -81,7 +81,10 @@ reclaim_runner_disk() {
 require_disk() {
     local dest="$1" label="$2" have
     have="$(free_kb "$dest")"
-    [ -n "$have" ] || return 0
+    if [ -z "$have" ]; then
+        echo "Could not measure free disk on $label" >&2
+        exit 1
+    fi
     if [ "$have" -ge "$MIN_FREE_KB" ]; then
         echo "[rpi] Free on $label: ${have}K"
         return 0
@@ -89,8 +92,8 @@ require_disk() {
     echo "[rpi] Only ${have}K free on $label (need ${MIN_FREE_KB}K); reclaiming runner toolchains"
     reclaim_runner_disk
     have="$(free_kb "$dest")"
-    if [ -n "$have" ] && [ "$have" -lt "$MIN_FREE_KB" ]; then
-        echo "Not enough disk on $label: ${have}K free, need ${MIN_FREE_KB}K" >&2
+    if [ -z "$have" ] || [ "$have" -lt "$MIN_FREE_KB" ]; then
+        echo "Not enough disk on $label: ${have:-unknown}K free, need ${MIN_FREE_KB}K" >&2
         exit 1
     fi
 }
