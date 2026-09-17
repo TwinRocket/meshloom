@@ -467,7 +467,7 @@ body {
   gap: 1rem;
 }
 
-@container conversation-pane (min-width: 36rem) {
+@container conversation-pane (min-width: 48rem) {
   .repeater-dashboard-grid {
     grid-template-columns: 1fr 1fr;
     align-items: stretch;
@@ -479,11 +479,13 @@ body {
 .conversation-split-handle {
   position: absolute;
   inset-block: 0;
-  right: -0.25rem;
+  right: -0.375rem;
   z-index: 10;
   width: 0.75rem;
   cursor: col-resize;
   touch-action: none;
+  background: transparent;
+  border: 0;
 }
 
 .conversation-split-handle:focus-visible {

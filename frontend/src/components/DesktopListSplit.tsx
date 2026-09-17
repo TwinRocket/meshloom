@@ -93,7 +93,12 @@ export function DesktopListSplit({ children }: Props) {
 
   return (
     <div className="relative hidden min-h-0 shrink-0 md:flex" style={{ width }}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+      <div
+        data-desktop-list-pane=""
+        className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-border bg-muted/20"
+      >
+        {children}
+      </div>
       <div
         role="separator"
         tabIndex={0}

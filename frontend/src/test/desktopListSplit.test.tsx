@@ -21,6 +21,7 @@ describe('DesktopListSplit', () => {
       name: i18n.t('conversationList.resizeList'),
     });
     expect(handle.querySelector('.conversation-split-grip')).not.toBeNull();
+    expect(document.querySelector('[data-desktop-list-pane]')).toHaveClass('border-r');
     expect(handle).toHaveAttribute('aria-valuenow', String(DESKTOP_SPLIT_DEFAULT));
 
     fireEvent.keyDown(handle, { key: 'ArrowRight' });
