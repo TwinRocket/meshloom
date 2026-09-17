@@ -2,6 +2,38 @@
 
 ---
 
+## [4.12.1] - 2026-09-17
+
+A Raspberry Pi running the 32-bit Raspberry Pi OS can install Meshloom again, and this time from a package.
+
+### Fixed
+
+- **A 32-bit Raspberry Pi installs.** The apt repository held amd64 and arm64, and the installer offered it to any machine with apt without checking whether it carried anything for that architecture. A Pi 3 or a Pi 4 running the 32-bit system ended up with a repository that could not serve it, apt found no candidate, and the install stopped there. It now installs from an armhf package of its own, and the documentation no longer says to reflash in 64-bit.
+- **The repository cannot disagree with what it holds.** Its architecture list was written by hand in three places, and one of them missing an entry is exactly what caused the above. It is now read from the packages themselves, and the installer reads it from the repository rather than keeping its own copy.
+- **The Raspberry Pi image builds without the Pages signing key**, which was fetched at bake time and failed the build when it was missing.
+
+### Notes
+
+The armhf package is built under emulation, which is slow, so it is attached to the release shortly after the others rather than holding them up. The 64-bit image is still the recommendation for a Pi that can run it: it is faster.
+
+---
+
+### Français
+
+Un Raspberry Pi sous Raspberry Pi OS 32 bits peut de nouveau installer Meshloom, et cette fois depuis un paquet.
+
+#### Corrections
+
+- **Un Raspberry Pi 32 bits s'installe.** Le dépôt apt ne contenait que amd64 et arm64, et l'installeur le proposait à toute machine disposant d'apt sans vérifier qu'il servait cette architecture. Un Pi 3 ou un Pi 4 en 32 bits se retrouvait avec un dépôt incapable de le servir, apt ne trouvait aucun candidat, et l'installation s'arrêtait là. Il s'installe désormais depuis un paquet armhf, et la documentation ne dit plus de reflasher en 64 bits.
+- **Le dépôt ne peut plus contredire ce qu'il contient.** Sa liste d'architectures était écrite à la main à trois endroits, et c'est précisément l'oubli de l'une d'elles qui a causé le point ci-dessus. Elle est maintenant lue depuis les paquets eux-mêmes, et l'installeur la lit dans le dépôt au lieu d'en garder une copie.
+- **L'image Raspberry Pi se construit sans la clé de signature Pages**, qui était téléchargée au moment de la cuisson et faisait échouer la construction quand elle manquait.
+
+#### Remarques
+
+Le paquet armhf est construit sous émulation, donc lentement : il est attaché à la release peu après les autres plutôt que de les retarder. L'image 64 bits reste la recommandation pour un Pi qui peut la faire tourner, elle est plus rapide.
+
+---
+
 ## [4.12.0] - 2026-09-17
 
 This release is about putting Meshloom on a Raspberry Pi and keeping a node current from the app. You flash a card that already has Meshloom on it, you open Settings → About when a newer version is out, and the node installs Meshloom — not the rest of the operating system.
