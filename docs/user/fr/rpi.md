@@ -9,7 +9,7 @@ L’image publiée est Raspberry Pi OS Lite 64-bit avec Meshloom déjà install�
 
 ## Flasher
 
-1. Téléchargez `meshloom-rpi-lite-arm64.img.xz` depuis la [release GitHub](https://github.com/TwinRocket/meshloom/releases).
+1. Téléchargez `meshloom-rpi-lite-arm64.img.xz` depuis la [release GitHub](https://github.com/TwinRocket/meshloom/releases). Le workflow Release la joint après le `.deb` arm64 (elle peut arriver un peu après les paquets).
 2. Ouvrez **Raspberry Pi Imager 2.0.6 ou plus récent**. Les versions 1.9.x n’écrivent pas la personnalisation cloud-init de Trixie : hostname, Wi-Fi et SSH sont ignorés.
 3. Choisissez l’image Meshloom (ou *Use custom*). Si Imager cache le panneau de personnalisation, chargez le manifeste `cloudinit-rpi` livré à côté de l’image.
 4. Renseignez hostname, utilisateur, clé SSH et Wi-Fi là. Ces secrets ne sont pas dans le téléchargement.

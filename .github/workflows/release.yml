@@ -1,7 +1,9 @@
 name: Release
 
-# Builds the prebuilt-frontend zip, Linux .deb/.rpm packages, and publishes
-# the GitHub release. Cut a release with scripts/build/publish.sh, then:
+# Builds the prebuilt-frontend zip, Linux .deb/.rpm packages, publishes the
+# GitHub release, then bakes the Raspberry Pi Lite image from the arm64 .deb
+# in this same run (a second workflow would not start: GITHUB_TOKEN releases
+# do not trigger on.release). Cut a release with scripts/build/publish.sh, then:
 #   git tag X.Y.Z && git push origin X.Y.Z
 
 on:
@@ -163,3 +165,46 @@ jobs:
             --version "${{ needs.version.outputs.version }}" \
             --full-git-hash "$(git rev-parse HEAD)" \
             "${ASSET_ARGS[@]}"
+
+  # Same workflow as nfpm/publish so the .deb is already an artifact and the
+  # GITHUB_TOKEN can attach the image. A separate on.release workflow would
+  # never start.
+  rpi-image:
+    needs: [version, nfpm, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nfpm-arm64
+          path: incoming
+
+      - name: Install image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-user-static binfmt-support kpartx xz-utils fdisk
+
+      - name: Build Raspberry Pi Lite image
+        run: |
+          chmod +x scripts/build/build_rpi_image.sh
+          DEB="$(find incoming -name '*_arm64.deb' | head -n 1)"
+          [ -n "$DEB" ] || { echo "arm64 .deb missing from nfpm-arm64 artifact" >&2; exit 1; }
+          sudo scripts/build/build_rpi_image.sh --deb "$DEB" --output-dir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshloom-rpi-lite-arm64
+          path: dist/meshloom-rpi-lite-arm64.img.xz
+          if-no-files-found: error
+
+      - name: Attach image to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.version.outputs.version }}" \
+            dist/meshloom-rpi-lite-arm64.img.xz \
+            --repo "${{ github.repository }}" \
+            --clobber

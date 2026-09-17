@@ -10,7 +10,7 @@ Settings → About can install a new Meshloom release on package and installer-m
 
 ### Under the hood
 
-- `GET/POST/PATCH /api/updates` now carry `install_kind`, `apply_supported`, `auto_update`, and a phased helper `job`. The `.deb` ships `apply-update` + `meshloom-update.service` + polkit. Docker installs write a host path unit instead of mounting `docker.sock`.
+- `GET/POST/PATCH /api/updates` now carry `install_kind`, `apply_supported`, `auto_update`, and a phased helper `job`. The `.deb` ships `apply-update` + `meshloom-update.service` + polkit. Docker installs write a host path unit instead of mounting `docker.sock`. The Release workflow bakes `meshloom-rpi-lite-arm64.img.xz` from the arm64 `.deb` in the same run and attaches it to the GitHub release.
 
 ### Upgrading
 
@@ -30,7 +30,7 @@ Réglages → À propos peut installer une nouvelle release Meshloom sur une ins
 
 #### Sous le capot
 
-- `GET/POST/PATCH /api/updates` portent maintenant `install_kind`, `apply_supported`, `auto_update`, et un `job` de helper par phases. Le `.deb` livre `apply-update` + `meshloom-update.service` + polkit. Les installs Docker écrivent une path unit hôte au lieu de monter `docker.sock`.
+- `GET/POST/PATCH /api/updates` portent maintenant `install_kind`, `apply_supported`, `auto_update`, et un `job` de helper par phases. Le `.deb` livre `apply-update` + `meshloom-update.service` + polkit. Les installs Docker écrivent une path unit hôte au lieu de monter `docker.sock`. Le workflow Release fabrique `meshloom-rpi-lite-arm64.img.xz` à partir du `.deb` arm64 dans la même course et la joint à la release GitHub.
 
 #### Mise à jour
 
