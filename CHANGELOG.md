@@ -1,3 +1,23 @@
+## [4.13.1] - 2026-09-18
+
+A 4.12 node that clicked Install went dark. The old package disabled the systemd unit on the way out, and nothing started it again.
+
+#### Fixed
+
+* **Service after in-app upgrade:** Upgrading the `.deb` / `.rpm` no longer runs `systemctl disable --now meshloom`. The apply helper starts the unit when the package is in. If a 4.12 → 4.13.0 click already stopped yours: `sudo systemctl enable --now meshloom`. The database is untouched.
+
+---
+
+### Français
+
+Un nœud en 4.12 qui cliquait Installer se retrouvait sans interface. L’ancien paquet désactivait l’unit systemd en partant, et rien ne la relançait.
+
+#### Corrections
+
+* **Service après mise à jour depuis l’UI :** L’upgrade `.deb` / `.rpm` ne fait plus `systemctl disable --now meshloom`. Le helper relance l’unit une fois le paquet posé. Si un clic 4.12 → 4.13.0 a déjà tout arrêté : `sudo systemctl enable --now meshloom`. La base n’est pas touchée.
+
+---
+
 ## [4.13.0] - 2026-09-17
 
 #### Added & Changed
