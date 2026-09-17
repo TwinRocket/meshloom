@@ -41,11 +41,6 @@ const MAX_MONOGRAM = 4;
 const WORD_RUN = /\p{L}+/gu;
 
 function graphemesOf(value: string): string[] {
-  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
-    return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(
-      (part) => part.segment
-    );
-  }
   return Array.from(value);
 }
 
@@ -86,6 +81,9 @@ function getAvatarText(name: string | null, publicKey: string): string {
   }
 
   const first = words[0];
+  if (!first) {
+    return fallbackKeyText(publicKey);
+  }
   if (graphemesOf(first).length >= 3) {
     return titleCaseWord(graphemesOf(first).slice(0, MAX_MONOGRAM).join(''));
   }

@@ -30,8 +30,9 @@ function renderRail(updateAvailable: boolean, onOpenUpdate = vi.fn()) {
 describe('DesktopRail', () => {
   it('shows the radio word and transport above settings, not a coloured dot', () => {
     renderRail(false);
-    expect(screen.getByText(i18n.t('statusBar.radioOkShort'), { hidden: true })).toBeInTheDocument();
-    expect(screen.getByText('TCP', { hidden: true })).toBeInTheDocument();
+    const rail = screen.getByRole('navigation', { hidden: true });
+    expect(rail).toHaveTextContent(i18n.t('statusBar.radioOkShort'));
+    expect(rail).toHaveTextContent('TCP');
   });
 
   it('badges the settings gear when an update is available', () => {
