@@ -1,5 +1,41 @@
 ## [Unreleased]
 
+This is about the hours after 4.12. You type a message at a desk and Enter should send it. You open a repeater's neighbours and want more than a name. You have a Pi 1, and the installer should not hand you a package that dies on the first instruction.
+
+### What's new
+
+- **Enter sends, on a desk.** 4.11 made Enter start a new line for everyone, which is right on a phone, a tablet and a foldable. A keyboard is a different thing. Enter now sends there; Shift+Enter is still the line break. Touch keeps the newline.
+- **A neighbour on the map can say more than its name.** Detailed display puts SNR, distance and GPS on the pin you open. Permanent display leaves a label on every mapped neighbour so you are not hunting the same marker twice. The chip stays as wide as the name: a wrapping tooltip used to collapse to a sliver.
+
+### Fixed
+
+- **A Pi 1 and the original Zero are not offered the 32-bit package.** Raspberry Pi OS calls those boards armhf too, so mapping `armv6l` next to `armv7l` looked right. The package is built for armv7. It would install, then die on an illegal instruction, which is worse than the source install they now get.
+- **Community stops asking Stats for samples when the hour is spent.** Stats allows thirty sample upserts per hour per key. A 429 used to look like any other failed call, so the next packet tried again. It now waits the hour out.
+
+### Notes
+
+The Raspberry Pi page now answers the question people actually arrive with: which board takes which route. The Pi 2 is in that table — 32-bit only, so the flashed image is not its path — and the page says what is known about a Pi 2 or a Pi 3 rather than inventing a number nobody has measured. A correction there also reaches [meshloom.app](https://meshloom.app): a push that touches the user docs asks that site to rebuild, instead of waiting for someone to redeploy it by hand.
+
+---
+
+### Français
+
+Cette tranche parle des heures après la 4.12. Vous tapez un message au bureau et Entrée doit l'envoyer. Vous ouvrez les voisins d'un répéteur et voulez plus qu'un nom. Vous avez un Pi 1, et l'installateur ne doit pas vous tendre un paquet qui meurt à la première instruction.
+
+#### Quoi de neuf
+
+- **Entrée envoie, au bureau.** La 4.11 faisait commencer une nouvelle ligne à tout le monde, ce qui est juste sur un téléphone, une tablette et un pliable. Un clavier, c'est autre chose. Entrée envoie désormais ; Maj+Entrée reste le retour à la ligne. Le tactile garde le saut de ligne.
+- **Un voisin sur la carte peut dire plus que son nom.** L'affichage détaillé pose le SNR, la distance et le GPS sur l'épingle que vous ouvrez. L'affichage permanent laisse un libellé sur chaque voisin cartographié, pour ne pas chercher le même marqueur deux fois. La pastille reste aussi large que le nom : un tooltip qui passait à la ligne se réduisait à une fente.
+
+#### Corrections
+
+- **Un Pi 1 et le Zero d'origine ne se voient plus proposer le paquet 32 bits.** Raspberry Pi OS appelle aussi ces cartes armhf, donc ranger `armv6l` à côté de `armv7l` avait l'air juste. Le paquet est construit pour armv7. Il s'installait, puis mourait sur une instruction illégale, ce qui est pire que l'install source qu'ils reçoivent maintenant.
+- **Community arrête de demander des échantillons à Stats quand l'heure est épuisée.** Stats autorise trente envois d'échantillon par heure et par clé. Un 429 ressemblait à n'importe quel autre échec, donc le paquet suivant réessayait. Il attend désormais la fin de l'heure.
+
+#### Remarques
+
+La page Raspberry Pi répond maintenant à la question avec laquelle on arrive vraiment : quelle carte, quelle voie. Le Pi 2 est dans ce tableau — 32 bits seulement, donc l'image à flasher n'est pas son chemin — et la page dit ce qui est connu d'un Pi 2 ou d'un Pi 3 plutôt que d'inventer un chiffre que personne n'a mesuré. Une correction là-bas atteint aussi [meshloom.app](https://meshloom.app) : un push qui touche la doc utilisateur demande à ce site de se reconstruire, au lieu d'attendre que quelqu'un le redéploie à la main.
+
 ---
 
 ## [4.12.2] - 2026-09-17
