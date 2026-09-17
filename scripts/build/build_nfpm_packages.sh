@@ -89,7 +89,10 @@ if [ "$PACKAGE_ONLY" -eq 0 ] && [ ! -d "$REPO_ROOT/frontend/dist" ]; then
 fi
 
 if [ -n "$STAGE_DIR" ]; then
-    STAGING="$STAGE_DIR"
+    # Absolute, because the assembly cds into this tree and then hands uv the
+    # path to the interpreter inside it. A relative one stops resolving there.
+    mkdir -p "$STAGE_DIR"
+    STAGING="$(cd "$STAGE_DIR" && pwd)"
 else
     STAGING="$(mktemp -d)"
     trap 'rm -rf "$STAGING"' EXIT

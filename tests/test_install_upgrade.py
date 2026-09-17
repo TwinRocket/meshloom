@@ -251,3 +251,51 @@ def test_the_exclusive_options_are_refused_together() -> None:
         ["--version", "9.9.9", "--arch", "amd64", "--stage-only", "--package-only"]
     )
     assert "exclusive" in error
+
+
+def test_packaging_works_from_a_relative_stage_dir(tmp_path: Path) -> None:
+    """The assembly cds into the tree, so a relative path stops resolving there.
+
+    This is the half a release runs for armhf and nothing else exercises, so it
+    is checked here with nFPM stubbed rather than discovered when publishing.
+    """
+    script = Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "nfpm-calls"
+    nfpm = fake_bin / "nfpm"
+    nfpm.write_text(f'#!/bin/sh\necho "$*" >> {calls}\n', encoding="utf-8")
+    nfpm.chmod(0o755)
+
+    interpreter = tmp_path / "stage" / "opt" / "meshloom" / "python" / "bin" / "python3"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    interpreter.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--version",
+            "9.9.9",
+            "--arch",
+            "armhf",
+            "--stage-dir",
+            "stage",
+            "--package-only",
+            "--output-dir",
+            "out",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": f"{fake_bin}:/usr/bin:/bin", "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    invocations = calls.read_text(encoding="utf-8")
+    assert "--packager deb" in invocations
+    # Raspberry Pi OS is Debian, and no distribution ships an armv7 rpm any more.
+    assert "--packager rpm" not in invocations
