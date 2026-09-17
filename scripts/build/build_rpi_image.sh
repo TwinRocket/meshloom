@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Assemble a Raspberry Pi OS Lite 64-bit image with Meshloom preinstalled.
-# Linux host with qemu-user-static, kpartx (or losetup -P), xz. Not for PR CI.
+# Linux host (arm64 preferred so the chroot is native), kpartx (or losetup -P), xz.
+# Not for PR CI.
 #
 # Usage:
 #   scripts/build/build_rpi_image.sh --deb dist/meshloom_*_arm64.deb [--output-dir dist]
@@ -23,7 +24,8 @@ usage() {
 Usage: scripts/build/build_rpi_image.sh --deb PATH [--output-dir DIR]
 
 Build a bootable Raspberry Pi OS Lite (64-bit) image with Meshloom already
-installed. Requires root on Linux, qemu-user-static, and xz.
+installed. Requires root on Linux and xz. Prefer an arm64 host so the
+chroot does not need QEMU.
 
 Do not bake Wi-Fi, passwords, or SSH keys into the image. Those go through
 Raspberry Pi Imager 2.0.6+ (cloudinit-rpi) at flash time.

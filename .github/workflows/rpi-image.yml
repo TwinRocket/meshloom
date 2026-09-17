@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   image:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
@@ -29,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            qemu-user-static binfmt-support kpartx xz-utils fdisk
+            kpartx xz-utils fdisk
 
       - name: Resolve version
         id: ver
