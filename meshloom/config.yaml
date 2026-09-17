@@ -1,5 +1,5 @@
 name: Meshloom
-version: "4.12.3"
+version: "4.13.0"
 slug: meshloom
 description: Talk over your MeshCore mesh — conversations, a live map of what your node hears, packet tools, and MQTT discovery
 url: https://github.com/TwinRocket/meshloom
