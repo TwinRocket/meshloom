@@ -110,9 +110,31 @@ def write_job(
     if target is not None:
         payload["target"] = target
     path = job_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    _write_job_file(path, json.dumps(payload))
     return payload
+
+
+def _write_job_file(path: Path, text: str) -> None:
+    """Replace the job file even when a root helper left it unwritable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        try:
+            tmp.replace(path)
+        except PermissionError:
+            _remove_job_file(path)
+            tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _remove_job_file(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except PermissionError:
+        path.chmod(path.stat().st_mode | 0o200)
+        path.unlink(missing_ok=True)
 
 
 def _as_phase(value: Any) -> JobPhase | None:

@@ -1,2 +1,3 @@
 d /var/lib/meshloom 0750 meshloom meshloom
 d /etc/meshloom 0750 meshloom meshloom
+z /var/lib/meshloom/update-job.json 0644 meshloom meshloom -

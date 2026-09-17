@@ -47,3 +47,10 @@ def test_posttrans_recovers_disabled_upgrade() -> None:
 def test_install_sh_fallback_helper_starts_service() -> None:
     helper = INSTALL[INSTALL.index("_install_package_update_helper_fallback") :]
     assert "systemctl start meshloom" in helper
+    assert "chown meshloom:meshloom" in helper
+
+
+def test_helper_returns_job_file_to_meshloom() -> None:
+    assert "chown meshloom:meshloom" in APPLY
+    tmpfiles = (PKG / "meshloom.tmpfiles").read_text(encoding="utf-8")
+    assert "z /var/lib/meshloom/update-job.json 0644 meshloom meshloom" in tmpfiles

@@ -42,6 +42,15 @@ def test_job_path_override_and_default(tmp_path: Path, monkeypatch: pytest.Monke
     assert request_path() == tmp_path / "request-update"
 
 
+def test_write_job_replaces_unwritable_file(job_dir: Path) -> None:
+    path = job_path()
+    path.write_text("{}", encoding="utf-8")
+    path.chmod(0o444)
+    written = write_job(state="failed", phase="preparing", error="retry")
+    assert written["state"] == "failed"
+    assert read_job()["error"] == "retry"
+
+
 def test_write_and_read_job_round_trip(job_dir: Path) -> None:
     written = write_job(state="applying", phase="downloading", percent=40)
     assert written["state"] == "applying"

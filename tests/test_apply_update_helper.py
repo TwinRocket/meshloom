@@ -47,6 +47,7 @@ def test_apply_update_is_meshloom_only() -> None:
     assert "last_attempt" in active
     assert "target_json" in text
     assert "PHASE=restarting" in active
+    assert "chown meshloom:meshloom" in active
 
 
 def test_update_unit_and_polkit_are_start_only() -> None:
