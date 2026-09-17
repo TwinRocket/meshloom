@@ -1,4 +1,4 @@
-import { getContactAvatar } from '../utils/contactAvatar';
+import { getContactAvatar, splitAvatarMonogram } from '../utils/contactAvatar';
 
 interface ContactAvatarProps {
   name: string | null;
@@ -61,20 +61,48 @@ export function ContactAvatar({
   }
 
   const avatar = getContactAvatar(name, publicKey, contactType);
+  const { lead, rest } = splitAvatarMonogram(avatar.text);
 
   return (
     <div
+      data-testid="contact-avatar"
+      data-avatar-text={avatar.text}
       className={`flex items-center justify-center rounded-full font-semibold flex-shrink-0 select-none${clickable ? ' cursor-pointer' : ''}`}
       style={{
         background: avatar.background,
         color: avatar.textColor,
         width: size,
         height: size,
-        fontSize: size * 0.45,
+        paddingInline: rest ? size * 0.08 : 0,
       }}
       aria-hidden="true"
     >
-      {avatar.text}
+      {rest ? (
+        <span className="flex items-baseline justify-center leading-none">
+          <span
+            style={{
+              fontSize: size * 0.46,
+              letterSpacing: '-0.05em',
+              lineHeight: 1,
+            }}
+          >
+            {lead}
+          </span>
+          <span
+            style={{
+              fontSize: size * 0.24,
+              fontWeight: 600,
+              letterSpacing: '-0.04em',
+              lineHeight: 1,
+              opacity: 0.92,
+            }}
+          >
+            {rest}
+          </span>
+        </span>
+      ) : (
+        <span style={{ fontSize: size * 0.45, lineHeight: 1 }}>{lead}</span>
+      )}
     </div>
   );
 }

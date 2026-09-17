@@ -58,7 +58,7 @@ describe('MessageInput', () => {
   }
 
   function getInput() {
-    return screen.getByRole('textbox') as HTMLTextAreaElement;
+    return document.querySelector('textarea[name="chat-message-input"]') as HTMLTextAreaElement;
   }
 
   function getSendButton() {
@@ -89,9 +89,18 @@ describe('MessageInput', () => {
       expect(getSendButton()).toBeDisabled();
     });
 
-    it('exposes a More overflow trigger for composer tools', () => {
+    it('exposes a single attach trigger for composer tools', () => {
       renderInput({ conversationType: 'contact' });
-      expect(screen.getByRole('button', { name: i18n.t('chat.more') })).toBeInTheDocument();
+      expect(screen.getByTestId('composer-attach-trigger')).toBeInTheDocument();
+      expect(screen.queryByTestId('composer-more-trigger')).toBeNull();
+    });
+
+    it('does not send on Enter so the mobile keyboard can insert a newline', () => {
+      renderInput({ conversationType: 'contact' });
+      fireEvent.change(getInput(), { target: { value: 'Hello' } });
+      fireEvent.keyDown(getInput(), { key: 'Enter' });
+      expect(onSend).not.toHaveBeenCalled();
+      expect(getInput().value).toBe('Hello');
     });
   });
 
@@ -207,9 +216,11 @@ describe('MessageInput', () => {
   describe('send blocked at hard limit', () => {
     const DM_HARD_LIMIT = 156;
 
-    async function expectSendViaButtonAndEnter(value: string, shouldSend: boolean) {
-      const { unmount } = renderInput({ conversationType: 'contact' });
+    async function expectSendViaButton(value: string, shouldSend: boolean) {
+      renderInput({ conversationType: 'contact' });
       fireEvent.change(getInput(), { target: { value } });
+      fireEvent.keyDown(getInput(), { key: 'Enter' });
+      expect(onSend).not.toHaveBeenCalled();
       if (shouldSend) {
         expect(getSendButton()).toBeEnabled();
         fireEvent.click(getSendButton());
@@ -221,19 +232,6 @@ describe('MessageInput', () => {
         fireEvent.click(getSendButton());
         expect(onSend).not.toHaveBeenCalled();
       }
-      unmount();
-      onSend.mockClear();
-
-      renderInput({ conversationType: 'contact' });
-      fireEvent.change(getInput(), { target: { value } });
-      fireEvent.keyDown(getInput(), { key: 'Enter' });
-      if (shouldSend) {
-        await waitFor(() => {
-          expect(onSend).toHaveBeenCalledTimes(1);
-        });
-      } else {
-        expect(onSend).not.toHaveBeenCalled();
-      }
     }
 
     it('disables send button when over hard limit', () => {
@@ -243,16 +241,16 @@ describe('MessageInput', () => {
       expect(getSendButton()).toBeDisabled();
     });
 
-    it('allows button and Enter at limit-1', async () => {
-      await expectSendViaButtonAndEnter('x'.repeat(DM_HARD_LIMIT - 1), true);
+    it('allows the send button at limit-1', async () => {
+      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT - 1), true);
     });
 
-    it('blocks button and Enter at the exact hard limit', async () => {
-      await expectSendViaButtonAndEnter('x'.repeat(DM_HARD_LIMIT), false);
+    it('blocks the send button at the exact hard limit', async () => {
+      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT), false);
     });
 
-    it('blocks button and Enter past the hard limit', async () => {
-      await expectSendViaButtonAndEnter('x'.repeat(DM_HARD_LIMIT + 1), false);
+    it('blocks the send button past the hard limit', async () => {
+      await expectSendViaButton('x'.repeat(DM_HARD_LIMIT + 1), false);
     });
 
     it('blocks channel send when UTF-8 accented bytes hit the name-adjusted limit', async () => {
@@ -280,12 +278,12 @@ describe('MessageInput', () => {
       renderInput({ conversationType: 'channel', senderName });
       fireEvent.change(getInput(), { target: { value: atLimit } });
       expect(getSendButton()).toBeDisabled();
-      fireEvent.keyDown(getInput(), { key: 'Enter' });
+      fireEvent.click(getSendButton());
       expect(onSend).not.toHaveBeenCalled();
 
       fireEvent.change(getInput(), { target: { value: over } });
       expect(getSendButton()).toBeDisabled();
-      fireEvent.keyDown(getInput(), { key: 'Enter' });
+      fireEvent.click(getSendButton());
       expect(onSend).not.toHaveBeenCalled();
     });
   });
@@ -413,7 +411,8 @@ describe('MessageInput', () => {
         />
       );
 
-      fireEvent.click(screen.getByTestId('gif-picker-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-gif'));
       expect(await screen.findByRole('button', { name: 'Party' })).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Party' }));
 
@@ -433,7 +432,8 @@ describe('MessageInput', () => {
         />
       );
 
-      fireEvent.click(screen.getByTestId('gif-picker-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-gif'));
       expect(screen.getByTestId('gif-picker')).toBeInTheDocument();
 
       fireEvent.change(screen.getByLabelText(i18n.t('chat.gifPaste')), {
@@ -441,7 +441,7 @@ describe('MessageInput', () => {
       });
       fireEvent.click(screen.getByRole('button', { name: i18n.t('chat.gifUse') }));
 
-      expect(await screen.findByTestId('gif-picker-trigger')).toBeInTheDocument();
+      expect(await screen.findByTestId('composer-attach-trigger')).toBeInTheDocument();
       expect(onSend).toHaveBeenCalledWith('g:abc123');
       expect(screen.queryByTestId('gif-picker')).toBeNull();
     });
@@ -456,12 +456,32 @@ describe('MessageInput', () => {
         />
       );
 
-      fireEvent.click(screen.getByTestId('emoji-picker-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
       expect(screen.getByTestId('emoji-picker')).toBeInTheDocument();
+      expect(screen.getByLabelText(i18n.t('chat.emojiSearch'))).toBeInTheDocument();
       fireEvent.click(screen.getAllByRole('button', { name: '👍' })[0]);
 
       expect(getInput().value).toBe('👍');
       expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it('filters composer emojis from the search field', () => {
+      render(
+        <MessageInput
+          onSend={onSend}
+          disabled={false}
+          conversationType="channel"
+          conversationId={channelId}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.change(screen.getByLabelText(i18n.t('chat.emojiSearch')), {
+        target: { value: 'feu' },
+      });
+
+      expect(screen.getByRole('button', { name: '🔥' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '😀' })).toBeNull();
     });
 
     it('sends an Open location pin from radio coordinates', async () => {
@@ -477,6 +497,8 @@ describe('MessageInput', () => {
         />
       );
 
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-location'));
       fireEvent.click(screen.getByTestId('share-location-trigger'));
 
       await waitFor(() => {
@@ -494,6 +516,8 @@ describe('MessageInput', () => {
         />
       );
 
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-location'));
       expect(screen.getByTestId('share-location-trigger')).toBeDisabled();
       fireEvent.click(screen.getByTestId('share-location-trigger'));
       expect(onSend).not.toHaveBeenCalled();
@@ -512,6 +536,8 @@ describe('MessageInput', () => {
         />
       );
 
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-location'));
       expect(screen.getByTestId('share-location-trigger')).toBeDisabled();
     });
 
@@ -531,7 +557,8 @@ describe('MessageInput', () => {
         ref.current?.startReply('Alice', 'hello world');
       });
 
-      fireEvent.click(screen.getByTestId('gif-picker-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-gif'));
       fireEvent.change(screen.getByLabelText(i18n.t('chat.gifPaste')), {
         target: { value: 'g:xyz99' },
       });

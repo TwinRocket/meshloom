@@ -287,7 +287,7 @@ describe('MessageList channel sender rendering', () => {
     );
 
     expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.getByTestId('contact-avatar')).toHaveAttribute('data-avatar-text', 'Alic');
   });
 
   it('renders room-server DM messages using stored sender attribution instead of the room contact', () => {
@@ -862,6 +862,28 @@ describe('MessageList Open reactions and replies', () => {
     await user.click(screen.getByRole('menuitem', { name: i18n.t('messageList.reply') }));
 
     expect(onSenderClick).toHaveBeenCalledWith('Alice', 'hello world');
+  });
+
+  it('copies the message text from the action menu', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      <MessageList
+        messages={[createMessage({ sender_name: 'Alice' })]}
+        contacts={[]}
+        loading={false}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: i18n.t('messageList.actions') }));
+    await user.click(screen.getByRole('menuitem', { name: i18n.t('messageList.copy') }));
+
+    expect(writeText).toHaveBeenCalledWith('hello world');
   });
 
   it('does not offer react or reply on outgoing messages', async () => {

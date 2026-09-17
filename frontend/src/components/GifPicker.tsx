@@ -14,8 +14,9 @@ interface GiphyResult {
 
 interface GifPickerProps {
   onSelect: (gifId: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
   disabled?: boolean;
+  embedded?: boolean;
 }
 
 async function fetchGiphy(query: string, apiKey: string): Promise<GiphyResult[]> {
@@ -49,7 +50,12 @@ async function fetchGiphy(query: string, apiKey: string): Promise<GiphyResult[]>
   });
 }
 
-export function GifPicker({ onSelect, onClose, disabled = false }: GifPickerProps) {
+export function GifPicker({
+  onSelect,
+  onClose,
+  disabled = false,
+  embedded = false,
+}: GifPickerProps) {
   const { t } = useTranslation();
   const apiKey = useMemo(() => getSavedGiphyApiKey(), []);
   const [query, setQuery] = useState('');
@@ -108,21 +114,29 @@ export function GifPicker({ onSelect, onClose, disabled = false }: GifPickerProp
   return (
     <div
       data-testid="gif-picker"
-      className="absolute inset-x-0 bottom-full z-40 mb-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg"
+      className={
+        embedded
+          ? undefined
+          : 'absolute inset-x-0 bottom-full z-40 mb-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg'
+      }
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <p className="min-w-0 flex-1 text-sm font-semibold">{t('chat.gifPicker')}</p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 flex-shrink-0"
-          aria-label={t('chat.gifClose')}
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+      {!embedded && (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <p className="min-w-0 flex-1 text-sm font-semibold">{t('chat.gifPicker')}</p>
+          {onClose && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 flex-shrink-0"
+              aria-label={t('chat.gifClose')}
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      )}
       <div className="space-y-2 p-3">
         <Input
           ref={searchRef}

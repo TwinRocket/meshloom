@@ -455,7 +455,7 @@ export function ConversationPane({
               placeholder={
                 !health?.radio_connected
                   ? t('chat.radioNotConnected')
-                  : t('chat.messageTo', { name: activeConversation.name })
+                  : t('chat.messagePlaceholder')
               }
             />
           ) : null}

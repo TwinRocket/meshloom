@@ -8,15 +8,13 @@ import {
   useMemo,
   type ChangeEvent,
   type FormEvent,
-  type KeyboardEvent,
 } from 'react';
-import { MapPin, Plus, Send, Smile, Sticker, X } from 'lucide-react';
+import { Send, Smile, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
 import { cn } from '@/lib/utils';
-import { ComposerEmojiPicker } from './ComposerEmojiPicker';
-import { GifPicker } from './GifPicker';
+import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
 import {
   getTextReplaceEnabled,
   getTextReplaceMapJson,
@@ -94,11 +92,9 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   const [text, setText] = useState('');
   const [replyQuote, setReplyQuote] = useState<{ sender: string; quote: string } | null>(null);
   const [sending, setSending] = useState(false);
-  const [composerPanel, setComposerPanel] = useState<'gif' | 'emoji' | null>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [composerPanel, setComposerPanel] = useState<ComposerAttachTab | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
   const textRef = useRef(text);
   textRef.current = text;
   const draftIdentity = draftIdentityOf(conversationType, conversationId);
@@ -149,7 +145,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       setText('');
       setReplyQuote(null);
       setComposerPanel(null);
-      setMoreOpen(false);
       return;
     }
     const loaded = loadConversationDraft(next.type, next.id);
@@ -157,7 +152,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     textRef.current = loaded;
     setReplyQuote(null);
     setComposerPanel(null);
-    setMoreOpen(false);
   }, [conversationType, conversationId]);
 
   useEffect(() => {
@@ -245,8 +239,10 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       } finally {
         setSending(false);
       }
-      // Refocus after React re-enables the textarea
-      setTimeout(() => textareaRef.current?.focus(), 0);
+      // Keep the mobile keyboard open: never blur this field to send.
+      textareaRef.current?.focus();
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
     },
     [text, sending, disabled, limitState, onSend, draftIdentity, t]
   );
@@ -291,17 +287,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     [persistDraft]
   );
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSubmit(e as unknown as FormEvent);
-      }
-      // Shift+Enter falls through naturally and inserts a newline
-    },
-    [handleSubmit]
-  );
-
   const sendPayload = useCallback(
     async (wire: string) => {
       if (sending || disabled) return;
@@ -344,7 +329,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   );
 
   const sendLocation = useCallback(() => {
-    setMoreOpen(false);
+    setComposerPanel(null);
     const wire = formatLocation(radioLat ?? 0, radioLon ?? 0, senderName || 'pin');
     if (!wire) {
       toast.error(t('share.noLocation'));
@@ -377,24 +362,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [composerPanel]);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (target && moreMenuRef.current?.contains(target)) return;
-      setMoreOpen(false);
-    };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setMoreOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [moreOpen]);
 
   const canSubmit = text.trim().length > 0 && limitState !== 'error';
 
@@ -430,93 +397,37 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         </div>
       )}
       <div ref={pickerRef} className="relative flex gap-2 items-end">
-        {composerPanel === 'gif' && (
-          <GifPicker
-            onSelect={(gifId) => {
+        {composerPanel && (
+          <ComposerAttachPicker
+            tab={composerPanel}
+            onTabChange={setComposerPanel}
+            onSelectEmoji={insertEmoji}
+            onSelectGif={(gifId) => {
               void sendPayload(formatGif(gifId));
             }}
+            onSendLocation={sendLocation}
             onClose={() => setComposerPanel(null)}
             disabled={disabled || sending}
+            hasShareableLocation={hasShareableLocation}
+            locationLabel={senderName}
           />
         )}
-        {composerPanel === 'emoji' && (
-          <ComposerEmojiPicker
-            onSelect={insertEmoji}
-            onClose={() => setComposerPanel(null)}
-            disabled={disabled || sending}
-          />
-        )}
-        <div ref={moreMenuRef} className="relative flex-shrink-0 sm:contents">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 sm:hidden"
-            aria-label={t('chat.more')}
-            aria-expanded={moreOpen}
-            data-testid="composer-more-trigger"
-            disabled={disabled || sending}
-            onClick={() => {
-              setMoreOpen((open) => !open);
-              setComposerPanel(null);
-            }}
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
-          <div
-            className={cn(
-              moreOpen
-                ? 'absolute bottom-full left-0 z-20 mb-1 flex items-center gap-0.5 rounded-md border border-border bg-background p-1 shadow-md'
-                : 'hidden',
-              'sm:contents'
-            )}
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 flex-shrink-0"
-              aria-label={t('chat.emoji')}
-              aria-expanded={composerPanel === 'emoji'}
-              data-testid="emoji-picker-trigger"
-              disabled={disabled || sending}
-              onClick={() => {
-                setMoreOpen(false);
-                setComposerPanel((open) => (open === 'emoji' ? null : 'emoji'));
-              }}
-            >
-              <Smile className="h-5 w-5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 flex-shrink-0"
-              aria-label={t('chat.gif')}
-              aria-expanded={composerPanel === 'gif'}
-              data-testid="gif-picker-trigger"
-              disabled={disabled || sending}
-              onClick={() => {
-                setMoreOpen(false);
-                setComposerPanel((open) => (open === 'gif' ? null : 'gif'));
-              }}
-            >
-              <Sticker className="h-5 w-5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 flex-shrink-0"
-              aria-label={t('share.shareLocation')}
-              data-testid="share-location-trigger"
-              disabled={disabled || sending || !hasShareableLocation}
-              onClick={sendLocation}
-            >
-              <MapPin className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10 flex-shrink-0"
+          aria-label={t('chat.attach')}
+          aria-expanded={composerPanel !== null}
+          data-testid="composer-attach-trigger"
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setComposerPanel((open) => (open ? null : 'emoji'));
+          }}
+        >
+          <Smile className="h-5 w-5" />
+        </Button>
         <textarea
           ref={textareaRef}
           name="chat-message-input"
@@ -527,10 +438,9 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           rows={1}
           value={text}
           onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder || t('chat.typeMessagePlaceholder')}
-          disabled={disabled || sending}
-          enterKeyHint="send"
+          placeholder={placeholder || t('chat.messagePlaceholder')}
+          disabled={disabled}
+          enterKeyHint="enter"
           className={cn(
             'flex-1 min-w-0 resize-none overflow-y-auto',
             // A filled pill rather than an outlined box: the field is already
@@ -542,11 +452,6 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           )}
           style={{ minHeight: '40px', maxHeight: '160px' }}
         />
-        {/* On a phone it appears with the text and not before: an empty field has
-            nothing to send, and a permanent button takes width from the field while
-            claiming to be the way to send — which the keyboard's return key already
-            is. Desktop keeps it at all times, disabled when empty, because a pointer
-            has no return key under its thumb. */}
         <Button
           type="submit"
           disabled={disabled || sending || !canSubmit}
@@ -555,6 +460,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             !canSubmit && 'hidden md:inline-flex'
           )}
           aria-label={sending ? t('chat.sending') : t('chat.send')}
+          onMouseDown={(event) => event.preventDefault()}
         >
           <Send className="h-4 w-4 sm:hidden" aria-hidden="true" />
           <span className="hidden sm:inline">{sending ? t('chat.sending') : t('chat.send')}</span>

@@ -58,6 +58,7 @@ import {
 import { handleKeyboardActivate } from '../utils/a11y';
 import {
   ChevronDown,
+  Copy,
   Info,
   MapPin,
   Plus,
@@ -209,10 +210,12 @@ function MessageActionMenu({
   canReply,
   canOpenContact,
   replyLabel,
+  copyLabel,
   contactLabel,
   detailsLabel,
   deleteLabel,
   onReply,
+  onCopy,
   onContact,
   onDetails,
   onDelete,
@@ -221,10 +224,12 @@ function MessageActionMenu({
   canReply: boolean;
   canOpenContact: boolean;
   replyLabel: string;
+  copyLabel: string;
   contactLabel: string;
   detailsLabel: string;
   deleteLabel: string;
   onReply: () => void;
+  onCopy: () => void;
   onContact: () => void;
   onDetails: () => void;
   onDelete: () => void;
@@ -237,6 +242,7 @@ function MessageActionMenu({
       className="absolute right-0 top-7 z-50 w-52 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
     >
       {canReply && <MessageActionMenuItem icon={Reply} label={replyLabel} onSelect={onReply} />}
+      <MessageActionMenuItem icon={Copy} label={copyLabel} onSelect={onCopy} />
       {canOpenContact && (
         <MessageActionMenuItem icon={User} label={contactLabel} onSelect={onContact} />
       )}
@@ -1706,11 +1712,19 @@ export function MessageList({
                         canReply={canReply && Boolean(replyName)}
                         canOpenContact={canOpenContact}
                         replyLabel={t('messageList.reply')}
+                        copyLabel={t('messageList.copy')}
                         contactLabel={t('messageList.contactInfo')}
                         detailsLabel={t('messageList.messageDetails')}
                         deleteLabel={t('messageList.delete')}
                         onReply={() => {
                           if (replyName) onSenderClick?.(replyName, content);
+                          setOpenActionsId(null);
+                        }}
+                        onCopy={() => {
+                          void navigator.clipboard.writeText(content).then(
+                            () => toast.success(t('messageList.copied')),
+                            () => toast.error(t('messageList.copyFailed'))
+                          );
                           setOpenActionsId(null);
                         }}
                         onContact={() => {

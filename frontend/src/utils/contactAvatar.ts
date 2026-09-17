@@ -37,51 +37,73 @@ export function hashString(str: string): number {
 const emojiRegex =
   /[\u{1F1E0}-\u{1F1FF}]{2}|[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]/u;
 
+const MAX_MONOGRAM = 4;
+const WORD_RUN = /\p{L}+/gu;
+
+function graphemesOf(value: string): string[] {
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(
+      (part) => part.segment
+    );
+  }
+  return Array.from(value);
+}
+
+function titleCaseWord(word: string): string {
+  const chars = graphemesOf(word);
+  if (chars.length === 0) return '';
+  return chars[0].toLocaleUpperCase() + chars.slice(1).join('').toLocaleLowerCase();
+}
+
+function fallbackKeyText(publicKey: string): string {
+  return publicKey.slice(0, MAX_MONOGRAM).toUpperCase();
+}
+
 /**
- * Extract display characters from a contact name.
- * Priority:
- * 1. First emoji in the name
- * 2. First letter + first letter after first space (initials)
- * 3. First letter only
+ * Build a 1–4 letter monogram from a contact or channel name.
+ * One word: the first 3–4 letters (`Public` → `Publ`, `Paca` → `Paca`).
+ * A short first word borrows from the next (`Jo Doe` → `JoDo`).
  */
 function getAvatarText(name: string | null, publicKey: string): string {
   if (!name) {
-    // Use first 2 chars of public key as fallback
-    return publicKey.slice(0, 2).toUpperCase();
+    return fallbackKeyText(publicKey);
   }
 
   // Hashtag channels are named "#meshloom": the marker is not part of the identity.
   const displayName = name.replace(/#/g, '').trim();
   if (!displayName) {
-    return publicKey.slice(0, 2).toUpperCase();
+    return fallbackKeyText(publicKey);
   }
 
-  // Check for emoji first
   const emojiMatch = displayName.match(emojiRegex);
   if (emojiMatch) {
     return emojiMatch[0];
   }
 
-  // Find first letter
-  const letters = displayName.match(/[a-zA-Z]/g);
-  if (!letters || letters.length === 0) {
-    // No letters, use first 2 chars of public key
-    return publicKey.slice(0, 2).toUpperCase();
+  const words = displayName.match(WORD_RUN) ?? [];
+  if (words.length === 0) {
+    return fallbackKeyText(publicKey);
   }
 
-  // Check for space - get initials
-  const spaceIndex = displayName.indexOf(' ');
-  if (spaceIndex !== -1) {
-    const firstLetter = letters[0];
-    // Find first letter after the space
-    const afterSpace = displayName.slice(spaceIndex + 1).match(/[a-zA-Z]/);
-    if (afterSpace) {
-      return (firstLetter + afterSpace[0]).toUpperCase();
-    }
+  const first = words[0];
+  if (graphemesOf(first).length >= 3) {
+    return titleCaseWord(graphemesOf(first).slice(0, MAX_MONOGRAM).join(''));
   }
 
-  // Single letter
-  return letters[0].toUpperCase();
+  const chunks = [titleCaseWord(first)];
+  let used = graphemesOf(first).length;
+  for (const word of words.slice(1)) {
+    if (used >= MAX_MONOGRAM) break;
+    const take = graphemesOf(word).slice(0, MAX_MONOGRAM - used);
+    chunks.push(titleCaseWord(take.join('')));
+    used += take.length;
+  }
+  return chunks.join('') || fallbackKeyText(publicKey);
+}
+
+export function splitAvatarMonogram(text: string): { lead: string; rest: string } {
+  const chars = graphemesOf(text);
+  return { lead: chars[0] ?? '', rest: chars.slice(1).join('') };
 }
 
 /**
