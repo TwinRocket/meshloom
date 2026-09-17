@@ -155,15 +155,19 @@ async def apply_updates() -> UpdateStatusResponse:
 
 @router.patch("/updates/settings", response_model=UpdateStatusResponse)
 async def patch_update_settings(body: UpdateSettingsPatch) -> UpdateStatusResponse:
-    kwargs: dict[str, object] = {}
-    if body.auto_update is not None:
-        kwargs["auto_update"] = body.auto_update
-    if body.auto_update_window_start is not None:
-        kwargs["auto_update_window_start"] = body.auto_update_window_start
-    if body.auto_update_window_end is not None:
-        kwargs["auto_update_window_end"] = body.auto_update_window_end
-    if body.auto_update_weekdays is not None:
-        kwargs["auto_update_weekdays"] = body.auto_update_weekdays
-    if kwargs:
-        await AppSettingsRepository.update(**kwargs)
+    if any(
+        value is not None
+        for value in (
+            body.auto_update,
+            body.auto_update_window_start,
+            body.auto_update_window_end,
+            body.auto_update_weekdays,
+        )
+    ):
+        await AppSettingsRepository.update(
+            auto_update=body.auto_update,
+            auto_update_window_start=body.auto_update_window_start,
+            auto_update_window_end=body.auto_update_window_end,
+            auto_update_weekdays=body.auto_update_weekdays,
+        )
     return await build_update_status()
