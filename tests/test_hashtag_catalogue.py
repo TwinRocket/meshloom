@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from app.data import meshcore_channels
 from app.data.meshcore_channels import (
@@ -301,6 +302,35 @@ class TestSampleQueueUpload:
         assert opened_again == []
         sample_calls = [c for c in calls if c == ("POST", "/v1/hashtags/samples")]
         assert len(sample_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_sample_quota_does_not_retry_same_hour(self, test_db):
+        name = "unknown-sample-quota-xyz"
+        key = hashtag_key_from_name(name)
+        raw = _group_text_packet(key, int(time.time()), "Bob: still locked")
+        await _store_unknown(raw)
+        await update_community(enabled=True, iata="BOD")
+
+        calls: list[tuple[str, str]] = []
+
+        async def fake_stats(method: str, path: str, **kwargs):
+            calls.append((method, path))
+            if path == "/v1/hashtags/samples":
+                raise HTTPException(
+                    status_code=429, detail="Stats hashtag sample quota reached"
+                )
+            return {"hashtags": []}
+
+        with patch(
+            "app.services.meshloom_community.stats_json", new=AsyncMock(side_effect=fake_stats)
+        ):
+            opened = await run_catalogue_pass()
+            opened_again = await run_catalogue_pass()
+
+        assert opened == []
+        assert opened_again == []
+        sample_calls = [c for c in calls if c == ("POST", "/v1/hashtags/samples")]
+        assert len(sample_calls) == 1
 
 
 class TestCreateDoesNotNotify:

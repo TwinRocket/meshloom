@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -36,6 +37,24 @@ _AIRPORT_QUERY_MAX = 48
 _AIRPORT_HITS_MAX = 12
 _STATS_TIMEOUT_SECONDS = 8.0
 _PLACEHOLDER_HOST_SUFFIX = ".example.invalid"
+# Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
+# window has elapsed instead of retrying every catalogue pass.
+SAMPLE_QUOTA_BACKOFF_SECONDS = 3600.0
+_IATA_CHANGE_CAP_DETAIL = "Stats IATA change cap reached"
+_SAMPLE_QUOTA_DETAIL = "Stats hashtag sample quota reached"
+_HASHTAG_WRITE_QUOTA_DETAIL = "Stats hashtag write quota reached"
+_GENERIC_RATE_LIMIT_DETAIL = "Stats rate limit reached"
+_STATS_429_BY_DETAIL = {
+    "IATA change cap exceeded": _IATA_CHANGE_CAP_DETAIL,
+    "hashtag sample quota": _SAMPLE_QUOTA_DETAIL,
+    "hashtag write quota": _HASHTAG_WRITE_QUOTA_DETAIL,
+}
+_STATS_429_BY_PATH = {
+    "/v1/me/iata": _IATA_CHANGE_CAP_DETAIL,
+    "/v1/hashtags/samples": _SAMPLE_QUOTA_DETAIL,
+    "/v1/me/hashtags": _HASHTAG_WRITE_QUOTA_DETAIL,
+}
+_sample_quota_until = 0.0
 
 
 def _env_raw(name: str) -> str:
@@ -283,15 +302,41 @@ def _path_requires_iata(path: str) -> bool:
     return path.startswith("/v1/me/") or path == "/v1/hashtags/samples"
 
 
+def sample_quota_blocked(*, now: float | None = None) -> bool:
+    return (time.monotonic() if now is None else now) < _sample_quota_until
+
+
+def note_sample_quota(*, now: float | None = None) -> None:
+    global _sample_quota_until
+    current = time.monotonic() if now is None else now
+    _sample_quota_until = current + SAMPLE_QUOTA_BACKOFF_SECONDS
+
+
+def reset_stats_client_for_tests() -> None:
+    global _sample_quota_until
+    _sample_quota_until = 0.0
+
+
+def _is_quota_http(exc: BaseException) -> bool:
+    return isinstance(exc, HTTPException) and exc.status_code == 429
+
+
 async def _put_hashtag_names(names: list[str]) -> None:
     try:
         await stats_json("PUT", "/v1/me/hashtags", auth=True, json_body={"names": names})
+    except HTTPException as exc:
+        if _is_quota_http(exc):
+            logger.info("Community hashtag name publish skipped: Stats quota")
+            return
+        logger.info("Community hashtag name publish skipped", exc_info=True)
     except Exception:
         logger.info("Community hashtag name publish skipped", exc_info=True)
 
 
 async def upload_hashtag_sample(hash_byte: str, payload_hex: str) -> bool:
     """POST /v1/hashtags/samples. True only if stats_json succeeded. Never raises."""
+    if sample_quota_blocked():
+        return False
     try:
         await stats_json(
             "POST",
@@ -299,6 +344,13 @@ async def upload_hashtag_sample(hash_byte: str, payload_hex: str) -> bool:
             auth=True,
             json_body={"hash_byte": hash_byte, "payload_hex": payload_hex},
         )
+    except HTTPException as exc:
+        if _is_quota_http(exc):
+            note_sample_quota()
+            logger.info("Community hashtag sample upload skipped: Stats sample quota")
+            return False
+        logger.info("Community hashtag sample upload skipped", exc_info=True)
+        return False
     except Exception:
         logger.info("Community hashtag sample upload skipped", exc_info=True)
         return False
@@ -493,9 +545,28 @@ async def stats_request(
         raise HTTPException(status_code=500, detail="Stats request failed") from exc
 
 
+def _response_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    raw = payload.get("detail")
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def _stats_429_message(path: str, response: httpx.Response) -> str:
+    """Map Stats 429s. IATA cap is only PUT /v1/me/iata; samples are a quota."""
+    mapped = _STATS_429_BY_DETAIL.get(_response_detail(response))
+    if mapped:
+        return mapped
+    return _STATS_429_BY_PATH.get(path, _GENERIC_RATE_LIMIT_DETAIL)
+
+
 def _json_or_500(response: httpx.Response, *, path: str) -> object:
     if response.status_code == 429:
-        raise HTTPException(status_code=429, detail="Stats IATA change cap reached")
+        raise HTTPException(status_code=429, detail=_stats_429_message(path, response))
     if response.status_code == 401:
         raise HTTPException(status_code=502, detail="Stats rejected the radio token")
     if response.status_code == 400:

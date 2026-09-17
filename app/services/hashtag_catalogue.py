@@ -23,6 +23,8 @@ from app.repository.raw_packets import RawPacketRepository
 from app.repository.settings import AppSettingsRepository
 from app.services.meshloom_community import (
     get_community_effective,
+    reset_stats_client_for_tests,
+    sample_quota_blocked,
     schedule_hashtag_names_publish,
     upload_hashtag_sample,
 )
@@ -185,6 +187,8 @@ async def _upload_unknown_samples(
     resolved_bytes: set[str],
 ) -> None:
     """One Stats upsert per hash_byte after bundled + resolve + MAC fail."""
+    if sample_quota_blocked():
+        return
     for hb in remaining:
         if hb in resolved_bytes or hb in _uploaded_hash_bytes:
             continue
@@ -193,6 +197,8 @@ async def _upload_unknown_samples(
             continue
         if await upload_hashtag_sample(hb, payload_hex):
             _uploaded_hash_bytes.add(hb)
+        elif sample_quota_blocked():
+            return
 
 
 async def run_catalogue_pass() -> list[str]:
@@ -293,3 +299,4 @@ async def reset_for_tests() -> None:
     global _uploaded_hash_bytes
     await stop_hashtag_catalogue_polling()
     _uploaded_hash_bytes = set()
+    reset_stats_client_for_tests()

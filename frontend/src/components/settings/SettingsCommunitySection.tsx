@@ -235,7 +235,7 @@ export function SettingsCommunitySection({
   }, [status, loadStats]);
 
   const handleCommunityError = (err: unknown) => {
-    if (err instanceof ApiError && err.status === 429) {
+    if (err instanceof ApiError && err.status === 429 && err.message.includes('IATA')) {
       toast.error(t('settings.community.iataChangeCap'));
       return;
     }

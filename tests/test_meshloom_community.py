@@ -37,12 +37,16 @@ from app.services.meshloom_community import (
     MQTT_KEEPALIVE_SECONDS,
     SYSTEM_MESHLOOM_STATS_ID,
     CommunityEffective,
+    _json_or_500,
     get_community_effective,
     mint_stats_jwt,
+    reset_stats_client_for_tests,
+    sample_quota_blocked,
     seed_community_from_env,
     stats_request,
     unwrap_directory_envelope,
     update_community,
+    upload_hashtag_sample,
 )
 
 
@@ -294,6 +298,66 @@ class TestJwtIataClaim:
         mint.assert_called_once()
         assert mint.call_args.kwargs["require_iata"] is True
         assert mint.call_args.kwargs["iata"] == "BOD"
+
+
+def _stats_response(status_code: int, detail: object | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    if detail is None:
+        response.json.side_effect = ValueError("not json")
+    else:
+        response.json.return_value = {"detail": detail}
+    return response
+
+
+class TestStats429Mapping:
+    def test_sample_quota_is_not_iata_cap(self):
+        with pytest.raises(HTTPException) as exc:
+            _json_or_500(
+                _stats_response(429, "hashtag sample quota"),
+                path="/v1/hashtags/samples",
+            )
+        assert exc.value.status_code == 429
+        assert exc.value.detail == "Stats hashtag sample quota reached"
+
+    def test_iata_cap_keeps_existing_message(self):
+        with pytest.raises(HTTPException) as exc:
+            _json_or_500(
+                _stats_response(429, "IATA change cap exceeded"),
+                path="/v1/me/iata",
+            )
+        assert exc.value.detail == "Stats IATA change cap reached"
+
+    def test_unknown_429_is_generic_not_iata(self):
+        with pytest.raises(HTTPException) as exc:
+            _json_or_500(
+                _stats_response(429, "public stats rate limit"),
+                path="/v1/community/stats",
+            )
+        assert exc.value.detail == "Stats rate limit reached"
+
+    def test_sample_path_fallback_when_body_missing(self):
+        with pytest.raises(HTTPException) as exc:
+            _json_or_500(_stats_response(429), path="/v1/hashtags/samples")
+        assert exc.value.detail == "Stats hashtag sample quota reached"
+
+
+class TestSampleQuotaBackoff:
+    @pytest.mark.asyncio
+    async def test_sample_429_skips_later_uploads_without_http(self):
+        reset_stats_client_for_tests()
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(
+                side_effect=HTTPException(
+                    status_code=429, detail="Stats hashtag sample quota reached"
+                )
+            ),
+        ) as stats:
+            assert await upload_hashtag_sample("ab", "ab001122") is False
+            assert sample_quota_blocked()
+            assert await upload_hashtag_sample("cd", "cd001122") is False
+        assert stats.await_count == 1
 
 
 class TestPublisherRequiresIata:
