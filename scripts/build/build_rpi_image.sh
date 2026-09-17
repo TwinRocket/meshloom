@@ -105,17 +105,14 @@ write_meshloom_apt_source() {
     local key="$dest_root/etc/apt/keyrings/meshloom.gpg"
     local list="$dest_root/etc/apt/sources.list.d/meshloom.list"
     mkdir -p "$dest_root/etc/apt/keyrings" "$dest_root/etc/apt/sources.list.d"
+    # Never fetch the key from Pages during bake. That URL 404s until the
+    # linux-repo job has run, and a GITHUB_TOKEN release does not start it.
     if [ -n "${MESHLOOM_GPG_KEY:-}" ] && [ -f "$MESHLOOM_GPG_KEY" ]; then
         install -m 0644 "$MESHLOOM_GPG_KEY" "$key"
         echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] ${pages}/apt stable main" >"$list"
         return
     fi
-    if curl -fsSL "${pages}/meshloom.gpg" -o "$key"; then
-        echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] ${pages}/apt stable main" >"$list"
-        return
-    fi
-    rm -f "$key"
-    echo "[rpi] Meshloom apt key is not on Pages yet; writing an unsigned source."
+    echo "[rpi] Writing an unsigned Meshloom apt source (no local GPG key)."
     echo "deb [trusted=yes] ${pages}/apt stable main" >"$list"
 }
 
@@ -217,9 +214,7 @@ install -D -m 0755 "$RPI_DIR/meshloom-console" "$ROOTMNT/usr/lib/meshloom/meshlo
 install -D -m 0644 "$RPI_DIR/meshloom-console.service" \
     "$ROOTMNT/usr/lib/systemd/system/meshloom-console.service"
 
-# Apt source for later UI upgrades. Pages is often empty on the first TwinRocket
-# release (the on.release repo job never starts from a GITHUB_TOKEN publish), so
-# a missing key must not fail the bake. Same fallback as scripts/setup/install.sh.
+# Apt source for later UI upgrades. Do not probe Pages here.
 write_meshloom_apt_source "$ROOTMNT"
 
 # Do not set MESHLOOM_COMMUNITY — new databases join Community by default.
