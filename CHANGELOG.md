@@ -1,3 +1,43 @@
+## [Unreleased]
+
+Settings → About can install a new Meshloom release on package and installer-managed Docker installs, and a Raspberry Pi Lite 64-bit image ships with Meshloom already on the card.
+
+### What's new
+
+- **Install from About.** When the apply helper is present, a package or installer Docker node can pull the next Meshloom release from the UI. Automatic updates stay off until you turn them on. That path upgrades Meshloom only — never a silent `apt upgrade` of the OS.
+- **A Raspberry Pi image.** Flash `meshloom-rpi-lite-arm64.img.xz` (Pi 3 and later, 64-bit). First boot works offline. Set Wi-Fi, user, and SSH in Raspberry Pi Imager 2.0.6+. A screen shows `http://meshloom.local:8000`.
+- **Honest recipes when apply is not available.** Home Assistant: update the add-on there. Other installs without a helper: update Meshloom by hand, or re-run the installer so it can install the missing helper.
+
+### Under the hood
+
+- `GET/POST/PATCH /api/updates` now carry `install_kind`, `apply_supported`, `auto_update`, and a phased helper `job`. The `.deb` ships `apply-update` + `meshloom-update.service` + polkit. Docker installs write a host path unit instead of mounting `docker.sock`.
+
+### Upgrading
+
+Package and installer Docker nodes pick this up on the next upgrade. Older nodes that re-run the one-liner get the helper if it was missing. The Pi image is a new artifact on the GitHub release.
+
+---
+
+### Français
+
+Réglages → À propos peut installer une nouvelle release Meshloom sur une install paquet ou Docker gérée par l’installateur, et une image Raspberry Pi Lite 64-bit embarque déjà Meshloom.
+
+#### Nouveautés
+
+- **Installer depuis À propos.** Quand le helper est présent, un nœud paquet ou Docker installateur peut tirer la prochaine release Meshloom depuis l’UI. Les mises à jour automatiques restent éteintes tant que vous ne les activez pas. Ce chemin ne met à jour que Meshloom — jamais un `apt upgrade` silencieux du système.
+- **Une image Raspberry Pi.** Flashez `meshloom-rpi-lite-arm64.img.xz` (Pi 3 et plus, 64-bit). Le premier démarrage marche hors ligne. Wi-Fi, utilisateur et SSH se règlent dans Raspberry Pi Imager 2.0.6+. Un écran affiche `http://meshloom.local:8000`.
+- **Recettes honnêtes sans helper.** Home Assistant : mettez à jour l’add-on là-bas. Les autres installs sans helper : mettez à jour Meshloom à la main, ou relancez l’installateur pour qu’il pose le helper manquant.
+
+#### Sous le capot
+
+- `GET/POST/PATCH /api/updates` portent maintenant `install_kind`, `apply_supported`, `auto_update`, et un `job` de helper par phases. Le `.deb` livre `apply-update` + `meshloom-update.service` + polkit. Les installs Docker écrivent une path unit hôte au lieu de monter `docker.sock`.
+
+#### Mise à jour
+
+Les nœuds paquet et Docker installateur le reçoivent à la prochaine mise à jour. Un nœud plus ancien qui relance le one-liner récupère le helper s’il manquait. L’image Pi est un nouvel artifact sur la release GitHub.
+
+---
+
 ## [4.10.1] - 2026-09-16
 
 Publishing works again after the project moved to a new GitHub owner. No change to the application itself.

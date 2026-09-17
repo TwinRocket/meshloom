@@ -71,6 +71,8 @@ interface SettingsModalBaseProps {
   onCommunityStatusChange?: (status: CommunityStatus) => void;
   updates?: OssUpdateStatus | null;
   onOpenUpdate?: () => void;
+  onApplyUpdate?: () => void;
+  onAutoUpdateChange?: (enabled: boolean) => void;
 }
 
 export type SettingsModalProps = SettingsModalBaseProps &
@@ -117,6 +119,8 @@ export function SettingsModal(props: SettingsModalProps) {
     onCommunityStatusChange,
     updates,
     onOpenUpdate,
+    onApplyUpdate,
+    onAutoUpdateChange,
   } = props;
   const { t } = useTranslation();
   const externalSidebarNav = props.externalSidebarNav === true;
@@ -392,6 +396,8 @@ export function SettingsModal(props: SettingsModalProps) {
               className={sectionContentClass}
               updates={updates}
               onOpenUpdate={onOpenUpdate}
+              onApply={onApplyUpdate}
+              onAutoUpdate={onAutoUpdateChange}
             />
           )}
         </section>

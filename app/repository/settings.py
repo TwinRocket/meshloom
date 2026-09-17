@@ -112,7 +112,7 @@ class AppSettingsRepository:
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
                    stale_contact_days, telemetry_alert_rules,
-                   ui_preferences
+                   ui_preferences, auto_update
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -232,6 +232,11 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             telemetry_alert_rules = TelemetryAlertRules()
 
+        try:
+            auto_update = bool(row["auto_update"])
+        except (KeyError, TypeError):
+            auto_update = False
+
         return AppSettings(
             max_radio_contacts=row["max_radio_contacts"],
             auto_decrypt_dm_on_advert=bool(row["auto_decrypt_dm_on_advert"]),
@@ -251,6 +256,7 @@ class AppSettingsRepository:
             telemetry_routed_hourly=telemetry_routed_hourly,
             stale_contact_days=stale_contact_days,
             telemetry_alert_rules=telemetry_alert_rules,
+            auto_update=auto_update,
         )
 
     @staticmethod
@@ -275,6 +281,7 @@ class AppSettingsRepository:
         stale_contact_days: int | None = None,
         telemetry_alert_rules: TelemetryAlertRules | None = None,
         ui_preferences: UiPreferences | None = None,
+        auto_update: bool | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -362,6 +369,10 @@ class AppSettingsRepository:
             updates.append("telemetry_alert_rules = ?")
             params.append(merged.model_dump_json())
 
+        if auto_update is not None:
+            updates.append("auto_update = ?")
+            params.append(1 if auto_update else 0)
+
         if updates:
             query = f"UPDATE app_settings SET {', '.join(updates)} WHERE id = 1"
             async with conn.execute(query, params):
@@ -396,6 +407,7 @@ class AppSettingsRepository:
         stale_contact_days: int | None = None,
         telemetry_alert_rules: TelemetryAlertRules | None = None,
         ui_preferences: UiPreferences | None = None,
+        auto_update: bool | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -419,6 +431,7 @@ class AppSettingsRepository:
                 telemetry_routed_hourly=telemetry_routed_hourly,
                 stale_contact_days=stale_contact_days,
                 telemetry_alert_rules=telemetry_alert_rules,
+                auto_update=auto_update,
             )
             return await AppSettingsRepository._get_in_conn(conn)
 

@@ -798,7 +798,10 @@
       "debugSnapshot": "Open debug support snapshot",
       "updateAvailable": "Update available",
       "updateAvailableHelp": "This node is v{{current}}. Latest published release is v{{latest}}.",
-      "showInstructions": "How to upgrade"
+      "showInstructions": "How to upgrade",
+      "install": "Install",
+      "autoUpdate": "Install updates automatically",
+      "autoUpdateHelp": "When a new release is published, Meshloom installs it on this node."
     },
     "fanout": {
       "types": {
@@ -2443,13 +2446,29 @@
   "updates": {
     "title": "Update available",
     "help": "A newer Meshloom release is published. Use the recipe that matches how you installed.",
+    "helpApply": "A newer Meshloom release is published. Install it on this node.",
     "current": "This node",
     "latest": "Latest",
     "packagesTitle": "Linux package",
     "dockerTitle": "Docker Compose",
     "changelog": "Release notes",
     "close": "Close",
-    "badgeLabel": "Update available"
+    "badgeLabel": "Update available",
+    "addonManual": "Please update via Home Assistant",
+    "manual": "You must update Meshloom manually",
+    "install": "Install",
+    "autoUpdate": "Install updates automatically",
+    "autoUpdateHelp": "When a new release is published, Meshloom installs it on this node.",
+    "progressTitle": "Installing update",
+    "failed": "Update failed",
+    "restartTimeout": "The node did not come back with the new version.",
+    "phase": {
+      "preparing": "Preparing",
+      "downloading": "Downloading",
+      "installing": "Installing",
+      "restarting": "Restarting",
+      "done": "Done"
+    }
   },
   "messagePreview": {
     "gif": "GIF",

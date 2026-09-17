@@ -1337,10 +1337,28 @@ export interface CommunityAirportHit {
   label: string;
 }
 
+export type OssUpdateInstallKind = 'package' | 'compose' | 'addon' | 'container' | 'source';
+
+export type OssUpdateJobState = 'idle' | 'applying' | 'succeeded' | 'failed';
+
+export type OssUpdateJobPhase = 'preparing' | 'downloading' | 'installing' | 'restarting' | 'done';
+
+export interface OssUpdateJob {
+  state: OssUpdateJobState;
+  phase: OssUpdateJobPhase | null;
+  percent: number | null;
+  error: string | null;
+  started_at: number | null;
+}
+
 /** Cached GET /api/updates — Stats catalogue, not GitHub from the browser. */
 export interface OssUpdateStatus {
   current: string;
   latest: string | null;
   update_available: boolean;
   html_url: string | null;
+  install_kind: OssUpdateInstallKind;
+  apply_supported: boolean;
+  auto_update: boolean;
+  job: OssUpdateJob;
 }

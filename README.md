@@ -24,6 +24,8 @@ On Linux the installer offers a native systemd service or Docker. Radio transpor
 
 Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**. A new install joins Meshloom Community unless you set `MESHLOOM_COMMUNITY=0`; leave or bind an IATA code under **Settings > Community**. User-facing docs live in [`docs/user/`](docs/user/) and are published at https://meshloom.app/docs/.
 
+A **Raspberry Pi** can skip the one-liner: flash `meshloom-rpi-lite-arm64.img.xz` from the release (Lite 64-bit, Pi 3 and later). Set Wi-Fi, user, and SSH in **Raspberry Pi Imager 2.0.6+**. A connected screen shows `http://meshloom.local:8000`. Details: [Raspberry Pi image](docs/user/en/rpi.md).
+
 From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/twinrocket/meshloom`. Portainer, HTTPS, systemd, and extra environment variables: [README_ADVANCED.md](README_ADVANCED.md).
 
 ### On Home Assistant
@@ -45,13 +47,17 @@ which works from any install and needs no add-on.
 
 ## Update
 
+On a package or installer-managed Docker install, **Settings → About** can install the new Meshloom release (optional automatic updates). That upgrades Meshloom only.
+
+Otherwise update by hand, or re-run the installer so it can install the apply helper if it is missing:
+
 ```bash
-sudo apt upgrade                          # Debian / Ubuntu
-sudo dnf upgrade                          # Fedora / Rocky / Alma
+sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu (Meshloom only)
+sudo dnf install meshloom                      # Fedora / Rocky / Alma
 sudo docker compose pull && sudo docker compose up -d
 ```
 
-The database stays in place (`/var/lib/meshloom` for the package, `./data` for Docker). Schema migrations run on startup.
+Home Assistant: update the add-on there. The database stays in place (`/var/lib/meshloom` for the package, `./data` for Docker). Schema migrations run on startup.
 
 ## More
 

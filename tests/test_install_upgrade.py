@@ -115,3 +115,15 @@ def test_upgrade_confirm_messages_are_present() -> None:
     assert "Mettre à jour de $1 vers $2 ?" in text
     assert "installer.conf" in text
     assert "MESHLOOM_LANG" in text
+
+
+def test_installer_writes_compose_kind_and_ensure_helper() -> None:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    assert "MESHLOOM_INSTALL_KIND: compose" in text
+    assert "MESHLOOM_UPDATE_HELPER: compose" in text
+    assert "MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json" in text
+    assert "ensure_update_helper package" in text
+    assert "ensure_update_helper compose" in text
+    assert "meshloom-compose-update.path" in text
+    assert "docker compose pull" in text
+    assert "apt upgrade" not in text or "apt-get install" in text

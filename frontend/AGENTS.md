@@ -66,6 +66,7 @@ frontend/src/
 │   ├── usePushSubscription.ts      # Web Push subscribe/unsubscribe, defaults, conversation overrides
 │   ├── useFaviconBadge.ts          # Browser tab unread badge state
 │   ├── useEntranceSettled.ts       # Defers entrance animation work until layout settles
+│   ├── useOssUpdates.ts            # OSS update status, apply/auto-update, job progress overlay
 │   └── useRememberedServerPassword.ts # Browser-local repeater/room password persistence
 ├── components/
 │   ├── AppShell.tsx            # App-shell layout: status, sidebar, search/settings panes, cracker, modals, security warning
@@ -162,7 +163,7 @@ frontend/src/
 │   │   ├── SettingsRadioAppSection.tsx    # Radio-App Management: tracked telemetry, contact management, blocked lists
 │   │   ├── SettingsDatabaseSection.tsx   # Database: DB size, storage cleanup, auto-decrypt
 │   │   ├── SettingsStatisticsSection.tsx # Read-only mesh network stats (incl. region-scope adoption)
-│   │   ├── SettingsAboutSection.tsx     # Version, author, license, links
+│   │   ├── SettingsAboutSection.tsx     # Version, author, license, links, apply vs manual recipes
 │   │   ├── ThemeSelector.tsx           # Color theme picker
 │   │   └── BulkDeleteContactsModal.tsx # Bulk contact deletion dialog
 │   ├── repeater/
@@ -416,6 +417,14 @@ Radio transport (`serial` / `tcp` / `ble`) is configured in the web UI and store
 - The advert action is mode-aware: the radio settings section exposes both flood and zero-hop manual advert buttons, both routed through the same `onAdvertise(mode)` seam.
 - Mesh discovery in the radio section is limited to node classes that currently answer discovery control-data requests in firmware: repeaters and sensors.
 - Frontend `path_len` fields are hop counts, not raw byte lengths; multibyte path rendering must use the accompanying metadata before splitting hop identifiers.
+
+### Settings updates (About)
+
+`GET /api/updates` is the catalogue + apply surface (not GitHub from the browser). Payload: `{ current, latest, update_available, html_url, install_kind, apply_supported, auto_update, job }` where `job` is `{ state, phase, percent, error, started_at }`. `POST /updates/apply` returns 202 with the same payload, or 409 `apply_not_supported` / `apply_in_progress`. `PATCH /updates/settings` `{ auto_update }` returns the same payload. Do not add `update_available` to `GET /health`; version lives on `app_info.version`.
+
+When `apply_supported`, Settings → About shows Install (only if `update_available`) plus an auto-update checkbox even with no update. The update dialog then has Install, auto-update, and the changelog link — no apt/docker recipes. Addon installs without apply say “Please update via Home Assistant” / “Veuillez mettre à jour via Home Assistant” and never show recipes. Container and source installs without apply say “You must update Meshloom manually” / “Vous devez mettre à jour Meshloom manuellement” and keep the apt/dnf/compose recipes.
+
+`useOssUpdates` polls `/updates` every 300s when idle and ~1.5s while `job.state===applying` or a local applying overlay is up. Install click stores `sessionStorage` `meshloom.updateTarget`. API downtime is treated as restarting and health is polled; when `app_info.version` or `updates.current` matches the target, the bar hits 100 for one frame then `location.reload()`. After reload the target is cleared. Old version for ~5 min or `job.state=failed` stops the bar, shows the error, and does not reload. Auto-update uses the same overlay if the tab is open and sees applying.
 
 ## WebSocket (`useWebSocket.ts`)
 

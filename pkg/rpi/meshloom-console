@@ -1,0 +1,54 @@
+#!/bin/sh
+# HDMI / tty1 status for the Meshloom Raspberry Pi image.
+# Loops so the address can appear after DHCP. No desktop, no kiosk browser.
+
+set -eu
+
+INTERVAL="${MESHLOOM_CONSOLE_INTERVAL:-5}"
+TTY="${MESHLOOM_CONSOLE_TTY:-/dev/tty1}"
+
+hdmi_connected() {
+    found=0
+    for status in /sys/class/drm/card*-HDMI-A-*/status; do
+        [ -e "$status" ] || continue
+        found=1
+        if [ "$(cat "$status" 2>/dev/null || true)" = "connected" ]; then
+            return 0
+        fi
+    done
+    # No DRM HDMI node (headless VM, older path): still write tty1; it is cheap.
+    [ "$found" -eq 0 ]
+}
+
+lan_ips() {
+    ip -4 -o addr show scope global 2>/dev/null |
+        awk '{print $4}' |
+        cut -d/ -f1
+}
+
+draw() {
+    host="$(hostname -s 2>/dev/null || hostname || echo meshloom)"
+    {
+        printf '\033[2J\033[H'
+        printf 'Meshloom is ready\n\n'
+        printf '  http://%s.local:8000\n' "$host"
+        ips="$(lan_ips || true)"
+        if [ -n "$ips" ]; then
+            for ip in $ips; do
+                printf '  http://%s:8000\n' "$ip"
+            done
+        else
+            printf '  http://127.0.0.1:8000\n'
+            printf '\n  Waiting for a network address...\n'
+        fi
+        printf '\nPlug in the radio, then open one of these addresses.\n'
+        printf 'Updates: Settings → About.\n'
+    } >"$TTY" 2>/dev/null || true
+}
+
+while true; do
+    if hdmi_connected; then
+        draw
+    fi
+    sleep "$INTERVAL"
+done

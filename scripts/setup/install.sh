@@ -1061,6 +1061,81 @@ persist_installer_state() {
     fi
 }
 
+# Idempotent: re-running the installer (upgrade or reinstall) installs a missing
+# apply helper. Package units ship in the .deb; Compose units are written here
+# because the curl one-liner has no sibling files on disk.
+ensure_update_helper() {
+    local kind="$1" compose_dir="${2:-}"
+    case "$kind" in
+        package)
+            if [ -x /usr/lib/meshloom/apply-update ] && [ -f /usr/lib/systemd/system/meshloom-update.service ]; then
+                as_root systemctl daemon-reload || true
+            fi
+            ;;
+        compose)
+            [ -n "$compose_dir" ] || return 0
+            _install_compose_update_helper "$compose_dir"
+            ;;
+    esac
+}
+
+_install_compose_update_helper() {
+    local compose_dir="$1"
+    local unit_dir="/etc/systemd/system"
+    local env_file="/etc/meshloom/compose-update.env"
+    local data_dir="${compose_dir}/data"
+    as_root mkdir -p /etc/meshloom /usr/lib/meshloom "$data_dir"
+    printf 'MESHLOOM_COMPOSE_DIR=%s\n' "$compose_dir" | as_root tee "$env_file" >/dev/null
+    as_root tee /usr/lib/meshloom/compose-update >/dev/null <<'EOF'
+#!/bin/sh
+set -eu
+# Host-side helper for installer-managed Docker. Never bind-mount docker.sock
+# into the Meshloom container.
+. /etc/meshloom/compose-update.env
+JOB="${MESHLOOM_COMPOSE_DIR}/data/update-job.json"
+REQ="${MESHLOOM_COMPOSE_DIR}/data/request-update"
+mkdir -p "$(dirname "$JOB")"
+now="$(date +%s)"
+printf '{"state":"applying","phase":"downloading","percent":null,"error":null,"started_at":%s}\n' "$now" >"$JOB"
+cd "$MESHLOOM_COMPOSE_DIR"
+if docker compose pull; then
+    printf '{"state":"applying","phase":"installing","percent":null,"error":null,"started_at":%s}\n' "$now" >"$JOB"
+    if docker compose up -d; then
+        printf '{"state":"succeeded","phase":"done","percent":100,"error":null,"started_at":%s}\n' "$now" >"$JOB"
+        rm -f "$REQ"
+        exit 0
+    fi
+fi
+printf '{"state":"failed","phase":"downloading","percent":null,"error":"docker compose pull/up failed","started_at":%s}\n' "$now" >"$JOB"
+rm -f "$REQ"
+exit 1
+EOF
+    as_root chmod 0755 /usr/lib/meshloom/compose-update
+    as_root tee "${unit_dir}/meshloom-compose-update.service" >/dev/null <<EOF
+[Unit]
+Description=Meshloom Docker Compose apply
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/meshloom/compose-update.env
+ExecStart=/usr/lib/meshloom/compose-update
+EOF
+    as_root tee "${unit_dir}/meshloom-compose-update.path" >/dev/null <<EOF
+[Unit]
+Description=Watch Meshloom compose update request
+
+[Path]
+PathExists=${data_dir}/request-update
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    as_root systemctl daemon-reload || true
+    as_root systemctl enable --now meshloom-compose-update.path || true
+}
+
 write_meshloom_env() {
     local dest="$1"
     {
@@ -1109,6 +1184,7 @@ EOF
     write_meshloom_env /etc/meshloom/meshloom.env
     start_meshloom_unit
     persist_installer_state
+    ensure_update_helper package
     phase_ok
 }
 
@@ -1151,6 +1227,7 @@ install_from_release_asset() {
     write_meshloom_env /etc/meshloom/meshloom.env
     start_meshloom_unit
     persist_installer_state
+    ensure_update_helper package
     phase_ok
 }
 
@@ -1281,6 +1358,9 @@ write_docker_compose() {
         fi
         echo "    environment:"
         echo "      MESHCORE_DATABASE_PATH: $(yaml_quote "data/meshcore.db")"
+        echo "      MESHLOOM_INSTALL_KIND: compose"
+        echo "      MESHLOOM_UPDATE_HELPER: compose"
+        echo "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
         echo "    restart: unless-stopped"
     } >"${dir}/docker-compose.yml"
 }
@@ -1310,6 +1390,7 @@ install_docker_stack() {
         phase_ok
     fi
     persist_installer_state
+    ensure_update_helper compose "$INSTALL_DIR"
     printf '\n'
     if [ "$UPGRADE_KIND" = "upgrade" ]; then
         ui_ok "  $(t done_upgrade)"

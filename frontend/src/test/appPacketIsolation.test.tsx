@@ -201,6 +201,10 @@ describe('overheard packets and the chat render path', () => {
       latest: null,
       update_available: false,
       html_url: null,
+      install_kind: 'source',
+      apply_supported: false,
+      auto_update: false,
+      job: { state: 'idle', phase: null, percent: null, error: null, started_at: null },
     });
     mocks.api.getCommunity.mockResolvedValue({
       enabled: true,

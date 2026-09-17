@@ -798,7 +798,10 @@
       "debugSnapshot": "Ouvrir l’instantané de support de débogage",
       "updateAvailable": "Mise à jour disponible",
       "updateAvailableHelp": "Ce nœud est en v{{current}}. La dernière version publiée est v{{latest}}.",
-      "showInstructions": "Comment mettre à jour"
+      "showInstructions": "Comment mettre à jour",
+      "install": "Installer",
+      "autoUpdate": "Installer les mises à jour automatiquement",
+      "autoUpdateHelp": "Lorsqu’une nouvelle version est publiée, Meshloom l’installe sur ce nœud."
     },
     "fanout": {
       "types": {
@@ -2443,13 +2446,29 @@
   "updates": {
     "title": "Mise à jour disponible",
     "help": "Une version plus récente de Meshloom est publiée. Utilisez la recette qui correspond à votre installation.",
+    "helpApply": "Une version plus récente de Meshloom est publiée. Installez-la sur ce nœud.",
     "current": "Ce nœud",
     "latest": "Dernière",
     "packagesTitle": "Paquet Linux",
     "dockerTitle": "Docker Compose",
     "changelog": "Notes de version",
     "close": "Fermer",
-    "badgeLabel": "Mise à jour disponible"
+    "badgeLabel": "Mise à jour disponible",
+    "addonManual": "Veuillez mettre à jour via Home Assistant",
+    "manual": "Vous devez mettre à jour Meshloom manuellement",
+    "install": "Installer",
+    "autoUpdate": "Installer les mises à jour automatiquement",
+    "autoUpdateHelp": "Lorsqu’une nouvelle version est publiée, Meshloom l’installe sur ce nœud.",
+    "progressTitle": "Installation de la mise à jour",
+    "failed": "La mise à jour a échoué",
+    "restartTimeout": "Le nœud n’est pas revenu avec la nouvelle version.",
+    "phase": {
+      "preparing": "Préparation",
+      "downloading": "Téléchargement",
+      "installing": "Installation",
+      "restarting": "Redémarrage",
+      "done": "Terminé"
+    }
   },
   "messagePreview": {
     "gif": "GIF",

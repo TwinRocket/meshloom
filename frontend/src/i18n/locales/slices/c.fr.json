@@ -650,7 +650,10 @@
       "debugSnapshot": "Ouvrir l’instantané de support de débogage",
       "updateAvailable": "Mise à jour disponible",
       "updateAvailableHelp": "Ce nœud est en v{{current}}. La dernière version publiée est v{{latest}}.",
-      "showInstructions": "Comment mettre à jour"
+      "showInstructions": "Comment mettre à jour",
+      "install": "Installer",
+      "autoUpdate": "Installer les mises à jour automatiquement",
+      "autoUpdateHelp": "Lorsqu’une nouvelle version est publiée, Meshloom l’installe sur ce nœud."
     },
     "common": {
       "storedOnRadio": "Écrit sur la radio",
@@ -658,6 +661,24 @@
       "storedInBrowser": "Ce navigateur uniquement",
       "appliesImmediately": "Appliqué immédiatement",
       "unsavedChanges": "Modifications non enregistrées"
+    }
+  },
+  "updates": {
+    "helpApply": "Une version plus récente de Meshloom est publiée. Installez-la sur ce nœud.",
+    "addonManual": "Veuillez mettre à jour via Home Assistant",
+    "manual": "Vous devez mettre à jour Meshloom manuellement",
+    "install": "Installer",
+    "autoUpdate": "Installer les mises à jour automatiquement",
+    "autoUpdateHelp": "Lorsqu’une nouvelle version est publiée, Meshloom l’installe sur ce nœud.",
+    "progressTitle": "Installation de la mise à jour",
+    "failed": "La mise à jour a échoué",
+    "restartTimeout": "Le nœud n’est pas revenu avec la nouvelle version.",
+    "phase": {
+      "preparing": "Préparation",
+      "downloading": "Téléchargement",
+      "installing": "Installation",
+      "restarting": "Redémarrage",
+      "done": "Terminé"
     }
   }
 }

@@ -180,6 +180,12 @@ export const api = {
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),
   getUpdates: () => fetchJson<OssUpdateStatus>('/updates'),
+  applyUpdate: () => fetchJson<OssUpdateStatus>('/updates/apply', { method: 'POST' }),
+  patchUpdateSettings: (settings: { auto_update: boolean }) =>
+    fetchJson<OssUpdateStatus>('/updates/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
+    }),
 
   // Radio config
   getRadioConfig: () => fetchJson<RadioConfig>('/radio/config'),

@@ -94,10 +94,47 @@ def get_update_status() -> dict[str, Any]:
     }
 
 
+async def _maybe_auto_apply() -> None:
+    """Apply through the helper when the operator opted in. Meshloom only."""
+    from app.repository import AppSettingsRepository
+    from app.services.install_kind import detect_install_kind
+    from app.services.update_apply import (
+        UpdateApplyBusy,
+        job_is_applying,
+        last_attempt_recent,
+        read_job,
+        start_apply,
+    )
+
+    status = get_update_status()
+    if not status["update_available"]:
+        return
+    kind, supported = detect_install_kind()
+    if not supported:
+        return
+    try:
+        if not (await AppSettingsRepository.get()).auto_update:
+            return
+    except Exception:
+        return
+    job = read_job()
+    if job_is_applying(job):
+        return
+    if job.get("state") == "succeeded" and job.get("target") == status["latest"]:
+        return
+    if job.get("state") == "failed" and last_attempt_recent(job):
+        return
+    try:
+        await start_apply(kind, target=status["latest"])
+    except UpdateApplyBusy:
+        return
+
+
 async def _oss_update_loop() -> None:
     while True:
         try:
             await refresh_oss_update_cache()
+            await _maybe_auto_apply()
         except asyncio.CancelledError:
             raise
         except Exception:

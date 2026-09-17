@@ -440,6 +440,9 @@ mkdir -p "$REPO_DIR/data"
     fi
     echo "    environment:"
     echo "      MESHCORE_DATABASE_PATH: $(yaml_quote "data/meshcore.db")"
+    echo "      MESHLOOM_INSTALL_KIND: compose"
+    echo "      MESHLOOM_UPDATE_HELPER: compose"
+    echo "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
     echo "    restart: unless-stopped"
 } >"$COMPOSE_FILE"
 

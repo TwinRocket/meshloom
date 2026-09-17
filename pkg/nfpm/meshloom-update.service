@@ -1,0 +1,11 @@
+[Unit]
+Description=Meshloom package update
+Documentation=https://github.com/TwinRocket/meshloom
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/lib/meshloom/apply-update
+TimeoutStartSec=30min

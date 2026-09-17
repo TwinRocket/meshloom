@@ -336,6 +336,9 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | Connection status, fanout statuses, bots_disabled flag |
+| GET | `/api/updates` | Cached Meshloom catalogue plus install kind, apply support, auto-update, and helper job |
+| POST | `/api/updates/apply` | Start a Meshloom-only apply when the helper is present (202; 409 otherwise) |
+| PATCH | `/api/updates/settings` | Persist `auto_update` (not via `PATCH /api/settings`) |
 | GET | `/api/debug` | Support snapshot: recent logs, live radio probe, contact/channel drift audit, and running version/git info |
 | GET | `/api/radio/config` | Radio configuration, including `path_hash_mode`, `path_hash_mode_supported`, advert-location on/off, and `multi_acks_enabled` |
 | PATCH | `/api/radio/config` | Update name, location, advert-location on/off, `multi_acks_enabled`, radio params, and `path_hash_mode` when supported |
