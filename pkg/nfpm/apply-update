@@ -219,5 +219,10 @@ fi
 PHASE=restarting
 PERCENT=90
 write_job
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    systemctl enable meshloom || fail "systemctl enable meshloom failed"
+    systemctl start meshloom || fail "meshloom.service failed to start"
+fi
 succeed
 echo "meshloom apply-update: succeeded"

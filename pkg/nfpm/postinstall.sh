@@ -19,6 +19,12 @@ fi
 
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
+    # Deb: $1=configure $2=old-version. RPM %post: $1>=2 on upgrade.
+    # Fresh install leaves the unit off so the operator can set the radio first.
+    if { [ "$1" = "configure" ] && [ -n "$2" ]; } || [ "$1" = "2" ] || [ "$1" = "upgrade" ]; then
+        systemctl enable meshloom || true
+        systemctl restart meshloom || systemctl start meshloom || true
+    fi
 fi
 
 echo "==> Choose USB, TCP, or Bluetooth in the web UI (Settings > Radio)."

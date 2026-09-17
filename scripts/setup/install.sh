@@ -1172,6 +1172,11 @@ else
     exit 1
 fi
 write_job applying restarting null
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    systemctl enable meshloom || { write_job failed restarting "\"systemctl enable meshloom failed\""; exit 1; }
+    systemctl start meshloom || { write_job failed restarting "\"meshloom.service failed to start\""; exit 1; }
+fi
 write_job succeeded done null
 EOF
     as_root chmod 0755 /usr/lib/meshloom/apply-update
