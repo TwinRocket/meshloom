@@ -59,7 +59,7 @@ jobs:
 
       - name: Build apt and rpm trees
         run: |
-          mkdir -p public/apt/pool/main public/apt/dists/stable/main/binary-amd64 public/apt/dists/stable/main/binary-arm64
+          mkdir -p public/apt/pool/main
           mkdir -p public/rpm/x86_64 public/rpm/aarch64
           shopt -s nullglob
           for deb in incoming/*.deb; do
@@ -74,15 +74,21 @@ jobs:
           if compgen -G "public/apt/pool/main/*.deb" > /dev/null; then
             (
               cd public/apt
-              dpkg-scanpackages --arch amd64 pool /dev/null > dists/stable/main/binary-amd64/Packages
-              dpkg-scanpackages --arch arm64 pool /dev/null > dists/stable/main/binary-arm64/Packages
-              gzip -k -f dists/stable/main/binary-amd64/Packages
-              gzip -k -f dists/stable/main/binary-arm64/Packages
+              # Read from the packages rather than listed here. The list was
+              # written in three places, and an architecture missing from one of
+              # them is a repository that offers itself to a machine it cannot
+              # serve: that is what left a 32-bit Raspberry Pi with no candidate.
+              ARCHES="$(for d in pool/main/*.deb; do dpkg-deb -f "$d" Architecture; done | sort -u)"
+              for a in $ARCHES; do
+                mkdir -p "dists/stable/main/binary-$a"
+                dpkg-scanpackages --arch "$a" pool /dev/null > "dists/stable/main/binary-$a/Packages"
+                gzip -k -f "dists/stable/main/binary-$a/Packages"
+              done
               apt-ftparchive -o APT::FTPArchive::Release::Origin=Meshloom \
                 -o APT::FTPArchive::Release::Label=Meshloom \
                 -o APT::FTPArchive::Release::Suite=stable \
                 -o APT::FTPArchive::Release::Codename=stable \
-                -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+                -o APT::FTPArchive::Release::Architectures="$(echo $ARCHES)" \
                 -o APT::FTPArchive::Release::Components=main \
                 release dists/stable > dists/stable/Release
             )

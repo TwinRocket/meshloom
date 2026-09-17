@@ -190,3 +190,27 @@ def test_the_apt_repository_is_offered_only_where_it_has_packages() -> None:
             + "pages_apt_has_host_arch && echo served || echo skipped",
         )
         assert result.stdout.strip() == ("served" if served else "skipped"), machine
+
+
+def test_the_build_script_knows_the_three_architectures() -> None:
+    """armhf was rejected outright, which is why no package existed for a Pi."""
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+    ).read_text(encoding="utf-8")
+    assert "armv7-unknown-linux-gnueabihf" in script
+    # nFPM names it after the Go architecture and turns it into armhf for deb.
+    assert 'NFPM_ARCH="arm7"' in script
+    assert "__NFPM_ARCH__|$NFPM_ARCH" in script
+
+
+def test_the_apt_repository_lists_what_it_holds() -> None:
+    """The architecture list used to be written in three places.
+
+    One of them missing armhf is a repository that offers itself to a machine it
+    cannot serve, which is the failure this whole change is about.
+    """
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "publish-linux-repo.yml"
+    ).read_text(encoding="utf-8")
+    assert 'Architectures="amd64 arm64"' not in workflow
+    assert "dpkg-deb -f" in workflow

@@ -5,7 +5,7 @@ level: start
 order: 2.5
 ---
 
-L’image publiée est Raspberry Pi OS Lite 64-bit avec Meshloom déjà installé. Le premier démarrage n’a pas besoin d’Internet. Elle convient à un Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4 ou Pi 5. Flashez bien l’image **64-bit** même sur un Pi 3 : l’OS 32-bit ne peut pas installer le paquet Meshloom.
+L’image publiée est Raspberry Pi OS Lite 64-bit avec Meshloom déjà installé. Le premier démarrage n’a pas besoin d’Internet. Elle convient à un Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4 ou Pi 5. Préférez l’image **64-bit** même sur un Pi 3 : elle est plus rapide et c’est celle qui est publiée ici. Un Pi qui tourne déjà sous Raspberry Pi OS 32-bit s’installe avec la ligne de commande, depuis le paquet armhf.
 
 ## Flasher
 
