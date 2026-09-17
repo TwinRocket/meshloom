@@ -300,3 +300,17 @@ def test_packaging_works_from_a_relative_stage_dir(tmp_path: Path) -> None:
     assert "--packager deb" in invocations
     # Raspberry Pi OS is Debian, and no distribution ships an armv7 rpm any more.
     assert "--packager rpm" not in invocations
+
+
+def test_a_doc_change_asks_the_site_to_rebuild() -> None:
+    """meshloom.app pulls docs/user/ when it builds, and nothing here built it.
+
+    A correction merged into this repository stayed invisible until someone
+    redeployed that site by hand, which is how readers kept seeing a sentence
+    saying a 32-bit Raspberry Pi could not install Meshloom after it could.
+    """
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "docs-site.yml"
+    ).read_text(encoding="utf-8")
+    assert "docs/user/**" in workflow
+    assert "DOCS_SITE_DEPLOY_HOOK" in workflow

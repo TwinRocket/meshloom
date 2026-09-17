@@ -1,0 +1,48 @@
+name: Docs site
+
+# The user documentation lives here and is published by meshloom.app, an Astro
+# site in another repository that pulls docs/user/ at build time. Merging a doc
+# change here therefore did nothing visible until someone happened to redeploy
+# that site: the fix for "the 32-bit OS cannot install the Meshloom package" sat
+# merged and unpublished for a day while people read the old sentence.
+#
+# A Cloudflare deploy hook is a URL that starts a build when it receives a POST.
+# One secret, no cross-repository token, and nothing to keep in step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/user/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Ask meshloom.app to rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Absent on a fork, and on this repository until someone creates the hook.
+      # Skipped with a notice rather than failed: a missing hook is a deployment
+      # that has not been wired up, not a broken change.
+      - name: Trigger the deploy hook
+        env:
+          HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::DOCS_SITE_DEPLOY_HOOK is not set, so meshloom.app will not rebuild. Create a deploy hook in Cloudflare and add it as a repository secret."
+            exit 0
+          fi
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$HOOK")"
+          echo "Deploy hook answered $code"
+          case "$code" in
+            2*) ;;
+            *) echo "::error::The deploy hook refused the request ($code)"; exit 1 ;;
+          esac
