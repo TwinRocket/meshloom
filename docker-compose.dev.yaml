@@ -7,13 +7,14 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${MESHLOOM_HTTP_PORT}:8000"
+      - "${MESHLOOM_HTTP_PORT:-8000}:8000"
+      - "${MESHLOOM_PROXY_PORT:-5001}:5001"
     volumes:
-      - ${MESHLOOM_DATA_PATH}:/app/data
+      - ${MESHLOOM_DATA_PATH:-/app/data}:/app/data
     environment:
-      MESHCORE_DATABASE_PATH: "${MESHCORE_DATABASE_PATH}"
-      MESHCORE_DISABLE_BOTS: "${MESHCORE_DISABLE_BOTS}"
-      MESHCORE_VAPID_SUBJECT: "${MESHCORE_VAPID_SUBJECT}"
+      MESHCORE_DATABASE_PATH: "${MESHCORE_DATABASE_PATH:-/app/data/meshcore.db}"
+      MESHCORE_DISABLE_BOTS: "${MESHCORE_DISABLE_BOTS:-0}"
+      MESHCORE_VAPID_SUBJECT: "${MESHCORE_VAPID_SUBJECT:-https://meshloom.local}"
       # New empty data volumes join Community. Set 0 to seed opted out.
       # MESHLOOM_COMMUNITY: "0"
     restart: unless-stopped
