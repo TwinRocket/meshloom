@@ -69,11 +69,13 @@ esac
 
 PY_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PYDATE}/cpython-${PYVER}+${PYDATE}-${PY_TRIPLE}-install_only_stripped.tar.gz"
 
-if ! command -v nfpm >/dev/null 2>&1; then
+# Each half needs its own tool and not the other's. Demanding both would ask for
+# nFPM inside the emulated container, where no armv7 build of it exists.
+if [ "$STAGE_ONLY" -eq 0 ] && ! command -v nfpm >/dev/null 2>&1; then
     echo "nFPM is required. Install: https://nfpm.goreleaser.com/install/" >&2
     exit 1
 fi
-if ! command -v uv >/dev/null 2>&1; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && ! command -v uv >/dev/null 2>&1; then
     echo "uv is required." >&2
     exit 1
 fi
@@ -86,12 +88,6 @@ if [ "$PACKAGE_ONLY" -eq 0 ] && [ ! -d "$REPO_ROOT/frontend/dist" ]; then
     exit 1
 fi
 
-if [ "$PACKAGE_ONLY" -eq 1 ]; then
-    [ -x "$OPT/python/bin/python3" ] || {
-        echo "No assembled tree under $STAGE_DIR" >&2; exit 1; }
-else
-mkdir -p "$OPT/frontend"
-
 if [ -n "$STAGE_DIR" ]; then
     STAGING="$STAGE_DIR"
 else
@@ -99,6 +95,12 @@ else
     trap 'rm -rf "$STAGING"' EXIT
 fi
 OPT="$STAGING/opt/meshloom"
+
+if [ "$PACKAGE_ONLY" -eq 1 ]; then
+    [ -x "$OPT/python/bin/python3" ] || {
+        echo "No assembled tree under $STAGE_DIR" >&2; exit 1; }
+else
+mkdir -p "$OPT/frontend"
 
 echo "[nfpm] Downloading standalone Python ${PYVER} (${ARCH})..."
 curl -fL "$PY_URL" -o "$STAGING/python.tgz"

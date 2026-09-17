@@ -214,3 +214,40 @@ def test_the_apt_repository_lists_what_it_holds() -> None:
     ).read_text(encoding="utf-8")
     assert 'Architectures="amd64 arm64"' not in workflow
     assert "dpkg-deb -f" in workflow
+
+
+def _build_script_error(args: list[str]) -> str:
+    """Run the packaging script with neither tool on PATH and return what it says."""
+    script = Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+    result = subprocess.run(
+        ["bash", str(script), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"},
+    )
+    return result.stderr
+
+
+def test_each_half_asks_only_for_the_tool_it_uses() -> None:
+    """Assembly happens in an emulated armv7 container, where nFPM does not exist.
+
+    Asking for it there would fail the armhf build, and only a release runs that
+    path, so nothing else would have noticed.
+    """
+    staging = _build_script_error(
+        ["--version", "9.9.9", "--arch", "armhf", "--stage-dir", "/tmp/x", "--stage-only"]
+    )
+    assert "nFPM is required" not in staging
+
+    packaging = _build_script_error(
+        ["--version", "9.9.9", "--arch", "armhf", "--stage-dir", "/tmp/x", "--package-only"]
+    )
+    assert "nFPM is required" in packaging
+
+
+def test_the_exclusive_options_are_refused_together() -> None:
+    error = _build_script_error(
+        ["--version", "9.9.9", "--arch", "amd64", "--stage-only", "--package-only"]
+    )
+    assert "exclusive" in error
