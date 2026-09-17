@@ -5,12 +5,12 @@ Settings → About can install a new Meshloom release on package and installer-m
 ### What's new
 
 - **Install from About.** When the apply helper is present, a package or installer Docker node can pull the next Meshloom release from the UI. Automatic updates stay off until you turn them on. That path upgrades Meshloom only — never a silent `apt upgrade` of the OS.
-- **A Raspberry Pi image.** Flash `meshloom-rpi-lite-arm64.img.xz` (Pi 3 and later, 64-bit). First boot works offline. Set Wi-Fi, user, and SSH in Raspberry Pi Imager 2.0.6+. A screen shows `http://meshloom.local:8000`.
+- **A Raspberry Pi image.** Flash `meshloom-rpi-lite-arm64.img.xz` (Pi 3 and later, 64-bit). First boot works offline. Set Wi-Fi, user, and SSH in Raspberry Pi Imager 2.0.6+ via the `cloudinit-rpi` manifest shipped next to the image. A screen shows `http://meshloom.local:8000`.
 - **Honest recipes when apply is not available.** Home Assistant: update the add-on there. Other installs without a helper: update Meshloom by hand, or re-run the installer so it can install the missing helper.
 
 ### Under the hood
 
-- `GET/POST/PATCH /api/updates` now carry `install_kind`, `apply_supported`, `auto_update`, and a phased helper `job`. The `.deb` ships `apply-update` + `meshloom-update.service` + polkit. Docker installs write a host path unit instead of mounting `docker.sock`. The Release workflow bakes `meshloom-rpi-lite-arm64.img.xz` from the arm64 `.deb` in the same run and attaches it to the GitHub release.
+- `GET/POST/PATCH /api/updates` now carry `install_kind`, `apply_supported`, `auto_update`, and a phased helper `job`. The `.deb` ships `apply-update` + `meshloom-update.service` + polkit. Docker installs write a host path unit instead of mounting `docker.sock`. The Release workflow bakes `meshloom-rpi-lite-arm64.img.xz` from the arm64 `.deb` in the same run and attaches it, plus the Imager manifest, to the GitHub release.
 
 ### Upgrading
 
@@ -25,16 +25,53 @@ Réglages → À propos peut installer une nouvelle release Meshloom sur une ins
 #### Nouveautés
 
 - **Installer depuis À propos.** Quand le helper est présent, un nœud paquet ou Docker installateur peut tirer la prochaine release Meshloom depuis l’UI. Les mises à jour automatiques restent éteintes tant que vous ne les activez pas. Ce chemin ne met à jour que Meshloom — jamais un `apt upgrade` silencieux du système.
-- **Une image Raspberry Pi.** Flashez `meshloom-rpi-lite-arm64.img.xz` (Pi 3 et plus, 64-bit). Le premier démarrage marche hors ligne. Wi-Fi, utilisateur et SSH se règlent dans Raspberry Pi Imager 2.0.6+. Un écran affiche `http://meshloom.local:8000`.
+- **Une image Raspberry Pi.** Flashez `meshloom-rpi-lite-arm64.img.xz` (Pi 3 et plus, 64-bit). Le premier démarrage marche hors ligne. Wi-Fi, utilisateur et SSH se règlent dans Raspberry Pi Imager 2.0.6+ via le manifeste `cloudinit-rpi` livré à côté de l’image. Un écran affiche `http://meshloom.local:8000`.
 - **Recettes honnêtes sans helper.** Home Assistant : mettez à jour l’add-on là-bas. Les autres installs sans helper : mettez à jour Meshloom à la main, ou relancez l’installateur pour qu’il pose le helper manquant.
 
 #### Sous le capot
 
-- `GET/POST/PATCH /api/updates` portent maintenant `install_kind`, `apply_supported`, `auto_update`, et un `job` de helper par phases. Le `.deb` livre `apply-update` + `meshloom-update.service` + polkit. Les installs Docker écrivent une path unit hôte au lieu de monter `docker.sock`. Le workflow Release fabrique `meshloom-rpi-lite-arm64.img.xz` à partir du `.deb` arm64 dans la même course et la joint à la release GitHub.
+- `GET/POST/PATCH /api/updates` portent maintenant `install_kind`, `apply_supported`, `auto_update`, et un `job` de helper par phases. Le `.deb` livre `apply-update` + `meshloom-update.service` + polkit. Les installs Docker écrivent une path unit hôte au lieu de monter `docker.sock`. Le workflow Release fabrique `meshloom-rpi-lite-arm64.img.xz` à partir du `.deb` arm64 dans la même course et la joint à la release GitHub avec le manifeste Imager.
 
 #### Mise à jour
 
 Les nœuds paquet et Docker installateur le reçoivent à la prochaine mise à jour. Un nœud plus ancien qui relance le one-liner récupère le helper s’il manquait. L’image Pi est un nouvel artifact sur la release GitHub.
+
+---
+
+## [4.11.0] - 2026-09-17
+
+This release is about living with Meshloom on a foldable, a tablet and a desk. The list and the chat share the screen the way two apps do: you drag the split, you close it when you need the room, and it remembers how you left it. Conversations themselves are a little quieter, and the Meshloom mark finally has a home on the rail.
+
+### What's new
+- **The conversation list folds and moves.** A fixed column used to crush a chat or a repeater dashboard on a foldable. The split is now draggable, with a grip in the middle so you can see it is meant to be moved, and you can close the list when you want the whole width. Tablet and desktop each remember their own width, so opening the same instance on a narrow window does not steal the desk layout.
+- **Favourites stay in reach.** They wrap onto another row instead of hiding in a sideways scroll, and a chevron puts them away when you want the list back.
+- **Radio status lives in one place.** The little "Radio OK" pill in the header said the same thing as the one at the bottom of the rail, and neither said enough. The rail tile now names the transport, and the dialog is where you advertise — flood to tell the whole network you are here, zero-hop for the neighbours in range.
+- **Compose is one menu, not three buttons.** Emoji, GIFs and a location sit behind one control, with tabs and a search for emoji the way GIFs already had one. The field just says Message. Send keeps the keyboard open; Enter starts a new line. A message's menu can copy the text.
+- **Avatars read as initials.** A hashtag no longer eats the first letter (`#meshloom` is Me, Public is Pu). Two even letters, not a chopped word.
+- **An expanded listener on the map keeps its path to itself.** Opening one observer used to draw every other observer's hops at the same time. Collapse, and the whole neighbourhood comes back.
+- **The Meshloom mark sits at the top of the desktop rail.** It opens meshloom.app in a new tab, with room beneath it so a reach for Chat cannot miss. Chat is still Chat.
+
+### Upgrading
+
+Nothing to do. The split you set is stored in the browser; an older width is reused until you move it on that screen.
+
+---
+
+### Français
+
+Cette version est consacrée à la vie avec Meshloom sur un pliable, une tablette et un bureau. La liste et la conversation se partagent l'écran comme deux applications : vous déplacez la séparation, vous la fermez quand vous avez besoin de la place, et elle se souvient de comment vous l'avez laissée. Les discussions elles-mêmes sont un peu plus calmes, et le logo Meshloom a enfin une place sur le rail.
+
+#### Quoi de neuf
+- **La liste des conversations se plie et se déplace.** Une colonne fixe écrasait un chat ou un tableau de répéteur sur un pliable. La séparation se tire désormais, avec une prise au milieu pour qu'on voie qu'elle est faite pour bouger, et vous pouvez fermer la liste quand vous voulez toute la largeur. Tablette et bureau retiennent chacun leur largeur, si bien qu'ouvrir la même instance dans une fenêtre étroite n'emprunte pas la disposition du bureau.
+- **Les favoris restent à portée.** Ils passent sur une autre ligne au lieu de se cacher dans un défilement latéral, et un chevron les range quand vous voulez retrouver la liste.
+- **L'état radio habite un seul endroit.** La pastille « Radio OK » du bandeau disait la même chose que celle en bas du rail, et ni l'une ni l'autre n'en disait assez. La tuile du rail nomme maintenant le transport, et c'est dans la fenêtre que vous annoncez — flood pour dire à tout le réseau que vous êtes là, zéro saut pour les voisins à portée.
+- **Composer, c'est un menu, plus trois boutons.** Emoji, GIF et un lieu se tiennent derrière une seule commande, avec des onglets et une recherche d'emoji comme les GIF en avaient déjà une. Le champ dit simplement Message. Envoyer garde le clavier ouvert ; Entrée commence une nouvelle ligne. Le menu d'un message peut copier le texte.
+- **Les avatars se lisent comme des initiales.** Un dièse ne mange plus la première lettre (`#meshloom` donne Me, Public donne Pu). Deux lettres égales, pas un mot coupé.
+- **Un écoutant déplié sur la carte garde son chemin pour lui.** Ouvrir un observateur dessinait en même temps les sauts de tous les autres. Refermez, et tout le voisinage revient.
+- **Le logo Meshloom siège en haut du rail desktop.** Il ouvre meshloom.app dans un nouvel onglet, avec de la place en dessous pour qu'un geste vers Discussions ne puisse pas le rater. Discussions reste Discussions.
+
+#### Mise à jour
+Rien à faire. La séparation que vous réglez est stockée dans le navigateur ; une ancienne largeur est réutilisée jusqu'à ce que vous la bougiez sur cet écran.
 
 ---
 
