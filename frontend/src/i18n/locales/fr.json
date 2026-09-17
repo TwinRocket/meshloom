@@ -2432,7 +2432,7 @@
     "openStatus": "État de la radio — {{status}}",
     "name": "Nom",
     "advert": "Annoncer",
-    "advertHelp": "Le flood passe par les répéteurs. Le zéro saut reste local et prend moins de temps d’antenne.",
+    "advertHelp": "Le flood avertit tout le réseau de votre présence. Le zéro saut n’avertit que les voisins à votre portée.",
     "advertFlood": "Flood",
     "advertZeroHop": "Zéro saut",
     "sending": "Envoi…"

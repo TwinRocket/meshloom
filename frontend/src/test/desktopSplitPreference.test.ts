@@ -5,6 +5,7 @@ import {
   DESKTOP_SPLIT_DEFAULT,
   DESKTOP_SPLIT_MIN,
   DESKTOP_SPLIT_WIDTH_KEY,
+  desktopSplitStorageKey,
   getSavedDesktopSplitWidth,
   setSavedDesktopSplitWidth,
 } from '../utils/desktopSplitPreference';
@@ -12,6 +13,8 @@ import {
 describe('desktop split width', () => {
   afterEach(() => {
     localStorage.removeItem(DESKTOP_SPLIT_WIDTH_KEY);
+    localStorage.removeItem(desktopSplitStorageKey(800));
+    localStorage.removeItem(desktopSplitStorageKey(1280));
   });
 
   it('clamps to the min and leaves room for the chat', () => {
@@ -20,10 +23,18 @@ describe('desktop split width', () => {
     expect(clampDesktopSplitWidth(400, 800)).toBeLessThanOrEqual(800 - 56 - 320);
   });
 
-  it('persists a clamped width', () => {
-    setSavedDesktopSplitWidth(390);
+  it('persists a clamped width per viewport bucket', () => {
+    setSavedDesktopSplitWidth(390, 1280);
+    setSavedDesktopSplitWidth(280, 800);
     expect(getSavedDesktopSplitWidth(1280)).toBe(390);
-    expect(localStorage.getItem(DESKTOP_SPLIT_WIDTH_KEY)).toBe('390');
+    expect(getSavedDesktopSplitWidth(800)).toBe(280);
+    expect(localStorage.getItem(desktopSplitStorageKey(1280))).toBe('390');
+    expect(localStorage.getItem(desktopSplitStorageKey(800))).toBe('280');
+  });
+
+  it('reads the legacy unbucketed key when a bucket is empty', () => {
+    localStorage.setItem(DESKTOP_SPLIT_WIDTH_KEY, '400');
+    expect(getSavedDesktopSplitWidth(1280)).toBe(400);
   });
 
   it('falls back to the default when nothing is stored', () => {

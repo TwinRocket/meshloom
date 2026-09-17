@@ -14,6 +14,7 @@ import {
   DESKTOP_SPLIT_DEFAULT,
   DESKTOP_SPLIT_MAX,
   DESKTOP_SPLIT_MIN,
+  desktopSplitBucket,
   getSavedDesktopSplitWidth,
   setSavedDesktopSplitWidth,
 } from '../utils/desktopSplitPreference';
@@ -28,19 +29,30 @@ export function DesktopListSplit({ children }: Props) {
   const widthRef = useRef(width);
   widthRef.current = width;
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const bucketRef = useRef(
+    desktopSplitBucket(typeof window === 'undefined' ? 1280 : window.innerWidth)
+  );
 
   useEffect(() => {
     const onResize = () => {
-      setWidth((current) => clampDesktopSplitWidth(current, window.innerWidth));
+      const viewport = window.innerWidth;
+      const bucket = desktopSplitBucket(viewport);
+      if (bucket !== bucketRef.current) {
+        bucketRef.current = bucket;
+        setWidth(getSavedDesktopSplitWidth(viewport));
+        return;
+      }
+      setWidth((current) => clampDesktopSplitWidth(current, viewport));
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
   const commit = useCallback((next: number) => {
-    const clamped = clampDesktopSplitWidth(next, window.innerWidth);
+    const viewport = window.innerWidth;
+    const clamped = clampDesktopSplitWidth(next, viewport);
     setWidth(clamped);
-    setSavedDesktopSplitWidth(clamped);
+    setSavedDesktopSplitWidth(clamped, viewport);
     return clamped;
   }, []);
 
@@ -65,7 +77,7 @@ export function DesktopListSplit({ children }: Props) {
     if (!dragRef.current) return;
     dragRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    setSavedDesktopSplitWidth(widthRef.current);
+    setSavedDesktopSplitWidth(widthRef.current, window.innerWidth);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

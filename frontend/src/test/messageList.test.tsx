@@ -287,7 +287,7 @@ describe('MessageList channel sender rendering', () => {
     );
 
     expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByTestId('contact-avatar')).toHaveAttribute('data-avatar-text', 'Alic');
+    expect(screen.getByTestId('contact-avatar')).toHaveAttribute('data-avatar-text', 'Al');
   });
 
   it('renders room-server DM messages using stored sender attribution instead of the room contact', () => {

@@ -37,27 +37,18 @@ export function hashString(str: string): number {
 const emojiRegex =
   /[\u{1F1E0}-\u{1F1FF}]{2}|[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]/u;
 
-const MAX_MONOGRAM = 4;
 const WORD_RUN = /\p{L}+/gu;
 
 function graphemesOf(value: string): string[] {
   return Array.from(value);
 }
 
-function titleCaseWord(word: string): string {
-  const chars = graphemesOf(word);
-  if (chars.length === 0) return '';
-  return chars[0].toLocaleUpperCase() + chars.slice(1).join('').toLocaleLowerCase();
-}
-
 function fallbackKeyText(publicKey: string): string {
-  return publicKey.slice(0, MAX_MONOGRAM).toUpperCase();
+  return publicKey.slice(0, 2).toUpperCase();
 }
 
 /**
- * Build a 1–4 letter monogram from a contact or channel name.
- * One word: the first 3–4 letters (`Public` → `Publ`, `Paca` → `Paca`).
- * A short first word borrows from the next (`Jo Doe` → `JoDo`).
+ * Two-letter mark, not a chopped word: `#meshloom` → `Me`, `Jane Smith` → `JS`.
  */
 function getAvatarText(name: string | null, publicKey: string): string {
   if (!name) {
@@ -76,32 +67,23 @@ function getAvatarText(name: string | null, publicKey: string): string {
   }
 
   const words = displayName.match(WORD_RUN) ?? [];
-  if (words.length === 0) {
-    return fallbackKeyText(publicKey);
-  }
-
   const first = words[0];
   if (!first) {
     return fallbackKeyText(publicKey);
   }
-  if (graphemesOf(first).length >= 3) {
-    return titleCaseWord(graphemesOf(first).slice(0, MAX_MONOGRAM).join(''));
+
+  const second = words[1];
+  if (second) {
+    const a = graphemesOf(first)[0];
+    const b = graphemesOf(second)[0];
+    if (a && b) return (a + b).toLocaleUpperCase();
   }
 
-  const chunks = [titleCaseWord(first)];
-  let used = graphemesOf(first).length;
-  for (const word of words.slice(1)) {
-    if (used >= MAX_MONOGRAM) break;
-    const take = graphemesOf(word).slice(0, MAX_MONOGRAM - used);
-    chunks.push(titleCaseWord(take.join('')));
-    used += take.length;
-  }
-  return chunks.join('') || fallbackKeyText(publicKey);
-}
-
-export function splitAvatarMonogram(text: string): { lead: string; rest: string } {
-  const chars = graphemesOf(text);
-  return { lead: chars[0] ?? '', rest: chars.slice(1).join('') };
+  const letters = graphemesOf(first);
+  const one = letters[0];
+  if (!one) return fallbackKeyText(publicKey);
+  const two = letters[1];
+  return two ? one.toLocaleUpperCase() + two.toLocaleLowerCase() : one.toLocaleUpperCase();
 }
 
 /**

@@ -3,11 +3,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { DesktopListSplit } from '../components/DesktopListSplit';
 import i18n from '../i18n';
-import { DESKTOP_SPLIT_DEFAULT, DESKTOP_SPLIT_WIDTH_KEY } from '../utils/desktopSplitPreference';
+import {
+  DESKTOP_SPLIT_DEFAULT,
+  DESKTOP_SPLIT_WIDTH_KEY,
+  desktopSplitStorageKey,
+} from '../utils/desktopSplitPreference';
 
 describe('DesktopListSplit', () => {
   afterEach(() => {
     localStorage.removeItem(DESKTOP_SPLIT_WIDTH_KEY);
+    localStorage.removeItem(desktopSplitStorageKey(window.innerWidth));
   });
 
   it('exposes a keyboard-resizable separator and remembers the width', () => {
@@ -26,6 +31,8 @@ describe('DesktopListSplit', () => {
 
     fireEvent.keyDown(handle, { key: 'ArrowRight' });
     expect(handle).toHaveAttribute('aria-valuenow', String(DESKTOP_SPLIT_DEFAULT + 16));
-    expect(localStorage.getItem(DESKTOP_SPLIT_WIDTH_KEY)).toBe(String(DESKTOP_SPLIT_DEFAULT + 16));
+    expect(localStorage.getItem(desktopSplitStorageKey(window.innerWidth))).toBe(
+      String(DESKTOP_SPLIT_DEFAULT + 16)
+    );
   });
 });

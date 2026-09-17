@@ -2432,7 +2432,7 @@
     "openStatus": "Radio status — {{status}}",
     "name": "Name",
     "advert": "Advertise",
-    "advertHelp": "Flood reaches the mesh through repeaters. Zero-hop stays local and uses less airtime.",
+    "advertHelp": "Flood tells the whole network you are here. Zero-hop only reaches neighbours in your range.",
     "advertFlood": "Flood",
     "advertZeroHop": "Zero-hop",
     "sending": "Sending…"

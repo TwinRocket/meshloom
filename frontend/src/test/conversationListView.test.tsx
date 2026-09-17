@@ -197,7 +197,7 @@ describe('ConversationListView', () => {
   it('draws channel avatars from the name, not the hash marker', () => {
     renderList();
     const alpha = screen.getAllByRole('button', { name: /#alpha/ })[0];
-    expect(within(alpha).getByTestId('contact-avatar')).toHaveAttribute('data-avatar-text', 'Alph');
+    expect(within(alpha).getByTestId('contact-avatar')).toHaveAttribute('data-avatar-text', 'Al');
   });
 
   it('reports the conversation that was chosen', () => {
