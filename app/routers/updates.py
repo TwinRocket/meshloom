@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -54,6 +54,13 @@ class UpdateStatusResponse(BaseModel):
         description="Unix time when the next auto-apply window opens, or now if already open"
     )
     job: UpdateJobResponse
+
+
+class _UpdateSettingsFields(TypedDict, total=False):
+    auto_update: bool
+    auto_update_window_start: str
+    auto_update_window_end: str
+    auto_update_weekdays: list[int]
 
 
 class UpdateSettingsPatch(BaseModel):
@@ -155,19 +162,15 @@ async def apply_updates() -> UpdateStatusResponse:
 
 @router.patch("/updates/settings", response_model=UpdateStatusResponse)
 async def patch_update_settings(body: UpdateSettingsPatch) -> UpdateStatusResponse:
-    if any(
-        value is not None
-        for value in (
-            body.auto_update,
-            body.auto_update_window_start,
-            body.auto_update_window_end,
-            body.auto_update_weekdays,
-        )
-    ):
-        await AppSettingsRepository.update(
-            auto_update=body.auto_update,
-            auto_update_window_start=body.auto_update_window_start,
-            auto_update_window_end=body.auto_update_window_end,
-            auto_update_weekdays=body.auto_update_weekdays,
-        )
+    kwargs: _UpdateSettingsFields = {}
+    if body.auto_update is not None:
+        kwargs["auto_update"] = body.auto_update
+    if body.auto_update_window_start is not None:
+        kwargs["auto_update_window_start"] = body.auto_update_window_start
+    if body.auto_update_window_end is not None:
+        kwargs["auto_update_window_end"] = body.auto_update_window_end
+    if body.auto_update_weekdays is not None:
+        kwargs["auto_update_weekdays"] = body.auto_update_weekdays
+    if kwargs:
+        await AppSettingsRepository.update(**kwargs)
     return await build_update_status()
