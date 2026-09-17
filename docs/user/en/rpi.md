@@ -5,7 +5,7 @@ level: start
 order: 2.5
 ---
 
-A published image is Raspberry Pi OS Lite 64-bit with Meshloom already installed. First boot does not need the internet. Use it on a Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, or Pi 5. Prefer the **64-bit** image even on a Pi 3: it is faster and it is the one published here. A Pi already running the 32-bit Raspberry Pi OS installs with the one-liner instead, from the armhf package.
+A published image is Raspberry Pi OS Lite 64-bit with Meshloom already installed. First boot does not need the internet. Use it on a Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, or Pi 5. A Pi 1 or an original Zero is ARMv6 and is not covered: no package is built for it. Prefer the **64-bit** image even on a Pi 3: it is faster and it is the one published here. A Pi already running the 32-bit Raspberry Pi OS installs with the one-liner instead, from the armhf package.
 
 ## Flash
 

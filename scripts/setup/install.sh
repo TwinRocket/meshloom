@@ -722,10 +722,12 @@ host_arch() {
     case "$(uname -m)" in
         x86_64 | amd64) echo "amd64" ;;
         aarch64 | arm64) echo "arm64" ;;
-        # 32-bit Raspberry Pi OS, which a Pi 2, 3 or 4 may well be running. No
-        # package is published for it yet; naming it is what lets the caller
-        # notice that rather than offer a repository that cannot serve it.
-        armv7l | armv6l | armhf) echo "armhf" ;;
+        # 32-bit Raspberry Pi OS on a Pi 2, 3 or 4. Not armv6l: a Pi 1 and the
+        # original Zero are ARMv6, and Raspberry Pi OS calls that armhf too, but
+        # the package carries an interpreter built for ARMv7. Installing it there
+        # would succeed and then die on an illegal instruction, which is a worse
+        # answer than sending it to the source install.
+        armv7l | armhf) echo "armhf" ;;
         *) echo "unknown" ;;
     esac
 }

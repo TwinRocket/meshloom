@@ -161,7 +161,8 @@ def test_a_32_bit_raspberry_pi_is_named_rather_than_unknown() -> None:
         ("x86_64", "amd64"),
         ("aarch64", "arm64"),
         ("armv7l", "armhf"),
-        ("armv6l", "armhf"),
+        # A Pi 1 and the original Zero are ARMv6; the armhf package is ARMv7.
+        ("armv6l", "unknown"),
         ("riscv64", "unknown"),
     ):
         result = _bash_fns(
