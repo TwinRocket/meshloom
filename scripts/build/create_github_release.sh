@@ -9,6 +9,9 @@ usage() {
     cat <<'EOF'
 Usage: scripts/build/create_github_release.sh --version X.Y.Z --asset PATH [options]
 
+Creates a draft GitHub release (invisible to Stats / Meshloom clients),
+uploads each asset one at a time with logs and retries, then publishes.
+
 Options:
   --version VERSION         Release version / tag (required)
   --asset PATH              Asset to attach; may be specified multiple times
@@ -32,6 +35,60 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+release_wait_visible() {
+    local _i
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        if gh release view "$VERSION" >/dev/null 2>&1; then
+            return 0
+        fi
+        echo "[create_github_release] Waiting for GitHub to show ${VERSION}..." >&2
+        sleep 2
+    done
+    release_die "Release ${VERSION} is not visible yet"
+}
+
+release_upload_with_heartbeat() {
+    local asset="$1"
+    local name="$2"
+    local hb_pid status
+    (
+        while sleep 30; do
+            echo "[create_github_release] Still uploading ${name}..." >&2
+        done
+    ) &
+    hb_pid=$!
+    set +e
+    gh release upload "$VERSION" "$asset" --clobber
+    status=$?
+    set -e
+    kill "$hb_pid" 2>/dev/null || true
+    wait "$hb_pid" 2>/dev/null || true
+    return "$status"
+}
+
+release_upload_one() {
+    local asset="$1"
+    local name size attempt max_attempts delay started
+    name="$(basename "$asset")"
+    size="$(wc -c < "$asset" | tr -d ' ')"
+    max_attempts=5
+
+    for attempt in $(seq 1 "$max_attempts"); do
+        echo "[create_github_release] Uploading ${name} (${size} bytes), attempt ${attempt}/${max_attempts}..." >&2
+        started=$SECONDS
+        if release_upload_with_heartbeat "$asset" "$name"; then
+            echo "[create_github_release] Uploaded ${name} in $((SECONDS - started))s." >&2
+            return 0
+        fi
+        if [ "$attempt" -eq "$max_attempts" ]; then
+            release_die "Upload failed for ${name} after ${max_attempts} attempts"
+        fi
+        delay=$((attempt * 20))
+        echo "[create_github_release] Upload of ${name} failed; retrying in ${delay}s..." >&2
+        sleep "$delay"
+    done
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -97,10 +154,21 @@ if ! git -C "$REPO_ROOT" ls-remote --exit-code --tags origin "refs/tags/$VERSION
 fi
 
 if gh release view "$VERSION" >/dev/null 2>&1; then
-    echo "[create_github_release] Updating existing GitHub release $VERSION..." >&2
-    gh release upload "$VERSION" "${ASSETS[@]}" --clobber
-    gh release edit "$VERSION" --title "$TITLE" --notes-file "$NOTES_FILE"
+    echo "[create_github_release] Reusing existing GitHub release ${VERSION}." >&2
 else
-    echo "[create_github_release] Creating GitHub release $VERSION..." >&2
-    gh release create "$VERSION" "${ASSETS[@]}" --title "$TITLE" --notes-file "$NOTES_FILE" --verify-tag
+    echo "[create_github_release] Creating draft GitHub release ${VERSION} (no assets yet)..." >&2
+    gh release create "$VERSION" --draft --title "$TITLE" --notes-file "$NOTES_FILE" --verify-tag
+    release_wait_visible
+fi
+
+for asset in "${ASSETS[@]}"; do
+    release_upload_one "$asset"
+done
+
+if [ "$(gh release view "$VERSION" --json isDraft --jq '.isDraft')" = "true" ]; then
+    echo "[create_github_release] All assets uploaded. Publishing ${VERSION}..." >&2
+    gh release edit "$VERSION" --draft=false --title "$TITLE" --notes-file "$NOTES_FILE"
+else
+    echo "[create_github_release] ${VERSION} is already published; refreshing notes." >&2
+    gh release edit "$VERSION" --title "$TITLE" --notes-file "$NOTES_FILE"
 fi
