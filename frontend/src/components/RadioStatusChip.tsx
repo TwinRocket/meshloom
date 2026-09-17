@@ -10,6 +10,9 @@ import { cn } from '../lib/utils';
  * stacked tile: the word and the transport, never a coloured dot alone.
  */
 
+/** Applied to the status pip when a Meshloom update is available. */
+export const STATUS_DOT_UPDATE_AVAILABLE_CLASS = 'status-dot-update-available';
+
 interface Props {
   health: HealthStatus | null;
   onOpenRadioSettings?: () => void;
@@ -17,6 +20,8 @@ interface Props {
   onOpenStatus?: () => void;
   /** Rail form: short word + transport, sized like a destination. */
   compact?: boolean;
+  /** Pulse the pip when a newer Meshloom release is published. */
+  updateAvailable?: boolean;
   className?: string;
 }
 
@@ -26,11 +31,20 @@ export function radioTransportHint(connectionInfo: string | null | undefined): s
   return head || null;
 }
 
+function statusDotClass(settling: boolean, connected: boolean, updateAvailable?: boolean): string {
+  return cn(
+    'h-2 w-2 shrink-0 rounded-full',
+    settling ? 'bg-warning' : connected ? 'bg-status-connected' : 'bg-status-disconnected',
+    updateAvailable && STATUS_DOT_UPDATE_AVAILABLE_CLASS
+  );
+}
+
 export function RadioStatusChip({
   health,
   onOpenRadioSettings,
   onOpenStatus,
   compact,
+  updateAvailable,
   className,
 }: Props) {
   const { t } = useTranslation();
@@ -61,13 +75,7 @@ export function RadioStatusChip({
   const content = compact ? (
     <>
       <span className="inline-flex min-w-0 items-center gap-1">
-        <span
-          className={cn(
-            'h-2 w-2 shrink-0 rounded-full',
-            settling ? 'bg-warning' : connected ? 'bg-status-connected' : 'bg-status-disconnected'
-          )}
-          aria-hidden="true"
-        />
+        <span className={statusDotClass(settling, connected, updateAvailable)} aria-hidden="true" />
         <span className="truncate text-[0.625rem] font-medium leading-none">{shortLabel}</span>
       </span>
       {hint && (
@@ -78,13 +86,7 @@ export function RadioStatusChip({
     </>
   ) : (
     <>
-      <span
-        className={cn(
-          'h-2 w-2 shrink-0 rounded-full',
-          settling ? 'bg-warning' : connected ? 'bg-status-connected' : 'bg-status-disconnected'
-        )}
-        aria-hidden="true"
-      />
+      <span className={statusDotClass(settling, connected, updateAvailable)} aria-hidden="true" />
       <span className="truncate">{label}</span>
     </>
   );

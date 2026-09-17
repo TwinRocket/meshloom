@@ -48,25 +48,26 @@ describe('SettingsAboutSection', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
-  it('shows the update banner when update_available', () => {
-    const onOpenUpdate = vi.fn();
+  it('shows a discreet updates link when update_available', () => {
+    const onOpenUpdates = vi.fn();
     render(
-      <SettingsAboutSection health={health} updates={available} onOpenUpdate={onOpenUpdate} />
+      <SettingsAboutSection health={health} updates={available} onOpenUpdates={onOpenUpdates} />
     );
 
-    expect(screen.getByText(i18n.t('settings.about.updateAvailable'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.about.updateAvailable') }));
+    expect(onOpenUpdates).toHaveBeenCalled();
     expect(
-      screen.getByText(
+      screen.queryByText(
         i18n.t('settings.about.updateAvailableHelp', { current: '3.2.0-test', latest: '3.3.0' })
       )
-    ).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole('button', { name: i18n.t('settings.about.showInstructions') })
-    );
-    expect(onOpenUpdate).toHaveBeenCalled();
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('settings.about.autoUpdate'))).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: i18n.t('settings.about.install') })
+    ).not.toBeInTheDocument();
   });
 
-  it('hides the update banner when update_available is false', () => {
+  it('hides the updates link when update_available is false', () => {
     render(
       <SettingsAboutSection health={health} updates={{ ...available, update_available: false }} />
     );
@@ -74,43 +75,16 @@ describe('SettingsAboutSection', () => {
     expect(screen.queryByText(i18n.t('settings.about.updateAvailable'))).not.toBeInTheDocument();
   });
 
-  it('shows Install and auto-update when apply is supported', () => {
-    const onApply = vi.fn();
-    const onAutoUpdate = vi.fn();
+  it('does not show an auto-update checkbox even when apply is supported', () => {
     render(
       <SettingsAboutSection
         health={health}
         updates={{ ...available, apply_supported: true, install_kind: 'package' }}
-        onApply={onApply}
-        onAutoUpdate={onAutoUpdate}
+        onOpenUpdates={vi.fn()}
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.about.install') }));
-    expect(onApply).toHaveBeenCalled();
-    expect(
-      screen.queryByRole('button', { name: i18n.t('settings.about.showInstructions') })
-    ).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.about.autoUpdate'))).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox', { name: i18n.t('settings.about.autoUpdate') }));
-    expect(onAutoUpdate).toHaveBeenCalledWith(true);
-  });
-
-  it('keeps the auto-update toggle when no update is available', () => {
-    render(
-      <SettingsAboutSection
-        health={health}
-        updates={{
-          ...available,
-          update_available: false,
-          apply_supported: true,
-          install_kind: 'compose',
-        }}
-        onAutoUpdate={vi.fn()}
-      />
-    );
-
-    expect(screen.queryByText(i18n.t('settings.about.updateAvailable'))).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.about.autoUpdate'))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('settings.about.autoUpdate'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });

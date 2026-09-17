@@ -356,6 +356,8 @@
       "channelFoundHelp": "Notify when a new hashtag channel is found. Conversation exceptions do not apply.",
       "telemetryAlert": "Telemetry alerts",
       "telemetryAlertHelp": "Notify when a tracked telemetry reading raises an alert. Conversation exceptions do not apply.",
+      "ossUpdate": "Meshloom updates",
+      "ossUpdateHelp": "Notify when a Meshloom update is available for this node.",
       "exceptions": "Conversation exceptions",
       "exceptionsHelp": "Per-conversation overrides set from a chat header. They take precedence over the defaults above.",
       "exceptionsEmpty": "No conversation exceptions yet.",
@@ -802,6 +804,46 @@
       "install": "Install",
       "autoUpdate": "Install updates automatically",
       "autoUpdateHelp": "When a new release is published, Meshloom installs it on this node."
+    },
+    "updates": {
+      "status": "Status",
+      "actions": "Actions",
+      "autoUpdate": "Automatic updates",
+      "checkNow": "Check now",
+      "installNow": "Install now",
+      "checkedAt": "Last checked",
+      "neverChecked": "Never",
+      "timezone": "Node timezone",
+      "installKind": {
+        "label": "Install type",
+        "package": "Linux package",
+        "compose": "Docker Compose",
+        "addon": "Home Assistant add-on",
+        "container": "Container",
+        "source": "Source"
+      },
+      "job": "Job",
+      "jobState": {
+        "idle": "Idle",
+        "applying": "Applying",
+        "succeeded": "Succeeded",
+        "failed": "Failed"
+      },
+      "windowStart": "Window start",
+      "windowEnd": "Window end",
+      "weekdays": "Days",
+      "weekday": {
+        "0": "Mon",
+        "1": "Tue",
+        "2": "Wed",
+        "3": "Thu",
+        "4": "Fri",
+        "5": "Sat",
+        "6": "Sun"
+      },
+      "nodeClockHelp": "Times follow this node's clock, not this browser.",
+      "nextAutoApply": "Next automatic install",
+      "manualHelp": "How to upgrade"
     },
     "fanout": {
       "types": {
@@ -1576,6 +1618,7 @@
     "proxy": "Proxy",
     "local": "Local Configuration",
     "notifications": "Notifications",
+    "updates": "Updates",
     "community": "Meshloom Community",
     "radioApp": "Radio-App Management",
     "database": "Database",
@@ -2444,7 +2487,9 @@
     "advertHelp": "Flood tells the whole network you are here. Zero-hop only reaches neighbours in your range.",
     "advertFlood": "Flood",
     "advertZeroHop": "Zero-hop",
-    "sending": "Sending…"
+    "sending": "Sending…",
+    "updateAvailable": "Update available",
+    "updateAvailableHelp": "{{current}} → {{latest}}"
   },
   "updates": {
     "title": "Update available",
@@ -2462,6 +2507,9 @@
     "install": "Install",
     "autoUpdate": "Install updates automatically",
     "autoUpdateHelp": "When a new release is published, Meshloom installs it on this node.",
+    "toastTitle": "Update available",
+    "toastBody": "v{{current}} → v{{latest}}",
+    "toastSee": "View",
     "progressTitle": "Installing update",
     "failed": "Update failed",
     "restartTimeout": "The node did not come back with the new version.",

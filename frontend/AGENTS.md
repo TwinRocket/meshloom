@@ -447,12 +447,13 @@ Supported routes:
 - `#locate`
 - `#locate/{key_or_prefix}`
 - `#settings/{section}`
+- `#settings/updates`
 - `#channel/{channelKey}`
 - `#channel/{channelKey}/{label}`
 - `#contact/{publicKey}`
 - `#contact/{publicKey}/{label}`
 
-Where `{section}` is one of `radio`, `proxy`, `local`, `notifications`, `community`, `radio-app`, `database`, `fanout`, `statistics`, or `about`.
+Where `{section}` is one of `radio`, `proxy`, `local`, `notifications`, `updates`, `community`, `radio-app`, `database`, `fanout`, `statistics`, or `about`.
 
 Legacy name-based channel/contact hashes are still accepted for compatibility.
 

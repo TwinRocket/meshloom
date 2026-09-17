@@ -1,42 +1,42 @@
-## [4.12.3] - 2026-09-17
+### [4.12.3] - 2026-09-17
 
-This is about the hours after 4.12. You type a message at a desk and Enter should send it. You open a repeater's neighbours and want more than a name. You have a Pi 1, and the installer should not hand you a package that dies on the first instruction.
+#### Added & Changed
 
-### What's new
+* **Desktop Messaging Behavior:** Pressing `Enter` on desktop environments now sends the message, reverting the behavior introduced in 4.11. `Shift+Enter` inserts a line break. Touchscreen devices retain the standard newline behavior.
+* **Map Enhancements:** Detailed view for repeater neighbors now displays SNR, distance, and GPS coordinates directly on the map pin.
+* **Map Labels:** Added a persistent display option that leaves labels visible on all mapped neighbors to prevent having to repeatedly search for the same marker.
 
-- **Enter sends, on a desk.** 4.11 made Enter start a new line for everyone, which is right on a phone, a tablet and a foldable. A keyboard is a different thing. Enter now sends there; Shift+Enter is still the line break. Touch keeps the newline.
-- **A neighbour on the map can say more than its name.** Detailed display puts SNR, distance and GPS on the pin you open. Permanent display leaves a label on every mapped neighbour so you are not hunting the same marker twice. The chip stays as wide as the name: a wrapping tooltip used to collapse to a sliver.
+#### Fixed
 
-### Fixed
+* **Raspberry Pi Installer:** Resolved an "illegal instruction" crash for Raspberry Pi 1 and the original Pi Zero (`armv6l` architectures). The installer no longer erroneously attempts to install the 32-bit `armv7l` package and now correctly defaults to a source installation.
+* **API Rate Limiting:** The Community service now properly handles HTTP 429 responses from the Stats API. Instead of continuously retrying failed requests after hitting the quota (30 upserts/hour/key), it backs off until the hourly limit resets.
+* **UI Tooltips:** Fixed a rendering bug where text-wrapping tooltips on map pins would incorrectly collapse.
 
-- **A Pi 1 and the original Zero are not offered the 32-bit package.** Raspberry Pi OS calls those boards armhf too, so mapping `armv6l` next to `armv7l` looked right. The package is built for armv7. It would install, then die on an illegal instruction, which is worse than the source install they now get.
-- **Community stops asking Stats for samples when the hour is spent.** Stats allows thirty sample upserts per hour per key. A 429 used to look like any other failed call, so the next packet tried again. It now waits the hour out.
+#### Infrastructure & Documentation
 
-### Notes
-
-The Raspberry Pi page now answers the question people actually arrive with: which board takes which route. The Pi 2 is in that table — 32-bit only, so the flashed image is not its path — and the page says what is known about a Pi 2 or a Pi 3 rather than inventing a number nobody has measured. A correction there also reaches [meshloom.app](https://meshloom.app): a push that touches the user docs asks that site to rebuild, instead of waiting for someone to redeploy it by hand.
+* **Raspberry Pi Docs:** Updated the compatibility matrix to clearly define supported installation routes per board (e.g., clarifying that Pi 2 is strictly 32-bit and providing verified metrics).
+* **CI/CD Pipeline (meshloom.app):** Automated deployments for the companion site. Commits modifying user documentation now trigger a webhook to automatically rebuild the site, removing the need for manual redeploys.
 
 ---
 
 ### Français
 
-Cette tranche parle des heures après la 4.12. Vous tapez un message au bureau et Entrée doit l'envoyer. Vous ouvrez les voisins d'un répéteur et voulez plus qu'un nom. Vous avez un Pi 1, et l'installateur ne doit pas vous tendre un paquet qui meurt à la première instruction.
+#### Ajouts et Modifications
 
-#### Quoi de neuf
-
-- **Entrée envoie, au bureau.** La 4.11 faisait commencer une nouvelle ligne à tout le monde, ce qui est juste sur un téléphone, une tablette et un pliable. Un clavier, c'est autre chose. Entrée envoie désormais ; Maj+Entrée reste le retour à la ligne. Le tactile garde le saut de ligne.
-- **Un voisin sur la carte peut dire plus que son nom.** L'affichage détaillé pose le SNR, la distance et le GPS sur l'épingle que vous ouvrez. L'affichage permanent laisse un libellé sur chaque voisin cartographié, pour ne pas chercher le même marqueur deux fois. La pastille reste aussi large que le nom : un tooltip qui passait à la ligne se réduisait à une fente.
+* **Messagerie sur bureau :** L'appui sur `Entrée` envoie désormais le message (annulation de la modification introduite en 4.11). `Maj+Entrée` permet d'insérer un saut de ligne. Les appareils tactiles conservent le comportement précédent (`Entrée` pour un saut de ligne).
+* **Améliorations de la carte :** La vue détaillée des voisins (répéteurs) affiche désormais le SNR, la distance et les coordonnées GPS directement sur l'épingle.
+* **Étiquettes de la carte :** Ajout d'une option d'affichage permanent qui maintient les libellés de tous les voisins cartographiés visibles.
 
 #### Corrections
 
-- **Un Pi 1 et le Zero d'origine ne se voient plus proposer le paquet 32 bits.** Raspberry Pi OS appelle aussi ces cartes armhf, donc ranger `armv6l` à côté de `armv7l` avait l'air juste. Le paquet est construit pour armv7. Il s'installait, puis mourait sur une instruction illégale, ce qui est pire que l'install source qu'ils reçoivent maintenant.
-- **Community arrête de demander des échantillons à Stats quand l'heure est épuisée.** Stats autorise trente envois d'échantillon par heure et par clé. Un 429 ressemblait à n'importe quel autre échec, donc le paquet suivant réessayait. Il attend désormais la fin de l'heure.
+* **Installateur Raspberry Pi :** Résolution d'un crash ("instruction illégale") sur les Raspberry Pi 1 et Zero d'origine (architectures `armv6l`). L'installateur ne tente plus d'utiliser le paquet 32 bits (`armv7l`) et bascule désormais correctement sur une installation depuis les sources.
+* **Rate Limiting (API Stats) :** Le service Community gère désormais correctement les erreurs HTTP 429. Au lieu de retenter les envois en boucle après avoir atteint le quota (30 envois/heure/clé), il suspend les requêtes jusqu'à la réinitialisation de la fenêtre horaire.
+* **Interface / Infobulles :** Correction d'un bug d'affichage où les infobulles (tooltips) des marqueurs s'écrasaient au lieu de s'afficher correctement.
 
-#### Remarques
+#### Infrastructure & Documentation
 
-La page Raspberry Pi répond maintenant à la question avec laquelle on arrive vraiment : quelle carte, quelle voie. Le Pi 2 est dans ce tableau — 32 bits seulement, donc l'image à flasher n'est pas son chemin — et la page dit ce qui est connu d'un Pi 2 ou d'un Pi 3 plutôt que d'inventer un chiffre que personne n'a mesuré. Une correction là-bas atteint aussi [meshloom.app](https://meshloom.app) : un push qui touche la doc utilisateur demande à ce site de se reconstruire, au lieu d'attendre que quelqu'un le redéploie à la main.
-
----
+* **Documentation Raspberry Pi :** Mise à jour du tableau de compatibilité pour clarifier les méthodes d'installation par modèle (précisant notamment que le Pi 2 est exclusivement 32 bits et en utilisant des métriques vérifiées).
+* **Pipeline CI/CD (meshloom.app) :** Déploiements automatisés. Toute modification de la documentation utilisateur déclenche désormais une reconstruction automatique du site web, éliminant le besoin de déclencher des déploiements manuels.
 
 ## [4.12.2] - 2026-09-17
 

@@ -54,6 +54,7 @@ class PushDefaultsModel(BaseModel):
     advert_sensor: bool
     channel_found: bool
     telemetry_alert: bool
+    oss_update: bool
 
 
 class PushDefaultsPatch(BaseModel):
@@ -64,6 +65,7 @@ class PushDefaultsPatch(BaseModel):
     advert_sensor: bool | None = None
     channel_found: bool | None = None
     telemetry_alert: bool | None = None
+    oss_update: bool | None = None
 
 
 class PushPreferencesResponse(BaseModel):

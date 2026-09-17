@@ -6,12 +6,20 @@ import {
   OSS_UPDATE_RESTART_TIMEOUT_MS,
   OSS_UPDATE_SUCCEEDED_STALE_MS,
   UPDATE_TARGET_STORAGE_KEY,
+  UPDATE_TOAST_SEEN_KEY,
   jobProgressPercent,
   ossUpdateActions,
   useOssUpdates,
   versionsMatch,
 } from '../hooks/useOssUpdates';
+import i18n from '../i18n';
 import type { OssUpdateJob, OssUpdateStatus } from '../types';
+import { getSettingsHash } from '../utils/urlHash';
+
+const toastMock = vi.hoisted(() => vi.fn());
+vi.mock('../components/ui/sonner', () => ({
+  toast: toastMock,
+}));
 
 const idleJob: OssUpdateJob = {
   state: 'idle',
@@ -30,6 +38,12 @@ function status(overrides: Partial<OssUpdateStatus> = {}): OssUpdateStatus {
     install_kind: 'package',
     apply_supported: true,
     auto_update: false,
+    auto_update_window_start: '02:00',
+    auto_update_window_end: '05:00',
+    auto_update_weekdays: [0, 1, 2, 3, 4, 5, 6],
+    checked_at: 1_700_000_000,
+    tz_name: 'UTC',
+    next_auto_apply_at: null,
     job: idleJob,
     ...overrides,
   };
@@ -68,6 +82,7 @@ describe('useOssUpdates', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    toastMock.mockClear();
     sessionStorage.clear();
   });
 
@@ -343,6 +358,108 @@ describe('useOssUpdates', () => {
     });
     expect(api.patchUpdateSettings).toHaveBeenCalledWith({ auto_update: true });
     expect(result.current.status?.auto_update).toBe(true);
+  });
+
+  it('POSTs /updates/refresh from checkNow', async () => {
+    const payload = status({ latest: '1.0.0', update_available: false });
+    const refreshed = status({ latest: '1.2.0', checked_at: 1_700_000_100 });
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(payload);
+    vi.spyOn(api, 'refreshUpdates').mockResolvedValue(refreshed);
+
+    const { result } = renderHook(() => useOssUpdates());
+    await waitFor(() => {
+      expect(result.current.status?.latest).toBe('1.0.0');
+    });
+    await act(async () => {
+      await result.current.checkNow();
+    });
+    expect(api.refreshUpdates).toHaveBeenCalledTimes(1);
+    expect(result.current.status?.latest).toBe('1.2.0');
+    expect(result.current.checking).toBe(false);
+  });
+
+  it('PATCHes window settings through setUpdateSettings', async () => {
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(status());
+    vi.spyOn(api, 'patchUpdateSettings').mockResolvedValue(
+      status({
+        auto_update: true,
+        auto_update_window_start: '03:00',
+        auto_update_weekdays: [0, 6],
+      })
+    );
+
+    const { result } = renderHook(() => useOssUpdates());
+    await waitFor(() => {
+      expect(result.current.status).toBeTruthy();
+    });
+    await act(async () => {
+      await result.current.setUpdateSettings({
+        auto_update: true,
+        auto_update_window_start: '03:00',
+        auto_update_weekdays: [0, 6],
+      });
+    });
+    expect(api.patchUpdateSettings).toHaveBeenCalledWith({
+      auto_update: true,
+      auto_update_window_start: '03:00',
+      auto_update_weekdays: [0, 6],
+    });
+    expect(result.current.status?.auto_update_window_start).toBe('03:00');
+  });
+
+  it('toasts a new latest once and opens settings from Voir', async () => {
+    const payload = status();
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(payload);
+
+    const { result, unmount } = renderHook(() => useOssUpdates());
+    await waitFor(() => {
+      expect(result.current.status).toEqual(payload);
+    });
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock).toHaveBeenCalledWith(
+      i18n.t('updates.toastTitle'),
+      expect.objectContaining({
+        description: i18n.t('updates.toastBody', { current: '1.0.0', latest: '1.1.0' }),
+        action: expect.objectContaining({ label: i18n.t('updates.toastSee') }),
+      })
+    );
+    expect(sessionStorage.getItem(UPDATE_TOAST_SEEN_KEY)).toBe('1.1.0');
+
+    const action = toastMock.mock.calls[0][1] as { action: { onClick: () => void } };
+    action.action.onClick();
+    expect(window.location.hash).toBe(getSettingsHash('updates'));
+
+    unmount();
+    toastMock.mockClear();
+    const again = renderHook(() => useOssUpdates());
+    await waitFor(() => {
+      expect(again.result.current.status).toEqual(payload);
+    });
+    expect(toastMock).not.toHaveBeenCalled();
+    again.unmount();
+  });
+
+  it('toasts again when latest changes and prefers onSeeUpdate', async () => {
+    const onSeeUpdate = vi.fn();
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(status());
+    sessionStorage.setItem(UPDATE_TOAST_SEEN_KEY, '1.1.0');
+
+    const { result } = renderHook(() => useOssUpdates({ onSeeUpdate }));
+    await waitFor(() => {
+      expect(result.current.status?.latest).toBe('1.1.0');
+    });
+    expect(toastMock).not.toHaveBeenCalled();
+
+    vi.spyOn(api, 'refreshUpdates').mockResolvedValue(status({ latest: '1.2.0' }));
+    await act(async () => {
+      await result.current.checkNow();
+    });
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(UPDATE_TOAST_SEEN_KEY)).toBe('1.2.0');
+
+    const action = toastMock.mock.calls[0][1] as { action: { onClick: () => void } };
+    action.action.onClick();
+    expect(onSeeUpdate).toHaveBeenCalled();
   });
 
   it('keeps polling when apply is already in progress', async () => {

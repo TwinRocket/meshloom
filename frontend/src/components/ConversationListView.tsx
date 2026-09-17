@@ -38,6 +38,8 @@ interface Props {
   health?: HealthStatus | null;
   /** Opens the radio read-out. The dot means the same thing on every screen. */
   onOpenRadioStatus?: () => void;
+  /** Pulse the header pip when a newer Meshloom release is published. */
+  updateAvailable?: boolean;
   /** Desktop: fold the list column so the conversation can use the width. */
   onCollapseList?: () => void;
 }
@@ -122,6 +124,7 @@ export function ConversationListView({
   onNewMessage,
   health,
   onOpenRadioStatus,
+  updateAvailable,
   onCollapseList,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -258,6 +261,7 @@ export function ConversationListView({
           <RadioStatusChip
             health={health ?? null}
             onOpenStatus={onOpenRadioStatus}
+            updateAvailable={updateAvailable}
             className="ml-auto max-w-[9rem] md:hidden"
           />
           {/* Both halves are always rendered and the platform stylesheet picks:

@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import { STATUS_DOT_UPDATE_AVAILABLE_CLASS } from './RadioStatusChip';
 import { cn } from '../lib/utils';
 
 /**
@@ -24,6 +25,10 @@ interface Props {
   onClose: () => void;
   onOpenRadioSettings: () => void;
   onAdvertise: (mode: RadioAdvertMode) => Promise<void>;
+  updateAvailable?: boolean;
+  currentVersion?: string | null;
+  latestVersion?: string | null;
+  onOpenUpdates?: () => void;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -44,6 +49,10 @@ export function RadioStatusDialog({
   onClose,
   onOpenRadioSettings,
   onAdvertise,
+  updateAvailable,
+  currentVersion,
+  latestVersion,
+  onOpenUpdates,
 }: Props) {
   const { t } = useTranslation();
   const [advertisingMode, setAdvertisingMode] = useState<RadioAdvertMode | null>(null);
@@ -106,7 +115,8 @@ export function RadioStatusDialog({
                   ? 'bg-warning'
                   : connected
                     ? 'bg-status-connected'
-                    : 'bg-status-disconnected'
+                    : 'bg-status-disconnected',
+                updateAvailable && STATUS_DOT_UPDATE_AVAILABLE_CLASS
               )}
               aria-hidden="true"
             />
@@ -116,6 +126,27 @@ export function RadioStatusDialog({
             {connected ? t('radioStatus.connectedHelp') : t('radioStatus.disconnectedHelp')}
           </DialogDescription>
         </DialogHeader>
+
+        {updateAvailable && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenUpdates?.();
+            }}
+            className="w-full rounded-2xl bg-primary/10 px-4 py-3 text-left transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <p className="text-sm font-semibold text-foreground">
+              {t('radioStatus.updateAvailable')}
+            </p>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('radioStatus.updateAvailableHelp', {
+                current: currentVersion || '—',
+                latest: latestVersion || '—',
+              })}
+            </p>
+          </button>
+        )}
 
         {rows.length > 0 && (
           <dl className="rounded-xl bg-muted/40 px-4 py-1">

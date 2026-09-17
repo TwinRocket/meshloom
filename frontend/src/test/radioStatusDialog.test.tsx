@@ -96,4 +96,31 @@ describe('RadioStatusDialog', () => {
       screen.getByRole('button', { name: i18n.t('radioStatus.advertZeroHop') })
     ).toBeDisabled();
   });
+
+  it('hides the update banner when no update is available', () => {
+    open();
+    expect(screen.queryByText(i18n.t('radioStatus.updateAvailable'))).not.toBeInTheDocument();
+  });
+
+  it('shows a clickable update banner that opens updates after close', () => {
+    const onOpenUpdates = vi.fn();
+    const { onClose } = open({
+      updateAvailable: true,
+      currentVersion: '4.7.1',
+      latestVersion: '4.8.0',
+      onOpenUpdates,
+    });
+    expect(screen.getByText(i18n.t('radioStatus.updateAvailable'))).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        i18n.t('radioStatus.updateAvailableHelp', { current: '4.7.1', latest: '4.8.0' })
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByText(i18n.t('radioStatus.updateAvailable')));
+    expect(onClose).toHaveBeenCalled();
+    expect(onOpenUpdates).toHaveBeenCalled();
+    expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(
+      onOpenUpdates.mock.invocationCallOrder[0]
+    );
+  });
 });

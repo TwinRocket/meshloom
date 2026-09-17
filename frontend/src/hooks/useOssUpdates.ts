@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, api } from '../api';
+import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
-import type { OssUpdateJob, OssUpdateJobPhase, OssUpdateStatus } from '../types';
+import type {
+  OssUpdateJob,
+  OssUpdateJobPhase,
+  OssUpdateSettingsPatch,
+  OssUpdateStatus,
+} from '../types';
+import { getSettingsHash } from '../utils/urlHash';
 
 /** Backend already caches at 300s; this is just so a long-lived tab notices. */
 export const OSS_UPDATE_POLL_MS = 5 * 60 * 1000;
@@ -12,6 +19,7 @@ export const OSS_UPDATE_RESTART_TIMEOUT_MS = 5 * 60 * 1000;
 export const OSS_UPDATE_SUCCEEDED_STALE_MS = 15 * 1000;
 export const OSS_UPDATE_RELOAD_FLASH_MS = 500;
 export const UPDATE_TARGET_STORAGE_KEY = 'meshloom.updateTarget';
+export const UPDATE_TOAST_SEEN_KEY = 'meshloom.updateToastSeen';
 
 const PHASE_PERCENT: Record<OssUpdateJobPhase, number> = {
   preparing: 10,
@@ -91,28 +99,55 @@ function clearUpdateTarget(): void {
   }
 }
 
+export interface UseOssUpdatesOptions {
+  onSeeUpdate?: () => void;
+}
+
 export interface UseOssUpdatesResult {
   status: OssUpdateStatus | null;
   refresh: () => Promise<void>;
+  checkNow: () => Promise<void>;
   apply: () => Promise<void>;
   setAutoUpdate: (enabled: boolean) => Promise<void>;
+  setUpdateSettings: (settings: OssUpdateSettingsPatch) => Promise<void>;
   showProgress: boolean;
   applying: boolean;
+  checking: boolean;
   progressPercent: number;
   progressPhase: OssUpdateJobPhase | null;
   applyError: string | null;
   dismissProgress: () => void;
 }
 
-export function useOssUpdates(): UseOssUpdatesResult {
+function readToastSeen(): string | null {
+  try {
+    return sessionStorage.getItem(UPDATE_TOAST_SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeToastSeen(latest: string): void {
+  try {
+    sessionStorage.setItem(UPDATE_TOAST_SEEN_KEY, latest);
+  } catch {
+    // Private mode — this tab still keeps the in-memory seen value.
+  }
+}
+
+export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResult {
   const [status, setStatus] = useState<OssUpdateStatus | null>(null);
   const [showProgress, setShowProgress] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressPhase, setProgressPhase] = useState<OssUpdateJobPhase | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
   const statusRef = useRef<OssUpdateStatus | null>(null);
+  const onSeeUpdateRef = useRef(options?.onSeeUpdate);
+  onSeeUpdateRef.current = options?.onSeeUpdate;
+  const toastSeenRef = useRef<string | null>(readToastSeen());
   const targetRef = useRef<string | null>(null);
   const jobTimerRef = useRef<number | null>(null);
   const restartTimerRef = useRef<number | null>(null);
@@ -120,9 +155,34 @@ export function useOssUpdates(): UseOssUpdatesResult {
   const reloadingRef = useRef(false);
   const cancelledRef = useRef(false);
 
+  const notifyIfUpdateAvailable = (next: OssUpdateStatus) => {
+    if (!next.update_available || !next.latest) return;
+    const seen = toastSeenRef.current ?? readToastSeen();
+    if (seen === next.latest) return;
+    toastSeenRef.current = next.latest;
+    writeToastSeen(next.latest);
+    toast(i18n.t('updates.toastTitle'), {
+      description: i18n.t('updates.toastBody', {
+        current: next.current,
+        latest: next.latest,
+      }),
+      action: {
+        label: i18n.t('updates.toastSee'),
+        onClick: () => {
+          if (onSeeUpdateRef.current) {
+            onSeeUpdateRef.current();
+            return;
+          }
+          window.location.hash = getSettingsHash('updates');
+        },
+      },
+    });
+  };
+
   const persistStatus = (next: OssUpdateStatus) => {
     statusRef.current = next;
     setStatus(next);
+    notifyIfUpdateAvailable(next);
   };
 
   const stopRestartTimeout = () => {
@@ -316,6 +376,23 @@ export function useOssUpdates(): UseOssUpdatesResult {
     await loadStatus();
   }, []);
 
+  const checkNow = useCallback(async () => {
+    if (typeof api.refreshUpdates !== 'function') {
+      await loadStatus();
+      return;
+    }
+    setChecking(true);
+    try {
+      const data = await api.refreshUpdates();
+      if (cancelledRef.current || !data || typeof data.current !== 'string') return;
+      persistStatus(data);
+    } catch {
+      // Catalogue refresh failed — keep the last known status.
+    } finally {
+      if (!cancelledRef.current) setChecking(false);
+    }
+  }, []);
+
   const apply = useCallback(async () => {
     const latest = statusRef.current?.latest;
     if (latest) {
@@ -367,11 +444,18 @@ export function useOssUpdates(): UseOssUpdatesResult {
     }
   }, []);
 
-  const setAutoUpdate = useCallback(async (enabled: boolean) => {
+  const setUpdateSettings = useCallback(async (settings: OssUpdateSettingsPatch) => {
     if (typeof api.patchUpdateSettings !== 'function') return;
-    const next = await api.patchUpdateSettings({ auto_update: enabled });
+    const next = await api.patchUpdateSettings(settings);
     if (!cancelledRef.current) persistStatus(next);
   }, []);
+
+  const setAutoUpdate = useCallback(
+    async (enabled: boolean) => {
+      await setUpdateSettings({ auto_update: enabled });
+    },
+    [setUpdateSettings]
+  );
 
   const dismissProgress = useCallback(() => {
     setShowProgress((visible) => {
@@ -402,10 +486,13 @@ export function useOssUpdates(): UseOssUpdatesResult {
   return {
     status,
     refresh,
+    checkNow,
     apply,
     setAutoUpdate,
+    setUpdateSettings,
     showProgress,
     applying,
+    checking,
     progressPercent,
     progressPhase,
     applyError,

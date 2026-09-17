@@ -750,3 +750,99 @@ async def test_process_advertisement_insert_notifies_rf_advert(test_db, monkeypa
 
     notify.assert_awaited_once()
     assert notify.await_args.kwargs["origin"] == "rf_advert"
+
+
+def test_build_payload_oss_update_french_and_english():
+    from app.push.manager import _build_payload
+
+    fr = json.loads(
+        _build_payload(
+            {
+                "event": "oss_update",
+                "current": "1.0.0",
+                "latest": "9.9.9",
+            }
+        )
+    )
+    assert fr["title"] == "Mise à jour Meshloom disponible"
+    assert "9.9.9" in fr["body"]
+    assert "1.0.0" in fr["body"]
+    assert fr["tag"] == "meshcore-oss-update-9.9.9"
+    assert fr["url_hash"] == "#settings/updates"
+
+    en = json.loads(
+        _build_payload(
+            {
+                "event": "oss_update",
+                "current": "1.0.0",
+                "latest": "9.9.9",
+            },
+            language="en",
+        )
+    )
+    assert en["title"] == "Meshloom update available"
+    assert "9.9.9" in en["body"]
+    assert en["url_hash"] == "#settings/updates"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_oss_update_sends_once_per_latest(test_db, monkeypatch):
+    from app.repository.settings import AppSettingsRepository
+    from app.services.oss_updates import _maybe_notify_oss_update, reset_oss_update_cache
+    from app.version_info import AppBuildInfo
+
+    await _add_push_sub()
+    sent = _patch_push_send(monkeypatch)
+    reset_oss_update_cache()
+    import app.services.oss_updates as oss_updates
+
+    oss_updates._latest_payload = {"version": "9.9.9", "html_url": None}
+    with patch(
+        "app.services.oss_updates.get_app_build_info",
+        return_value=AppBuildInfo(
+            version="1.0.0", version_source="test", commit_hash=None, commit_source=None
+        ),
+    ):
+        await _maybe_notify_oss_update()
+        await _maybe_notify_oss_update()
+
+    assert len(sent) == 1
+    payload = json.loads(sent[0]["payload"])
+    assert payload["url_hash"] == "#settings/updates"
+    assert await AppSettingsRepository.get_last_notified_update_version() == "9.9.9"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_oss_update_skips_if_already_notified(test_db, monkeypatch):
+    from app.repository.settings import AppSettingsRepository
+    from app.services.oss_updates import _maybe_notify_oss_update, reset_oss_update_cache
+    from app.version_info import AppBuildInfo
+
+    await _add_push_sub()
+    sent = _patch_push_send(monkeypatch)
+    await AppSettingsRepository.set_last_notified_update_version("9.9.9")
+    reset_oss_update_cache()
+    import app.services.oss_updates as oss_updates
+
+    oss_updates._latest_payload = {"version": "9.9.9", "html_url": None}
+    with patch(
+        "app.services.oss_updates.get_app_build_info",
+        return_value=AppBuildInfo(
+            version="1.0.0", version_source="test", commit_hash=None, commit_source=None
+        ),
+    ):
+        await _maybe_notify_oss_update()
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_oss_update_skips_when_default_off(test_db, monkeypatch):
+    from app.push.manager import push_manager
+    from app.repository.settings import AppSettingsRepository
+
+    await _add_push_sub()
+    sent = _patch_push_send(monkeypatch)
+    await AppSettingsRepository.set_push_defaults({"oss_update": False})
+    sent_flag = await push_manager.dispatch_oss_update("1.0.0", "9.9.9")
+    assert sent_flag is False
+    assert sent == []

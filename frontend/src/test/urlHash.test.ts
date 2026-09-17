@@ -236,6 +236,13 @@ describe('settings URL hashes', () => {
     expect(parseHashSettingsSection()).toBe('proxy');
     expect(getSettingsHash('proxy')).toBe('#settings/proxy');
   });
+
+  it('parses the updates settings hash', () => {
+    window.location.hash = '#settings/updates';
+
+    expect(parseHashSettingsSection()).toBe('updates');
+    expect(getSettingsHash('updates')).toBe('#settings/updates');
+  });
 });
 
 describe('resolveChannelFromHashToken', () => {

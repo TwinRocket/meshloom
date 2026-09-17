@@ -39,7 +39,7 @@ const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
   { titleKey: 'settingsIndex.groupRadio', sections: ['radio', 'proxy', 'radio-app'] },
   {
     titleKey: 'settingsIndex.groupApp',
-    sections: ['local', 'navigation', 'notifications', 'community', 'fanout'],
+    sections: ['local', 'navigation', 'notifications', 'updates', 'community', 'fanout'],
   },
   { titleKey: 'settingsIndex.groupData', sections: ['database', 'statistics', 'about'] },
 ];
@@ -74,6 +74,7 @@ export function SettingsIndexView({
         <RadioStatusChip
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}
+          updateAvailable={updateAvailable}
           className="ml-auto max-w-[9rem] md:hidden"
         />
       </div>
@@ -116,7 +117,7 @@ export function SettingsIndexView({
                         )}
                       >
                         <span className="truncate">{t(SETTINGS_SECTION_LABELS[section])}</span>
-                        {section === 'about' && updateAvailable && (
+                        {section === 'updates' && updateAvailable && (
                           <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary">
                             {t('updates.badgeLabel')}
                           </span>

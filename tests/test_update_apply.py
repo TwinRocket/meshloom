@@ -119,8 +119,19 @@ async def test_start_apply_unsupported_kind_fails_job(job_dir: Path) -> None:
     assert "not supported" in (job["error"] or "")
 
 
-def _settings(auto_update: bool = False):
-    return SimpleNamespace(auto_update=auto_update)
+def _settings(
+    auto_update: bool = False,
+    *,
+    window_start: str = "00:00",
+    window_end: str = "00:00",
+    weekdays: list[int] | None = None,
+):
+    return SimpleNamespace(
+        auto_update=auto_update,
+        auto_update_window_start=window_start,
+        auto_update_window_end=window_end,
+        auto_update_weekdays=list(range(7)) if weekdays is None else weekdays,
+    )
 
 
 class TestUpdatesRouter:
@@ -154,6 +165,12 @@ class TestUpdatesRouter:
         assert data["install_kind"] == "source"
         assert data["apply_supported"] is False
         assert data["auto_update"] is False
+        assert data["auto_update_window_start"] == "00:00"
+        assert data["auto_update_window_end"] == "00:00"
+        assert data["auto_update_weekdays"] == [0, 1, 2, 3, 4, 5, 6]
+        assert data["checked_at"] is None
+        assert isinstance(data["tz_name"], str) and data["tz_name"]
+        assert data["next_auto_apply_at"] is None
         assert data["job"]["state"] == "idle"
         assert "last_attempt" not in data["job"]
 
@@ -317,11 +334,67 @@ class TestUpdatesRouter:
         assert response.status_code == 200
         assert response.json()["auto_update"] is True
 
+    def test_patch_window_fields_partial(self, job_dir: Path) -> None:
+        from app.main import app
+
+        with (
+            patch(
+                "app.routers.updates.get_update_status",
+                return_value={
+                    "current": "1.0.0",
+                    "latest": None,
+                    "update_available": False,
+                    "html_url": None,
+                    "checked_at": None,
+                },
+            ),
+            patch(
+                "app.routers.updates.detect_install_kind",
+                return_value=("package", True),
+            ),
+            patch(
+                "app.routers.updates.AppSettingsRepository.get",
+                new=AsyncMock(
+                    return_value=_settings(
+                        True, window_start="22:00", window_end="06:00", weekdays=[0, 1, 2, 3, 4]
+                    )
+                ),
+            ),
+            patch(
+                "app.routers.updates.AppSettingsRepository.update",
+                new=AsyncMock(),
+            ) as update,
+        ):
+            with TestClient(app) as client:
+                response = client.patch(
+                    "/api/updates/settings",
+                    json={
+                        "auto_update_window_start": "22:00",
+                        "auto_update_window_end": "06:00",
+                        "auto_update_weekdays": [0, 1, 2, 3, 4],
+                    },
+                )
+
+        assert response.status_code == 200
+        update.assert_awaited_once()
+        kwargs = update.await_args.kwargs
+        assert kwargs["auto_update_window_start"] == "22:00"
+        assert kwargs["auto_update_window_end"] == "06:00"
+        assert kwargs["auto_update_weekdays"] == [0, 1, 2, 3, 4]
+        assert "auto_update" not in kwargs
+        data = response.json()
+        assert data["auto_update_window_start"] == "22:00"
+        assert data["auto_update_weekdays"] == [0, 1, 2, 3, 4]
+
 
 def test_settings_patch_model_excludes_auto_update() -> None:
     from app.routers.settings import AppSettingsUpdate
 
     assert "auto_update" not in AppSettingsUpdate.model_fields
+    assert "auto_update_window_start" not in AppSettingsUpdate.model_fields
+    assert "auto_update_window_end" not in AppSettingsUpdate.model_fields
+    assert "auto_update_weekdays" not in AppSettingsUpdate.model_fields
+    assert "last_notified_update_version" not in AppSettingsUpdate.model_fields
 
 
 class TestAutoApply:
@@ -413,3 +486,120 @@ class TestAutoApply:
         ):
             await _maybe_auto_apply()
         start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_outside_window(
+        self, test_db, job_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import datetime
+
+        from app.repository import AppSettingsRepository
+        from app.services.oss_updates import _maybe_auto_apply
+        from app.version_info import AppBuildInfo
+
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+        helper = job_dir / "apply-update"
+        helper.write_text("ok", encoding="utf-8")
+        monkeypatch.setattr("app.services.install_kind.APPLY_UPDATE_BIN", helper)
+        today = datetime.now().astimezone().weekday()
+        await AppSettingsRepository.update(
+            auto_update=True,
+            auto_update_weekdays=[(today + 1) % 7],
+        )
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = {"version": "9.9.9", "html_url": None}
+        with (
+            patch(
+                "app.services.oss_updates.get_app_build_info",
+                return_value=AppBuildInfo(
+                    version="1.0.0", version_source="test", commit_hash=None, commit_source=None
+                ),
+            ),
+            patch("app.services.update_apply.start_apply", new=AsyncMock()) as start,
+        ):
+            await _maybe_auto_apply()
+        start.assert_not_called()
+        assert read_job()["state"] == "idle"
+
+    @pytest.mark.asyncio
+    async def test_applies_inside_window(
+        self, test_db, job_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.repository import AppSettingsRepository
+        from app.services.oss_updates import _maybe_auto_apply
+        from app.version_info import AppBuildInfo
+
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+        helper = job_dir / "apply-update"
+        helper.write_text("ok", encoding="utf-8")
+        monkeypatch.setattr("app.services.install_kind.APPLY_UPDATE_BIN", helper)
+        await AppSettingsRepository.update(
+            auto_update=True,
+            auto_update_window_start="00:00",
+            auto_update_window_end="00:00",
+            auto_update_weekdays=list(range(7)),
+        )
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = {
+            "version": "9.9.9",
+            "html_url": "https://example.invalid/r",
+        }
+        with (
+            patch(
+                "app.services.oss_updates.get_app_build_info",
+                return_value=AppBuildInfo(
+                    version="1.0.0", version_source="test", commit_hash=None, commit_source=None
+                ),
+            ),
+            patch("app.services.update_apply.start_package_helper", new=AsyncMock()),
+        ):
+            await _maybe_auto_apply()
+        assert read_job()["state"] == "applying"
+
+    def test_manual_apply_ignores_window(self, job_dir: Path) -> None:
+        from datetime import datetime
+
+        from app.main import app
+
+        today = datetime.now().astimezone().weekday()
+        with (
+            patch(
+                "app.routers.updates.get_update_status",
+                return_value={
+                    "current": "1.0.0",
+                    "latest": "9.9.9",
+                    "update_available": True,
+                    "html_url": None,
+                    "checked_at": None,
+                },
+            ),
+            patch(
+                "app.routers.updates.detect_install_kind",
+                return_value=("package", True),
+            ),
+            patch(
+                "app.routers.updates.start_apply",
+                new=AsyncMock(
+                    return_value={
+                        "state": "applying",
+                        "phase": "preparing",
+                        "percent": 0,
+                        "error": None,
+                        "started_at": 1,
+                    }
+                ),
+            ) as start,
+            patch(
+                "app.routers.updates.AppSettingsRepository.get",
+                new=AsyncMock(
+                    return_value=_settings(True, weekdays=[(today + 1) % 7]),
+                ),
+            ),
+        ):
+            with TestClient(app) as client:
+                response = client.post("/api/updates/apply")
+
+        assert response.status_code == 202
+        start.assert_awaited_once()

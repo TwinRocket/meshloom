@@ -75,6 +75,7 @@ import type {
   CommunityAirportHit,
   CommunityStatus,
   CommunityUpdate,
+  OssUpdateSettingsPatch,
   OssUpdateStatus,
   TraceResponse,
   UnreadCounts,
@@ -196,7 +197,8 @@ export const api = {
   getHealth: () => fetchJson<HealthStatus>('/health'),
   getUpdates: () => fetchJson<OssUpdateStatus>('/updates'),
   applyUpdate: () => fetchJson<OssUpdateStatus>('/updates/apply', { method: 'POST' }),
-  patchUpdateSettings: (settings: { auto_update: boolean }) =>
+  refreshUpdates: () => fetchJson<OssUpdateStatus>('/updates/refresh', { method: 'POST' }),
+  patchUpdateSettings: (settings: OssUpdateSettingsPatch) =>
     fetchJson<OssUpdateStatus>('/updates/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),

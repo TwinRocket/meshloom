@@ -150,6 +150,7 @@ class TestSemVerAndCache:
             status = get_update_status()
         assert status["latest"] is None
         assert status["update_available"] is False
+        assert status["checked_at"] is not None
 
 
 class TestUpdatesEndpoint:
@@ -172,7 +173,18 @@ class TestUpdatesEndpoint:
             ),
             patch(
                 "app.routers.updates.AppSettingsRepository.get",
-                new=AsyncMock(return_value=type("S", (), {"auto_update": False})()),
+                new=AsyncMock(
+                    return_value=type(
+                        "S",
+                        (),
+                        {
+                            "auto_update": False,
+                            "auto_update_window_start": "00:00",
+                            "auto_update_window_end": "00:00",
+                            "auto_update_weekdays": [0, 1, 2, 3, 4, 5, 6],
+                        },
+                    )()
+                ),
             ),
         ):
             with TestClient(app) as client:
@@ -188,6 +200,12 @@ class TestUpdatesEndpoint:
         assert data["install_kind"] in {"package", "compose", "addon", "container", "source"}
         assert data["apply_supported"] is False or data["install_kind"] in {"package", "compose"}
         assert data["auto_update"] is False
+        assert data["auto_update_window_start"] == "00:00"
+        assert data["auto_update_window_end"] == "00:00"
+        assert data["auto_update_weekdays"] == [0, 1, 2, 3, 4, 5, 6]
+        assert data["checked_at"] is None
+        assert isinstance(data["tz_name"], str) and data["tz_name"]
+        assert data["next_auto_apply_at"] is None
         assert data["job"] == {
             "state": "idle",
             "phase": None,
@@ -196,3 +214,50 @@ class TestUpdatesEndpoint:
             "started_at": None,
         }
         assert "update_available" not in health
+
+    def test_refresh_fetches_without_auto_apply(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MESHLOOM_UPDATE_JOB_PATH", str(tmp_path / "update-job.json"))
+        from app.main import app
+
+        with (
+            patch(
+                "app.routers.updates.refresh_oss_update_cache",
+                new=AsyncMock(return_value=_STATS_PAYLOAD),
+            ) as refresh,
+            patch(
+                "app.routers.updates.get_update_status",
+                return_value={
+                    "current": "1.0.0",
+                    "latest": "9.9.9",
+                    "update_available": True,
+                    "html_url": _STATS_PAYLOAD["html_url"],
+                    "checked_at": 1_700_000_000,
+                },
+            ),
+            patch(
+                "app.routers.updates.AppSettingsRepository.get",
+                new=AsyncMock(
+                    return_value=type(
+                        "S",
+                        (),
+                        {
+                            "auto_update": True,
+                            "auto_update_window_start": "00:00",
+                            "auto_update_window_end": "00:00",
+                            "auto_update_weekdays": [0, 1, 2, 3, 4, 5, 6],
+                        },
+                    )()
+                ),
+            ),
+            patch("app.routers.updates.start_apply", new=AsyncMock()) as start,
+        ):
+            with TestClient(app) as client:
+                response = client.post("/api/updates/refresh")
+
+        assert response.status_code == 200
+        refresh.assert_awaited_once()
+        start.assert_not_called()
+        data = response.json()
+        assert data["checked_at"] == 1_700_000_000
+        assert data["auto_update"] is True
+        assert data["latest"] == "9.9.9"

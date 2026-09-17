@@ -36,6 +36,8 @@ interface Props {
   health?: HealthStatus | null;
   /** Opens the radio read-out. The dot means the same thing on every screen. */
   onOpenRadioStatus?: () => void;
+  /** Pulse the header pip when a newer Meshloom release is published. */
+  updateAvailable?: boolean;
 }
 
 const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeof List }[] = [
@@ -89,6 +91,7 @@ export function ToolsView({
   crackerQueueCount = 0,
   health,
   onOpenRadioStatus,
+  updateAvailable,
 }: Props) {
   const { t } = useTranslation();
 
@@ -101,6 +104,7 @@ export function ToolsView({
         <RadioStatusChip
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}
+          updateAvailable={updateAvailable}
           className="ml-auto max-w-[9rem] md:hidden"
         />
       </div>

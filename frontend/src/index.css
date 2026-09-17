@@ -227,3 +227,26 @@
 .cm-editor .cm-scroller {
   overflow-x: auto !important;
 }
+
+/* Rapid pulse when a Meshloom update is available. Colour stays the radio state. */
+@keyframes status-dot-update-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.18);
+  }
+}
+
+.status-dot-update-available {
+  animation: status-dot-update-pulse 450ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot-update-available {
+    animation: none;
+  }
+}

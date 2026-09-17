@@ -135,7 +135,12 @@ export function DesktopRail({
         {/* Word and transport, not a coloured dot: this is the one desktop
             status, so it has to say what it is before anyone opens it. The
             gear beneath it still goes to the settings. */}
-        <RadioStatusChip health={health} compact onOpenStatus={onOpenRadioStatus} />
+        <RadioStatusChip
+          health={health}
+          compact
+          onOpenStatus={onOpenRadioStatus}
+          updateAvailable={updateAvailable}
+        />
 
         {ANCHORED_RAIL_ITEMS.map(({ target, labelKey, Icon }) => (
           <div key={target} className="relative">

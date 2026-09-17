@@ -1165,6 +1165,18 @@ class AppSettings(BaseModel):
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",
     )
+    auto_update_window_start: str = Field(
+        default="00:00",
+        description="Local HH:MM when the auto-apply window opens",
+    )
+    auto_update_window_end: str = Field(
+        default="00:00",
+        description="Local HH:MM when the auto-apply window closes (equal to start = full day)",
+    )
+    auto_update_weekdays: list[int] = Field(
+        default_factory=lambda: [0, 1, 2, 3, 4, 5, 6],
+        description="ISO weekdays Monday=0 .. Sunday=6 when auto-apply may run",
+    )
     directory_available: bool = Field(
         default=False,
         description=(

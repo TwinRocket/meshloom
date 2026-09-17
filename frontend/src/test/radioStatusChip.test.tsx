@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { RadioStatusChip, radioTransportHint } from '../components/RadioStatusChip';
+import {
+  RadioStatusChip,
+  STATUS_DOT_UPDATE_AVAILABLE_CLASS,
+  radioTransportHint,
+} from '../components/RadioStatusChip';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
 
@@ -56,5 +60,17 @@ describe('RadioStatusChip', () => {
   it('reports a disconnected radio as disconnected', () => {
     render(<RadioStatusChip health={{ radio_connected: false } as HealthStatus} />);
     expect(screen.getByText(i18n.t('statusBar.radioDisconnected'))).toBeInTheDocument();
+  });
+
+  it('pulses the status pip when an update is available', () => {
+    const { container } = render(<RadioStatusChip health={connected} updateAvailable />);
+    expect(container.querySelector(`.${STATUS_DOT_UPDATE_AVAILABLE_CLASS}`)).toBeInTheDocument();
+  });
+
+  it('does not pulse the status pip when no update is available', () => {
+    const { container } = render(<RadioStatusChip health={connected} />);
+    expect(
+      container.querySelector(`.${STATUS_DOT_UPDATE_AVAILABLE_CLASS}`)
+    ).not.toBeInTheDocument();
   });
 });

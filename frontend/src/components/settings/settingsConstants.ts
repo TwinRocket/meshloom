@@ -7,6 +7,7 @@ import {
   Info,
   MonitorCog,
   RadioTower,
+  RefreshCw,
   Share2,
   SlidersHorizontal,
   Waypoints,
@@ -18,6 +19,7 @@ export type SettingsSection =
   | 'proxy'
   | 'local'
   | 'notifications'
+  | 'updates'
   | 'community'
   | 'radio-app'
   | 'database'
@@ -31,6 +33,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'proxy',
   'local',
   'notifications',
+  'updates',
   'community',
   'fanout',
   'radio-app',
@@ -46,6 +49,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   proxy: 'settingsNav.proxy',
   local: 'settingsNav.local',
   notifications: 'settingsNav.notifications',
+  updates: 'settingsNav.updates',
   community: 'settingsNav.community',
   'radio-app': 'settingsNav.radioApp',
   database: 'settingsNav.database',
@@ -60,6 +64,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   proxy: Waypoints,
   local: MonitorCog,
   notifications: Bell,
+  updates: RefreshCw,
   community: Globe,
   'radio-app': SlidersHorizontal,
   database: Database,

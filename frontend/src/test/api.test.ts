@@ -203,6 +203,57 @@ describe('fetchJson (via api methods)', () => {
       });
     });
 
+    it('POSTs /updates/refresh', async () => {
+      installMockFetch();
+      const updates = {
+        current: '1.0.0',
+        latest: '1.1.0',
+        update_available: true,
+        html_url: null,
+        install_kind: 'package',
+        apply_supported: true,
+        auto_update: false,
+        checked_at: 1_700_000_000,
+        tz_name: 'UTC',
+        job: {
+          state: 'idle',
+          phase: null,
+          percent: null,
+          error: null,
+          started_at: null,
+        },
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(updates),
+      });
+
+      await expect(api.refreshUpdates()).resolves.toEqual(updates);
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/updates/refresh');
+      expect(mockFetch.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+    });
+
+    it('PATCHes /updates/settings window fields', async () => {
+      installMockFetch();
+      const body = {
+        auto_update: true,
+        auto_update_window_start: '02:00',
+        auto_update_window_end: '05:00',
+        auto_update_weekdays: [0, 1, 2, 3, 4],
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ...body, current: '1.0.0' }),
+      });
+
+      await api.patchUpdateSettings(body);
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/updates/settings');
+      expect(mockFetch.mock.calls[0][1]).toMatchObject({
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    });
+
     it('calls fetch with /api prefix', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({

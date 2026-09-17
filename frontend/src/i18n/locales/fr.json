@@ -356,6 +356,8 @@
       "channelFoundHelp": "Notifier lorsqu’un nouveau canal hashtag est trouvé. Les exceptions par conversation ne s’appliquent pas.",
       "telemetryAlert": "Alertes télémétrie",
       "telemetryAlertHelp": "Notifier lorsqu’une lecture de télémétrie suivie déclenche une alerte. Les exceptions par conversation ne s’appliquent pas.",
+      "ossUpdate": "Mises à jour Meshloom",
+      "ossUpdateHelp": "Notifier lorsqu’une mise à jour Meshloom est disponible sur ce nœud.",
       "exceptions": "Exceptions par conversation",
       "exceptionsHelp": "Dérogations par conversation définies depuis l’en-tête du chat. Elles priment sur les réglages par défaut ci-dessus.",
       "exceptionsEmpty": "Aucune exception de conversation pour le moment.",
@@ -802,6 +804,46 @@
       "install": "Installer",
       "autoUpdate": "Installer les mises à jour automatiquement",
       "autoUpdateHelp": "Lorsqu’une nouvelle version est publiée, Meshloom l’installe sur ce nœud."
+    },
+    "updates": {
+      "status": "État",
+      "actions": "Actions",
+      "autoUpdate": "Mises à jour automatiques",
+      "checkNow": "Vérifier maintenant",
+      "installNow": "Installer maintenant",
+      "checkedAt": "Dernière vérification",
+      "neverChecked": "Jamais",
+      "timezone": "Fuseau du nœud",
+      "installKind": {
+        "label": "Type d’installation",
+        "package": "Paquet Linux",
+        "compose": "Docker Compose",
+        "addon": "Add-on Home Assistant",
+        "container": "Conteneur",
+        "source": "Source"
+      },
+      "job": "Tâche",
+      "jobState": {
+        "idle": "Inactive",
+        "applying": "En cours",
+        "succeeded": "Réussie",
+        "failed": "Échouée"
+      },
+      "windowStart": "Début de fenêtre",
+      "windowEnd": "Fin de fenêtre",
+      "weekdays": "Jours",
+      "weekday": {
+        "0": "Lun",
+        "1": "Mar",
+        "2": "Mer",
+        "3": "Jeu",
+        "4": "Ven",
+        "5": "Sam",
+        "6": "Dim"
+      },
+      "nodeClockHelp": "Les horaires suivent l’horloge du nœud, pas celle de ce navigateur.",
+      "nextAutoApply": "Prochaine installation automatique",
+      "manualHelp": "Comment mettre à jour"
     },
     "fanout": {
       "types": {
@@ -1576,6 +1618,7 @@
     "proxy": "Proxy",
     "local": "Configuration locale",
     "notifications": "Notifications",
+    "updates": "Mises à jour",
     "community": "Meshloom Community",
     "radioApp": "Gestion radio-application",
     "database": "Base de données",
@@ -2444,7 +2487,9 @@
     "advertHelp": "Le flood avertit tout le réseau de votre présence. Le zéro saut n’avertit que les voisins à votre portée.",
     "advertFlood": "Flood",
     "advertZeroHop": "Zéro saut",
-    "sending": "Envoi…"
+    "sending": "Envoi…",
+    "updateAvailable": "Mise à jour disponible",
+    "updateAvailableHelp": "{{current}} → {{latest}}"
   },
   "updates": {
     "title": "Mise à jour disponible",
@@ -2462,6 +2507,9 @@
     "install": "Installer",
     "autoUpdate": "Installer les mises à jour automatiquement",
     "autoUpdateHelp": "Lorsqu’une nouvelle version est publiée, Meshloom l’installe sur ce nœud.",
+    "toastTitle": "Mise à jour disponible",
+    "toastBody": "v{{current}} → v{{latest}}",
+    "toastSee": "Voir",
     "progressTitle": "Installation de la mise à jour",
     "failed": "La mise à jour a échoué",
     "restartTimeout": "Le nœud n’est pas revenu avec la nouvelle version.",

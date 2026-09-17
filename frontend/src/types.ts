@@ -1142,6 +1142,7 @@ export interface PushDefaults {
   advert_sensor: boolean;
   channel_found: boolean;
   telemetry_alert: boolean;
+  oss_update: boolean;
 }
 
 export interface PushPreferences {
@@ -1360,5 +1361,18 @@ export interface OssUpdateStatus {
   install_kind: OssUpdateInstallKind;
   apply_supported: boolean;
   auto_update: boolean;
+  auto_update_window_start?: string | null;
+  auto_update_window_end?: string | null;
+  auto_update_weekdays?: number[];
+  checked_at?: number | null;
+  tz_name?: string | null;
+  next_auto_apply_at?: number | null;
   job: OssUpdateJob;
+}
+
+export interface OssUpdateSettingsPatch {
+  auto_update?: boolean;
+  auto_update_window_start?: string;
+  auto_update_window_end?: string;
+  auto_update_weekdays?: number[];
 }

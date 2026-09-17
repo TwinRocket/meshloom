@@ -1,8 +1,5 @@
 import { Trans, useTranslation } from 'react-i18next';
 import type { HealthStatus, OssUpdateStatus } from '../../types';
-import { Button } from '../ui/button';
-import { Checkbox } from '../ui/checkbox';
-import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 
 const GITHUB_URL = 'https://github.com/TwinRocket/meshloom';
@@ -11,22 +8,17 @@ export function SettingsAboutSection({
   health,
   className,
   updates,
-  onOpenUpdate,
-  onApply,
-  onAutoUpdate,
+  onOpenUpdates,
 }: {
   health?: HealthStatus | null;
   className?: string;
   updates?: OssUpdateStatus | null;
-  onOpenUpdate?: () => void;
-  onApply?: () => void;
-  onAutoUpdate?: (enabled: boolean) => void;
+  onOpenUpdates?: () => void;
 }) {
   const { t } = useTranslation();
   const version = health?.app_info?.version ?? 'unknown';
   const commit = health?.app_info?.commit_hash;
   const updateAvailable = updates?.update_available === true;
-  const applySupported = updates?.apply_supported === true;
 
   return (
     <div className={className}>
@@ -60,43 +52,14 @@ export function SettingsAboutSection({
               </>
             ) : null}
           </div>
-          {updateAvailable && (
-            <div className="mx-auto max-w-sm space-y-2 rounded-2xl bg-primary/10 px-4 py-3">
-              <p className="text-sm font-semibold text-foreground">
-                {t('settings.about.updateAvailable')}
-              </p>
-              <p className="text-[0.8125rem] text-muted-foreground">
-                {t('settings.about.updateAvailableHelp', {
-                  current: updates?.current ?? version,
-                  latest: updates?.latest ?? '',
-                })}
-              </p>
-              {applySupported && onApply ? (
-                <Button type="button" onClick={() => onApply()}>
-                  {t('settings.about.install')}
-                </Button>
-              ) : onOpenUpdate ? (
-                <Button type="button" onClick={onOpenUpdate}>
-                  {t('settings.about.showInstructions')}
-                </Button>
-              ) : null}
-            </div>
-          )}
-          {applySupported && onAutoUpdate ? (
-            <div className="mx-auto max-w-sm flex items-start gap-3 rounded-md border border-border/60 p-3 text-left">
-              <Checkbox
-                id="about-auto-update"
-                checked={updates?.auto_update === true}
-                onCheckedChange={(checked) => onAutoUpdate(checked === true)}
-                className="mt-0.5"
-              />
-              <div className="space-y-1">
-                <Label htmlFor="about-auto-update">{t('settings.about.autoUpdate')}</Label>
-                <p className="text-[0.8125rem] text-muted-foreground">
-                  {t('settings.about.autoUpdateHelp')}
-                </p>
-              </div>
-            </div>
+          {updateAvailable ? (
+            <button
+              type="button"
+              onClick={() => onOpenUpdates?.()}
+              className="text-xs text-muted-foreground hover:text-primary hover:underline"
+            >
+              {t('settings.about.updateAvailable')}
+            </button>
           ) : null}
         </div>
 

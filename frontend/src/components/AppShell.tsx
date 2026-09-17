@@ -172,6 +172,7 @@ export function AppShell({
   const handleOpenSettings = useCallback(
     (section: SettingsSection) => {
       onSettingsSectionChange(section);
+      setSettingsIndexOpen(false);
       if (!showSettings) onToggleSettingsView();
     },
     [onSettingsSectionChange, onToggleSettingsView, showSettings]
@@ -214,7 +215,9 @@ export function AppShell({
   const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
   const [radioStatusOpen, setRadioStatusOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
-  const ossUpdates = useOssUpdates();
+  const ossUpdates = useOssUpdates({
+    onSeeUpdate: () => handleOpenSettings('updates'),
+  });
   const updateAvailable = ossUpdates.status?.update_available === true;
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
@@ -336,6 +339,7 @@ export function AppShell({
       crackerQueueCount={crackerQueueCount}
       health={statusProps.health}
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
+      updateAvailable={updateAvailable}
       activeConversation={conversationPaneProps.activeConversation}
     />
   ) : (
@@ -350,6 +354,7 @@ export function AppShell({
       onNewMessage={sidebarProps.onNewMessage}
       health={statusProps.health}
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
+      updateAvailable={updateAvailable}
       activeConversation={conversationPaneProps.activeConversation}
       onCollapseList={onToggleConversationList}
     />
@@ -530,8 +535,16 @@ export function AppShell({
                     desktopSection={settingsSection}
                     updates={ossUpdates.status}
                     onOpenUpdate={() => setUpdateDialogOpen(true)}
+                    onOpenUpdates={() => handleOpenSettings('updates')}
                     onApplyUpdate={() => void ossUpdates.apply()}
                     onAutoUpdateChange={(enabled) => void ossUpdates.setAutoUpdate(enabled)}
+                    onCheckUpdates={() => void ossUpdates.checkNow()}
+                    onPatchUpdateSettings={(settings) =>
+                      void ossUpdates.setUpdateSettings(settings)
+                    }
+                    updatesChecking={ossUpdates.checking}
+                    updatesApplying={ossUpdates.applying}
+                    onOpenManualHelp={() => setUpdateDialogOpen(true)}
                     onClose={onCloseSettingsView}
                     onLocalLabelChange={onLocalLabelChange}
                     onCommunityStatusChange={setCommunityStatus}
@@ -584,6 +597,10 @@ export function AppShell({
         onClose={() => setRadioStatusOpen(false)}
         onOpenRadioSettings={() => handleOpenSettings('radio')}
         onAdvertise={settingsProps.onAdvertise}
+        updateAvailable={updateAvailable}
+        currentVersion={ossUpdates.status?.current}
+        latestVersion={ossUpdates.status?.latest}
+        onOpenUpdates={() => handleOpenSettings('updates')}
       />
       <UpdateAvailableDialog
         open={updateDialogOpen || ossUpdates.showProgress}

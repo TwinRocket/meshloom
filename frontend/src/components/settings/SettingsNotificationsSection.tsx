@@ -52,6 +52,11 @@ const DEFAULT_KEYS: Array<{
     label: 'settings.notifications.telemetryAlert',
     help: 'settings.notifications.telemetryAlertHelp',
   },
+  {
+    key: 'oss_update',
+    label: 'settings.notifications.ossUpdate',
+    help: 'settings.notifications.ossUpdateHelp',
+  },
 ];
 
 function resolveConversationName(

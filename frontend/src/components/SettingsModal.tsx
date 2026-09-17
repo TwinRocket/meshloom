@@ -7,6 +7,7 @@ import type {
   CommunityStatus,
   Contact,
   HealthStatus,
+  OssUpdateSettingsPatch,
   OssUpdateStatus,
   RadioAdvertMode,
   RadioConfig,
@@ -33,6 +34,8 @@ import { SettingsDatabaseSection } from './settings/SettingsDatabaseSection';
 import { SettingsNavigationSection } from './settings/SettingsNavigationSection';
 import { SettingsStatisticsSection } from './settings/SettingsStatisticsSection';
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
+import { SettingsUpdatesSection } from './settings/SettingsUpdatesSection';
+import { getSettingsHash } from '../utils/urlHash';
 
 interface SettingsModalBaseProps {
   open: boolean;
@@ -71,8 +74,14 @@ interface SettingsModalBaseProps {
   onCommunityStatusChange?: (status: CommunityStatus) => void;
   updates?: OssUpdateStatus | null;
   onOpenUpdate?: () => void;
+  onOpenUpdates?: () => void;
   onApplyUpdate?: () => void;
   onAutoUpdateChange?: (enabled: boolean) => void;
+  onCheckUpdates?: () => void;
+  onPatchUpdateSettings?: (settings: OssUpdateSettingsPatch) => void;
+  updatesChecking?: boolean;
+  updatesApplying?: boolean;
+  onOpenManualHelp?: () => void;
 }
 
 export type SettingsModalProps = SettingsModalBaseProps &
@@ -118,9 +127,14 @@ export function SettingsModal(props: SettingsModalProps) {
     onToggleTrackedTelemetryContact,
     onCommunityStatusChange,
     updates,
-    onOpenUpdate,
+    onOpenUpdates,
     onApplyUpdate,
     onAutoUpdateChange,
+    onCheckUpdates,
+    onPatchUpdateSettings,
+    updatesChecking,
+    updatesApplying,
+    onOpenManualHelp,
   } = props;
   const { t } = useTranslation();
   const externalSidebarNav = props.externalSidebarNav === true;
@@ -137,6 +151,7 @@ export function SettingsModal(props: SettingsModalProps) {
     proxy: false,
     local: false,
     notifications: false,
+    updates: false,
     community: false,
     'radio-app': false,
     fanout: false,
@@ -280,6 +295,29 @@ export function SettingsModal(props: SettingsModalProps) {
         </section>
       )}
 
+      {shouldRenderSection('updates') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('updates')}
+          {isSectionVisible('updates') && (
+            <SettingsUpdatesSection
+              updates={updates ?? null}
+              onCheckNow={onCheckUpdates}
+              onApply={onApplyUpdate}
+              onPatchSettings={
+                onPatchUpdateSettings ??
+                ((partial) => {
+                  if (partial.auto_update != null) onAutoUpdateChange?.(partial.auto_update);
+                })
+              }
+              onOpenManualHelp={onOpenManualHelp}
+              checking={updatesChecking}
+              applying={updatesApplying}
+              className={sectionContentClass}
+            />
+          )}
+        </section>
+      )}
+
       {shouldRenderSection('community') && (
         <section className={sectionWrapperClass}>
           {renderSectionHeader('community')}
@@ -395,9 +433,12 @@ export function SettingsModal(props: SettingsModalProps) {
               health={health}
               className={sectionContentClass}
               updates={updates}
-              onOpenUpdate={onOpenUpdate}
-              onApply={onApplyUpdate}
-              onAutoUpdate={onAutoUpdateChange}
+              onOpenUpdates={
+                onOpenUpdates ??
+                (() => {
+                  window.location.hash = getSettingsHash('updates');
+                })
+              }
             />
           )}
         </section>

@@ -887,6 +887,7 @@ describe('SettingsModal', () => {
     expect(screen.getByText(i18n.t('settings.notifications.defaults'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.exceptions'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.vapidSubject'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.notifications.ossUpdate'))).toBeInTheDocument();
   });
 
   it('lists the new Windows 95 and iPhone themes', () => {

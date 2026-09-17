@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from datetime import datetime
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
 
 from app.services.meshloom_community import fetch_meshloom_latest
+from app.services.update_window import in_window, next_window_start
 from app.version_info import get_app_build_info
 
 logger = logging.getLogger(__name__)
@@ -21,7 +24,9 @@ logger = logging.getLogger(__name__)
 UPDATE_POLL_INTERVAL_SECONDS = 300
 
 _poll_task: asyncio.Task | None = None
+_window_timer_task: asyncio.Task | None = None
 _latest_payload: dict[str, Any] | None = None
+_checked_at: int | None = None
 
 
 def _strip_leading_v(raw: str) -> str:
@@ -62,18 +67,87 @@ def _payload_html_url(payload: dict[str, Any] | None) -> str | None:
     return value.strip()
 
 
+def _cancel_window_timer() -> None:
+    global _window_timer_task
+    task = _window_timer_task
+    _window_timer_task = None
+    if task is not None and not task.done():
+        task.cancel()
+
+
+async def _await_cancelled_window_timer() -> None:
+    global _window_timer_task
+    task = _window_timer_task
+    _window_timer_task = None
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+def _schedule_window_apply(when: datetime) -> None:
+    """Replace any pending one-shot timer so short windows are not missed."""
+    global _window_timer_task
+    _cancel_window_timer()
+    delay = max(0.0, (when - datetime.now().astimezone()).total_seconds())
+
+    async def _fire() -> None:
+        try:
+            await asyncio.sleep(delay)
+            await _maybe_auto_apply()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Scheduled auto-apply failed")
+
+    _window_timer_task = asyncio.create_task(_fire())
+
+
 def reset_oss_update_cache() -> None:
     """Drop the in-memory catalogue (tests)."""
-    global _latest_payload
+    global _latest_payload, _checked_at
     _latest_payload = None
+    _checked_at = None
+    _cancel_window_timer()
+
+
+async def _maybe_notify_oss_update() -> None:
+    """Web-Push a new catalogue version once. Independent of auto-apply."""
+    status = get_update_status()
+    if not status["update_available"]:
+        return
+    latest = status["latest"]
+    if not isinstance(latest, str) or not latest:
+        return
+
+    from app.repository import AppSettingsRepository
+
+    last = await AppSettingsRepository.get_last_notified_update_version()
+    if last == latest:
+        return
+
+    from app.push.manager import push_manager
+
+    sent = await push_manager.dispatch_oss_update(status["current"], latest)
+    if sent:
+        await AppSettingsRepository.set_last_notified_update_version(latest)
 
 
 async def refresh_oss_update_cache() -> dict[str, Any] | None:
     """Fetch Stats catalogue and replace the cache on success."""
-    global _latest_payload
+    global _latest_payload, _checked_at
     payload = await fetch_meshloom_latest()
     if payload is not None:
         _latest_payload = payload
+        _checked_at = int(time.time())
+        try:
+            await _maybe_notify_oss_update()
+        except Exception:
+            logger.debug("OSS update push notify failed", exc_info=True)
     return payload
 
 
@@ -91,6 +165,7 @@ def get_update_status() -> dict[str, Any]:
         "latest": latest,
         "update_available": update_available,
         "html_url": html_url,
+        "checked_at": _checked_at,
     }
 
 
@@ -113,10 +188,33 @@ async def _maybe_auto_apply() -> None:
     if not supported:
         return
     try:
-        if not (await AppSettingsRepository.get()).auto_update:
-            return
+        settings = await AppSettingsRepository.get()
     except Exception:
         return
+    if not settings.auto_update:
+        _cancel_window_timer()
+        return
+
+    now = datetime.now().astimezone()
+    if not in_window(
+        now,
+        settings.auto_update_window_start,
+        settings.auto_update_window_end,
+        settings.auto_update_weekdays,
+    ):
+        nxt = next_window_start(
+            now,
+            settings.auto_update_window_start,
+            settings.auto_update_window_end,
+            settings.auto_update_weekdays,
+        )
+        if nxt is not None:
+            _schedule_window_apply(nxt)
+        else:
+            _cancel_window_timer()
+        return
+    _cancel_window_timer()
+
     job = expire_stale_applying_job()
     if job_is_applying(job):
         return
@@ -159,6 +257,7 @@ async def start_oss_update_polling() -> None:
 async def stop_oss_update_polling() -> None:
     """Stop the catalogue poll."""
     global _poll_task
+    await _await_cancelled_window_timer()
     if _poll_task is None:
         return
     if not _poll_task.done():

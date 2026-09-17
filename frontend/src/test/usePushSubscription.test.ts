@@ -18,6 +18,7 @@ const ALL_ON_DEFAULTS = {
   advert_sensor: true,
   channel_found: true,
   telemetry_alert: true,
+  oss_update: true,
 };
 
 const EMPTY_PREFERENCES = {

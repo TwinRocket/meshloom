@@ -10,6 +10,12 @@ from pydantic import ValidationError
 from app.database import db
 from app.models import AppSettings, TelemetryAlertRules, UiPreferences
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
+from app.services.update_window import (
+    DEFAULT_AUTO_UPDATE_WEEKDAYS,
+    format_hhmm,
+    normalize_weekdays,
+    parse_hhmm,
+)
 from app.telemetry_interval import DEFAULT_TELEMETRY_INTERVAL_HOURS
 
 logger = logging.getLogger(__name__)
@@ -27,6 +33,7 @@ DEFAULT_PUSH_DEFAULTS: dict[str, bool] = {
     "advert_sensor": True,
     "channel_found": True,
     "telemetry_alert": True,
+    "oss_update": True,
 }
 
 
@@ -38,6 +45,7 @@ class PushDefaults(TypedDict):
     advert_sensor: bool
     channel_found: bool
     telemetry_alert: bool
+    oss_update: bool
 
 
 def _known_push_defaults(parsed: Mapping[str, Any]) -> PushDefaults:
@@ -50,6 +58,7 @@ def _known_push_defaults(parsed: Mapping[str, Any]) -> PushDefaults:
         advert_sensor=bool(parsed["advert_sensor"]) if "advert_sensor" in parsed else True,
         channel_found=bool(parsed["channel_found"]) if "channel_found" in parsed else True,
         telemetry_alert=bool(parsed["telemetry_alert"]) if "telemetry_alert" in parsed else True,
+        oss_update=bool(parsed["oss_update"]) if "oss_update" in parsed else True,
     )
 
 
@@ -71,6 +80,30 @@ def _coerce_push_defaults(defaults: Mapping[str, bool]) -> PushDefaults:
         if key in defaults:
             merged[key] = bool(defaults[key])
     return _known_push_defaults(merged)
+
+
+def _parse_auto_update_hhmm(raw: object, default: str = "00:00") -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        return default
+    try:
+        return format_hhmm(*parse_hhmm(raw))
+    except ValueError:
+        return default
+
+
+def _parse_auto_update_weekdays(raw: object) -> list[int]:
+    loaded: object = raw
+    if isinstance(raw, str):
+        try:
+            loaded = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
+    if not isinstance(loaded, list):
+        return list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
+    try:
+        return normalize_weekdays(int(day) for day in loaded)
+    except (TypeError, ValueError):
+        return list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
 
 def _parse_push_overrides(raw: object) -> dict[str, bool]:
@@ -112,7 +145,9 @@ class AppSettingsRepository:
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
                    stale_contact_days, telemetry_alert_rules,
-                   ui_preferences, auto_update
+                   ui_preferences, auto_update,
+                   auto_update_window_start, auto_update_window_end,
+                   auto_update_weekdays
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -237,6 +272,21 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             auto_update = False
 
+        try:
+            auto_update_window_start = _parse_auto_update_hhmm(row["auto_update_window_start"])
+        except (KeyError, TypeError):
+            auto_update_window_start = "00:00"
+
+        try:
+            auto_update_window_end = _parse_auto_update_hhmm(row["auto_update_window_end"])
+        except (KeyError, TypeError):
+            auto_update_window_end = "00:00"
+
+        try:
+            auto_update_weekdays = _parse_auto_update_weekdays(row["auto_update_weekdays"])
+        except (KeyError, TypeError):
+            auto_update_weekdays = list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
+
         return AppSettings(
             max_radio_contacts=row["max_radio_contacts"],
             auto_decrypt_dm_on_advert=bool(row["auto_decrypt_dm_on_advert"]),
@@ -257,6 +307,9 @@ class AppSettingsRepository:
             stale_contact_days=stale_contact_days,
             telemetry_alert_rules=telemetry_alert_rules,
             auto_update=auto_update,
+            auto_update_window_start=auto_update_window_start,
+            auto_update_window_end=auto_update_window_end,
+            auto_update_weekdays=auto_update_weekdays,
         )
 
     @staticmethod
@@ -282,6 +335,9 @@ class AppSettingsRepository:
         telemetry_alert_rules: TelemetryAlertRules | None = None,
         ui_preferences: UiPreferences | None = None,
         auto_update: bool | None = None,
+        auto_update_window_start: str | None = None,
+        auto_update_window_end: str | None = None,
+        auto_update_weekdays: list[int] | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -373,6 +429,18 @@ class AppSettingsRepository:
             updates.append("auto_update = ?")
             params.append(1 if auto_update else 0)
 
+        if auto_update_window_start is not None:
+            updates.append("auto_update_window_start = ?")
+            params.append(format_hhmm(*parse_hhmm(auto_update_window_start)))
+
+        if auto_update_window_end is not None:
+            updates.append("auto_update_window_end = ?")
+            params.append(format_hhmm(*parse_hhmm(auto_update_window_end)))
+
+        if auto_update_weekdays is not None:
+            updates.append("auto_update_weekdays = ?")
+            params.append(json.dumps(normalize_weekdays(auto_update_weekdays)))
+
         if updates:
             query = f"UPDATE app_settings SET {', '.join(updates)} WHERE id = 1"
             async with conn.execute(query, params):
@@ -408,6 +476,9 @@ class AppSettingsRepository:
         telemetry_alert_rules: TelemetryAlertRules | None = None,
         ui_preferences: UiPreferences | None = None,
         auto_update: bool | None = None,
+        auto_update_window_start: str | None = None,
+        auto_update_window_end: str | None = None,
+        auto_update_weekdays: list[int] | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -432,8 +503,39 @@ class AppSettingsRepository:
                 stale_contact_days=stale_contact_days,
                 telemetry_alert_rules=telemetry_alert_rules,
                 auto_update=auto_update,
+                auto_update_window_start=auto_update_window_start,
+                auto_update_window_end=auto_update_window_end,
+                auto_update_weekdays=auto_update_weekdays,
             )
             return await AppSettingsRepository._get_in_conn(conn)
+
+    @staticmethod
+    async def get_last_notified_update_version() -> str | None:
+        """Last catalogue ``latest`` we already Web-Pushed. Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT last_notified_update_version FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        try:
+            value = row["last_notified_update_version"]
+        except (KeyError, TypeError, IndexError):
+            return None
+        if not value:
+            return None
+        return str(value)
+
+    @staticmethod
+    async def set_last_notified_update_version(version: str | None) -> None:
+        """Persist (or clear) the last Web-Pushed catalogue version."""
+        stored = (version or "").strip() or None
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET last_notified_update_version = ? WHERE id = 1",
+                (stored,),
+            )
 
     @staticmethod
     async def toggle_blocked_key(key: str) -> AppSettings:

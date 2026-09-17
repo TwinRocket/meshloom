@@ -123,6 +123,24 @@ def _build_payload(data: dict, language: str = "fr") -> str:
             }
         )
 
+    if data.get("event") == "oss_update":
+        current = str(data.get("current") or "")
+        latest = str(data.get("latest") or "")
+        if lang == "en":
+            title = "Meshloom update available"
+            body = f"{latest} is available (you have {current})"
+        else:
+            title = "Mise à jour Meshloom disponible"
+            body = f"La version {latest} est disponible (vous avez {current})"
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "tag": f"meshcore-oss-update-{latest}",
+                "url_hash": "#settings/updates",
+            }
+        )
+
     if data.get("event") == "telemetry_alert":
         title, body = _telemetry_alert_titles(data, lang)
         pubkey = str(data.get("public_key") or "")
@@ -269,6 +287,28 @@ class PushManager:
                 "contact_type": contact.get("type", 0),
             }
         )
+
+    async def dispatch_oss_update(self, current: str, latest: str) -> bool:
+        """Notify devices that a newer Meshloom release is available (no WebSocket).
+
+        Returns True when the default is on and a send was attempted (even with
+        zero subscriptions). Returns False when ``oss_update`` is disabled.
+        """
+        try:
+            defaults = await AppSettingsRepository.get_push_defaults()
+        except Exception:
+            logger.debug("Push dispatch: failed to load push defaults", exc_info=True)
+            return False
+        if not defaults.get("oss_update", True):
+            return False
+        await self.dispatch_event(
+            {
+                "event": "oss_update",
+                "current": current,
+                "latest": latest,
+            }
+        )
+        return True
 
     async def _send_to_all_subscriptions(self, payload_for_sub: Callable[[dict], str]) -> None:
         try:
