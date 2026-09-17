@@ -175,7 +175,10 @@
     "help": "Aide",
     "cliDocs": "Docs CLI",
     "mapAria": "Carte des emplacements des voisins du répéteur",
-    "ourRadio": "Notre radio"
+    "ourRadio": "Notre radio",
+    "detailedLabels": "Affichage détaillé",
+    "permanentLabels": "Affichage permanent",
+    "gps": "GPS"
   },
   "room": {
     "entity": "serveur de salon",

@@ -508,3 +508,14 @@ body {
   width: 0.4rem;
   background: hsl(var(--primary) / 0.55);
 }
+
+/* Permanent neighbour-map labels sit above every point. Leaflet's default
+   tooltip is a single-line white chip; detailed mode needs wrapping room. */
+.neighbor-map-label.leaflet-tooltip {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  white-space: nowrap;
+}
+.neighbor-map-label-detailed.leaflet-tooltip {
+  white-space: normal;
+}

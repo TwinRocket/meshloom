@@ -129,6 +129,8 @@ export function NeighborsPane({
   // on a phone with no way to grow it. They are now two views of the same data.
   const [view, setView] = useState<'list' | 'map'>('list');
   const [expanded, setExpanded] = useState(false);
+  const [detailed, setDetailed] = useState(false);
+  const [permanent, setPermanent] = useState(false);
   const [recenterToken, setRecenterToken] = useState(0);
 
   useEffect(() => {
@@ -161,7 +163,9 @@ export function NeighborsPane({
   const { neighborsWithCoords, enriched, hasDistances } = useMemo(() => {
     if (!data) {
       return {
-        neighborsWithCoords: [] as Array<NeighborInfo & { lat: number | null; lon: number | null }>,
+        neighborsWithCoords: [] as Array<
+          NeighborInfo & { lat: number | null; lon: number | null; distance: string | null }
+        >,
         enriched: [] as Array<
           NeighborInfo & { distance: string | null; distanceKm: number | null }
         >,
@@ -169,7 +173,9 @@ export function NeighborsPane({
       };
     }
 
-    const withCoords: Array<NeighborInfo & { lat: number | null; lon: number | null }> = [];
+    const withCoords: Array<
+      NeighborInfo & { lat: number | null; lon: number | null; distance: string | null }
+    > = [];
     const list: Array<NeighborInfo & { distance: string | null; distanceKm: number | null }> = [];
     let anyDist = false;
 
@@ -191,7 +197,7 @@ export function NeighborsPane({
       list.push({ ...n, distance: dist, distanceKm: distKm });
 
       if (isValidLocation(nLat, nLon)) {
-        withCoords.push({ ...n, lat: nLat, lon: nLon });
+        withCoords.push({ ...n, lat: nLat, lon: nLon, distance: dist });
       }
     }
 
@@ -329,9 +335,35 @@ export function NeighborsPane({
               </button>
               <button
                 type="button"
+                onClick={() => setDetailed((v) => !v)}
+                aria-pressed={detailed}
+                className={cn(
+                  'ml-auto inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  detailed
+                    ? 'border-border bg-accent text-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {t('repeater.detailedLabels')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPermanent((v) => !v)}
+                aria-pressed={permanent}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  permanent
+                    ? 'border-border bg-accent text-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {t('repeater.permanentLabels')}
+              </button>
+              <button
+                type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-pressed={expanded}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {expanded ? (
                   <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -469,6 +501,8 @@ export function NeighborsPane({
               radioLat={positionSource.lat}
               radioLon={positionSource.lon}
               radioName={radioName}
+              detailed={detailed}
+              permanent={permanent}
               recenterToken={recenterToken}
               className={cn(
                 'overflow-hidden rounded border border-border',

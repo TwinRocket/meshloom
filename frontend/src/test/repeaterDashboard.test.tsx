@@ -88,6 +88,7 @@ vi.mock('react-leaflet', () => ({
   TileLayer: () => null,
   CircleMarker: () => null,
   Popup: () => null,
+  Tooltip: () => null,
   Polyline: () => null,
 }));
 
@@ -372,6 +373,46 @@ describe('RepeaterDashboard', () => {
     expect(screen.getByText(i18n.t('repeater.dist'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('repeater.posReported'))).toBeInTheDocument();
     expect(screen.queryByText(i18n.t('repeater.mapUnavailable'))).not.toBeInTheDocument();
+  });
+
+  it('toggles detailed and permanent neighbour-map labels from the map toolbar', () => {
+    mockHook.loggedIn = true;
+    mockHook.paneData.neighbors = {
+      neighbors: [
+        { pubkey_prefix: 'bbbbbbbbbbbb', name: 'Neighbor', snr: 7.2, last_heard_seconds: 9 },
+      ],
+    };
+    mockHook.paneData.nodeInfo = {
+      name: 'TestRepeater',
+      lat: '-31.9500',
+      lon: '115.8600',
+      clock_utc: null,
+    };
+    mockHook.paneStates.neighbors = {
+      loading: false,
+      attempt: 1,
+      error: null,
+      fetched_at: Date.now(),
+    };
+    mockHook.paneStates.nodeInfo = {
+      loading: false,
+      attempt: 1,
+      error: null,
+      fetched_at: Date.now(),
+    };
+
+    render(<RepeaterDashboard {...defaultProps} />);
+    fireEvent.click(screen.getByRole('tab', { name: i18n.t('repeater.viewMap') }));
+
+    const detailed = screen.getByRole('button', { name: i18n.t('repeater.detailedLabels') });
+    const permanent = screen.getByRole('button', { name: i18n.t('repeater.permanentLabels') });
+    expect(detailed).toHaveAttribute('aria-pressed', 'false');
+    expect(permanent).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(detailed);
+    fireEvent.click(permanent);
+    expect(detailed).toHaveAttribute('aria-pressed', 'true');
+    expect(permanent).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('uses advert coords for neighbor distance when node info is unavailable', () => {

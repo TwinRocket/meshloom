@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMap } from 'react-leaflet';
+import {
+  MapContainer,
+  TileLayer,
+  CircleMarker,
+  Popup,
+  Tooltip,
+  Polyline,
+  useMap,
+} from 'react-leaflet';
 import type { LatLngBoundsExpression } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -52,11 +60,13 @@ function FitBounds({
   neighbourCount,
   recenterToken,
   sizeToken,
+  padded,
 }: {
   bounds: LatLngBoundsExpression | null;
   neighbourCount: number;
   recenterToken: number;
   sizeToken: number;
+  padded?: boolean;
 }) {
   const map = useMap();
   // Reframe whenever there is more to show than the last time we framed, and on
@@ -74,9 +84,13 @@ function FitBounds({
     if (width === 0 || height === 0) return;
     const firstFraming = framedCountRef.current < 0;
     if (!asked && !firstFraming && neighbourCount <= framedCountRef.current) return;
-    map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15, animate: !firstFraming });
+    map.fitBounds(bounds, {
+      padding: padded ? [48, 48] : [24, 24],
+      maxZoom: 15,
+      animate: !firstFraming,
+    });
     framedCountRef.current = neighbourCount;
-  }, [bounds, map, neighbourCount, recenterToken, sizeToken]);
+  }, [bounds, map, neighbourCount, padded, recenterToken, sizeToken]);
   return null;
 }
 
@@ -112,6 +126,7 @@ interface Neighbor {
   name: string | null;
   pubkey_prefix: string;
   snr: number;
+  distance?: string | null;
 }
 
 interface Props {
@@ -119,9 +134,56 @@ interface Props {
   radioLat?: number | null;
   radioLon?: number | null;
   radioName?: string | null;
+  /** Click popups (and permanent labels) include SNR, distance, and GPS. */
+  detailed?: boolean;
+  /** Keep a label above every mapped point, not only the clicked one. */
+  permanent?: boolean;
   /** Bumping this reframes the view on the current nodes. */
   recenterToken?: number;
   className?: string;
+}
+
+function formatSnr(snr: number): string {
+  return `${snr >= 0 ? '+' : ''}${snr.toFixed(1)} dB`;
+}
+
+function NeighborLabel({
+  title,
+  detailed,
+  snr,
+  distance,
+  lat,
+  lon,
+}: {
+  title: string;
+  detailed: boolean;
+  snr?: number | null;
+  distance?: string | null;
+  lat: number;
+  lon: number;
+}) {
+  const { t } = useTranslation();
+  if (!detailed) {
+    return <span className="text-sm font-medium">{title}</span>;
+  }
+  return (
+    <div className="space-y-0.5 text-left">
+      <p className="text-sm font-medium">{title}</p>
+      {snr != null && (
+        <p className="font-mono text-[0.6875rem]">
+          {t('repeater.snr')}: {formatSnr(snr)}
+        </p>
+      )}
+      {distance && (
+        <p className="font-mono text-[0.6875rem]">
+          {t('repeater.dist')}: {distance}
+        </p>
+      )}
+      <p className="font-mono text-[0.6875rem] text-muted-foreground">
+        {t('repeater.gps')}: {lat.toFixed(5)}, {lon.toFixed(5)}
+      </p>
+    </div>
+  );
 }
 
 export function NeighborsMiniMap({
@@ -129,6 +191,8 @@ export function NeighborsMiniMap({
   radioLat,
   radioLon,
   radioName,
+  detailed = false,
+  permanent = false,
   recenterToken = 0,
   className,
 }: Props) {
@@ -188,6 +252,9 @@ export function NeighborsMiniMap({
     ? [radioLat as number, radioLon as number]
     : [valid[0].lat, valid[0].lon];
   const snrColor = (snr: number) => (snr >= 6 ? colors.good : snr >= 0 ? colors.fair : colors.poor);
+  const labelClass = detailed
+    ? 'neighbor-map-label neighbor-map-label-detailed'
+    : 'neighbor-map-label';
 
   return (
     <div
@@ -207,6 +274,7 @@ export function NeighborsMiniMap({
           neighbourCount={valid.length}
           recenterToken={recenterToken}
           sizeToken={sizeToken}
+          padded={permanent || detailed}
         />
         <TileLayer
           attribution={OSM_RASTER_TILE_ATTRIBUTION}
@@ -238,8 +306,29 @@ export function NeighborsMiniMap({
               weight: 2,
             }}
           >
+            {permanent && (
+              <Tooltip
+                permanent
+                direction="top"
+                offset={[0, -10]}
+                interactive={false}
+                className={labelClass}
+              >
+                <NeighborLabel
+                  title={radioName || t('repeater.ourRadio')}
+                  detailed={detailed}
+                  lat={radioLat as number}
+                  lon={radioLon as number}
+                />
+              </Tooltip>
+            )}
             <Popup>
-              <span className="text-sm font-medium">{radioName || t('repeater.ourRadio')}</span>
+              <NeighborLabel
+                title={radioName || t('repeater.ourRadio')}
+                detailed={detailed}
+                lat={radioLat as number}
+                lon={radioLon as number}
+              />
             </Popup>
           </CircleMarker>
         )}
@@ -255,8 +344,33 @@ export function NeighborsMiniMap({
               weight: 1,
             }}
           >
+            {permanent && (
+              <Tooltip
+                permanent
+                direction="top"
+                offset={[0, -8]}
+                interactive={false}
+                className={labelClass}
+              >
+                <NeighborLabel
+                  title={n.name || n.pubkey_prefix}
+                  detailed={detailed}
+                  snr={n.snr}
+                  distance={n.distance}
+                  lat={n.lat}
+                  lon={n.lon}
+                />
+              </Tooltip>
+            )}
             <Popup>
-              <span className="text-sm">{n.name || n.pubkey_prefix}</span>
+              <NeighborLabel
+                title={n.name || n.pubkey_prefix}
+                detailed={detailed}
+                snr={n.snr}
+                distance={n.distance}
+                lat={n.lat}
+                lon={n.lon}
+              />
             </Popup>
           </CircleMarker>
         ))}

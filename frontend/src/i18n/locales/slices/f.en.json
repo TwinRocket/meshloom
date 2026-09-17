@@ -175,7 +175,10 @@
     "help": "Help",
     "cliDocs": "CLI docs",
     "mapAria": "Map showing repeater neighbor locations",
-    "ourRadio": "Our Radio"
+    "ourRadio": "Our Radio",
+    "detailedLabels": "Detailed display",
+    "permanentLabels": "Permanent display",
+    "gps": "GPS"
   },
   "room": {
     "entity": "room server",
