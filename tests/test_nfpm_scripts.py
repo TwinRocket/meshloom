@@ -38,9 +38,10 @@ def test_apply_update_starts_service_after_packages() -> None:
 def test_posttrans_recovers_disabled_upgrade() -> None:
     assert "meshcore.db" in POSTTRANS
     assert "systemctl start meshloom" in POSTTRANS
-    assert "posttrans: __PKGDIR__/posttrans.sh" in NFPM
-    rpm_at = NFPM.index("  rpm:")
-    assert NFPM.index("posttrans:") > rpm_at
+    # nFPM rejects posttrans under overrides.rpm.scripts (generic Scripts).
+    assert "\nrpm:\n  scripts:\n    posttrans: __PKGDIR__/posttrans.sh" in NFPM
+    overrides = NFPM[NFPM.index("overrides:") : NFPM.index("\nrpm:")]
+    assert "posttrans" not in overrides
 
 
 def test_install_sh_fallback_helper_starts_service() -> None:

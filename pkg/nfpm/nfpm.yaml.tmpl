@@ -53,5 +53,6 @@ overrides:
   rpm:
     depends:
       - glibc
-    scripts:
-      posttrans: __PKGDIR__/posttrans.sh
+rpm:
+  scripts:
+    posttrans: __PKGDIR__/posttrans.sh
