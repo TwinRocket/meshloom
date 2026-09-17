@@ -252,9 +252,6 @@ export function NeighborsMiniMap({
     ? [radioLat as number, radioLon as number]
     : [valid[0].lat, valid[0].lon];
   const snrColor = (snr: number) => (snr >= 6 ? colors.good : snr >= 0 ? colors.fair : colors.poor);
-  const labelClass = detailed
-    ? 'neighbor-map-label neighbor-map-label-detailed'
-    : 'neighbor-map-label';
 
   return (
     <div
@@ -312,7 +309,7 @@ export function NeighborsMiniMap({
                 direction="top"
                 offset={[0, -10]}
                 interactive={false}
-                className={labelClass}
+                className="neighbor-map-label"
               >
                 <NeighborLabel
                   title={radioName || t('repeater.ourRadio')}
@@ -350,7 +347,7 @@ export function NeighborsMiniMap({
                 direction="top"
                 offset={[0, -8]}
                 interactive={false}
-                className={labelClass}
+                className="neighbor-map-label"
               >
                 <NeighborLabel
                   title={n.name || n.pubkey_prefix}

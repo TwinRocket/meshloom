@@ -510,12 +510,13 @@ body {
 }
 
 /* Permanent neighbour-map labels sit above every point. Leaflet's default
-   tooltip is a single-line white chip; detailed mode needs wrapping room. */
+   tooltip is nowrap + shrink-to-fit. Switching detailed mode to
+   white-space:normal without a width collapses the chip to one character
+   per line — the rows are already block elements, so nowrap keeps each
+   field on one line and the chip as wide as the longest (usually the name). */
 .neighbor-map-label.leaflet-tooltip {
   padding: 0.25rem 0.5rem;
   border-radius: 0.5rem;
   white-space: nowrap;
-}
-.neighbor-map-label-detailed.leaflet-tooltip {
-  white-space: normal;
+  width: max-content;
 }
