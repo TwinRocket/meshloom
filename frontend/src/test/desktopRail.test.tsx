@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DesktopRail } from '../components/DesktopRail';
+import { DesktopRail, MESHLOOM_SITE_URL } from '../components/DesktopRail';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
 
@@ -68,7 +68,7 @@ describe('DesktopRail', () => {
     expect(onSelectTool).toHaveBeenCalledWith('cracker');
   });
 
-  it('opens conversations from the home mark, not a chat glyph', () => {
+  it('opens meshloom.app from the mark and conversations from the chat glyph', () => {
     const onSelect = vi.fn();
     render(
       <DesktopRail
@@ -80,25 +80,24 @@ describe('DesktopRail', () => {
         onSelectTool={vi.fn()}
       />
     );
-    const home = screen.getByRole('button', {
+    const site = screen.getByRole('link', {
+      name: i18n.t('desktopRail.siteLink'),
+      hidden: true,
+    });
+    expect(site).toHaveAttribute('href', MESHLOOM_SITE_URL);
+    expect(site).toHaveAttribute('target', '_blank');
+    expect(site).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(site).toHaveClass('mb-16');
+    expect(site.querySelector('img')).toHaveAttribute('src', './meshloom-mark.svg');
+
+    const chat = screen.getByRole('button', {
       name: i18n.t('bottomNav.conversations'),
       hidden: true,
     });
-    expect(home).toHaveAttribute('aria-current', 'page');
-    expect(home.querySelector('img')).toHaveAttribute('src', './meshloom-mark.svg');
-    expect(home).toHaveTextContent('3');
-    fireEvent.click(home);
+    expect(chat).toHaveAttribute('aria-current', 'page');
+    expect(chat).toHaveTextContent('3');
+    fireEvent.click(chat);
     expect(onSelect).toHaveBeenCalledWith('conversations');
-  });
-
-  it('does not offer a second conversations glyph on the arrangeable rail', () => {
-    renderRail(false);
-    expect(
-      screen.getAllByRole('button', {
-        name: i18n.t('bottomNav.conversations'),
-        hidden: true,
-      })
-    ).toHaveLength(1);
   });
 
   it('marks the channel-finder overlay as pressed when it is open', () => {

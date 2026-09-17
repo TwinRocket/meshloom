@@ -2355,6 +2355,9 @@
     "unreadTitle": "({{count}}) Meshloom",
     "newMessage": "New message"
   },
+  "desktopRail": {
+    "siteLink": "Meshloom.app (opens in a new tab)"
+  },
   "bottomNav": {
     "label": "Primary",
     "conversations": "Chats",
@@ -2406,7 +2409,7 @@
   },
   "settingsNavigation": {
     "railTitle": "Left rail",
-    "railHelp": "The Meshloom mark at the top always opens conversations. Arrange the rest of the rail here. Desktop only — the bar on a phone holds four.",
+    "railHelp": "The Meshloom mark opens meshloom.app. Arrange the rest of the rail here. Desktop only — the bar on a phone holds four.",
     "permanent": "Always",
     "moveUp": "Move {{name}} up",
     "moveDown": "Move {{name}} down",

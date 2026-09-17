@@ -91,15 +91,11 @@ const overlay = (id: 'cracker', labelKey: string, Icon: LucideIcon): RailItem =>
  * already present, and would light up at the same time as the tool opened from it
  * — "where am I" with two answers. On a phone the bar has four slots and no
  * arranging, so Tools remains a destination there.
- *
- * Conversations is the home mark at the top of the rail, not an arrangeable Lucide
- * entry: a stored order must not be able to move the brand off the top-left.
  */
 export const ANCHORED_RAIL_IDS = ['settings'] as const;
 
-/** Never on the arrangeable rail: settings is anchored below, conversations is
- *  the home mark at the top, and Tools is a phone destination. */
-const NOT_ON_RAIL: readonly string[] = ['settings', 'tools', 'conversations'];
+/** Never on the rail: settings is anchored below, and Tools is a phone destination. */
+const NOT_ON_RAIL: readonly string[] = ['settings', 'tools'];
 
 export const RAIL_ITEMS: RailItem[] = [
   ...NAV_ITEMS.filter(({ target }) => !NOT_ON_RAIL.includes(target)).map(

@@ -23,35 +23,28 @@ describe('resolveRail', () => {
   });
 
   it('keeps the stored order', () => {
-    const stored = ['live', 'map'];
+    const stored = ['map', 'conversations'];
     expect(resolveRail(stored).map((i) => i.id)).toEqual(stored);
   });
 
   it('drops ids it does not recognise rather than rendering a hole', () => {
-    const ids = resolveRail(['map', 'a-tool-that-was-removed', 'live']).map((i) => i.id);
+    const ids = resolveRail(['conversations', 'a-tool-that-was-removed', 'map']).map((i) => i.id);
     expect(ids).not.toContain('a-tool-that-was-removed');
-    expect(ids).toContain('map');
+    expect(ids).toContain('conversations');
   });
 
   it('ignores a duplicate instead of drawing the same entry twice', () => {
-    const ids = resolveRail(['map', 'map', 'live']).map((i) => i.id);
-    expect(ids.filter((id) => id === 'map')).toHaveLength(1);
+    const ids = resolveRail(['conversations', 'conversations', 'map']).map((i) => i.id);
+    expect(ids.filter((id) => id === 'conversations')).toHaveLength(1);
   });
 
   it('puts back a permanent entry a stored list had dropped', () => {
-    // The map cannot be taken off the rail; a tool can, so a stored list that
-    // omits one is a choice and is left alone. Conversations is the home mark,
-    // not an arrangeable entry, so a leftover id is dropped.
+    // Conversations and the map cannot be taken off the rail; a tool can, so a
+    // stored list that omits one is a choice and is left alone.
     const ids = resolveRail(['raw']).map((i) => i.id);
-    expect(ids).not.toContain('conversations');
+    expect(ids).toContain('conversations');
     expect(ids).toContain('map');
     expect(ids).toContain('raw');
-  });
-
-  it('leaves conversations off the arrangeable rail', () => {
-    expect(RAIL_ITEMS.map((i) => i.id)).not.toContain('conversations');
-    expect(DEFAULT_RAIL).not.toContain('conversations');
-    expect(resolveRail(['conversations', 'map']).map((i) => i.id)).toEqual(['map']);
   });
 
   it('starts with everything on the rail', () => {
@@ -73,7 +66,7 @@ describe('resolveRail', () => {
     for (const anchored of ANCHORED_RAIL_IDS) {
       expect(DEFAULT_RAIL).not.toContain(anchored);
       expect(RAIL_ITEMS.map((i) => i.id)).not.toContain(anchored);
-      expect(resolveRail(['map']).map((i) => i.id)).not.toContain(anchored);
+      expect(resolveRail(['conversations']).map((i) => i.id)).not.toContain(anchored);
     }
   });
 
@@ -82,7 +75,7 @@ describe('resolveRail', () => {
     expect(optional).toContain('live');
     expect(optional).toContain('raw');
     expect(optional).toContain('cracker');
-    expect(resolveRail(['map', 'live']).map((i) => i.id)).toContain('live');
+    expect(resolveRail(['conversations', 'live']).map((i) => i.id)).toContain('live');
   });
 });
 
@@ -97,13 +90,13 @@ const rowNames = () =>
 
 describe('SettingsNavigationSection', () => {
   it('reorders an entry without losing the others', () => {
-    const { onChange } = renderSection(['map', 'live']);
+    const { onChange } = renderSection(['conversations', 'map', 'live']);
     fireEvent.click(
       screen.getByRole('button', {
-        name: i18n.t('settingsNavigation.moveUp', { name: i18n.t('sidebar.live') }),
+        name: i18n.t('settingsNavigation.moveUp', { name: i18n.t('bottomNav.map') }),
       })
     );
-    expect(onChange).toHaveBeenCalledWith(['live', 'map']);
+    expect(onChange).toHaveBeenCalledWith(['map', 'conversations', 'live']);
   });
 
   it('adds back a tool that was taken off the rail', () => {
@@ -134,7 +127,7 @@ describe('SettingsNavigationSection', () => {
     renderSection(DEFAULT_RAIL);
     expect(
       screen.getByRole('button', {
-        name: i18n.t('settingsNavigation.moveUp', { name: i18n.t('bottomNav.map') }),
+        name: i18n.t('settingsNavigation.moveUp', { name: i18n.t('bottomNav.conversations') }),
       })
     ).toBeDisabled();
     const lastId = DEFAULT_RAIL[DEFAULT_RAIL.length - 1];
@@ -150,7 +143,7 @@ describe('SettingsNavigationSection', () => {
   });
 
   it('restores the defaults', () => {
-    const { onChange } = renderSection(['live', 'map', 'raw']);
+    const { onChange } = renderSection(['map', 'conversations', 'raw']);
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settingsNavigation.reset') }));
     expect(onChange).toHaveBeenCalledWith(DEFAULT_RAIL);
     expect(rowNames().length).toBeGreaterThan(0);
@@ -169,11 +162,11 @@ describe('channel finder overlay', () => {
     const stored = ['conversations', 'map', 'live'];
     const first = backfillRailOverlaysOnce(stored, false);
     expect(first.shouldPersist).toBe(true);
-    expect(first.ids).toEqual(['map', 'live', 'cracker']);
+    expect(first.ids).toEqual(['conversations', 'map', 'live', 'cracker']);
 
     const afterRemoval = backfillRailOverlaysOnce(stored, true);
     expect(afterRemoval.shouldPersist).toBe(false);
-    expect(afterRemoval.ids).toEqual(['map', 'live']);
+    expect(afterRemoval.ids).toEqual(['conversations', 'map', 'live']);
   });
 
   it('does not persist when the defaults already include the overlay', () => {
@@ -185,11 +178,11 @@ describe('channel finder overlay', () => {
 
 describe('addToRail', () => {
   it('appends the entry', () => {
-    expect(addToRail(['map'], 'live')).toEqual(['map', 'live']);
+    expect(addToRail(['conversations', 'map'], 'live')).toEqual(['conversations', 'map', 'live']);
   });
 
   it('refuses to add the same entry twice', () => {
-    const rail: ReturnType<typeof addToRail> = ['map', 'live'];
+    const rail: ReturnType<typeof addToRail> = ['conversations', 'live'];
     expect(addToRail(rail, 'live')).toBe(rail);
   });
 });

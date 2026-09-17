@@ -418,7 +418,7 @@ export function AppShell({
             Slack, WhatsApp Desktop, Discord and VS Code all replace it when the
             section changes. A map or a tool has no list of its own — each is one
             full-width view with its own internal layout, which 384px of
-            conversations was squeezing. The rail's home mark is the way
+            conversations was squeezing. The rail's conversations entry is the way
             back, as it is in all four. */}
         {showDestinationList && <DesktopListSplit>{destinationList}</DesktopListSplit>}
         {listAllowed && conversationListCollapsed && onToggleConversationList && (
