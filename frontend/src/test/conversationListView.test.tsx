@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ConversationListView } from '../components/ConversationListView';
 import i18n from '../i18n';
@@ -70,6 +70,10 @@ const rowNames = () =>
     .map((item) => within(item).getAllByRole('button')[0].textContent ?? '');
 
 describe('ConversationListView', () => {
+  beforeEach(() => {
+    localStorage.removeItem('meshloom-conversation-favorites-collapsed');
+  });
+
   it('puts channels and direct conversations in one list, newest first', () => {
     renderList();
     const names = rowNames().filter((name) => !name.startsWith('Bob') || name.includes('thing'));
@@ -143,6 +147,55 @@ describe('ConversationListView', () => {
     expect(
       screen.queryByRole('heading', { name: i18n.t('conversationList.favorites') })
     ).not.toBeInTheDocument();
+  });
+
+  it('folds the favourites grid behind a chevron and remembers that', () => {
+    renderList({
+      contacts: [
+        contact({ public_key: 'aa'.repeat(32), name: 'Alice' }),
+        contact({ public_key: 'bb'.repeat(32), name: 'Bob', favorite: true }),
+        contact({ public_key: 'cc'.repeat(32), name: 'Cara', favorite: true }),
+      ],
+    });
+
+    const strip = screen.getByRole('list', { name: i18n.t('conversationList.favorites') });
+    expect(within(strip).getByRole('button', { name: /Bob/ })).toBeInTheDocument();
+    expect(within(strip).getByRole('button', { name: /Cara/ })).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('sidebar.collapseSection', { title: i18n.t('conversationList.favorites') }),
+      })
+    );
+    expect(
+      screen.queryByRole('list', { name: i18n.t('conversationList.favorites') })
+    ).not.toBeInTheDocument();
+    expect(localStorage.getItem('meshloom-conversation-favorites-collapsed')).toBe('1');
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('sidebar.expandSection', { title: i18n.t('conversationList.favorites') }),
+      })
+    );
+    expect(
+      screen.getByRole('list', { name: i18n.t('conversationList.favorites') })
+    ).toBeInTheDocument();
+    expect(localStorage.getItem('meshloom-conversation-favorites-collapsed')).toBeNull();
+  });
+
+  it('offers a desktop control to fold the conversation list', () => {
+    const onCollapseList = vi.fn();
+    renderList({ onCollapseList });
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('conversationList.collapseList') })
+    );
+    expect(onCollapseList).toHaveBeenCalled();
+  });
+
+  it('draws channel avatars from the name, not the hash marker', () => {
+    renderList();
+    const alpha = screen.getAllByRole('button', { name: /#alpha/ })[0];
+    expect(within(alpha).getByText('A')).toBeInTheDocument();
   });
 
   it('reports the conversation that was chosen', () => {

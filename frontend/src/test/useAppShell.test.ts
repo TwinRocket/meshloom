@@ -157,6 +157,21 @@ describe('useAppShell', () => {
     expect(localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_KEY)).toBeNull();
   });
 
+  it('expands the desktop conversation list without toggling', () => {
+    const { result } = renderHook(() => useAppShell());
+
+    act(() => {
+      result.current.handleToggleDesktopSidebar();
+    });
+    expect(result.current.desktopSidebarCollapsed).toBe(true);
+
+    act(() => {
+      result.current.handleExpandDesktopSidebar();
+    });
+    expect(result.current.desktopSidebarCollapsed).toBe(false);
+    expect(localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_KEY)).toBeNull();
+  });
+
   it('toggles the cracker shell without affecting sidebar state', () => {
     const { result } = renderHook(() => useAppShell());
 

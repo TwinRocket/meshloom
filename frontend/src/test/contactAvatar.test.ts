@@ -64,6 +64,15 @@ describe('getContactAvatar', () => {
     expect(avatar.text).toBe('A');
   });
 
+  it('ignores a leading hashtag when reading initials', () => {
+    expect(getContactAvatar('#meshloom', 'abc123').text).toBe('M');
+    expect(getContactAvatar('# Jane Doe', 'abc123').text).toBe('JD');
+  });
+
+  it('falls back to the key when the name is only hashes', () => {
+    expect(getContactAvatar('###', 'xyz789').text).toBe('XY');
+  });
+
   it('falls back to pubkey prefix for names with no letters', () => {
     const avatar = getContactAvatar('123 456', 'xyz789');
     expect(avatar.text).toBe('XY');

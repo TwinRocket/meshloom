@@ -36,6 +36,7 @@ interface UseAppShellResult {
   handleCloseNewMessage: () => void;
   handleToggleCracker: () => void;
   handleToggleDesktopSidebar: () => void;
+  handleExpandDesktopSidebar: () => void;
 }
 
 export function useAppShell(): UseAppShellResult {
@@ -158,6 +159,11 @@ export function useAppShell(): UseAppShellResult {
     });
   }, []);
 
+  const handleExpandDesktopSidebar = useCallback(() => {
+    setDesktopSidebarCollapsed(false);
+    setSavedDesktopSidebarCollapsed(false);
+  }, []);
+
   return {
     showNewMessage,
     showSettings,
@@ -183,5 +189,6 @@ export function useAppShell(): UseAppShellResult {
     handleCloseNewMessage,
     handleToggleCracker,
     handleToggleDesktopSidebar,
+    handleExpandDesktopSidebar,
   };
 }

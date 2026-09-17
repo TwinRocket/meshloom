@@ -2365,7 +2365,10 @@
     "noMatch": "Rien ne correspond à « {{query}} ».",
     "empty": "Aucune conversation.",
     "unreadCount_one": "{{count}} message non lu",
-    "unreadCount_other": "{{count}} messages non lus"
+    "unreadCount_other": "{{count}} messages non lus",
+    "collapseList": "Masquer la liste des discussions",
+    "expandList": "Afficher la liste des discussions",
+    "resizeList": "Redimensionner la liste des discussions"
   },
   "toolsView": {
     "title": "Outils",

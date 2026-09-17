@@ -19,6 +19,7 @@ import { UpdateAvailableDialog } from './UpdateAvailableDialog';
 import { useOssUpdates } from '../hooks/useOssUpdates';
 import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
+import { DesktopListSplit } from './DesktopListSplit';
 import { ToolsView } from './ToolsView';
 import { SettingsIndexView } from './SettingsIndexView';
 import type { NavigationData } from './navigationData';
@@ -42,7 +43,7 @@ import type { CommunityStatus, HealthStatus, RadioConfig } from '../types';
 import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 
@@ -53,6 +54,16 @@ const CrackerPanel = lazy(() =>
   import('./CrackerPanel').then((m) => ({ default: m.CrackerPanel }))
 );
 const SearchView = lazy(() => import('./SearchView').then((m) => ({ default: m.SearchView })));
+
+/** The middle column is the destination's own list. A map or tool has none.
+ *  Folding it is a reader preference, not a different destination. */
+export function shouldShowDestinationList(
+  target: BottomNavTarget,
+  userCollapsed = false
+): boolean {
+  if (userCollapsed) return false;
+  return target === 'settings' || target === 'conversations';
+}
 
 type SidebarProps = NavigationData;
 type ConversationPaneProps = ComponentProps<typeof ConversationPane>;
@@ -100,6 +111,10 @@ interface AppShellProps {
   channelInfoPaneProps: ChannelInfoPaneProps;
   onRepeaterAutoLogin: (publicKey: string, displayName: string) => void;
   onIdentityAdopted: () => void | Promise<void>;
+  /** Desktop: the conversation (or settings) list column is folded away. */
+  conversationListCollapsed?: boolean;
+  onToggleConversationList?: () => void;
+  onExpandConversationList?: () => void;
 }
 
 export function AppShell({
@@ -133,6 +148,9 @@ export function AppShell({
   channelInfoPaneProps,
   onRepeaterAutoLogin,
   onIdentityAdopted,
+  conversationListCollapsed = false,
+  onToggleConversationList,
+  onExpandConversationList,
 }: AppShellProps) {
   const { t } = useTranslation();
   const [crackerQueueCount, setCrackerQueueCount] = useState(0);
@@ -232,6 +250,11 @@ export function AppShell({
     sidebarProps.contacts,
     sidebarProps.unreadCounts ?? {}
   );
+  const listAllowed = shouldShowDestinationList(bottomNavTarget);
+  const showDestinationList = shouldShowDestinationList(
+    bottomNavTarget,
+    conversationListCollapsed
+  );
 
   const handleBackToTools = useCallback(() => {
     setMobileScreen('tools');
@@ -260,8 +283,14 @@ export function AppShell({
         return;
       }
       // Conversations and Tools are screens of their own, so they clear whatever
-      // conversation or tool was open rather than opening another one.
+      // conversation or tool was open rather than opening another one — except
+      // when the list is only folded: then Conversations means "show the list
+      // again" next to the open chat, not "leave the chat".
       setMobileScreen(target === 'tools' ? 'tools' : 'conversations');
+      if (target === 'conversations' && conversationListCollapsed) {
+        onExpandConversationList?.();
+        if (activeType === 'contact' || activeType === 'channel') return;
+      }
       onClearActiveConversation();
     },
     [
@@ -271,6 +300,9 @@ export function AppShell({
       onSettingsSectionChange,
       sidebarProps,
       onClearActiveConversation,
+      conversationListCollapsed,
+      onExpandConversationList,
+      activeType,
     ]
   );
   useEffect(() => {
@@ -287,16 +319,13 @@ export function AppShell({
     return () => window.removeEventListener('resize', measure);
   }, [hasLocalLabel, activeType, activeId, showSettings, communityStatus]);
 
-  // A map and a tool are single full-width views: they have no list to put in the
-  // middle column, and their own panels need the width it was taking.
-  const showDestinationList = bottomNavTarget === 'conversations' || bottomNavTarget === 'settings';
-
   const destinationList = showSettings ? (
     <SettingsIndexView
       health={statusProps.health}
       disabledSections={disabledSettingsSections}
       activeSection={settingsSection}
       updateAvailable={updateAvailable}
+      onCollapseList={onToggleConversationList}
       onSelectSection={(section) => {
         onSettingsSectionChange(section);
         setSettingsIndexOpen(false);
@@ -326,6 +355,7 @@ export function AppShell({
       health={statusProps.health}
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
       activeConversation={conversationPaneProps.activeConversation}
+      onCollapseList={onToggleConversationList}
     />
   );
 
@@ -395,10 +425,16 @@ export function AppShell({
             full-width view with its own internal layout, which 384px of
             conversations was squeezing. The rail's conversations entry is the way
             back, as it is in all four. */}
-        {showDestinationList && (
-          <div className="hidden min-h-0 w-[22rem] shrink-0 flex-col border-r border-border md:flex lg:w-[24rem]">
-            {destinationList}
-          </div>
+        {showDestinationList && <DesktopListSplit>{destinationList}</DesktopListSplit>}
+        {listAllowed && conversationListCollapsed && onToggleConversationList && (
+          <button
+            type="button"
+            onClick={onToggleConversationList}
+            aria-label={t('conversationList.expandList')}
+            className="hidden h-full w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:flex"
+          >
+            <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+          </button>
         )}
 
         {/* min-h-0 as well as min-w-0: a flex child defaults to min-height:auto, which

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Hash, X, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, PanelLeftClose, Search, X, Plus } from 'lucide-react';
 import type { Channel, Contact, Conversation, HealthStatus } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
@@ -38,6 +38,8 @@ interface Props {
   health?: HealthStatus | null;
   /** Opens the radio read-out. The dot means the same thing on every screen. */
   onOpenRadioStatus?: () => void;
+  /** Desktop: fold the list column so the conversation can use the width. */
+  onCollapseList?: () => void;
 }
 
 interface Row {
@@ -53,6 +55,28 @@ interface Row {
   contact?: Contact;
 }
 
+const FAVORITES_COLLAPSED_KEY = 'meshloom-conversation-favorites-collapsed';
+
+function readFavoritesCollapsed(): boolean {
+  try {
+    return localStorage.getItem(FAVORITES_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeFavoritesCollapsed(collapsed: boolean): void {
+  try {
+    if (collapsed) {
+      localStorage.setItem(FAVORITES_COLLAPSED_KEY, '1');
+    } else {
+      localStorage.removeItem(FAVORITES_COLLAPSED_KEY);
+    }
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
 const FILTERS: { id: ConversationFilter; labelKey: string }[] = [
   { id: 'all', labelKey: 'conversationList.all' },
   { id: 'unread', labelKey: 'conversationList.unread' },
@@ -60,6 +84,17 @@ const FILTERS: { id: ConversationFilter; labelKey: string }[] = [
   { id: 'groups', labelKey: 'conversationList.groups' },
   { id: 'direct', labelKey: 'conversationList.direct' },
 ];
+
+function ConversationAvatar({ row, size }: { row: Row; size: number }) {
+  return (
+    <ContactAvatar
+      name={row.name}
+      publicKey={row.key}
+      size={size}
+      contactType={row.contact?.type}
+    />
+  );
+}
 
 /** Same day shows a time, anything older shows a date — a date at 14:32 says nothing. */
 function formatWhen(seconds: number, locale: string): string {
@@ -87,6 +122,7 @@ export function ConversationListView({
   onNewMessage,
   health,
   onOpenRadioStatus,
+  onCollapseList,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
@@ -184,6 +220,15 @@ export function ConversationListView({
   // filtering to them is a round trip when all you wanted was one tap.
   const favourites = useMemo(() => rows.filter((row) => row.favorite), [rows]);
   const showFavourites = favourites.length > 0 && filter === 'all' && !query.trim();
+  const [favoritesCollapsed, setFavoritesCollapsed] = useState(readFavoritesCollapsed);
+
+  const toggleFavoritesCollapsed = () => {
+    setFavoritesCollapsed((current) => {
+      const next = !current;
+      writeFavoritesCollapsed(next);
+      return next;
+    });
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -195,6 +240,16 @@ export function ConversationListView({
       <div className="shrink-0 bg-background pt-5 md:pt-2">
         <div className="flex items-center gap-2 px-4 pb-2 pt-3">
           <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
+          {onCollapseList && (
+            <button
+              type="button"
+              onClick={onCollapseList}
+              aria-label={t('conversationList.collapseList')}
+              className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+            >
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
           <RadioStatusChip
             health={health ?? null}
             onOpenStatus={onOpenRadioStatus}
@@ -244,7 +299,7 @@ export function ConversationListView({
         </div>
 
         <div
-          className="flex gap-2 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex gap-2 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible"
           role="group"
           aria-label={t('conversationList.filterLabel')}
         >
@@ -276,50 +331,61 @@ export function ConversationListView({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {showFavourites && (
-          <div className="border-b border-border/25 pb-3 pt-1">
-            <h2 className="px-4 pb-2 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
-              {t('conversationList.favorites')}
-            </h2>
-            <ul className="flex gap-3 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {favourites.map((row) => (
-                <li key={`fav-${row.kind}-${row.key}`}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectConversation(row.conversation)}
-                    className="flex w-16 flex-col items-center gap-1 rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span className="relative">
-                      {row.kind === 'channel' ? (
-                        <span
-                          className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                          aria-hidden="true"
-                        >
-                          <Hash className="h-5 w-5" />
-                        </span>
-                      ) : (
-                        <ContactAvatar
-                          name={row.name}
-                          publicKey={row.key}
-                          size={48}
-                          contactType={row.contact?.type}
-                        />
-                      )}
-                      {row.unread > 0 && (
-                        <span
-                          className="absolute -right-1 -top-1 min-w-[1.125rem] rounded-full bg-primary px-1 py-px text-center text-[0.625rem] font-semibold text-primary-foreground"
-                          aria-hidden="true"
-                        >
-                          {row.unread > 99 ? '99+' : row.unread}
-                        </span>
-                      )}
-                    </span>
-                    <span className="w-full truncate text-center text-[0.6875rem] text-muted-foreground">
-                      {row.name}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+          <div className={cn('border-b border-border/25 pt-1', !favoritesCollapsed && 'pb-3')}>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-4 pb-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              aria-expanded={!favoritesCollapsed}
+              aria-label={
+                favoritesCollapsed
+                  ? t('sidebar.expandSection', { title: t('conversationList.favorites') })
+                  : t('sidebar.collapseSection', { title: t('conversationList.favorites') })
+              }
+              onClick={toggleFavoritesCollapsed}
+            >
+              {favoritesCollapsed ? (
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+              )}
+              <h2 className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
+                {t('conversationList.favorites')}
+              </h2>
+              <span className="ml-auto text-[0.6875rem] tabular-nums text-muted-foreground">
+                {favourites.length}
+              </span>
+            </button>
+            {!favoritesCollapsed && (
+              <ul
+                className="grid grid-cols-4 gap-2 px-4 lg:grid-cols-5"
+                aria-label={t('conversationList.favorites')}
+              >
+                {favourites.map((row) => (
+                  <li key={`fav-${row.kind}-${row.key}`}>
+                    <button
+                      type="button"
+                      onClick={() => onSelectConversation(row.conversation)}
+                      className="flex w-full flex-col items-center gap-1 rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="relative">
+                        <ConversationAvatar row={row} size={48} />
+                        {row.unread > 0 && (
+                          <span
+                            className="absolute -right-1 -top-1 min-w-[1.125rem] rounded-full bg-primary px-1 py-px text-center text-[0.625rem] font-semibold text-primary-foreground"
+                            aria-hidden="true"
+                          >
+                            {row.unread > 99 ? '99+' : row.unread}
+                          </span>
+                        )}
+                      </span>
+                      <span className="w-full truncate text-center text-[0.6875rem] text-muted-foreground">
+                        {row.name}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
@@ -342,21 +408,7 @@ export function ConversationListView({
                     isOpen(row) ? 'bg-accent/60' : 'hover:bg-accent/40'
                   )}
                 >
-                  {row.kind === 'channel' ? (
-                    <span
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                      aria-hidden="true"
-                    >
-                      <Hash className="h-5 w-5" />
-                    </span>
-                  ) : (
-                    <ContactAvatar
-                      name={row.name}
-                      publicKey={row.key}
-                      size={44}
-                      contactType={row.contact?.type}
-                    />
-                  )}
+                  <ConversationAvatar row={row} size={44} />
 
                   {/* The rule starts after the avatar rather than spanning the
                       screen: a full-width line reads as a division of the page, an

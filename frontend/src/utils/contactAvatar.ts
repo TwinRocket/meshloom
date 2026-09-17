@@ -50,25 +50,31 @@ function getAvatarText(name: string | null, publicKey: string): string {
     return publicKey.slice(0, 2).toUpperCase();
   }
 
+  // Hashtag channels are named "#meshloom": the marker is not part of the identity.
+  const displayName = name.replace(/#/g, '').trim();
+  if (!displayName) {
+    return publicKey.slice(0, 2).toUpperCase();
+  }
+
   // Check for emoji first
-  const emojiMatch = name.match(emojiRegex);
+  const emojiMatch = displayName.match(emojiRegex);
   if (emojiMatch) {
     return emojiMatch[0];
   }
 
   // Find first letter
-  const letters = name.match(/[a-zA-Z]/g);
+  const letters = displayName.match(/[a-zA-Z]/g);
   if (!letters || letters.length === 0) {
     // No letters, use first 2 chars of public key
     return publicKey.slice(0, 2).toUpperCase();
   }
 
   // Check for space - get initials
-  const spaceIndex = name.indexOf(' ');
+  const spaceIndex = displayName.indexOf(' ');
   if (spaceIndex !== -1) {
     const firstLetter = letters[0];
     // Find first letter after the space
-    const afterSpace = name.slice(spaceIndex + 1).match(/[a-zA-Z]/);
+    const afterSpace = displayName.slice(spaceIndex + 1).match(/[a-zA-Z]/);
     if (afterSpace) {
       return (firstLetter + afterSpace[0]).toUpperCase();
     }

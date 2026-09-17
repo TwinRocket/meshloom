@@ -110,6 +110,7 @@ export function App() {
     showSettings,
     settingsSection,
     sidebarOpen,
+    desktopSidebarCollapsed,
     showCracker,
     crackerRunning,
     localLabel,
@@ -128,6 +129,8 @@ export function App() {
     handleOpenNewMessage: openNewMessageModal,
     handleCloseNewMessage: closeNewMessageModal,
     handleToggleCracker,
+    handleToggleDesktopSidebar,
+    handleExpandDesktopSidebar,
   } = useAppShell();
 
   // Shared refs between useConversationRouter and useContactsAndChannels
@@ -897,6 +900,9 @@ export function App() {
             channelInfoPaneProps={channelInfoPaneProps}
             onRepeaterAutoLogin={handleRepeaterAutoLogin}
             onIdentityAdopted={handleIdentityAdopted}
+            conversationListCollapsed={desktopSidebarCollapsed}
+            onToggleConversationList={handleToggleDesktopSidebar}
+            onExpandConversationList={handleExpandDesktopSidebar}
           />
         </PathHopWidthProvider>
       </RichPayloadProvider>

@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, PanelLeftClose } from 'lucide-react';
 import {
   SETTINGS_SECTION_ICONS,
   SETTINGS_SECTION_LABELS,
@@ -29,6 +29,8 @@ interface Props {
   /** The section open beside this list. Desktop only; a phone shows one at a time. */
   activeSection?: SettingsSection;
   updateAvailable?: boolean;
+  /** Desktop: fold the index column so the section can use the width. */
+  onCollapseList?: () => void;
 }
 
 const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
@@ -46,6 +48,7 @@ export function SettingsIndexView({
   health,
   activeSection,
   updateAvailable = false,
+  onCollapseList,
 }: Props) {
   const { t } = useTranslation();
 
@@ -53,6 +56,16 @@ export function SettingsIndexView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 bg-background px-4 pb-2 pt-8 md:pt-5">
         <h1 className="text-2xl font-semibold tracking-tight">{t('settingsIndex.title')}</h1>
+        {onCollapseList && (
+          <button
+            type="button"
+            onClick={onCollapseList}
+            aria-label={t('conversationList.collapseList')}
+            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+          >
+            <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+          </button>
+        )}
         <RadioStatusChip health={health ?? null} className="ml-auto max-w-[9rem]" />
       </div>
 

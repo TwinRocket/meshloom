@@ -1,6 +1,6 @@
-// Browser-local preference for collapsing the desktop conversation sidebar
-// into an icon rail. Mobile sheet navigation is unaffected. Off (expanded)
-// by default.
+// Browser-local preference for collapsing the desktop conversation-list
+// column. The icon rail stays. Mobile list/conversation stacking is unaffected.
+// Off (expanded) by default.
 
 export const DESKTOP_SIDEBAR_COLLAPSED_KEY = 'meshloom-desktop-sidebar-collapsed';
 
