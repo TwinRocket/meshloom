@@ -1,22 +1,23 @@
 ## [4.13.2] - 2026-09-18
 
-A second Install click after an in-app upgrade failed: the privileged helper rewrote `update-job.json` as root, and the Meshloom process could not update it again.
+After an in-app upgrade, the next Install click failed. The update helper rewrote the job status as root, so Meshloom could not start another apply.
 
 #### Fixed
 
-* **In-app update status file:** The apply helper now writes the job file as `meshloom` before replacing it, so the next Install click can start. A leftover root-owned file is replaced in place. The file is kept: it is the apply status after restart.
+* **Install click after an upgrade:** The helper now leaves the update job file owned by `meshloom`. A leftover root-owned file is replaced in place. The next Install click can start.
 
 ---
 
 ### Français
 
-Un second clic Installer après une mise à jour depuis l’UI échouait : le helper réécrivait `update-job.json` en root, et le process Meshloom ne pouvait plus le modifier.
+Après une mise à jour depuis l’UI, le clic Installer suivant échouait. Le helper réécrivait le statut de mise à jour en root, donc Meshloom ne pouvait plus en relancer une.
 
 #### Corrections
 
-* **Fichier de statut de mise à jour :** Le helper écrit désormais le fichier au nom de `meshloom` avant de le remplacer, pour que le clic Installer suivant parte. Un fichier resté root est remplacé sur place. Le fichier est conservé : c’est le statut après redémarrage.
+* **Clic Installer après une mise à jour :** Le helper laisse désormais le fichier de statut à `meshloom`. Un fichier resté root est remplacé sur place. Le clic Installer suivant peut partir.
 
 ---
+
 
 ## [4.13.1] - 2026-09-18
 
