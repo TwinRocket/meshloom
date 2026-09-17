@@ -66,9 +66,7 @@ describe('NeighborsMiniMap labels', () => {
 
     expect(screen.getByText(`${i18n.t('repeater.snr')}: +7.2 dB`)).toBeInTheDocument();
     expect(screen.getByText(`${i18n.t('repeater.dist')}: 1.2 km`)).toBeInTheDocument();
-    expect(
-      screen.getByText(`${i18n.t('repeater.gps')}: -31.94000, 115.87000`)
-    ).toBeInTheDocument();
+    expect(screen.getByText(`${i18n.t('repeater.gps')}: -31.94000, 115.87000`)).toBeInTheDocument();
     expect(screen.queryByTestId('neighbor-tooltip')).toBeNull();
   });
 
