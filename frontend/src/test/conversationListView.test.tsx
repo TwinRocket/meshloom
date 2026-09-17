@@ -159,6 +159,7 @@ describe('ConversationListView', () => {
     });
 
     const strip = screen.getByRole('list', { name: i18n.t('conversationList.favorites') });
+    expect(strip).toHaveClass('conversation-favorites-grid');
     expect(within(strip).getByRole('button', { name: /Bob/ })).toBeInTheDocument();
     expect(within(strip).getByRole('button', { name: /Cara/ })).toBeInTheDocument();
 
@@ -186,9 +187,10 @@ describe('ConversationListView', () => {
   it('offers a desktop control to fold the conversation list', () => {
     const onCollapseList = vi.fn();
     renderList({ onCollapseList });
-    fireEvent.click(
-      screen.getByRole('button', { name: i18n.t('conversationList.collapseList') })
-    );
+    const collapse = screen.getByRole('button', { name: i18n.t('conversationList.collapseList') });
+    const title = screen.getByRole('heading', { name: i18n.t('conversationList.title') });
+    expect(collapse.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(collapse);
     expect(onCollapseList).toHaveBeenCalled();
   });
 

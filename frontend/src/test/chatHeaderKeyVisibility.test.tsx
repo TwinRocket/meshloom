@@ -40,123 +40,25 @@ const baseProps = {
 };
 
 describe('ChatHeader key visibility', () => {
-  it('shows key directly for hashtag channels', () => {
-    const key = 'AA'.repeat(16);
-    const channel = makeChannel(key, '#general', true);
-    const conversation: Conversation = { type: 'channel', id: key, name: '#general' };
+  it('keeps keys out of the header — the info pane is where they live', () => {
+    const channelKey = 'AA'.repeat(16);
+    const channel = makeChannel(channelKey, '#general', true);
+    const conversation: Conversation = { type: 'channel', id: channelKey, name: '#general' };
 
     render(<ChatHeader {...baseProps} conversation={conversation} channels={[channel]} />);
 
-    expect(screen.getByText(key.toLowerCase())).toBeInTheDocument();
+    expect(screen.queryByText(channelKey.toLowerCase())).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t('chatHeader.showKey'))).not.toBeInTheDocument();
   });
 
-  it('hides key behind Show Key button for private channels', () => {
-    const key = 'BB'.repeat(16);
-    const channel = makeChannel(key, 'Secret Room', false);
-    const conversation: Conversation = { type: 'channel', id: key, name: 'Secret Room' };
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[channel]} />);
-
-    expect(screen.queryByText(key.toLowerCase())).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('chatHeader.showKey'))).toBeInTheDocument();
-  });
-
-  it('reveals key when Show Key is clicked', () => {
-    const key = 'CC'.repeat(16);
-    const channel = makeChannel(key, 'Private', false);
-    const conversation: Conversation = { type: 'channel', id: key, name: 'Private' };
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[channel]} />);
-
-    fireEvent.click(screen.getByText(i18n.t('chatHeader.showKey')));
-
-    expect(screen.getByText(key.toLowerCase())).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('chatHeader.showKey'))).not.toBeInTheDocument();
-  });
-
-  it('resets key visibility when conversation changes', () => {
-    const key1 = 'DD'.repeat(16);
-    const key2 = 'EE'.repeat(16);
-    const ch1 = makeChannel(key1, 'Room1', false);
-    const ch2 = makeChannel(key2, 'Room2', false);
-    const conv1: Conversation = { type: 'channel', id: key1, name: 'Room1' };
-    const conv2: Conversation = { type: 'channel', id: key2, name: 'Room2' };
-
-    const { rerender } = render(
-      <ChatHeader {...baseProps} conversation={conv1} channels={[ch1, ch2]} />
-    );
-
-    // Reveal key for first conversation
-    fireEvent.click(screen.getByText(i18n.t('chatHeader.showKey')));
-    expect(screen.getByText(key1.toLowerCase())).toBeInTheDocument();
-
-    // Switch conversation — key should be hidden again
-    rerender(<ChatHeader {...baseProps} conversation={conv2} channels={[ch1, ch2]} />);
-
-    expect(screen.queryByText(key2.toLowerCase())).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('chatHeader.showKey'))).toBeInTheDocument();
-  });
-
-  it('hides the full contact key behind a 12-char prefix and Show Key', () => {
+  it('does not show a contact key or a reveal control beside the name', () => {
     const pubKey = '11'.repeat(32);
     const conversation: Conversation = { type: 'contact', id: pubKey, name: 'Alice' };
 
     render(<ChatHeader {...baseProps} conversation={conversation} channels={[]} />);
 
-    expect(screen.getByText(pubKey.slice(0, 12))).toBeInTheDocument();
     expect(screen.queryByText(pubKey)).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('chatHeader.showKey'))).toBeInTheDocument();
-  });
-
-  it('reveals the full contact key when Show Key is clicked', () => {
-    const pubKey = '13'.repeat(32);
-    const conversation: Conversation = { type: 'contact', id: pubKey, name: 'Alice' };
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[]} />);
-
-    fireEvent.click(screen.getByText(i18n.t('chatHeader.showKey')));
-
-    expect(screen.getByText(pubKey)).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('chatHeader.showKey'))).not.toBeInTheDocument();
-  });
-
-  it('copies the full contact key when the prefix is clicked', () => {
-    const pubKey = '14'.repeat(32);
-    const conversation: Conversation = { type: 'contact', id: pubKey, name: 'Alice' };
-
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[]} />);
-
-    fireEvent.click(screen.getByText(pubKey.slice(0, 12)));
-
-    expect(writeText).toHaveBeenCalledWith(pubKey);
-  });
-
-  it('copies the full contact key when the revealed key is clicked', () => {
-    const pubKey = '15'.repeat(32);
-    const conversation: Conversation = { type: 'contact', id: pubKey, name: 'Alice' };
-
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[]} />);
-
-    fireEvent.click(screen.getByText(i18n.t('chatHeader.showKey')));
-    fireEvent.click(screen.getByText(pubKey));
-
-    expect(writeText).toHaveBeenCalledWith(pubKey);
-  });
-
-  it('shows a prefix-only contact key without a Show Key control', () => {
-    const prefix = 'abcdef123456';
-    const conversation: Conversation = { type: 'contact', id: prefix, name: 'Unknown' };
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[]} />);
-
-    expect(screen.getByText(prefix)).toBeInTheDocument();
+    expect(screen.queryByText(pubKey.slice(0, 12))).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t('chatHeader.showKey'))).not.toBeInTheDocument();
   });
 
@@ -182,23 +84,6 @@ describe('ChatHeader key visibility', () => {
     expect(heading).toContainElement(titleButton);
     fireEvent.click(titleButton);
     expect(onOpenContactInfo).toHaveBeenCalledWith(pubKey);
-  });
-
-  it('copies key to clipboard when revealed key is clicked', async () => {
-    const key = 'FF'.repeat(16);
-    const channel = makeChannel(key, 'Priv', false);
-    const conversation: Conversation = { type: 'channel', id: key, name: 'Priv' };
-
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
-
-    render(<ChatHeader {...baseProps} conversation={conversation} channels={[channel]} />);
-
-    // Reveal key then click to copy
-    fireEvent.click(screen.getByText(i18n.t('chatHeader.showKey')));
-    fireEvent.click(screen.getByText(key.toLowerCase()));
-
-    expect(writeText).toHaveBeenCalledWith(key);
   });
 
   it('shows active regional override badge for channels', () => {

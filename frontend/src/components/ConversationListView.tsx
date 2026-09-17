@@ -231,25 +231,27 @@ export function ConversationListView({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="conversation-list-pane flex h-full min-h-0 flex-col">
       {/* Opaque, and standing clear of the top edge. Installed, iOS treats the strip
           under the status bar as its own: content that reaches into it is blurred
           there, which turned the title and the status into something that looked
           out of focus. A solid surface gives that treatment a flat colour to work
           on, and the breathing room keeps the text itself out of the strip. */}
       <div className="shrink-0 bg-background pt-5 md:pt-2">
-        <div className="flex items-center gap-2 px-4 pb-2 pt-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{t('conversationList.title')}</h1>
+        <div className="flex items-center gap-1.5 px-4 pb-2 pt-3">
           {onCollapseList && (
             <button
               type="button"
               onClick={onCollapseList}
               aria-label={t('conversationList.collapseList')}
-              className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+              className="-ml-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
             >
               <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
+          <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
+            {t('conversationList.title')}
+          </h1>
           {/* Phone-only: the desktop rail already carries this status, and a second
               pill here sat between the title and New with nothing to say that the
               rail tile does not. */}
@@ -267,7 +269,7 @@ export function ConversationListView({
             onClick={onNewMessage}
             data-compose-action=""
             aria-label={t('conversationList.new')}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
           >
             <Plus className="hidden h-5 w-5" aria-hidden="true" data-compose-icon="" />
             <span data-compose-label="">{t('conversationList.new')}</span>
@@ -360,7 +362,7 @@ export function ConversationListView({
             </button>
             {!favoritesCollapsed && (
               <ul
-                className="grid grid-cols-4 gap-2 px-4 lg:grid-cols-5"
+                className="conversation-favorites-grid grid gap-2 px-4"
                 aria-label={t('conversationList.favorites')}
               >
                 {favourites.map((row) => (

@@ -20,6 +20,7 @@ describe('DesktopListSplit', () => {
     const handle = screen.getByRole('separator', {
       name: i18n.t('conversationList.resizeList'),
     });
+    expect(handle.querySelector('.conversation-split-grip')).not.toBeNull();
     expect(handle).toHaveAttribute('aria-valuenow', String(DESKTOP_SPLIT_DEFAULT));
 
     fireEvent.keyDown(handle, { key: 'ArrowRight' });

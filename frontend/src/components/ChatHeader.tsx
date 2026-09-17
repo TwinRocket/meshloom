@@ -12,12 +12,10 @@ import {
   ChevronLeft,
   MoreVertical,
 } from 'lucide-react';
-import { toast } from './ui/sonner';
 import { DirectTraceIcon } from './DirectTraceIcon';
 import { ContactPathDiscoveryModal } from './ContactPathDiscoveryModal';
 import { ChannelFloodScopeOverrideModal } from './ChannelFloodScopeOverrideModal';
 import { ChannelPathHashModeOverrideModal } from './ChannelPathHashModeOverrideModal';
-import { handleKeyboardActivate } from '../utils/a11y';
 import { isPublicChannelKey } from '../utils/publicChannel';
 import { stripRegionScopePrefix, floodScopeOverrideLabel } from '../utils/regionScope';
 import { isPrefixOnlyContact } from '../utils/pubkey';
@@ -70,14 +68,13 @@ export function ChatHeader({
   onOpenChannelInfo,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
-  const [showKey, setShowKey] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [pathDiscoveryOpen, setPathDiscoveryOpen] = useState(false);
   const [channelOverrideOpen, setChannelOverrideOpen] = useState(false);
   const [pathHashModeOverrideOpen, setPathHashModeOverrideOpen] = useState(false);
 
   useEffect(() => {
-    setShowKey(false);
+    setActionsOpen(false);
     setPathDiscoveryOpen(false);
     setChannelOverrideOpen(false);
     setPathHashModeOverrideOpen(false);
@@ -92,8 +89,6 @@ export function ChatHeader({
   const activeFloodScopeLabel = activeFloodScopeOverride
     ? stripRegionScopePrefix(activeFloodScopeOverride)
     : null;
-  // Badge text: maps the raw override ("*", "#Region", null) to a friendly label
-  // so the unscoped marker renders as "unscoped" instead of a bare "*".
   const activeFloodScopeBadge = floodScopeOverrideLabel(activeFloodScopeOverride);
   const activePathHashModeOverride =
     conversation.type === 'channel' ? (activeChannel?.path_hash_mode_override ?? null) : null;
@@ -101,7 +96,6 @@ export function ChatHeader({
     conversation.type === 'channel' &&
     onSetChannelPathHashModeOverride &&
     config?.path_hash_mode_supported;
-  const isPrivateChannel = conversation.type === 'channel' && !activeChannel?.is_hashtag;
   const activeContact =
     conversation.type === 'contact'
       ? contacts.find((contact) => contact.public_key === conversation.id)
@@ -149,79 +143,25 @@ export function ChatHeader({
     }
   };
 
-  const isHiddenContactKey =
-    conversation.type === 'contact' && conversation.id.length >= 64 && !showKey;
-
-  const copyConversationKey = (event: { stopPropagation: () => void }) => {
-    event.stopPropagation();
-    void navigator.clipboard.writeText(conversation.id);
-    toast.success(
-      conversation.type === 'channel'
-        ? t('chatHeader.channelKeyCopied')
-        : t('chatHeader.contactKeyCopied')
-    );
-  };
-
   const headerActionClass =
     'inline-flex h-9 w-9 items-center justify-center rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   const headerActionDisabledClass = `${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`;
 
-  const showKeyButton = (
-    <button
-      type="button"
-      className="inline-flex min-h-6 min-w-0 flex-shrink items-center rounded px-1.5 font-mono text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onClick={(e) => {
-        e.stopPropagation();
-        setShowKey(true);
-      }}
-      title={t('chatHeader.revealKey')}
-    >
-      {t('chatHeader.showKey')}
-    </button>
-  );
-
-  const renderCopyableKey = (display: string, compact = false) => (
-    <span
-      className={cn(
-        'min-w-0 font-mono text-[0.6875rem] text-muted-foreground transition-colors hover:text-primary',
-        compact ? 'flex-shrink' : 'flex-1 truncate'
-      )}
-      role="button"
-      tabIndex={0}
-      onKeyDown={handleKeyboardActivate}
-      onClick={copyConversationKey}
-      title={t('chatHeader.clickToCopy')}
-      aria-label={
-        conversation.type === 'channel'
-          ? t('chatHeader.copyChannelKey')
-          : t('chatHeader.copyContactKey')
-      }
-    >
-      {display}
-    </span>
-  );
+  const titleLabel = `${
+    conversation.type === 'channel' &&
+    !conversation.name.startsWith('#') &&
+    activeChannel?.is_hashtag
+      ? '#'
+      : ''
+  }${conversation.name}`;
 
   return (
     <header
       className={cn(
-        // Opaque, and standing clear of the top edge on phones, for the same reason
-        // the list screen does: installed, iOS blurs whatever reaches into the strip
-        // under the status bar, and with no app header above it this row is what
-        // lands there. Desktop keeps its original padding, since the app header is
-        // still above it.
-        // items-center, so the back arrow, the avatar and the name sit on one line
-        // instead of being top-aligned against a title that may wrap.
-        // The rule underneath is a hairline at low opacity rather than a grey bar:
-        // the surfaces already differ, the line only has to hint at the boundary.
-        'conversation-header grid items-center gap-x-2 gap-y-0.5 border-b border-border/30 bg-background px-3 pb-2.5 pt-8 md:px-4 md:pt-2.5',
-        conversation.type === 'contact' && activeContact
-          ? 'grid-cols-[minmax(0,1fr)_auto] min-[1100px]:grid-cols-[minmax(0,1fr)_auto_auto]'
-          : 'grid-cols-[minmax(0,1fr)_auto]'
+        'conversation-header grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 border-b border-border/30 bg-background px-3 pb-2.5 pt-8 md:px-4 md:pt-2.5'
       )}
     >
       <span className="flex min-w-0 items-center gap-2.5 md:gap-2">
-        {/* The way out of a conversation belongs to the conversation, next to whose
-            conversation it is — not to a bar above it that says the app's name. */}
         {onBack && (
           <button
             type="button"
@@ -240,9 +180,6 @@ export function ChatHeader({
             title={t('chatHeader.viewContactInfo')}
             aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
           >
-            {/* Two sizes rather than one compromise: on a phone the avatar sits
-                beside a 40px back control and has to hold its own against it; on
-                desktop the row is dense and 28 is right. */}
             <span className="md:hidden">
               <ContactAvatar
                 name={conversation.name}
@@ -263,122 +200,36 @@ export function ChatHeader({
             </span>
           </button>
         )}
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            {/* Wraps below md. Held on one line it did not truncate, it overflowed —
-                the key and its reveal button ran under the action icons in the next
-                grid column, which is what the overlapping text was. */}
-            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 md:flex-nowrap md:whitespace-nowrap">
-              {/* Spans the row so the whole strip opens the details, not just the
-                  glyphs of the name — the empty space beside a title reads as part
-                  of the title. */}
-              <h2 className="min-w-0 flex-1 text-[1.0625rem] font-semibold md:text-base">
-                {titleClickable ? (
-                  <button
-                    type="button"
-                    className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
-                    onClick={handleOpenConversationInfo}
-                  >
-                    <span className="truncate">
-                      {conversation.type === 'channel' &&
-                      !conversation.name.startsWith('#') &&
-                      activeChannel?.is_hashtag
-                        ? '#'
-                        : ''}
-                      {conversation.name}
-                    </span>
-                    <Info
-                      className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80"
-                      aria-hidden="true"
-                    />
-                  </button>
-                ) : (
-                  <span className="truncate">
-                    {conversation.type === 'channel' &&
-                    !conversation.name.startsWith('#') &&
-                    activeChannel?.is_hashtag
-                      ? '#'
-                      : ''}
-                    {conversation.name}
-                  </span>
-                )}
-              </h2>
-              {/* The key is reference material, and it already has a home in the info
-                  pane the ⓘ opens. On a phone it cost the header two extra lines
-                  above the conversation it is meant to be a header for. */}
-              {isPrivateChannel && !showKey ? (
-                <span className="hidden md:contents">{showKeyButton}</span>
-              ) : isHiddenContactKey ? (
-                // Their own row below sm: side by side they overlapped, the key
-                // running under the button's label.
-                <span className="hidden min-w-0 flex-wrap items-baseline gap-x-1 md:flex">
-                  {renderCopyableKey(conversation.id.slice(0, 12), true)}
-                  {showKeyButton}
-                </span>
-              ) : (
-                <span className="hidden min-w-0 md:contents">
-                  {renderCopyableKey(
-                    conversation.type === 'channel'
-                      ? conversation.id.toLowerCase()
-                      : conversation.id
-                  )}
-                </span>
-              )}
-            </span>
-            {conversation.type === 'channel' && activeFloodScopeBadge && (
-              <button
-                className="mt-0.5 flex basis-full items-center gap-1 text-left sm:hidden"
-                onClick={handleEditFloodScopeOverride}
-                title={t('chatHeader.regionalOverride')}
-                aria-label={t('chatHeader.regionalOverride')}
-              >
-                <Globe2
-                  className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--region-override))]"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 truncate text-[0.6875rem] font-medium text-[hsl(var(--region-override))]">
-                  {activeFloodScopeBadge}
-                </span>
-              </button>
-            )}
-          </span>
-        </span>
+        <h2 className="min-w-0 flex-1 text-[1.0625rem] font-semibold md:text-base">
+          {titleClickable ? (
+            <button
+              type="button"
+              className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
+              onClick={handleOpenConversationInfo}
+            >
+              <span className="truncate">{titleLabel}</span>
+              <Info
+                className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80"
+                aria-hidden="true"
+              />
+            </button>
+          ) : (
+            <span className="truncate">{titleLabel}</span>
+          )}
+        </h2>
       </span>
-      {/* One line on a phone, truncated: a subtitle under a name is glanced at, and
-          two wrapped lines of it push the conversation down every time. The detail is
-          in the info pane the header opens. */}
-      {conversation.type === 'contact' && activeContact && (
-        <div className="col-span-2 row-start-2 min-w-0 truncate whitespace-nowrap text-[0.6875rem] text-muted-foreground md:whitespace-normal min-[1100px]:col-span-1 min-[1100px]:col-start-2 min-[1100px]:row-start-1">
-          <ContactStatusInfo
-            contact={activeContact}
-            ourLat={config?.lat ?? null}
-            ourLon={config?.lon ?? null}
-          />
-        </div>
-      )}
       <div className="relative flex items-center justify-end gap-1.5">
-        {/* Below md the row is folded behind one control. Simple is the point — the
-            header is a back arrow, who you are talking to, and a way in — but folding
-            is not hiding: every action is still here, one tap away, because several of
-            them (trace, notifications, delete) have no other home in the app. */}
         <button
           type="button"
           onClick={() => setActionsOpen((open) => !open)}
           aria-expanded={actionsOpen}
           aria-label={t('chatHeader.moreActions')}
-          className={cn(headerActionClass, 'md:hidden')}
+          className={cn(headerActionClass, 'conversation-header-more')}
         >
           <MoreVertical className="h-4 w-4" aria-hidden="true" />
         </button>
-        <div
-          className={cn(
-            'items-center gap-1.5 md:flex',
-            actionsOpen
-              ? 'absolute right-0 top-full z-30 mt-1 flex rounded-full border border-border bg-popover px-1.5 py-1 shadow-lg md:static md:mt-0 md:border-0 md:bg-transparent md:p-0 md:shadow-none'
-              : 'hidden'
-          )}
-        >
+        <div className={cn('conversation-header-actions', actionsOpen && 'is-open')}>
           {conversation.type === 'contact' && !activeContactIsRoomServer && (
             <button
               className={headerActionDisabledClass}
@@ -516,6 +367,31 @@ export function ChatHeader({
           )}
         </div>
       </div>
+      {conversation.type === 'channel' && activeFloodScopeBadge && (
+        <button
+          className="col-span-2 mt-0.5 flex items-center gap-1 text-left sm:hidden"
+          onClick={handleEditFloodScopeOverride}
+          title={t('chatHeader.regionalOverride')}
+          aria-label={t('chatHeader.regionalOverride')}
+        >
+          <Globe2
+            className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--region-override))]"
+            aria-hidden="true"
+          />
+          <span className="min-w-0 truncate text-[0.6875rem] font-medium text-[hsl(var(--region-override))]">
+            {activeFloodScopeBadge}
+          </span>
+        </button>
+      )}
+      {conversation.type === 'contact' && activeContact && (
+        <div className="col-span-2 min-w-0 truncate whitespace-nowrap text-[0.6875rem] text-muted-foreground">
+          <ContactStatusInfo
+            contact={activeContact}
+            ourLat={config?.lat ?? null}
+            ourLon={config?.lon ?? null}
+          />
+        </div>
+      )}
       {conversation.type === 'contact' && activeContact && (
         <ContactPathDiscoveryModal
           open={pathDiscoveryOpen}

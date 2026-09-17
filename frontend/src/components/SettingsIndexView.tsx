@@ -57,18 +57,20 @@ export function SettingsIndexView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 bg-background px-4 pb-2 pt-8 md:pt-5">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('settingsIndex.title')}</h1>
+      <div className="flex shrink-0 items-center gap-1.5 bg-background px-4 pb-2 pt-8 md:pt-5">
         {onCollapseList && (
           <button
             type="button"
             onClick={onCollapseList}
             aria-label={t('conversationList.collapseList')}
-            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+            className="-ml-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
           >
             <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
           </button>
         )}
+        <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
+          {t('settingsIndex.title')}
+        </h1>
         <RadioStatusChip
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}

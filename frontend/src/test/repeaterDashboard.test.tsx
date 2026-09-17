@@ -605,32 +605,12 @@ describe('RepeaterDashboard', () => {
     expect(defaultProps.onTrace).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the full repeater key behind a 12-char prefix and Show Key', () => {
+  it('keeps the repeater key out of the header', () => {
     render(<RepeaterDashboard {...defaultProps} />);
 
-    expect(screen.getByText(REPEATER_KEY.slice(0, 12))).toBeInTheDocument();
     expect(screen.queryByText(REPEATER_KEY)).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('chatHeader.showKey'))).toBeInTheDocument();
-  });
-
-  it('reveals the full repeater key when Show Key is clicked', () => {
-    render(<RepeaterDashboard {...defaultProps} />);
-
-    fireEvent.click(screen.getByText(i18n.t('chatHeader.showKey')));
-
-    expect(screen.getByText(REPEATER_KEY)).toBeInTheDocument();
+    expect(screen.queryByText(REPEATER_KEY.slice(0, 12))).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t('chatHeader.showKey'))).not.toBeInTheDocument();
-  });
-
-  it('copies the full repeater key when the prefix is clicked', () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
-
-    render(<RepeaterDashboard {...defaultProps} />);
-
-    fireEvent.click(screen.getByText(REPEATER_KEY.slice(0, 12)));
-
-    expect(writeText).toHaveBeenCalledWith(REPEATER_KEY);
   });
 
   it('uses larger header action hit targets', () => {

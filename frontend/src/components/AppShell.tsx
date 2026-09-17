@@ -457,7 +457,7 @@ export function AppShell({
 
           <div
             className={cn(
-              'flex-1 flex flex-col min-h-0',
+              'conversation-pane flex min-h-0 min-w-0 flex-1 flex-col',
               (showSettings || conversationPaneProps.activeConversation?.type === 'search') &&
                 'hidden',
               !showSettings && !conversationPaneProps.activeConversation && 'hidden md:flex'

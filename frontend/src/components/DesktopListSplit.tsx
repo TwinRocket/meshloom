@@ -93,7 +93,7 @@ export function DesktopListSplit({ children }: Props) {
 
   return (
     <div className="relative hidden min-h-0 shrink-0 md:flex" style={{ width }}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-border">{children}</div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
       <div
         role="separator"
         tabIndex={0}
@@ -108,8 +108,10 @@ export function DesktopListSplit({ children }: Props) {
         onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown}
         onDoubleClick={onDoubleClick}
-        className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none rounded-full hover:bg-primary/25 focus-visible:bg-primary/30 focus-visible:outline-none"
-      />
+        className="conversation-split-handle"
+      >
+        <span className="conversation-split-grip" aria-hidden="true" />
+      </div>
     </div>
   );
 }

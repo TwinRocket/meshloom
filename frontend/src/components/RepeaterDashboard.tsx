@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../api';
-import { toast } from './ui/sonner';
 import { Button } from './ui/button';
-import { ChevronLeft, Info, Route, Star, Trash2 } from 'lucide-react';
+import { ChevronLeft, Info, MoreVertical, Route, Star, Trash2 } from 'lucide-react';
 import { DirectTraceIcon } from './DirectTraceIcon';
 import { RepeaterLogin } from './RepeaterLogin';
 import { ServerLoginStatusBanner } from './ServerLoginStatusBanner';
 import { useRememberedServerPassword } from '../hooks/useRememberedServerPassword';
 import { useRepeaterDashboard } from '../hooks/useRepeaterDashboard';
-import { handleKeyboardActivate } from '../utils/a11y';
 import { isValidLocation } from '../utils/pathUtils';
 import { ContactStatusInfo } from './ContactStatusInfo';
 import type { Contact, Conversation, PathDiscoveryResponse, TelemetryHistoryEntry } from '../types';
@@ -70,7 +68,7 @@ export function RepeaterDashboard({
   onAutoLoginConsumed,
 }: RepeaterDashboardProps) {
   const { t } = useTranslation();
-  const [showKey, setShowKey] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [pathDiscoveryOpen, setPathDiscoveryOpen] = useState(false);
   const contact = contacts.find((c) => c.public_key === conversation.id) ?? null;
   const hasAdvertLocation = isValidLocation(contact?.lat ?? null, contact?.lon ?? null);
@@ -147,18 +145,11 @@ export function RepeaterDashboard({
   }, [autoLoginAndLoadAll, onAutoLoginConsumed, loginAsGuest, loadAll]);
 
   useEffect(() => {
-    setShowKey(false);
+    setActionsOpen(false);
     setPathDiscoveryOpen(false);
   }, [conversation.id]);
 
   const isFav = contact?.favorite ?? false;
-  const isHiddenContactKey = conversation.id.length >= 64 && !showKey;
-
-  const copyContactKey = (event: { stopPropagation: () => void }) => {
-    event.stopPropagation();
-    void navigator.clipboard.writeText(conversation.id);
-    toast.success(t('chatHeader.contactKeyCopied'));
-  };
 
   const headerActionClass =
     'inline-flex h-9 w-9 items-center justify-center rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -182,120 +173,64 @@ export function RepeaterDashboard({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
-      <header
-        className={cn(
-          // Identity and five actions on one row squeezed the title column to about
-          // 100px at 390: the name collapsed to an ellipsis and the public key wrapped
-          // across the buttons. Stack them until the row can hold both — a plain flex
-          // column below sm rather than a one-column grid, so no grid-template rule
-          // from a wider breakpoint can win here.
-          'flex flex-col gap-1.5 border-b border-border px-4 py-2.5',
-          'sm:grid sm:items-start sm:gap-x-2 sm:gap-y-0.5',
-          contact
-            ? 'sm:grid-cols-[minmax(0,1fr)_auto] min-[1100px]:grid-cols-[minmax(0,1fr)_auto_auto]'
-            : 'sm:grid-cols-[minmax(0,1fr)_auto]'
-        )}
-      >
-        <span className="flex min-w-0 flex-col">
-          <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              {/* This pane replaces the conversation entirely, so it does not get
-                  the chat header's back control and had no way out of its own: on a
-                  phone, opening a repeater from the list was a dead end. Same class
-                  as every other back control, so it follows the platform. */}
-              {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label={t('shell.backToConversations')}
-                  className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
-                </button>
-              )}
-              <h2 className="min-w-0 flex-shrink font-semibold text-base">
-                {onOpenContactInfo ? (
-                  <button
-                    type="button"
-                    className="flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t('repeater.viewInfo', { name: conversation.name })}
-                    onClick={() => onOpenContactInfo(conversation.id)}
-                  >
-                    <span className="truncate">{conversation.name}</span>
-                    <Info
-                      className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80"
-                      aria-hidden="true"
-                    />
-                  </button>
-                ) : (
-                  <span className="truncate">{conversation.name}</span>
-                )}
-              </h2>
-              {isHiddenContactKey ? (
-                <>
-                  <span
-                    className="min-w-0 flex-shrink font-mono text-[0.6875rem] text-muted-foreground transition-colors hover:text-primary"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={handleKeyboardActivate}
-                    onClick={copyContactKey}
-                    title={t('chatHeader.clickToCopy')}
-                    aria-label={t('chatHeader.copyContactKey')}
-                  >
-                    {conversation.id.slice(0, 12)}
-                  </span>
-                  <button
-                    className="min-w-0 flex-shrink text-[0.6875rem] font-mono text-muted-foreground transition-colors hover:text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowKey(true);
-                    }}
-                    title={t('chatHeader.revealKey')}
-                  >
-                    {t('chatHeader.showKey')}
-                  </button>
-                </>
-              ) : (
-                <span
-                  className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground transition-colors hover:text-primary"
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={handleKeyboardActivate}
-                  onClick={copyContactKey}
-                  title={t('chatHeader.clickToCopy')}
-                  aria-label={t('chatHeader.copyContactKey')}
-                >
-                  {conversation.id}
-                </span>
-              )}
-            </span>
-          </span>
-        </span>
-        {contact && (
-          <div className="col-span-2 row-start-2 min-w-0 text-[0.6875rem] text-muted-foreground min-[1100px]:col-span-1 min-[1100px]:col-start-2 min-[1100px]:row-start-1">
-            <ContactStatusInfo contact={contact} ourLat={radioLat} ourLon={radioLon} />
-          </div>
-        )}
-        <div className="flex items-center gap-1.5">
-          {/* During a run the button reports progress and becomes the way out.
-              Nine panes, up to three attempts each, ten seconds a timeout: without
-              a stop, a Load All on a slow mesh is minutes with no exit. */}
-          {loggedIn &&
-            (loadAllProgress ? (
-              <div className="flex items-center gap-1.5">
-                <span className="whitespace-nowrap text-[0.6875rem] tabular-nums text-muted-foreground sm:text-xs">
-                  {t('repeater.loadAllProgress', loadAllProgress)}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={cancelLoadAll}
-                  className="h-7 px-2 text-[0.6875rem] leading-none sm:h-8 sm:px-3 sm:text-xs"
-                >
-                  {t('repeater.stopLoading')}
-                </Button>
-              </div>
+      <header className="conversation-header grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 border-b border-border/30 px-4 py-2.5">
+        <span className="flex min-w-0 items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label={t('shell.backToConversations')}
+              className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+            </button>
+          )}
+          <h2 className="min-w-0 flex-1 font-semibold text-base">
+            {onOpenContactInfo ? (
+              <button
+                type="button"
+                className="flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t('repeater.viewInfo', { name: conversation.name })}
+                onClick={() => onOpenContactInfo(conversation.id)}
+              >
+                <span className="truncate">{conversation.name}</span>
+                <Info
+                  className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80"
+                  aria-hidden="true"
+                />
+              </button>
             ) : (
+              <span className="truncate">{conversation.name}</span>
+            )}
+          </h2>
+        </span>
+        <div className="relative flex items-center justify-end gap-1.5">
+          {loggedIn && loadAllProgress && (
+            <div className="flex items-center gap-1.5">
+              <span className="whitespace-nowrap text-[0.6875rem] tabular-nums text-muted-foreground sm:text-xs">
+                {t('repeater.loadAllProgress', loadAllProgress)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={cancelLoadAll}
+                className="h-7 px-2 text-[0.6875rem] leading-none sm:h-8 sm:px-3 sm:text-xs"
+              >
+                {t('repeater.stopLoading')}
+              </Button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setActionsOpen((open) => !open)}
+            aria-expanded={actionsOpen}
+            aria-label={t('chatHeader.moreActions')}
+            className={cn(headerActionClass, 'conversation-header-more')}
+          >
+            <MoreVertical className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <div className={cn('conversation-header-actions', actionsOpen && 'is-open')}>
+            {loggedIn && !loadAllProgress && (
               <Button
                 variant="outline"
                 size="sm"
@@ -305,49 +240,55 @@ export function RepeaterDashboard({
               >
                 {anyLoading ? t('repeater.loading') : t('repeater.loadAll')}
               </Button>
-            ))}
-          {contact && (
+            )}
+            {contact && (
+              <button
+                className={headerActionClass}
+                onClick={() => setPathDiscoveryOpen(true)}
+                title={t('repeater.pathDiscoveryTitle')}
+                aria-label={t('repeater.pathDiscovery')}
+              >
+                <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              </button>
+            )}
             <button
               className={headerActionClass}
-              onClick={() => setPathDiscoveryOpen(true)}
-              title={t('repeater.pathDiscoveryTitle')}
-              aria-label={t('repeater.pathDiscovery')}
+              onClick={onTrace}
+              title={t('repeater.directTrace')}
+              aria-label={t('repeater.directTrace')}
             >
-              <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
             </button>
-          )}
-          <button
-            className={headerActionClass}
-            onClick={onTrace}
-            title={t('repeater.directTrace')}
-            aria-label={t('repeater.directTrace')}
-          >
-            <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
-          </button>
-          <button
-            className={headerActionClass}
-            onClick={() => onToggleFavorite('contact', conversation.id)}
-            title={isFav ? t('repeater.favoriteRemoveTitle') : t('repeater.favoriteAddTitle')}
-            aria-label={isFav ? t('repeater.favoriteRemove') : t('repeater.favoriteAdd')}
-          >
-            {isFav ? (
-              <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
-            ) : (
-              <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            )}
-          </button>
-          <button
-            className={cn(
-              headerActionClass,
-              'ml-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
-            )}
-            onClick={() => onDeleteContact(conversation.id)}
-            title={t('repeater.delete')}
-            aria-label={t('repeater.delete')}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </button>
+            <button
+              className={headerActionClass}
+              onClick={() => onToggleFavorite('contact', conversation.id)}
+              title={isFav ? t('repeater.favoriteRemoveTitle') : t('repeater.favoriteAddTitle')}
+              aria-label={isFav ? t('repeater.favoriteRemove') : t('repeater.favoriteAdd')}
+            >
+              {isFav ? (
+                <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
+              ) : (
+                <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              )}
+            </button>
+            <button
+              className={cn(
+                headerActionClass,
+                'ml-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
+              )}
+              onClick={() => onDeleteContact(conversation.id)}
+              title={t('repeater.delete')}
+              aria-label={t('repeater.delete')}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
         </div>
+        {contact && (
+          <div className="col-span-2 min-w-0 truncate whitespace-nowrap text-[0.6875rem] text-muted-foreground">
+            <ContactStatusInfo contact={contact} ourLat={radioLat} ourLon={radioLon} />
+          </div>
+        )}
         {contact && (
           <ContactPathDiscoveryModal
             open={pathDiscoveryOpen}
@@ -387,7 +328,7 @@ export function RepeaterDashboard({
               blankRetryLabel={t('repeater.retryExistingAccess')}
             />
             {/* Top row: Telemetry + Radio Settings | Node Info + Neighbors */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch">
+            <div className="repeater-dashboard-grid">
               <div className="flex flex-col gap-4">
                 <NodeInfoPane
                   data={paneData.nodeInfo}
@@ -433,7 +374,7 @@ export function RepeaterDashboard({
             </div>
 
             {/* Remaining panes: ACL + Regions | Owner Info + Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="repeater-dashboard-grid">
               <div className="flex flex-col gap-4">
                 <AclPane
                   data={paneData.acl}
