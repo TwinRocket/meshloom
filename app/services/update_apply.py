@@ -157,15 +157,29 @@ def expire_stale_applying_job(*, now: int | None = None) -> dict[str, Any]:
     last = current.get("last_attempt")
     target = current.get("target")
     percent = current.get("percent")
-    return write_job(
-        state="failed",
-        phase=_as_phase(current.get("phase")),
-        percent=percent if isinstance(percent, int) else None,
-        error=APPLY_TIMEOUT_ERROR,
-        started_at=stamp,
-        last_attempt=last if isinstance(last, int) else stamp,
-        target=target if isinstance(target, str) else None,
-    )
+    expired = {
+        "state": "failed",
+        "phase": _as_phase(current.get("phase")),
+        "percent": percent if isinstance(percent, int) else None,
+        "error": APPLY_TIMEOUT_ERROR,
+        "started_at": stamp,
+        "last_attempt": last if isinstance(last, int) else stamp,
+    }
+    if isinstance(target, str):
+        expired["target"] = target
+    try:
+        return write_job(
+            state="failed",
+            phase=_as_phase(current.get("phase")),
+            percent=percent if isinstance(percent, int) else None,
+            error=APPLY_TIMEOUT_ERROR,
+            started_at=stamp,
+            last_attempt=last if isinstance(last, int) else stamp,
+            target=target if isinstance(target, str) else None,
+        )
+    except OSError:
+        logger.warning("Could not persist expired apply job at %s", job_path())
+        return expired
 
 
 def job_is_applying(job: dict[str, Any] | None = None) -> bool:

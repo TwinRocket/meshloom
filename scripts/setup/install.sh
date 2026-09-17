@@ -1151,9 +1151,11 @@ write_job() {
     target_json=""
     [ -n "$TARGET" ] && target_json=",\"target\":\"${TARGET}\""
     mkdir -p "$(dirname "$JOB_PATH")"
-    printf '%s\n' "{\"state\":\"$1\",\"phase\":\"$2\",\"percent\":null,\"error\":$3,\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$JOB_PATH"
-    chmod 644 "$JOB_PATH" 2>/dev/null || true
-    chown meshloom:meshloom "$JOB_PATH" 2>/dev/null || true
+    tmp="${JOB_PATH}.tmp.$$"
+    printf '%s\n' "{\"state\":\"$1\",\"phase\":\"$2\",\"percent\":null,\"error\":$3,\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$tmp"
+    chmod 644 "$tmp" 2>/dev/null || true
+    chown meshloom:meshloom "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$JOB_PATH"
 }
 load_identity
 write_job applying preparing null

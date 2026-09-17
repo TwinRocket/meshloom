@@ -63,11 +63,11 @@ write_job() {
 
     tmp="${JOB_PATH}.tmp.$$"
     printf '%s\n' "{\"state\":\"${STATE}\",\"phase\":\"${PHASE}\",\"percent\":${percent_json},\"error\":${error_json},\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$tmp"
+    chmod 644 "$tmp" 2>/dev/null || true
+    # Own the tmp before mv so the job file stays meshloom:meshloom.
+    # A root:root leftover makes the next API write_job fail.
+    chown meshloom:meshloom "$tmp" 2>/dev/null || true
     mv -f "$tmp" "$JOB_PATH"
-    chmod 644 "$JOB_PATH" 2>/dev/null || true
-    # The Meshloom service writes this file as user meshloom. Leaving it
-    # root:root 644 makes the next Install click fail with PermissionError.
-    chown meshloom:meshloom "$JOB_PATH" 2>/dev/null || true
 }
 
 load_last_progress() {

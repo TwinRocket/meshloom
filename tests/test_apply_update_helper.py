@@ -47,7 +47,12 @@ def test_apply_update_is_meshloom_only() -> None:
     assert "last_attempt" in active
     assert "target_json" in text
     assert "PHASE=restarting" in active
-    assert "chown meshloom:meshloom" in active
+    text = SCRIPT.read_text(encoding="utf-8")
+    chown_at = text.index('chown meshloom:meshloom "$tmp"')
+    mv_at = text.index('mv -f "$tmp" "$JOB_PATH"')
+    assert chown_at < mv_at
+    assert 'rm -f "$JOB_PATH"' not in text
+    assert 'rm "$JOB_PATH"' not in text
 
 
 def test_update_unit_and_polkit_are_start_only() -> None:

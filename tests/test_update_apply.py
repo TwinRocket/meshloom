@@ -93,6 +93,28 @@ async def test_start_apply_rejects_second_job(job_dir: Path) -> None:
         await start_apply("compose")
 
 
+def test_expire_stale_job_survives_unwritable_file(
+    job_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_job(
+        state="applying",
+        phase="installing",
+        started_at=1,
+        last_attempt=1,
+        target="9.9.9",
+    )
+
+    def boom(**kwargs: object) -> dict[str, object]:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("app.services.update_apply.write_job", boom)
+    expired = expire_stale_applying_job(now=1 + APPLYING_TTL_SECONDS + 5)
+    assert expired["state"] == "failed"
+    assert expired["error"] == APPLY_TIMEOUT_ERROR
+    assert expired["target"] == "9.9.9"
+    assert read_job()["state"] == "applying"
+
+
 def test_stale_applying_job_expires(job_dir: Path) -> None:
     write_job(
         state="applying",
