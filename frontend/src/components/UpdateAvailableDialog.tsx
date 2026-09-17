@@ -153,8 +153,8 @@ export function UpdateAvailableDialog({
                 <Recipe
                   title={t('updates.packagesTitle')}
                   code={[
-                    'sudo apt upgrade                          # Debian / Ubuntu',
-                    'sudo dnf upgrade                          # Fedora / Rocky / Alma',
+                    'sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu',
+                    'sudo dnf install meshloom                      # Fedora / Rocky / Alma',
                   ].join('\n')}
                 />
                 <Recipe
