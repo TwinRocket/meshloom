@@ -722,7 +722,28 @@ host_arch() {
     case "$(uname -m)" in
         x86_64 | amd64) echo "amd64" ;;
         aarch64 | arm64) echo "arm64" ;;
+        # 32-bit Raspberry Pi OS, which a Pi 2, 3 or 4 may well be running. No
+        # package is published for it yet; naming it is what lets the caller
+        # notice that rather than offer a repository that cannot serve it.
+        armv7l | armv6l | armhf) echo "armhf" ;;
         *) echo "unknown" ;;
+    esac
+}
+
+# Whether the published apt repository carries packages for this machine.
+#
+# The Release file lists what it holds. Reading it rather than hard-coding the
+# list means the day armhf packages are published, this opens on its own.
+pages_apt_has_host_arch() {
+    local arch line
+    arch="$(host_arch)"
+    [ "$arch" != "unknown" ] || return 1
+    line="$(curl -fsSL --max-time 8 "${PAGES_BASE}/apt/dists/stable/Release" 2>/dev/null |
+        grep -i '^Architectures:' || true)"
+    [ -n "$line" ] || return 1
+    case " ${line#*:} " in
+        *" $arch "*) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
@@ -1470,7 +1491,11 @@ print_done_native() {
 install_native_service() {
     ensure_cmd curl "curl"
     confirm_install
-    if [ "$PKG_MGR" = "apt" ] && http_ok "${PAGES_BASE}/apt/dists/stable/Release"; then
+    # The architecture check is what keeps a 32-bit Raspberry Pi out of a
+    # repository built for amd64 and arm64. Without it the installer added the
+    # repository, apt found no candidate, and the source install below, which
+    # works there, was never reached.
+    if [ "$PKG_MGR" = "apt" ] && pages_apt_has_host_arch; then
         install_from_pages
         print_done_native
         ui_dim "  $(t update_apt): $(priv apt upgrade)"

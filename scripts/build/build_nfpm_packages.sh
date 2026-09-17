@@ -16,15 +16,25 @@ VERSION=""
 ARCH=""
 OUTPUT_DIR="$REPO_ROOT/dist"
 SKIP_FRONTEND=0
+STAGE_DIR=""
+STAGE_ONLY=0
+PACKAGE_ONLY=0
 
 usage() {
     cat <<'EOF'
-Usage: scripts/build/build_nfpm_packages.sh --version X.Y.Z --arch amd64|arm64 [options]
+Usage: scripts/build/build_nfpm_packages.sh --version X.Y.Z --arch amd64|arm64|armhf [options]
 
 Options:
   --output-dir DIR     Destination for .deb/.rpm (default: dist/)
   --skip-frontend      Reuse frontend/dist instead of building
+  --stage-dir DIR      Assemble here and keep it, instead of a temporary directory
+  --stage-only         Assemble the tree and stop, leaving nFPM to a later call
+  --package-only       Pack an already assembled --stage-dir
   --help
+
+The two halves exist for armhf. The tree can only be assembled where its own
+interpreter runs, which for armv7 means emulation, and nFPM publishes no armv7
+binary to run there. So the tree is assembled under emulation and packed after.
 EOF
 }
 
@@ -34,42 +44,65 @@ while [ $# -gt 0 ]; do
         --arch) ARCH="${2:-}"; shift 2 ;;
         --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
         --skip-frontend) SKIP_FRONTEND=1; shift ;;
+        --stage-dir) STAGE_DIR="${2:-}"; shift 2 ;;
+        --stage-only) STAGE_ONLY=1; shift ;;
+        --package-only) PACKAGE_ONLY=1; shift ;;
         --help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
 
 [ -n "$VERSION" ] || { echo "--version is required" >&2; exit 1; }
-[ "$ARCH" = "amd64" ] || [ "$ARCH" = "arm64" ] || { echo "--arch must be amd64 or arm64" >&2; exit 1; }
+case "$ARCH" in
+    amd64) PY_TRIPLE="x86_64-unknown-linux-gnu"; NFPM_ARCH="amd64" ;;
+    arm64) PY_TRIPLE="aarch64-unknown-linux-gnu"; NFPM_ARCH="arm64" ;;
+    # Raspberry Pi OS 32-bit is hard-float. nFPM names this one after the Go
+    # architecture and turns it into armhf for deb.
+    armhf) PY_TRIPLE="armv7-unknown-linux-gnueabihf"; NFPM_ARCH="arm7" ;;
+    *) echo "--arch must be amd64, arm64 or armhf" >&2; exit 1 ;;
+esac
 
-if [ "$ARCH" = "amd64" ]; then
-    PY_TRIPLE="x86_64-unknown-linux-gnu"
-else
-    PY_TRIPLE="aarch64-unknown-linux-gnu"
-fi
+[ "$STAGE_ONLY" -eq 0 ] || [ "$PACKAGE_ONLY" -eq 0 ] || {
+    echo "--stage-only and --package-only are exclusive" >&2; exit 1; }
+[ "$PACKAGE_ONLY" -eq 0 ] || [ -n "$STAGE_DIR" ] || {
+    echo "--package-only needs --stage-dir" >&2; exit 1; }
 
 PY_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PYDATE}/cpython-${PYVER}+${PYDATE}-${PY_TRIPLE}-install_only_stripped.tar.gz"
 
-if ! command -v nfpm >/dev/null 2>&1; then
+# Each half needs its own tool and not the other's. Demanding both would ask for
+# nFPM inside the emulated container, where no armv7 build of it exists.
+if [ "$STAGE_ONLY" -eq 0 ] && ! command -v nfpm >/dev/null 2>&1; then
     echo "nFPM is required. Install: https://nfpm.goreleaser.com/install/" >&2
     exit 1
 fi
-if ! command -v uv >/dev/null 2>&1; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && ! command -v uv >/dev/null 2>&1; then
     echo "uv is required." >&2
     exit 1
 fi
 
-if [ "$SKIP_FRONTEND" -eq 0 ]; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && [ "$SKIP_FRONTEND" -eq 0 ]; then
     (cd "$REPO_ROOT/frontend" && npm ci && npm run build)
 fi
-if [ ! -d "$REPO_ROOT/frontend/dist" ]; then
+if [ "$PACKAGE_ONLY" -eq 0 ] && [ ! -d "$REPO_ROOT/frontend/dist" ]; then
     echo "frontend/dist is missing. Build the frontend or omit --skip-frontend." >&2
     exit 1
 fi
 
-STAGING="$(mktemp -d)"
-trap 'rm -rf "$STAGING"' EXIT
+if [ -n "$STAGE_DIR" ]; then
+    # Absolute, because the assembly cds into this tree and then hands uv the
+    # path to the interpreter inside it. A relative one stops resolving there.
+    mkdir -p "$STAGE_DIR"
+    STAGING="$(cd "$STAGE_DIR" && pwd)"
+else
+    STAGING="$(mktemp -d)"
+    trap 'rm -rf "$STAGING"' EXIT
+fi
 OPT="$STAGING/opt/meshloom"
+
+if [ "$PACKAGE_ONLY" -eq 1 ]; then
+    [ -x "$OPT/python/bin/python3" ] || {
+        echo "No assembled tree under $STAGE_DIR" >&2; exit 1; }
+else
 mkdir -p "$OPT/frontend"
 
 echo "[nfpm] Downloading standalone Python ${PYVER} (${ARCH})..."
@@ -111,11 +144,17 @@ if [ -f "$OPT/.venv/pyvenv.cfg" ]; then
 fi
 ln -sfn /opt/meshloom/python/bin/python3 "$OPT/.venv/bin/python"
 ln -sfn python "$OPT/.venv/bin/python3"
+fi
+
+if [ "$STAGE_ONLY" -eq 1 ]; then
+    echo "[nfpm] Assembled $ARCH tree in $STAGING"
+    exit 0
+fi
 
 mkdir -p "$OUTPUT_DIR"
 CFG="$(mktemp)"
 sed \
-    -e "s|__NFPM_ARCH__|$ARCH|g" \
+    -e "s|__NFPM_ARCH__|$NFPM_ARCH|g" \
     -e "s|__NFPM_VERSION__|$VERSION|g" \
     -e "s|__STAGING__|$STAGING|g" \
     -e "s|__PKGDIR__|$PKGDIR|g" \
@@ -123,7 +162,9 @@ sed \
 
 echo "[nfpm] Packaging $ARCH $VERSION..."
 nfpm package --config "$CFG" --packager deb --target "$OUTPUT_DIR"
-nfpm package --config "$CFG" --packager rpm --target "$OUTPUT_DIR"
+if [ "$ARCH" != "armhf" ]; then
+    nfpm package --config "$CFG" --packager rpm --target "$OUTPUT_DIR"
+fi
 rm -f "$CFG"
 
 echo "[nfpm] Wrote packages in $OUTPUT_DIR"

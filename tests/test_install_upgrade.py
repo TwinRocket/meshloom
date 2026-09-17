@@ -143,3 +143,159 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "rewrite_compose_image_tag" in text
     assert 'sub(/:[^[:space:]]+$/, ":" tag)' in text
     assert "apt upgrade" not in text or "apt-get install" in text
+
+
+def _bash_fns(names: tuple[str, ...], script: str) -> subprocess.CompletedProcess[str]:
+    source = "\n\n".join(_extract_fn(name) for name in names)
+    return subprocess.run(
+        ["bash", "-c", f"{source}\n{script}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_a_32_bit_raspberry_pi_is_named_rather_than_unknown() -> None:
+    """Calling it unknown is what sent it down a path built for other machines."""
+    for machine, expected in (
+        ("x86_64", "amd64"),
+        ("aarch64", "arm64"),
+        ("armv7l", "armhf"),
+        ("armv6l", "armhf"),
+        ("riscv64", "unknown"),
+    ):
+        result = _bash_fns(
+            ("host_arch",),
+            f'uname() {{ [ "$1" = "-m" ] && echo "{machine}" || command uname "$@"; }}\nhost_arch',
+        )
+        assert result.stdout.strip() == expected, machine
+
+
+def test_the_apt_repository_is_offered_only_where_it_has_packages() -> None:
+    """The published repository holds amd64 and arm64.
+
+    Offering it to a 32-bit Raspberry Pi added a source apt could not satisfy and
+    skipped the source install, which does work there. Read from the Release file
+    rather than hard-coded, so publishing armhf packages opens this on its own.
+    """
+    stub = (
+        'PAGES_BASE="http://example.invalid"\n'
+        "curl() { printf '%s\\n' 'Suite: stable' 'Architectures: amd64 arm64' 'Components: main'; }\n"
+    )
+    for machine, served in (("x86_64", True), ("aarch64", True), ("armv7l", False)):
+        result = _bash_fns(
+            ("host_arch", "pages_apt_has_host_arch"),
+            stub
+            + f'uname() {{ [ "$1" = "-m" ] && echo "{machine}" || command uname "$@"; }}\n'
+            + "pages_apt_has_host_arch && echo served || echo skipped",
+        )
+        assert result.stdout.strip() == ("served" if served else "skipped"), machine
+
+
+def test_the_build_script_knows_the_three_architectures() -> None:
+    """armhf was rejected outright, which is why no package existed for a Pi."""
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+    ).read_text(encoding="utf-8")
+    assert "armv7-unknown-linux-gnueabihf" in script
+    # nFPM names it after the Go architecture and turns it into armhf for deb.
+    assert 'NFPM_ARCH="arm7"' in script
+    assert "__NFPM_ARCH__|$NFPM_ARCH" in script
+
+
+def test_the_apt_repository_lists_what_it_holds() -> None:
+    """The architecture list used to be written in three places.
+
+    One of them missing armhf is a repository that offers itself to a machine it
+    cannot serve, which is the failure this whole change is about.
+    """
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "publish-linux-repo.yml"
+    ).read_text(encoding="utf-8")
+    assert 'Architectures="amd64 arm64"' not in workflow
+    assert "dpkg-deb -f" in workflow
+
+
+def _build_script_error(args: list[str]) -> str:
+    """Run the packaging script with neither tool on PATH and return what it says."""
+    script = Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+    result = subprocess.run(
+        ["bash", str(script), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"},
+    )
+    return result.stderr
+
+
+def test_each_half_asks_only_for_the_tool_it_uses() -> None:
+    """Assembly happens in an emulated armv7 container, where nFPM does not exist.
+
+    Asking for it there would fail the armhf build, and only a release runs that
+    path, so nothing else would have noticed.
+    """
+    staging = _build_script_error(
+        ["--version", "9.9.9", "--arch", "armhf", "--stage-dir", "/tmp/x", "--stage-only"]
+    )
+    assert "nFPM is required" not in staging
+
+    packaging = _build_script_error(
+        ["--version", "9.9.9", "--arch", "armhf", "--stage-dir", "/tmp/x", "--package-only"]
+    )
+    assert "nFPM is required" in packaging
+
+
+def test_the_exclusive_options_are_refused_together() -> None:
+    error = _build_script_error(
+        ["--version", "9.9.9", "--arch", "amd64", "--stage-only", "--package-only"]
+    )
+    assert "exclusive" in error
+
+
+def test_packaging_works_from_a_relative_stage_dir(tmp_path: Path) -> None:
+    """The assembly cds into the tree, so a relative path stops resolving there.
+
+    This is the half a release runs for armhf and nothing else exercises, so it
+    is checked here with nFPM stubbed rather than discovered when publishing.
+    """
+    script = Path(__file__).resolve().parents[1] / "scripts" / "build" / "build_nfpm_packages.sh"
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "nfpm-calls"
+    nfpm = fake_bin / "nfpm"
+    nfpm.write_text(f'#!/bin/sh\necho "$*" >> {calls}\n', encoding="utf-8")
+    nfpm.chmod(0o755)
+
+    interpreter = tmp_path / "stage" / "opt" / "meshloom" / "python" / "bin" / "python3"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    interpreter.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--version",
+            "9.9.9",
+            "--arch",
+            "armhf",
+            "--stage-dir",
+            "stage",
+            "--package-only",
+            "--output-dir",
+            "out",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": f"{fake_bin}:/usr/bin:/bin", "HOME": str(tmp_path)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    invocations = calls.read_text(encoding="utf-8")
+    assert "--packager deb" in invocations
+    # Raspberry Pi OS is Debian, and no distribution ships an armv7 rpm any more.
+    assert "--packager rpm" not in invocations
