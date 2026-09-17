@@ -2481,5 +2481,10 @@
     "bannerTitle": "No radio connected",
     "bannerBody": "Meshloom reads and writes the mesh through a MeshCore radio. Tell it where yours is — a serial device plugged into this machine, or a host and port on the network.",
     "bannerAction": "Connect a radio"
+  },
+  "edgeSession": {
+    "title": "Your session has expired",
+    "body": "The service in front of Meshloom signed you out, so nothing on this page can reach it any more. Signing in again reloads Meshloom where you left it.",
+    "action": "Sign in again"
   }
 }
