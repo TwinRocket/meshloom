@@ -2,6 +2,28 @@
 
 ---
 
+## [4.12.2] - 2026-09-17
+
+The armhf package 4.12.1 promised is actually published now.
+
+### Fixed
+
+- **The 32-bit Raspberry Pi package builds.** It is assembled in an emulated armv7 container, which had a compiler but not `make`, so the dependency that builds libsodium stopped it. Nothing else was wrong with it: the rest of 4.12.1 went out as intended while that one job failed on its own.
+- **Signing in again after a proxy session expires.** Behind Cloudflare Access or a similar front, an expired session answered every request with a redirect to a login page on another origin. An open page never sees that page, so the interface stayed up with every call failing and no way to sign in. It now notices and offers to reload, which is the only thing such a proxy responds to.
+
+---
+
+### Français
+
+Le paquet armhf annoncé par la 4.12.1 est réellement publié.
+
+#### Corrections
+
+- **Le paquet pour Raspberry Pi 32 bits se construit.** Il est assemblé dans un conteneur armv7 émulé, qui disposait d'un compilateur mais pas de `make`, ce qui bloquait la dépendance chargée de compiler libsodium. Rien d'autre n'était en cause : le reste de la 4.12.1 est sorti normalement pendant que ce seul job échouait.
+- **Se reconnecter après l'expiration d'une session au niveau du proxy.** Derrière Cloudflare Access ou équivalent, une session expirée répondait à chaque requête par une redirection vers une page de connexion sur une autre origine. Une page déjà ouverte ne la voit jamais : l'interface restait affichée, tous les appels échouaient, et rien ne permettait de se reconnecter. Elle le détecte désormais et propose de recharger, seule action à laquelle un tel proxy réagit.
+
+---
+
 ## [4.12.1] - 2026-09-17
 
 A Raspberry Pi running the 32-bit Raspberry Pi OS can install Meshloom again, and this time from a package.
