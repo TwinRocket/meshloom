@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field
 from app.repository import AppSettingsRepository
 from app.services.install_kind import detect_install_kind
 from app.services.oss_updates import get_update_status
-from app.services.update_apply import UpdateApplyBusy, public_job, start_apply
+from app.services.update_apply import (
+    UpdateApplyBusy,
+    expire_stale_applying_job,
+    public_job,
+    start_apply,
+)
 
 router = APIRouter(tags=["updates"])
 
@@ -39,6 +44,7 @@ class UpdateSettingsPatch(BaseModel):
 
 
 async def build_update_status() -> UpdateStatusResponse:
+    expire_stale_applying_job()
     catalogue = get_update_status()
     kind, supported = detect_install_kind()
     settings = await AppSettingsRepository.get()

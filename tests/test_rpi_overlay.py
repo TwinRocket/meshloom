@@ -29,3 +29,21 @@ def test_rpi_console_script_is_executable_text() -> None:
     script = (REPO / "pkg/rpi/meshloom-console").read_text(encoding="utf-8")
     assert "meshloom.local" in script or ".local:8000" in script
     assert "8000" in script
+
+
+def test_rpi_image_bake_is_release_safe() -> None:
+    script = (REPO / "scripts/build/build_rpi_image.sh").read_text(encoding="utf-8")
+    workflow = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    manifest = (REPO / "pkg/rpi/os-list.rpi-imager-manifest.tmpl").read_text(encoding="utf-8")
+
+    assert "trusted=yes" not in script
+    assert "apt-get update -y || true" not in script
+    assert "kpartx -avs" in script
+    assert "growpart" in script
+    assert "df -h" in script
+    assert "meshloom.rpi-imager-manifest" in script
+    assert "--version" in script
+    assert "image_download_sha256" in manifest
+    assert "init_format" in manifest
+    assert "cloud-guest-utils" in workflow
+    assert "meshloom.rpi-imager-manifest" in workflow

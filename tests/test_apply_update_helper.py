@@ -43,6 +43,9 @@ def test_apply_update_is_meshloom_only() -> None:
     assert "/var/lib/meshloom/update-job.json" in active
     assert "mkdir -p /var/lib/meshloom" in active
     assert "APT::Status-Fd" in active
+    assert "load_identity" in active
+    assert "last_attempt" in active
+    assert "target_json" in text
 
 
 def test_update_unit_and_polkit_are_start_only() -> None:

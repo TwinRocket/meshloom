@@ -69,6 +69,13 @@ def test_compose_image_version_reads_tag(tmp_path: Path) -> None:
     assert _bash(f'compose_image_version "{compose}"') == "4.1.2"
 
 
+def test_rewrite_compose_image_tag_is_defined() -> None:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    assert "rewrite_compose_image_tag() {" in text
+    assert 'sub(/:[^[:space:]]+$/, ":" tag)' in text
+    assert text.count('sub(/:[^[:space:]]+$/, ":" tag)') >= 2
+
+
 def test_compose_image_version_ignores_latest(tmp_path: Path) -> None:
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("    image: ghcr.io/twinrocket/meshloom:latest\n", encoding="utf-8")
@@ -126,4 +133,12 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "ensure_update_helper compose" in text
     assert "meshloom-compose-update.path" in text
     assert "docker compose pull" in text
+    assert "PathChanged=" in text
+    assert "could not resolve image tag" in text
+    assert "_install_package_update_helper_fallback" in text
+    assert "MESHLOOM_INSTALL_KIND=package" in text
+    assert "MESHCORE_DISABLE_BOTS=true" in text
+    assert "_env_ensure_key" in text
+    assert "rewrite_compose_image_tag" in text
+    assert 'sub(/:[^[:space:]]+$/, ":" tag)' in text
     assert "apt upgrade" not in text or "apt-get install" in text

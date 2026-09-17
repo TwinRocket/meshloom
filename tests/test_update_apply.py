@@ -11,7 +11,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.services.update_apply import (
+    APPLY_TIMEOUT_ERROR,
+    APPLYING_TTL_SECONDS,
     UpdateApplyBusy,
+    expire_stale_applying_job,
     job_is_applying,
     job_path,
     last_attempt_recent,
@@ -79,6 +82,34 @@ async def test_start_apply_rejects_second_job(job_dir: Path) -> None:
     write_job(state="applying", phase="installing")
     with pytest.raises(UpdateApplyBusy):
         await start_apply("compose")
+
+
+def test_stale_applying_job_expires(job_dir: Path) -> None:
+    write_job(
+        state="applying",
+        phase="installing",
+        started_at=1,
+        last_attempt=1,
+        target="9.9.9",
+    )
+    expired = expire_stale_applying_job(now=1 + APPLYING_TTL_SECONDS + 5)
+    assert expired["state"] == "failed"
+    assert expired["error"] == APPLY_TIMEOUT_ERROR
+    assert expired["target"] == "9.9.9"
+
+
+def test_fresh_applying_job_is_not_expired(job_dir: Path) -> None:
+    write_job(state="applying", phase="installing")
+    assert expire_stale_applying_job()["state"] == "applying"
+
+
+@pytest.mark.asyncio
+async def test_start_apply_after_stale_job(job_dir: Path) -> None:
+    write_job(state="applying", phase="installing", started_at=1)
+    with patch("app.services.update_apply.start_package_helper", new=AsyncMock()):
+        job = await start_apply("package", target="1.2.3")
+    assert job["state"] == "applying"
+    assert job["target"] == "1.2.3"
 
 
 @pytest.mark.asyncio
@@ -309,6 +340,35 @@ class TestAutoApply:
         monkeypatch.setattr("app.services.install_kind.APPLY_UPDATE_BIN", helper)
         await AppSettingsRepository.update(auto_update=True)
         write_job(state="failed", error="boom", last_attempt=int(time.time()))
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = {"version": "9.9.9", "html_url": None}
+        with (
+            patch(
+                "app.services.oss_updates.get_app_build_info",
+                return_value=AppBuildInfo(
+                    version="1.0.0", version_source="test", commit_hash=None, commit_source=None
+                ),
+            ),
+            patch("app.services.update_apply.start_apply", new=AsyncMock()) as start,
+        ):
+            await _maybe_auto_apply()
+        start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_backs_off_recent_success_without_target(
+        self, test_db, job_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.repository import AppSettingsRepository
+        from app.services.oss_updates import _maybe_auto_apply
+        from app.version_info import AppBuildInfo
+
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+        helper = job_dir / "apply-update"
+        helper.write_text("ok", encoding="utf-8")
+        monkeypatch.setattr("app.services.install_kind.APPLY_UPDATE_BIN", helper)
+        await AppSettingsRepository.update(auto_update=True)
+        write_job(state="succeeded", phase="done", last_attempt=int(time.time()))
         import app.services.oss_updates as oss_updates
 
         oss_updates._latest_payload = {"version": "9.9.9", "html_url": None}

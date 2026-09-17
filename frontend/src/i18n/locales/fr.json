@@ -2462,6 +2462,7 @@
     "progressTitle": "Installation de la mise à jour",
     "failed": "La mise à jour a échoué",
     "restartTimeout": "Le nœud n’est pas revenu avec la nouvelle version.",
+    "versionUnchanged": "Le helper a terminé, mais ce nœud est encore sur l’ancienne version.",
     "phase": {
       "preparing": "Préparation",
       "downloading": "Téléchargement",

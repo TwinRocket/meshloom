@@ -24,7 +24,7 @@ On Linux the installer offers a native systemd service or Docker. Radio transpor
 
 Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**. A new install joins Meshloom Community unless you set `MESHLOOM_COMMUNITY=0`; leave or bind an IATA code under **Settings > Community**. User-facing docs live in [`docs/user/`](docs/user/) and are published at https://meshloom.app/docs/.
 
-A **Raspberry Pi** can skip the one-liner: flash `meshloom-rpi-lite-arm64.img.xz` from the release (Lite 64-bit, Pi 3 and later). The Release workflow builds that image after the arm64 `.deb`. Set Wi-Fi, user, and SSH in **Raspberry Pi Imager 2.0.6+**. A connected screen shows `http://meshloom.local:8000`. Details: [Raspberry Pi image](docs/user/en/rpi.md).
+A **Raspberry Pi** can skip the one-liner: flash `meshloom-rpi-lite-arm64.img.xz` from the release (Lite 64-bit, Pi 3 and later). The Release workflow builds that image after the arm64 `.deb`. Open the shipped `meshloom.rpi-imager-manifest` in **Raspberry Pi Imager 2.0.6+** so Wi-Fi, user, and SSH are written (`Use custom` alone skips them). A connected screen shows `http://meshloom.local:8000`. Details: [Raspberry Pi image](docs/user/en/rpi.md).
 
 From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/twinrocket/meshloom`. Portainer, HTTPS, systemd, and extra environment variables: [README_ADVANCED.md](README_ADVANCED.md).
 

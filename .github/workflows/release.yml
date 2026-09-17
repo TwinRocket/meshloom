@@ -185,19 +185,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            kpartx xz-utils fdisk
+            kpartx xz-utils fdisk cloud-guest-utils e2fsprogs
 
       - name: Build Raspberry Pi Lite image
         run: |
           chmod +x scripts/build/build_rpi_image.sh
           DEB="$(find incoming -name '*_arm64.deb' | head -n 1)"
           [ -n "$DEB" ] || { echo "arm64 .deb missing from nfpm-arm64 artifact" >&2; exit 1; }
-          sudo scripts/build/build_rpi_image.sh --deb "$DEB" --output-dir dist
+          sudo scripts/build/build_rpi_image.sh --deb "$DEB" --output-dir dist \
+            --version "${{ needs.version.outputs.version }}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: meshloom-rpi-lite-arm64
-          path: dist/meshloom-rpi-lite-arm64.img.xz
+          path: |
+            dist/meshloom-rpi-lite-arm64.img.xz
+            dist/meshloom.rpi-imager-manifest
           if-no-files-found: error
 
       - name: Attach image to GitHub release
@@ -206,5 +209,6 @@ jobs:
         run: |
           gh release upload "${{ needs.version.outputs.version }}" \
             dist/meshloom-rpi-lite-arm64.img.xz \
+            dist/meshloom.rpi-imager-manifest \
             --repo "${{ github.repository }}" \
             --clobber

@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,10 @@ JobPhase = Literal["preparing", "downloading", "installing", "restarting", "done
 DEFAULT_DATA_DIR = Path("/var/lib/meshloom")
 DEFAULT_JOB_PATH = DEFAULT_DATA_DIR / "update-job.json"
 AUTO_UPDATE_BACKOFF_SECONDS = 6 * 3600
+APPLYING_TTL_SECONDS = 20 * 60
+APPLY_TIMEOUT_ERROR = "apply timed out"
 _PUBLIC_JOB_KEYS = ("state", "phase", "percent", "error", "started_at")
+_PHASES = {"preparing", "downloading", "installing", "restarting", "done"}
 
 _apply_lock = asyncio.Lock()
 
@@ -112,6 +115,37 @@ def write_job(
     return payload
 
 
+def _as_phase(value: Any) -> JobPhase | None:
+    if value in _PHASES:
+        return cast(JobPhase, value)
+    return None
+
+
+def expire_stale_applying_job(*, now: int | None = None) -> dict[str, Any]:
+    """Turn a helper job that never finished into failed so apply is not 409 forever."""
+    current = read_job()
+    if current.get("state") != "applying":
+        return current
+    stamp = current.get("started_at")
+    if not isinstance(stamp, int):
+        return current
+    current_now = now if now is not None else int(time.time())
+    if current_now - stamp < APPLYING_TTL_SECONDS:
+        return current
+    last = current.get("last_attempt")
+    target = current.get("target")
+    percent = current.get("percent")
+    return write_job(
+        state="failed",
+        phase=_as_phase(current.get("phase")),
+        percent=percent if isinstance(percent, int) else None,
+        error=APPLY_TIMEOUT_ERROR,
+        started_at=stamp,
+        last_attempt=last if isinstance(last, int) else stamp,
+        target=target if isinstance(target, str) else None,
+    )
+
+
 def job_is_applying(job: dict[str, Any] | None = None) -> bool:
     current = job if job is not None else read_job()
     return current.get("state") == "applying"
@@ -147,11 +181,17 @@ async def start_package_helper() -> None:
 def start_compose_helper() -> None:
     path = request_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # PathExists only fires on absent → present. Drop a leftover request first.
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
     path.write_text("1\n", encoding="utf-8")
 
 
 async def start_apply(kind: str, *, target: str | None = None) -> dict[str, Any]:
     async with _apply_lock:
+        expire_stale_applying_job()
         if job_is_applying():
             raise UpdateApplyBusy()
         job = write_job(state="applying", phase="preparing", target=target)

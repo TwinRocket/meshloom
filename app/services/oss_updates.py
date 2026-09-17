@@ -100,9 +100,9 @@ async def _maybe_auto_apply() -> None:
     from app.services.install_kind import detect_install_kind
     from app.services.update_apply import (
         UpdateApplyBusy,
+        expire_stale_applying_job,
         job_is_applying,
         last_attempt_recent,
-        read_job,
         start_apply,
     )
 
@@ -117,11 +117,14 @@ async def _maybe_auto_apply() -> None:
             return
     except Exception:
         return
-    job = read_job()
+    job = expire_stale_applying_job()
     if job_is_applying(job):
         return
-    if job.get("state") == "succeeded" and job.get("target") == status["latest"]:
-        return
+    if job.get("state") == "succeeded":
+        if job.get("target") == status["latest"]:
+            return
+        if last_attempt_recent(job):
+            return
     if job.get("state") == "failed" and last_attempt_recent(job):
         return
     try:

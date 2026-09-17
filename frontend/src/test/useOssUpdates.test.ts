@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../api';
 import {
   OSS_UPDATE_RESTART_TIMEOUT_MS,
+  OSS_UPDATE_SUCCEEDED_STALE_MS,
   UPDATE_TARGET_STORAGE_KEY,
   jobProgressPercent,
   ossUpdateActions,
@@ -289,6 +290,29 @@ describe('useOssUpdates', () => {
     });
     expect(result.current.applying).toBe(false);
     expect(result.current.applyError).toBeTruthy();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('unlocks the overlay when the helper succeeded without the new version', async () => {
+    vi.useFakeTimers();
+    const reload = vi.spyOn(ossUpdateActions, 'reloadWindow').mockImplementation(() => {});
+    sessionStorage.setItem(UPDATE_TARGET_STORAGE_KEY, '1.1.0');
+    vi.spyOn(api, 'getUpdates').mockResolvedValue(
+      status({
+        job: { state: 'succeeded', phase: 'done', percent: 100, error: null, started_at: 1 },
+      })
+    );
+
+    const { result } = renderHook(() => useOssUpdates());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OSS_UPDATE_SUCCEEDED_STALE_MS);
+    });
+    expect(result.current.applying).toBe(false);
+    expect(result.current.applyError).toBeTruthy();
+    expect(result.current.showProgress).toBe(true);
     expect(reload).not.toHaveBeenCalled();
   });
 

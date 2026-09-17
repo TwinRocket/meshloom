@@ -55,7 +55,9 @@ describe('UpdateAvailableDialog', () => {
     );
 
     expect(screen.getByText(i18n.t('updates.addonManual'))).toBeInTheDocument();
-    expect(screen.queryByText(/sudo apt-get install --only-upgrade meshloom/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/sudo apt-get install --only-upgrade meshloom/)
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/sudo docker compose pull/)).not.toBeInTheDocument();
   });
 
@@ -103,7 +105,9 @@ describe('UpdateAvailableDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('updates.install') }));
     expect(onApply).toHaveBeenCalled();
     expect(screen.getByText(i18n.t('updates.helpApply'))).toBeInTheDocument();
-    expect(screen.queryByText(/sudo apt-get install --only-upgrade meshloom/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/sudo apt-get install --only-upgrade meshloom/)
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: i18n.t('updates.autoUpdate') }));
     expect(onAutoUpdate).toHaveBeenCalledWith(true);
   });

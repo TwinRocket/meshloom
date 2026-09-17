@@ -8,6 +8,8 @@ import type { OssUpdateJob, OssUpdateJobPhase, OssUpdateStatus } from '../types'
 export const OSS_UPDATE_POLL_MS = 5 * 60 * 1000;
 export const OSS_UPDATE_JOB_POLL_MS = 1500;
 export const OSS_UPDATE_RESTART_TIMEOUT_MS = 5 * 60 * 1000;
+/** Helper finished and the API is back, but current !== target. */
+export const OSS_UPDATE_SUCCEEDED_STALE_MS = 15 * 1000;
 export const OSS_UPDATE_RELOAD_FLASH_MS = 500;
 export const UPDATE_TARGET_STORAGE_KEY = 'meshloom.updateTarget';
 
@@ -114,6 +116,7 @@ export function useOssUpdates(): UseOssUpdatesResult {
   const targetRef = useRef<string | null>(null);
   const jobTimerRef = useRef<number | null>(null);
   const restartTimerRef = useRef<number | null>(null);
+  const succeededTimerRef = useRef<number | null>(null);
   const reloadingRef = useRef(false);
   const cancelledRef = useRef(false);
 
@@ -129,12 +132,20 @@ export function useOssUpdates(): UseOssUpdatesResult {
     }
   };
 
+  const stopSucceededTimeout = () => {
+    if (succeededTimerRef.current != null) {
+      window.clearTimeout(succeededTimerRef.current);
+      succeededTimerRef.current = null;
+    }
+  };
+
   const stopJobPolling = () => {
     if (jobTimerRef.current != null) {
       window.clearInterval(jobTimerRef.current);
       jobTimerRef.current = null;
     }
     stopRestartTimeout();
+    stopSucceededTimeout();
   };
 
   const failRestartTimeout = () => {
@@ -150,6 +161,21 @@ export function useOssUpdates(): UseOssUpdatesResult {
       restartTimerRef.current = null;
       failRestartTimeout();
     }, OSS_UPDATE_RESTART_TIMEOUT_MS);
+  };
+
+  const failSucceededStale = () => {
+    stopJobPolling();
+    setApplying(false);
+    setShowProgress(true);
+    setApplyError(i18n.t('updates.versionUnchanged'));
+  };
+
+  const armSucceededStaleTimeout = () => {
+    if (succeededTimerRef.current != null) return;
+    succeededTimerRef.current = window.setTimeout(() => {
+      succeededTimerRef.current = null;
+      failSucceededStale();
+    }, OSS_UPDATE_SUCCEEDED_STALE_MS);
   };
 
   const flashAndReload = async () => {
@@ -198,7 +224,19 @@ export function useOssUpdates(): UseOssUpdatesResult {
         return;
       }
 
-      if (data.job?.state === 'applying' || data.job?.state === 'succeeded') {
+      if (data.job?.state === 'succeeded') {
+        setApplying(true);
+        setShowProgress(true);
+        setApplyError(null);
+        setProgressPhase(data.job.phase);
+        setProgressPercent(jobProgressPercent(data.job));
+        stopRestartTimeout();
+        armSucceededStaleTimeout();
+        return;
+      }
+
+      if (data.job?.state === 'applying') {
+        stopSucceededTimeout();
         setApplying(true);
         setShowProgress(true);
         setApplyError(null);
