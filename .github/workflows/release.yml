@@ -160,7 +160,7 @@ jobs:
               set -eux
               apt-get update
               apt-get install -y --no-install-recommends \
-                ca-certificates curl xz-utils gcc libc6-dev libffi-dev python3 python3-pip
+                ca-certificates curl xz-utils build-essential libffi-dev python3 python3-pip
               # Same pin as the Dockerfile, and from PyPI for the same reason:
               # no armv7 build is published anywhere else.
               pip install --break-system-packages --no-cache-dir "uv==0.6.17"
