@@ -19,6 +19,25 @@ Prefer the 64-bit image on a board that can run it: it is faster, and the 32-bit
 
 The 32-bit package is recent, published in 4.12.2. Earlier versions could not install on a 32-bit system at all.
 
+### What to expect on a Pi 2 or Pi 3
+
+Nobody has published measurements for these boards, so treat what follows as what
+is known rather than as a promise.
+
+Both have 1 GB of memory, and most of what looks expensive in Meshloom is not on
+the Pi: the map, the 3-D view and the packet feed are drawn by whatever browser
+you open the interface in. What the Pi runs is the server, the radio link and an
+SQLite database.
+
+The likelier limit is the SD card. The database is written to on every message and
+every observed packet, and a cheap card is slow at exactly that and wears out
+doing it. If you plan to leave a node running for months, a good card, or a USB
+SSD, matters more than the board.
+
+A Pi 2 is the slowest of the supported boards and the interface will feel it when
+the history grows. If you try one, tell us where it stops being comfortable: that
+is a number nobody has yet.
+
 ## Flash
 
 1. Download `meshloom-rpi-lite-arm64.img.xz` **and** `meshloom.rpi-imager-manifest` from the [GitHub release](https://github.com/TwinRocket/meshloom/releases). The Release workflow attaches them after the arm64 `.deb` is built (they can land a bit later than the packages).

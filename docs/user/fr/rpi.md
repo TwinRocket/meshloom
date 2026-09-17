@@ -19,6 +19,25 @@ Préférez l’image 64-bit sur une carte capable de la faire tourner : elle est
 
 Le paquet 32-bit est récent, publié en 4.12.2. Les versions antérieures ne pouvaient pas s’installer sur un système 32-bit.
 
+### À quoi s’attendre sur un Pi 2 ou un Pi 3
+
+Personne n’a publié de mesures sur ces cartes : ce qui suit est donc ce que l’on
+sait, pas une promesse.
+
+Les deux ont 1 Go de mémoire, et l’essentiel de ce qui paraît coûteux dans
+Meshloom ne tourne pas sur le Pi : la carte, la vue 3D et le flux de paquets sont
+dessinés par le navigateur depuis lequel vous ouvrez l’interface. Le Pi, lui, fait
+tourner le serveur, le lien radio et une base SQLite.
+
+La limite la plus probable est la carte SD. La base est écrite à chaque message et
+à chaque paquet observé, ce qu’une carte bon marché fait lentement et qui l’use.
+Si vous comptez laisser un nœud tourner pendant des mois, une bonne carte, ou un
+SSD USB, compte davantage que le modèle de carte.
+
+Un Pi 2 est la plus lente des cartes supportées et l’interface s’en ressentira à
+mesure que l’historique grossit. Si vous en testez un, dites-nous à partir de quand
+ça cesse d’être confortable : ce chiffre, personne ne l’a encore.
+
 ## Flasher
 
 1. Téléchargez `meshloom-rpi-lite-arm64.img.xz` **et** `meshloom.rpi-imager-manifest` depuis la [release GitHub](https://github.com/TwinRocket/meshloom/releases). Le workflow Release les joint après le `.deb` arm64 (ils peuvent arriver un peu après les paquets).
