@@ -5,7 +5,19 @@ level: start
 order: 2.5
 ---
 
-A published image is Raspberry Pi OS Lite 64-bit with Meshloom already installed. First boot does not need the internet. Use it on a Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, or Pi 5. A Pi 1 or an original Zero is ARMv6 and is not covered: no package is built for it. Prefer the **64-bit** image even on a Pi 3: it is faster and it is the one published here. A Pi already running the 32-bit Raspberry Pi OS installs with the one-liner instead, from the armhf package.
+A published image is Raspberry Pi OS Lite 64-bit with Meshloom already installed. First boot does not need the internet.
+
+## Which Pi
+
+| Your board | How to install |
+|---|---|
+| Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, Pi 5 | This image. It is the fastest route and nothing else is needed. |
+| Pi 2, or any Pi already running the 32-bit Raspberry Pi OS | The [one-liner](/en/docs/install/). It detects the architecture and installs the armhf package. |
+| Pi 1, Compute Module 1, original Zero and Zero W | Not supported. These are ARMv6 and no package is built for them. |
+
+Prefer the 64-bit image on a board that can run it: it is faster, and the 32-bit package is built under emulation. A Pi 2 only ever runs 32-bit, so the one-liner is its route.
+
+The 32-bit package is recent, published in 4.12.2. Earlier versions could not install on a 32-bit system at all.
 
 ## Flash
 
