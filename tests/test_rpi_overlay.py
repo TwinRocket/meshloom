@@ -41,8 +41,12 @@ def test_rpi_image_bake_is_release_safe() -> None:
     workflow = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
     manifest = (REPO / "pkg/rpi/os-list.rpi-imager-manifest.tmpl").read_text(encoding="utf-8")
 
-    assert "trusted=yes" not in script
+    assert "write_meshloom_apt_source" in script
+    assert "signed-by=/etc/apt/keyrings/meshloom.gpg" in script
+    assert "Meshloom apt key is not on Pages yet" in script
+    assert "umount \"$BOOTMNT\"" in script
     assert "apt-get update -y || true" not in script
+    assert "publish-linux-repo.yml" in workflow
     assert "kpartx -avs" in script
     assert "growpart" in script
     assert "df -h" in script

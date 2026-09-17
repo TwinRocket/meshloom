@@ -28,6 +28,7 @@ VERSION=""
 WORKDIR=""
 LOOP=""
 ROOTMNT=""
+BOOTMNT=""
 KPARTX=0
 GROW_BYTES=$((3 * 1024 * 1024 * 1024))
 
@@ -98,6 +99,26 @@ require_disk() {
     fi
 }
 
+write_meshloom_apt_source() {
+    local dest_root="$1"
+    local pages="https://twinrocket.github.io/meshloom"
+    local key="$dest_root/etc/apt/keyrings/meshloom.gpg"
+    local list="$dest_root/etc/apt/sources.list.d/meshloom.list"
+    mkdir -p "$dest_root/etc/apt/keyrings" "$dest_root/etc/apt/sources.list.d"
+    if [ -n "${MESHLOOM_GPG_KEY:-}" ] && [ -f "$MESHLOOM_GPG_KEY" ]; then
+        install -m 0644 "$MESHLOOM_GPG_KEY" "$key"
+        echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] ${pages}/apt stable main" >"$list"
+        return
+    fi
+    if curl -fsSL "${pages}/meshloom.gpg" -o "$key"; then
+        echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] ${pages}/apt stable main" >"$list"
+        return
+    fi
+    rm -f "$key"
+    echo "[rpi] Meshloom apt key is not on Pages yet; writing an unsigned source."
+    echo "deb [trusted=yes] ${pages}/apt stable main" >"$list"
+}
+
 WORKDIR="$(mktemp -d /tmp/meshloom-rpi.XXXXXX)"
 cleanup() {
     set +e
@@ -108,6 +129,9 @@ cleanup() {
         umount "$ROOTMNT/dev/pts" 2>/dev/null
         umount "$ROOTMNT/dev" 2>/dev/null
         umount "$ROOTMNT" 2>/dev/null
+    fi
+    if [ -n "${BOOTMNT:-}" ]; then
+        umount "$BOOTMNT" 2>/dev/null
     fi
     if [ -n "${LOOP:-}" ]; then
         if [ "${KPARTX:-0}" = 1 ]; then
@@ -193,12 +217,10 @@ install -D -m 0755 "$RPI_DIR/meshloom-console" "$ROOTMNT/usr/lib/meshloom/meshlo
 install -D -m 0644 "$RPI_DIR/meshloom-console.service" \
     "$ROOTMNT/usr/lib/systemd/system/meshloom-console.service"
 
-# Apt source used by later UI upgrades. Fail the bake if the signing key is missing.
-mkdir -p "$ROOTMNT/etc/apt/keyrings" "$ROOTMNT/etc/apt/sources.list.d"
-curl -fsSL "https://twinrocket.github.io/meshloom/meshloom.gpg" \
-    -o "$ROOTMNT/etc/apt/keyrings/meshloom.gpg"
-echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] https://twinrocket.github.io/meshloom/apt stable main" \
-    >"$ROOTMNT/etc/apt/sources.list.d/meshloom.list"
+# Apt source for later UI upgrades. Pages is often empty on the first TwinRocket
+# release (the on.release repo job never starts from a GITHUB_TOKEN publish), so
+# a missing key must not fail the bake. Same fallback as scripts/setup/install.sh.
+write_meshloom_apt_source "$ROOTMNT"
 
 # Do not set MESHLOOM_COMMUNITY — new databases join Community by default.
 # Bots stay off via the packaged meshloom.env.
@@ -243,6 +265,7 @@ fi
 losetup -d "$LOOP"
 LOOP=""
 ROOTMNT=""
+BOOTMNT=""
 
 OUT_IMG="$OUTPUT_DIR/meshloom-rpi-lite-arm64.img"
 cp "$IMG" "$OUT_IMG"
