@@ -6,8 +6,10 @@ import {
   useRef,
   useEffect,
   useMemo,
+  useSyncExternalStore,
   type ChangeEvent,
   type FormEvent,
+  type KeyboardEvent,
 } from 'react';
 import { Send, Smile, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +23,7 @@ import {
   applyTextReplacements,
 } from '../utils/textReplace';
 import { loadConversationDraft, saveConversationDraft } from '../utils/conversationDrafts';
+import { getDesktopEnterSends, subscribeDesktopEnterSends } from '../utils/composerEnterKey';
 import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
 
 // MeshCore message size limits (empirically determined from LoRa packet constraints)
@@ -99,6 +102,11 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   textRef.current = text;
   const draftIdentity = draftIdentityOf(conversationType, conversationId);
   const draftKeyRef = useRef<DraftIdentity | null>(null);
+  const enterSends = useSyncExternalStore(
+    subscribeDesktopEnterSends,
+    getDesktopEnterSends,
+    () => false
+  );
 
   /** Resize textarea to fit content, clamped between 1 row and ~6 rows. */
   const autoResize = useCallback(() => {
@@ -213,38 +221,55 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
 
   const remaining = limits ? limits.hardLimit - textByteLen : 0;
 
-  const handleSubmit = useCallback(
-    async (e: FormEvent) => {
-      e.preventDefault();
-      const trimmed = text.trim();
-      if (!trimmed || sending || disabled || limitState === 'error') return;
+  const submitMessage = useCallback(async () => {
+    const trimmed = text.trim();
+    if (!trimmed || sending || disabled || limitState === 'error') return;
 
-      setSending(true);
-      try {
-        await onSend(trimmed);
-        setText('');
-        setReplyQuote(null);
-        if (draftIdentity) {
-          saveConversationDraft(draftIdentity.type, draftIdentity.id, '');
-        }
-      } catch (err) {
-        console.error('Failed to send message:', err);
-        const description = err instanceof Error ? err.message : t('chat.checkRadio');
-        const isRadioNoResponse =
-          err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
-        toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
-          description,
-        });
-        return;
-      } finally {
-        setSending(false);
+    setSending(true);
+    try {
+      await onSend(trimmed);
+      setText('');
+      setReplyQuote(null);
+      if (draftIdentity) {
+        saveConversationDraft(draftIdentity.type, draftIdentity.id, '');
       }
-      // Keep the mobile keyboard open: never blur this field to send.
-      textareaRef.current?.focus();
-      requestAnimationFrame(() => textareaRef.current?.focus());
-      window.setTimeout(() => textareaRef.current?.focus(), 0);
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      const description = err instanceof Error ? err.message : t('chat.checkRadio');
+      const isRadioNoResponse =
+        err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
+      toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
+        description,
+      });
+      return;
+    } finally {
+      setSending(false);
+    }
+    // Keep the mobile keyboard open: never blur this field to send.
+    textareaRef.current?.focus();
+    requestAnimationFrame(() => textareaRef.current?.focus());
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [text, sending, disabled, limitState, onSend, draftIdentity, t]);
+
+  const handleSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault();
+      void submitMessage();
     },
-    [text, sending, disabled, limitState, onSend, draftIdentity, t]
+    [submitMessage]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key !== 'Enter') return;
+      // keyCode 229: IME is composing; some browsers fire Enter before isComposing flips.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+      if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (!enterSends) return;
+      e.preventDefault();
+      void submitMessage();
+    },
+    [enterSends, submitMessage]
   );
 
   const persistDraft = useCallback(
@@ -438,9 +463,10 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           rows={1}
           value={text}
           onChange={handleChange}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder || t('chat.messagePlaceholder')}
           disabled={disabled}
-          enterKeyHint="enter"
+          enterKeyHint={enterSends ? 'send' : 'enter'}
           className={cn(
             'flex-1 min-w-0 resize-none overflow-y-auto',
             // A filled pill rather than an outlined box: the field is already

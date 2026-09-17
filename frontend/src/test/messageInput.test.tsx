@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageInput, type MessageInputHandle } from '../components/MessageInput';
 import i18n from '../i18n';
 import { toast } from '../components/ui/sonner';
+import { DESKTOP_ENTER_SENDS_QUERY } from '../utils/composerEnterKey';
 import {
   conversationDraftStorageKey,
   loadConversationDraft,
@@ -34,11 +35,28 @@ function byteLen(s: string): number {
   return textEncoder.encode(s).length;
 }
 
+function stubDesktopEnterSends(enabled: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: enabled && query === DESKTOP_ENTER_SENDS_QUERY,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
 describe('MessageInput', () => {
   const onSend = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   function renderInput(props: {
@@ -101,6 +119,37 @@ describe('MessageInput', () => {
       fireEvent.keyDown(getInput(), { key: 'Enter' });
       expect(onSend).not.toHaveBeenCalled();
       expect(getInput().value).toBe('Hello');
+      expect(getInput()).toHaveAttribute('enterkeyhint', 'enter');
+    });
+
+    it('sends on Enter when the primary pointer is a desktop mouse or trackpad', async () => {
+      stubDesktopEnterSends(true);
+      renderInput({ conversationType: 'contact' });
+      fireEvent.change(getInput(), { target: { value: 'Hello' } });
+      expect(getInput()).toHaveAttribute('enterkeyhint', 'send');
+      fireEvent.keyDown(getInput(), { key: 'Enter' });
+
+      await waitFor(() => {
+        expect(onSend).toHaveBeenCalledWith('Hello');
+      });
+    });
+
+    it('keeps Shift+Enter as a newline on desktop', () => {
+      stubDesktopEnterSends(true);
+      renderInput({ conversationType: 'contact' });
+      fireEvent.change(getInput(), { target: { value: 'Hello' } });
+      fireEvent.keyDown(getInput(), { key: 'Enter', shiftKey: true });
+      expect(onSend).not.toHaveBeenCalled();
+      expect(getInput().value).toBe('Hello');
+    });
+
+    it('does not send desktop Enter while an IME is composing', () => {
+      stubDesktopEnterSends(true);
+      renderInput({ conversationType: 'contact' });
+      fireEvent.change(getInput(), { target: { value: 'こんにちは' } });
+      fireEvent.keyDown(getInput(), { key: 'Enter', isComposing: true });
+      fireEvent.keyDown(getInput(), { key: 'Enter', keyCode: 229 });
+      expect(onSend).not.toHaveBeenCalled();
     });
   });
 
