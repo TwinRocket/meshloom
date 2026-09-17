@@ -124,6 +124,27 @@ def _reset_radio_ingest_gate():
 
 
 @pytest.fixture(autouse=True)
+def _reset_radio_channel_slots():
+    """Hand every test an empty channel slot cache.
+
+    The radio holds a handful of channel slots and the manager remembers which
+    key sits in which, process-wide. A test that fills slot 0 leaves the next one
+    starting at 1, and a test asserting it wrote to slot 0 fails on a number it
+    never chose. Which tests share a worker decides whether that happens.
+    """
+    from app.radio import radio_manager
+
+    def clear() -> None:
+        radio_manager._channel_slot_by_key.clear()
+        radio_manager._channel_key_by_slot.clear()
+        radio_manager._pending_message_channel_key_by_slot.clear()
+
+    clear()
+    yield
+    clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_radio_operation_lock():
     """Hand every test an unheld radio lock.
 
