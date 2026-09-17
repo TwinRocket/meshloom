@@ -143,3 +143,50 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "rewrite_compose_image_tag" in text
     assert 'sub(/:[^[:space:]]+$/, ":" tag)' in text
     assert "apt upgrade" not in text or "apt-get install" in text
+
+
+def _bash_fns(names: tuple[str, ...], script: str) -> subprocess.CompletedProcess[str]:
+    source = "\n\n".join(_extract_fn(name) for name in names)
+    return subprocess.run(
+        ["bash", "-c", f"{source}\n{script}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_a_32_bit_raspberry_pi_is_named_rather_than_unknown() -> None:
+    """Calling it unknown is what sent it down a path built for other machines."""
+    for machine, expected in (
+        ("x86_64", "amd64"),
+        ("aarch64", "arm64"),
+        ("armv7l", "armhf"),
+        ("armv6l", "armhf"),
+        ("riscv64", "unknown"),
+    ):
+        result = _bash_fns(
+            ("host_arch",),
+            f'uname() {{ [ "$1" = "-m" ] && echo "{machine}" || command uname "$@"; }}\nhost_arch',
+        )
+        assert result.stdout.strip() == expected, machine
+
+
+def test_the_apt_repository_is_offered_only_where_it_has_packages() -> None:
+    """The published repository holds amd64 and arm64.
+
+    Offering it to a 32-bit Raspberry Pi added a source apt could not satisfy and
+    skipped the source install, which does work there. Read from the Release file
+    rather than hard-coded, so publishing armhf packages opens this on its own.
+    """
+    stub = (
+        'PAGES_BASE="http://example.invalid"\n'
+        "curl() { printf '%s\\n' 'Suite: stable' 'Architectures: amd64 arm64' 'Components: main'; }\n"
+    )
+    for machine, served in (("x86_64", True), ("aarch64", True), ("armv7l", False)):
+        result = _bash_fns(
+            ("host_arch", "pages_apt_has_host_arch"),
+            stub
+            + f'uname() {{ [ "$1" = "-m" ] && echo "{machine}" || command uname "$@"; }}\n'
+            + "pages_apt_has_host_arch && echo served || echo skipped",
+        )
+        assert result.stdout.strip() == ("served" if served else "skipped"), machine
