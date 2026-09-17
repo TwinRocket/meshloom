@@ -1,7 +1,3 @@
-## [Unreleased]
-
----
-
 ## [4.12.3] - 2026-09-17
 
 This is about the hours after 4.12. You type a message at a desk and Enter should send it. You open a repeater's neighbours and want more than a name. You have a Pi 1, and the installer should not hand you a package that dies on the first instruction.
