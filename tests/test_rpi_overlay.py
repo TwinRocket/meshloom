@@ -106,9 +106,7 @@ def test_rpi_kiosk_overlay_opens_local_meshloom() -> None:
 
 def test_rpi_kiosk_image_bake_is_manual_only() -> None:
     script = (REPO / "scripts/build/build_rpi_kiosk_image.sh").read_text(encoding="utf-8")
-    manifest = (REPO / "pkg/rpi/os-list-kiosk.rpi-imager-manifest.tmpl").read_text(
-        encoding="utf-8"
-    )
+    manifest = (REPO / "pkg/rpi/os-list-kiosk.rpi-imager-manifest.tmpl").read_text(encoding="utf-8")
     release = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
     rpi_workflow = (REPO / ".github/workflows/rpi-image.yml").read_text(encoding="utf-8")
 
