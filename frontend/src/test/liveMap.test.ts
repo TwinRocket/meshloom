@@ -16,7 +16,11 @@ import type { CommunityPacketType, DirectoryMapNode, RadioConfig } from '../type
 import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
 
 const { FakeMap, maps, overlays } = vi.hoisted(() => {
-  const maps: Array<{ fireLoad: () => void }> = [];
+  const maps: Array<{
+    fireLoad: () => void;
+    project: () => { x: number; y: number };
+    getCanvas: () => { width: number; height: number; clientWidth: number; clientHeight: number };
+  }> = [];
   const overlays: Array<{ setProps: ReturnType<typeof vi.fn> }> = [];
   class FakeMap {
     static autoLoad = true;
@@ -826,8 +830,8 @@ describe('LiveMapController', () => {
     let t = 73_000;
     const engine = await readyController(() => t, { onLaserSegment, soundTheme: 'laser' });
     engines.push(engine);
-    const map = maps[maps.length - 1] as { project: () => { x: number; y: number } };
-    map.project = () => ({ x: 800, y: 800 });
+    const map = maps[maps.length - 1];
+    if (map) map.project = () => ({ x: 800, y: 800 });
     engine.syncObservations([observation({ type: 'text' })], new Set());
     t += LIVE_HOLD_MS;
     engine.syncObservations([observation({ type: 'text' })], new Set());

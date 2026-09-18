@@ -55,8 +55,8 @@ function createAudioContext(): AudioContext | null {
   }
 }
 
-function crushCurve(): Float32Array {
-  const curve = new Float32Array(256);
+function crushCurve(): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(new ArrayBuffer(256 * Float32Array.BYTES_PER_ELEMENT));
   for (let i = 0; i < 256; i += 1) curve[i] = i / 127.5 - 1;
   return curve;
 }
