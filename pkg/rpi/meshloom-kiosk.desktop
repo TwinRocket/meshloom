@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Meshloom
+Comment=Open Meshloom in a fullscreen browser
+Exec=/usr/lib/meshloom/meshloom-kiosk
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

@@ -1,0 +1,66 @@
+#!/bin/sh
+# Fullscreen Chromium on the local Meshloom UI.
+# XDG / labwc autostart — the flash-time user is unknown at bake.
+
+set -eu
+
+URL="${MESHLOOM_KIOSK_URL:-http://127.0.0.1:8000}"
+CHROMIUM="${MESHLOOM_KIOSK_BROWSER:-}"
+
+if [ -z "$CHROMIUM" ]; then
+    for candidate in /usr/bin/chromium /usr/bin/chromium-browser; do
+        if [ -x "$candidate" ]; then
+            CHROMIUM="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "${CHROMIUM:-}" ]; then
+    echo "meshloom-kiosk: chromium not found" >&2
+    exit 1
+fi
+
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+    echo "meshloom-kiosk: no graphical session" >&2
+    exit 1
+fi
+
+# labwc autostart and XDG autostart may both fire; keep one Chromium.
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+mkdir -p "$LOCK_DIR"
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_DIR/meshloom-kiosk.lock"
+    flock -n 9 || exit 0
+fi
+
+wait_ready() {
+    i=0
+    while [ "$i" -lt 180 ]; do
+        if command -v curl >/dev/null 2>&1; then
+            curl -sf -o /dev/null "$URL/api/health" && return 0
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O /dev/null "$URL/api/health" && return 0
+        fi
+        i=$((i + 1))
+        sleep 1
+    done
+    return 0
+}
+
+wait_ready
+
+# Official Pi kiosk flags, plus --password-store=basic so the keyring
+# dialog does not block the first launch.
+while true; do
+    "$CHROMIUM" \
+        --kiosk \
+        --noerrdialogs \
+        --disable-infobars \
+        --no-first-run \
+        --password-store=basic \
+        --enable-features=OverlayScrollbar \
+        --start-maximized \
+        "$URL" || true
+    sleep 2
+done

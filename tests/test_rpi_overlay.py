@@ -14,7 +14,10 @@ def test_rpi_overlay_does_not_set_community_env() -> None:
     for path in (
         REPO / "pkg/nfpm/meshloom.env",
         REPO / "pkg/rpi/meshloom-console",
+        REPO / "pkg/rpi/meshloom-kiosk",
+        REPO / "pkg/rpi/meshloom-kiosk-setup",
         REPO / "scripts/build/build_rpi_image.sh",
+        REPO / "scripts/build/build_rpi_kiosk_image.sh",
     ):
         text = path.read_text(encoding="utf-8")
         assert "MESHLOOM_COMMUNITY=0" not in text
@@ -77,6 +80,69 @@ def test_rpi_image_script_parses() -> None:
         return
     result = subprocess.run(
         [bash, "-n", str(REPO / "scripts/build/build_rpi_image.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_rpi_kiosk_overlay_opens_local_meshloom() -> None:
+    script = (REPO / "pkg/rpi/meshloom-kiosk").read_text(encoding="utf-8")
+    desktop = (REPO / "pkg/rpi/meshloom-kiosk.desktop").read_text(encoding="utf-8")
+    setup = (REPO / "pkg/rpi/meshloom-kiosk-setup").read_text(encoding="utf-8")
+    service = (REPO / "pkg/rpi/meshloom-kiosk-setup.service").read_text(encoding="utf-8")
+    assert "http://127.0.0.1:8000" in script
+    assert "--kiosk" in script
+    assert "chromium" in script
+    assert "MESHLOOM_COMMUNITY" not in script
+    assert "Exec=/usr/lib/meshloom/meshloom-kiosk" in desktop
+    assert "autologin-user=" in setup
+    assert "graphical.target" in setup
+    assert "WantedBy=graphical.target" in service
+    assert "meshloom-console" not in script
+    assert "meshloom-console" not in setup
+
+
+def test_rpi_kiosk_image_bake_is_manual_only() -> None:
+    script = (REPO / "scripts/build/build_rpi_kiosk_image.sh").read_text(encoding="utf-8")
+    manifest = (REPO / "pkg/rpi/os-list-kiosk.rpi-imager-manifest.tmpl").read_text(
+        encoding="utf-8"
+    )
+    release = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    rpi_workflow = (REPO / ".github/workflows/rpi-image.yml").read_text(encoding="utf-8")
+
+    assert "raspios_arm64-2026-06-19" in script
+    assert "123287c05f27b0eebd8f65456f6369b8f6635fa50a3d440a4f9f6223bf58c8e2" in script
+    assert "raspios_arm64_latest" not in script
+    assert "raspios_lite_arm64" not in script
+    assert "meshloom-rpi-kiosk-arm64.img" in script
+    assert "meshloom-kiosk.rpi-imager-manifest" in script
+    assert "meshloom-console.service" in script
+    assert "systemctl disable meshloom-console.service" in script
+    assert "systemctl enable meshloom-console.service" not in script
+    assert "write_meshloom_apt_source" in script
+    assert "signed-by=/etc/apt/keyrings/meshloom.gpg" in script
+    assert "github.io/meshloom/meshloom.gpg" not in script
+    assert "apt-get update -y || true" not in script
+    assert "apt-get upgrade" not in script
+    assert "Not for PR CI" in script or "Not wired to CI" in script
+    assert "2 GiB" in script
+    assert "init_format" in manifest
+    assert "cloudinit-rpi" in manifest
+    assert "image_download_sha256" in manifest
+    assert "build_rpi_kiosk_image.sh" not in release
+    assert "meshloom-rpi-kiosk" not in release
+    assert "build_rpi_kiosk_image.sh" not in rpi_workflow
+    assert "meshloom-rpi-kiosk" not in rpi_workflow
+
+
+def test_rpi_kiosk_image_script_parses() -> None:
+    bash = shutil.which("bash")
+    if bash is None or os.name == "nt":
+        return
+    result = subprocess.run(
+        [bash, "-n", str(REPO / "scripts/build/build_rpi_kiosk_image.sh")],
         capture_output=True,
         text=True,
         check=False,

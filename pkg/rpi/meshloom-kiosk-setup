@@ -1,0 +1,20 @@
+#!/bin/sh
+# After Imager/cloud-init creates the user, keep desktop autologin on uid 1000.
+# Bake time has no username. Do not take tty1 — that is the graphical session.
+
+set -eu
+
+user="$(getent passwd 1000 | cut -d: -f1 || true)"
+[ -n "$user" ] || exit 0
+
+if [ -f /etc/lightdm/lightdm.conf ]; then
+    if grep -q '^[#]*autologin-user=' /etc/lightdm/lightdm.conf; then
+        sed -i -e "s/^[#]*autologin-user=.*/autologin-user=${user}/" /etc/lightdm/lightdm.conf
+    else
+        printf '\nautologin-user=%s\n' "$user" >>/etc/lightdm/lightdm.conf
+    fi
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --quiet set-default graphical.target || true
+fi
