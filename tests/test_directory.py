@@ -297,9 +297,7 @@ class TestParseDirectoryMapNodes:
             source="local",
             last_seen=now - DIRECTORY_NODE_MAX_AGE_SECONDS - 60,
         )
-        kept = drop_stale_remote_map_nodes(
-            [fresh, stale, unknown, local], now=now
-        )
+        kept = drop_stale_remote_map_nodes([fresh, stale, unknown, local], now=now)
         assert [node.public_key for node in kept] == [
             fresh.public_key,
             unknown.public_key,
@@ -533,9 +531,7 @@ class TestListDirectoryMapNodes:
                 max_remote_age_seconds=DIRECTORY_NODE_MAX_AGE_SECONDS,
             )
 
-        assert [(n.public_key, n.source) for n in live_nodes.nodes] == [
-            (local_only, "local")
-        ]
+        assert [(n.public_key, n.source) for n in live_nodes.nodes] == [(local_only, "local")]
         assert live_nodes.total == 1
 
 
