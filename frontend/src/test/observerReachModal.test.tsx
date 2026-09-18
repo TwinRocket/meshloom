@@ -61,6 +61,7 @@ describe('ObserverReachModal hop path', () => {
           path: ['ab', 'cd'],
           lat: 45.75,
           lon: 4.85,
+          isMLC: true,
         },
         {
           name: 'Paris',
@@ -87,6 +88,11 @@ describe('ObserverReachModal hop path', () => {
       screen.getByText(new RegExp(i18n.t('messageList.observerReachHops', { count: 2 })))
     ).toBeInTheDocument();
     expect(screen.getByText(i18n.t('messageList.observerReachDirect'))).toBeInTheDocument();
+    expect(screen.getByTestId('observer-mlc-mark')).toHaveAttribute(
+      'alt',
+      i18n.t('messageList.observerMlcMark')
+    );
+    expect(screen.getAllByTestId('observer-mlc-mark')).toHaveLength(1);
 
     expect(screen.queryByText('AB')).not.toBeInTheDocument();
     await user.click(

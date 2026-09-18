@@ -69,6 +69,7 @@ class ParsedObservation:
     hops: int | None
     snr: float | None
     path: tuple[str, ...] = ()
+    is_mlc: bool = False
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,7 @@ def _count_only_observations(value: object) -> list[ParsedObservation]:
             hops=None,
             snr=None,
             path=(),
+            is_mlc=False,
         )
         for index in range(raw)
     ]
@@ -305,6 +307,7 @@ def _parse_one_observation(item: dict[str, object]) -> ParsedObservation:
         hops=hops,
         snr=_as_float(item.get("snr")),
         path=path,
+        is_mlc=item.get("isMLC") is True,
     )
 
 
@@ -407,6 +410,7 @@ def _dedup_entries(
                 hops=obs.hops,
                 snr=obs.snr,
                 path=list(obs.path),
+                isMLC=obs.is_mlc,
             )
             continue
         next_hops = existing.hops
@@ -423,6 +427,7 @@ def _dedup_entries(
                 "snr": obs.snr if existing.snr is None else existing.snr,
                 "lat": existing.lat if existing.lat is not None else lat,
                 "lon": existing.lon if existing.lon is not None else lon,
+                "isMLC": existing.isMLC or obs.is_mlc,
             }
         )
     return list(by_key.values())

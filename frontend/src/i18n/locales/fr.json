@@ -112,7 +112,8 @@
     "observerReachExpandPath": "Voir les sauts de {{name}}",
     "observerReachCollapsePath": "Masquer les sauts de {{name}}",
     "observerReachOrigin": "Origine",
-    "observerReachMapAria": "Carte des nœuds qui ont entendu ce paquet"
+    "observerReachMapAria": "Carte des nœuds qui ont entendu ce paquet",
+    "observerMlcMark": "Meshloom Community"
   },
   "sidebar": {
     "collapse": "Réduire la barre latérale",
@@ -423,11 +424,10 @@
       "txPower": "Puissance TX (dBm)",
       "maxTxPower": "Puissance TX max",
       "pathHashMode": "Mode de hachage de chemin",
-      "pathHash1": "1 octet — jusqu’à 63 sauts (défaut)",
-      "pathHash2": "2 octets — jusqu’à 32 sauts",
+      "pathHash1": "1 octet — jusqu’à 63 sauts",
+      "pathHash2": "2 octets — jusqu’à 32 sauts (recommandé)",
       "pathHash3": "3 octets — jusqu’à 21 sauts",
-      "compatWarning": "Avertissement de compatibilité",
-      "compatWarningBody": "TOUS les nœuds sur le trajet d’un message — votre radio, chaque répéteur et le destinataire — doivent exécuter un firmware qui prend en charge le mode choisi. Les messages envoyés avec des sauts de 2 ou 3 octets seront ignorés par tout nœud sur un firmware plus ancien.",
+      "pathHashHelp": "Meshloom utilise 2 octets par défaut. Le hachage 1 octet est plus ambigu sur un mesh chargé.",
       "location": "Position",
       "getting": "Obtention…",
       "useMyLocation": "Utiliser ma position",
@@ -2532,6 +2532,11 @@
     "bannerTitle": "Aucune radio connectée",
     "bannerBody": "Meshloom lit et écrit sur le mesh par l'intermédiaire d'une radio MeshCore. Indiquez où se trouve la vôtre : un périphérique série branché sur cette machine, ou un hôte et un port sur le réseau.",
     "bannerAction": "Connecter une radio"
+  },
+  "pathHashBanner": {
+    "title": "Le hachage de chemin est à 1 octet",
+    "body": "Meshloom recommande les sauts de 2 octets. Un hachage 1 octet collisionne plus souvent sur un mesh chargé et rend les routes plus difficiles à distinguer.",
+    "action": "Ouvrir les réglages radio"
   },
   "edgeSession": {
     "title": "Votre session a expiré",

@@ -50,7 +50,8 @@
     "observerReachExpandPath": "Show hops for {{name}}",
     "observerReachCollapsePath": "Hide hops for {{name}}",
     "observerReachOrigin": "Origin",
-    "observerReachMapAria": "Map of the nodes that heard this packet"
+    "observerReachMapAria": "Map of the nodes that heard this packet",
+    "observerMlcMark": "Meshloom Community"
   },
   "chatHeader": {
     "viewContactInfo": "View contact info",

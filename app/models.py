@@ -1292,6 +1292,7 @@ class ObserverReachEntry(BaseModel):
     hops: int | None = None
     snr: float | None = None
     path: list[str] = Field(default_factory=list)
+    isMLC: bool = False
 
 
 class PacketObserverReachResponse(BaseModel):

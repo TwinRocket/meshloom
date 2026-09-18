@@ -327,6 +327,74 @@ class TestUpdateRadioConfig:
         assert radio_manager.path_hash_mode == 0
         mc.commands.send_appstart.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_one_byte_path_hash_mode_records_opt_in(self):
+        mc = _mock_meshcore_with_info()
+        mc.commands.set_path_hash_mode = AsyncMock(return_value=_radio_result())
+        expected = RadioConfigResponse(
+            public_key="aa" * 32,
+            name="NodeA",
+            lat=10.0,
+            lon=20.0,
+            tx_power=17,
+            max_tx_power=22,
+            radio=RadioSettings(freq=910.525, bw=62.5, sf=7, cr=5),
+            path_hash_mode=0,
+            path_hash_mode_supported=True,
+        )
+
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch.object(radio_manager, "path_hash_mode_supported", True),
+            patch.object(radio_manager, "path_hash_mode", 1),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch(
+                "app.routers.radio.get_radio_config", new_callable=AsyncMock, return_value=expected
+            ),
+            patch(
+                "app.routers.radio.AppSettingsRepository.set_path_hash_one_byte_opt_in",
+                new=AsyncMock(),
+            ) as mock_opt_in,
+        ):
+            await update_radio_config(RadioConfigUpdate(path_hash_mode=0))
+
+        mock_opt_in.assert_awaited_once_with(True)
+
+    @pytest.mark.asyncio
+    async def test_two_byte_path_hash_mode_clears_opt_in(self):
+        mc = _mock_meshcore_with_info()
+        mc.commands.set_path_hash_mode = AsyncMock(return_value=_radio_result())
+        expected = RadioConfigResponse(
+            public_key="aa" * 32,
+            name="NodeA",
+            lat=10.0,
+            lon=20.0,
+            tx_power=17,
+            max_tx_power=22,
+            radio=RadioSettings(freq=910.525, bw=62.5, sf=7, cr=5),
+            path_hash_mode=1,
+            path_hash_mode_supported=True,
+        )
+
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch.object(radio_manager, "path_hash_mode_supported", True),
+            patch.object(radio_manager, "path_hash_mode", 0),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch(
+                "app.routers.radio.get_radio_config", new_callable=AsyncMock, return_value=expected
+            ),
+            patch(
+                "app.routers.radio.AppSettingsRepository.set_path_hash_one_byte_opt_in",
+                new=AsyncMock(),
+            ) as mock_opt_in,
+        ):
+            await update_radio_config(RadioConfigUpdate(path_hash_mode=1))
+
+        mock_opt_in.assert_awaited_once_with(False)
+
 
 class TestPrivateKeyExport:
     @pytest.mark.asyncio

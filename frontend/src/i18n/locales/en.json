@@ -112,7 +112,8 @@
     "observerReachExpandPath": "Show hops for {{name}}",
     "observerReachCollapsePath": "Hide hops for {{name}}",
     "observerReachOrigin": "Origin",
-    "observerReachMapAria": "Map of the nodes that heard this packet"
+    "observerReachMapAria": "Map of the nodes that heard this packet",
+    "observerMlcMark": "Meshloom Community"
   },
   "sidebar": {
     "collapse": "Collapse sidebar",
@@ -423,11 +424,10 @@
       "txPower": "TX Power (dBm)",
       "maxTxPower": "Max TX Power",
       "pathHashMode": "Path Hash Mode",
-      "pathHash1": "1 byte — up to 63 hops (default)",
-      "pathHash2": "2 bytes — up to 32 hops",
+      "pathHash1": "1 byte — up to 63 hops",
+      "pathHash2": "2 bytes — up to 32 hops (recommended)",
       "pathHash3": "3 bytes — up to 21 hops",
-      "compatWarning": "Compatibility Warning",
-      "compatWarningBody": "ALL nodes along a message's route — your radio, every repeater, and the recipient — must be running firmware that supports the selected mode. Messages sent with 2-byte or 3-byte hops will be dropped by any node on older firmware.",
+      "pathHashHelp": "Meshloom defaults to 2-byte hops. 1-byte hashing is harder to disambiguate on a busy mesh.",
       "location": "Location",
       "getting": "Getting...",
       "useMyLocation": "Use My Location",
@@ -2532,6 +2532,11 @@
     "bannerTitle": "No radio connected",
     "bannerBody": "Meshloom reads and writes the mesh through a MeshCore radio. Tell it where yours is — a serial device plugged into this machine, or a host and port on the network.",
     "bannerAction": "Connect a radio"
+  },
+  "pathHashBanner": {
+    "title": "Path hashing is set to 1 byte",
+    "body": "Meshloom recommends 2-byte hops. 1-byte hashes collide more often on a busy mesh and make routes harder to tell apart.",
+    "action": "Open radio settings"
   },
   "edgeSession": {
     "title": "Your session has expired",

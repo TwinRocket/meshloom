@@ -35,7 +35,7 @@ from app.models import (
 from app.radio import RadioOperationBusyError
 from app.radio_sync import send_advertisement as do_send_advertisement
 from app.radio_sync import sync_radio_time
-from app.repository import ContactRepository
+from app.repository import AppSettingsRepository, ContactRepository
 from app.repository.radio_transport import (
     RadioTransportRepository,
     apply_saved_transport,
@@ -430,6 +430,9 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RadioCommandRejectedError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        if update.path_hash_mode is not None:
+            await AppSettingsRepository.set_path_hash_one_byte_opt_in(update.path_hash_mode == 0)
 
     return await get_radio_config()
 

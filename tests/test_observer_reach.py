@@ -102,6 +102,19 @@ class TestObservationParsers:
         assert parsed[0].observer_name == "Lyon"
         assert parsed[0].hops == 2
         assert parsed[0].path == ("ab", "cd")
+        assert parsed[0].is_mlc is False
+
+    def test_is_mlc_true_only_when_explicit(self):
+        parsed = parse_packet_observations(
+            {
+                "observers": [
+                    {"name": "Lyon", "isMLC": True},
+                    {"name": "Paris", "isMLC": False},
+                    {"name": "OldStats"},
+                ]
+            }
+        )
+        assert [item.is_mlc for item in parsed] == [True, False, False]
 
     def test_batch_results(self):
         parsed = parse_batch_observations(

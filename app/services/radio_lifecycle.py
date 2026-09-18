@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 POST_CONNECT_SETUP_TIMEOUT_SECONDS = 300
 POST_CONNECT_SETUP_MAX_ATTEMPTS = 2
+DEFAULT_PATH_HASH_MODE = 1  # 2-byte hops
 
 
 def _clean_device_string(value: object) -> str | None:
@@ -21,6 +22,32 @@ def _decode_fixed_string(raw: bytes, start: int, length: int) -> str | None:
     return _clean_device_string(
         raw[start : start + length].decode("utf-8", "ignore").replace("\0", "")
     )
+
+
+async def apply_default_path_hash_mode(mc, radio_manager) -> None:
+    """Write 2-byte path hashing unless the operator opted back into 1-byte."""
+    if not radio_manager.path_hash_mode_supported:
+        return
+    if radio_manager.path_hash_mode != 0:
+        return
+
+    from app.repository import AppSettingsRepository
+
+    if await AppSettingsRepository.get_path_hash_one_byte_opt_in():
+        logger.info("Keeping 1-byte path hash mode (operator opt-in)")
+        return
+
+    from meshcore import EventType
+
+    result = await mc.commands.set_path_hash_mode(DEFAULT_PATH_HASH_MODE)
+    if result is not None and getattr(result, "type", None) == EventType.ERROR:
+        logger.warning(
+            "Failed to apply default 2-byte path hash mode: %s",
+            getattr(result, "payload", None),
+        )
+        return
+    radio_manager.path_hash_mode = DEFAULT_PATH_HASH_MODE
+    logger.info("Applied default path hash mode: %d (2-byte)", DEFAULT_PATH_HASH_MODE)
 
 
 async def run_post_connect_setup(radio_manager) -> None:
@@ -209,6 +236,11 @@ async def run_post_connect_setup(radio_manager) -> None:
                     logger.debug("Failed to query device info capabilities: %s", exc)
                 finally:
                     reader.handle_rx = _original_handle_rx
+
+                try:
+                    await apply_default_path_hash_mode(mc, radio_manager)
+                except Exception as exc:
+                    logger.warning("Failed to apply default path hash mode: %s", exc)
 
                 from app.radio_proxy.manager import radio_proxy_manager
                 from app.radio_proxy.protocol import parse_proxy_instance_id

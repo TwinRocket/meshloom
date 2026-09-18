@@ -41,6 +41,24 @@ function observerRowKey(observer: ObserverReachEntry, index: number): string {
   return `${observer.public_key ?? observer.name}-${index}`;
 }
 
+function ObserverName({ observer }: { observer: ObserverReachEntry }) {
+  const { t } = useTranslation();
+  return (
+    <span className="flex items-center gap-1.5 min-w-0">
+      {observer.isMLC ? (
+        <img
+          src="./meshloom-mark.svg"
+          alt={t('messageList.observerMlcMark')}
+          title={t('messageList.observerMlcMark')}
+          data-testid="observer-mlc-mark"
+          className="h-3.5 w-3.5 shrink-0"
+        />
+      ) : null}
+      <span className="truncate">{observer.name}</span>
+    </span>
+  );
+}
+
 function observerPath(observer: ObserverReachEntry): string[] {
   return observer.path ?? [];
 }
@@ -258,7 +276,7 @@ export function ObserverReachModal({
                             ) : (
                               <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                             )}
-                            <span className="truncate">{observer.name}</span>
+                            <ObserverName observer={observer} />
                           </span>
                           <span className="shrink-0 text-[0.6875rem] text-muted-foreground tabular-nums">
                             {observer.hops != null
@@ -271,7 +289,9 @@ export function ObserverReachModal({
                         </button>
                       ) : (
                         <div className="px-2 py-1.5 flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate pl-4">{observer.name}</span>
+                          <span className="min-w-0 pl-4">
+                            <ObserverName observer={observer} />
+                          </span>
                           <span className="shrink-0 text-[0.6875rem] text-muted-foreground tabular-nums">
                             {observer.hops != null
                               ? observer.hops === 0

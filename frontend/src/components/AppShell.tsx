@@ -11,6 +11,7 @@ import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { EdgeSessionExpiredDialog } from './EdgeSessionExpiredDialog';
+import { PathHashOneByteBanner } from './PathHashOneByteBanner';
 import { RadioSetupBanner } from './RadioSetupBanner';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
@@ -383,6 +384,12 @@ export function AppShell({
       {!(showSettings && settingsSection === 'radio') && (
         <RadioSetupBanner
           health={statusProps.health ?? null}
+          onOpenRadioSettings={() => handleOpenSettings('radio')}
+        />
+      )}
+      {!(showSettings && settingsSection === 'radio') && (
+        <PathHashOneByteBanner
+          config={statusProps.config}
           onOpenRadioSettings={() => handleOpenSettings('radio')}
         />
       )}

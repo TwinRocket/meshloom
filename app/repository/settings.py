@@ -510,6 +510,30 @@ class AppSettingsRepository:
             return await AppSettingsRepository._get_in_conn(conn)
 
     @staticmethod
+    async def get_path_hash_one_byte_opt_in() -> bool:
+        """True when the operator explicitly chose 1-byte path hashing."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT path_hash_one_byte_opt_in FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return False
+        try:
+            return bool(row["path_hash_one_byte_opt_in"])
+        except (KeyError, TypeError, IndexError):
+            return False
+
+    @staticmethod
+    async def set_path_hash_one_byte_opt_in(opt_in: bool) -> None:
+        """Persist whether reconnects should leave a 1-byte radio setting alone."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET path_hash_one_byte_opt_in = ? WHERE id = 1",
+                (1 if opt_in else 0,),
+            )
+
+    @staticmethod
     async def get_last_notified_update_version() -> str | None:
         """Last catalogue ``latest`` we already Web-Pushed. Not part of AppSettings."""
         async with db.readonly() as conn:

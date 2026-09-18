@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.radio_lifecycle import (
+    apply_default_path_hash_mode,
     prepare_connected_radio,
     reconnect_and_prepare_radio,
     run_post_connect_setup,
@@ -277,3 +278,51 @@ class TestRunPostConnectSetup:
         assert radio_manager._setup_complete is False
         mock_broadcast.assert_called_once_with(False, "TCP: test:4000")
         assert lock.locked() is False
+
+
+class TestApplyDefaultPathHashMode:
+    @pytest.mark.asyncio
+    async def test_writes_two_byte_mode_when_radio_is_one_byte_without_opt_in(self):
+        mc = MagicMock()
+        mc.commands.set_path_hash_mode = AsyncMock(return_value=MagicMock(type="OK"))
+        radio_manager = MagicMock()
+        radio_manager.path_hash_mode_supported = True
+        radio_manager.path_hash_mode = 0
+
+        with patch(
+            "app.repository.AppSettingsRepository.get_path_hash_one_byte_opt_in",
+            new=AsyncMock(return_value=False),
+        ):
+            await apply_default_path_hash_mode(mc, radio_manager)
+
+        mc.commands.set_path_hash_mode.assert_awaited_once_with(1)
+        assert radio_manager.path_hash_mode == 1
+
+    @pytest.mark.asyncio
+    async def test_leaves_one_byte_mode_when_operator_opted_in(self):
+        mc = MagicMock()
+        mc.commands.set_path_hash_mode = AsyncMock()
+        radio_manager = MagicMock()
+        radio_manager.path_hash_mode_supported = True
+        radio_manager.path_hash_mode = 0
+
+        with patch(
+            "app.repository.AppSettingsRepository.get_path_hash_one_byte_opt_in",
+            new=AsyncMock(return_value=True),
+        ):
+            await apply_default_path_hash_mode(mc, radio_manager)
+
+        mc.commands.set_path_hash_mode.assert_not_awaited()
+        assert radio_manager.path_hash_mode == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_when_firmware_does_not_support_path_hash_mode(self):
+        mc = MagicMock()
+        mc.commands.set_path_hash_mode = AsyncMock()
+        radio_manager = MagicMock()
+        radio_manager.path_hash_mode_supported = False
+        radio_manager.path_hash_mode = 0
+
+        await apply_default_path_hash_mode(mc, radio_manager)
+
+        mc.commands.set_path_hash_mode.assert_not_awaited()

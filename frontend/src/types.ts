@@ -862,6 +862,7 @@ export interface ObserverReachEntry {
   hops?: number | null;
   snr?: number | null;
   path?: string[];
+  isMLC?: boolean;
 }
 
 export interface ObserverReachMapHop {

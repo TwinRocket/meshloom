@@ -677,6 +677,14 @@ class TestAppSettingsRepository:
     """Test AppSettingsRepository parsing and migration edge cases."""
 
     @pytest.mark.asyncio
+    async def test_path_hash_one_byte_opt_in_round_trip(self, test_db):
+        assert await AppSettingsRepository.get_path_hash_one_byte_opt_in() is False
+        await AppSettingsRepository.set_path_hash_one_byte_opt_in(True)
+        assert await AppSettingsRepository.get_path_hash_one_byte_opt_in() is True
+        await AppSettingsRepository.set_path_hash_one_byte_opt_in(False)
+        assert await AppSettingsRepository.get_path_hash_one_byte_opt_in() is False
+
+    @pytest.mark.asyncio
     async def test_get_handles_corrupted_json_and_invalid_sort_order(self, test_db):
         """Corrupted JSON fields are recovered with safe defaults.
 

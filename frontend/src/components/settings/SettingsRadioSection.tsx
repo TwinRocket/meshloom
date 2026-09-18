@@ -1502,16 +1502,7 @@ export function SettingsRadioSection({
                 </div>
 
                 {config.path_hash_mode_supported && (
-                  <SettingsField
-                    help={
-                      <span className="block rounded-md border border-warning/50 bg-warning/10 p-3 text-xs text-warning">
-                        <span className="mb-1 block font-semibold">
-                          {t('settings.radio.compatWarning')}
-                        </span>
-                        {t('settings.radio.compatWarningBody')}
-                      </span>
-                    }
-                  >
+                  <SettingsField help={t('settings.radio.pathHashHelp')}>
                     <Label htmlFor="path-hash-mode">{t('settings.radio.pathHashMode')}</Label>
                     <select
                       id="path-hash-mode"

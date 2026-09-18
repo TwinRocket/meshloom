@@ -50,7 +50,8 @@
     "observerReachExpandPath": "Voir les sauts de {{name}}",
     "observerReachCollapsePath": "Masquer les sauts de {{name}}",
     "observerReachOrigin": "Origine",
-    "observerReachMapAria": "Carte des nœuds qui ont entendu ce paquet"
+    "observerReachMapAria": "Carte des nœuds qui ont entendu ce paquet",
+    "observerMlcMark": "Meshloom Community"
   },
   "chatHeader": {
     "viewContactInfo": "Voir la fiche du contact",

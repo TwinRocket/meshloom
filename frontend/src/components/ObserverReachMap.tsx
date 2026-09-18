@@ -217,7 +217,16 @@ export function ObserverReachMap({
               onClick={() => onSelect(key)}
             >
               <Popup>
-                <span className="text-sm">{observer.name}</span>
+                <span className="inline-flex items-center gap-1.5 text-sm">
+                  {observer.isMLC ? (
+                    <img
+                      src="./meshloom-mark.svg"
+                      alt={t('messageList.observerMlcMark')}
+                      className="h-3.5 w-3.5 shrink-0"
+                    />
+                  ) : null}
+                  {observer.name}
+                </span>
                 {observer.hops != null && (
                   <span className="block text-xs text-muted-foreground">
                     {observer.hops === 0
