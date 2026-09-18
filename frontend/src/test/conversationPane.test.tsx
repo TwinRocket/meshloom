@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConversationPane } from '../components/ConversationPane';
@@ -339,7 +339,8 @@ describe('ConversationPane', () => {
     expect(wrapper).not.toContainElement(screen.getByTestId('chat-header'));
   });
 
-  it('renders the live tool pane for live conversations', async () => {
+  it('renders the live tool pane for live conversations and sends adverts', async () => {
+    const onAdvertise = vi.fn(async () => {});
     render(
       <ConversationPane
         {...createProps({
@@ -348,12 +349,28 @@ describe('ConversationPane', () => {
             id: 'live',
             name: 'Live',
           },
+          onAdvertise,
         })}
       />
     );
 
     expect(await screen.findByTestId('live-view')).toBeInTheDocument();
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+
+    const zeroHopBtn = screen.getByRole('button', { name: i18n.t('radioStatus.advertZeroHop') });
+    const floodBtn = screen.getByRole('button', { name: i18n.t('radioStatus.advertFlood') });
+    expect(zeroHopBtn).toBeInTheDocument();
+    expect(floodBtn).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(zeroHopBtn);
+    });
+    expect(onAdvertise).toHaveBeenCalledWith('zero_hop');
+
+    await act(async () => {
+      fireEvent.click(floodBtn);
+    });
+    expect(onAdvertise).toHaveBeenCalledWith('flood');
   });
 
   it('renders the locate tool pane for locate conversations', () => {

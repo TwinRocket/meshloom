@@ -1,3 +1,31 @@
+## [4.13.3] - 2026-09-18
+
+Give your mesh a voice. This release turns Live View into a living, breathing sensory experience with procedural sound effects, upgrades your mesh routing clarity with 2-byte path hashing by default, and proudly badges fellow Meshloom operators across the Community map.
+
+### What's new
+
+- **Hear the mesh pulse in real time.** Live View now features procedural audio synthesis for packets travelling across the air. Listen to your network with three distinct sound themes: gentle **Bubbles** for subtle monitoring, futuristic **Laser** pulses that shift pitch with travel time, or retro **8-bit** arcade bleeps. It is entirely synthesized in your browser (no extra assets to download), spatial and viewport-aware so off-screen traffic won't overwhelm you, polyphony-limited to 4 voices, and starts politely muted on every reload so it never plays uninvited.
+- **2-byte path hashing by default for cleaner routes.** On busy meshes, 1-byte hop hashes collide constantly, muddying routes and traceroutes. Meshloom now automatically opts supported radios into 2-byte path hashing (up to 32 hops across 65,536 hash buckets), giving you dramatically sharper route visibility. If you intentionally prefer 1-byte, Meshloom remembers your choice across reconnects. A discreet banner in the app lets you know if your radio is still running 1-byte mode, with a one-click shortcut to settings.
+- **Spot fellow Meshloom nodes on the Community map.** When viewing packet reach and observers who heard your transmission, nodes powered by Meshloom now proudly display the Meshloom mark next to their name. See your local Meshloom community grow at a glance.
+- **Collapsible Live View legend.** Clean up your map viewport whenever you want: the entire map legend (packet types and roles) can now be collapsed down to a compact toggle with a single click, and your display preference is saved across sessions.
+- **Quick adverts directly from Live View.** Trigger advertisements without leaving your map: two dedicated header buttons let you fire a Zero-hop advert to your direct neighbours or a Flood advert across the network with a single click.
+
+---
+
+### Français
+
+Donnez de la voix à votre mesh. Cette version transforme la Vue Live en une véritable expérience sensorielle grâce à des effets sonores synthétisés en temps réel, améliore la précision de vos routes grâce au hachage de chemin sur 2 octets par défaut, et met en avant la communauté en affichant l'emblème Meshloom pour les nœuds du réseau.
+
+#### Nouveautés
+
+- **Écoutez le pouls du mesh en direct.** La Vue Live s'enrichit d'une synthèse audio procédurale qui donne vie aux paquets traversant les ondes. Trois ambiances sonores sont au choix : **Bulles** pour une ambiance douce et discrète, **Laser** pour des impulsions spatialisées dont le timbre varie avec le trajet, ou **8-bit** pour une touche rétro d'arcade. Entièrement généré par le navigateur (aucun fichier audio à charger), le son respecte votre champ de vision pour ne pas saturer lorsque du trafic survient hors écran, limite la polyphonie à 4 voix et reste poliment désactivé au chargement de la page pour ne jamais surprendre.
+- **Hachage de chemin sur 2 octets par défaut pour des routes plus nettes.** Sur un mesh actif, le hachage sur 1 octet (limité à 256 valeurs) génère de fréquentes collisions qui brouillent l'affichage des routes et des traces. Meshloom bascule désormais automatiquement les radios compatibles en hachage sur 2 octets (jusqu'à 32 sauts parmi 65 536 combinaisons), garantissant une lisibilité bien supérieure. Si vous préférez conserver 1 octet, votre choix est désormais mémorisé d'une reconnexion à l'autre. Un bandeau discret vous signale si votre radio tourne encore en 1 octet, avec un accès direct aux réglages.
+- **Repérez les nœuds Meshloom sur la carte Community.** Dans la fenêtre de portée des observateurs ayant capté votre message, les nœuds propulsés par Meshloom affichent désormais fièrement le logo Meshloom à côté de leur nom. Repérez en un clin d'œil vos pairs dans la région !
+- **Légende repliable sur la Vue Live.** Gagnez de la place sur votre carte : l'intégralité de la légende (types de paquets et rôles) peut désormais être repliée en une pastille compacte d'un simple clic sur son chevron, et votre préférence est conservée d'une visite à l'autre.
+- **Annonces rapides directement depuis la Vue Live.** Déclenchez vos annonces sans quitter la carte des yeux : deux boutons dédiés dans la barre d'en-tête vous permettent d'émettre une annonce Zéro saut (voisins directs) ou une annonce Flood (tout le réseau) d'un simple clic.
+
+---
+
 ## [4.13.2] - 2026-09-18
 
 After an in-app upgrade, the next Install click failed. The update helper rewrote the job status as root, so Meshloom could not start another apply.

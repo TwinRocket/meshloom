@@ -421,18 +421,29 @@ describe('LiveView', () => {
     resume.mockRestore();
   });
 
-  it('collapses packet types from the legend chevron and leaves roles open', () => {
+  it('collapses the entire legend from the chevron and restores it on click', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     const toggle = screen.getByRole('button', { name: i18n.t('live.packetLegendToggle') });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('live.nodes.companion'))).toBeInTheDocument();
+
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(
       screen.queryByRole('group', { name: i18n.t('live.packetLegend') })
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('live.nodes.companion'))).toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: i18n.t('live.roleLegend') })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('live.nodes.companion'))).not.toBeInTheDocument();
     expect(localStorage.getItem(LIVE_PACKET_LEGEND_OPEN_KEY)).toBe('false');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
+    expect(localStorage.getItem(LIVE_PACKET_LEGEND_OPEN_KEY)).toBe('true');
   });
 });

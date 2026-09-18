@@ -409,7 +409,7 @@ export function LiveView({
 
 function LiveDualLegend() {
   const { t } = useTranslation();
-  const [packetLegendOpen, setPacketLegendOpen] = useState(getSavedLivePacketLegendOpen);
+  const [legendOpen, setLegendOpen] = useState(getSavedLivePacketLegendOpen);
   return (
     <aside
       className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-72 rounded-md border border-border bg-background/90 px-2.5 py-2 text-[0.6875rem] shadow-md"
@@ -417,62 +417,72 @@ function LiveDualLegend() {
     >
       <button
         type="button"
-        className="pointer-events-auto flex items-center gap-1 font-medium uppercase tracking-wider text-muted-foreground"
-        aria-expanded={packetLegendOpen}
-        aria-controls="live-packet-legend"
+        className="pointer-events-auto flex items-center gap-1 font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+        aria-expanded={legendOpen}
+        aria-controls="live-legend-content"
         aria-label={t('live.packetLegendToggle')}
         onClick={() => {
-          const next = !packetLegendOpen;
-          setPacketLegendOpen(next);
+          const next = !legendOpen;
+          setLegendOpen(next);
           setSavedLivePacketLegendOpen(next);
         }}
       >
         <ChevronDown
-          className={cn('h-3 w-3 transition-transform', packetLegendOpen ? '' : '-rotate-90')}
+          className={cn('h-3 w-3 transition-transform', legendOpen ? '' : '-rotate-90')}
           aria-hidden="true"
         />
-        {t('live.packetLegend')}
+        {t('live.legendTitle')}
       </button>
-      <div
-        id="live-packet-legend"
-        hidden={!packetLegendOpen}
-        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
-        role="group"
-        aria-label={t('live.packetLegend')}
-      >
-        {LIVE_PACKET_TYPES.map((type) => (
-          <span key={type} className="flex items-center gap-1">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: liveTypeColor(type) }}
-            />
-            {t(`live.legend.${type}`)}
-          </span>
-        ))}
-        <span className="flex items-center gap-1 text-muted-foreground">
-          <span className="inline-block h-0.5 w-3 bg-foreground" />
-          {t('live.confidence.exact')}
-        </span>
-        <span className="flex items-center gap-1 text-muted-foreground">
-          <span className="inline-block h-0.5 w-3 border-t border-dashed border-foreground/70" />
-          {t('live.confidence.probable')}
-        </span>
-      </div>
-      <div className="mt-2 font-medium uppercase tracking-wider text-muted-foreground">
-        {t('live.roleLegend')}
-      </div>
-      <div
-        className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
-        role="group"
-        aria-label={t('live.roleLegend')}
-      >
-        {LIVE_ROLE_LEGEND.map(({ role, shape }) => (
-          <span key={role} className="flex items-center gap-1">
-            <RoleShapeIcon shape={shape} color={NODE_ROLE_STYLE[role].color} />
-            {t(`live.nodes.${role}`)}
-          </span>
-        ))}
-      </div>
+      {legendOpen && (
+        <div id="live-legend-content" className="mt-2 space-y-2 pointer-events-auto">
+          <div>
+            <div className="font-medium uppercase tracking-wider text-muted-foreground">
+              {t('live.packetLegend')}
+            </div>
+            <div
+              id="live-packet-legend"
+              className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
+              role="group"
+              aria-label={t('live.packetLegend')}
+            >
+              {LIVE_PACKET_TYPES.map((type) => (
+                <span key={type} className="flex items-center gap-1">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: liveTypeColor(type) }}
+                  />
+                  {t(`live.legend.${type}`)}
+                </span>
+              ))}
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <span className="inline-block h-0.5 w-3 bg-foreground" />
+                {t('live.confidence.exact')}
+              </span>
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <span className="inline-block h-0.5 w-3 border-t border-dashed border-foreground/70" />
+                {t('live.confidence.probable')}
+              </span>
+            </div>
+          </div>
+          <div>
+            <div className="mt-2 font-medium uppercase tracking-wider text-muted-foreground">
+              {t('live.roleLegend')}
+            </div>
+            <div
+              className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
+              role="group"
+              aria-label={t('live.roleLegend')}
+            >
+              {LIVE_ROLE_LEGEND.map(({ role, shape }) => (
+                <span key={role} className="flex items-center gap-1">
+                  <RoleShapeIcon shape={shape} color={NODE_ROLE_STYLE[role].color} />
+                  {t(`live.nodes.${role}`)}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

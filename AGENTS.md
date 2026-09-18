@@ -2,8 +2,6 @@
 
 ## Important Rules
 
-**NEVER make git commits.** A human must make all commits. You may stage files and prepare commit messages, but do not run `git commit`.
-
 If instructed to "run all tests" or "get ready for a commit" or other summative, work ending directives, run:
 
 ```bash

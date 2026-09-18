@@ -24,7 +24,7 @@
     "mapAria": "Live packet map",
     "legendTitle": "Map legend",
     "packetLegend": "Packet types",
-    "packetLegendToggle": "Show or hide packet types",
+    "packetLegendToggle": "Show or hide map legend",
     "roleLegend": "Roles",
     "legend": {
       "req": "Request",

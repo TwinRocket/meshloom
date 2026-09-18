@@ -732,6 +732,7 @@ export function App() {
       setSettingsSection('community');
       if (!showSettings) handleToggleSettingsView();
     },
+    onAdvertise: handleAdvertise,
   };
   const searchProps = {
     contacts,

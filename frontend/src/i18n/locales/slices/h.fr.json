@@ -24,7 +24,7 @@
     "mapAria": "Carte du flux live de paquets",
     "legendTitle": "Légende de la carte",
     "packetLegend": "Types de paquets",
-    "packetLegendToggle": "Afficher ou masquer les types de paquets",
+    "packetLegendToggle": "Afficher ou masquer la légende de la carte",
     "roleLegend": "Rôles",
     "legend": {
       "req": "Requête",

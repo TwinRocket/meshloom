@@ -1,6 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { Radio } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { api, formatApiError } from '../api';
+import { cn } from '../lib/utils';
+import { Button } from './ui/button';
 import { ChatHeader } from './ChatHeader';
 import { MessageInput, type MessageInputHandle } from './MessageInput';
 import { MessageList } from './MessageList';
@@ -17,6 +23,7 @@ import type {
   HealthStatus,
   Message,
   PathDiscoveryResponse,
+  RadioAdvertMode,
   RadioConfig,
   RadioTraceHopRequest,
   RadioTraceResponse,
@@ -104,6 +111,7 @@ interface ConversationPaneProps {
   communityIata?: string;
   onOpenDirectorySettings?: () => void;
   onOpenCommunitySettings?: () => void;
+  onAdvertise?: (mode: RadioAdvertMode) => Promise<void>;
 }
 
 function LoadingPane({ label }: { label: string }) {
@@ -186,8 +194,32 @@ export function ConversationPane({
   communityIata,
   onOpenDirectorySettings,
   onOpenCommunitySettings,
+  onAdvertise,
 }: ConversationPaneProps) {
   const { t } = useTranslation();
+  const [advertisingMode, setAdvertisingMode] = useState<RadioAdvertMode | null>(null);
+
+  const handleLiveAdvertise = async (mode: RadioAdvertMode) => {
+    if (advertisingMode !== null) return;
+    setAdvertisingMode(mode);
+    try {
+      if (onAdvertise) {
+        await onAdvertise(mode);
+      } else {
+        await api.sendAdvertisement(mode);
+        toast.success(mode === 'zero_hop' ? t('toast.advertZeroHopSent') : t('toast.advertSent'));
+      }
+    } catch (err) {
+      const label = mode === 'zero_hop' ? t('toast.advertZeroHopLabel') : t('toast.advertLabel');
+      console.error(`Failed to send ${label}:`, err);
+      toast.error(t('toast.advertFailed', { label }), {
+        description: formatApiError(err, t) || t('chat.checkRadio'),
+      });
+    } finally {
+      setAdvertisingMode(null);
+    }
+  };
+
   const [roomAuthenticated, setRoomAuthenticated] = useState(false);
   const activeContactIsRepeater = useMemo(() => {
     if (!activeConversation || activeConversation.type !== 'contact') return false;
@@ -251,9 +283,61 @@ export function ConversationPane({
   }
 
   if (activeConversation.type === 'live') {
+    const connected = health?.radio_connected === true;
     return (
       <>
-        <ToolPaneHeader title={t('conversation.live')} onBack={onBackToTools} />
+        <ToolPaneHeader
+          title={t('conversation.live')}
+          onBack={onBackToTools}
+          actions={
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={advertisingMode !== null || !connected}
+                onClick={() => void handleLiveAdvertise('zero_hop')}
+                title={connected ? t('radioStatus.advertHelp') : t('radioStatus.disconnectedHelp')}
+                className="h-8 gap-1.5 px-2.5 text-xs"
+              >
+                <Radio
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0',
+                    advertisingMode === 'zero_hop' && 'animate-pulse'
+                  )}
+                  aria-hidden="true"
+                />
+                <span>
+                  {advertisingMode === 'zero_hop'
+                    ? t('radioStatus.sending')
+                    : t('radioStatus.advertZeroHop')}
+                </span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={advertisingMode !== null || !connected}
+                onClick={() => void handleLiveAdvertise('flood')}
+                title={connected ? t('radioStatus.advertHelp') : t('radioStatus.disconnectedHelp')}
+                className="h-8 gap-1.5 px-2.5 text-xs"
+              >
+                <Radio
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0',
+                    advertisingMode === 'flood' && 'animate-pulse'
+                  )}
+                  aria-hidden="true"
+                />
+                <span>
+                  {advertisingMode === 'flood'
+                    ? t('radioStatus.sending')
+                    : t('radioStatus.advertFlood')}
+                </span>
+              </Button>
+            </div>
+          }
+        />
         <div className="flex-1 overflow-hidden">
           <Suspense fallback={<LoadingPane label={t('conversation.loadingLive')} />}>
             <LiveView
