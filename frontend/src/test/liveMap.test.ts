@@ -9,7 +9,9 @@ import {
   MAX_CONCURRENT_ANIMS,
   MAX_LIVE_CATCHUP,
   MAX_PENDING_ANIMS,
+  laserTravelMs,
 } from '../components/live/liveRender';
+import { TYPE_VOICE } from '../utils/liveSound';
 import type { CommunityPacketType, DirectoryMapNode, RadioConfig } from '../types';
 import type { LiveObservation, LiveWaypoint } from '../utils/livePackets';
 
@@ -26,6 +28,8 @@ const { FakeMap, maps, overlays } = vi.hoisted(() => {
     fitBounds = vi.fn();
     getCenter = () => ({ lat: 46.2, lng: 5.2 });
     getZoom = () => 6;
+    project = () => ({ x: 20, y: 20 });
+    getCanvas = () => ({ width: 200, height: 200, clientWidth: 200, clientHeight: 200 });
     constructor() {
       maps.push(this);
     }
@@ -160,9 +164,12 @@ function radioConfig(overrides: Partial<RadioConfig> = {}): RadioConfig {
   };
 }
 
-async function readyController(now: () => number): Promise<LiveMapController> {
+async function readyController(
+  now: () => number,
+  options: ConstructorParameters<typeof LiveMapController>[1] = {}
+): Promise<LiveMapController> {
   const host = document.createElement('div');
-  const engine = new LiveMapController(host, { now });
+  const engine = new LiveMapController(host, { now, ...options });
   await Promise.resolve();
   await Promise.resolve();
   return engine;
@@ -748,5 +755,82 @@ describe('LiveMapController', () => {
     overlay.onClick?.({ object: { pick: { kind: 'exact', label: 'hop', x: 0, y: 0 } } });
     expect(onNodeClick).toHaveBeenCalledTimes(1);
     expect(onNodeClick).toHaveBeenCalledWith('ee'.repeat(32));
+  });
+
+  it('does not emit laser-segment sound while the theme is off', async () => {
+    const onLaserSegment = vi.fn();
+    let t = 70_000;
+    const engine = await readyController(() => t, { onLaserSegment });
+    engines.push(engine);
+    engine.syncObservations([observation()], new Set());
+    t += LIVE_HOLD_MS;
+    engine.syncObservations([observation()], new Set());
+    expect(onLaserSegment).not.toHaveBeenCalled();
+  });
+
+  it('emits one visible pulse segment when sound is on', async () => {
+    const onLaserSegment = vi.fn();
+    let t = 71_000;
+    const engine = await readyController(() => t, { onLaserSegment, soundTheme: 'laser' });
+    engines.push(engine);
+    engine.syncObservations([observation({ type: 'text' })], new Set());
+    t += LIVE_HOLD_MS;
+    engine.syncObservations([observation({ type: 'text' })], new Set());
+    expect(onLaserSegment).toHaveBeenCalledTimes(1);
+    expect(onLaserSegment).toHaveBeenCalledWith({
+      type: 'text',
+      durationMs: laserTravelMs(0) * TYPE_VOICE.text.durScale,
+    });
+  });
+
+  it('emits a new segment when the head reaches the next hop', async () => {
+    const onLaserSegment = vi.fn();
+    let t = 72_000;
+    const engine = await readyController(() => t, { onLaserSegment, soundTheme: 'laser' });
+    engines.push(engine);
+    const row = observation({
+      type: 'ack',
+      advertPubkey: 'aa'.repeat(32),
+      waypoints: [
+        waypoint(45.74, 4.92, { kind: 'hop', token: 'bb22', pubkey: 'bb'.repeat(32) }),
+        waypoint(45.72, 5.08, { kind: 'ear' }),
+      ],
+    });
+    engine.setDirectoryNodes([
+      {
+        public_key: 'aa'.repeat(32),
+        name: 'A',
+        role: 'companion',
+        lat: 45.76,
+        lon: 4.84,
+        source: 'local',
+      },
+    ]);
+    engine.syncObservations([row], new Set());
+    t += LIVE_HOLD_MS;
+    engine.syncObservations([row], new Set());
+    expect(onLaserSegment).toHaveBeenCalledTimes(1);
+
+    const travelMs = engine.getShotSnapshots()[0]?.travelMs ?? 0;
+    t += travelMs / 2;
+    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    expect(onLaserSegment).toHaveBeenCalledTimes(2);
+    expect(onLaserSegment.mock.calls[1]?.[0]).toEqual({
+      type: 'ack',
+      durationMs: (travelMs / 2) * TYPE_VOICE.ack.durScale,
+    });
+  });
+
+  it('does not emit when the edge is off-canvas', async () => {
+    const onLaserSegment = vi.fn();
+    let t = 73_000;
+    const engine = await readyController(() => t, { onLaserSegment, soundTheme: 'laser' });
+    engines.push(engine);
+    const map = maps[maps.length - 1] as { project: () => { x: number; y: number } };
+    map.project = () => ({ x: 800, y: 800 });
+    engine.syncObservations([observation({ type: 'text' })], new Set());
+    t += LIVE_HOLD_MS;
+    engine.syncObservations([observation({ type: 'text' })], new Set());
+    expect(onLaserSegment).not.toHaveBeenCalled();
   });
 });

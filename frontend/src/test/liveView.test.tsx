@@ -9,6 +9,9 @@ import i18n from '../i18n';
 import { resetLivePacketStore, setLiveCloseCode } from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { stopLivePacketFixtures } from '../fixtures/livePacketFixtures';
+import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
+import { LiveSoundEngine } from '../utils/liveSound';
+import { LIVE_SOUND_THEME_KEY } from '../utils/liveSoundPreference';
 
 vi.mock('../api', () => ({
   api: {
@@ -30,6 +33,8 @@ const { FakeMap, overlays } = vi.hoisted(() => {
     fitBounds = vi.fn();
     getCenter = () => ({ lat: 46.2, lng: 5.2 });
     getZoom = () => 6;
+    project = () => ({ x: 20, y: 20 });
+    getCanvas = () => ({ width: 200, height: 200, clientWidth: 200, clientHeight: 200 });
     on(event: string, cb: (...args: unknown[]) => void) {
       const list = this.handlers.get(event) ?? [];
       list.push(cb);
@@ -79,6 +84,8 @@ vi.mock('@deck.gl/layers', () => ({
 
 describe('LiveView', () => {
   beforeEach(() => {
+    localStorage.removeItem(LIVE_SOUND_THEME_KEY);
+    localStorage.removeItem(LIVE_PACKET_LEGEND_OPEN_KEY);
     resetLivePacketStore();
     resetRawPacketStore();
     vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
@@ -398,5 +405,34 @@ describe('LiveView', () => {
       id: repeater.public_key,
       name: 'FR83-RPT',
     });
+  });
+
+  it('exposes a Sound select defaulting to Off', () => {
+    const resume = vi.spyOn(LiveSoundEngine.prototype, 'resume').mockResolvedValue();
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    const select = screen.getByLabelText(i18n.t('live.soundTheme'));
+    expect(select).toHaveValue('off');
+    expect(screen.getByRole('option', { name: i18n.t('live.soundOff') })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: i18n.t('live.soundBubbles') })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: i18n.t('live.soundLaser') })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: i18n.t('live.soundBit8') })).toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'laser' } });
+    expect(select).toHaveValue('laser');
+    expect(resume).toHaveBeenCalled();
+    expect(localStorage.getItem(LIVE_SOUND_THEME_KEY)).toBe('laser');
+    resume.mockRestore();
+  });
+
+  it('collapses packet types from the legend chevron and leaves roles open', () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    const toggle = screen.getByRole('button', { name: i18n.t('live.packetLegendToggle') });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('group', { name: i18n.t('live.packetLegend') })).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('live.nodes.companion'))).toBeInTheDocument();
+    expect(localStorage.getItem(LIVE_PACKET_LEGEND_OPEN_KEY)).toBe('false');
   });
 });

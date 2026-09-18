@@ -2,7 +2,12 @@ import { MapboxOverlay } from '@deck.gl/mapbox';
 import { IconLayer, PathLayer, ScatterplotLayer } from '@deck.gl/layers';
 import maplibregl, { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 
-import type { DirectoryMapNode, DirectoryNodeRole, RadioConfig } from '../../types';
+import type {
+  CommunityPacketType,
+  DirectoryMapNode,
+  DirectoryNodeRole,
+  RadioConfig,
+} from '../../types';
 import { osmDarkRasterStyle } from '../../utils/mapTiles';
 import { isValidLocation } from '../../utils/pathUtils';
 import {
@@ -74,6 +79,9 @@ import {
   resolveOriginPin,
   snrWeight,
 } from '../../utils/livePackets';
+import { laserSegmentSoundMs } from '../../utils/liveSound';
+import type { LiveSoundTheme } from '../../utils/liveSoundPreference';
+import { laserEdgeVisible } from '../../utils/liveSoundVisibility';
 
 /** As close in as framing the nodes is allowed to go — a lone node must not put
  *  the camera in a street. */
@@ -118,6 +126,10 @@ export type LiveHoverPayload =
 
 type HoverHandler = (hover: LiveHoverPayload | null) => void;
 type NodeClickHandler = (publicKey: string) => void;
+export type LaserSegmentHandler = (event: {
+  type: CommunityPacketType;
+  durationMs: number;
+}) => void;
 
 interface PathSprite {
   id: string;
@@ -151,6 +163,7 @@ interface LaserShot {
   travelMs: number;
   remanenceMs: number;
   rippledHops: Set<number>;
+  soundedEdges: Set<number>;
 }
 
 interface HoldBucket {
@@ -190,6 +203,8 @@ export interface LiveMapOptions {
   onHover?: HoverHandler;
   onNodeClick?: NodeClickHandler;
   now?: () => number;
+  soundTheme?: LiveSoundTheme;
+  onLaserSegment?: LaserSegmentHandler;
 }
 
 export interface LiveShotSnapshot {
@@ -212,6 +227,8 @@ export interface LiveRippleSnapshot {
 export class LiveMapController {
   private readonly onHover: HoverHandler;
   private readonly onNodeClick: NodeClickHandler;
+  private readonly onLaserSegment: LaserSegmentHandler;
+  private soundTheme: LiveSoundTheme;
   private readonly wallClock: () => number;
   private map: MapLibreMap | null = null;
   private overlay: MapboxOverlay | null = null;
@@ -258,6 +275,8 @@ export class LiveMapController {
   constructor(container: HTMLElement, options: LiveMapOptions = {}) {
     this.onHover = options.onHover ?? (() => {});
     this.onNodeClick = options.onNodeClick ?? (() => {});
+    this.onLaserSegment = options.onLaserSegment ?? (() => {});
+    this.soundTheme = options.soundTheme ?? 'off';
     this.wallClock = options.now ?? (() => performance.now());
     const saved = readLiveCamera();
     container.classList.add('live-map-osm');
@@ -351,6 +370,10 @@ export class LiveMapController {
     }
     this.playing = true;
     this.startLoop();
+  }
+
+  setSoundTheme(theme: LiveSoundTheme): void {
+    this.soundTheme = theme;
   }
 
   setFilters(filters: LiveViewFilters): void {
@@ -675,6 +698,7 @@ export class LiveMapController {
       travelMs: laserTravelMs(edges),
       remanenceMs: laserRemanenceMs(edges),
       rippledHops: new Set(),
+      soundedEdges: new Set(),
     });
     if (this.shots.length > MAX_LIVE_SHOTS) {
       this.shots = this.shots.slice(this.shots.length - MAX_LIVE_SHOTS);
@@ -701,6 +725,52 @@ export class LiveMapController {
       startedAt,
       pinRadius: style.radius,
     });
+  }
+
+  private maybeSoundEdges(shot: LaserShot, headT: number): void {
+    if (this.soundTheme === 'off' || shot.finishedAt != null) return;
+    const count = shot.poly.points.length;
+    if (count <= 1) {
+      if (shot.soundedEdges.has(0)) return;
+      shot.soundedEdges.add(0);
+      this.emitLaserSegment(shot, shot.poly.points[0] ?? null, null, 0);
+      return;
+    }
+    const edges = count - 1;
+    for (let i = 0; i < edges; i++) {
+      if (shot.soundedEdges.has(i)) continue;
+      if (headT + 1e-6 < hopVertexT(count, i)) continue;
+      shot.soundedEdges.add(i);
+      this.emitLaserSegment(shot, shot.poly.points[i], shot.poly.points[i + 1], edges);
+    }
+  }
+
+  private emitLaserSegment(
+    shot: LaserShot,
+    from: LonLat | null,
+    to: LonLat | null,
+    edges: number
+  ): void {
+    if (!from || !this.edgeIsOnScreen(from, to)) return;
+    this.onLaserSegment({
+      type: shot.obs.type,
+      durationMs: laserSegmentSoundMs(edges, shot.obs.type),
+    });
+  }
+
+  private edgeIsOnScreen(from: LonLat, to: LonLat | null): boolean {
+    if (!this.map) return false;
+    const canvas = this.map.getCanvas();
+    const width = canvas.clientWidth || canvas.width;
+    const height = canvas.clientHeight || canvas.height;
+    const start = this.map.project([from[0], from[1]]);
+    const end = to ? this.map.project([to[0], to[1]]) : null;
+    return laserEdgeVisible(
+      { x: start.x, y: start.y },
+      end ? { x: end.x, y: end.y } : null,
+      width,
+      height
+    );
   }
 
   private maybeRippleHops(shot: LaserShot, headT: number, now: number): void {
@@ -1035,6 +1105,7 @@ export class LiveMapController {
       nextShots.push(shot);
       if (!observationPassesFilters(shot.obs, this.filters)) continue;
       this.maybeRippleHops(shot, travel.headT, now);
+      this.maybeSoundEdges(shot, travel.headT);
 
       const fade =
         shot.finishedAt == null ? 1 : remanenceOpacity(now - shot.finishedAt, shot.remanenceMs);

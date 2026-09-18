@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { api } from '../api';
@@ -25,6 +26,17 @@ import {
   observationFromRaw,
   type LiveObservation,
 } from '../utils/livePackets';
+import {
+  getSavedLivePacketLegendOpen,
+  setSavedLivePacketLegendOpen,
+} from '../utils/liveLegendPreference';
+import { LiveSoundEngine } from '../utils/liveSound';
+import {
+  LIVE_SOUND_THEMES,
+  getSavedLiveSoundTheme,
+  setSavedLiveSoundTheme,
+  type LiveSoundTheme,
+} from '../utils/liveSoundPreference';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { LiveMapController, type LiveHoverPayload } from './live/liveMap';
@@ -94,9 +106,12 @@ export function LiveView({
   const [iataFilter, setIataFilter] = useState('');
   const [hiddenTypes, setHiddenTypes] = useState<Set<CommunityPacketType>>(() => new Set());
   const [certainOnly, setCertainOnly] = useState(false);
+  const [soundTheme, setSoundTheme] = useState<LiveSoundTheme>(getSavedLiveSoundTheme);
   const [hover, setHover] = useState<LiveHoverPayload | null>(null);
   const mapHostRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<LiveMapController | null>(null);
+  const soundEngineRef = useRef<LiveSoundEngine | null>(null);
+  const soundThemeRef = useRef(soundTheme);
   const hoverRef = useRef<(payload: LiveHoverPayload | null) => void>(() => {});
   const nodeClickRef = useRef<(publicKey: string) => void>(() => {});
   // The directory fetch and the engine race each other; whichever lands second
@@ -109,6 +124,7 @@ export function LiveView({
   const optedOut = connection.optOut || !communityEnabled;
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
 
+  soundThemeRef.current = soundTheme;
   hoverRef.current = setHover;
   nodeClickRef.current = (publicKey) => {
     const action = resolveLiveKnownNodeAction(publicKey, contacts);
@@ -145,11 +161,24 @@ export function LiveView({
   publishPinsRef.current = publishPins;
 
   useEffect(() => {
+    const sound = new LiveSoundEngine();
+    soundEngineRef.current = sound;
+    return () => {
+      sound.destroy();
+      soundEngineRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     const host = mapHostRef.current;
     if (!host) return;
     const engine = new LiveMapController(host, {
       onHover: (payload) => hoverRef.current(payload),
       onNodeClick: (publicKey) => nodeClickRef.current(publicKey),
+      soundTheme: soundThemeRef.current,
+      onLaserSegment: (event) => {
+        soundEngineRef.current?.play(soundThemeRef.current, event.type, event.durationMs);
+      },
     });
     engineRef.current = engine;
     publishPinsRef.current(directoryNodesRef.current);
@@ -158,6 +187,10 @@ export function LiveView({
       engineRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setSoundTheme(soundTheme);
+  }, [soundTheme]);
 
   useEffect(() => {
     publishPins(directoryNodesRef.current);
@@ -278,6 +311,35 @@ export function LiveView({
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
         <label className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">{t('live.soundTheme')}</span>
+          <select
+            value={soundTheme}
+            onChange={(event) => {
+              const next = event.target.value as LiveSoundTheme;
+              setSoundTheme(next);
+              setSavedLiveSoundTheme(next);
+              if (next === 'off') soundEngineRef.current?.stopAll();
+              else void soundEngineRef.current?.resume();
+            }}
+            className="rounded border border-border bg-background px-1.5 py-0.5"
+            aria-label={t('live.soundTheme')}
+          >
+            {LIVE_SOUND_THEMES.map((theme) => (
+              <option key={theme} value={theme}>
+                {t(
+                  theme === 'off'
+                    ? 'live.soundOff'
+                    : theme === 'bubbles'
+                      ? 'live.soundBubbles'
+                      : theme === 'laser'
+                        ? 'live.soundLaser'
+                        : 'live.soundBit8'
+                )}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5">
           <span className="text-muted-foreground">{t('live.iataFilter')}</span>
           <select
             value={iataFilter}
@@ -353,15 +415,33 @@ export function LiveView({
 
 function LiveDualLegend() {
   const { t } = useTranslation();
+  const [packetLegendOpen, setPacketLegendOpen] = useState(getSavedLivePacketLegendOpen);
   return (
     <aside
       className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-72 rounded-md border border-border bg-background/90 px-2.5 py-2 text-[0.6875rem] shadow-md"
       aria-label={t('live.legendTitle')}
     >
-      <div className="font-medium uppercase tracking-wider text-muted-foreground">
+      <button
+        type="button"
+        className="pointer-events-auto flex items-center gap-1 font-medium uppercase tracking-wider text-muted-foreground"
+        aria-expanded={packetLegendOpen}
+        aria-controls="live-packet-legend"
+        aria-label={t('live.packetLegendToggle')}
+        onClick={() => {
+          const next = !packetLegendOpen;
+          setPacketLegendOpen(next);
+          setSavedLivePacketLegendOpen(next);
+        }}
+      >
+        <ChevronDown
+          className={cn('h-3 w-3 transition-transform', packetLegendOpen ? '' : '-rotate-90')}
+          aria-hidden="true"
+        />
         {t('live.packetLegend')}
-      </div>
+      </button>
       <div
+        id="live-packet-legend"
+        hidden={!packetLegendOpen}
         className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1"
         role="group"
         aria-label={t('live.packetLegend')}
