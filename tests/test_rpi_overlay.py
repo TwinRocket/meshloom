@@ -120,6 +120,11 @@ def test_rpi_kiosk_image_bake_is_manual_only() -> None:
     assert "meshloom-kiosk.rpi-imager-manifest" in script
     assert "mktemp -d /tmp/" not in script
     assert '"$OUTPUT_DIR/meshloom-rpi-kiosk.XXXXXX"' in script
+    assert "ensure_foreign_aarch64" in script
+    assert "qemu-aarch64-static" in script
+    assert "qemu-user-binfmt" in script
+    assert "undo_guest_qemu" in script
+    assert "resolv.conf.meshloom-bak" in script
     assert "meshloom-console.service" in script
     assert "systemctl disable meshloom-console.service" in script
     assert "systemctl enable meshloom-console.service" not in script

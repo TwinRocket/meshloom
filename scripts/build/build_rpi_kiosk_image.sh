@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Assemble a Raspberry Pi OS Desktop 64-bit image with Meshloom and a
 # Chromium kiosk on http://127.0.0.1:8000.
-# Linux host (arm64 preferred so the chroot is native), kpartx (or losetup -P), xz.
+# Linux host, any CPU. Native chroot on arm64; qemu-user + binfmt on amd64
+# and other hosts. kpartx (or losetup -P), xz.
 # Manual / on demand. Not for PR CI — upload the result with:
 #   gh release upload vX.Y.Z dist/meshloom-rpi-kiosk-arm64.img.xz \
 #     dist/meshloom-kiosk.rpi-imager-manifest --clobber
@@ -33,6 +34,10 @@ LOOP=""
 ROOTMNT=""
 BOOTMNT=""
 KPARTX=0
+NEED_QEMU=0
+QEMU_HOST=""
+QEMU_COPIED=0
+RESOLV_REPLACED=0
 GROW_BYTES=$((3 * 1024 * 1024 * 1024))
 TWO_GIB=$((2 * 1024 * 1024 * 1024))
 
@@ -42,8 +47,10 @@ Usage: scripts/build/build_rpi_kiosk_image.sh --deb PATH [--output-dir DIR] [--v
 
 Build a bootable Raspberry Pi OS Desktop (64-bit) image with Meshloom already
 installed and Chromium opening http://127.0.0.1:8000 in kiosk mode. Requires
-root on Linux and xz. Prefer an arm64 host so the chroot does not need QEMU.
-Needs about 25–30G free. Not wired to CI.
+root on Linux and xz. On arm64 the chroot is native. On amd64 and other
+hosts the script uses qemu-user + binfmt (installs qemu-user-static /
+qemu-user-binfmt when apt or dnf can). Needs about 25–30G free. Not wired
+to CI.
 
 Do not bake Wi-Fi, passwords, or SSH keys into the image. Those go through
 Raspberry Pi Imager 2.0.6+ (cloudinit-rpi) at flash time, using the generated
@@ -90,6 +97,111 @@ require_disk() {
     exit 1
 }
 
+find_qemu_aarch64() {
+    local candidate
+    for candidate in /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+binfmt_aarch64_ready() {
+    [ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]
+}
+
+enable_binfmt_aarch64() {
+    if [ ! -d /proc/sys/fs/binfmt_misc ]; then
+        return 1
+    fi
+    if command -v update-binfmts >/dev/null 2>&1; then
+        update-binfmts --enable qemu-aarch64 >/dev/null 2>&1 || true
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart systemd-binfmt.service >/dev/null 2>&1 || true
+    fi
+    binfmt_aarch64_ready
+}
+
+install_host_qemu() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "[rpi-kiosk] Installing qemu-user for cross-arch chroot..."
+        apt-get install -y --no-install-recommends qemu-user-static qemu-user-binfmt &&
+            return 0
+        apt-get update -y
+        apt-get install -y --no-install-recommends qemu-user-static qemu-user-binfmt &&
+            return 0
+        apt-get install -y --no-install-recommends qemu-user-static && return 0
+        apt-get install -y --no-install-recommends qemu-user-binfmt && return 0
+        return 1
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+        echo "[rpi-kiosk] Installing qemu-user-static for cross-arch chroot..."
+        dnf install -y qemu-user-static qemu-user-static-aarch64 && return 0
+        return 1
+    fi
+    return 1
+}
+
+ensure_foreign_aarch64() {
+    local host
+    host="$(uname -m)"
+    case "$host" in
+        aarch64 | arm64)
+            echo "[rpi-kiosk] Host is $host; chroot is native."
+            return 0
+            ;;
+    esac
+    NEED_QEMU=1
+    echo "[rpi-kiosk] Host is $host; arm64 chroot will use QEMU."
+    QEMU_HOST="$(find_qemu_aarch64 || true)"
+    if [ -z "$QEMU_HOST" ] || ! binfmt_aarch64_ready; then
+        install_host_qemu || true
+        QEMU_HOST="$(find_qemu_aarch64 || true)"
+        enable_binfmt_aarch64 || true
+    fi
+    if [ -z "$QEMU_HOST" ]; then
+        echo "This host is $host and qemu-aarch64 is missing." >&2
+        echo "Install qemu-user-static and qemu-user-binfmt (Debian/Ubuntu)" >&2
+        echo "or qemu-user-static (Fedora), then retry." >&2
+        exit 1
+    fi
+    if ! binfmt_aarch64_ready; then
+        echo "qemu-aarch64 binfmt is not registered; apt/dpkg inside the image cannot run." >&2
+        echo "Install qemu-user-binfmt / qemu-user-static and restart systemd-binfmt." >&2
+        exit 1
+    fi
+    echo "[rpi-kiosk] Using $QEMU_HOST"
+}
+
+prepare_guest_qemu() {
+    [ "$NEED_QEMU" = 1 ] || return 0
+    install -m 0755 "$QEMU_HOST" "$ROOTMNT/usr/bin/qemu-aarch64-static"
+    QEMU_COPIED=1
+    if [ -e "$ROOTMNT/etc/resolv.conf" ] || [ -L "$ROOTMNT/etc/resolv.conf" ]; then
+        mv "$ROOTMNT/etc/resolv.conf" "$ROOTMNT/etc/resolv.conf.meshloom-bak"
+    fi
+    cp /etc/resolv.conf "$ROOTMNT/etc/resolv.conf"
+    RESOLV_REPLACED=1
+}
+
+undo_guest_qemu() {
+    if [ "$QEMU_COPIED" = 1 ] && [ -n "${ROOTMNT:-}" ]; then
+        rm -f "$ROOTMNT/usr/bin/qemu-aarch64-static"
+        QEMU_COPIED=0
+    fi
+    if [ "$RESOLV_REPLACED" = 1 ] && [ -n "${ROOTMNT:-}" ]; then
+        rm -f "$ROOTMNT/etc/resolv.conf"
+        if [ -e "$ROOTMNT/etc/resolv.conf.meshloom-bak" ] ||
+            [ -L "$ROOTMNT/etc/resolv.conf.meshloom-bak" ]; then
+            mv "$ROOTMNT/etc/resolv.conf.meshloom-bak" "$ROOTMNT/etc/resolv.conf"
+        fi
+        RESOLV_REPLACED=0
+    fi
+}
+
 write_meshloom_apt_source() {
     local dest_root="$1"
     local pages="https://twinrocket.github.io/meshloom"
@@ -109,10 +221,12 @@ write_meshloom_apt_source() {
 
 # Unpack on the output filesystem, not /tmp. /tmp is often a 16G tmpfs;
 # the Desktop image plus the 3G grow will not fit there.
+ensure_foreign_aarch64
 mkdir -p "$OUTPUT_DIR"
 WORKDIR="$(mktemp -d "$OUTPUT_DIR/meshloom-rpi-kiosk.XXXXXX")"
 cleanup() {
     set +e
+    undo_guest_qemu
     if [ -n "${ROOTMNT:-}" ]; then
         umount "$ROOTMNT/boot/firmware" 2>/dev/null
         umount "$ROOTMNT/proc" 2>/dev/null
@@ -227,6 +341,8 @@ for fs in proc sys dev dev/pts; do
     mount --bind "/$fs" "$ROOTMNT/$fs"
 done
 
+prepare_guest_qemu
+
 chroot "$ROOTMNT" /bin/bash -s <<'CHROOT'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -250,6 +366,8 @@ hostnamectl set-hostname meshloom 2>/dev/null || echo meshloom >/etc/hostname
 echo "[rpi-kiosk] Disk inside chroot after Meshloom:"
 df -h /
 CHROOT
+
+undo_guest_qemu
 
 if [ -f "$BOOTMNT/network-config" ]; then
     if ! grep -q "optional:" "$BOOTMNT/network-config"; then
