@@ -1,3 +1,29 @@
+## [4.13.4] - 2026-09-18
+
+`#live` was still painting Community nodes that had not advertised for days, because Stats treated every directory pull as a fresh sighting.
+
+### Changed
+
+- **Hide Community pins after 24 hours.** `#live` only keeps a directory pin if the node was last heard within 24 hours. Re-importing the catalogue no longer refreshes that clock.
+- **Show a pin when a live packet has GPS.** An origin or hop with exact coordinates is drawn as soon as the frame arrives, without waiting for the next directory fetch.
+
+`#map` and local GPS contacts are unchanged.
+
+---
+
+### Français
+
+`#live` affichait encore des nœuds Community qui n’avaient plus annoncé depuis plusieurs jours : Stats prenait chaque rechargement de l’annuaire pour une nouvelle observation.
+
+#### Modifications
+
+- **Masquer les épingles Community après 24 heures.** Sur `#live`, une épingle d’annuaire ne reste que si le nœud a été entendu dans les 24 dernières heures. Relire le catalogue ne remet plus cette horloge à zéro.
+- **Afficher une épingle dès qu’un paquet live a un GPS.** Une origine ou un saut avec des coordonnées exactes est dessiné à l’arrivée de la trame, sans attendre le prochain chargement de l’annuaire.
+
+`#map` et les contacts GPS locaux ne changent pas.
+
+---
+
 ## [4.13.3] - 2026-09-18
 
 Give your mesh a voice. This release turns Live View into a living, breathing sensory experience with procedural sound effects, upgrades your mesh routing clarity with 2-byte path hashing by default, and proudly badges fellow Meshloom operators across the Community map.
