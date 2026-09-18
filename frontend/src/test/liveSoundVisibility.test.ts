@@ -20,21 +20,13 @@ describe('liveSoundVisibility', () => {
   });
 
   it('detects a segment that crosses the canvas', () => {
-    expect(
-      segmentIntersectsViewport({ x: -40, y: 50 }, { x: 240, y: 50 }, 200, 100)
-    ).toBe(true);
-    expect(
-      segmentIntersectsViewport({ x: 100, y: -20 }, { x: 100, y: 140 }, 200, 100)
-    ).toBe(true);
+    expect(segmentIntersectsViewport({ x: -40, y: 50 }, { x: 240, y: 50 }, 200, 100)).toBe(true);
+    expect(segmentIntersectsViewport({ x: 100, y: -20 }, { x: 100, y: 140 }, 200, 100)).toBe(true);
   });
 
   it('rejects a segment that stays outside the canvas', () => {
-    expect(
-      segmentIntersectsViewport({ x: -40, y: -20 }, { x: -10, y: -5 }, 200, 100)
-    ).toBe(false);
-    expect(
-      segmentIntersectsViewport({ x: 300, y: 0 }, { x: 400, y: 80 }, 200, 100)
-    ).toBe(false);
+    expect(segmentIntersectsViewport({ x: -40, y: -20 }, { x: -10, y: -5 }, 200, 100)).toBe(false);
+    expect(segmentIntersectsViewport({ x: 300, y: 0 }, { x: 400, y: 80 }, 200, 100)).toBe(false);
   });
 
   it('treats a 1-point pulse as its projected point', () => {

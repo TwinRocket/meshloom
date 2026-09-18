@@ -31,12 +31,7 @@ import {
   setSavedLivePacketLegendOpen,
 } from '../utils/liveLegendPreference';
 import { LiveSoundEngine } from '../utils/liveSound';
-import {
-  LIVE_SOUND_THEMES,
-  getSavedLiveSoundTheme,
-  setSavedLiveSoundTheme,
-  type LiveSoundTheme,
-} from '../utils/liveSoundPreference';
+import { LIVE_SOUND_THEMES, type LiveSoundTheme } from '../utils/liveSoundPreference';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { LiveMapController, type LiveHoverPayload } from './live/liveMap';
@@ -106,7 +101,7 @@ export function LiveView({
   const [iataFilter, setIataFilter] = useState('');
   const [hiddenTypes, setHiddenTypes] = useState<Set<CommunityPacketType>>(() => new Set());
   const [certainOnly, setCertainOnly] = useState(false);
-  const [soundTheme, setSoundTheme] = useState<LiveSoundTheme>(getSavedLiveSoundTheme);
+  const [soundTheme, setSoundTheme] = useState<LiveSoundTheme>('off');
   const [hover, setHover] = useState<LiveHoverPayload | null>(null);
   const mapHostRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<LiveMapController | null>(null);
@@ -317,7 +312,6 @@ export function LiveView({
             onChange={(event) => {
               const next = event.target.value as LiveSoundTheme;
               setSoundTheme(next);
-              setSavedLiveSoundTheme(next);
               if (next === 'off') soundEngineRef.current?.stopAll();
               else void soundEngineRef.current?.resume();
             }}

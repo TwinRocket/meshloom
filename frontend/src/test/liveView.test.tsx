@@ -11,7 +11,6 @@ import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { stopLivePacketFixtures } from '../fixtures/livePacketFixtures';
 import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
 import { LiveSoundEngine } from '../utils/liveSound';
-import { LIVE_SOUND_THEME_KEY } from '../utils/liveSoundPreference';
 
 vi.mock('../api', () => ({
   api: {
@@ -84,8 +83,8 @@ vi.mock('@deck.gl/layers', () => ({
 
 describe('LiveView', () => {
   beforeEach(() => {
-    localStorage.removeItem(LIVE_SOUND_THEME_KEY);
     localStorage.removeItem(LIVE_PACKET_LEGEND_OPEN_KEY);
+    localStorage.setItem('meshloom-live-sound-theme', 'laser');
     resetLivePacketStore();
     resetRawPacketStore();
     vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
@@ -407,7 +406,7 @@ describe('LiveView', () => {
     });
   });
 
-  it('exposes a Sound select defaulting to Off', () => {
+  it('exposes a Sound select that starts Off even if a theme was stored', () => {
     const resume = vi.spyOn(LiveSoundEngine.prototype, 'resume').mockResolvedValue();
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     const select = screen.getByLabelText(i18n.t('live.soundTheme'));
@@ -419,7 +418,6 @@ describe('LiveView', () => {
     fireEvent.change(select, { target: { value: 'laser' } });
     expect(select).toHaveValue('laser');
     expect(resume).toHaveBeenCalled();
-    expect(localStorage.getItem(LIVE_SOUND_THEME_KEY)).toBe('laser');
     resume.mockRestore();
   });
 
@@ -430,7 +428,9 @@ describe('LiveView', () => {
     expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('group', { name: i18n.t('live.packetLegend') })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: i18n.t('live.packetLegend') })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
     expect(screen.getByText(i18n.t('live.nodes.companion'))).toBeInTheDocument();
     expect(localStorage.getItem(LIVE_PACKET_LEGEND_OPEN_KEY)).toBe('false');
