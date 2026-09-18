@@ -5,6 +5,7 @@ import {
   type Contact,
   type DirectoryMapNode,
   type DirectoryNodeRole,
+  type DirectoryNodeSource,
 } from '../../types';
 import { isValidLocation } from '../../utils/pathUtils';
 import {
@@ -49,6 +50,10 @@ export const MAX_LIVE_SHOTS = 140;
 /** Newest observations kept when one coalesce bucket releases. */
 export const MAX_LIVE_CATCHUP = 36;
 export const LIVE_CAMERA_STORAGE_KEY = 'meshloom-live-camera';
+/** Matches Stats / OSS directory freshness and the live-directory refetch period. */
+export const DIRECTORY_NODE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const DIRECTORY_NODES_REFRESH_MS = 10 * 60 * 1000;
+const HEARD_PIN_PUBKEY_RE = /^[0-9a-fA-F]{64}$/;
 
 export const LASER_CORE_WIDTH_MIN = 2.0;
 export const LASER_CORE_WIDTH_MAX = 2.8;
@@ -851,6 +856,64 @@ export function localContactsToMapNodes(
     });
   }
   return nodes;
+}
+
+function considerHeardPin(
+  byKey: Map<string, { node: DirectoryMapNode; t: number }>,
+  pubkey: string | undefined,
+  lat: number,
+  lon: number,
+  name: string | undefined,
+  t: number,
+  source: DirectoryNodeSource,
+  now: number
+): void {
+  if (now - t >= DIRECTORY_NODE_MAX_AGE_MS) return;
+  if (!pubkey || !HEARD_PIN_PUBKEY_RE.test(pubkey)) return;
+  if (!isValidLocation(lat, lon)) return;
+  const key = pubkey.toLowerCase();
+  const existing = byKey.get(key);
+  if (existing && existing.t >= t) return;
+  byKey.set(key, {
+    t,
+    node: {
+      public_key: key,
+      name: name?.trim() || key.slice(0, 12),
+      role: 'unknown',
+      lat,
+      lon,
+      source,
+      last_seen: Math.floor(t / 1000),
+    },
+  });
+}
+
+/** City-plan pins from live observations: exact origin / hops with GPS. Never the ear. */
+export function heardDirectoryPins(
+  observations: readonly LiveObservation[],
+  now: number = Date.now()
+): DirectoryMapNode[] {
+  const byKey = new Map<string, { node: DirectoryMapNode; t: number }>();
+  for (const obs of observations) {
+    const source: DirectoryNodeSource = obs.source === 'local' ? 'local' : 'community-db';
+    if (obs.advertPubkey && obs.originGps) {
+      considerHeardPin(
+        byKey,
+        obs.advertPubkey,
+        obs.originGps.lat,
+        obs.originGps.lon,
+        obs.originGps.name,
+        obs.t,
+        source,
+        now
+      );
+    }
+    for (const point of obs.waypoints) {
+      if (point.kind === 'ear' || point.confidence !== 'exact') continue;
+      considerHeardPin(byKey, point.pubkey, point.lat, point.lon, point.label, obs.t, source, now);
+    }
+  }
+  return [...byKey.values()].map((item) => item.node);
 }
 
 export function mergeLocalOverDirectory(

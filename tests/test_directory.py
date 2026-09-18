@@ -10,7 +10,9 @@ from app.models import DirectoryResolveHopsRequest
 from app.repository.directory import DirectoryHopCacheRepository
 from app.routers.directory import post_reset_directory_cache, post_resolve_hops
 from app.services.directory import (
+    DIRECTORY_NODE_MAX_AGE_SECONDS,
     drop_observer_nodes,
+    drop_stale_remote_map_nodes,
     get_directory_node_neighbors,
     get_directory_node_reach,
     list_directory_map_nodes,
@@ -256,6 +258,54 @@ class TestParseDirectoryMapNodes:
         assert nodes[0].role == "observer"
         assert drop_observer_nodes(nodes) == []
 
+    def test_drops_remote_pins_older_than_24h_and_keeps_local(self):
+        from app.models import DirectoryMapNode
+
+        now = 1_800_000_000
+        fresh = DirectoryMapNode(
+            public_key="aa" * 32,
+            name="Fresh",
+            role="repeater",
+            lat=45.0,
+            lon=5.0,
+            source="community-db",
+            last_seen=now - DIRECTORY_NODE_MAX_AGE_SECONDS + 60,
+        )
+        stale = DirectoryMapNode(
+            public_key="bb" * 32,
+            name="Stale",
+            role="repeater",
+            lat=46.0,
+            lon=6.0,
+            source="community-db",
+            last_seen=now - DIRECTORY_NODE_MAX_AGE_SECONDS - 60,
+        )
+        unknown = DirectoryMapNode(
+            public_key="cc" * 32,
+            name="UnknownAge",
+            role="companion",
+            lat=47.0,
+            lon=7.0,
+            source="community-db",
+        )
+        local = DirectoryMapNode(
+            public_key="dd" * 32,
+            name="LocalOld",
+            role="companion",
+            lat=48.0,
+            lon=8.0,
+            source="local",
+            last_seen=now - DIRECTORY_NODE_MAX_AGE_SECONDS - 60,
+        )
+        kept = drop_stale_remote_map_nodes(
+            [fresh, stale, unknown, local], now=now
+        )
+        assert [node.public_key for node in kept] == [
+            fresh.public_key,
+            unknown.public_key,
+            local.public_key,
+        ]
+
     def test_keeps_upstream_source_tag_and_parses_last_seen_at(self):
         nodes, total = parse_directory_map_nodes(
             {
@@ -431,6 +481,62 @@ class TestListDirectoryMapNodes:
         assert live_nodes.nodes[0].last_seen == 1_800_000_000
         assert live_nodes.nodes[1].last_seen == 1_700_000_100
         assert live_nodes.total == 2
+
+    @pytest.mark.asyncio
+    async def test_live_list_drops_stale_remote_and_keeps_local(self, test_db):
+        from app.models import ContactUpsert
+        from app.repository import ContactRepository
+        from app.services.meshloom_community import update_community
+
+        reset_directory_nodes_cache()
+        await update_community(enabled=True, iata="LYS")
+        local_only = "cc" * 32
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key=local_only,
+                name="LocalBuddy",
+                type=1,
+                lat=43.7,
+                lon=7.3,
+                last_seen=1_700_000_100,
+            )
+        )
+        now = 1_800_000_000
+        stale_seen = now - DIRECTORY_NODE_MAX_AGE_SECONDS - 120
+
+        async def fake_data(*_args: object, **_kwargs: object) -> object:
+            return {
+                "total": 1,
+                "nodes": [
+                    {
+                        "public_key": "aa" * 32,
+                        "name": "ColdRelay",
+                        "role": "repeater",
+                        "lat": 45.0,
+                        "lon": 5.0,
+                        "source": "community-db",
+                        "last_seen": stale_seen,
+                    }
+                ],
+            }
+
+        with (
+            patch(
+                "app.services.directory._community_directory_data",
+                side_effect=fake_data,
+            ),
+            patch("app.services.directory.time.time", return_value=now),
+        ):
+            live_nodes = await list_directory_map_nodes(
+                include_local=True,
+                include_observers=True,
+                max_remote_age_seconds=DIRECTORY_NODE_MAX_AGE_SECONDS,
+            )
+
+        assert [(n.public_key, n.source) for n in live_nodes.nodes] == [
+            (local_only, "local")
+        ]
+        assert live_nodes.total == 1
 
 
 class TestDirectoryReach:

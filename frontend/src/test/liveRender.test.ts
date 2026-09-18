@@ -28,6 +28,9 @@ import {
   geometryDirectoryNodes,
   laserRemanenceMs,
   laserTravelMs,
+  DIRECTORY_NODE_MAX_AGE_MS,
+  DIRECTORY_NODES_REFRESH_MS,
+  heardDirectoryPins,
   localContactsToMapNodes,
   mergeLocalOverDirectory,
   pinVisualRadius,
@@ -164,6 +167,7 @@ function observation(overrides: Partial<LiveObservation> = {}): LiveObservation 
     advertPubkey: overrides.advertPubkey ?? null,
     srcHash: overrides.srcHash ?? null,
     packetHash: overrides.packetHash ?? null,
+    originGps: overrides.originGps,
   } as LiveObservation;
 }
 
@@ -589,6 +593,62 @@ describe('contacts overlay and ripples', () => {
     expect(merged[0].lat).toBe(45.71);
     const tombstoned = mergeLocalOverDirectory(directory, [], new Set(['aa'.repeat(32)]));
     expect(tombstoned.map((node) => node.public_key)).toEqual(['bb'.repeat(32)]);
+  });
+
+  it('turns exact origin and hop GPS into pins and ignores the ear', () => {
+    const now = 1_800_000_000_000;
+    const originKey = 'ab'.repeat(32);
+    const hopKey = 'cd'.repeat(32);
+    const pins = heardDirectoryPins(
+      [
+        observation({
+          t: now - 1_000,
+          advertPubkey: originKey,
+          originGps: { lat: 43.7, lon: 7.25, name: 'Advertiser' },
+          waypoints: [
+            waypoint(45.7, 4.8, {
+              kind: 'hop',
+              confidence: 'exact',
+              pubkey: hopKey,
+              label: 'Hill',
+            }),
+            waypoint(45.8, 4.9, { kind: 'ear', confidence: 'exact', token: 'ear-1' }),
+            waypoint(46.2, 6.1, {
+              kind: 'hop',
+              confidence: 'probable',
+              pubkey: 'ef'.repeat(32),
+              label: 'Guess',
+            }),
+          ],
+        }),
+      ],
+      now
+    );
+    expect(pins.map((node) => node.public_key).sort()).toEqual([originKey, hopKey]);
+    expect(pins.find((node) => node.public_key === originKey)).toMatchObject({
+      name: 'Advertiser',
+      lat: 43.7,
+      lon: 7.25,
+      role: 'unknown',
+    });
+    expect(pins.find((node) => node.public_key === hopKey)?.name).toBe('Hill');
+  });
+
+  it('drops heard pins older than 24h', () => {
+    const now = 1_800_000_000_000;
+    const pins = heardDirectoryPins(
+      [
+        observation({
+          t: now - DIRECTORY_NODE_MAX_AGE_MS - 1,
+          advertPubkey: 'ab'.repeat(32),
+          originGps: { lat: 43.7, lon: 7.25 },
+          waypoints: [],
+        }),
+      ],
+      now
+    );
+    expect(pins).toEqual([]);
+    expect(DIRECTORY_NODES_REFRESH_MS).toBe(10 * 60 * 1000);
   });
 
   it('keeps observer GPS in the merged pin list and uses it as a hop pin', () => {

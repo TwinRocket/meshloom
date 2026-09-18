@@ -44,6 +44,7 @@ CACHE_TTL_SECONDS = 86400
 NODES_PAGE_SIZE = 500
 NODES_MAX_PAGES = 40
 NODES_CACHE_TTL_SECONDS = 600
+DIRECTORY_NODE_MAX_AGE_SECONDS = 24 * 60 * 60
 PUBKEY_HEX_LEN = 64
 MAX_HOPS = 64
 _HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
@@ -514,6 +515,24 @@ def drop_observer_nodes(nodes: list[DirectoryMapNode]) -> list[DirectoryMapNode]
     return [node for node in nodes if node.role != "observer"]
 
 
+def drop_stale_remote_map_nodes(
+    nodes: list[DirectoryMapNode],
+    *,
+    now: float | None = None,
+    max_age_seconds: int = DIRECTORY_NODE_MAX_AGE_SECONDS,
+) -> list[DirectoryMapNode]:
+    """Drop remote pins whose last_seen is older than max_age. Local pins stay."""
+    cutoff = (time.time() if now is None else now) - max_age_seconds
+    kept: list[DirectoryMapNode] = []
+    for node in nodes:
+        if node.source == "local":
+            kept.append(node)
+            continue
+        if node.last_seen is None or node.last_seen >= cutoff:
+            kept.append(node)
+    return kept
+
+
 async def _list_remote_directory_map_nodes() -> DirectoryMapNodesResponse:
     """GPS pins from Community. Empty when Community is off."""
     global _nodes_cache
@@ -541,12 +560,17 @@ async def list_directory_map_nodes(
     *,
     include_local: bool = False,
     include_observers: bool = True,
+    max_remote_age_seconds: int | None = None,
 ) -> DirectoryMapNodesResponse:
     """GPS pins for directory roles. Local contacts only when include_local."""
     remote = await _list_remote_directory_map_nodes()
     nodes = remote.nodes if include_observers else drop_observer_nodes(remote.nodes)
     total = remote.total
     dropped = len(remote.nodes) - len(nodes)
+    if max_remote_age_seconds is not None:
+        fresh = drop_stale_remote_map_nodes(nodes, max_age_seconds=max_remote_age_seconds)
+        dropped += len(nodes) - len(fresh)
+        nodes = fresh
     if dropped and total is not None:
         total = max(0, total - dropped)
     if include_local:

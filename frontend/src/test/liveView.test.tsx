@@ -3,10 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveView } from '../components/LiveView';
 import { LiveMapController } from '../components/live/liveMap';
+import { DIRECTORY_NODES_REFRESH_MS } from '../components/live/liveRender';
 import { api } from '../api';
 import type { Contact } from '../types';
 import i18n from '../i18n';
-import { resetLivePacketStore, setLiveCloseCode } from '../stores/livePacketStore';
+import {
+  recordCommunityPacket,
+  resetLivePacketStore,
+  setLiveCloseCode,
+} from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { stopLivePacketFixtures } from '../fixtures/livePacketFixtures';
 import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
@@ -445,5 +450,52 @@ describe('LiveView', () => {
     expect(screen.getByRole('group', { name: i18n.t('live.packetLegend') })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: i18n.t('live.roleLegend') })).toBeInTheDocument();
     expect(localStorage.getItem(LIVE_PACKET_LEGEND_OPEN_KEY)).toBe('true');
+  });
+
+  it('refetches the live directory every 10 minutes', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+      await vi.waitFor(() => expect(api.getLiveDirectoryMapNodes).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(DIRECTORY_NODES_REFRESH_MS);
+      expect(api.getLiveDirectoryMapNodes).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('adds a pin when a community frame names an exact origin with GPS', async () => {
+    const originKey = 'ab'.repeat(32);
+    const spy = vi.spyOn(LiveMapController.prototype, 'setDirectoryNodes');
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    await waitFor(() => expect(api.getLiveDirectoryMapNodes).toHaveBeenCalled());
+    recordCommunityPacket({
+      v: 2,
+      event_id: 'heard-origin',
+      hash8: 'aabbccdd',
+      type: 'advert',
+      path: [],
+      hop_count: 0,
+      hops: [],
+      ear: { lat: 45.7256, lon: 5.0811, source: 'advert' },
+      origin: {
+        token: 'ab12',
+        confidence: 'exact',
+        lat: 43.7,
+        lon: 7.25,
+        pubkey: originKey,
+        name: 'OnAir',
+      },
+      iata: 'LYS',
+      t: Date.now(),
+      ear_id: 'ear-heard',
+    });
+    await waitFor(() => {
+      const last = spy.mock.calls[spy.mock.calls.length - 1]?.[0] ?? [];
+      expect(last.some((node) => node.public_key === originKey && node.name === 'OnAir')).toBe(
+        true
+      );
+    });
+    spy.mockRestore();
   });
 });

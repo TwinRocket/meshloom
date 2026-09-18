@@ -124,6 +124,8 @@ export interface LiveObservation {
   routeKind: LiveRouteKind;
   advertPubkey: string | null;
   srcHash: string | null;
+  /** Exact origin GPS from the Community frame, when the advertiser is named. */
+  originGps?: { lat: number; lon: number; name?: string } | null;
 }
 
 export function isCommunityPacketType(value: unknown): value is CommunityPacketType {
@@ -786,6 +788,18 @@ export function observationFromCommunity(packet: CommunityPacket): LiveObservati
     routeKind: frame.route_kind ?? 'unknown',
     advertPubkey: frame.origin?.pubkey ?? null,
     srcHash: null,
+    originGps: exactOriginGps(frame.origin),
+  };
+}
+
+function exactOriginGps(
+  origin: CommunityPacket['origin']
+): { lat: number; lon: number; name?: string } | null {
+  if (!origin || origin.confidence !== 'exact' || !hopHasCoords(origin)) return null;
+  return {
+    lat: origin.lat,
+    lon: origin.lon,
+    ...(origin.name ? { name: origin.name } : {}),
   };
 }
 

@@ -36,11 +36,13 @@ import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { LiveMapController, type LiveHoverPayload } from './live/liveMap';
 import {
+  DIRECTORY_NODES_REFRESH_MS,
   LIVE_PACKET_TYPES,
   LIVE_ROLE_LEGEND,
   NODE_ROLE_STYLE,
   collectIataCodes,
   emptyLiveFilters,
+  heardDirectoryPins,
   localContactsToMapNodes,
   localHash8Set,
   mergeLocalOverDirectory,
@@ -112,6 +114,7 @@ export function LiveView({
   // The directory fetch and the engine race each other; whichever lands second
   // applies the nodes, so the payload is never dropped on the floor.
   const directoryNodesRef = useRef<DirectoryMapNode[]>([]);
+  const heardDirectoryPinsRef = useRef<DirectoryMapNode[]>([]);
   const seenContactKeysRef = useRef<Set<string>>(new Set());
   const tombstonesRef = useRef<Set<string>>(new Set());
 
@@ -136,7 +139,7 @@ export function LiveView({
   };
 
   const publishPins = useCallback(
-    (directory: DirectoryMapNode[]) => {
+    (directory: DirectoryMapNode[], heard: DirectoryMapNode[] = []) => {
       const local = localContactsToMapNodes(contacts, blockedKeys, blockedNames);
       const current = new Set(local.map((node) => node.public_key));
       for (const key of current) {
@@ -146,8 +149,9 @@ export function LiveView({
       for (const key of seenContactKeysRef.current) {
         if (!current.has(key)) tombstonesRef.current.add(key);
       }
+      const withHeard = mergeLocalOverDirectory(directory, heard, new Set());
       engineRef.current?.setDirectoryNodes(
-        mergeLocalOverDirectory(directory, local, tombstonesRef.current)
+        mergeLocalOverDirectory(withHeard, local, tombstonesRef.current)
       );
     },
     [blockedKeys, blockedNames, contacts]
@@ -176,7 +180,7 @@ export function LiveView({
       },
     });
     engineRef.current = engine;
-    publishPinsRef.current(directoryNodesRef.current);
+    publishPinsRef.current(directoryNodesRef.current, heardDirectoryPinsRef.current);
     return () => {
       engine.destroy();
       engineRef.current = null;
@@ -186,10 +190,6 @@ export function LiveView({
   useEffect(() => {
     engineRef.current?.setSoundTheme(soundTheme);
   }, [soundTheme]);
-
-  useEffect(() => {
-    publishPins(directoryNodesRef.current);
-  }, [publishPins]);
 
   useEffect(() => {
     if (!communityReady) {
@@ -223,20 +223,25 @@ export function LiveView({
 
   useEffect(() => {
     let cancelled = false;
-    void api.getLiveDirectoryMapNodes().then(
-      (res) => {
-        if (cancelled) return;
-        directoryNodesRef.current = res.nodes;
-        publishPinsRef.current(res.nodes);
-      },
-      () => {
-        if (cancelled) return;
-        directoryNodesRef.current = [];
-        publishPinsRef.current([]);
-      }
-    );
+    const load = () => {
+      void api.getLiveDirectoryMapNodes().then(
+        (res) => {
+          if (cancelled) return;
+          directoryNodesRef.current = res.nodes;
+          publishPinsRef.current(res.nodes, heardDirectoryPinsRef.current);
+        },
+        () => {
+          if (cancelled) return;
+          directoryNodesRef.current = [];
+          publishPinsRef.current([], heardDirectoryPinsRef.current);
+        }
+      );
+    };
+    load();
+    const refresh = window.setInterval(load, DIRECTORY_NODES_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(refresh);
     };
   }, []);
 
@@ -267,6 +272,13 @@ export function LiveView({
     }
     return list;
   }, [communityPackets, config, optedOut, prefixIndex, rawPackets]);
+
+  const heardPins = useMemo(() => heardDirectoryPins(observations), [observations]);
+  heardDirectoryPinsRef.current = heardPins;
+
+  useEffect(() => {
+    publishPins(directoryNodesRef.current, heardPins);
+  }, [heardPins, publishPins]);
 
   const hash8Local = useMemo(() => localHash8Set(observations), [observations]);
   const iataOptions = useMemo(() => collectIataCodes(observations), [observations]);

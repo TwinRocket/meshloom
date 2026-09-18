@@ -15,6 +15,7 @@ from app.models import (
     PacketObserverReachResponse,
 )
 from app.services.directory import (
+    DIRECTORY_NODE_MAX_AGE_SECONDS,
     get_directory_node_neighbors,
     get_directory_node_reach,
     list_directory_map_nodes,
@@ -50,7 +51,11 @@ async def get_live_directory_map_nodes() -> DirectoryMapNodesResponse:
     Observer GPS stays available for hop/origin geometry. The client must
     not paint a dedicated observer icon.
     """
-    return await list_directory_map_nodes(include_local=True, include_observers=True)
+    return await list_directory_map_nodes(
+        include_local=True,
+        include_observers=True,
+        max_remote_age_seconds=DIRECTORY_NODE_MAX_AGE_SECONDS,
+    )
 
 
 @router.get("/nodes/search", response_model=DirectoryNodeSearchResponse)

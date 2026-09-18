@@ -470,7 +470,22 @@ describe('firmware hash8 and origin resolution', () => {
       )
     ).toBeNull();
     expect(observationFromCommunity(packet())?.advertPubkey).toBeNull();
+    expect(observationFromCommunity(packet())?.originGps).toBeNull();
     expect(observationFromCommunity(packet())?.srcHash).toBeNull();
+    const named = observationFromCommunity(
+      packet({
+        origin: {
+          token: 'ab12',
+          confidence: 'exact',
+          lat: 43.7,
+          lon: 7.25,
+          pubkey: 'ab'.repeat(32),
+          name: 'OnAir',
+        },
+      })
+    );
+    expect(named?.advertPubkey).toBe('ab'.repeat(32));
+    expect(named?.originGps).toEqual({ lat: 43.7, lon: 7.25, name: 'OnAir' });
     expect(observationFromCommunity(packet())?.routeKind).toBe('unknown');
     expect(observationFromCommunity(packet({ route_kind: 'flood' }))?.routeKind).toBe('flood');
     expect(asCommunityPacket(packet({ route_kind: 'direct' }))?.route_kind).toBe('direct');
