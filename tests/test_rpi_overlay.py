@@ -118,6 +118,8 @@ def test_rpi_kiosk_image_bake_is_manual_only() -> None:
     assert "raspios_lite_arm64" not in script
     assert "meshloom-rpi-kiosk-arm64.img" in script
     assert "meshloom-kiosk.rpi-imager-manifest" in script
+    assert "mktemp -d /tmp/" not in script
+    assert '"$OUTPUT_DIR/meshloom-rpi-kiosk.XXXXXX"' in script
     assert "meshloom-console.service" in script
     assert "systemctl disable meshloom-console.service" in script
     assert "systemctl enable meshloom-console.service" not in script

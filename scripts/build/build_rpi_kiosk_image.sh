@@ -107,7 +107,10 @@ write_meshloom_apt_source() {
     echo "deb [trusted=yes] ${pages}/apt stable main" >"$list"
 }
 
-WORKDIR="$(mktemp -d /tmp/meshloom-rpi-kiosk.XXXXXX)"
+# Unpack on the output filesystem, not /tmp. /tmp is often a 16G tmpfs;
+# the Desktop image plus the 3G grow will not fit there.
+mkdir -p "$OUTPUT_DIR"
+WORKDIR="$(mktemp -d "$OUTPUT_DIR/meshloom-rpi-kiosk.XXXXXX")"
 cleanup() {
     set +e
     if [ -n "${ROOTMNT:-}" ]; then
@@ -131,7 +134,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$OUTPUT_DIR"
 echo "[rpi-kiosk] Disk before download:"
 df -h "$OUTPUT_DIR" "$WORKDIR" || df -h
 require_disk "$WORKDIR" "workdir"
