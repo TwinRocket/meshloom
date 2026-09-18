@@ -438,7 +438,8 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | PUT | `/api/community/me/iata` | Bind IATA on the Stats host |
 | POST | `/api/community/me/iata/override` | Confirm an IATA concordance override |
 | GET | `/api/community/stats` | Public community stats |
-| GET | `/api/community/iata/{code}/hashtags` | Shared hashtag names for an IATA code |
+| GET | `/api/community/hashtags` | Shared hashtag names (global) |
+| GET | `/api/community/iata/{code}/hashtags` | Legacy alias of `/api/community/hashtags` |
 | PUT | `/api/community/me/hashtags` | Publish local/discovered hashtag names (names only) |
 | POST | `/api/community/live/subscribe` | Register or heartbeat a Live session; one process-wide Stats socket |
 | DELETE | `/api/community/live/subscribe/{session_id}` | Drop one Live session (upstream closes after idle grace when none remain) |

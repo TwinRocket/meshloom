@@ -699,17 +699,17 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls[3][1].method).toBe('POST');
     });
 
-    it('GETs IATA hashtags and PUTs discovered names', async () => {
+    it('GETs global hashtags and PUTs discovered names', async () => {
       installMockFetch();
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ hashtags: [{ name: 'mesh', hash_byte: 'ab' }] }),
       });
 
-      await api.getCommunityHashtags('lys');
+      await api.getCommunityHashtags();
       await api.putCommunityHashtags(['mesh']);
 
-      expect(mockFetch.mock.calls[0][0]).toBe('./api/community/iata/lys/hashtags');
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/community/hashtags');
       expect(mockFetch.mock.calls[1][0]).toBe('./api/community/me/hashtags');
       expect(mockFetch.mock.calls[1][1].method).toBe('PUT');
       expect(mockFetch.mock.calls[1][1].body).toBe(JSON.stringify({ names: ['mesh'] }));

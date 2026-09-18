@@ -23,6 +23,7 @@ from app.repository.fanout import FanoutConfigRepository
 from app.routers.community import (
     get_community,
     get_community_stats,
+    get_hashtags,
     get_iata_hashtags,
     patch_community,
     put_me_hashtags,
@@ -439,7 +440,19 @@ class TestCommunityStatusAndProxies:
 
 class TestCommunityHashtagProxies:
     @pytest.mark.asyncio
-    async def test_get_iata_hashtags_is_anonymous(self):
+    async def test_get_hashtags_is_anonymous_and_global(self):
+        payload = {"hashtags": [{"name": "meshcore", "hash_byte": "d9"}]}
+        with patch(
+            "app.routers.community.stats_json",
+            new=AsyncMock(return_value=payload),
+        ) as stats:
+            result = await get_hashtags()
+
+        stats.assert_awaited_once_with("GET", "/v1/hashtags", auth=False)
+        assert result.hashtags[0].name == "meshcore"
+        assert result.hashtags[0].hash_byte == "d9"
+
+    async def test_legacy_iata_hashtags_route_is_global(self):
         payload = {"hashtags": [{"name": "meshcore", "hash_byte": "d9"}]}
         with patch(
             "app.routers.community.stats_json",
@@ -447,9 +460,8 @@ class TestCommunityHashtagProxies:
         ) as stats:
             result = await get_iata_hashtags("cdg")
 
-        stats.assert_awaited_once_with("GET", "/v1/iata/CDG/hashtags", auth=False)
+        stats.assert_awaited_once_with("GET", "/v1/hashtags", auth=False)
         assert result.hashtags[0].name == "meshcore"
-        assert result.hashtags[0].hash_byte == "d9"
 
     @pytest.mark.asyncio
     async def test_put_me_hashtags_is_authenticated(self):

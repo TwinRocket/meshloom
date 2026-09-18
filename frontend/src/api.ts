@@ -662,8 +662,8 @@ export const api = {
       method: 'POST',
     }),
   getCommunityStats: () => fetchJson<CommunityPublicStats>('/community/stats'),
-  getCommunityHashtags: (iata: string) =>
-    fetchJson<CommunityHashtagsResponse>(`/community/iata/${encodeURIComponent(iata)}/hashtags`),
+  getCommunityHashtags: () =>
+    fetchJson<CommunityHashtagsResponse>('/community/hashtags'),
   putCommunityHashtags: (names: string[]) =>
     fetchJson<CommunityHashtagsResponse>('/community/me/hashtags', {
       method: 'PUT',

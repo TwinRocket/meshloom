@@ -393,7 +393,8 @@ dropped in migration 076.
 - `PUT /community/me/iata` — bind IATA on the Stats host
 - `POST /community/me/iata/override` — confirm an IATA concordance override
 - `GET /community/stats` — public community stats
-- `GET /community/iata/{code}/hashtags` — shared hashtag names for an IATA code
+- `GET /community/hashtags` — shared hashtag names (global)
+- `GET /community/iata/{code}/hashtags` — legacy alias of `/community/hashtags`
 - `PUT /community/me/hashtags` — publish local/discovered hashtag names (names only)
 - `POST /community/live/subscribe` — register or heartbeat a Live session (`session_id` known = cheap TTL refresh)
 - `DELETE /community/live/subscribe/{session_id}` — drop one Live session; upstream socket closes after idle grace when none remain

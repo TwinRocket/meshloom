@@ -98,12 +98,18 @@ async def get_community_stats() -> CommunityPublicStats:
     return CommunityPublicStats.model_validate(payload)
 
 
-@router.get("/iata/{code}/hashtags", response_model=CommunityHashtagsResponse)
-async def get_iata_hashtags(code: str) -> CommunityHashtagsResponse:
-    payload = await stats_json("GET", f"/v1/iata/{code.upper()}/hashtags", auth=False)
+@router.get("/hashtags", response_model=CommunityHashtagsResponse)
+async def get_hashtags() -> CommunityHashtagsResponse:
+    payload = await stats_json("GET", "/v1/hashtags", auth=False)
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
     return CommunityHashtagsResponse.model_validate(payload)
+
+
+@router.get("/iata/{code}/hashtags", response_model=CommunityHashtagsResponse)
+async def get_iata_hashtags(code: str) -> CommunityHashtagsResponse:
+    del code
+    return await get_hashtags()
 
 
 @router.post("/live/subscribe", response_model=CommunityLiveStatus)

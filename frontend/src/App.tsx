@@ -530,8 +530,8 @@ export function App() {
     void (async () => {
       try {
         const community = await api.getCommunity();
-        if (!community.enabled || !/^[A-Z]{3}$/.test(community.iata)) return;
-        const { hashtags } = await api.getCommunityHashtags(community.iata);
+        if (!community.enabled) return;
+        const { hashtags } = await api.getCommunityHashtags();
         if (cancelled) return;
         setCommunityHashtagNames(hashtags.map((item) => item.name));
       } catch {
