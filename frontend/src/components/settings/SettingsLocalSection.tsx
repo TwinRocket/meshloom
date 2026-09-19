@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { ChevronRight, Logs, MessageSquare, Send, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
+import { ColorPicker } from '../ui/color-picker';
+
+const DEFAULT_SIZE = 14;
 import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -14,7 +17,14 @@ import {
   setReopenLastConversationEnabled,
 } from '../../utils/lastViewedConversation';
 import { ThemeSelector } from './ThemeSelector';
-import { getLocalLabel, setLocalLabel, type LocalLabel } from '../../utils/localLabel';
+import type { ServerLabel } from '../../types';
+import { getContrastTextColor } from '../../utils/localLabel';
+import {
+  LABEL_COLORS,
+  LABEL_SIZES,
+  normalizeServerLabel,
+  serverLabelStyle,
+} from '../../utils/serverLabel';
 import {
   DISTANCE_UNIT_LABELS,
   DISTANCE_UNITS,
@@ -64,11 +74,14 @@ import i18n from '../../i18n';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
 export function SettingsLocalSection({
-  onLocalLabelChange,
+  serverLabel,
+  onPersistServerLabel,
   onPersistTheme,
   className,
 }: {
-  onLocalLabelChange?: (label: LocalLabel) => void;
+  serverLabel?: ServerLabel;
+  /** Stored with the instance: the name describes the server, not this browser. */
+  onPersistServerLabel?: (label: ServerLabel) => void;
   /** Stores the theme with the instance so every device reaching it follows. */
   onPersistTheme?: (themeId: string) => void;
   className?: string;
@@ -81,8 +94,9 @@ export function SettingsLocalSection({
   const [reopenLastConversation, setReopenLastConversation] = useState(
     getReopenLastConversationEnabled
   );
-  const [localLabelText, setLocalLabelText] = useState(() => getLocalLabel().text);
-  const [localLabelColor, setLocalLabelColor] = useState(() => getLocalLabel().color);
+  const label = normalizeServerLabel(serverLabel);
+  const editLabel = (change: Partial<ServerLabel>) =>
+    onPersistServerLabel?.({ ...label, ...change });
   const [autoFocusInput, setAutoFocusInput] = useState(getAutoFocusInputEnabled);
   const [batteryPercent, setBatteryPercent] = useState(getShowBatteryPercent);
   const [batteryVoltage, setBatteryVoltage] = useState(getShowBatteryVoltage);
@@ -160,33 +174,89 @@ export function SettingsLocalSection({
       <Separator />
 
       <div className="space-y-3">
-        <SettingsGroupHeader title={t('settings.local.localLabel')} storedOn="browser" instant />
-        <div className="flex items-center gap-2">
-          <Input
-            value={localLabelText}
-            onChange={(e) => {
-              const text = e.target.value;
-              setLocalLabelText(text);
-              setLocalLabel(text, localLabelColor);
-              onLocalLabelChange?.({ text, color: localLabelColor });
-            }}
-            placeholder={t('settings.local.localLabelPlaceholder')}
-            aria-label={t('settings.local.localLabelText')}
-            className="flex-1"
-          />
-          <input
-            type="color"
-            value={localLabelColor}
-            onChange={(e) => {
-              const color = e.target.value;
-              setLocalLabelColor(color);
-              setLocalLabel(localLabelText, color);
-              onLocalLabelChange?.({ text: localLabelText, color });
-            }}
-            aria-label={t('settings.local.localLabelColor')}
-            className="w-10 h-9 rounded border border-input cursor-pointer bg-transparent p-0.5"
-          />
-        </div>
+        <SettingsGroupHeader title={t('settings.local.localLabel')} storedOn="server" instant />
+        <Input
+          value={label.text}
+          onChange={(e) => editLabel({ text: e.target.value })}
+          placeholder={t('settings.local.localLabelPlaceholder')}
+          aria-label={t('settings.local.localLabelText')}
+          maxLength={60}
+        />
+
+        {label.text.trim() && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={label.size_px}
+                onChange={(e) => editLabel({ size_px: Number(e.target.value) })}
+                aria-label={t('settings.local.labelSize')}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                {LABEL_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size === DEFAULT_SIZE
+                      ? t('settings.local.labelSizeDefault', { size })
+                      : t('settings.local.labelSizeValue', { size })}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={label.font}
+                onChange={(e) => editLabel({ font: e.target.value as ServerLabel['font'] })}
+                aria-label={t('settings.local.labelFont')}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="system">{t('settings.local.labelFontSystem')}</option>
+                <option value="serif">{t('settings.local.labelFontSerif')}</option>
+                <option value="mono">{t('settings.local.labelFontMono')}</option>
+              </select>
+              <ColorPicker
+                value={label.color}
+                onChange={(color) => editLabel({ color })}
+                presets={LABEL_COLORS}
+                label={t('settings.local.localLabelColor')}
+                presetsLabel={t('settings.local.labelColorPresets')}
+                customLabel={t('settings.local.labelColorCustom')}
+                hueLabel={t('settings.local.labelColorHue')}
+                lightnessLabel={t('settings.local.labelColorLightness')}
+                hexLabel={t('settings.local.labelColorHex')}
+              />
+              <Button
+                type="button"
+                variant={label.bold ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={label.bold}
+                onClick={() => editLabel({ bold: !label.bold })}
+                className="font-bold"
+              >
+                {t('settings.local.labelBold')}
+              </Button>
+              <Button
+                type="button"
+                variant={label.italic ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={label.italic}
+                onClick={() => editLabel({ italic: !label.italic })}
+                className="italic"
+              >
+                {t('settings.local.labelItalic')}
+              </Button>
+            </div>
+
+            <div
+              data-testid="server-label-preview"
+              style={{
+                ...serverLabelStyle(label),
+                backgroundColor: label.color,
+                color: getContrastTextColor(label.color),
+              }}
+              className="truncate rounded-md text-center leading-tight"
+            >
+              {label.text}
+            </div>
+          </div>
+        )}
+
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.local.localLabelHelp')}
         </p>

@@ -225,7 +225,7 @@
       "localLabelPlaceholder": "ex. Base, Radio terrain 2",
       "localLabelText": "Texte de l’étiquette locale",
       "localLabelColor": "Couleur de l’étiquette locale",
-      "localLabelHelp": "Affiche une bannière colorée en haut de la page pour identifier cette instance.",
+      "localLabelHelp": "Nomme ce Meshloom en haut de chaque page, utile quand vous en faites tourner plusieurs. Conservé avec l’instance, donc visible depuis n’importe quel appareil. Laissez vide pour n’avoir aucun bandeau.",
       "distanceUnits": "Unités de distance",
       "distanceUnitsHelp": "Contrôle l’affichage des distances dans toute l’application.",
       "units": {
@@ -322,7 +322,21 @@
         "infoAlert": "Info : cache des emplacements de canaux actualisé depuis la radio.",
         "warnAlert": "Avertissement : décalage d’horloge radio détecté.",
         "errorAlert": "Erreur : le réglage post-connexion a expiré. Redémarrez la radio et le serveur."
-      }
+      },
+      "labelSize": "Taille",
+      "labelFont": "Police",
+      "labelFontSystem": "Police de l’interface (recommandée)",
+      "labelFontSerif": "Serif",
+      "labelFontMono": "Chasse fixe",
+      "labelBold": "Gras",
+      "labelItalic": "Italique",
+      "labelSizeValue": "{{size}} px",
+      "labelSizeDefault": "{{size}} px (par défaut)",
+      "labelColorCustom": "Composer la vôtre",
+      "labelColorPresets": "Prêtes à l’emploi",
+      "labelColorHue": "Teinte",
+      "labelColorLightness": "Luminosité",
+      "labelColorHex": "Hex"
     },
     "notifications": {
       "thisDevice": "Cet appareil",

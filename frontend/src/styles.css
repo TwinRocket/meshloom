@@ -520,3 +520,27 @@ body {
   white-space: nowrap;
   width: max-content;
 }
+
+/* The colour picker's two sliders sit on a gradient, so the browser's default
+   thumb reads as an unstyled control next to it. A white disc with a dark ring
+   stays visible on every hue, which a single colour cannot. */
+.color-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid rgb(0 0 0 / 0.45);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.color-slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid rgb(0 0 0 / 0.45);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}

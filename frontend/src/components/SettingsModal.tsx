@@ -16,7 +16,6 @@ import type {
   RadioDiscoveryTarget,
   RadioRegionDiscoveryResponse,
 } from '../types';
-import type { LocalLabel } from '../utils/localLabel';
 import {
   SETTINGS_SECTION_ICONS,
   SETTINGS_SECTION_LABELS,
@@ -60,7 +59,6 @@ interface SettingsModalBaseProps {
   onDiscoverRegions: (publicKeys?: string[]) => Promise<void>;
   onHealthRefresh: () => Promise<void>;
   onRefreshAppSettings: () => Promise<void>;
-  onLocalLabelChange?: (label: LocalLabel) => void;
   blockedKeys?: string[];
   blockedNames?: string[];
   onToggleBlockedKey?: (key: string) => void;
@@ -114,7 +112,6 @@ export function SettingsModal(props: SettingsModalProps) {
     onDiscoverRegions,
     onHealthRefresh,
     onRefreshAppSettings,
-    onLocalLabelChange,
     blockedKeys,
     blockedNames,
     onToggleBlockedKey,
@@ -269,10 +266,23 @@ export function SettingsModal(props: SettingsModalProps) {
           {renderSectionHeader('local')}
           {isSectionVisible('local') && (
             <SettingsLocalSection
-              onLocalLabelChange={onLocalLabelChange}
+              serverLabel={appSettings?.ui_preferences?.server_label}
+              // Spread rather than rebuilt: listing the fields meant every theme
+              // change quietly dropped whatever else lived in there.
+              onPersistServerLabel={(server_label) =>
+                void onSaveAppSettings({
+                  ui_preferences: {
+                    ...appSettings?.ui_preferences,
+                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                    theme: appSettings?.ui_preferences?.theme ?? '',
+                    server_label,
+                  },
+                })
+              }
               onPersistTheme={(theme) =>
                 void onSaveAppSettings({
                   ui_preferences: {
+                    ...appSettings?.ui_preferences,
                     nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
                     theme,
                   },

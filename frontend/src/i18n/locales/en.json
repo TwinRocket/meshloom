@@ -225,7 +225,7 @@
       "localLabelPlaceholder": "e.g. Home Base, Field Radio 2",
       "localLabelText": "Local label text",
       "localLabelColor": "Local label color",
-      "localLabelHelp": "Display a colored banner at the top of the page to identify this instance.",
+      "localLabelHelp": "Names this Meshloom across the top of every page, for when you run more than one. Kept with the instance, so it shows from any device. Leave it empty for no band at all.",
       "distanceUnits": "Distance Units",
       "distanceUnitsHelp": "Controls how distances are shown throughout the app.",
       "units": {
@@ -322,7 +322,21 @@
         "infoAlert": "Info: channel slot cache refreshed from radio.",
         "warnAlert": "Warning: radio clock skew detected.",
         "errorAlert": "Error: post-connect setup timed out. Reboot the radio and restart."
-      }
+      },
+      "labelSize": "Size",
+      "labelFont": "Font",
+      "labelFontSystem": "Interface font (recommended)",
+      "labelFontSerif": "Serif",
+      "labelFontMono": "Monospace",
+      "labelBold": "Bold",
+      "labelItalic": "Italic",
+      "labelSizeValue": "{{size}} px",
+      "labelSizeDefault": "{{size}} px (default)",
+      "labelColorCustom": "Make your own",
+      "labelColorPresets": "Ready-made",
+      "labelColorHue": "Hue",
+      "labelColorLightness": "Lightness",
+      "labelColorHex": "Hex"
     },
     "notifications": {
       "thisDevice": "This browser",

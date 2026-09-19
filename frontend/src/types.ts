@@ -731,11 +731,26 @@ export interface GroupTextSamplesResponse {
  * no notion of separate users, a single credential guards the whole instance — so
  * a preference stored per browser had to be set again on every device.
  */
+/** A name for this instance, shown across the top of every page. */
+export interface ServerLabel {
+  /** Empty hides the band, which is the default. */
+  text: string;
+  color: string;
+  /** Text size in pixels, which also sets the band's height. */
+  size_px: number;
+  bold: boolean;
+  italic: boolean;
+  /** Families every browser has; a named font nobody installed renders as another. */
+  font: 'system' | 'serif' | 'mono';
+}
+
 export interface UiPreferences {
   /** The desktop rail's contents, in order. Empty means the defaults. */
   nav_rail: string[];
   /** Theme id, or empty to follow the operating system. */
   theme: string;
+  /** Names the server rather than the device, so it shows from any browser. */
+  server_label?: ServerLabel;
 }
 
 export type TelemetryAlertOp = 'lt' | 'gt';
