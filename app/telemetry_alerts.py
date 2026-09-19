@@ -925,6 +925,7 @@ async def _apply_gauge(
             rule_id=rule_id,
             value=value,
             threshold=threshold,
+            op=spec.op,
         )
         return
 
@@ -996,18 +997,23 @@ async def _dispatch(
     rule_id: str,
     value: float,
     threshold: float,
+    op: str | None = None,
 ) -> None:
+    from app.email_template import enrich_notification_payload
     from app.notify import dispatch_system_event
 
     defaults = await AppSettingsRepository.get_push_defaults()
+    payload: dict[str, Any] = {
+        "event": "telemetry_alert",
+        "public_key": public_key,
+        "name": name,
+        "rule_id": rule_id,
+        "value": value,
+        "threshold": threshold,
+    }
+    if op:
+        payload["op"] = op
     await dispatch_system_event(
-        {
-            "event": "telemetry_alert",
-            "public_key": public_key,
-            "name": name,
-            "rule_id": rule_id,
-            "value": value,
-            "threshold": threshold,
-        },
+        enrich_notification_payload(payload),
         defaults["telemetry_alert"],
     )

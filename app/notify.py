@@ -20,11 +20,14 @@ logger = logging.getLogger(__name__)
 
 TEST_ALERT_PAYLOAD = {
     "event": "telemetry_alert",
-    "public_key": "",
-    "name": "Meshloom",
-    "rule_id": "test",
-    "value": 0,
-    "threshold": 0,
+    "public_key": "aa" * 32,
+    "name": "Test repeater",
+    "rule_id": "battery",
+    "metric": "battery",
+    "unit": "V",
+    "value": 3.46,
+    "threshold": 3.5,
+    "op": "lt",
 }
 
 
@@ -38,10 +41,11 @@ def _channel_flags(channels: TelemetryAlertChannels | Mapping[str, Any]) -> Tele
     )
 
 
-def _alert_text(payload: Mapping[str, Any]) -> tuple[str, str]:
-    from app.push.manager import event_notification_text
+async def _email_message(payload: Mapping[str, Any]) -> tuple[str, str]:
+    from app.email_template import email_subject, render_html_email, resolve_instance_language
 
-    return event_notification_text(dict(payload), "en")
+    lang = await resolve_instance_language()
+    return email_subject(payload, lang), render_html_email(payload, lang)
 
 
 def build_email_apprise_url(email: Mapping[str, Any]) -> str:
@@ -82,11 +86,12 @@ def build_email_apprise_url(email: Mapping[str, Any]) -> str:
 
 def _send_email_sync(url: str, title: str, body: str) -> bool:
     import apprise as apprise_lib
+    from apprise import NotifyFormat
 
     notifier = apprise_lib.Apprise()
     if not notifier.add(url):
         return False
-    return bool(notifier.notify(title=title, body=body))
+    return bool(notifier.notify(title=title, body=body, body_format=NotifyFormat.HTML))
 
 
 async def send_email_alert(dest: NotificationDestinations, payload: Mapping[str, Any]) -> None:
@@ -94,7 +99,7 @@ async def send_email_alert(dest: NotificationDestinations, payload: Mapping[str,
     if not email.get("host") and not email.get("to"):
         raise ValueError("email destination is not configured")
     url = build_email_apprise_url(email)
-    title, body = _alert_text(payload)
+    title, body = await _email_message(payload)
     ok = await asyncio.to_thread(_send_email_sync, url, title, body)
     if not ok:
         raise RuntimeError("email send failed")
@@ -106,10 +111,13 @@ async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[st
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError("webhook url must be http or https")
 
-    body_bytes = json.dumps(dict(payload), separators=(",", ":"), sort_keys=True).encode()
+    from app.email_template import enrich_notification_payload
+
+    body = enrich_notification_payload(payload)
+    body_bytes = json.dumps(body, separators=(",", ":"), sort_keys=True).encode()
     headers = {
         "Content-Type": "application/json",
-        "X-Webhook-Event": str(payload.get("event") or "notification"),
+        "X-Webhook-Event": str(body.get("event") or "notification"),
     }
     secret = dest.webhook.hmac_secret or ""
     if secret:
