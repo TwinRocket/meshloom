@@ -1,27 +1,47 @@
-import type { NotificationMediaChannel, PushDefaults } from '../types';
+import type {
+  ConversationMediaOverride,
+  NotificationMediaChannel,
+  NotificationMediaFlags,
+  PushDefaults,
+} from '../types';
 import { notificationMediaFlag } from '../types';
+
+export type ConversationOverrides = Record<string, boolean | ConversationMediaOverride>;
 
 export interface ConversationEnablementInput {
   stateKey: string;
   messageType: string;
   defaults: PushDefaults;
-  overrides: Record<string, boolean>;
+  overrides: ConversationOverrides;
   isHashtag?: boolean;
   isPublic?: boolean;
   channel?: NotificationMediaChannel;
 }
 
+export function conversationOverrideFlags(raw: unknown): ConversationMediaOverride {
+  if (typeof raw === 'boolean') {
+    return { push: raw };
+  }
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const out: ConversationMediaOverride = {};
+    (['push', 'email', 'webhook'] as const).forEach((key) => {
+      if (key in obj && obj[key] != null) {
+        out[key] = Boolean(obj[key]);
+      }
+    });
+    return out;
+  }
+  return {};
+}
+
 /**
  * Mirror of ``app/push/policy.py`` conversation_is_enabled.
  *
- * Precedence: explicit override > PRIV (DM and rooms) via ``new_dm`` >
- * Public or hashtag ON > private channel OFF.
+ * A stored per-medium override wins. Otherwise PRIV follows ``new_dm`` and
+ * CHAN is push-only for public/hashtag channels.
  *
  * Mute is a separate manager-level circuit breaker and is not evaluated here.
- * ``channel_found`` and ``telemetry_alert`` are global defaults only — those
- * events have no conversation_key, so overrides never apply to them.
- * Conversation overrides apply to every medium. Channel messages have no
- * matrix row, so email/webhook stay off unless an override forces them on.
  */
 export function conversationIsEnabled({
   stateKey,
@@ -32,8 +52,9 @@ export function conversationIsEnabled({
   isPublic = false,
   channel = 'push',
 }: ConversationEnablementInput): boolean {
-  if (stateKey in overrides) {
-    return Boolean(overrides[stateKey]);
+  const stored = stateKey in overrides ? conversationOverrideFlags(overrides[stateKey]) : {};
+  if (channel in stored) {
+    return Boolean(stored[channel as keyof NotificationMediaFlags]);
   }
   if (messageType === 'PRIV') {
     return notificationMediaFlag(defaults.new_dm, channel);

@@ -50,6 +50,7 @@ import type {
   PathDiscoveryResponse,
   NotificationDestinationChannel,
   PushDefaultsPatch,
+  ConversationMediaOverride,
   PushPreferences,
   PushSubscriptionInfo,
   TelemetryAlertCatalog,
@@ -613,11 +614,17 @@ export const api = {
       body: JSON.stringify({ type, id }),
     }),
 
-  toggleChannelMute: (key: string) =>
-    fetchJson<{ key: string; muted: boolean }>('/settings/muted-channels/toggle', {
-      method: 'POST',
-      body: JSON.stringify({ key }),
-    }),
+  toggleChannelMute: (key: string, durationSeconds?: number) =>
+    fetchJson<{ key: string; muted: boolean; muted_until: number | null }>(
+      '/settings/muted-channels/toggle',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          key,
+          ...(durationSeconds === undefined ? {} : { duration_seconds: durationSeconds }),
+        }),
+      }
+    ),
 
   // Fanout
   getFanoutConfigs: () => fetchJson<FanoutConfig[]>('/fanout'),
@@ -809,7 +816,10 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(partial),
     }),
-  setPushConversationOverride: (key: string, override: boolean | null) =>
+  setPushConversationOverride: (
+    key: string,
+    override: boolean | ConversationMediaOverride | null
+  ) =>
     fetchJson<PushPreferences>(`/push/preferences/conversations/${encodeURIComponent(key)}`, {
       method: 'PUT',
       body: JSON.stringify({ override }),

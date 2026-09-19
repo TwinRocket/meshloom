@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import time
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -142,12 +143,20 @@ class FavoriteToggleResponse(BaseModel):
 
 
 class MuteChannelRequest(BaseModel):
-    key: str = Field(description="Channel key to toggle mute status")
+    key: str = Field(description="Channel key to mute or unmute")
+    duration_seconds: int | None = Field(
+        default=None,
+        description=(
+            "When omitted, toggle mute. 0 unmutes, -1 mutes indefinitely, "
+            "a positive value mutes for that many seconds."
+        ),
+    )
 
 
 class MuteChannelToggleResponse(BaseModel):
     key: str
     muted: bool
+    muted_until: int | None = None
 
 
 class TrackedTelemetryRequest(BaseModel):
@@ -402,21 +411,41 @@ async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
 
 @router.post("/muted-channels/toggle", response_model=MuteChannelToggleResponse)
 async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggleResponse:
-    """Toggle a channel's muted status."""
+    """Set or toggle a channel's muted status, optionally with an expiry."""
     channel = await ChannelRepository.get_by_key(request.key)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    new_value = not channel.muted
-    await ChannelRepository.set_muted(request.key, new_value)
-    logger.info("%s channel mute: %s", "Muted" if new_value else "Unmuted", request.key[:12])
+    duration = request.duration_seconds
+    if duration is None:
+        muted = not channel.muted
+        muted_until = None
+    elif duration == 0:
+        muted = False
+        muted_until = None
+    elif duration < 0:
+        muted = True
+        muted_until = None
+    else:
+        muted = True
+        muted_until = int(time.time()) + duration
+    await ChannelRepository.set_muted(request.key, muted, muted_until)
+    logger.info(
+        "%s channel mute: %s until=%s",
+        "Muted" if muted else "Unmuted",
+        request.key[:12],
+        muted_until,
+    )
 
     refreshed = await ChannelRepository.get_by_key(request.key)
     if refreshed:
         from app.websocket import broadcast_event
 
         broadcast_event("channel", refreshed.model_dump())
+        return MuteChannelToggleResponse(
+            key=request.key, muted=refreshed.muted, muted_until=refreshed.muted_until
+        )
 
-    return MuteChannelToggleResponse(key=request.key, muted=new_value)
+    return MuteChannelToggleResponse(key=request.key, muted=muted, muted_until=muted_until)
 
 
 @router.post("/blocked-keys/toggle", response_model=AppSettings)

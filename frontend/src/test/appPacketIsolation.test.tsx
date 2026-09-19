@@ -51,6 +51,7 @@ vi.mock('../contexts/PushSubscriptionContext', () => ({
     unsubscribe: vi.fn(async () => {}),
     toggleConversation: vi.fn(async () => {}),
     isConversationPushEnabled: () => false,
+    isConversationMediaEnabled: () => false,
     deleteSubscription: vi.fn(async () => {}),
     testPush: vi.fn(async () => {}),
     refreshSubscriptions: vi.fn(async () => []),

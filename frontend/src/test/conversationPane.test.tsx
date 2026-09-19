@@ -180,7 +180,7 @@ function createProps(overrides: Partial<React.ComponentProps<typeof Conversation
       throw new Error('unused');
     }),
     onToggleFavorite: vi.fn(async () => {}),
-    onToggleMute: vi.fn(async () => {}),
+    onMuteChannel: vi.fn(async () => {}),
     onDeleteContact: vi.fn(async () => {}),
     onDeleteChannel: vi.fn(async () => {}),
     onSetChannelFloodScopeOverride: vi.fn(async () => {}),

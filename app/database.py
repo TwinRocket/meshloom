@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS channels (
     last_read_at INTEGER,
     favorite INTEGER DEFAULT 0,
     muted INTEGER DEFAULT 0,
+    muted_until INTEGER,
     membership TEXT NOT NULL DEFAULT 'adopted'
 );
 

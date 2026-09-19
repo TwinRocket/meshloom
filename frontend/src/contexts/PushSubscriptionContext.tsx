@@ -15,6 +15,7 @@ const defaultState: PushSubscriptionState = {
   subscribe: noopAsyncNull,
   unsubscribe: noopAsync,
   isConversationPushEnabled: () => false,
+  isConversationMediaEnabled: () => false,
   setConversationOverride: noopAsync,
   patchPreferences: noopAsync,
   deleteSubscription: noopAsync,

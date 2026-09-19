@@ -163,7 +163,7 @@ async def wipe_mesh_identity_data() -> None:
         ) as cursor:
             row = await cursor.fetchone()
         push: list[str] = []
-        overrides: dict[str, bool] = {}
+        overrides: dict[str, dict[str, bool]] = {}
         if row is not None:
             raw_push = row["push_conversations"]
             if raw_push:
@@ -175,14 +175,18 @@ async def wipe_mesh_identity_data() -> None:
                     push = []
             raw_overrides = row["push_conversation_overrides"]
             if raw_overrides:
+                from app.repository.settings import coerce_conversation_override
+
                 try:
                     parsed = json.loads(raw_overrides)
                     if isinstance(parsed, dict):
-                        overrides = {
-                            str(key): bool(value)
-                            for key, value in parsed.items()
-                            if isinstance(key, str)
-                        }
+                        overrides = {}
+                        for key, value in parsed.items():
+                            if not isinstance(key, str):
+                                continue
+                            flags = coerce_conversation_override(value)
+                            if flags:
+                                overrides[key] = flags
                 except (json.JSONDecodeError, TypeError):
                     overrides = {}
         kept_push = [item for item in push if not item.startswith("contact-")]

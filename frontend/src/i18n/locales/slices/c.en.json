@@ -147,7 +147,7 @@
       "ossUpdate": "Meshloom updates",
       "ossUpdateHelp": "Notify when a Meshloom update is available for this node.",
       "exceptions": "Conversation exceptions",
-      "exceptionsHelp": "Per-conversation overrides set from a chat header. They apply to every medium for that conversation and take precedence over the defaults above.",
+      "exceptionsHelp": "Per-conversation overrides set from the chat-header bell menu. Push, email, and webhook are chosen separately for that thread.",
       "exceptionsEmpty": "No conversation exceptions yet.",
       "overrideOn": "On",
       "overrideOff": "Off",

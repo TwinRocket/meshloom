@@ -99,44 +99,47 @@ describe('ChatHeader key visibility', () => {
     expect(screen.getAllByText('#Esperance')).toHaveLength(2);
   });
 
-  it('shows a filled push bell and toggles on click', () => {
+  it('opens a notify menu and sets email for the conversation', () => {
     const conversation: Conversation = { type: 'contact', id: '11'.repeat(32), name: 'Alice' };
-    const onTogglePush = vi.fn();
+    const onSetConversationMedia = vi.fn();
 
     render(
       <ChatHeader
         {...baseProps}
         conversation={conversation}
         channels={[]}
-        pushSupported
-        pushEnabledForConversation
-        onTogglePush={onTogglePush}
+        notifyMediaEnabled={{ push: true, email: false, webhook: false }}
+        emailReady
+        webhookReady
+        onSetConversationMedia={onSetConversationMedia}
       />
     );
 
     const bellBtn = screen.getByRole('button', { name: i18n.t('chatHeader.notifications') });
     expect(bellBtn).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(bellBtn);
-    expect(onTogglePush).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyEmail')));
+    expect(onSetConversationMedia).toHaveBeenCalledWith('email', true);
   });
 
-  it('mutes a channel from a dedicated bell-off button', () => {
+  it('opens a mute menu and mutes for 15 minutes', () => {
     const key = 'AB'.repeat(16);
     const channel = makeChannel(key, '#flightless', true);
     const conversation: Conversation = { type: 'channel', id: key, name: '#flightless' };
-    const onToggleMute = vi.fn();
+    const onMuteChannel = vi.fn();
 
     render(
       <ChatHeader
         {...baseProps}
         conversation={conversation}
         channels={[channel]}
-        onToggleMute={onToggleMute}
+        onMuteChannel={onMuteChannel}
       />
     );
 
     fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.muteChannel') }));
-    expect(onToggleMute).toHaveBeenCalledWith(key);
+    fireEvent.click(screen.getByRole('menuitem', { name: i18n.t('chatHeader.mute15m') }));
+    expect(onMuteChannel).toHaveBeenCalledWith(key, 15 * 60);
   });
 
   it('hides trace controls for room-server contacts but keeps the push bell', () => {
@@ -167,8 +170,8 @@ describe('ChatHeader key visibility', () => {
         conversation={conversation}
         channels={[]}
         contacts={[contact]}
-        pushSupported
-        onTogglePush={vi.fn()}
+        notifyMediaEnabled={{ push: false, email: false, webhook: false }}
+        onSetConversationMedia={vi.fn()}
       />
     );
 

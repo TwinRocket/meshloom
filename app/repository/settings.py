@@ -182,7 +182,23 @@ def _parse_auto_update_weekdays(raw: object) -> list[int]:
         return list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
 
-def _parse_push_overrides(raw: object) -> dict[str, bool]:
+ConversationOverride = dict[str, bool]
+
+
+def coerce_conversation_override(raw: object) -> ConversationOverride:
+    """Accept a legacy bool (push only) or a partial ``{push,email,webhook}``."""
+    if isinstance(raw, bool):
+        return {"push": raw}
+    if not isinstance(raw, Mapping):
+        return {}
+    out: ConversationOverride = {}
+    for key in NOTIFICATION_MEDIA_KEYS:
+        if key in raw and raw[key] is not None:
+            out[key] = bool(raw[key])
+    return out
+
+
+def _parse_push_overrides(raw: object) -> dict[str, ConversationOverride]:
     if not raw:
         return {}
     try:
@@ -191,7 +207,23 @@ def _parse_push_overrides(raw: object) -> dict[str, bool]:
         return {}
     if not isinstance(loaded, dict):
         return {}
-    return {str(key): bool(value) for key, value in loaded.items() if isinstance(key, str)}
+    parsed: dict[str, ConversationOverride] = {}
+    for key, value in loaded.items():
+        if not isinstance(key, str):
+            continue
+        flags = coerce_conversation_override(value)
+        if flags:
+            parsed[key] = flags
+    return parsed
+
+
+def _store_push_overrides(overrides: Mapping[str, object]) -> dict[str, ConversationOverride]:
+    stored: dict[str, ConversationOverride] = {}
+    for key, value in overrides.items():
+        flags = coerce_conversation_override(value)
+        if flags:
+            stored[str(key)] = flags
+    return stored
 
 
 class AppSettingsRepository:
@@ -897,13 +929,15 @@ class AppSettingsRepository:
         return merged
 
     @staticmethod
-    async def get_push_conversation_overrides() -> dict[str, bool]:
-        """Return explicit per-conversation push overrides. Not part of AppSettings."""
+    async def get_push_conversation_overrides() -> dict[str, ConversationOverride]:
+        """Return explicit per-conversation media overrides. Not part of AppSettings."""
         async with db.readonly() as conn:
             return await AppSettingsRepository._get_push_overrides_in_conn(conn)
 
     @staticmethod
-    async def _get_push_overrides_in_conn(conn: aiosqlite.Connection) -> dict[str, bool]:
+    async def _get_push_overrides_in_conn(
+        conn: aiosqlite.Connection,
+    ) -> dict[str, ConversationOverride]:
         async with conn.execute(
             "SELECT push_conversation_overrides FROM app_settings WHERE id = 1"
         ) as cursor:
@@ -911,9 +945,11 @@ class AppSettingsRepository:
         return _parse_push_overrides(row["push_conversation_overrides"] if row else None)
 
     @staticmethod
-    async def set_push_conversation_overrides(overrides: Mapping[str, bool]) -> dict[str, bool]:
+    async def set_push_conversation_overrides(
+        overrides: Mapping[str, object],
+    ) -> dict[str, ConversationOverride]:
         """Replace the full per-conversation override map."""
-        stored = {str(key): bool(value) for key, value in overrides.items()}
+        stored = _store_push_overrides(overrides)
         async with db.tx() as conn:
             await conn.execute(
                 "UPDATE app_settings SET push_conversation_overrides = ? WHERE id = 1",
@@ -922,14 +958,25 @@ class AppSettingsRepository:
         return stored
 
     @staticmethod
-    async def set_push_conversation_override(key: str, value: bool | None) -> dict[str, bool]:
-        """Write (true/false) or remove (None) one conversation override."""
+    async def set_push_conversation_override(
+        key: str, value: bool | Mapping[str, Any] | None
+    ) -> dict[str, ConversationOverride]:
+        """Write, merge, or remove (None) one conversation override."""
         async with db.tx() as conn:
             current = await AppSettingsRepository._get_push_overrides_in_conn(conn)
             if value is None:
                 current.pop(key, None)
+            elif isinstance(value, bool):
+                current[key] = {"push": value}
             else:
-                current[key] = bool(value)
+                existing = dict(current.get(key) or {})
+                for media in NOTIFICATION_MEDIA_KEYS:
+                    if media in value and value[media] is not None:
+                        existing[media] = bool(value[media])
+                if existing:
+                    current[key] = existing
+                else:
+                    current.pop(key, None)
             await conn.execute(
                 "UPDATE app_settings SET push_conversation_overrides = ? WHERE id = 1",
                 (json.dumps(current),),
@@ -939,7 +986,7 @@ class AppSettingsRepository:
     @staticmethod
     async def remap_push_conversation_override_keys(
         old_keys: list[str], new_key: str
-    ) -> dict[str, bool]:
+    ) -> dict[str, ConversationOverride]:
         """Move override entries from old_keys to new_key when the target is absent."""
         async with db.tx() as conn:
             current = await AppSettingsRepository._get_push_overrides_in_conn(conn)

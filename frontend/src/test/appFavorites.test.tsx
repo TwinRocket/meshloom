@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     subscribe: vi.fn<() => Promise<string | null>>(async () => null),
     setConversationOverride: vi.fn(async () => {}),
     isConversationPushEnabled: vi.fn(() => false),
+    isConversationMediaEnabled: vi.fn(() => false),
   },
   hookFns: {
     fetchOlderMessages: vi.fn(async () => {}),
@@ -77,6 +78,7 @@ vi.mock('../contexts/PushSubscriptionContext', () => ({
     unsubscribe: vi.fn(async () => {}),
     setConversationOverride: mocks.push.setConversationOverride,
     isConversationPushEnabled: mocks.push.isConversationPushEnabled,
+    isConversationMediaEnabled: mocks.push.isConversationMediaEnabled,
     deleteSubscription: vi.fn(async () => {}),
     testPush: vi.fn(async () => {}),
     refreshSubscriptions: vi.fn(async () => []),
@@ -240,6 +242,7 @@ describe('App favorite toggle flow', () => {
     mocks.push.isSubscribed = false;
     mocks.push.subscribe.mockResolvedValue(null);
     mocks.push.isConversationPushEnabled.mockReturnValue(false);
+    mocks.push.isConversationMediaEnabled.mockReturnValue(false);
 
     mocks.api.getRadioConfig.mockResolvedValue(baseConfig);
     mocks.api.getSettings.mockResolvedValue({ ...baseSettings });
@@ -357,7 +360,7 @@ describe('App favorite toggle flow', () => {
     });
   });
 
-  it('subscribes this browser on the first push-bell click without setting an override', async () => {
+  it('subscribes this browser when Push is checked without a subscription', async () => {
     mocks.push.isSupported = true;
     mocks.push.isSubscribed = false;
     mocks.push.subscribe.mockResolvedValue('sub-1');
@@ -371,17 +374,21 @@ describe('App favorite toggle flow', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
+    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyPush')));
 
     await waitFor(() => {
       expect(mocks.push.subscribe).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.push.setConversationOverride).not.toHaveBeenCalled();
+    expect(mocks.push.setConversationOverride).toHaveBeenCalledWith(
+      `channel-${publicChannel.key}`,
+      { push: true }
+    );
   });
 
-  it('toggles the conversation override once this browser is already subscribed', async () => {
+  it('sets a push override from the notify menu when already subscribed', async () => {
     mocks.push.isSupported = true;
     mocks.push.isSubscribed = true;
-    mocks.push.isConversationPushEnabled.mockReturnValue(false);
+    mocks.push.isConversationMediaEnabled.mockReturnValue(false);
 
     render(<App />);
 
@@ -392,21 +399,18 @@ describe('App favorite toggle flow', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
+    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyPush')));
 
     await waitFor(() => {
       expect(mocks.push.setConversationOverride).toHaveBeenCalledWith(
         `channel-${publicChannel.key}`,
-        true
+        { push: true }
       );
     });
-    expect(mocks.push.isConversationPushEnabled).toHaveBeenCalledWith(
-      `channel-${publicChannel.key}`,
-      expect.objectContaining({ messageType: 'CHAN', isPublic: true })
-    );
     expect(mocks.push.subscribe).not.toHaveBeenCalled();
   });
 
-  it('does not enable web push when subscription setup fails', async () => {
+  it('still writes the override when subscription setup fails', async () => {
     mocks.push.isSupported = true;
     mocks.push.isSubscribed = false;
     mocks.push.subscribe.mockResolvedValue(null);
@@ -420,10 +424,14 @@ describe('App favorite toggle flow', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
+    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyPush')));
 
     await waitFor(() => {
       expect(mocks.push.subscribe).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.push.setConversationOverride).not.toHaveBeenCalled();
+    expect(mocks.push.setConversationOverride).toHaveBeenCalledWith(
+      `channel-${publicChannel.key}`,
+      { push: true }
+    );
   });
 });

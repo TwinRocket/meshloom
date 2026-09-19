@@ -361,6 +361,7 @@ export interface Channel {
   last_read_at: number | null;
   favorite: boolean;
   muted: boolean;
+  muted_until?: number | null;
   membership?: 'adopted' | 'pending';
 }
 
@@ -1615,9 +1616,11 @@ export type PushDefaultsPatch = {
   [K in keyof PushDefaults]?: Partial<NotificationMediaFlags> | boolean;
 };
 
+export type ConversationMediaOverride = Partial<NotificationMediaFlags>;
+
 export interface PushPreferences {
   defaults: PushDefaults;
-  overrides: Record<string, boolean>;
+  overrides: Record<string, boolean | ConversationMediaOverride>;
   vapid_subject: string;
 }
 

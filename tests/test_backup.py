@@ -153,8 +153,8 @@ class TestBackupExportShape:
         assert export.push_defaults["new_dm"]["push"] is False
         assert export.push_defaults["new_contact"]["push"] is True
         assert export.push_conversation_overrides == {
-            "channel-PUBLIC": True,
-            "contact-" + "aa" * 32: False,
+            "channel-PUBLIC": {"push": True},
+            "contact-" + "aa" * 32: {"push": False},
         }
         assert export.vapid_subject == "mailto:ops@example.com"
 

@@ -79,6 +79,7 @@ def _channel_to_backup(channel) -> BackupChannel:
         path_hash_mode_override=channel.path_hash_mode_override,
         favorite=channel.favorite,
         muted=channel.muted,
+        muted_until=channel.muted_until,
         membership=channel.membership,
     )
 
@@ -88,6 +89,10 @@ async def export_json() -> BackupExport:
     channels = await ChannelRepository.get_all()
     settings = await AppSettingsRepository.get()
     groups = await ContactGroupRepository.list_all()
+    exported_overrides: dict[str, bool | dict[str, bool]] = {
+        key: dict(flags)
+        for key, flags in (await AppSettingsRepository.get_push_conversation_overrides()).items()
+    }
     return BackupExport(
         format=BACKUP_FORMAT,
         exported_at=int(time.time()),
@@ -96,7 +101,7 @@ async def export_json() -> BackupExport:
         settings=settings,
         groups=groups,
         push_defaults=dict(await AppSettingsRepository.get_push_defaults()),
-        push_conversation_overrides=await AppSettingsRepository.get_push_conversation_overrides(),
+        push_conversation_overrides=exported_overrides,
         vapid_subject=await AppSettingsRepository.get_vapid_subject(),
     )
 
@@ -140,7 +145,7 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
             item.key, item.name, item.is_hashtag, membership=item.membership
         )
         await ChannelRepository.set_favorite(item.key, item.favorite)
-        await ChannelRepository.set_muted(item.key, item.muted)
+        await ChannelRepository.set_muted(item.key, item.muted, item.muted_until)
         await ChannelRepository.update_flood_scope_override(item.key, item.flood_scope_override)
         await ChannelRepository.update_path_hash_mode_override(
             item.key, item.path_hash_mode_override

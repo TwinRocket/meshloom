@@ -59,6 +59,7 @@ def _case(
     is_hashtag: bool = False,
     is_public: bool = False,
     contact_type: int | None = None,
+    channel: str = "push",
 ) -> tuple:
     return (
         name,
@@ -71,6 +72,7 @@ def _case(
             "is_hashtag": is_hashtag,
             "is_public": is_public,
             "contact_type": contact_type,
+            "channel": channel,
         },
     )
 
@@ -166,6 +168,51 @@ POLICY_CASES = [
         defaults=_DM_OFF,
         overrides={f"contact-{ROOM_KEY}": True},
         contact_type=3,
+    ),
+    _case(
+        "override_true_does_not_enable_email_when_matrix_off",
+        expected=False,
+        state_key=f"contact-{DM_KEY}",
+        message_type="PRIV",
+        overrides={f"contact-{DM_KEY}": True},
+        contact_type=1,
+        channel="email",
+    ),
+    _case(
+        "override_true_does_not_enable_email_for_public_channel",
+        expected=False,
+        state_key=f"channel-{PUBLIC_CHANNEL_KEY}",
+        message_type="CHAN",
+        is_public=True,
+        overrides={f"channel-{PUBLIC_CHANNEL_KEY}": True},
+        channel="email",
+    ),
+    _case(
+        "dm_email_follows_new_dm_matrix",
+        expected=True,
+        state_key=f"contact-{DM_KEY}",
+        message_type="PRIV",
+        defaults=PushDefaults(
+            new_contact=_default_media(),
+            new_dm=_media(push=True, email=True),
+            advert_repeater=_default_media(),
+            advert_companion=_default_media(),
+            advert_sensor=_default_media(),
+            channel_found=_default_media(),
+            telemetry_alert=_default_media(),
+            oss_update=_default_media(),
+        ),
+        contact_type=1,
+        channel="email",
+    ),
+    _case(
+        "channel_email_override_enables_email",
+        expected=True,
+        state_key=f"channel-{PUBLIC_CHANNEL_KEY}",
+        message_type="CHAN",
+        is_public=True,
+        overrides={f"channel-{PUBLIC_CHANNEL_KEY}": {"email": True}},
+        channel="email",
     ),
 ]
 

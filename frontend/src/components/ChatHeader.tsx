@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Bell,
-  BellOff,
   ChevronsLeftRight,
   Globe2,
   Info,
@@ -12,6 +10,8 @@ import {
   ChevronLeft,
   MoreVertical,
 } from 'lucide-react';
+import { ChannelMuteMenu } from './ChannelMuteMenu';
+import { ConversationNotifyMenu } from './ConversationNotifyMenu';
 import { DirectTraceIcon } from './DirectTraceIcon';
 import { ContactPathDiscoveryModal } from './ContactPathDiscoveryModal';
 import { ChannelFloodScopeOverrideModal } from './ChannelFloodScopeOverrideModal';
@@ -22,7 +22,15 @@ import { isPrefixOnlyContact } from '../utils/pubkey';
 import { cn } from '../lib/utils';
 import { ContactAvatar } from './ContactAvatar';
 import { ContactStatusInfo } from './ContactStatusInfo';
-import type { Channel, Contact, Conversation, PathDiscoveryResponse, RadioConfig } from '../types';
+import type {
+  Channel,
+  Contact,
+  Conversation,
+  NotificationMediaChannel,
+  NotificationMediaFlags,
+  PathDiscoveryResponse,
+  RadioConfig,
+} from '../types';
 import { CONTACT_TYPE_ROOM } from '../types';
 
 interface ChatHeaderProps {
@@ -32,11 +40,13 @@ interface ChatHeaderProps {
   config: RadioConfig | null;
   onTrace: () => void;
   onPathDiscovery: (publicKey: string) => Promise<PathDiscoveryResponse>;
-  pushSupported?: boolean;
-  pushEnabledForConversation?: boolean;
-  onTogglePush?: () => void;
+  notifyMediaEnabled?: NotificationMediaFlags;
+  emailReady?: boolean;
+  webhookReady?: boolean;
+  onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
+  onOpenNotifySettings?: () => void;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => void;
-  onToggleMute?: (key: string) => void;
+  onMuteChannel?: (key: string, durationSeconds: number) => void;
   onSetChannelFloodScopeOverride?: (key: string, floodScopeOverride: string) => void;
   onSetChannelPathHashModeOverride?: (key: string, pathHashModeOverride: number | null) => void;
   onDeleteChannel: (key: string) => void;
@@ -57,11 +67,13 @@ export function ChatHeader({
   config,
   onTrace,
   onPathDiscovery,
-  pushSupported,
-  pushEnabledForConversation,
-  onTogglePush,
+  notifyMediaEnabled,
+  emailReady = false,
+  webhookReady = false,
+  onSetConversationMedia,
+  onOpenNotifySettings,
   onToggleFavorite,
-  onToggleMute,
+  onMuteChannel,
   onSetChannelFloodScopeOverride,
   onSetChannelPathHashModeOverride,
   onDeleteChannel,
@@ -265,48 +277,21 @@ export function ChatHeader({
                   <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
                 </button>
               )}
-              {!pending && pushSupported && onTogglePush && (
-                <button
-                  className={headerActionClass}
-                  onClick={() => void onTogglePush()}
-                  title={t('chatHeader.notifications')}
-                  aria-label={t('chatHeader.notifications')}
-                  aria-pressed={!!pushEnabledForConversation}
-                >
-                  <Bell
-                    className={cn(
-                      'h-4 w-4',
-                      pushEnabledForConversation ? 'text-primary' : 'text-muted-foreground'
-                    )}
-                    fill={pushEnabledForConversation ? 'currentColor' : 'none'}
-                    aria-hidden="true"
-                  />
-                </button>
+              {!pending && onSetConversationMedia && notifyMediaEnabled && (
+                <ConversationNotifyMenu
+                  mediaEnabled={notifyMediaEnabled}
+                  emailReady={emailReady}
+                  webhookReady={webhookReady}
+                  onSetMedia={onSetConversationMedia}
+                  onOpenSettings={onOpenNotifySettings}
+                />
               )}
-              {!pending && conversation.type === 'channel' && onToggleMute && (
-                <button
-                  className={headerActionClass}
-                  onClick={() => onToggleMute(conversation.id)}
-                  title={
-                    activeChannel?.muted
-                      ? t('chatHeader.unmuteChannel')
-                      : t('chatHeader.muteChannel')
-                  }
-                  aria-label={
-                    activeChannel?.muted
-                      ? t('chatHeader.unmuteChannel')
-                      : t('chatHeader.muteChannel')
-                  }
-                  aria-pressed={!!activeChannel?.muted}
-                >
-                  <BellOff
-                    className={cn(
-                      'h-4 w-4',
-                      activeChannel?.muted ? 'text-primary' : 'text-muted-foreground'
-                    )}
-                    aria-hidden="true"
-                  />
-                </button>
+              {!pending && conversation.type === 'channel' && onMuteChannel && (
+                <ChannelMuteMenu
+                  muted={!!activeChannel?.muted}
+                  mutedUntil={activeChannel?.muted_until}
+                  onMute={(durationSeconds) => onMuteChannel(conversation.id, durationSeconds)}
+                />
               )}
               {!pending && conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
                 <button

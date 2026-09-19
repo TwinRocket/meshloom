@@ -11,12 +11,36 @@ from app.services.channel_membership import (
 )
 
 
+def effective_channel_muted(muted: bool, muted_until: int | None, now: int | None = None) -> bool:
+    if not muted:
+        return False
+    if muted_until is None:
+        return True
+    return muted_until > (now if now is not None else int(time.time()))
+
+
+def _row_muted_until(row: Any) -> int | None:
+    try:
+        raw = row["muted_until"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _channel_from_row(row: Any) -> Channel:
     membership = MEMBERSHIP_ADOPTED
     try:
         membership = coerce_membership(row["membership"])
     except (KeyError, IndexError, TypeError):
         membership = MEMBERSHIP_ADOPTED
+    muted_until = _row_muted_until(row)
+    stored_muted = bool(row["muted"])
+    muted = effective_channel_muted(stored_muted, muted_until)
     return Channel(
         key=row["key"],
         name=row["name"],
@@ -26,14 +50,15 @@ def _channel_from_row(row: Any) -> Channel:
         path_hash_mode_override=row["path_hash_mode_override"],
         last_read_at=row["last_read_at"],
         favorite=bool(row["favorite"]),
-        muted=bool(row["muted"]),
+        muted=muted,
+        muted_until=muted_until if muted else None,
         membership=membership,
     )
 
 
 _CHANNEL_SELECT = (
     "SELECT key, name, is_hashtag, on_radio, flood_scope_override, "
-    "path_hash_mode_override, last_read_at, favorite, muted, membership "
+    "path_hash_mode_override, last_read_at, favorite, muted, muted_until, membership "
     "FROM channels"
 )
 
@@ -144,12 +169,16 @@ class ChannelRepository:
         return rowcount > 0
 
     @staticmethod
-    async def set_muted(key: str, value: bool) -> bool:
-        """Set or clear the muted flag for a channel. Returns True if row was found."""
+    async def set_muted(key: str, value: bool, muted_until: int | None = None) -> bool:
+        """Set or clear mute. ``muted_until`` is unix time; None means indefinite."""
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE channels SET muted = ? WHERE key = ?",
-                (1 if value else 0, normalize_channel_key(key)),
+                "UPDATE channels SET muted = ?, muted_until = ? WHERE key = ?",
+                (
+                    1 if value else 0,
+                    muted_until if value else None,
+                    normalize_channel_key(key),
+                ),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0

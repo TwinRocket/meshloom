@@ -75,19 +75,34 @@ async def test_put_conversation_override_true_false_null(test_db, client):
         json={"override": True},
     )
     assert enabled.status_code == 200
-    assert enabled.json()["overrides"][key] is True
+    assert enabled.json()["overrides"][key] == {"push": True}
 
     disabled = await client.put(
         f"/api/push/preferences/conversations/{key}",
         json={"override": False},
     )
-    assert disabled.json()["overrides"][key] is False
+    assert disabled.json()["overrides"][key] == {"push": False}
 
     cleared = await client.put(
         f"/api/push/preferences/conversations/{key}",
         json={"override": None},
     )
     assert key not in cleared.json()["overrides"]
+
+
+@pytest.mark.asyncio
+async def test_put_conversation_override_merges_media(test_db, client):
+    key = "contact-" + "bb" * 32
+    first = await client.put(
+        f"/api/push/preferences/conversations/{key}",
+        json={"override": {"email": True}},
+    )
+    assert first.json()["overrides"][key] == {"email": True}
+    second = await client.put(
+        f"/api/push/preferences/conversations/{key}",
+        json={"override": {"push": False}},
+    )
+    assert second.json()["overrides"][key] == {"email": True, "push": False}
 
 
 @pytest.mark.asyncio

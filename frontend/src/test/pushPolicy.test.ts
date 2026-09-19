@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { NotificationMediaFlags, PushDefaults } from '../types';
 import { DEFAULT_NOTIFICATION_MEDIA } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
-import { conversationIsEnabled } from '../utils/pushPolicy';
+import { conversationIsEnabled, type ConversationOverrides } from '../utils/pushPolicy';
 
 const DM_KEY = 'aa'.repeat(32);
 const ROOM_KEY = 'bb'.repeat(32);
@@ -41,9 +41,10 @@ type PolicyCase = {
   stateKey: string;
   messageType: string;
   defaults?: PushDefaults;
-  overrides?: Record<string, boolean>;
+  overrides?: ConversationOverrides;
   isHashtag?: boolean;
   isPublic?: boolean;
+  channel?: 'push' | 'email' | 'webhook';
 };
 
 function policyCase(
@@ -127,6 +128,39 @@ const POLICY_CASES = [
     messageType: 'PRIV',
     defaults: DM_OFF,
     overrides: { [`contact-${ROOM_KEY}`]: true },
+  }),
+  policyCase('override_true_does_not_enable_email_when_matrix_off', {
+    expected: false,
+    stateKey: `contact-${DM_KEY}`,
+    messageType: 'PRIV',
+    overrides: { [`contact-${DM_KEY}`]: true },
+    channel: 'email',
+  }),
+  policyCase('override_true_does_not_enable_email_for_public_channel', {
+    expected: false,
+    stateKey: `channel-${PUBLIC_CHANNEL_KEY}`,
+    messageType: 'CHAN',
+    isPublic: true,
+    overrides: { [`channel-${PUBLIC_CHANNEL_KEY}`]: true },
+    channel: 'email',
+  }),
+  policyCase('dm_email_follows_new_dm_matrix', {
+    expected: true,
+    stateKey: `contact-${DM_KEY}`,
+    messageType: 'PRIV',
+    defaults: {
+      ...ALL_ON,
+      new_dm: { push: true, email: true, webhook: false },
+    },
+    channel: 'email',
+  }),
+  policyCase('channel_email_override_enables_email', {
+    expected: true,
+    stateKey: `channel-${PUBLIC_CHANNEL_KEY}`,
+    messageType: 'CHAN',
+    isPublic: true,
+    overrides: { [`channel-${PUBLIC_CHANNEL_KEY}`]: { email: true } },
+    channel: 'email',
   }),
 ] as const;
 

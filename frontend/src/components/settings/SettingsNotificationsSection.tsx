@@ -21,6 +21,7 @@ import {
   type NotificationMediaChannel,
   type PushDefaults,
 } from '../../types';
+import { conversationOverrideFlags } from '../../utils/pushPolicy';
 import { getContactDisplayName } from '../../utils/pubkey';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -704,7 +705,23 @@ export function SettingsNotificationsSection({
           <div className="flex flex-wrap gap-1.5">
             {overrideEntries.map((key) => {
               const name = resolveConversationName(key, contacts, channels);
-              const forcedOn = preferences?.overrides[key] === true;
+              const flags = conversationOverrideFlags(preferences?.overrides[key]);
+              const mediaLabels = {
+                push: t('settings.notifications.mediaPush'),
+                email: t('settings.notifications.mediaEmail'),
+                webhook: t('settings.notifications.mediaWebhook'),
+              } as const;
+              const summary = (['push', 'email', 'webhook'] as const)
+                .filter((channel) => flags[channel] != null)
+                .map(
+                  (channel) =>
+                    `${mediaLabels[channel]} ${
+                      flags[channel]
+                        ? t('settings.notifications.overrideOn')
+                        : t('settings.notifications.overrideOff')
+                    }`
+                )
+                .join(' · ');
               return (
                 <span
                   key={key}
@@ -712,9 +729,7 @@ export function SettingsNotificationsSection({
                 >
                   <span>{name}</span>
                   <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
-                    {forcedOn
-                      ? t('settings.notifications.overrideOn')
-                      : t('settings.notifications.overrideOff')}
+                    {summary || t('settings.notifications.overrideOff')}
                   </span>
                   <button
                     type="button"

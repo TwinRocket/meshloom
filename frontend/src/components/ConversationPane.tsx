@@ -22,6 +22,8 @@ import type {
   Conversation,
   HealthStatus,
   Message,
+  NotificationMediaChannel,
+  NotificationMediaFlags,
   PathDiscoveryResponse,
   RadioAdvertMode,
   RadioConfig,
@@ -74,7 +76,7 @@ interface ConversationPaneProps {
   ) => Promise<RadioTraceResponse>;
   onPathDiscovery: (publicKey: string) => Promise<PathDiscoveryResponse>;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => Promise<void>;
-  onToggleMute: (key: string) => Promise<void>;
+  onMuteChannel: (key: string, durationSeconds: number) => Promise<void>;
   onDeleteContact: (publicKey: string) => Promise<void>;
   onDeleteChannel: (key: string) => Promise<void>;
   onSetChannelFloodScopeOverride: (channelKey: string, floodScopeOverride: string) => Promise<void>;
@@ -95,11 +97,11 @@ interface ConversationPaneProps {
   onDismissUnreadMarker: () => void;
   onSendMessage: (text: string) => Promise<void>;
   onMessageDeleted?: (messageId: number) => void;
-  pushSupported?: boolean;
-  pushSubscribed?: boolean;
-  pushEnabledForConversation?: boolean;
-  onTogglePush?: () => void;
-  onOpenPushSettings?: () => void;
+  notifyMediaEnabled?: NotificationMediaFlags;
+  emailReady?: boolean;
+  webhookReady?: boolean;
+  onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
+  onOpenNotifySettings?: () => void;
   trackedTelemetryRepeaters: string[];
   onToggleTrackedTelemetry: (publicKey: string) => Promise<void>;
   trackedTelemetryContacts?: string[];
@@ -170,7 +172,7 @@ export function ConversationPane({
   onRunTracePath,
   onPathDiscovery,
   onToggleFavorite,
-  onToggleMute,
+  onMuteChannel,
   onDeleteContact,
   onDeleteChannel,
   onSetChannelFloodScopeOverride,
@@ -188,9 +190,11 @@ export function ConversationPane({
   onDismissUnreadMarker,
   onSendMessage,
   onMessageDeleted,
-  pushSupported,
-  pushEnabledForConversation,
-  onTogglePush,
+  notifyMediaEnabled,
+  emailReady,
+  webhookReady,
+  onSetConversationMedia,
+  onOpenNotifySettings,
   trackedTelemetryRepeaters,
   onToggleTrackedTelemetry,
   trackedTelemetryContacts = [],
@@ -482,13 +486,15 @@ export function ConversationPane({
         contacts={contacts}
         channels={channels}
         config={config}
-        pushSupported={pushSupported}
-        pushEnabledForConversation={pushEnabledForConversation}
-        onTogglePush={onTogglePush}
+        notifyMediaEnabled={notifyMediaEnabled}
+        emailReady={emailReady}
+        webhookReady={webhookReady}
+        onSetConversationMedia={onSetConversationMedia}
+        onOpenNotifySettings={onOpenNotifySettings}
         onTrace={onTrace}
         onPathDiscovery={onPathDiscovery}
         onToggleFavorite={onToggleFavorite}
-        onToggleMute={onToggleMute}
+        onMuteChannel={onMuteChannel}
         onSetChannelFloodScopeOverride={onSetChannelFloodScopeOverride}
         onSetChannelPathHashModeOverride={onSetChannelPathHashModeOverride}
         onDeleteChannel={onDeleteChannel}

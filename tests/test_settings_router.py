@@ -246,6 +246,49 @@ class TestToggleFavorite:
         mock_create_task.assert_not_called()
 
 
+class TestMuteChannel:
+    @pytest.mark.asyncio
+    async def test_duration_mutes_until_timestamp(self, test_db):
+        from app.repository import ChannelRepository
+        from app.routers.settings import MuteChannelRequest, toggle_muted_channel
+
+        key = "ab" * 16
+        await ChannelRepository.upsert(key, "#ops", is_hashtag=True)
+        result = await toggle_muted_channel(MuteChannelRequest(key=key, duration_seconds=900))
+        assert result.muted is True
+        assert result.muted_until is not None
+        stored = await ChannelRepository.get_by_key(key)
+        assert stored is not None
+        assert stored.muted is True
+        assert stored.muted_until == result.muted_until
+
+    @pytest.mark.asyncio
+    async def test_zero_unmutes(self, test_db):
+        from app.repository import ChannelRepository
+        from app.routers.settings import MuteChannelRequest, toggle_muted_channel
+
+        key = "cd" * 16
+        await ChannelRepository.upsert(key, "#ops", is_hashtag=True)
+        await ChannelRepository.set_muted(key, True)
+        result = await toggle_muted_channel(MuteChannelRequest(key=key, duration_seconds=0))
+        assert result.muted is False
+        assert result.muted_until is None
+
+    @pytest.mark.asyncio
+    async def test_expired_mute_is_not_effective(self, test_db):
+        import time
+
+        from app.repository import ChannelRepository
+
+        key = "ef" * 16
+        await ChannelRepository.upsert(key, "#ops", is_hashtag=True)
+        await ChannelRepository.set_muted(key, True, int(time.time()) - 30)
+        stored = await ChannelRepository.get_by_key(key)
+        assert stored is not None
+        assert stored.muted is False
+        assert stored.muted_until is None
+
+
 class TestToggleTrackedTelemetry:
     """Tests for POST /settings/tracked-telemetry/toggle."""
 

@@ -1,3 +1,25 @@
+## [4.14.1] - 2026-09-19
+
+The conversation header had two bells. One now picks how you are notified. The other is a speaker, and it mutes a channel for a while.
+
+### Fixed
+
+- **The bell is for notifications.** Open it and tick Push, Email and/or Webhook for that conversation. An old "bell on" used to turn every medium on, so people who only wanted a phone nudge got every message by email.
+- **The slashed speaker is for mute.** Fifteen minutes, half an hour, one hour, a few hours, a day, or until you unmute.
+
+---
+
+### Français
+
+L'en-tête d'une conversation avait deux cloches. L'une choisit maintenant comment on vous prévient. L'autre est un haut-parleur : elle met le salon en sourdine pour un temps.
+
+#### Corrections
+
+- **La cloche, c'est les notifications.** On l'ouvre, on coche Push, e-mail et/ou webhook pour cette conversation. Une ancienne cloche activée allumait tout, donc ceux qui voulaient juste une alerte sur le téléphone recevaient chaque message par e-mail.
+- **Le haut-parleur barré, c'est la sourdine.** Quinze minutes, une demi-heure, une heure, quelques heures, une journée, ou jusqu'à ce qu'on le réactive.
+
+---
+
 ## [4.14.0] - 2026-09-19
 
 Meshloom can now call you when something is off. This release watches the nodes you already poll, delivers the news the way you want, and makes managing several Meshloom instances simpler.

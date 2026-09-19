@@ -498,6 +498,67 @@ async def test_dispatch_message_private_channel_without_override_skips(test_db, 
 
 
 @pytest.mark.asyncio
+async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.models import NotificationDestinations, NotificationEmailDest
+    from app.push.manager import push_manager
+    from app.repository.settings import AppSettingsRepository
+
+    key = "aa" * 32
+    await _add_push_sub()
+    sent = _patch_push_send(monkeypatch)
+    email = AsyncMock()
+    monkeypatch.setattr("app.notify.send_email_alert", email)
+    await AppSettingsRepository.update(
+        notification_destinations=NotificationDestinations(
+            email=NotificationEmailDest(host="smtp.example", to="ops@example.com")
+        )
+    )
+    await AppSettingsRepository.set_push_conversation_override(f"contact-{key}", True)
+    await push_manager.dispatch_message(
+        {
+            "type": "PRIV",
+            "outgoing": False,
+            "conversation_key": key,
+            "text": "hello",
+            "sender_name": "Alice",
+        }
+    )
+    assert len(sent) == 1
+    email.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.models import NotificationDestinations, NotificationEmailDest
+    from app.push.manager import push_manager
+    from app.repository.settings import AppSettingsRepository
+
+    key = "aa" * 32
+    email = AsyncMock()
+    monkeypatch.setattr("app.notify.send_email_alert", email)
+    await AppSettingsRepository.update(
+        notification_destinations=NotificationDestinations(
+            email=NotificationEmailDest(host="smtp.example", to="ops@example.com")
+        )
+    )
+    await AppSettingsRepository.set_push_defaults({"new_dm": {"email": True}})
+    await push_manager.dispatch_message(
+        {
+            "type": "PRIV",
+            "outgoing": False,
+            "conversation_key": key,
+            "text": "hello",
+            "sender_name": "Alice",
+        }
+    )
+    email.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     from app.models import Contact
     from app.push.first_seen import maybe_notify_contact_first_seen

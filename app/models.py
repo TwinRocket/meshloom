@@ -357,6 +357,10 @@ class Channel(BaseModel):
     last_read_at: int | None = None  # Server-side read state tracking
     favorite: bool = False
     muted: bool = False
+    muted_until: int | None = Field(
+        default=None,
+        description="Unix time when a timed mute ends. None means indefinite while muted.",
+    )
     membership: Literal["adopted", "pending"] = Field(
         default="adopted",
         description=(
@@ -1650,6 +1654,7 @@ class BackupChannel(BaseModel):
     path_hash_mode_override: int | None = None
     favorite: bool = False
     muted: bool = False
+    muted_until: int | None = None
     membership: Literal["adopted", "pending"] = "adopted"
 
 
@@ -1667,7 +1672,7 @@ class BackupExport(BaseModel):
     settings: AppSettings | None = None
     groups: list[ContactGroup] = Field(default_factory=list)
     push_defaults: dict[str, Any] | None = None
-    push_conversation_overrides: dict[str, bool] | None = None
+    push_conversation_overrides: dict[str, bool | dict[str, bool]] | None = None
     vapid_subject: str | None = None
 
 

@@ -82,7 +82,7 @@ class PushDefaultsPatch(BaseModel):
 
 class PushPreferencesResponse(BaseModel):
     defaults: PushDefaultsModel
-    overrides: dict[str, bool]
+    overrides: dict[str, dict[str, bool]]
     vapid_subject: str
 
 
@@ -92,7 +92,7 @@ class PushPreferencesPatch(BaseModel):
 
 
 class PushConversationOverrideBody(BaseModel):
-    override: bool | None = None
+    override: bool | NotificationMediaPatch | None = None
 
 
 def _validate_vapid_subject(subject: str) -> str:
@@ -264,10 +264,16 @@ async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesR
 async def put_push_conversation_override(
     key: str, body: PushConversationOverrideBody
 ) -> PushPreferencesResponse:
-    """Set (true/false) or clear (null) one conversation override."""
+    """Set, merge, or clear (null) one conversation media override."""
     if not key:
         raise HTTPException(status_code=400, detail="Conversation key is required")
-    await AppSettingsRepository.set_push_conversation_override(key, body.override)
+    override = body.override
+    raw: bool | dict[str, bool] | None
+    if isinstance(override, NotificationMediaPatch):
+        raw = override.model_dump(exclude_none=True)
+    else:
+        raw = override
+    await AppSettingsRepository.set_push_conversation_override(key, raw)
     return await get_push_preferences()
 
 

@@ -69,10 +69,10 @@ class TestPushNotificationSettingsRepo:
     async def test_set_override_true_false_none(self, test_db):
         key = "contact-" + "aa" * 32
         written = await AppSettingsRepository.set_push_conversation_override(key, True)
-        assert written[key] is True
+        assert written[key] == {"push": True}
 
         written = await AppSettingsRepository.set_push_conversation_override(key, False)
-        assert written[key] is False
+        assert written[key] == {"push": False}
 
         written = await AppSettingsRepository.set_push_conversation_override(key, None)
         assert key not in written
@@ -149,7 +149,9 @@ class TestWipePushOverrides:
         await wipe_mesh_identity_data()
 
         assert await AppSettingsRepository.get_push_conversations() == [channel_key]
-        assert await AppSettingsRepository.get_push_conversation_overrides() == {channel_key: False}
+        assert await AppSettingsRepository.get_push_conversation_overrides() == {
+            channel_key: {"push": False}
+        }
 
 
 class TestPrefixOverrideRemap:
@@ -166,7 +168,7 @@ class TestPrefixOverrideRemap:
 
         overrides = await AppSettingsRepository.get_push_conversation_overrides()
         assert f"contact-{prefix}" not in overrides
-        assert overrides[f"contact-{full_key}"] is True
+        assert overrides[f"contact-{full_key}"] == {"push": True}
 
     @pytest.mark.asyncio
     async def test_promote_does_not_overwrite_existing_full_key_override(self, test_db):
@@ -183,4 +185,4 @@ class TestPrefixOverrideRemap:
 
         overrides = await AppSettingsRepository.get_push_conversation_overrides()
         assert f"contact-{prefix}" not in overrides
-        assert overrides[f"contact-{full_key}"] is True
+        assert overrides[f"contact-{full_key}"] == {"push": True}

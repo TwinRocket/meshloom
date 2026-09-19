@@ -147,7 +147,7 @@
       "ossUpdate": "Mises à jour Meshloom",
       "ossUpdateHelp": "Notifier lorsqu’une mise à jour Meshloom est disponible sur ce nœud.",
       "exceptions": "Exceptions par conversation",
-      "exceptionsHelp": "Dérogations par conversation définies depuis l’en-tête du chat. Elles s’appliquent à tous les médias de cette conversation et priment sur les réglages par défaut ci-dessus.",
+      "exceptionsHelp": "Dérogations par conversation définies depuis le menu cloche de l’en-tête. Push, e-mail et webhook se règlent séparément pour ce fil.",
       "exceptionsEmpty": "Aucune exception de conversation pour le moment.",
       "overrideOn": "Activé",
       "overrideOff": "Désactivé",

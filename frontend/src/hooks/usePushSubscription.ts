@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from '../components/ui/sonner';
 import { api } from '../api';
 import i18n from '../i18n';
-import type { PushDefaultsPatch, PushPreferences, PushSubscriptionInfo } from '../types';
+import type {
+  ConversationMediaOverride,
+  NotificationMediaChannel,
+  PushDefaultsPatch,
+  PushPreferences,
+  PushSubscriptionInfo,
+} from '../types';
 import { conversationIsEnabled } from '../utils/pushPolicy';
 import { getSavedLanguage } from '../utils/languagePreference';
 
@@ -103,7 +109,15 @@ export interface PushSubscriptionState {
   subscribe: () => Promise<string | null>;
   unsubscribe: () => Promise<void>;
   isConversationPushEnabled: (stateKey: string, ctx: ConversationPushContext) => boolean;
-  setConversationOverride: (key: string, override: boolean | null) => Promise<void>;
+  isConversationMediaEnabled: (
+    stateKey: string,
+    ctx: ConversationPushContext,
+    channel: NotificationMediaChannel
+  ) => boolean;
+  setConversationOverride: (
+    key: string,
+    override: boolean | ConversationMediaOverride | null
+  ) => Promise<void>;
   patchPreferences: (partial: {
     defaults?: PushDefaultsPatch;
     vapid_subject?: string;
@@ -256,14 +270,17 @@ export function usePushSubscription(): PushSubscriptionState {
     }
   }, [currentSubscriptionId, refreshSubscriptions]);
 
-  const setConversationOverride = useCallback(async (key: string, override: boolean | null) => {
-    try {
-      const updated = await api.setPushConversationOverride(key, override);
-      setPreferences(updated);
-    } catch {
-      toast.error(i18n.t('notifications.pushPrefsFailed'));
-    }
-  }, []);
+  const setConversationOverride = useCallback(
+    async (key: string, override: boolean | ConversationMediaOverride | null) => {
+      try {
+        const updated = await api.setPushConversationOverride(key, override);
+        setPreferences(updated);
+      } catch {
+        toast.error(i18n.t('notifications.pushPrefsFailed'));
+      }
+    },
+    []
+  );
 
   const patchPreferences = useCallback(
     async (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) => {
@@ -277,8 +294,12 @@ export function usePushSubscription(): PushSubscriptionState {
     []
   );
 
-  const isConversationPushEnabled = useCallback(
-    (stateKey: string, ctx: ConversationPushContext): boolean => {
+  const isConversationMediaEnabled = useCallback(
+    (
+      stateKey: string,
+      ctx: ConversationPushContext,
+      channel: NotificationMediaChannel = 'push'
+    ): boolean => {
       if (!preferences) return false;
       return conversationIsEnabled({
         stateKey,
@@ -287,9 +308,16 @@ export function usePushSubscription(): PushSubscriptionState {
         overrides: preferences.overrides,
         isHashtag: ctx.isHashtag,
         isPublic: ctx.isPublic,
+        channel,
       });
     },
     [preferences]
+  );
+
+  const isConversationPushEnabled = useCallback(
+    (stateKey: string, ctx: ConversationPushContext): boolean =>
+      isConversationMediaEnabled(stateKey, ctx, 'push'),
+    [isConversationMediaEnabled]
   );
 
   const deleteSubscription = useCallback(
@@ -330,6 +358,7 @@ export function usePushSubscription(): PushSubscriptionState {
     subscribe,
     unsubscribe,
     isConversationPushEnabled,
+    isConversationMediaEnabled,
     setConversationOverride,
     patchPreferences,
     deleteSubscription,
