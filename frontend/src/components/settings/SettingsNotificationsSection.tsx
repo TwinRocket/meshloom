@@ -11,12 +11,14 @@ import {
   isEmailDestinationReady,
   isWebhookDestinationReady,
   resolveNotificationDestinations,
+  resolveNotificationMedia,
   type AppSettings,
   type AppSettingsUpdate,
   type Channel,
   type Contact,
   type NotificationDestinations,
   type NotificationEmailMode,
+  type NotificationMediaChannel,
   type PushDefaults,
 } from '../../types';
 import { getContactDisplayName } from '../../utils/pubkey';
@@ -67,6 +69,15 @@ const DEFAULT_KEYS: Array<{
     label: 'settings.notifications.ossUpdate',
     help: 'settings.notifications.ossUpdateHelp',
   },
+];
+
+const MEDIA_COLUMNS: Array<{
+  channel: NotificationMediaChannel;
+  label: string;
+}> = [
+  { channel: 'push', label: 'settings.notifications.mediaPush' },
+  { channel: 'email', label: 'settings.notifications.mediaEmail' },
+  { channel: 'webhook', label: 'settings.notifications.mediaWebhook' },
 ];
 
 function resolveConversationName(
@@ -256,110 +267,22 @@ export function SettingsNotificationsSection({
     }
   };
 
+  const emailReady = isEmailDestinationReady(destDraft.email);
+  const webhookReady = isWebhookDestinationReady(destDraft.webhook);
+
+  const patchMedia = (
+    key: keyof PushDefaults,
+    channel: NotificationMediaChannel,
+    checked: boolean
+  ) => {
+    void patchPreferences({ defaults: { [key]: { [channel]: checked } } });
+  };
+
+  const mediaReady = (channel: NotificationMediaChannel) =>
+    channel === 'push' || (channel === 'email' ? emailReady : webhookReady);
+
   return (
     <div className={className}>
-      <div className="space-y-3">
-        <SettingsGroupHeader
-          title={t('settings.notifications.thisDevice')}
-          storedOn="server"
-          instant
-        />
-        {!isSupported ? (
-          <p className="text-[0.8125rem] text-muted-foreground">
-            {window.isSecureContext
-              ? t('settings.notifications.unsupported')
-              : t('settings.notifications.needsHttps')}
-          </p>
-        ) : (
-          <>
-            <p className="text-[0.8125rem] text-muted-foreground">
-              {t('settings.notifications.thisDeviceHelp')}
-            </p>
-            <p className="text-[0.8125rem] text-muted-foreground">
-              {t('settings.notifications.thisDeviceGlobalHelp')}
-            </p>
-            {!currentSubscriptionId && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void subscribe()}
-                disabled={loading}
-              >
-                {loading
-                  ? t('settings.notifications.subscribing')
-                  : t('settings.notifications.subscribe')}
-              </Button>
-            )}
-            {allSubscriptions.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
-                  {t('settings.notifications.devices')}
-                </span>
-                <div className="mt-2 space-y-2">
-                  {allSubscriptions.map((sub) => (
-                    <div
-                      key={sub.id}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          <span className="truncate text-sm font-medium">
-                            {sub.label || t('settings.notifications.unknownDevice')}
-                          </span>
-                          {sub.id === currentSubscriptionId && (
-                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
-                              {t('settings.notifications.currentDevice')}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {sub.last_success_at
-                            ? t('settings.notifications.lastPush', {
-                                date: new Date(sub.last_success_at * 1000).toLocaleDateString(),
-                              })
-                            : t('settings.notifications.neverPushed')}
-                          {sub.failure_count > 0 &&
-                            t('settings.notifications.failures', { count: sub.failure_count })}
-                        </span>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-sm"
-                          onClick={() => {
-                            void (async () => {
-                              const saved = await commitVapidSubject();
-                              if (saved) await testPush(sub.id);
-                            })();
-                          }}
-                        >
-                          {t('settings.notifications.test')}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-sm text-destructive hover:text-destructive"
-                          onClick={() => {
-                            void deleteSubscription(sub.id).then(() =>
-                              toast.success(t('settings.notifications.deviceRemoved'))
-                            );
-                          }}
-                        >
-                          {t('settings.notifications.unsubscribeDevice')}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <Separator />
-
       <div className="space-y-3">
         <SettingsGroupHeader
           title={t('settings.notifications.destinations')}
@@ -564,6 +487,43 @@ export function SettingsNotificationsSection({
 
       <Separator />
 
+      <div className="space-y-2">
+        <SettingsGroupHeader
+          title={t('settings.notifications.vapidSubject')}
+          storedOn="server"
+          instant
+        />
+        <Label htmlFor="vapid-subject">{t('settings.notifications.vapidSubjectLabel')}</Label>
+        <Input
+          id="vapid-subject"
+          type="text"
+          autoComplete="off"
+          placeholder={t('settings.notifications.vapidSubjectPlaceholder')}
+          value={vapidDraft}
+          disabled={!preferences}
+          onChange={(event) => {
+            setVapidDraft(event.target.value);
+            if (vapidError) setVapidError(null);
+          }}
+          onBlur={() => void commitVapidSubject()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void commitVapidSubject();
+            }
+          }}
+        />
+        {vapidError ? (
+          <p className="text-xs text-destructive">{vapidError}</p>
+        ) : (
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.notifications.vapidSubjectHelp')}
+          </p>
+        )}
+      </div>
+
+      <Separator />
+
       <div className="space-y-3">
         <SettingsGroupHeader
           title={t('settings.notifications.defaults')}
@@ -573,23 +533,156 @@ export function SettingsNotificationsSection({
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.notifications.defaultsHelp')}
         </p>
-        {DEFAULT_KEYS.map(({ key, label, help }) => (
-          <div key={key} className="flex items-start gap-3 rounded-md border border-border/60 p-3">
-            <Checkbox
-              id={`push-default-${key}`}
-              checked={preferences?.defaults[key] === true}
-              disabled={!preferences}
-              onCheckedChange={(checked) => {
-                void patchPreferences({ defaults: { [key]: checked === true } });
-              }}
-              className="mt-0.5"
-            />
-            <div className="space-y-1">
-              <Label htmlFor={`push-default-${key}`}>{t(label)}</Label>
-              <p className="text-[0.8125rem] text-muted-foreground">{t(help)}</p>
-            </div>
-          </div>
-        ))}
+        <div className="overflow-x-auto rounded-md border border-border/60">
+          <table className="w-full min-w-[28rem] text-sm">
+            <thead>
+              <tr className="border-b border-border/60 text-left">
+                <th className="px-3 py-2 font-medium">
+                  {t('settings.notifications.defaultsType')}
+                </th>
+                {MEDIA_COLUMNS.map(({ channel, label }) => (
+                  <th key={channel} className="px-3 py-2 text-center font-medium">
+                    {t(label)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {DEFAULT_KEYS.map(({ key, label, help }) => {
+                const media = resolveNotificationMedia(preferences?.defaults[key]);
+                return (
+                  <tr key={key} className="border-b border-border/40 last:border-0">
+                    <td className="px-3 py-3 align-top">
+                      <div className="space-y-1">
+                        <span className="font-medium">{t(label)}</span>
+                        <p className="text-[0.8125rem] text-muted-foreground">{t(help)}</p>
+                      </div>
+                    </td>
+                    {MEDIA_COLUMNS.map(({ channel, label: mediaLabel }) => {
+                      const ready = mediaReady(channel);
+                      const id = `notify-${key}-${channel}`;
+                      return (
+                        <td key={channel} className="px-3 py-3 text-center align-top">
+                          <Checkbox
+                            id={id}
+                            checked={media[channel]}
+                            disabled={!preferences || !ready}
+                            onCheckedChange={(checked) => {
+                              patchMedia(key, channel, checked === true);
+                            }}
+                            aria-label={`${t(label)} — ${t(mediaLabel)}`}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <SettingsGroupHeader
+          title={t('settings.notifications.thisDevice')}
+          storedOn="server"
+          instant
+        />
+        {!isSupported ? (
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {window.isSecureContext
+              ? t('settings.notifications.unsupported')
+              : t('settings.notifications.needsHttps')}
+          </p>
+        ) : (
+          <>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.notifications.thisDeviceHelp')}
+            </p>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.notifications.thisDeviceGlobalHelp')}
+            </p>
+            {!currentSubscriptionId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void subscribe()}
+                disabled={loading}
+              >
+                {loading
+                  ? t('settings.notifications.subscribing')
+                  : t('settings.notifications.subscribe')}
+              </Button>
+            )}
+            {allSubscriptions.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
+                  {t('settings.notifications.devices')}
+                </span>
+                <div className="mt-2 space-y-2">
+                  {allSubscriptions.map((sub) => (
+                    <div
+                      key={sub.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <span className="truncate text-sm font-medium">
+                            {sub.label || t('settings.notifications.unknownDevice')}
+                          </span>
+                          {sub.id === currentSubscriptionId && (
+                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-primary">
+                              {t('settings.notifications.currentDevice')}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {sub.last_success_at
+                            ? t('settings.notifications.lastPush', {
+                                date: new Date(sub.last_success_at * 1000).toLocaleDateString(),
+                              })
+                            : t('settings.notifications.neverPushed')}
+                          {sub.failure_count > 0 &&
+                            t('settings.notifications.failures', { count: sub.failure_count })}
+                        </span>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-sm"
+                          onClick={() => {
+                            void (async () => {
+                              const saved = await commitVapidSubject();
+                              if (saved) await testPush(sub.id);
+                            })();
+                          }}
+                        >
+                          {t('settings.notifications.test')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-sm text-destructive hover:text-destructive"
+                          onClick={() => {
+                            void deleteSubscription(sub.id).then(() =>
+                              toast.success(t('settings.notifications.deviceRemoved'))
+                            );
+                          }}
+                        >
+                          {t('settings.notifications.unsubscribeDevice')}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <Separator />
@@ -636,43 +729,6 @@ export function SettingsNotificationsSection({
               );
             })}
           </div>
-        )}
-      </div>
-
-      <Separator />
-
-      <div className="space-y-2">
-        <SettingsGroupHeader
-          title={t('settings.notifications.vapidSubject')}
-          storedOn="server"
-          instant
-        />
-        <Label htmlFor="vapid-subject">{t('settings.notifications.vapidSubjectLabel')}</Label>
-        <Input
-          id="vapid-subject"
-          type="text"
-          autoComplete="off"
-          placeholder={t('settings.notifications.vapidSubjectPlaceholder')}
-          value={vapidDraft}
-          disabled={!preferences}
-          onChange={(event) => {
-            setVapidDraft(event.target.value);
-            if (vapidError) setVapidError(null);
-          }}
-          onBlur={() => void commitVapidSubject()}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              void commitVapidSubject();
-            }
-          }}
-        />
-        {vapidError ? (
-          <p className="text-xs text-destructive">{vapidError}</p>
-        ) : (
-          <p className="text-[0.8125rem] text-muted-foreground">
-            {t('settings.notifications.vapidSubjectHelp')}
-          </p>
         )}
       </div>
     </div>

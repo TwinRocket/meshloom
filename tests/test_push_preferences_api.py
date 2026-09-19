@@ -35,8 +35,8 @@ async def test_patch_preferences_partial_defaults_and_vapid(test_db, client, mon
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["defaults"]["new_dm"] is False
-    assert data["defaults"]["new_contact"] is True
+    assert data["defaults"]["new_dm"] == {"push": False, "email": False, "webhook": False}
+    assert data["defaults"]["new_contact"] == {"push": True, "email": False, "webhook": False}
     assert data["vapid_subject"] == "mailto:ops@example.com"
     assert get_vapid_claims() == {"sub": "mailto:ops@example.com"}
 

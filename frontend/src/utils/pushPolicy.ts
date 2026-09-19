@@ -1,4 +1,5 @@
-import type { PushDefaults } from '../types';
+import type { NotificationMediaChannel, PushDefaults } from '../types';
+import { notificationMediaFlag } from '../types';
 
 export interface ConversationEnablementInput {
   stateKey: string;
@@ -7,6 +8,7 @@ export interface ConversationEnablementInput {
   overrides: Record<string, boolean>;
   isHashtag?: boolean;
   isPublic?: boolean;
+  channel?: NotificationMediaChannel;
 }
 
 /**
@@ -18,6 +20,8 @@ export interface ConversationEnablementInput {
  * Mute is a separate manager-level circuit breaker and is not evaluated here.
  * ``channel_found`` and ``telemetry_alert`` are global defaults only — those
  * events have no conversation_key, so overrides never apply to them.
+ * Conversation overrides apply to every medium. Channel messages have no
+ * matrix row, so email/webhook stay off unless an override forces them on.
  */
 export function conversationIsEnabled({
   stateKey,
@@ -26,12 +30,16 @@ export function conversationIsEnabled({
   overrides,
   isHashtag = false,
   isPublic = false,
+  channel = 'push',
 }: ConversationEnablementInput): boolean {
   if (stateKey in overrides) {
     return Boolean(overrides[stateKey]);
   }
   if (messageType === 'PRIV') {
-    return Boolean(defaults.new_dm);
+    return notificationMediaFlag(defaults.new_dm, channel);
+  }
+  if (channel !== 'push') {
+    return false;
   }
   return Boolean(isPublic || isHashtag);
 }

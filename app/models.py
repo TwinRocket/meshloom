@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
@@ -1604,7 +1604,7 @@ class BackupExport(BaseModel):
     channels: list[BackupChannel] = Field(default_factory=list)
     settings: AppSettings | None = None
     groups: list[ContactGroup] = Field(default_factory=list)
-    push_defaults: dict[str, bool] | None = None
+    push_defaults: dict[str, Any] | None = None
     push_conversation_overrides: dict[str, bool] | None = None
     vapid_subject: str | None = None
 

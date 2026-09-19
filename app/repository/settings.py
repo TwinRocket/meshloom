@@ -31,61 +31,130 @@ SECONDS_24H = 86400
 SECONDS_72H = 259200
 SECONDS_7D = 604800
 
-DEFAULT_PUSH_DEFAULTS: dict[str, bool] = {
-    "new_contact": True,
-    "new_dm": True,
-    "advert_repeater": True,
-    "advert_companion": True,
-    "advert_sensor": True,
-    "channel_found": True,
-    "telemetry_alert": True,
-    "oss_update": True,
-}
+PUSH_DEFAULT_KEYS = (
+    "new_contact",
+    "new_dm",
+    "advert_repeater",
+    "advert_companion",
+    "advert_sensor",
+    "channel_found",
+    "telemetry_alert",
+    "oss_update",
+)
+
+NOTIFICATION_MEDIA_KEYS = ("push", "email", "webhook")
+
+
+class NotificationMediaFlags(TypedDict):
+    push: bool
+    email: bool
+    webhook: bool
 
 
 class PushDefaults(TypedDict):
-    new_contact: bool
-    new_dm: bool
-    advert_repeater: bool
-    advert_companion: bool
-    advert_sensor: bool
-    channel_found: bool
-    telemetry_alert: bool
-    oss_update: bool
+    new_contact: NotificationMediaFlags
+    new_dm: NotificationMediaFlags
+    advert_repeater: NotificationMediaFlags
+    advert_companion: NotificationMediaFlags
+    advert_sensor: NotificationMediaFlags
+    channel_found: NotificationMediaFlags
+    telemetry_alert: NotificationMediaFlags
+    oss_update: NotificationMediaFlags
+
+
+def _default_media() -> NotificationMediaFlags:
+    return NotificationMediaFlags(push=True, email=False, webhook=False)
+
+
+DEFAULT_PUSH_DEFAULTS: PushDefaults = PushDefaults(
+    **{key: _default_media() for key in PUSH_DEFAULT_KEYS}
+)
+
+
+def coerce_notification_media(
+    raw: object,
+    fallback: NotificationMediaFlags | None = None,
+) -> NotificationMediaFlags:
+    """Accept a legacy bool (push only) or ``{push,email,webhook}``."""
+    base = NotificationMediaFlags(**(fallback or _default_media()))
+    if isinstance(raw, bool):
+        base["push"] = raw
+        return base
+    if isinstance(raw, Mapping):
+        for key in NOTIFICATION_MEDIA_KEYS:
+            if key in raw and raw[key] is not None:
+                base[key] = bool(raw[key])
+    return base
+
+
+def media_enabled(
+    defaults: Mapping[str, Any],
+    key: str,
+    channel: str = "push",
+) -> bool:
+    raw = defaults.get(key, True)
+    return bool(coerce_notification_media(raw).get(channel, False))
+
+
+def any_media_enabled(defaults: Mapping[str, Any], key: str) -> bool:
+    flags = coerce_notification_media(defaults.get(key, True))
+    return flags["push"] or flags["email"] or flags["webhook"]
+
+
+def or_notification_media(*raws: object) -> NotificationMediaFlags:
+    result = NotificationMediaFlags(push=False, email=False, webhook=False)
+    for raw in raws:
+        flags = coerce_notification_media(
+            raw, NotificationMediaFlags(push=False, email=False, webhook=False)
+        )
+        for key in NOTIFICATION_MEDIA_KEYS:
+            result[key] = result[key] or flags[key]
+    return result
 
 
 def _known_push_defaults(parsed: Mapping[str, Any]) -> PushDefaults:
     """Keep only known keys; missing ones take the built-in default."""
     return PushDefaults(
-        new_contact=bool(parsed["new_contact"]) if "new_contact" in parsed else True,
-        new_dm=bool(parsed["new_dm"]) if "new_dm" in parsed else True,
-        advert_repeater=bool(parsed["advert_repeater"]) if "advert_repeater" in parsed else True,
-        advert_companion=bool(parsed["advert_companion"]) if "advert_companion" in parsed else True,
-        advert_sensor=bool(parsed["advert_sensor"]) if "advert_sensor" in parsed else True,
-        channel_found=bool(parsed["channel_found"]) if "channel_found" in parsed else True,
-        telemetry_alert=bool(parsed["telemetry_alert"]) if "telemetry_alert" in parsed else True,
-        oss_update=bool(parsed["oss_update"]) if "oss_update" in parsed else True,
+        **{
+            key: (
+                coerce_notification_media(parsed[key], _default_media())
+                if key in parsed
+                else _default_media()
+            )
+            for key in PUSH_DEFAULT_KEYS
+        }
     )
 
 
+def _load_json_object(raw: object) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def _parse_push_defaults(raw: object) -> PushDefaults:
-    parsed: dict[str, Any] = {}
-    if raw:
-        try:
-            loaded = json.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(loaded, dict):
-                parsed = loaded
-        except (json.JSONDecodeError, TypeError):
-            parsed = {}
-    return _known_push_defaults(parsed)
+    return _known_push_defaults(_load_json_object(raw))
 
 
-def _coerce_push_defaults(defaults: Mapping[str, bool]) -> PushDefaults:
-    merged = dict(DEFAULT_PUSH_DEFAULTS)
-    for key in DEFAULT_PUSH_DEFAULTS:
-        if key in defaults:
-            merged[key] = bool(defaults[key])
-    return _known_push_defaults(merged)
+def _coerce_push_defaults(
+    defaults: Mapping[str, Any],
+    current: Mapping[str, Any] | None = None,
+) -> PushDefaults:
+    base = _known_push_defaults(current or {})
+    return PushDefaults(
+        **{
+            key: (
+                coerce_notification_media(defaults[key], base[key])
+                if key in defaults
+                else NotificationMediaFlags(**base[key])
+            )
+            for key in PUSH_DEFAULT_KEYS
+        }
+    )
 
 
 def _parse_auto_update_hhmm(raw: object, default: str = "00:00") -> str:
@@ -444,6 +513,17 @@ class AppSettingsRepository:
             )
             updates.append("telemetry_alert_rules = ?")
             params.append(json.dumps(stored_rules_dict(merged)))
+            if "channels" in telemetry_alert_rules.model_fields_set:
+                async with conn.execute(
+                    "SELECT push_defaults FROM app_settings WHERE id = 1"
+                ) as cursor:
+                    row = await cursor.fetchone()
+                current_defaults = _parse_push_defaults(row["push_defaults"] if row else None)
+                current_defaults["telemetry_alert"] = coerce_notification_media(
+                    merged.channels.model_dump(), current_defaults["telemetry_alert"]
+                )
+                updates.append("push_defaults = ?")
+                params.append(json.dumps(current_defaults))
 
         if notification_destinations is not None:
             from app.telemetry_alerts import merge_notification_destinations
@@ -709,22 +789,49 @@ class AppSettingsRepository:
 
     @staticmethod
     async def get_push_defaults() -> PushDefaults:
-        """Return global push-notification defaults. Not part of AppSettings."""
+        """Return per-event media flags. Not part of AppSettings."""
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT push_defaults FROM app_settings WHERE id = 1"
+                "SELECT push_defaults, telemetry_alert_rules FROM app_settings WHERE id = 1"
             ) as cursor:
                 row = await cursor.fetchone()
-        return _parse_push_defaults(row["push_defaults"] if row else None)
+        parsed = _load_json_object(row["push_defaults"] if row else None)
+        defaults = _known_push_defaults(parsed)
+        stored_alert = parsed.get("telemetry_alert")
+        if row is not None and not isinstance(stored_alert, Mapping):
+            from app.telemetry_alerts import coerce_telemetry_alert_rules
+
+            rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"])
+            defaults["telemetry_alert"] = NotificationMediaFlags(
+                push=bool(rules.channels.push),
+                email=bool(rules.channels.email),
+                webhook=bool(rules.channels.webhook),
+            )
+        return defaults
 
     @staticmethod
-    async def set_push_defaults(defaults: Mapping[str, bool]) -> PushDefaults:
-        """Replace global push-notification defaults. Unknown keys are ignored."""
-        merged = _coerce_push_defaults(defaults)
+    async def set_push_defaults(defaults: Mapping[str, Any]) -> PushDefaults:
+        """Merge per-event media flags. Unknown keys are ignored."""
+        current = await AppSettingsRepository.get_push_defaults()
+        merged = _coerce_push_defaults(defaults, current)
         async with db.tx() as conn:
             await conn.execute(
                 "UPDATE app_settings SET push_defaults = ? WHERE id = 1",
                 (json.dumps(merged),),
+            )
+            async with conn.execute(
+                "SELECT telemetry_alert_rules FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+            from app.telemetry_alerts import coerce_telemetry_alert_rules, stored_rules_dict
+
+            rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"] if row else None)
+            rules.channels.push = merged["telemetry_alert"]["push"]
+            rules.channels.email = merged["telemetry_alert"]["email"]
+            rules.channels.webhook = merged["telemetry_alert"]["webhook"]
+            await conn.execute(
+                "UPDATE app_settings SET telemetry_alert_rules = ? WHERE id = 1",
+                (json.dumps(stored_rules_dict(rules)),),
             )
         return merged
 

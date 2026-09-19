@@ -1534,17 +1534,56 @@ export interface PushSubscriptionInfo {
   failure_count: number;
 }
 
-export interface PushDefaults {
-  new_contact: boolean;
-  new_dm: boolean;
-  advert_repeater: boolean;
-  advert_companion: boolean;
-  advert_sensor: boolean;
-  channel_found: boolean;
-  /** Optional for older servers; the Alerts page owns this switch. */
-  telemetry_alert?: boolean;
-  oss_update: boolean;
+export interface NotificationMediaFlags {
+  push: boolean;
+  email: boolean;
+  webhook: boolean;
 }
+
+export type NotificationMediaChannel = keyof NotificationMediaFlags;
+
+export const DEFAULT_NOTIFICATION_MEDIA: NotificationMediaFlags = {
+  push: true,
+  email: false,
+  webhook: false,
+};
+
+export function resolveNotificationMedia(raw: unknown): NotificationMediaFlags {
+  if (typeof raw === 'boolean') {
+    return { push: raw, email: false, webhook: false };
+  }
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    return {
+      push: Boolean(obj.push),
+      email: Boolean(obj.email),
+      webhook: Boolean(obj.webhook),
+    };
+  }
+  return { ...DEFAULT_NOTIFICATION_MEDIA };
+}
+
+export function notificationMediaFlag(
+  raw: unknown,
+  channel: NotificationMediaChannel = 'push'
+): boolean {
+  return resolveNotificationMedia(raw)[channel];
+}
+
+export interface PushDefaults {
+  new_contact: NotificationMediaFlags;
+  new_dm: NotificationMediaFlags;
+  advert_repeater: NotificationMediaFlags;
+  advert_companion: NotificationMediaFlags;
+  advert_sensor: NotificationMediaFlags;
+  channel_found: NotificationMediaFlags;
+  telemetry_alert: NotificationMediaFlags;
+  oss_update: NotificationMediaFlags;
+}
+
+export type PushDefaultsPatch = {
+  [K in keyof PushDefaults]?: Partial<NotificationMediaFlags> | boolean;
+};
 
 export interface PushPreferences {
   defaults: PushDefaults;

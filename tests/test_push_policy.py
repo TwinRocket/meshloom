@@ -7,32 +7,44 @@ import pytest
 
 from app.channel_constants import PUBLIC_CHANNEL_KEY
 from app.push.policy import conversation_is_enabled
-from app.repository.settings import DEFAULT_PUSH_DEFAULTS, PushDefaults
+from app.repository.settings import (
+    DEFAULT_PUSH_DEFAULTS,
+    NotificationMediaFlags,
+    PushDefaults,
+    _default_media,
+)
 
 DM_KEY = "aa" * 32
 ROOM_KEY = "bb" * 32
 HASHTAG_KEY = "cc" * 16
 PRIVATE_CHAN_KEY = "dd" * 16
 
+
+def _media(
+    *, push: bool = True, email: bool = False, webhook: bool = False
+) -> NotificationMediaFlags:
+    return NotificationMediaFlags(push=push, email=email, webhook=webhook)
+
+
 _ALL_ON = PushDefaults(
-    new_contact=True,
-    new_dm=True,
-    advert_repeater=True,
-    advert_companion=True,
-    advert_sensor=True,
-    channel_found=True,
-    telemetry_alert=True,
-    oss_update=True,
+    new_contact=_default_media(),
+    new_dm=_default_media(),
+    advert_repeater=_default_media(),
+    advert_companion=_default_media(),
+    advert_sensor=_default_media(),
+    channel_found=_default_media(),
+    telemetry_alert=_default_media(),
+    oss_update=_default_media(),
 )
 _DM_OFF = PushDefaults(
-    new_contact=True,
-    new_dm=False,
-    advert_repeater=True,
-    advert_companion=True,
-    advert_sensor=True,
-    channel_found=True,
-    telemetry_alert=True,
-    oss_update=True,
+    new_contact=_default_media(),
+    new_dm=_media(push=False),
+    advert_repeater=_default_media(),
+    advert_companion=_default_media(),
+    advert_sensor=_default_media(),
+    channel_found=_default_media(),
+    telemetry_alert=_default_media(),
+    oss_update=_default_media(),
 )
 
 
@@ -165,5 +177,5 @@ POLICY_CASES = [
 )
 def test_conversation_is_enabled_vector(case_name: str, expected: bool, kwargs: dict) -> None:
     assert case_name
-    assert DEFAULT_PUSH_DEFAULTS["new_dm"] is True
+    assert DEFAULT_PUSH_DEFAULTS["new_dm"]["push"] is True
     assert conversation_is_enabled(**kwargs) is expected

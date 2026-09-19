@@ -142,14 +142,16 @@ class TestBackupExportShape:
     async def test_push_pref_fields_roundtrip(self, test_db):
         from app.repository.settings import DEFAULT_PUSH_DEFAULTS
 
-        await AppSettingsRepository.set_push_defaults({**DEFAULT_PUSH_DEFAULTS, "new_dm": False})
+        await AppSettingsRepository.set_push_defaults({"new_dm": False})
         await AppSettingsRepository.set_push_conversation_overrides(
             {"channel-PUBLIC": True, "contact-" + "aa" * 32: False}
         )
         await AppSettingsRepository.set_vapid_subject("mailto:ops@example.com")
 
         export = await export_json()
-        assert export.push_defaults == {**DEFAULT_PUSH_DEFAULTS, "new_dm": False}
+        assert export.push_defaults is not None
+        assert export.push_defaults["new_dm"]["push"] is False
+        assert export.push_defaults["new_contact"]["push"] is True
         assert export.push_conversation_overrides == {
             "channel-PUBLIC": True,
             "contact-" + "aa" * 32: False,

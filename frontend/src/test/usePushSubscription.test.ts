@@ -5,20 +5,21 @@ import { usePushSubscription } from '../hooks/usePushSubscription';
 import i18n from '../i18n';
 import fEn from '../i18n/locales/slices/f.en.json';
 import fFr from '../i18n/locales/slices/f.fr.json';
+import { DEFAULT_NOTIFICATION_MEDIA } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
 
 i18n.addResourceBundle('en', 'translation', fEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fFr, true, true);
 
 const ALL_ON_DEFAULTS = {
-  new_contact: true,
-  new_dm: true,
-  advert_repeater: true,
-  advert_companion: true,
-  advert_sensor: true,
-  channel_found: true,
-  telemetry_alert: true,
-  oss_update: true,
+  new_contact: { ...DEFAULT_NOTIFICATION_MEDIA },
+  new_dm: { ...DEFAULT_NOTIFICATION_MEDIA },
+  advert_repeater: { ...DEFAULT_NOTIFICATION_MEDIA },
+  advert_companion: { ...DEFAULT_NOTIFICATION_MEDIA },
+  advert_sensor: { ...DEFAULT_NOTIFICATION_MEDIA },
+  channel_found: { ...DEFAULT_NOTIFICATION_MEDIA },
+  telemetry_alert: { ...DEFAULT_NOTIFICATION_MEDIA },
+  oss_update: { ...DEFAULT_NOTIFICATION_MEDIA },
 };
 
 const EMPTY_PREFERENCES = {
@@ -331,7 +332,7 @@ describe('usePushSubscription', () => {
 
   it('patches defaults and vapid_subject', async () => {
     const updated = {
-      defaults: { ...ALL_ON_DEFAULTS, new_dm: false },
+      defaults: { ...ALL_ON_DEFAULTS, new_dm: { push: false, email: false, webhook: false } },
       overrides: {},
       vapid_subject: 'mailto:ops@example.com',
     };
@@ -344,13 +345,13 @@ describe('usePushSubscription', () => {
 
     await act(async () => {
       await result.current.patchPreferences({
-        defaults: { new_dm: false },
+        defaults: { new_dm: { push: false } },
         vapid_subject: 'mailto:ops@example.com',
       });
     });
 
     expect(mocks.api.patchPushPreferences).toHaveBeenCalledWith({
-      defaults: { new_dm: false },
+      defaults: { new_dm: { push: false } },
       vapid_subject: 'mailto:ops@example.com',
     });
     expect(result.current.preferences).toEqual(updated);

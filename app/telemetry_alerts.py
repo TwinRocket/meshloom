@@ -781,7 +781,6 @@ async def _apply_silence(
                 rule_id=RULE_SILENCE,
                 value=float(misses),
                 threshold=float(threshold),
-                channels=node.channels,
             )
         return
 
@@ -831,7 +830,6 @@ async def _apply_status_gauges(
             value=value,
             spec=spec,
             now=now,
-            channels=node.channels,
         )
 
 
@@ -879,7 +877,6 @@ async def _apply_lpp_gauges(
             value=value,
             spec=spec,
             now=now,
-            channels=node.channels,
         )
 
 
@@ -891,7 +888,6 @@ async def _apply_gauge(
     value: float,
     spec: TelemetryRuleSpec,
     now: int,
-    channels: TelemetryAlertChannels,
 ) -> None:
     if spec.threshold is None or spec.op not in ("lt", "gt"):
         return
@@ -929,7 +925,6 @@ async def _apply_gauge(
             rule_id=rule_id,
             value=value,
             threshold=threshold,
-            channels=channels,
         )
         return
 
@@ -983,7 +978,6 @@ async def _apply_gps_lost(
             rule_id=RULE_GPS_LOST,
             value=0.0,
             threshold=1.0,
-            channels=node.channels,
         )
         return
 
@@ -1002,10 +996,10 @@ async def _dispatch(
     rule_id: str,
     value: float,
     threshold: float,
-    channels: TelemetryAlertChannels,
 ) -> None:
     from app.notify import dispatch_system_event
 
+    defaults = await AppSettingsRepository.get_push_defaults()
     await dispatch_system_event(
         {
             "event": "telemetry_alert",
@@ -1015,5 +1009,5 @@ async def _dispatch(
             "value": value,
             "threshold": threshold,
         },
-        channels,
+        defaults["telemetry_alert"],
     )

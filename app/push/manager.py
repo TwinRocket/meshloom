@@ -22,7 +22,7 @@ from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
 from app.repository.channels import ChannelRepository
 from app.repository.push_subscriptions import PushSubscriptionRepository
-from app.repository.settings import AppSettingsRepository
+from app.repository.settings import AppSettingsRepository, any_media_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +271,14 @@ def _build_payload(data: dict, language: str = "fr") -> str:
     )
 
 
+def event_notification_text(data: dict, language: str = "en") -> tuple[str, str]:
+    """Title/body used by email and other non-push transports."""
+    parsed = json.loads(_build_payload(data, language))
+    title = str(parsed.get("title") or "").strip() or "Meshloom"
+    body = str(parsed.get("body") or "").strip() or title
+    return title, body
+
+
 def _subscription_info(sub: dict) -> dict:
     """Build the subscription_info dict that pywebpush expects."""
     return {
@@ -319,23 +327,30 @@ class PushManager:
             if channel is not None:
                 is_hashtag = bool(channel.is_hashtag)
 
-        if not conversation_is_enabled(
-            state_key=state_key,
-            message_type=msg_type,
-            defaults=defaults,
-            overrides=overrides,
-            is_hashtag=is_hashtag,
-            is_public=is_public,
-        ):
+        flags = {
+            media: conversation_is_enabled(
+                state_key=state_key,
+                message_type=msg_type,
+                defaults=defaults,
+                overrides=overrides,
+                is_hashtag=is_hashtag,
+                is_public=is_public,
+                channel=media,
+            )
+            for media in ("push", "email", "webhook")
+        }
+        if not any(flags.values()):
             return
 
         # Muted-channel circuit breaker — separate from conversation policy.
         if msg_type == "CHAN" and channel is not None and channel.muted:
             return
 
-        await self._send_to_all_subscriptions(
-            lambda sub: _build_payload(data, sub.get("language") or "fr")
-        )
+        from app.notify import dispatch_system_event
+
+        payload = dict(data)
+        payload.setdefault("event", "message")
+        await dispatch_system_event(payload, flags)
 
     async def dispatch_event(self, data: dict) -> None:
         """Send a push payload to all subscriptions. Not a WebSocket event."""
@@ -366,14 +381,17 @@ class PushManager:
         except Exception:
             logger.debug("Push dispatch: failed to load push defaults", exc_info=True)
             return False
-        if not defaults.get("oss_update", True):
+        if not any_media_enabled(defaults, "oss_update"):
             return False
-        await self.dispatch_event(
+        from app.notify import dispatch_system_event
+
+        await dispatch_system_event(
             {
                 "event": "oss_update",
                 "current": current,
                 "latest": latest,
-            }
+            },
+            defaults["oss_update"],
         )
         return True
 

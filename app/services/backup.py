@@ -94,10 +94,7 @@ async def export_json() -> BackupExport:
         channels=[_channel_to_backup(c) for c in channels],
         settings=settings,
         groups=groups,
-        push_defaults={
-            key: bool(value)
-            for key, value in (await AppSettingsRepository.get_push_defaults()).items()
-        },
+        push_defaults=dict(await AppSettingsRepository.get_push_defaults()),
         push_conversation_overrides=await AppSettingsRepository.get_push_conversation_overrides(),
         vapid_subject=await AppSettingsRepository.get_vapid_subject(),
     )

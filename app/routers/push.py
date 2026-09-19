@@ -46,26 +46,38 @@ class PushSubscriptionUpdate(BaseModel):
     language: Literal["fr", "en"] | None = None
 
 
+class NotificationMediaModel(BaseModel):
+    push: bool = True
+    email: bool = False
+    webhook: bool = False
+
+
+class NotificationMediaPatch(BaseModel):
+    push: bool | None = None
+    email: bool | None = None
+    webhook: bool | None = None
+
+
 class PushDefaultsModel(BaseModel):
-    new_contact: bool
-    new_dm: bool
-    advert_repeater: bool
-    advert_companion: bool
-    advert_sensor: bool
-    channel_found: bool
-    telemetry_alert: bool
-    oss_update: bool
+    new_contact: NotificationMediaModel
+    new_dm: NotificationMediaModel
+    advert_repeater: NotificationMediaModel
+    advert_companion: NotificationMediaModel
+    advert_sensor: NotificationMediaModel
+    channel_found: NotificationMediaModel
+    telemetry_alert: NotificationMediaModel
+    oss_update: NotificationMediaModel
 
 
 class PushDefaultsPatch(BaseModel):
-    new_contact: bool | None = None
-    new_dm: bool | None = None
-    advert_repeater: bool | None = None
-    advert_companion: bool | None = None
-    advert_sensor: bool | None = None
-    channel_found: bool | None = None
-    telemetry_alert: bool | None = None
-    oss_update: bool | None = None
+    new_contact: NotificationMediaPatch | bool | None = None
+    new_dm: NotificationMediaPatch | bool | None = None
+    advert_repeater: NotificationMediaPatch | bool | None = None
+    advert_companion: NotificationMediaPatch | bool | None = None
+    advert_sensor: NotificationMediaPatch | bool | None = None
+    channel_found: NotificationMediaPatch | bool | None = None
+    telemetry_alert: NotificationMediaPatch | bool | None = None
+    oss_update: NotificationMediaPatch | bool | None = None
 
 
 class PushPreferencesResponse(BaseModel):
@@ -225,7 +237,7 @@ async def get_push_preferences() -> PushPreferencesResponse:
     overrides = await AppSettingsRepository.get_push_conversation_overrides()
     vapid_subject = await AppSettingsRepository.get_vapid_subject()
     return PushPreferencesResponse(
-        defaults=PushDefaultsModel(**defaults),
+        defaults=PushDefaultsModel.model_validate(defaults),
         overrides=overrides,
         vapid_subject=vapid_subject,
     )

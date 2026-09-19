@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../../api';
+import { usePush } from '../../contexts/PushSubscriptionContext';
 import {
   DEFAULT_TELEMETRY_ALERT_RULES,
   TELEMETRY_ALERT_RULE_IDS,
@@ -8,6 +9,7 @@ import {
   isWebhookDestinationReady,
   normalizeTelemetryAlertCatalog,
   resolveNotificationDestinations,
+  resolveNotificationMedia,
   resolveTelemetryAlertRules,
   type AppSettings,
   type AppSettingsUpdate,
@@ -101,10 +103,14 @@ export function SettingsAlertsSection({
   className?: string;
 }) {
   const { t } = useTranslation();
+  const { preferences, patchPreferences } = usePush();
   const [catalog, setCatalog] = useState<TelemetryAlertCatalog | null>(null);
   const [overrideKey, setOverrideKey] = useState<string | null>(null);
   const rules = resolveTelemetryAlertRules(appSettings.telemetry_alert_rules);
   const dest = resolveNotificationDestinations(appSettings.notification_destinations);
+  const alertMedia = resolveNotificationMedia(
+    preferences?.defaults.telemetry_alert ?? rules.channels
+  );
   const rulesRef = useRef(rules);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -135,8 +141,8 @@ export function SettingsAlertsSection({
       try {
         await onSaveAppSettings({
           telemetry_alert_rules: overridesChanged
-            ? next
-            : ({ channels: next.channels, rules: next.rules } as TelemetryAlertRules),
+            ? ({ rules: next.rules, overrides: next.overrides } as TelemetryAlertRules)
+            : ({ rules: next.rules } as TelemetryAlertRules),
         });
       } catch (err) {
         console.error('Failed to save telemetry alert rules:', err);
@@ -237,43 +243,34 @@ export function SettingsAlertsSection({
           id="push"
           label={t('settings.alerts.voicePush')}
           help={t('settings.alerts.voicePushHelp')}
-          checked={rules.channels.push}
-          onCheckedChange={(checked) =>
-            patchRules((current) => ({
-              ...current,
-              channels: { ...current.channels, push: checked },
-            }))
-          }
+          checked={alertMedia.push}
+          onCheckedChange={(checked) => {
+            void patchPreferences({ defaults: { telemetry_alert: { push: checked } } });
+          }}
         />
         <VoiceRow
           id="email"
           label={t('settings.alerts.voiceEmail')}
           help={t('settings.alerts.voiceEmailHelp')}
-          checked={rules.channels.email}
+          checked={alertMedia.email}
           disabled={!emailReady}
           configureHref={!emailReady ? '#settings/notifications' : undefined}
           configureLabel={t('settings.alerts.configureDestinations')}
-          onCheckedChange={(checked) =>
-            patchRules((current) => ({
-              ...current,
-              channels: { ...current.channels, email: checked },
-            }))
-          }
+          onCheckedChange={(checked) => {
+            void patchPreferences({ defaults: { telemetry_alert: { email: checked } } });
+          }}
         />
         <VoiceRow
           id="webhook"
           label={t('settings.alerts.voiceWebhook')}
           help={t('settings.alerts.voiceWebhookHelp')}
-          checked={rules.channels.webhook}
+          checked={alertMedia.webhook}
           disabled={!webhookReady}
           configureHref={!webhookReady ? '#settings/notifications' : undefined}
           configureLabel={t('settings.alerts.configureDestinations')}
-          onCheckedChange={(checked) =>
-            patchRules((current) => ({
-              ...current,
-              channels: { ...current.channels, webhook: checked },
-            }))
-          }
+          onCheckedChange={(checked) => {
+            void patchPreferences({ defaults: { telemetry_alert: { webhook: checked } } });
+          }}
         />
       </div>
 

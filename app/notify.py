@@ -39,9 +39,9 @@ def _channel_flags(channels: TelemetryAlertChannels | Mapping[str, Any]) -> Tele
 
 
 def _alert_text(payload: Mapping[str, Any]) -> tuple[str, str]:
-    from app.push.manager import _telemetry_alert_titles
+    from app.push.manager import event_notification_text
 
-    return _telemetry_alert_titles(dict(payload), "en")
+    return event_notification_text(dict(payload), "en")
 
 
 def build_email_apprise_url(email: Mapping[str, Any]) -> str:
@@ -109,7 +109,7 @@ async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[st
     body_bytes = json.dumps(dict(payload), separators=(",", ":"), sort_keys=True).encode()
     headers = {
         "Content-Type": "application/json",
-        "X-Webhook-Event": "telemetry_alert",
+        "X-Webhook-Event": str(payload.get("event") or "notification"),
     }
     secret = dest.webhook.hmac_secret or ""
     if secret:

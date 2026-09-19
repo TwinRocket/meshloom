@@ -71,19 +71,35 @@ async def _maybe_notify_contact_first_seen(
     if existing_prefixes:
         return
 
+    from app.repository.settings import any_media_enabled, or_notification_media
+
     defaults = await AppSettingsRepository.get_push_defaults()
     if contact_type == _TYPE_COMPANION:
-        if not (defaults["new_contact"] or defaults["advert_companion"]):
+        if not (
+            any_media_enabled(defaults, "new_contact")
+            or any_media_enabled(defaults, "advert_companion")
+        ):
             return
+        flags = or_notification_media(defaults["new_contact"], defaults["advert_companion"])
     elif contact_type == _TYPE_REPEATER:
-        if not defaults["advert_repeater"]:
+        if not any_media_enabled(defaults, "advert_repeater"):
             return
+        flags = defaults["advert_repeater"]
     elif contact_type == _TYPE_SENSOR:
-        if not defaults["advert_sensor"]:
+        if not any_media_enabled(defaults, "advert_sensor"):
             return
+        flags = defaults["advert_sensor"]
     else:
         return
 
-    from app.push.manager import push_manager
+    from app.notify import dispatch_system_event
 
-    await push_manager.dispatch_first_seen(payload)
+    await dispatch_system_event(
+        {
+            "event": "first_seen",
+            "public_key": public_key,
+            "name": payload.get("name") or "",
+            "contact_type": contact_type,
+        },
+        flags,
+    )

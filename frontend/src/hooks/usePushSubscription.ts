@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from '../components/ui/sonner';
 import { api } from '../api';
 import i18n from '../i18n';
-import type { PushDefaults, PushPreferences, PushSubscriptionInfo } from '../types';
+import type { PushDefaultsPatch, PushPreferences, PushSubscriptionInfo } from '../types';
 import { conversationIsEnabled } from '../utils/pushPolicy';
 import { getSavedLanguage } from '../utils/languagePreference';
 
@@ -105,7 +105,7 @@ export interface PushSubscriptionState {
   isConversationPushEnabled: (stateKey: string, ctx: ConversationPushContext) => boolean;
   setConversationOverride: (key: string, override: boolean | null) => Promise<void>;
   patchPreferences: (partial: {
-    defaults?: Partial<PushDefaults>;
+    defaults?: PushDefaultsPatch;
     vapid_subject?: string;
   }) => Promise<void>;
   deleteSubscription: (subscriptionId: string) => Promise<void>;
@@ -266,7 +266,7 @@ export function usePushSubscription(): PushSubscriptionState {
   }, []);
 
   const patchPreferences = useCallback(
-    async (partial: { defaults?: Partial<PushDefaults>; vapid_subject?: string }) => {
+    async (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) => {
       try {
         const updated = await api.patchPushPreferences(partial);
         setPreferences(updated);

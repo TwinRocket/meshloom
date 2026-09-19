@@ -6,7 +6,7 @@ The frontend Vague C hook must mirror these cases exactly.
 
 from collections.abc import Mapping
 
-from app.repository.settings import PushDefaults
+from app.repository.settings import PushDefaults, media_enabled
 
 
 def conversation_is_enabled(
@@ -18,11 +18,17 @@ def conversation_is_enabled(
     is_hashtag: bool = False,
     is_public: bool = False,
     contact_type: int | None = None,
+    channel: str = "push",
 ) -> bool:
-    """Return whether a conversation should receive a push for a message.
+    """Return whether a conversation should receive a notification.
 
-    Precedence: explicit override > PRIV (DM and rooms) via ``new_dm`` >
-    Public or hashtag ON > private channel OFF.
+    Precedence: explicit override (all media) > PRIV (DM and rooms) via
+    ``new_dm`` for the requested medium > Public or hashtag ON for push
+    only > private channel OFF.
+
+    There is no channel-message row in the notification matrix, so
+    non-push media stay off for CHAN unless an override forces the
+    conversation on.
 
     ``contact_type`` is unused for enablement (rooms are PRIV). Kept so
     callers can pass it without a second signature.
@@ -31,5 +37,7 @@ def conversation_is_enabled(
     if state_key in overrides:
         return bool(overrides[state_key])
     if message_type == "PRIV":
-        return bool(defaults["new_dm"])
+        return media_enabled(defaults, "new_dm", channel)
+    if channel != "push":
+        return False
     return bool(is_public or is_hashtag)

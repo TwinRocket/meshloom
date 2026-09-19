@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PushDefaults } from '../types';
+import type { NotificationMediaFlags, PushDefaults } from '../types';
+import { DEFAULT_NOTIFICATION_MEDIA } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
 import { conversationIsEnabled } from '../utils/pushPolicy';
 
@@ -9,26 +10,29 @@ const ROOM_KEY = 'bb'.repeat(32);
 const HASHTAG_KEY = 'cc'.repeat(16);
 const PRIVATE_CHAN_KEY = 'dd'.repeat(16);
 
+const ON: NotificationMediaFlags = { ...DEFAULT_NOTIFICATION_MEDIA };
+const PUSH_OFF: NotificationMediaFlags = { push: false, email: false, webhook: false };
+
 const ALL_ON: PushDefaults = {
-  new_contact: true,
-  new_dm: true,
-  advert_repeater: true,
-  advert_companion: true,
-  advert_sensor: true,
-  channel_found: true,
-  telemetry_alert: true,
-  oss_update: true,
+  new_contact: ON,
+  new_dm: ON,
+  advert_repeater: ON,
+  advert_companion: ON,
+  advert_sensor: ON,
+  channel_found: ON,
+  telemetry_alert: ON,
+  oss_update: ON,
 };
 
 const DM_OFF: PushDefaults = {
-  new_contact: true,
-  new_dm: false,
-  advert_repeater: true,
-  advert_companion: true,
-  advert_sensor: true,
-  channel_found: true,
-  telemetry_alert: true,
-  oss_update: true,
+  new_contact: ON,
+  new_dm: PUSH_OFF,
+  advert_repeater: ON,
+  advert_companion: ON,
+  advert_sensor: ON,
+  channel_found: ON,
+  telemetry_alert: ON,
+  oss_update: ON,
 };
 
 type PolicyCase = {
@@ -128,7 +132,7 @@ const POLICY_CASES = [
 
 describe('conversationIsEnabled', () => {
   it.each(POLICY_CASES)('%s', (_caseName, expected, input) => {
-    expect(ALL_ON.new_dm).toBe(true);
+    expect(ALL_ON.new_dm.push).toBe(true);
     expect(
       conversationIsEnabled({
         defaults: ALL_ON,

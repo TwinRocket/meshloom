@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models import ContactUpsert
+from app.models import ContactUpsert, TelemetryAlertChannels, TelemetryAlertRules
 from app.repository import AppSettingsRepository, ContactRepository
 from app.repository.settings import DEFAULT_PUSH_DEFAULTS, _coerce_push_defaults
 from app.services.contact_reconciliation import promote_prefix_contacts_for_contact
@@ -17,30 +17,53 @@ class TestPushNotificationSettingsRepo:
     async def test_defaults_are_all_true(self, test_db):
         defaults = await AppSettingsRepository.get_push_defaults()
         assert defaults == DEFAULT_PUSH_DEFAULTS
-        assert all(value is True for value in defaults.values())
+        assert all(value["push"] is True for value in defaults.values())
+        assert all(value["email"] is False for value in defaults.values())
+        assert all(value["webhook"] is False for value in defaults.values())
 
     @pytest.mark.asyncio
     async def test_set_push_defaults_merges_known_keys(self, test_db):
         updated = await AppSettingsRepository.set_push_defaults({"new_dm": False})
-        assert updated["new_dm"] is False
-        assert updated["new_contact"] is True
-        assert updated["channel_found"] is True
-        assert updated["telemetry_alert"] is True
+        assert updated["new_dm"]["push"] is False
+        assert updated["new_contact"]["push"] is True
+        assert updated["channel_found"]["push"] is True
+        assert updated["telemetry_alert"]["push"] is True
         stored = await AppSettingsRepository.get_push_defaults()
         assert stored == updated
+
+    @pytest.mark.asyncio
+    async def test_set_push_defaults_keeps_other_event_media(self, test_db):
+        await AppSettingsRepository.set_push_defaults({"new_dm": {"email": True}})
+        stored = await AppSettingsRepository.get_push_defaults()
+        assert stored["new_dm"]["email"] is True
+        assert stored["new_dm"]["push"] is True
+        await AppSettingsRepository.set_push_defaults({"channel_found": False})
+        stored = await AppSettingsRepository.get_push_defaults()
+        assert stored["new_dm"]["email"] is True
+        assert stored["channel_found"]["push"] is False
 
     def test_coerce_push_defaults_drops_unknown_keys(self):
         coerced = _coerce_push_defaults({"new_dm": False, "not_a_real_key": False})
         assert "not_a_real_key" not in coerced
-        assert coerced["new_dm"] is False
+        assert coerced["new_dm"]["push"] is False
         assert set(coerced) == set(DEFAULT_PUSH_DEFAULTS)
 
     def test_coerce_push_defaults_keeps_channel_found_and_telemetry_alert(self):
         coerced = _coerce_push_defaults({"channel_found": False, "telemetry_alert": False})
-        assert coerced["channel_found"] is False
-        assert coerced["telemetry_alert"] is False
-        assert coerced["new_contact"] is True
-        assert coerced["new_dm"] is True
+        assert coerced["channel_found"]["push"] is False
+        assert coerced["telemetry_alert"]["push"] is False
+        assert coerced["new_contact"]["push"] is True
+        assert coerced["new_dm"]["push"] is True
+
+    @pytest.mark.asyncio
+    async def test_telemetry_alert_media_seeds_from_rules_channels(self, test_db):
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                channels=TelemetryAlertChannels(push=False, email=True, webhook=True)
+            )
+        )
+        defaults = await AppSettingsRepository.get_push_defaults()
+        assert defaults["telemetry_alert"] == {"push": False, "email": True, "webhook": True}
 
     @pytest.mark.asyncio
     async def test_set_override_true_false_none(self, test_db):

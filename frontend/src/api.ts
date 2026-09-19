@@ -48,7 +48,7 @@ import type {
   RadioDiscoveryTarget,
   PathDiscoveryResponse,
   NotificationDestinationChannel,
-  PushDefaults,
+  PushDefaultsPatch,
   PushPreferences,
   PushSubscriptionInfo,
   TelemetryAlertCatalog,
@@ -799,7 +799,7 @@ export const api = {
   testPushSubscription: (id: string) =>
     fetchJson<{ status: string }>(`/push/subscriptions/${id}/test`, { method: 'POST' }),
   getPushPreferences: () => fetchJson<PushPreferences>('/push/preferences'),
-  patchPushPreferences: (partial: { defaults?: Partial<PushDefaults>; vapid_subject?: string }) =>
+  patchPushPreferences: (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) =>
     fetchJson<PushPreferences>('/push/preferences', {
       method: 'PATCH',
       body: JSON.stringify(partial),

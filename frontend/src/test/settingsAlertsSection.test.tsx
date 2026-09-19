@@ -13,6 +13,24 @@ import {
 } from '../types';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
+const pushMocks = vi.hoisted(() => ({
+  patchPreferences: vi.fn(async () => {}),
+  preferences: {
+    defaults: {
+      telemetry_alert: { push: true, email: false, webhook: false },
+    },
+    overrides: {},
+    vapid_subject: '',
+  },
+}));
+
+vi.mock('../contexts/PushSubscriptionContext', () => ({
+  usePush: () => ({
+    preferences: pushMocks.preferences,
+    patchPreferences: pushMocks.patchPreferences,
+  }),
+}));
+
 const baseSettings: AppSettings = {
   ui_preferences: { nav_rail: [], theme: '' },
   max_radio_contacts: 200,
@@ -111,6 +129,12 @@ describe('telemetry alert rule helpers', () => {
 
 describe('SettingsAlertsSection', () => {
   beforeEach(() => {
+    pushMocks.patchPreferences.mockClear();
+    pushMocks.preferences.defaults.telemetry_alert = {
+      push: true,
+      email: false,
+      webhook: false,
+    };
     vi.spyOn(api, 'getTelemetryAlertCatalog').mockResolvedValue({
       metrics: [],
       latches: [],
@@ -137,20 +161,16 @@ describe('SettingsAlertsSection', () => {
     ).toHaveAttribute('href', '#settings/notifications');
   });
 
-  it('saves the push voice through telemetry_alert_rules.channels', async () => {
+  it('saves the push voice through notification preferences', async () => {
     const { onSaveAppSettings } = await renderSection();
 
     fireEvent.click(screen.getByLabelText(i18n.t('settings.alerts.voicePush')));
 
     await waitFor(() => {
-      expect(onSaveAppSettings).toHaveBeenCalledWith({
-        telemetry_alert_rules: expect.objectContaining({
-          channels: expect.objectContaining({ push: false }),
-          rules: expect.any(Object),
-        }),
+      expect(pushMocks.patchPreferences).toHaveBeenCalledWith({
+        defaults: { telemetry_alert: { push: false } },
       });
-      const payload = vi.mocked(onSaveAppSettings).mock.calls[0]?.[0];
-      expect(payload?.telemetry_alert_rules).not.toHaveProperty('overrides');
+      expect(onSaveAppSettings).not.toHaveBeenCalled();
     });
   });
 
