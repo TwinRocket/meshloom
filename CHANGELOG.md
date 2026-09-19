@@ -1,3 +1,29 @@
+## [4.13.6] - 2026-09-19
+
+The mesh graph still labelled unknown hops as hex, even when Meshloom Community already knew the name.
+
+### Changed
+
+- **Name unknown graph nodes from Community.** Repeaters and other hops the radio does not know can pick up a Community directory name. An orange globe marks that it came from the directory, not your contact list.
+- **Keep those lookups alive on a busy mesh.** Incoming packets no longer cancel the request, so names can still appear while traffic is flowing.
+
+1-byte hops stay hex. A local contact or advert-path hint still wins.
+
+---
+
+### Français
+
+Le graphe du mesh affichait encore les hops inconnus en hex, même quand Meshloom Community connaissait déjà le nom.
+
+#### Modifications
+
+- **Nommer les nœuds inconnus du graphe via Community.** Les répéteurs et autres hops que la radio ne connaît pas peuvent recevoir un nom de l’annuaire Community. Un globe orange indique que ça vient de l’annuaire, pas de votre liste de contacts.
+- **Garder ces lookups vivants sur un mesh actif.** Les paquets entrants n’annulent plus la requête, donc les noms peuvent encore apparaître pendant que le trafic circule.
+
+Les hops 1 octet restent en hex. Un contact local ou un hint de chemin d’advert gagne toujours.
+
+---
+
 ## [4.13.5] - 2026-09-19
 
 Install still painted a red `systemctl` error after a successful package upgrade, because Meshloom waited inside the service that the upgrade restarts.
