@@ -2572,6 +2572,7 @@
     "empty": "Aucune conversation.",
     "unreadCount_one": "{{count}} message non lu",
     "unreadCount_other": "{{count}} messages non lus",
+    "favorite": "Favori",
     "collapseList": "Masquer la liste des discussions",
     "expandList": "Afficher la liste des discussions",
     "resizeList": "Redimensionner la liste des discussions"

@@ -214,4 +214,23 @@ describe('ConversationListView', () => {
       screen.getByText(i18n.t('conversationList.unreadCount', { count: 3 }))
     ).toBeInTheDocument();
   });
+
+  it('marks a favourite on the list avatar, not on every other row', () => {
+    renderList();
+
+    const listBob = screen
+      .getAllByRole('button', { name: /Bob/ })
+      .find((button) => within(button).queryByText(i18n.t('conversationList.noMessages')));
+    expect(listBob).toBeTruthy();
+    expect(within(listBob as HTMLElement).getByTestId('favorite-mark')).toBeInTheDocument();
+    expect(
+      within(listBob as HTMLElement).getByText(i18n.t('conversationList.favorite'))
+    ).toBeInTheDocument();
+
+    const alice = screen.getByRole('button', { name: /Alice/ });
+    expect(within(alice).queryByTestId('favorite-mark')).not.toBeInTheDocument();
+
+    const favStrip = screen.getByRole('list', { name: i18n.t('conversationList.favorites') });
+    expect(within(favStrip).queryByTestId('favorite-mark')).not.toBeInTheDocument();
+  });
 });

@@ -2572,6 +2572,7 @@
     "empty": "No conversations yet.",
     "unreadCount_one": "{{count}} unread message",
     "unreadCount_other": "{{count}} unread messages",
+    "favorite": "Favourite",
     "collapseList": "Hide conversation list",
     "expandList": "Show conversation list",
     "resizeList": "Resize conversation list"

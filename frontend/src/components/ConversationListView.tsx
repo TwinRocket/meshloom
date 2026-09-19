@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, PanelLeftClose, Search, X, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, PanelLeftClose, Search, Star, X, Plus } from 'lucide-react';
 import type { Channel, Contact, Conversation, HealthStatus } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
@@ -87,14 +87,32 @@ const FILTERS: { id: ConversationFilter; labelKey: string }[] = [
   { id: 'direct', labelKey: 'conversationList.direct' },
 ];
 
-function ConversationAvatar({ row, size }: { row: Row; size: number }) {
+function ConversationAvatar({
+  row,
+  size,
+  showFavoriteMark = false,
+}: {
+  row: Row;
+  size: number;
+  showFavoriteMark?: boolean;
+}) {
   return (
-    <ContactAvatar
-      name={row.name}
-      publicKey={row.key}
-      size={size}
-      contactType={row.contact?.type}
-    />
+    <span className="relative inline-flex shrink-0">
+      <ContactAvatar
+        name={row.name}
+        publicKey={row.key}
+        size={size}
+        contactType={row.contact?.type}
+      />
+      {showFavoriteMark && row.favorite && (
+        <Star
+          data-testid="favorite-mark"
+          className="pointer-events-none absolute bottom-0.5 left-0.5 h-3.5 w-3.5 fill-[hsl(var(--favorite))] text-[hsl(var(--favorite))] drop-shadow-[0_0_1px_hsl(var(--background))]"
+          strokeWidth={1.25}
+          aria-hidden="true"
+        />
+      )}
+    </span>
   );
 }
 
@@ -423,7 +441,7 @@ export function ConversationListView({
                     isOpen(row) ? 'bg-accent/60' : 'hover:bg-accent/40'
                   )}
                 >
-                  <ConversationAvatar row={row} size={44} />
+                  <ConversationAvatar row={row} size={44} showFavoriteMark />
 
                   {/* The rule starts after the avatar rather than spanning the
                       screen: a full-width line reads as a division of the page, an
@@ -453,6 +471,9 @@ export function ConversationListView({
                       )}
                     </span>
                   </span>
+                  {row.favorite && (
+                    <span className="sr-only">{t('conversationList.favorite')}</span>
+                  )}
                   {row.unread > 0 && (
                     <span className="sr-only">
                       {t('conversationList.unreadCount', { count: row.unread })}
