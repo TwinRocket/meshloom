@@ -517,4 +517,66 @@ describe('useVisualizerData3D', () => {
     expect(result.current.nodes.get('?aabb')?.nameSource).toBe('community');
     expect(result.current.nodes.get('?aabb')?.communityName).toBe('RemoteHill');
   });
+
+  it('still resolves Community names while live packets keep arriving', async () => {
+    const selfKey = 'ffffffffffff0000000000000000000000000000000000000000000000000000';
+    const aliceKey = 'aaaaaaaaaaaa0000000000000000000000000000000000000000000000000000';
+    resolveDirectoryHops.mockResolvedValue({
+      resolved: {
+        F5E6: { name: 'RemoteHill', source: 'corescope', hash_width: 2 },
+      },
+    });
+
+    const shared = {
+      contacts: [createContact(aliceKey, 'Alice')],
+      config: createConfig(selfKey),
+      repeaterAdvertPaths: [] as ContactAdvertPathSummary[],
+      showAmbiguousPaths: true,
+      showAmbiguousNodes: false,
+      useAdvertPathHints: false,
+      collapseLikelyKnownSiblingRepeaters: true,
+      splitAmbiguousByTraffic: false,
+      chargeStrength: -200,
+      letEmDrift: false,
+      particleSpeedMultiplier: 1,
+      observationWindowSec: 15,
+      pruneStaleNodes: false,
+      pruneStaleMinutes: 5,
+      directoryEnabled: true,
+    };
+
+    const parsedHop = {
+      payloadType: PayloadType.TextMessage,
+      pathBytes: ['f5e6'],
+      srcHash: 'aaaaaaaaaaaa',
+      dstHash: 'ffffffffffff',
+      advertPubkey: null,
+      groupTextSender: null,
+      anonRequestPubkey: null,
+    };
+
+    packetFixtures.set('live-0', { ...parsedHop, messageHash: 'live-0' });
+    const { rerender, result } = renderHook(
+      ({ packets }) => useVisualizerData3D({ ...shared, packets }),
+      { initialProps: { packets: [createPacket('live-0', { id: 1, observationId: 1 })] } }
+    );
+
+    for (let index = 1; index <= 8; index += 1) {
+      const hex = `live-${index}`;
+      packetFixtures.set(hex, { ...parsedHop, messageHash: hex });
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      rerender({
+        packets: Array.from({ length: index + 1 }, (_, packetIndex) =>
+          createPacket(`live-${packetIndex}`, {
+            id: packetIndex + 1,
+            observationId: packetIndex + 1,
+          })
+        ),
+      });
+    }
+
+    await waitFor(() => expect(resolveDirectoryHops).toHaveBeenCalled(), { timeout: 800 });
+    expect(resolveDirectoryHops).toHaveBeenCalledWith(['F5E6']);
+    await waitFor(() => expect(result.current.communityNames.get('?f5e6')).toBe('RemoteHill'));
+  });
 });

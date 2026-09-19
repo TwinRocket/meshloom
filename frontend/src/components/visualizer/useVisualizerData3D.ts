@@ -152,10 +152,19 @@ export function useVisualizerData3D({
   const observationWindowRef = useRef(observationWindowSec * 1000);
   const stretchRafRef = useRef<number | null>(null);
   const requestedDirectoryPrefixesRef = useRef<Set<string>>(new Set());
+  const pendingDirectoryPrefixesRef = useRef<Set<string>>(new Set());
+  const directoryFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const directoryEnabledRef = useRef(directoryEnabled);
+  const contactsRef = useRef(contacts);
   const [directoryHits, setDirectoryHits] = useState<Record<string, DirectoryHopHit>>({});
   const [communityNames, setCommunityNames] = useState<Map<string, string>>(() => new Map());
   const [stats, setStats] = useState({ processed: 0, animated: 0, nodes: 0, links: 0 });
   const [, setProjectionVersion] = useState(0);
+
+  useEffect(() => {
+    directoryEnabledRef.current = directoryEnabled;
+    contactsRef.current = contacts;
+  }, [contacts, directoryEnabled]);
 
   const packetNetworkContext = useMemo(
     () =>
@@ -288,6 +297,67 @@ export function useVisualizerData3D({
     []
   );
 
+  const flushPendingDirectoryPrefixes = useCallback(() => {
+    directoryFlushTimerRef.current = null;
+    if (!directoryEnabledRef.current) {
+      pendingDirectoryPrefixesRef.current.clear();
+      return;
+    }
+
+    const prefixes = [...pendingDirectoryPrefixesRef.current];
+    pendingDirectoryPrefixesRef.current.clear();
+    if (prefixes.length === 0) {
+      return;
+    }
+    for (const prefix of prefixes) {
+      requestedDirectoryPrefixesRef.current.add(prefix);
+    }
+
+    void (async () => {
+      const merged: Record<string, DirectoryHopHit> = {};
+      for (const chunk of chunkDirectoryPrefixes(prefixes)) {
+        try {
+          const response = await api.resolveDirectoryHops(chunk);
+          Object.assign(merged, normalizeDirectoryHits(response.resolved));
+        } catch (error) {
+          console.debug('Failed to resolve Community directory names', error);
+        }
+      }
+      if (Object.keys(merged).length === 0) {
+        return;
+      }
+      setDirectoryHits((previous) => ({ ...previous, ...merged }));
+    })();
+  }, []);
+
+  const scheduleDirectoryResolve = useCallback(() => {
+    if (!directoryEnabledRef.current) {
+      return;
+    }
+
+    const prefixes = collectDirectoryPrefixes(
+      networkStateRef.current.nodes.values(),
+      contactsRef.current
+    ).filter(
+      (prefix) =>
+        !requestedDirectoryPrefixesRef.current.has(prefix) &&
+        !pendingDirectoryPrefixesRef.current.has(prefix)
+    );
+    if (prefixes.length === 0) {
+      return;
+    }
+    for (const prefix of prefixes) {
+      pendingDirectoryPrefixesRef.current.add(prefix);
+    }
+    if (directoryFlushTimerRef.current != null) {
+      return;
+    }
+    directoryFlushTimerRef.current = setTimeout(
+      flushPendingDirectoryPrefixes,
+      DIRECTORY_RESOLVE_DEBOUNCE_MS
+    );
+  }, [flushPendingDirectoryPrefixes]);
+
   const rebuildRenderProjection = useCallback(() => {
     const projection = projectPacketNetwork(networkStateRef.current, {
       showAmbiguousNodes,
@@ -327,11 +397,13 @@ export function useVisualizerData3D({
       communityNameMapsEqual(previous, nextCommunityNames) ? previous : nextCommunityNames
     );
     syncSimulation();
+    scheduleDirectoryResolve();
   }, [
     collapseLikelyKnownSiblingRepeaters,
     contacts,
     directoryEnabled,
     directoryHits,
+    scheduleDirectoryResolve,
     showAmbiguousNodes,
     showAmbiguousPaths,
     syncSimulation,
@@ -369,44 +441,6 @@ export function useVisualizerData3D({
   useEffect(() => {
     rebuildRenderProjection();
   }, [rebuildRenderProjection]);
-
-  useEffect(() => {
-    if (!directoryEnabled) {
-      return;
-    }
-
-    const prefixes = collectDirectoryPrefixes(
-      networkStateRef.current.nodes.values(),
-      contacts
-    ).filter((prefix) => !requestedDirectoryPrefixesRef.current.has(prefix));
-    if (prefixes.length === 0) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      for (const prefix of prefixes) {
-        requestedDirectoryPrefixesRef.current.add(prefix);
-      }
-
-      void (async () => {
-        const merged: Record<string, DirectoryHopHit> = {};
-        for (const chunk of chunkDirectoryPrefixes(prefixes)) {
-          try {
-            const response = await api.resolveDirectoryHops(chunk);
-            Object.assign(merged, normalizeDirectoryHits(response.resolved));
-          } catch (error) {
-            console.debug('Failed to resolve Community directory names', error);
-          }
-        }
-        if (Object.keys(merged).length === 0) {
-          return;
-        }
-        setDirectoryHits((previous) => ({ ...previous, ...merged }));
-      })();
-    }, DIRECTORY_RESOLVE_DEBOUNCE_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [contacts, directoryEnabled, packets.length, stats.nodes]);
 
   const publishPacket = useCallback((packetKey: string) => {
     const pending = pendingRef.current.get(packetKey);
@@ -646,6 +680,10 @@ export function useVisualizerData3D({
     return () => {
       if (stretchRaf.current !== null) {
         cancelAnimationFrame(stretchRaf.current);
+      }
+      if (directoryFlushTimerRef.current != null) {
+        clearTimeout(directoryFlushTimerRef.current);
+        directoryFlushTimerRef.current = null;
       }
       for (const timer of timers.values()) {
         clearTimeout(timer);
