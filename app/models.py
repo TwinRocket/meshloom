@@ -1017,6 +1017,40 @@ class UnreadCounts(BaseModel):
     )
 
 
+class ServerLabel(BaseModel):
+    """A name for this instance, shown across the top of every page.
+
+    Someone running Meshloom at home, at work and at a relative's house has three
+    interfaces that look identical, and the only way to tell them apart was the
+    address bar. Empty means no band at all, which is the default: an instance
+    nobody needs to distinguish should not pay for the option.
+    """
+
+    text: str = Field(default="", max_length=60, description="Empty hides the band")
+    color: str = Field(default="#062d60", description="Background, as #rrggbb")
+    size_px: int = Field(
+        default=14,
+        ge=12,
+        le=48,
+        description=(
+            "Text size in pixels, which also sets how tall the band is. A number "
+            "rather than three named steps: someone who wants it noticeable from "
+            "across a room and someone who wants a discreet strip are asking for "
+            "different things, and a picker like a mail composer answers both."
+        ),
+    )
+    bold: bool = False
+    italic: bool = False
+    font: Literal["system", "serif", "mono"] = Field(
+        default="system",
+        description=(
+            "A family the browser certainly has. Naming an arbitrary font would "
+            "render as something else wherever it is not installed, which is a "
+            "worse answer than three that always work."
+        ),
+    )
+
+
 class UiPreferences(BaseModel):
     """Interface preferences, kept with the instance rather than in a browser.
 
@@ -1037,6 +1071,15 @@ class UiPreferences(BaseModel):
     theme: str = Field(
         default="",
         description="Theme id, or empty to follow the operating system",
+    )
+    server_label: ServerLabel = Field(
+        default_factory=ServerLabel,
+        description=(
+            "Names this instance for whoever is looking at it. Kept here rather "
+            "than in a browser because it describes the server, not the device: "
+            "stored per browser it had to be set again on every phone and laptop, "
+            "and was missing exactly when someone arrived from a new one."
+        ),
     )
 
 

@@ -13,6 +13,7 @@ import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { EdgeSessionExpiredDialog } from './EdgeSessionExpiredDialog';
 import { PathHashOneByteBanner } from './PathHashOneByteBanner';
 import { RadioSetupBanner } from './RadioSetupBanner';
+import { ServerLabelBand } from './ServerLabelBand';
 import { ConversationPane } from './ConversationPane';
 import { BottomNav } from './BottomNav';
 import { DesktopRail } from './DesktopRail';
@@ -39,7 +40,7 @@ import {
   SETTINGS_SECTION_ORDER,
   type SettingsSection,
 } from './settings/settingsConstants';
-import { getContrastTextColor, type LocalLabel } from '../utils/localLabel';
+import type { ServerLabel } from '../types';
 import { api } from '../api';
 import type { CommunityStatus, HealthStatus, RadioConfig } from '../types';
 import type { CrackerPanelProps } from './CrackerPanel';
@@ -75,7 +76,7 @@ type ContactInfoPaneProps = ComponentProps<typeof ContactInfoPane>;
 type ChannelInfoPaneProps = ComponentProps<typeof ChannelInfoPane>;
 
 interface AppShellProps {
-  localLabel: LocalLabel;
+  serverLabel: ServerLabel;
   showNewMessage: boolean;
   showBulkAddResults: boolean;
   showSettings: boolean;
@@ -92,7 +93,6 @@ interface AppShellProps {
   onCloseSettingsView: (restoreLocation?: boolean) => void;
   onCloseNewMessage: () => void;
   onCloseBulkAddResults: () => void;
-  onLocalLabelChange: (label: LocalLabel) => void;
   statusProps: { health: HealthStatus | null; config: RadioConfig | null };
   /** The desktop rail's contents, in order, from the stored preferences. */
   navRailOrder?: string[];
@@ -101,7 +101,7 @@ interface AppShellProps {
   searchProps: SearchViewProps;
   settingsProps: Omit<
     SettingsModalProps,
-    'open' | 'pageMode' | 'externalSidebarNav' | 'desktopSection' | 'onClose' | 'onLocalLabelChange'
+    'open' | 'pageMode' | 'externalSidebarNav' | 'desktopSection' | 'onClose'
   >;
   crackerProps: Omit<CrackerPanelProps, 'visible' | 'onRunningChange' | 'onQueueChange'>;
   newMessageModalProps: NewMessageModalProps;
@@ -117,7 +117,7 @@ interface AppShellProps {
 }
 
 export function AppShell({
-  localLabel,
+  serverLabel,
   showNewMessage,
   showBulkAddResults,
   showSettings,
@@ -133,7 +133,6 @@ export function AppShell({
   onCloseSettingsView,
   onCloseNewMessage,
   onCloseBulkAddResults,
-  onLocalLabelChange,
   statusProps,
   navRailOrder,
   sidebarProps,
@@ -208,7 +207,7 @@ export function AppShell({
   // Position toasts below the conversation header when in chat, otherwise below the status bar
   const TOAST_TOP_PADDING = 10;
   const [toastTopOffset, setToastTopOffset] = useState<number | undefined>(undefined);
-  const hasLocalLabel = !!localLabel.text;
+  const hasLocalLabel = !!serverLabel.text;
   // Which screen the phone layout is on when no conversation or tool is open.
   const [mobileScreen, setMobileScreen] = useState<'conversations' | 'tools'>('conversations');
   // Settings open on the index on a phone: the bar cannot say which section you
@@ -369,17 +368,7 @@ export function AppShell({
       >
         {t('shell.skipToContent')}
       </a>
-      {localLabel.text && (
-        <div
-          style={{
-            backgroundColor: localLabel.color,
-            color: getContrastTextColor(localLabel.color),
-          }}
-          className="px-4 py-1 text-center text-sm font-medium"
-        >
-          {localLabel.text}
-        </div>
-      )}
+      <ServerLabelBand label={serverLabel} />
 
       {!(showSettings && settingsSection === 'radio') && (
         <RadioSetupBanner
@@ -553,7 +542,6 @@ export function AppShell({
                     updatesApplying={ossUpdates.applying}
                     onOpenManualHelp={() => setUpdateDialogOpen(true)}
                     onClose={onCloseSettingsView}
-                    onLocalLabelChange={onLocalLabelChange}
                     onCommunityStatusChange={setCommunityStatus}
                   />
                 </Suspense>

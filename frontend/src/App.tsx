@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef, useState, useMemo, type MouseEvent } from 'react';
+import { normalizeServerLabel, serverLabelToAdopt } from './utils/serverLabel';
 import { useTranslation } from 'react-i18next';
 import { api } from './api';
 import { updateUrlHash } from './utils/urlHash';
@@ -113,14 +114,12 @@ export function App() {
     desktopSidebarCollapsed,
     showCracker,
     crackerRunning,
-    localLabel,
     distanceUnit,
     renderRichPayloads,
     showPathHopWidth,
     setSettingsSection,
     setSidebarOpen,
     setCrackerRunning,
-    setLocalLabel,
     setDistanceUnit,
     setRenderRichPayloads,
     setShowPathHopWidth,
@@ -856,6 +855,26 @@ export function App() {
     setContacts,
     setContactsLoaded,
   ]);
+  const serverLabel = normalizeServerLabel(appSettings?.ui_preferences?.server_label);
+
+  // The label used to live in this browser. The first device to open an instance
+  // that already had one hands it over, so nobody watches their label vanish.
+  const adoptedLabelRef = useRef(false);
+  useEffect(() => {
+    if (adoptedLabelRef.current || !appSettings) return;
+    const adopted = serverLabelToAdopt(serverLabel);
+    if (!adopted) return;
+    adoptedLabelRef.current = true;
+    void handleSaveAppSettings({
+      ui_preferences: {
+        ...appSettings.ui_preferences,
+        nav_rail: appSettings.ui_preferences?.nav_rail ?? [],
+        theme: appSettings.ui_preferences?.theme ?? '',
+        server_label: adopted,
+      },
+    });
+  }, [appSettings, serverLabel, handleSaveAppSettings]);
+
   return (
     <DistanceUnitProvider distanceUnit={distanceUnit} setDistanceUnit={setDistanceUnit}>
       <RichPayloadProvider
@@ -868,7 +887,7 @@ export function App() {
         >
           <AppShell
             navRailOrder={appSettings?.ui_preferences?.nav_rail}
-            localLabel={localLabel}
+            serverLabel={serverLabel}
             showNewMessage={showNewMessage}
             showBulkAddResults={bulkAddResult !== null}
             showSettings={showSettings}
@@ -888,7 +907,6 @@ export function App() {
             onCloseSettingsView={handleCloseSettingsView}
             onCloseNewMessage={handleCloseNewMessage}
             onCloseBulkAddResults={handleCloseBulkAddResults}
-            onLocalLabelChange={setLocalLabel}
             statusProps={statusProps}
             sidebarProps={sidebarProps}
             conversationPaneProps={conversationPaneProps}

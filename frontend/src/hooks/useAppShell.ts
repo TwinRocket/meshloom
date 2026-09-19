@@ -1,6 +1,5 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 
-import { getLocalLabel, type LocalLabel } from '../utils/localLabel';
 import { getSavedDistanceUnit, type DistanceUnit } from '../utils/distanceUnits';
 import { getSavedRenderRichPayloads } from '../utils/richPayloadPreference';
 import { getSavedShowPathHopWidth } from '../utils/pathHopWidthPreference';
@@ -19,14 +18,12 @@ interface UseAppShellResult {
   desktopSidebarCollapsed: boolean;
   showCracker: boolean;
   crackerRunning: boolean;
-  localLabel: LocalLabel;
   distanceUnit: DistanceUnit;
   renderRichPayloads: boolean;
   showPathHopWidth: boolean;
   setSettingsSection: (section: SettingsSection) => void;
   setSidebarOpen: (open: boolean) => void;
   setCrackerRunning: (running: boolean) => void;
-  setLocalLabel: (label: LocalLabel) => void;
   setDistanceUnit: (unit: DistanceUnit) => void;
   setRenderRichPayloads: (enabled: boolean) => void;
   setShowPathHopWidth: (enabled: boolean) => void;
@@ -52,7 +49,6 @@ export function useAppShell(): UseAppShellResult {
   );
   const [showCracker, setShowCracker] = useState(false);
   const [crackerRunning, setCrackerRunning] = useState(false);
-  const [localLabel, setLocalLabel] = useState(getLocalLabel);
   const [distanceUnit, setDistanceUnit] = useState(getSavedDistanceUnit);
   const [renderRichPayloads, setRenderRichPayloads] = useState(getSavedRenderRichPayloads);
   const [showPathHopWidth, setShowPathHopWidth] = useState(getSavedShowPathHopWidth);
@@ -172,14 +168,12 @@ export function useAppShell(): UseAppShellResult {
     desktopSidebarCollapsed,
     showCracker,
     crackerRunning,
-    localLabel,
     distanceUnit,
     renderRichPayloads,
     showPathHopWidth,
     setSettingsSection,
     setSidebarOpen,
     setCrackerRunning,
-    setLocalLabel,
     setDistanceUnit,
     setRenderRichPayloads,
     setShowPathHopWidth,
