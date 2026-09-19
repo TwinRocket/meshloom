@@ -40,6 +40,7 @@ from app.services.messages import create_fallback_channel_message
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.telemetry_alerts import (
     is_usable_status,
+    lpp_sensors_from_radio,
     note_telemetry_poll,
     status_snapshot_from_radio,
 )
@@ -1845,26 +1846,14 @@ async def _collect_repeater_telemetry(mc: MeshCore, contact: Contact) -> bool:
 
     # Best-effort LPP sensor fetch — failure here does not fail the overall
     # collection; status telemetry is still recorded without sensor data.
+    lpp_ok = False
     try:
         lpp_raw = await mc.commands.req_telemetry_sync(
             contact.public_key, timeout=10, min_timeout=5
         )
-        if lpp_raw:
-            lpp_sensors = []
-            for entry in lpp_raw:
-                value = entry.get("value", 0)
-                # Skip multi-value sensors (GPS, accelerometer, etc.)
-                if isinstance(value, dict):
-                    continue
-                lpp_sensors.append(
-                    {
-                        "channel": entry.get("channel", 0),
-                        "type_name": str(entry.get("type", "unknown")),
-                        "value": value,
-                    }
-                )
-            if lpp_sensors:
-                data["lpp_sensors"] = lpp_sensors
+        if isinstance(lpp_raw, list):
+            lpp_ok = True
+            data["lpp_sensors"] = lpp_sensors_from_radio(lpp_raw)
     except Exception as e:
         logger.debug(
             "Telemetry collect: LPP sensor fetch failed for %s (non-fatal): %s",
@@ -1877,7 +1866,7 @@ async def _collect_repeater_telemetry(mc: MeshCore, contact: Contact) -> bool:
         name=contact.name or "",
         outcome="success",
         snapshot=data,
-        allow_gps_lost=False,
+        allow_gps_lost=lpp_ok,
     )
 
     try:
@@ -1952,19 +1941,7 @@ async def _collect_contact_telemetry(mc: MeshCore, contact: Contact) -> bool:
         )
         return False
 
-    lpp_sensors = []
-    for entry in lpp_raw:
-        lpp_sensors.append(
-            {
-                "channel": entry.get("channel", 0),
-                "type_name": str(entry.get("type", "unknown")),
-                "value": entry.get("value", 0),
-            }
-        )
-
-    data: dict = {}
-    if lpp_sensors:
-        data["lpp_sensors"] = lpp_sensors
+    data: dict = {"lpp_sensors": lpp_sensors_from_radio(lpp_raw)}
 
     await note_telemetry_poll(
         public_key=contact.public_key,

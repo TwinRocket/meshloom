@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Share2,
   SlidersHorizontal,
+  TriangleAlert,
   Waypoints,
   type LucideIcon,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ export type SettingsSection =
   | 'updates'
   | 'community'
   | 'radio-app'
+  | 'alerts'
   | 'database'
   | 'fanout'
   | 'statistics'
@@ -37,6 +39,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'community',
   'fanout',
   'radio-app',
+  'alerts',
   'database',
   'navigation',
   'statistics',
@@ -52,6 +55,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   updates: 'settingsNav.updates',
   community: 'settingsNav.community',
   'radio-app': 'settingsNav.radioApp',
+  alerts: 'settingsNav.alerts',
   database: 'settingsNav.database',
   fanout: 'settingsNav.fanout',
   navigation: 'settingsNav.navigation',
@@ -67,6 +71,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   updates: RefreshCw,
   community: Globe,
   'radio-app': SlidersHorizontal,
+  alerts: TriangleAlert,
   database: Database,
   fanout: Share2,
   navigation: PanelLeft,

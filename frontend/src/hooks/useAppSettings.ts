@@ -156,9 +156,11 @@ export function useAppSettings() {
 
     try {
       const result = await api.toggleTrackedTelemetry(publicKey);
-      setAppSettings((prev) =>
-        prev ? { ...prev, tracked_telemetry_repeaters: result.tracked_telemetry_repeaters } : prev
-      );
+      const settings = await api.getSettings();
+      setAppSettings({
+        ...settings,
+        tracked_telemetry_repeaters: result.tracked_telemetry_repeaters,
+      });
     } catch (err) {
       console.error('Failed to toggle tracked telemetry:', err);
       try {
@@ -183,9 +185,11 @@ export function useAppSettings() {
 
     try {
       const result = await api.toggleTrackedTelemetryContact(publicKey);
-      setAppSettings((prev) =>
-        prev ? { ...prev, tracked_telemetry_contacts: result.tracked_telemetry_contacts } : prev
-      );
+      const settings = await api.getSettings();
+      setAppSettings({
+        ...settings,
+        tracked_telemetry_contacts: result.tracked_telemetry_contacts,
+      });
     } catch (err) {
       console.error('Failed to toggle tracked contact telemetry:', err);
       try {

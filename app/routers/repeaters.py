@@ -43,6 +43,7 @@ from app.services.contact_access import ensure_on_radio, resolve_contact_or_404
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.telemetry_alerts import (
     is_usable_status,
+    lpp_sensors_from_radio,
     note_telemetry_poll,
     repeater_status_response_kwargs,
     status_snapshot_from_radio,
@@ -137,6 +138,7 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
     _require_repeater(contact)
 
     lpp_raw = None
+    lpp_ok = False
     async with radio_manager.radio_operation(
         "repeater_status", pause_polling=True, suspend_auto_fetch=True
     ) as mc:
@@ -151,6 +153,7 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
                 lpp_raw = await mc.commands.req_telemetry_sync(
                     contact.public_key, timeout=10, min_timeout=5
                 )
+                lpp_ok = isinstance(lpp_raw, list)
             except Exception as e:
                 logger.debug("LPP sensor fetch failed for %s (non-fatal): %s", public_key[:12], e)
 
@@ -169,29 +172,15 @@ async def repeater_status(public_key: str) -> RepeaterStatusResponse:
     now = int(time.time())
     status_dict = dict(snapshot)
 
-    # Attach scalar LPP sensors to the stored snapshot (same logic as auto-collect)
-    if lpp_raw:
-        lpp_sensors = []
-        for entry in lpp_raw:
-            value = entry.get("value", 0)
-            if isinstance(value, dict):
-                continue
-            lpp_sensors.append(
-                {
-                    "channel": entry.get("channel", 0),
-                    "type_name": str(entry.get("type", "unknown")),
-                    "value": value,
-                }
-            )
-        if lpp_sensors:
-            status_dict["lpp_sensors"] = lpp_sensors
+    if lpp_ok:
+        status_dict["lpp_sensors"] = lpp_sensors_from_radio(lpp_raw)
 
     await note_telemetry_poll(
         public_key=contact.public_key,
         name=contact.name or "",
         outcome="success",
         snapshot=status_dict,
-        allow_gps_lost=False,
+        allow_gps_lost=lpp_ok,
     )
 
     try:
@@ -275,7 +264,7 @@ async def repeater_lpp_telemetry(public_key: str) -> RepeaterLppTelemetryRespons
         name=contact.name or "",
         outcome="success",
         snapshot={"lpp_sensors": [s.model_dump() for s in sensors]},
-        allow_gps_lost=False,
+        allow_gps_lost=True,
     )
 
     return await _cache_pane(

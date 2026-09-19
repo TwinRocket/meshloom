@@ -325,6 +325,23 @@ def test_build_payload_telemetry_alert_french_and_english():
     assert en["title"] == "Hill is not responding"
     assert en["tag"] == "meshcore-telemetry-silence-" + "bb" * 32
 
+    unknown = json.loads(
+        _build_payload(
+            {
+                "event": "telemetry_alert",
+                "public_key": "cc" * 32,
+                "name": "Hill",
+                "rule_id": "custom_gauge",
+                "value": 9,
+                "threshold": 4,
+            },
+            language="en",
+        )
+    )
+    assert unknown["title"] == "Hill: custom_gauge alert"
+    assert "is not responding" not in unknown["title"]
+    assert "is not responding" not in unknown["body"]
+
 
 # ── dispatch_message / first-seen ────────────────────────────────────────
 

@@ -738,44 +738,441 @@ export interface UiPreferences {
   theme: string;
 }
 
-/** Global telemetry-alert thresholds persisted on GET/PATCH /api/settings. */
-export interface TelemetryAlertRules {
-  battery_volts_min: number;
-  noise_floor_max_dbm: number;
-  /** Consecutive polls with no usable reply before a miss alert. Bounded 1–4. */
-  misses_before_alert: number;
+export type TelemetryAlertOp = 'lt' | 'gt';
+export type NotificationDestinationChannel = 'email' | 'webhook';
+export type NotificationEmailMode = 'none' | 'starttls' | 'ssl';
+
+export interface TelemetryAlertRuleSpec {
+  enabled: boolean;
+  op?: TelemetryAlertOp;
+  threshold?: number;
+  hysteresis?: number;
 }
 
-export const MISSES_BEFORE_ALERT_MIN = 1;
-export const MISSES_BEFORE_ALERT_MAX = 4;
+export interface TelemetryAlertRuleOverrideSpec {
+  enabled?: boolean;
+  threshold?: number;
+}
 
-export const DEFAULT_TELEMETRY_ALERT_RULES: TelemetryAlertRules = {
-  battery_volts_min: 3.5,
-  noise_floor_max_dbm: -90,
-  misses_before_alert: 2,
+export interface TelemetryAlertNodeOverride {
+  alerting?: boolean;
+  rules?: Record<string, TelemetryAlertRuleOverrideSpec>;
+}
+
+/** Telemetry-alert v2 document persisted on GET/PATCH /api/settings. */
+export interface TelemetryAlertRules {
+  channels: { push: boolean; email: boolean; webhook: boolean };
+  rules: Record<string, TelemetryAlertRuleSpec>;
+  overrides: Record<string, TelemetryAlertNodeOverride>;
+}
+
+export interface NotificationEmailDest {
+  host: string;
+  port: number;
+  mode: NotificationEmailMode;
+  user: string;
+  password: string;
+  from: string;
+  to: string;
+}
+
+export interface NotificationWebhookDest {
+  url: string;
+  hmac_secret: string;
+}
+
+export interface NotificationDestinations {
+  email: NotificationEmailDest;
+  webhook: NotificationWebhookDest;
+}
+
+/** PATCH omit/null keeps a secret; empty string clears it. */
+export interface NotificationDestinationsUpdate {
+  email?: Partial<Omit<NotificationEmailDest, 'password'>> & { password?: string | null };
+  webhook?: Partial<Omit<NotificationWebhookDest, 'hmac_secret'>> & {
+    hmac_secret?: string | null;
+  };
+}
+
+export interface TelemetryAlertCatalogMetric {
+  id: string;
+  label_key?: string;
+  type?: string;
+  unit?: string;
+  source?: string;
+}
+
+export interface TelemetryAlertLatch {
+  public_key: string;
+  rule_id: string;
+  last_fired_at: number;
+  last_value?: number | null;
+}
+
+export interface TelemetryAlertTrackedNode {
+  public_key: string;
+  name: string;
+  alerting: boolean;
+}
+
+export interface TelemetryAlertCatalog {
+  metrics: TelemetryAlertCatalogMetric[];
+  latches: TelemetryAlertLatch[];
+  tracked: TelemetryAlertTrackedNode[];
+}
+
+export const BUILTIN_TELEMETRY_ALERT_RULE_IDS = [
+  'battery',
+  'noise',
+  'rssi',
+  'snr',
+  'tx_queue',
+  'silence',
+  'gps_lost',
+] as const;
+
+export const LPP_TELEMETRY_ALERT_RULE_IDS = [
+  'lpp:temperature',
+  'lpp:humidity',
+  'lpp:barometer',
+  'lpp:voltage',
+  'lpp:current',
+  'lpp:luminosity',
+  'lpp:altitude',
+  'lpp:power',
+  'lpp:distance',
+  'lpp:energy',
+  'lpp:direction',
+  'lpp:concentration',
+] as const;
+
+export const TELEMETRY_ALERT_RULE_IDS = [
+  ...BUILTIN_TELEMETRY_ALERT_RULE_IDS,
+  ...LPP_TELEMETRY_ALERT_RULE_IDS,
+] as const;
+
+export const SECRET_REDACTED = '********';
+
+export const DEFAULT_NOTIFICATION_DESTINATIONS: NotificationDestinations = {
+  email: {
+    host: '',
+    port: 587,
+    mode: 'starttls',
+    user: '',
+    password: '',
+    from: '',
+    to: '',
+  },
+  webhook: { url: '', hmac_secret: '' },
 };
 
-export function clampMissesBeforeAlert(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_TELEMETRY_ALERT_RULES.misses_before_alert;
-  return Math.min(MISSES_BEFORE_ALERT_MAX, Math.max(MISSES_BEFORE_ALERT_MIN, Math.round(value)));
+export const DEFAULT_TELEMETRY_ALERT_RULES: TelemetryAlertRules = {
+  channels: { push: true, email: false, webhook: false },
+  rules: {
+    battery: { enabled: true, op: 'lt', threshold: 3.5, hysteresis: 0.2 },
+    noise: { enabled: true, op: 'gt', threshold: -90, hysteresis: 3 },
+    rssi: { enabled: false, op: 'lt', threshold: -120, hysteresis: 5 },
+    snr: { enabled: false, op: 'lt', threshold: 0, hysteresis: 2 },
+    tx_queue: { enabled: false, op: 'gt', threshold: 10, hysteresis: 2 },
+    silence: { enabled: true, threshold: 2 },
+    gps_lost: { enabled: true },
+    'lpp:temperature': { enabled: false, op: 'gt', threshold: 50, hysteresis: 1 },
+    'lpp:humidity': { enabled: false, op: 'gt', threshold: 90, hysteresis: 3 },
+    'lpp:barometer': { enabled: false, op: 'lt', threshold: 980, hysteresis: 5 },
+    'lpp:voltage': { enabled: false, op: 'lt', threshold: 3.5, hysteresis: 0.1 },
+    'lpp:current': { enabled: false, op: 'gt', threshold: 1, hysteresis: 0.1 },
+    'lpp:luminosity': { enabled: false, op: 'lt', threshold: 10, hysteresis: 5 },
+    'lpp:altitude': { enabled: false, op: 'gt', hysteresis: 10 },
+    'lpp:power': { enabled: false, op: 'gt' },
+    'lpp:distance': { enabled: false, op: 'gt' },
+    'lpp:energy': { enabled: false, op: 'gt' },
+    'lpp:direction': { enabled: false, op: 'gt' },
+    'lpp:concentration': { enabled: false, op: 'gt' },
+  },
+  overrides: {},
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function asUnixSeconds(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1e12 ? Math.floor(value / 1000) : value;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric > 1e12 ? Math.floor(numeric / 1000) : numeric;
+    const ms = Date.parse(value);
+    if (Number.isFinite(ms)) return Math.floor(ms / 1000);
+  }
+  return 0;
+}
+
+function mergeRuleSpec(
+  fallback: TelemetryAlertRuleSpec | undefined,
+  incoming: unknown
+): TelemetryAlertRuleSpec {
+  const raw = asRecord(incoming) ?? {};
+  const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : (fallback?.enabled ?? false);
+  const op = raw.op === 'lt' || raw.op === 'gt' ? raw.op : fallback?.op;
+  const threshold = asFiniteNumber(raw.threshold) ?? fallback?.threshold;
+  const hysteresis = asFiniteNumber(raw.hysteresis) ?? fallback?.hysteresis;
+  return {
+    enabled,
+    ...(op ? { op } : {}),
+    ...(threshold !== undefined ? { threshold } : {}),
+    ...(hysteresis !== undefined ? { hysteresis } : {}),
+  };
+}
+
+function isNewTelemetryAlertRulesShape(raw: Record<string, unknown>): boolean {
+  return asRecord(raw.channels) != null || asRecord(raw.rules) != null;
+}
+
+function migrateLegacyTelemetryAlertRules(raw: Record<string, unknown>): TelemetryAlertRules {
+  const next = structuredClone(DEFAULT_TELEMETRY_ALERT_RULES);
+  const battery = asFiniteNumber(raw.battery_volts_min);
+  const noise = asFiniteNumber(raw.noise_floor_max_dbm);
+  const misses = asFiniteNumber(raw.misses_before_alert);
+  if (battery !== undefined) next.rules.battery = { ...next.rules.battery, threshold: battery };
+  if (noise !== undefined) next.rules.noise = { ...next.rules.noise, threshold: noise };
+  if (misses !== undefined) next.rules.silence = { ...next.rules.silence, threshold: misses };
+
+  const rawOverrides = asRecord(raw.overrides);
+  if (rawOverrides) {
+    for (const [key, value] of Object.entries(rawOverrides)) {
+      const override = asRecord(value);
+      if (!key || !override) continue;
+      const rules: Record<string, TelemetryAlertRuleOverrideSpec> = {};
+      const batteryOverride = asFiniteNumber(override.battery_volts_min);
+      const noiseOverride = asFiniteNumber(override.noise_floor_max_dbm);
+      const missesOverride = asFiniteNumber(override.misses_before_alert);
+      if (batteryOverride !== undefined) rules.battery = { threshold: batteryOverride };
+      if (noiseOverride !== undefined) rules.noise = { threshold: noiseOverride };
+      if (missesOverride !== undefined) rules.silence = { threshold: missesOverride };
+      next.overrides[key.toLowerCase()] = {
+        ...(typeof override.alerting === 'boolean' ? { alerting: override.alerting } : {}),
+        ...(Object.keys(rules).length > 0 ? { rules } : {}),
+      };
+    }
+  }
+  return next;
 }
 
 export function resolveTelemetryAlertRules(
-  rules: TelemetryAlertRules | null | undefined
+  rules: TelemetryAlertRules | null | undefined | unknown
 ): TelemetryAlertRules {
+  const raw = asRecord(rules);
+  if (!raw) return structuredClone(DEFAULT_TELEMETRY_ALERT_RULES);
+  if (!isNewTelemetryAlertRulesShape(raw)) return migrateLegacyTelemetryAlertRules(raw);
+
+  const next = structuredClone(DEFAULT_TELEMETRY_ALERT_RULES);
+  const channels = asRecord(raw.channels);
+  if (channels) {
+    next.channels = {
+      push: typeof channels.push === 'boolean' ? channels.push : next.channels.push,
+      email: typeof channels.email === 'boolean' ? channels.email : next.channels.email,
+      webhook: typeof channels.webhook === 'boolean' ? channels.webhook : next.channels.webhook,
+    };
+  }
+
+  const incomingRules = asRecord(raw.rules);
+  if (incomingRules) {
+    for (const [id, spec] of Object.entries(incomingRules)) {
+      if (!id) continue;
+      next.rules[id] = mergeRuleSpec(next.rules[id], spec);
+    }
+  }
+
+  const incomingOverrides = asRecord(raw.overrides);
+  next.overrides = {};
+  if (incomingOverrides) {
+    for (const [key, value] of Object.entries(incomingOverrides)) {
+      const override = asRecord(value);
+      if (!key || !override) continue;
+      const overrideRules: Record<string, TelemetryAlertRuleOverrideSpec> = {};
+      const rulesRaw = asRecord(override.rules);
+      if (rulesRaw) {
+        for (const [ruleId, ruleValue] of Object.entries(rulesRaw)) {
+          const rule = asRecord(ruleValue);
+          if (!ruleId || !rule) continue;
+          const enabled = typeof rule.enabled === 'boolean' ? rule.enabled : undefined;
+          const threshold = asFiniteNumber(rule.threshold);
+          if (enabled === undefined && threshold === undefined) continue;
+          overrideRules[ruleId] = {
+            ...(enabled !== undefined ? { enabled } : {}),
+            ...(threshold !== undefined ? { threshold } : {}),
+          };
+        }
+      }
+      next.overrides[key.toLowerCase()] = {
+        ...(typeof override.alerting === 'boolean' ? { alerting: override.alerting } : {}),
+        ...(Object.keys(overrideRules).length > 0 ? { rules: overrideRules } : {}),
+      };
+    }
+  }
+  return next;
+}
+
+export function resolveNotificationDestinations(
+  dest: NotificationDestinations | null | undefined | unknown
+): NotificationDestinations {
+  const raw = asRecord(dest);
+  const email = asRecord(raw?.email);
+  const webhook = asRecord(raw?.webhook);
+  const mode = email?.mode;
   return {
-    battery_volts_min:
-      rules != null && Number.isFinite(rules.battery_volts_min)
-        ? rules.battery_volts_min
-        : DEFAULT_TELEMETRY_ALERT_RULES.battery_volts_min,
-    noise_floor_max_dbm:
-      rules != null && Number.isFinite(rules.noise_floor_max_dbm)
-        ? rules.noise_floor_max_dbm
-        : DEFAULT_TELEMETRY_ALERT_RULES.noise_floor_max_dbm,
-    misses_before_alert: clampMissesBeforeAlert(
-      rules?.misses_before_alert ?? DEFAULT_TELEMETRY_ALERT_RULES.misses_before_alert
-    ),
+    email: {
+      host: typeof email?.host === 'string' ? email.host : '',
+      port: asFiniteNumber(email?.port) ?? DEFAULT_NOTIFICATION_DESTINATIONS.email.port,
+      mode: mode === 'none' || mode === 'starttls' || mode === 'ssl' ? mode : 'starttls',
+      user: typeof email?.user === 'string' ? email.user : '',
+      password: typeof email?.password === 'string' ? email.password : '',
+      from: typeof email?.from === 'string' ? email.from : '',
+      to: typeof email?.to === 'string' ? email.to : '',
+    },
+    webhook: {
+      url: typeof webhook?.url === 'string' ? webhook.url : '',
+      hmac_secret: typeof webhook?.hmac_secret === 'string' ? webhook.hmac_secret : '',
+    },
   };
+}
+
+export function isEmailDestinationReady(email: NotificationEmailDest | undefined): boolean {
+  return Boolean(email?.host?.trim() && email.to.trim());
+}
+
+export function isWebhookDestinationReady(webhook: NotificationWebhookDest | undefined): boolean {
+  return Boolean(webhook?.url?.trim());
+}
+
+function secretForPatch(draft: string, stored: string | undefined): string | undefined {
+  if (draft === SECRET_REDACTED) return undefined;
+  const current = stored ?? '';
+  if (draft === current) return undefined;
+  return draft;
+}
+
+export function buildNotificationDestinationsPatch(
+  draft: NotificationDestinations,
+  stored: NotificationDestinations | null | undefined
+): NotificationDestinationsUpdate {
+  const current = stored ?? DEFAULT_NOTIFICATION_DESTINATIONS;
+  const emailPassword = secretForPatch(draft.email.password, current.email.password);
+  const hmacSecret = secretForPatch(draft.webhook.hmac_secret, current.webhook.hmac_secret);
+  return {
+    email: {
+      host: draft.email.host,
+      port: draft.email.port,
+      mode: draft.email.mode,
+      user: draft.email.user,
+      from: draft.email.from,
+      to: draft.email.to,
+      ...(emailPassword !== undefined ? { password: emailPassword } : {}),
+    },
+    webhook: {
+      url: draft.webhook.url,
+      ...(hmacSecret !== undefined ? { hmac_secret: hmacSecret } : {}),
+    },
+  };
+}
+
+export function normalizeTelemetryAlertCatalog(raw: unknown): TelemetryAlertCatalog {
+  const obj = asRecord(raw) ?? {};
+  const metricsSrc = Array.isArray(obj.metrics)
+    ? obj.metrics
+    : Array.isArray(obj.rules)
+      ? obj.rules
+      : [];
+  const latchesSrc = Array.isArray(obj.latches)
+    ? obj.latches
+    : Array.isArray(obj.latched)
+      ? obj.latched
+      : Array.isArray(obj.active_latches)
+        ? obj.active_latches
+        : [];
+  const trackedSrc = Array.isArray(obj.tracked)
+    ? obj.tracked
+    : Array.isArray(obj.nodes)
+      ? obj.nodes
+      : Array.isArray(obj.tracked_nodes)
+        ? obj.tracked_nodes
+        : [];
+
+  const metrics: TelemetryAlertCatalogMetric[] = [];
+  for (const item of metricsSrc) {
+    if (typeof item === 'string' && item) {
+      metrics.push({ id: item });
+      continue;
+    }
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const id =
+      (typeof rec.id === 'string' && rec.id) ||
+      (typeof rec.metric_id === 'string' && rec.metric_id) ||
+      (typeof rec.type === 'string' && rec.type) ||
+      '';
+    if (!id) continue;
+    metrics.push({
+      id,
+      ...(typeof rec.label_key === 'string' ? { label_key: rec.label_key } : {}),
+      ...(typeof rec.type === 'string' ? { type: rec.type } : {}),
+      ...(typeof rec.unit === 'string' ? { unit: rec.unit } : {}),
+      ...(typeof rec.source === 'string' ? { source: rec.source } : {}),
+    });
+  }
+
+  const latches: TelemetryAlertLatch[] = [];
+  for (const item of latchesSrc) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const publicKey =
+      (typeof rec.public_key === 'string' && rec.public_key) ||
+      (typeof rec.pubkey === 'string' && rec.pubkey) ||
+      '';
+    const ruleId =
+      (typeof rec.rule_id === 'string' && rec.rule_id) ||
+      (typeof rec.rule === 'string' && rec.rule) ||
+      (typeof rec.metric_id === 'string' && rec.metric_id) ||
+      '';
+    if (!publicKey || !ruleId) continue;
+    latches.push({
+      public_key: publicKey,
+      rule_id: ruleId,
+      last_fired_at: asUnixSeconds(rec.last_fired_at ?? rec.fired_at),
+      last_value: asFiniteNumber(rec.last_value ?? rec.value) ?? null,
+    });
+  }
+
+  const tracked: TelemetryAlertTrackedNode[] = [];
+  for (const item of trackedSrc) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const publicKey =
+      (typeof rec.public_key === 'string' && rec.public_key) ||
+      (typeof rec.pubkey === 'string' && rec.pubkey) ||
+      '';
+    if (!publicKey) continue;
+    tracked.push({
+      public_key: publicKey,
+      name: typeof rec.name === 'string' ? rec.name : publicKey.slice(0, 12),
+      alerting: typeof rec.alerting === 'boolean' ? rec.alerting : rec.enabled !== false,
+    });
+  }
+
+  return { metrics, latches, tracked };
 }
 
 export interface AppSettings {
@@ -799,6 +1196,7 @@ export interface AppSettings {
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
+  notification_destinations?: NotificationDestinations;
 }
 
 export interface AppSettingsUpdate {
@@ -816,6 +1214,7 @@ export interface AppSettingsUpdate {
   telemetry_routed_hourly?: boolean;
   stale_contact_days?: number;
   telemetry_alert_rules?: TelemetryAlertRules;
+  notification_destinations?: NotificationDestinationsUpdate;
 }
 
 export interface DirectoryHopHit {
@@ -1142,7 +1541,8 @@ export interface PushDefaults {
   advert_companion: boolean;
   advert_sensor: boolean;
   channel_found: boolean;
-  telemetry_alert: boolean;
+  /** Optional for older servers; the Alerts page owns this switch. */
+  telemetry_alert?: boolean;
   oss_update: boolean;
 }
 

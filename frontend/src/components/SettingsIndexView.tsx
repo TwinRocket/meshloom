@@ -36,7 +36,7 @@ interface Props {
 }
 
 const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
-  { titleKey: 'settingsIndex.groupRadio', sections: ['radio', 'proxy', 'radio-app'] },
+  { titleKey: 'settingsIndex.groupRadio', sections: ['radio', 'proxy', 'radio-app', 'alerts'] },
   {
     titleKey: 'settingsIndex.groupApp',
     sections: ['local', 'navigation', 'notifications', 'updates', 'community', 'fanout'],

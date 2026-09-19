@@ -200,6 +200,7 @@ async def _restore_settings(settings: AppSettings) -> None:
         telemetry_routed_hourly=settings.telemetry_routed_hourly,
         stale_contact_days=settings.stale_contact_days,
         telemetry_alert_rules=settings.telemetry_alert_rules,
+        notification_destinations=settings.notification_destinations,
         auto_update=settings.auto_update,
         auto_update_window_start=settings.auto_update_window_start,
         auto_update_window_end=settings.auto_update_window_end,

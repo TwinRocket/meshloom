@@ -70,6 +70,15 @@ def _telemetry_alert_titles(data: dict, lang: str) -> tuple[str, str]:
     rule_id = str(data.get("rule_id") or "")
     value = data.get("value")
     threshold = data.get("threshold")
+    kind = rule_id.split(":", 1)[0] if rule_id.startswith("lpp:") else rule_id
+
+    def _fmt_value() -> str:
+        if value is None:
+            return "?"
+        try:
+            return f"{float(value):g}"
+        except (TypeError, ValueError):
+            return str(value)
 
     if lang == "en":
         if rule_id == "battery":
@@ -78,12 +87,41 @@ def _telemetry_alert_titles(data: dict, lang: str) -> tuple[str, str]:
         elif rule_id == "noise":
             title = f"High noise floor: {label}" if label else "High noise floor"
             body = f"{value} dBm (threshold {threshold} dBm)" if value is not None else title
+        elif rule_id == "rssi":
+            title = f"Low RSSI: {label}" if label else "Low RSSI"
+            body = f"{value} dBm (threshold {threshold} dBm)" if value is not None else title
+        elif rule_id == "snr":
+            title = f"Low SNR: {label}" if label else "Low SNR"
+            body = f"{value} dB (threshold {threshold} dB)" if value is not None else title
+        elif rule_id == "tx_queue":
+            title = f"TX queue high: {label}" if label else "TX queue high"
+            body = f"{value} (threshold {threshold})" if value is not None else title
+        elif rule_id == "silence":
+            title = f"{label} is not responding" if label else "Node is not responding"
+            body = f"No usable telemetry after {int(value) if value is not None else '?'} poll(s)"
         elif rule_id == "gps_lost":
             title = f"{label} lost GPS fix" if label else "GPS fix lost"
             body = title
+        elif kind in {
+            "temperature",
+            "humidity",
+            "barometer",
+            "voltage",
+            "current",
+            "luminosity",
+            "altitude",
+            "power",
+            "distance",
+            "energy",
+            "direction",
+            "concentration",
+        } or rule_id.startswith("lpp:"):
+            metric = rule_id.removeprefix("lpp:") if rule_id.startswith("lpp:") else rule_id
+            title = f"{metric} alert: {label}" if label else f"{metric} alert"
+            body = f"{_fmt_value()} (threshold {threshold})" if threshold is not None else title
         else:
-            title = f"{label} is not responding" if label else "Node is not responding"
-            body = f"No usable telemetry after {int(value) if value is not None else '?'} poll(s)"
+            title = f"{label}: {rule_id} alert" if label else f"{rule_id or 'Telemetry'} alert"
+            body = f"{_fmt_value()} (threshold {threshold})" if threshold is not None else title
     else:
         if rule_id == "battery":
             title = f"Batterie faible : {label}" if label else "Batterie faible"
@@ -91,15 +129,44 @@ def _telemetry_alert_titles(data: dict, lang: str) -> tuple[str, str]:
         elif rule_id == "noise":
             title = f"Bruit élevé : {label}" if label else "Bruit élevé"
             body = f"{value} dBm (seuil {threshold} dBm)" if value is not None else title
-        elif rule_id == "gps_lost":
-            title = f"{label} a perdu le GPS" if label else "GPS perdu"
-            body = title
-        else:
+        elif rule_id == "rssi":
+            title = f"RSSI faible : {label}" if label else "RSSI faible"
+            body = f"{value} dBm (seuil {threshold} dBm)" if value is not None else title
+        elif rule_id == "snr":
+            title = f"SNR faible : {label}" if label else "SNR faible"
+            body = f"{value} dB (seuil {threshold} dB)" if value is not None else title
+        elif rule_id == "tx_queue":
+            title = f"File TX élevée : {label}" if label else "File TX élevée"
+            body = f"{value} (seuil {threshold})" if value is not None else title
+        elif rule_id == "silence":
             title = f"{label} ne répond plus" if label else "Nœud sans réponse"
             body = (
                 f"Pas de télémétrie utilisable après "
                 f"{int(value) if value is not None else '?'} sondage(s)"
             )
+        elif rule_id == "gps_lost":
+            title = f"{label} a perdu le GPS" if label else "GPS perdu"
+            body = title
+        elif kind in {
+            "temperature",
+            "humidity",
+            "barometer",
+            "voltage",
+            "current",
+            "luminosity",
+            "altitude",
+            "power",
+            "distance",
+            "energy",
+            "direction",
+            "concentration",
+        } or rule_id.startswith("lpp:"):
+            metric = rule_id.removeprefix("lpp:") if rule_id.startswith("lpp:") else rule_id
+            title = f"Alerte {metric} : {label}" if label else f"Alerte {metric}"
+            body = f"{_fmt_value()} (seuil {threshold})" if threshold is not None else title
+        else:
+            title = f"{label} : alerte {rule_id}" if label else f"Alerte {rule_id or 'télémétrie'}"
+            body = f"{_fmt_value()} (seuil {threshold})" if threshold is not None else title
     return title, body
 
 

@@ -243,6 +243,13 @@ describe('settings URL hashes', () => {
     expect(parseHashSettingsSection()).toBe('updates');
     expect(getSettingsHash('updates')).toBe('#settings/updates');
   });
+
+  it('parses the alerts settings hash', () => {
+    window.location.hash = '#settings/alerts';
+
+    expect(parseHashSettingsSection()).toBe('alerts');
+    expect(getSettingsHash('alerts')).toBe('#settings/alerts');
+  });
 });
 
 describe('resolveChannelFromHashToken', () => {

@@ -531,7 +531,7 @@ class TestTelemetryAlertRulesPatchMerge:
                 }
             )
         )
-        assert key not in replaced.telemetry_alert_rules.overrides
+        assert replaced.telemetry_alert_rules.overrides[key].battery_volts_min == 3.1
         assert replaced.telemetry_alert_rules.overrides[other].noise_floor_max_dbm == -70
 
         cleared = await update_settings(
@@ -547,3 +547,141 @@ class TestTelemetryAlertRulesPatchMerge:
             )
         )
         assert cleared.telemetry_alert_rules.overrides == {}
+
+    @pytest.mark.asyncio
+    async def test_full_v2_document_replaces_overrides(self, test_db):
+        from app.models import TelemetryAlertChannels, TelemetryRuleSpec
+
+        keep = "aa" * 32
+        drop = "bb" * 32
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                channels=TelemetryAlertChannels(push=True),
+                rules={"battery": TelemetryRuleSpec(enabled=True, op="lt", threshold=3.5)},
+                overrides={
+                    keep: TelemetryAlertRuleOverride(alerting=True),
+                    drop: TelemetryAlertRuleOverride(alerting=False),
+                },
+            )
+        )
+        updated = await update_settings(
+            AppSettingsUpdate.model_validate(
+                {
+                    "telemetry_alert_rules": {
+                        "channels": {"push": True, "email": False, "webhook": False},
+                        "rules": {"battery": {"enabled": True, "op": "lt", "threshold": 3.5}},
+                        "overrides": {keep: {"alerting": False}},
+                    }
+                }
+            )
+        )
+        overrides = updated.telemetry_alert_rules.overrides or {}
+        assert drop not in overrides
+        assert overrides[keep].alerting is False
+
+    @pytest.mark.asyncio
+    async def test_legacy_three_field_patch_keeps_channels_and_lpp(self, test_db):
+        from app.models import TelemetryAlertChannels, TelemetryRuleSpec
+
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                channels=TelemetryAlertChannels(push=True, email=True, webhook=False),
+                rules={
+                    "lpp:temperature": TelemetryRuleSpec(
+                        enabled=True, op="gt", threshold=40, hysteresis=1
+                    )
+                },
+            )
+        )
+        updated = await update_settings(
+            AppSettingsUpdate.model_validate(
+                {
+                    "telemetry_alert_rules": {
+                        "battery_volts_min": 3.2,
+                        "noise_floor_max_dbm": -80,
+                        "misses_before_alert": 4,
+                    }
+                }
+            )
+        )
+        rules = updated.telemetry_alert_rules
+        assert rules.battery_volts_min == 3.2
+        assert rules.noise_floor_max_dbm == -80
+        assert rules.misses_before_alert == 4
+        assert rules.channels.email is True
+        assert rules.channels.webhook is False
+        assert rules.rules["lpp:temperature"].enabled is True
+        assert rules.rules["lpp:temperature"].threshold == 40
+
+    @pytest.mark.asyncio
+    async def test_notification_destinations_redact_and_secret_merge(self, test_db):
+        from app.models import NotificationDestinationsUpdate, NotificationEmailDestUpdate
+        from app.routers.settings import get_settings
+
+        await update_settings(
+            AppSettingsUpdate(
+                notification_destinations=NotificationDestinationsUpdate(
+                    email=NotificationEmailDestUpdate(host="smtp.example", password="secret")
+                )
+            )
+        )
+        shown = await get_settings()
+        assert shown.notification_destinations.email.host == "smtp.example"
+        assert shown.notification_destinations.email.password == "********"
+        stored = await AppSettingsRepository.get()
+        assert stored.notification_destinations.email.password == "secret"
+
+        await update_settings(
+            AppSettingsUpdate(
+                notification_destinations=NotificationDestinationsUpdate(
+                    email=NotificationEmailDestUpdate(host="smtp.other")
+                )
+            )
+        )
+        stored = await AppSettingsRepository.get()
+        assert stored.notification_destinations.email.host == "smtp.other"
+        assert stored.notification_destinations.email.password == "secret"
+
+        await update_settings(
+            AppSettingsUpdate(
+                notification_destinations=NotificationDestinationsUpdate(
+                    email=NotificationEmailDestUpdate(password="")
+                )
+            )
+        )
+        stored = await AppSettingsRepository.get()
+        assert stored.notification_destinations.email.password == ""
+
+    @pytest.mark.asyncio
+    async def test_notification_dest_test_does_not_latch(self, test_db):
+        from app.models import NotificationDestinationsUpdate, NotificationWebhookDestUpdate
+        from app.repository.telemetry_alert_state import TelemetryAlertStateRepository
+        from app.routers.settings import (
+            NotificationDestTestRequest,
+            test_notification_destinations,
+        )
+
+        await update_settings(
+            AppSettingsUpdate(
+                notification_destinations=NotificationDestinationsUpdate(
+                    webhook=NotificationWebhookDestUpdate(url="https://example.test/hook")
+                )
+            )
+        )
+        with patch("app.notify.send_webhook_alert", new_callable=AsyncMock) as send:
+            result = await test_notification_destinations(
+                NotificationDestTestRequest(channel="webhook")
+            )
+        assert result.status == "ok"
+        send.assert_awaited_once()
+        assert await TelemetryAlertStateRepository.list_latched(["aa" * 32]) == []
+
+    @pytest.mark.asyncio
+    async def test_new_tracked_node_alerting_false(self, test_db):
+        key = "dd" * 32
+        await ContactRepository.upsert(
+            ContactUpsert(public_key=key, name="R3", type=CONTACT_TYPE_REPEATER)
+        )
+        await toggle_tracked_telemetry(TrackedTelemetryRequest(public_key=key))
+        stored = await AppSettingsRepository.get()
+        assert stored.telemetry_alert_rules.overrides[key].alerting is False

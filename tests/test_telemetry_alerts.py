@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models import CONTACT_TYPE_REPEATER, TelemetryAlertRules
+from app.models import (
+    CONTACT_TYPE_REPEATER,
+    TelemetryAlertChannels,
+    TelemetryAlertRuleOverride,
+    TelemetryAlertRules,
+    TelemetryRuleSpec,
+)
 from app.radio import RadioOperationBusyError
 from app.repository import ContactRepository
 from app.repository.settings import AppSettingsRepository
@@ -281,17 +287,137 @@ class TestTelemetryAlerts:
                     }
                 ]
             },
-            allow_gps_lost=False,
+            allow_gps_lost=True,
         )
         await note_telemetry_poll(
             public_key=KEY,
             name="Rpt",
             outcome="success",
-            snapshot={"lpp_sensors": []},
+            snapshot={"battery_volts": 4.1},
             allow_gps_lost=False,
         )
         assert captured_alerts == []
-        assert await TelemetryAlertStateRepository.get(KEY, RULE_GPS_LOST) is None
+        assert await TelemetryAlertStateRepository.get(KEY, RULE_GPS_LOST) is not None
+        await note_telemetry_poll(
+            public_key=KEY,
+            name="Rpt",
+            outcome="success",
+            snapshot={"lpp_sensors": [{"channel": 1, "type_name": "temperature", "value": 21}]},
+            allow_gps_lost=True,
+        )
+        assert [item["rule_id"] for item in captured_alerts] == [RULE_GPS_LOST]
+
+    @pytest.mark.asyncio
+    async def test_lpp_temperature_latches_per_channel(self, test_db, captured_alerts):
+        await _track_repeater()
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                rules={
+                    "lpp:temperature": TelemetryRuleSpec(
+                        enabled=True, op="gt", threshold=50, hysteresis=1
+                    )
+                }
+            )
+        )
+        await note_telemetry_poll(
+            public_key=KEY,
+            name="Rpt",
+            outcome="success",
+            snapshot={"lpp_sensors": [{"channel": 1, "type_name": "temperature", "value": 55}]},
+            allow_gps_lost=True,
+        )
+        assert len(captured_alerts) == 1
+        assert captured_alerts[0]["rule_id"] == "lpp:temperature:1"
+        await note_telemetry_poll(
+            public_key=KEY,
+            name="Rpt",
+            outcome="success",
+            snapshot={"lpp_sensors": [{"channel": 2, "type_name": "humidity", "value": 40}]},
+            allow_gps_lost=True,
+        )
+        assert len(captured_alerts) == 1
+        state = await TelemetryAlertStateRepository.get(KEY, "lpp:temperature:1")
+        assert state is not None
+        assert state["last_fired_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_rssi_missing_is_skipped_zero_is_evaluated(self, test_db, captured_alerts):
+        await _track_repeater()
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                rules={"rssi": TelemetryRuleSpec(enabled=True, op="lt", threshold=1, hysteresis=5)}
+            )
+        )
+        await note_telemetry_poll(
+            public_key=KEY,
+            name="Rpt",
+            outcome="success",
+            snapshot={"battery_volts": 4.1},
+        )
+        assert captured_alerts == []
+        await note_telemetry_poll(
+            public_key=KEY,
+            name="Rpt",
+            outcome="success",
+            snapshot={"last_rssi_dbm": 0},
+        )
+        assert len(captured_alerts) == 1
+        assert captured_alerts[0]["rule_id"] == "rssi"
+        assert captured_alerts[0]["value"] == 0
+
+    @pytest.mark.asyncio
+    async def test_per_node_threshold_override(self, test_db, captured_alerts):
+        await _track_repeater()
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                overrides={KEY: TelemetryAlertRuleOverride(battery_volts_min=3.1)}
+            )
+        )
+        await note_telemetry_poll(
+            public_key=KEY, name="Rpt", outcome="success", snapshot={"battery_volts": 3.2}
+        )
+        assert captured_alerts == []
+        await note_telemetry_poll(
+            public_key=KEY, name="Rpt", outcome="success", snapshot={"battery_volts": 3.0}
+        )
+        assert len(captured_alerts) == 1
+        assert captured_alerts[0]["rule_id"] == RULE_BATTERY
+
+    @pytest.mark.asyncio
+    async def test_alerting_off_skips_all_rules(self, test_db, captured_alerts):
+        await _track_repeater()
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                overrides={KEY: TelemetryAlertRuleOverride(alerting=False)}
+            )
+        )
+        await note_telemetry_poll(
+            public_key=KEY, name="Rpt", outcome="success", snapshot={"battery_volts": 3.0}
+        )
+        await note_telemetry_poll(public_key=KEY, name="Rpt", outcome="miss")
+        await note_telemetry_poll(public_key=KEY, name="Rpt", outcome="miss")
+        assert captured_alerts == []
+        assert await TelemetryAlertStateRepository.get(KEY, RULE_BATTERY) is None
+        assert await TelemetryAlertStateRepository.get(KEY, RULE_SILENCE) is None
+
+    @pytest.mark.asyncio
+    async def test_email_and_webhook_dispatch(self, test_db, captured_alerts):
+        await _track_repeater()
+        await AppSettingsRepository.update(
+            telemetry_alert_rules=TelemetryAlertRules(
+                channels=TelemetryAlertChannels(push=True, email=True, webhook=True)
+            )
+        )
+        with (
+            patch("app.notify.send_email_alert", new_callable=AsyncMock) as email,
+            patch("app.notify.send_webhook_alert", new_callable=AsyncMock) as webhook,
+        ):
+            await note_telemetry_poll(
+                public_key=KEY, name="Rpt", outcome="success", snapshot={"battery_volts": 3.2}
+            )
+        assert len(captured_alerts) == 1
+        email.assert_awaited_once()
+        webhook.assert_awaited_once()
 
 
 class TestCollectEmptyStatus:

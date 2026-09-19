@@ -369,7 +369,141 @@
       "vapidSubjectLabel": "URI de contact",
       "vapidSubjectPlaceholder": "mailto:ops@example.com",
       "vapidSubjectHelp": "Contact VAPID : mailto:vous@domaine.tld (recommandé) ou https://votre-hôte sans chemin. Vide = repli d’environnement. Apple refuse les adresses .local.",
-      "vapidSubjectInvalid": "Doit être vide, un mailto:vous@domaine.tld, ou une origine https://hôte (sans chemin)."
+      "vapidSubjectInvalid": "Doit être vide, un mailto:vous@domaine.tld, ou une origine https://hôte (sans chemin).",
+      "destinations": "Destinations de livraison",
+      "destinationsHelp": "Destinations e-mail et webhook utilisées par les alertes télémétrie. Les secrets ne sont plus affichés après enregistrement.",
+      "emailTitle": "E-mail (SMTP)",
+      "emailHost": "Hôte",
+      "emailPort": "Port",
+      "emailMode": "Chiffrement",
+      "emailModeNone": "Aucun",
+      "emailModeStarttls": "STARTTLS",
+      "emailModeSsl": "SSL",
+      "emailUser": "Identifiant",
+      "emailPassword": "Mot de passe",
+      "emailFrom": "Expéditeur",
+      "emailTo": "Destinataire",
+      "webhookTitle": "Webhook",
+      "webhookNotFanout": "Ce webhook sert uniquement aux alertes télémétrie. Ce n’est pas le webhook Fanout des messages.",
+      "webhookUrl": "URL",
+      "webhookHmac": "Secret HMAC",
+      "secretKept": "Inchangé",
+      "testEmail": "Tester l’e-mail",
+      "testWebhook": "Tester le webhook",
+      "destTesting": "Test…",
+      "destTestSent": "Test envoyé",
+      "destTestFailed": "Échec du test",
+      "destSaveFailed": "Échec de l’enregistrement des destinations",
+      "unknownError": "Erreur inconnue"
+    },
+    "alerts": {
+      "loading": "Chargement des alertes…",
+      "saveFailed": "Échec de l’enregistrement des alertes",
+      "unknownError": "Erreur inconnue",
+      "voices": "Voix d’alerte",
+      "voicesHelp": "Choisissez où livrer les alertes télémétrie. Le push utilise les navigateurs abonnés. L’e-mail et le webhook exigent une destination dans Notifications.",
+      "voicePush": "Push",
+      "voicePushHelp": "Envoyer une notification Web Push aux navigateurs abonnés.",
+      "voiceEmail": "E-mail",
+      "voiceEmailHelp": "Envoyer un e-mail lorsqu’une règle se déclenche.",
+      "voiceWebhook": "Webhook",
+      "voiceWebhookHelp": "Envoyer un POST JSON signé lorsqu’une règle se déclenche.",
+      "configureDestinations": "Configurer les destinations dans Notifications",
+      "globalRules": "Règles globales",
+      "globalRulesHelp": "Ces valeurs s’appliquent à chaque nœud sondé, sauf override. Un seuil n’est vérifié que si un sondage renvoie une valeur utilisable.",
+      "thresholdAria": "Seuil {{name}}",
+      "polledNodes": "Nœuds sondés",
+      "polledNodesHelp": "Répéteurs et contacts suivis. Décochez Alerter pour continuer le sondage sans déclencher d’alerte.",
+      "noPolledNodes": "Aucun nœud n’est sondé. Activez le suivi depuis le tableau de bord d’un répéteur ou la fiche d’un contact.",
+      "override": "Override",
+      "overrideTitle": "Overrides pour {{name}}",
+      "overrideHelp": "Modifier l’activation ou le seuil pour ce nœud seulement. Réinitialiser restaure les règles globales.",
+      "overridden": "Override",
+      "resetToGlobal": "Réinitialiser au global",
+      "done": "Terminé",
+      "latches": "Verrous actifs",
+      "latchesHelp": "Règles encore verrouillées sur un nœud suivi. Elles se relâchent quand la lecture repasse l’hystérésis.",
+      "noLatches": "Aucun verrou actif.",
+      "latchValue": "{{value}} {{unit}}",
+      "latchFired": "déclenché {{time}}",
+      "rules": {
+        "battery": {
+          "label": "Batterie",
+          "help": "Alerter lorsque la batterie rapportée est sous cette tension."
+        },
+        "noise": {
+          "label": "Plancher de bruit",
+          "help": "Alerter lorsque le plancher de bruit rapporté dépasse ce niveau."
+        },
+        "rssi": {
+          "label": "Dernier RSSI",
+          "help": "Dernier paquet entendu par le répéteur, pas la qualité de liaison vers ce nœud. Alerter lorsque le RSSI est sous ce niveau."
+        },
+        "snr": {
+          "label": "Dernier SNR",
+          "help": "Dernier paquet entendu par le répéteur, pas la qualité de liaison vers ce nœud. Alerter lorsque le SNR est sous ce niveau."
+        },
+        "tx_queue": {
+          "label": "File TX",
+          "help": "Alerter lorsque la file d’émission du répéteur dépasse cette longueur."
+        },
+        "silence": {
+          "label": "Sondages manqués",
+          "help": "Alerter après autant de sondages sans réponse utilisable. Radio occupée n’est pas un manque."
+        },
+        "gps_lost": {
+          "label": "GPS perdu",
+          "help": "Alerter lorsqu’un nœud qui signalait un GPS n’inclut plus de position."
+        },
+        "temperature": {
+          "label": "Température",
+          "help": "Alerter sur la température LPP par rapport à ce seuil."
+        },
+        "humidity": {
+          "label": "Humidité",
+          "help": "Alerter sur l’humidité LPP par rapport à ce seuil."
+        },
+        "barometer": {
+          "label": "Baromètre",
+          "help": "Alerter sur le baromètre LPP par rapport à ce seuil."
+        },
+        "voltage": {
+          "label": "Tension",
+          "help": "Alerter sur la tension LPP par rapport à ce seuil."
+        },
+        "current": {
+          "label": "Courant",
+          "help": "Alerter sur le courant LPP par rapport à ce seuil."
+        },
+        "luminosity": {
+          "label": "Luminosité",
+          "help": "Alerter sur la luminosité LPP par rapport à ce seuil."
+        },
+        "altitude": {
+          "label": "Altitude",
+          "help": "Alerter sur l’altitude LPP par rapport à ce seuil."
+        },
+        "power": {
+          "label": "Puissance",
+          "help": "Alerter sur la puissance LPP par rapport à ce seuil."
+        },
+        "distance": {
+          "label": "Distance",
+          "help": "Alerter sur la distance LPP par rapport à ce seuil."
+        },
+        "energy": {
+          "label": "Énergie",
+          "help": "Alerter sur l’énergie LPP par rapport à ce seuil."
+        },
+        "direction": {
+          "label": "Direction",
+          "help": "Alerter sur la direction LPP par rapport à ce seuil."
+        },
+        "concentration": {
+          "label": "Concentration",
+          "help": "Alerter sur la concentration LPP par rapport à ce seuil."
+        }
+      }
     },
     "radio": {
       "unavailable": "La radio n’est pas disponible.",
@@ -548,8 +682,9 @@
       "collectionInterval": "Intervalle de collecte",
       "everyHour_one": "Toutes les {{count}} heure ({{checks}} contrôle/jour)",
       "everyHour_other": "Toutes les {{count}} heures ({{checks}} contrôles/jour)",
-      "alertRules": "Seuils d’alerte télémétrie",
+      "alertRules": "Alertes télémétrie",
       "alertRulesHelp": "Les alertes concernent uniquement les nœuds suivis. Un seuil n’est vérifié que si un sondage renvoie une valeur utilisable.",
+      "alertsMoved": "Les seuils, les voix et les overrides par nœud sont désormais sur la page <alerts>Alertes</alerts>.",
       "batteryVoltsMin": "Batterie minimale",
       "batteryVoltsMinHelp": "Alerter lorsque la batterie rapportée est sous cette tension.",
       "batteryVoltsMinUnit": "V",
@@ -1621,6 +1756,7 @@
     "updates": "Mises à jour",
     "community": "Meshloom Community",
     "radioApp": "Gestion radio-application",
+    "alerts": "Alertes",
     "database": "Base de données",
     "fanout": "MQTT et automatisation",
     "statistics": "Statistiques",

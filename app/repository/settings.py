@@ -8,7 +8,13 @@ import aiosqlite
 from pydantic import ValidationError
 
 from app.database import db
-from app.models import AppSettings, TelemetryAlertRules, UiPreferences
+from app.models import (
+    AppSettings,
+    NotificationDestinations,
+    NotificationDestinationsUpdate,
+    TelemetryAlertRules,
+    UiPreferences,
+)
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
 from app.services.update_window import (
     DEFAULT_AUTO_UPDATE_WEEKDAYS,
@@ -145,6 +151,7 @@ class AppSettingsRepository:
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
                    stale_contact_days, telemetry_alert_rules,
+                   notification_destinations,
                    ui_preferences, auto_update,
                    auto_update_window_start, auto_update_window_end,
                    auto_update_weekdays
@@ -268,6 +275,15 @@ class AppSettingsRepository:
             telemetry_alert_rules = TelemetryAlertRules()
 
         try:
+            from app.telemetry_alerts import coerce_notification_destinations
+
+            notification_destinations = coerce_notification_destinations(
+                row["notification_destinations"]
+            )
+        except (KeyError, TypeError):
+            notification_destinations = NotificationDestinations()
+
+        try:
             auto_update = bool(row["auto_update"])
         except (KeyError, TypeError):
             auto_update = False
@@ -306,6 +322,7 @@ class AppSettingsRepository:
             telemetry_routed_hourly=telemetry_routed_hourly,
             stale_contact_days=stale_contact_days,
             telemetry_alert_rules=telemetry_alert_rules,
+            notification_destinations=notification_destinations,
             auto_update=auto_update,
             auto_update_window_start=auto_update_window_start,
             auto_update_window_end=auto_update_window_end,
@@ -333,6 +350,9 @@ class AppSettingsRepository:
         telemetry_routed_hourly: bool | None = None,
         stale_contact_days: int | None = None,
         telemetry_alert_rules: TelemetryAlertRules | None = None,
+        notification_destinations: NotificationDestinations
+        | NotificationDestinationsUpdate
+        | None = None,
         ui_preferences: UiPreferences | None = None,
         auto_update: bool | None = None,
         auto_update_window_start: str | None = None,
@@ -416,14 +436,24 @@ class AppSettingsRepository:
             params.append(stale_contact_days)
 
         if telemetry_alert_rules is not None:
-            from app.telemetry_alerts import merge_telemetry_alert_rules
+            from app.telemetry_alerts import merge_telemetry_alert_rules, stored_rules_dict
 
             current = await AppSettingsRepository._get_in_conn(conn)
             merged = merge_telemetry_alert_rules(
                 current.telemetry_alert_rules, telemetry_alert_rules
             )
             updates.append("telemetry_alert_rules = ?")
-            params.append(merged.model_dump_json())
+            params.append(json.dumps(stored_rules_dict(merged)))
+
+        if notification_destinations is not None:
+            from app.telemetry_alerts import merge_notification_destinations
+
+            current = await AppSettingsRepository._get_in_conn(conn)
+            merged_dest = merge_notification_destinations(
+                current.notification_destinations, notification_destinations
+            )
+            updates.append("notification_destinations = ?")
+            params.append(merged_dest.model_dump_json(by_alias=True))
 
         if auto_update is not None:
             updates.append("auto_update = ?")
@@ -474,6 +504,9 @@ class AppSettingsRepository:
         telemetry_routed_hourly: bool | None = None,
         stale_contact_days: int | None = None,
         telemetry_alert_rules: TelemetryAlertRules | None = None,
+        notification_destinations: NotificationDestinations
+        | NotificationDestinationsUpdate
+        | None = None,
         ui_preferences: UiPreferences | None = None,
         auto_update: bool | None = None,
         auto_update_window_start: str | None = None,
@@ -502,6 +535,7 @@ class AppSettingsRepository:
                 telemetry_routed_hourly=telemetry_routed_hourly,
                 stale_contact_days=stale_contact_days,
                 telemetry_alert_rules=telemetry_alert_rules,
+                notification_destinations=notification_destinations,
                 auto_update=auto_update,
                 auto_update_window_start=auto_update_window_start,
                 auto_update_window_end=auto_update_window_end,

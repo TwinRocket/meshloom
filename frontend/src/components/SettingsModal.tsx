@@ -29,6 +29,7 @@ import { SettingsLocalSection } from './settings/SettingsLocalSection';
 import { SettingsNotificationsSection } from './settings/SettingsNotificationsSection';
 import { SettingsCommunitySection } from './settings/SettingsCommunitySection';
 import { SettingsRadioAppSection } from './settings/SettingsRadioAppSection';
+import { SettingsAlertsSection } from './settings/SettingsAlertsSection';
 import { SettingsFanoutSection } from './settings/SettingsFanoutSection';
 import { SettingsDatabaseSection } from './settings/SettingsDatabaseSection';
 import { SettingsNavigationSection } from './settings/SettingsNavigationSection';
@@ -154,6 +155,7 @@ export function SettingsModal(props: SettingsModalProps) {
     updates: false,
     community: false,
     'radio-app': false,
+    alerts: false,
     fanout: false,
     database: false,
     navigation: false,
@@ -287,6 +289,8 @@ export function SettingsModal(props: SettingsModalProps) {
           {renderSectionHeader('notifications')}
           {isSectionVisible('notifications') && (
             <SettingsNotificationsSection
+              appSettings={appSettings}
+              onSaveAppSettings={onSaveAppSettings}
               contacts={contacts}
               channels={channels}
               className={sectionContentClass}
@@ -354,6 +358,29 @@ export function SettingsModal(props: SettingsModalProps) {
               <div className={sectionContentClass}>
                 <div className="rounded-md border border-input bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
                   {t('settings.radioApp.loading')}
+                </div>
+              </div>
+            ))}
+        </section>
+      )}
+
+      {shouldRenderSection('alerts') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('alerts')}
+          {isSectionVisible('alerts') &&
+            (appSettings ? (
+              <SettingsAlertsSection
+                appSettings={appSettings}
+                onSaveAppSettings={onSaveAppSettings}
+                contacts={contacts}
+                trackedTelemetryRepeaters={trackedTelemetryRepeaters}
+                trackedTelemetryContacts={trackedTelemetryContacts}
+                className={sectionContentClass}
+              />
+            ) : (
+              <div className={sectionContentClass}>
+                <div className="rounded-md border border-input bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                  {t('settings.alerts.loading')}
                 </div>
               </div>
             ))}

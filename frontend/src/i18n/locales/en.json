@@ -369,7 +369,141 @@
       "vapidSubjectLabel": "Contact URI",
       "vapidSubjectPlaceholder": "mailto:ops@example.com",
       "vapidSubjectHelp": "VAPID contact: mailto:you@domain.tld (recommended) or https://your-host with no path. Empty uses the server environment fallback. Apple rejects .local addresses.",
-      "vapidSubjectInvalid": "Must be empty, a mailto:you@domain.tld, or an https://host origin (no path)."
+      "vapidSubjectInvalid": "Must be empty, a mailto:you@domain.tld, or an https://host origin (no path).",
+      "destinations": "Delivery destinations",
+      "destinationsHelp": "Email and webhook destinations used by telemetry alerts. Secrets are not shown after save.",
+      "emailTitle": "Email (SMTP)",
+      "emailHost": "Host",
+      "emailPort": "Port",
+      "emailMode": "Encryption",
+      "emailModeNone": "None",
+      "emailModeStarttls": "STARTTLS",
+      "emailModeSsl": "SSL",
+      "emailUser": "Username",
+      "emailPassword": "Password",
+      "emailFrom": "From",
+      "emailTo": "To",
+      "webhookTitle": "Webhook",
+      "webhookNotFanout": "This webhook is only for telemetry alerts. It is not the Fanout message webhook.",
+      "webhookUrl": "URL",
+      "webhookHmac": "HMAC secret",
+      "secretKept": "Unchanged",
+      "testEmail": "Test email",
+      "testWebhook": "Test webhook",
+      "destTesting": "Testing…",
+      "destTestSent": "Test sent",
+      "destTestFailed": "Test failed",
+      "destSaveFailed": "Failed to save destinations",
+      "unknownError": "Unknown error"
+    },
+    "alerts": {
+      "loading": "Loading alert settings...",
+      "saveFailed": "Failed to save alert settings",
+      "unknownError": "Unknown error",
+      "voices": "Alert voices",
+      "voicesHelp": "Choose where telemetry alerts are delivered. Push uses subscribed browsers. Email and webhook need a destination on the Notifications page.",
+      "voicePush": "Push",
+      "voicePushHelp": "Send a Web Push notification to subscribed browsers.",
+      "voiceEmail": "Email",
+      "voiceEmailHelp": "Send an email when a rule fires.",
+      "voiceWebhook": "Webhook",
+      "voiceWebhookHelp": "POST a signed JSON payload when a rule fires.",
+      "configureDestinations": "Configure destinations in Notifications",
+      "globalRules": "Global rules",
+      "globalRulesHelp": "These defaults apply to every polled node unless that node has an override. A threshold is checked only when a poll returns a usable value.",
+      "thresholdAria": "{{name}} threshold",
+      "polledNodes": "Polled nodes",
+      "polledNodesHelp": "Tracked repeaters and contacts. Uncheck Alerting to keep polling a node without firing alerts.",
+      "noPolledNodes": "No nodes are being polled. Enable tracking from a repeater dashboard or contact info pane.",
+      "override": "Override",
+      "overrideTitle": "Overrides for {{name}}",
+      "overrideHelp": "Change enablement or threshold for this node only. Reset restores the global rules.",
+      "overridden": "Override",
+      "resetToGlobal": "Reset to global",
+      "done": "Done",
+      "latches": "Current latches",
+      "latchesHelp": "Rules that are still latched on a tracked node. They clear when the reading returns past hysteresis.",
+      "noLatches": "No active latches.",
+      "latchValue": "{{value}} {{unit}}",
+      "latchFired": "fired {{time}}",
+      "rules": {
+        "battery": {
+          "label": "Battery",
+          "help": "Alert when reported battery is below this voltage."
+        },
+        "noise": {
+          "label": "Noise floor",
+          "help": "Alert when reported noise floor is above this level."
+        },
+        "rssi": {
+          "label": "Last RSSI",
+          "help": "Last packet heard by the repeater, not link quality to that node. Alert when RSSI is below this level."
+        },
+        "snr": {
+          "label": "Last SNR",
+          "help": "Last packet heard by the repeater, not link quality to that node. Alert when SNR is below this level."
+        },
+        "tx_queue": {
+          "label": "TX queue",
+          "help": "Alert when the repeater transmit queue is above this length."
+        },
+        "silence": {
+          "label": "Missed polls",
+          "help": "Alert after this many polls with no usable reply. Radio busy is not a miss."
+        },
+        "gps_lost": {
+          "label": "GPS lost",
+          "help": "Alert when a node that previously reported GPS stops including a fix."
+        },
+        "temperature": {
+          "label": "Temperature",
+          "help": "Alert on LPP temperature against this threshold."
+        },
+        "humidity": {
+          "label": "Humidity",
+          "help": "Alert on LPP humidity against this threshold."
+        },
+        "barometer": {
+          "label": "Barometer",
+          "help": "Alert on LPP barometer against this threshold."
+        },
+        "voltage": {
+          "label": "Voltage",
+          "help": "Alert on LPP voltage against this threshold."
+        },
+        "current": {
+          "label": "Current",
+          "help": "Alert on LPP current against this threshold."
+        },
+        "luminosity": {
+          "label": "Luminosity",
+          "help": "Alert on LPP luminosity against this threshold."
+        },
+        "altitude": {
+          "label": "Altitude",
+          "help": "Alert on LPP altitude against this threshold."
+        },
+        "power": {
+          "label": "Power",
+          "help": "Alert on LPP power against this threshold."
+        },
+        "distance": {
+          "label": "Distance",
+          "help": "Alert on LPP distance against this threshold."
+        },
+        "energy": {
+          "label": "Energy",
+          "help": "Alert on LPP energy against this threshold."
+        },
+        "direction": {
+          "label": "Direction",
+          "help": "Alert on LPP direction against this threshold."
+        },
+        "concentration": {
+          "label": "Concentration",
+          "help": "Alert on LPP concentration against this threshold."
+        }
+      }
     },
     "radio": {
       "unavailable": "Radio is not available.",
@@ -548,8 +682,9 @@
       "collectionInterval": "Collection interval",
       "everyHour_one": "Every {{count}} hour ({{checks}} check/day)",
       "everyHour_other": "Every {{count}} hours ({{checks}} checks/day)",
-      "alertRules": "Telemetry alert thresholds",
+      "alertRules": "Telemetry alerts",
       "alertRulesHelp": "Alerts apply only to tracked nodes. A threshold is checked only when a poll returns a usable value.",
+      "alertsMoved": "Thresholds, voices, and per-node overrides now live on the <alerts>Alerts</alerts> page.",
       "batteryVoltsMin": "Minimum battery",
       "batteryVoltsMinHelp": "Alert when reported battery is below this voltage.",
       "batteryVoltsMinUnit": "V",
@@ -1621,6 +1756,7 @@
     "updates": "Updates",
     "community": "Meshloom Community",
     "radioApp": "Radio-App Management",
+    "alerts": "Alerts",
     "database": "Database",
     "fanout": "MQTT & Automation",
     "statistics": "Statistics",

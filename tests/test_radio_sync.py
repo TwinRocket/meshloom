@@ -2197,7 +2197,7 @@ class TestCollectRepeaterTelemetryLpp:
         assert recorded_data["battery_volts"] == 4.1
 
     @pytest.mark.asyncio
-    async def test_lpp_multivalue_sensors_skipped(self):
+    async def test_lpp_keeps_gps_dicts(self):
         from app.radio_sync import _collect_repeater_telemetry
 
         mc = MagicMock()
@@ -2234,8 +2234,9 @@ class TestCollectRepeaterTelemetryLpp:
             result = await _collect_repeater_telemetry(mc, contact)
 
         assert result is True
-        assert len(recorded_data["lpp_sensors"]) == 1
+        assert len(recorded_data["lpp_sensors"]) == 2
         assert recorded_data["lpp_sensors"][0]["type_name"] == "temperature"
+        assert recorded_data["lpp_sensors"][1]["type_name"] == "gps"
 
     @pytest.mark.asyncio
     async def test_lpp_none_response_no_sensors_key(self):

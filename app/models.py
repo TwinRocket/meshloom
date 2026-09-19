@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from app.path_utils import normalize_contact_route, normalize_route_override
 
@@ -1040,26 +1040,174 @@ class UiPreferences(BaseModel):
     )
 
 
-class TelemetryAlertRuleOverride(BaseModel):
-    """Optional per-node replacements for the global telemetry alert thresholds."""
+class TelemetryAlertChannels(BaseModel):
+    """Which transports fire when a telemetry alert latches."""
 
-    battery_volts_min: float | None = None
-    noise_floor_max_dbm: float | None = None
-    misses_before_alert: int | None = Field(default=None, ge=1, le=4)
+    push: bool = True
+    email: bool = False
+    webhook: bool = False
+
+
+class TelemetryRuleSpec(BaseModel):
+    """One gauge, silence, GPS, or LPP rule. Omitted fields stay unset on PATCH."""
+
+    enabled: bool | None = None
+    op: Literal["lt", "gt"] | None = None
+    threshold: float | None = None
+    hysteresis: float | None = None
+
+
+class TelemetryAlertRuleOverride(BaseModel):
+    """Per-node alerting master switch plus optional rule fragments."""
+
+    alerting: bool | None = None
+    rules: dict[str, TelemetryRuleSpec] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _absorb_legacy_thresholds(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        rules = data.get("rules")
+        if not isinstance(rules, dict):
+            rules = {}
+        if "battery_volts_min" in data:
+            battery = dict(rules.get("battery") or {})
+            battery["threshold"] = data.pop("battery_volts_min")
+            rules["battery"] = battery
+        if "noise_floor_max_dbm" in data:
+            noise = dict(rules.get("noise") or {})
+            noise["threshold"] = data.pop("noise_floor_max_dbm")
+            rules["noise"] = noise
+        if "misses_before_alert" in data:
+            silence = dict(rules.get("silence") or {})
+            silence["threshold"] = data.pop("misses_before_alert")
+            rules["silence"] = silence
+        if rules:
+            data["rules"] = rules
+        return data
+
+    @property
+    def battery_volts_min(self) -> float | None:
+        rule = (self.rules or {}).get("battery")
+        return rule.threshold if rule is not None else None
+
+    @property
+    def noise_floor_max_dbm(self) -> float | None:
+        rule = (self.rules or {}).get("noise")
+        return rule.threshold if rule is not None else None
+
+    @property
+    def misses_before_alert(self) -> int | None:
+        rule = (self.rules or {}).get("silence")
+        if rule is None or rule.threshold is None:
+            return None
+        return int(rule.threshold)
 
 
 class TelemetryAlertRules(BaseModel):
-    """Global telemetry alert thresholds plus optional per-public-key overrides."""
+    """Global telemetry alert rules plus optional per-public-key overrides."""
 
-    battery_volts_min: float = Field(default=3.5, description="Low-battery threshold in volts")
-    noise_floor_max_dbm: float = Field(
-        default=-90, description="Alert when noise floor is louder than this (dBm)"
-    )
-    misses_before_alert: int = Field(default=2, ge=1, le=4)
+    channels: TelemetryAlertChannels = Field(default_factory=TelemetryAlertChannels)
+    rules: dict[str, TelemetryRuleSpec] = Field(default_factory=dict)
     overrides: dict[str, TelemetryAlertRuleOverride] | None = Field(
         default_factory=dict,
-        description="Per-public-key threshold overrides; omit or null on PATCH to keep stored",
+        description="Per-public-key fragments; omit or null on PATCH to keep stored",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _absorb_legacy_thresholds(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        rules = data.get("rules")
+        if not isinstance(rules, dict):
+            rules = {}
+        if "battery_volts_min" in data:
+            battery = dict(rules.get("battery") or {})
+            battery["threshold"] = data.pop("battery_volts_min")
+            rules["battery"] = battery
+        if "noise_floor_max_dbm" in data:
+            noise = dict(rules.get("noise") or {})
+            noise["threshold"] = data.pop("noise_floor_max_dbm")
+            rules["noise"] = noise
+        if "misses_before_alert" in data:
+            silence = dict(rules.get("silence") or {})
+            silence["threshold"] = data.pop("misses_before_alert")
+            rules["silence"] = silence
+        if rules:
+            data["rules"] = rules
+        return data
+
+    @computed_field
+    @property
+    def battery_volts_min(self) -> float:
+        rule = self.rules.get("battery")
+        return float(rule.threshold) if rule is not None and rule.threshold is not None else 3.5
+
+    @computed_field
+    @property
+    def noise_floor_max_dbm(self) -> float:
+        rule = self.rules.get("noise")
+        return float(rule.threshold) if rule is not None and rule.threshold is not None else -90.0
+
+    @computed_field
+    @property
+    def misses_before_alert(self) -> int:
+        rule = self.rules.get("silence")
+        if rule is None or rule.threshold is None:
+            return 2
+        return int(rule.threshold)
+
+
+class NotificationEmailDest(BaseModel):
+    """SMTP destination. Assembled Apprise URLs are never persisted."""
+
+    model_config = {"populate_by_name": True}
+
+    host: str = ""
+    port: int = 587
+    mode: Literal["none", "starttls", "ssl"] = "starttls"
+    user: str = ""
+    password: str = ""
+    from_address: str = Field(default="", alias="from")
+    to: str = ""
+
+
+class NotificationWebhookDest(BaseModel):
+    url: str = ""
+    hmac_secret: str = ""
+
+
+class NotificationDestinations(BaseModel):
+    email: NotificationEmailDest = Field(default_factory=NotificationEmailDest)
+    webhook: NotificationWebhookDest = Field(default_factory=NotificationWebhookDest)
+
+
+class NotificationEmailDestUpdate(BaseModel):
+    """PATCH fragment. omit/null keeps a secret; empty string clears it."""
+
+    model_config = {"populate_by_name": True}
+
+    host: str | None = None
+    port: int | None = None
+    mode: Literal["none", "starttls", "ssl"] | None = None
+    user: str | None = None
+    password: str | None = None
+    from_address: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+
+class NotificationWebhookDestUpdate(BaseModel):
+    url: str | None = None
+    hmac_secret: str | None = None
+
+
+class NotificationDestinationsUpdate(BaseModel):
+    email: NotificationEmailDestUpdate | None = None
+    webhook: NotificationWebhookDestUpdate | None = None
 
 
 class AppSettings(BaseModel):
@@ -1143,7 +1291,11 @@ class AppSettings(BaseModel):
     )
     telemetry_alert_rules: TelemetryAlertRules = Field(
         default_factory=TelemetryAlertRules,
-        description="Global telemetry alert thresholds plus optional per-node overrides",
+        description="Global telemetry alert rules plus optional per-node overrides",
+    )
+    notification_destinations: NotificationDestinations = Field(
+        default_factory=NotificationDestinations,
+        description="SMTP and webhook destinations for system telemetry alerts",
     )
     auto_resend_channel: bool = Field(
         default=False,

@@ -24,4 +24,24 @@ describe('SettingsIndexView', () => {
     render(<SettingsIndexView onSelectSection={vi.fn()} />);
     expect(screen.queryByText(i18n.t('updates.badgeLabel'))).not.toBeInTheDocument();
   });
+
+  it('lists alerts in the Radio group after radio-app', () => {
+    render(<SettingsIndexView onSelectSection={vi.fn()} />);
+    const radioHeading = screen.getByRole('heading', {
+      name: i18n.t('settingsIndex.groupRadio'),
+    });
+    const group = radioHeading.closest('section');
+    expect(group).not.toBeNull();
+    const labels = within(group!)
+      .getAllByRole('button')
+      .map((button) => button.textContent ?? '');
+    const radioAppIdx = labels.findIndex((label) =>
+      label.includes(i18n.t(SETTINGS_SECTION_LABELS['radio-app']))
+    );
+    const alertsIdx = labels.findIndex((label) =>
+      label.includes(i18n.t(SETTINGS_SECTION_LABELS.alerts))
+    );
+    expect(radioAppIdx).toBeGreaterThanOrEqual(0);
+    expect(alertsIdx).toBe(radioAppIdx + 1);
+  });
 });

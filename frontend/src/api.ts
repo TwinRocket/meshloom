@@ -47,9 +47,11 @@ import type {
   RadioTraceResponse,
   RadioDiscoveryTarget,
   PathDiscoveryResponse,
+  NotificationDestinationChannel,
   PushDefaults,
   PushPreferences,
   PushSubscriptionInfo,
+  TelemetryAlertCatalog,
   ResendChannelMessageResponse,
   RepeaterAclResponse,
   RepeaterAdvertIntervalsResponse,
@@ -473,6 +475,16 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(settings),
     }),
+  getTelemetryAlertCatalog: () =>
+    fetchJson<TelemetryAlertCatalog>('/settings/telemetry-alert-catalog'),
+  testNotificationDestination: (channel: NotificationDestinationChannel) =>
+    fetchJson<{ status: string; channel?: NotificationDestinationChannel }>(
+      '/settings/notification-destinations/test',
+      {
+        method: 'POST',
+        body: JSON.stringify({ channel }),
+      }
+    ),
 
   getContactGroups: () => fetchJson<ContactGroup[]>('/contact-groups'),
   createContactGroup: (name: string) =>

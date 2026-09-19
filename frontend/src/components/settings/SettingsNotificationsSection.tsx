@@ -1,9 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { toast } from '../ui/sonner';
+import { api, formatApiError } from '../../api';
 import { usePush } from '../../contexts/PushSubscriptionContext';
-import type { Channel, Contact, PushDefaults } from '../../types';
+import {
+  DEFAULT_NOTIFICATION_DESTINATIONS,
+  SECRET_REDACTED,
+  buildNotificationDestinationsPatch,
+  isEmailDestinationReady,
+  isWebhookDestinationReady,
+  resolveNotificationDestinations,
+  type AppSettings,
+  type AppSettingsUpdate,
+  type Channel,
+  type Contact,
+  type NotificationDestinations,
+  type NotificationEmailMode,
+  type PushDefaults,
+} from '../../types';
 import { getContactDisplayName } from '../../utils/pubkey';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -46,11 +61,6 @@ const DEFAULT_KEYS: Array<{
     key: 'channel_found',
     label: 'settings.notifications.channelFound',
     help: 'settings.notifications.channelFoundHelp',
-  },
-  {
-    key: 'telemetry_alert',
-    label: 'settings.notifications.telemetryAlert',
-    help: 'settings.notifications.telemetryAlertHelp',
   },
   {
     key: 'oss_update',
@@ -114,10 +124,14 @@ function isValidVapidSubject(value: string): boolean {
 }
 
 export function SettingsNotificationsSection({
+  appSettings = null,
+  onSaveAppSettings,
   contacts = [],
   channels = [],
   className,
 }: {
+  appSettings?: AppSettings | null;
+  onSaveAppSettings?: (update: AppSettingsUpdate) => Promise<void>;
   contacts?: Contact[];
   channels?: Channel[];
   className?: string;
@@ -140,6 +154,11 @@ export function SettingsNotificationsSection({
 
   const [vapidDraft, setVapidDraft] = useState('');
   const [vapidError, setVapidError] = useState<string | null>(null);
+  const storedDest = resolveNotificationDestinations(appSettings?.notification_destinations);
+  const [destDraft, setDestDraft] = useState<NotificationDestinations>(storedDest);
+  const destRef = useRef(storedDest);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const [testingChannel, setTestingChannel] = useState<'email' | 'webhook' | null>(null);
 
   useEffect(() => {
     refreshSubscriptions();
@@ -152,6 +171,12 @@ export function SettingsNotificationsSection({
     }
   }, [preferences]);
 
+  useEffect(() => {
+    const next = resolveNotificationDestinations(appSettings?.notification_destinations);
+    destRef.current = next;
+    setDestDraft(next);
+  }, [appSettings?.notification_destinations]);
+
   const commitVapidSubject = async () => {
     if (!isValidVapidSubject(vapidDraft)) {
       setVapidError(t('settings.notifications.vapidSubjectInvalid'));
@@ -163,6 +188,72 @@ export function SettingsNotificationsSection({
     if (next === (preferences?.vapid_subject ?? '')) return true;
     await patchPreferences({ vapid_subject: next });
     return true;
+  };
+
+  const persistDestinations = (next: NotificationDestinations, revert: () => void) => {
+    if (!onSaveAppSettings) return;
+    const previous = destRef.current;
+    destRef.current = next;
+    const chained = saveChainRef.current.then(async () => {
+      try {
+        await onSaveAppSettings({
+          notification_destinations: buildNotificationDestinationsPatch(next, previous),
+        });
+      } catch (err) {
+        destRef.current = previous;
+        revert();
+        toast.error(t('settings.notifications.destSaveFailed'), {
+          description: formatApiError(err, t) || t('settings.notifications.unknownError'),
+        });
+      }
+    });
+    saveChainRef.current = chained;
+  };
+
+  const commitDestField = <K extends keyof NotificationDestinations['email']>(
+    field: K,
+    value: NotificationDestinations['email'][K]
+  ) => {
+    if (
+      destDraft.email[field] === destRef.current.email[field] &&
+      destDraft.email[field] === value
+    ) {
+      return;
+    }
+    const previous = destDraft;
+    const next = { ...destDraft, email: { ...destDraft.email, [field]: value } };
+    setDestDraft(next);
+    persistDestinations(next, () => setDestDraft(previous));
+  };
+
+  const commitWebhookField = <K extends keyof NotificationDestinations['webhook']>(
+    field: K,
+    value: NotificationDestinations['webhook'][K]
+  ) => {
+    if (
+      destDraft.webhook[field] === destRef.current.webhook[field] &&
+      destDraft.webhook[field] === value
+    ) {
+      return;
+    }
+    const previous = destDraft;
+    const next = { ...destDraft, webhook: { ...destDraft.webhook, [field]: value } };
+    setDestDraft(next);
+    persistDestinations(next, () => setDestDraft(previous));
+  };
+
+  const testDestination = async (channel: 'email' | 'webhook') => {
+    setTestingChannel(channel);
+    try {
+      await api.testNotificationDestination(channel);
+      toast.success(t('settings.notifications.destTestSent', { channel }));
+    } catch (err) {
+      toast.error(t('settings.notifications.destTestFailed', { channel }), {
+        description: formatApiError(err, t),
+      });
+    } finally {
+      setTestingChannel(null);
+    }
   };
 
   return (
@@ -265,6 +356,210 @@ export function SettingsNotificationsSection({
             )}
           </>
         )}
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <SettingsGroupHeader
+          title={t('settings.notifications.destinations')}
+          storedOn="server"
+          instant
+        />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.notifications.destinationsHelp')}
+        </p>
+
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold">{t('settings.notifications.emailTitle')}</h4>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-email-host">{t('settings.notifications.emailHost')}</Label>
+              <Input
+                id="notify-email-host"
+                value={destDraft.email.host}
+                autoComplete="off"
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, host: event.target.value },
+                  }))
+                }
+                onBlur={() => commitDestField('host', destDraft.email.host.trim())}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-email-port">{t('settings.notifications.emailPort')}</Label>
+              <Input
+                id="notify-email-port"
+                type="number"
+                inputMode="numeric"
+                value={destDraft.email.port}
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, port: Number(event.target.value) || 0 },
+                  }))
+                }
+                onBlur={() => {
+                  const port = Number.isFinite(destDraft.email.port)
+                    ? destDraft.email.port
+                    : DEFAULT_NOTIFICATION_DESTINATIONS.email.port;
+                  commitDestField('port', port);
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-email-mode">{t('settings.notifications.emailMode')}</Label>
+              <select
+                id="notify-email-mode"
+                value={destDraft.email.mode}
+                onChange={(event) => {
+                  const mode = event.target.value as NotificationEmailMode;
+                  commitDestField('mode', mode);
+                }}
+                className="h-9 w-full px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <option value="none">{t('settings.notifications.emailModeNone')}</option>
+                <option value="starttls">{t('settings.notifications.emailModeStarttls')}</option>
+                <option value="ssl">{t('settings.notifications.emailModeSsl')}</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-email-user">{t('settings.notifications.emailUser')}</Label>
+              <Input
+                id="notify-email-user"
+                value={destDraft.email.user}
+                autoComplete="off"
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, user: event.target.value },
+                  }))
+                }
+                onBlur={() => commitDestField('user', destDraft.email.user)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-email-password">
+                {t('settings.notifications.emailPassword')}
+              </Label>
+              <Input
+                id="notify-email-password"
+                type="password"
+                autoComplete="new-password"
+                value={destDraft.email.password}
+                placeholder={
+                  destRef.current.email.password === SECRET_REDACTED
+                    ? t('settings.notifications.secretKept')
+                    : undefined
+                }
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, password: event.target.value },
+                  }))
+                }
+                onBlur={() => commitDestField('password', destDraft.email.password)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-email-from">{t('settings.notifications.emailFrom')}</Label>
+              <Input
+                id="notify-email-from"
+                value={destDraft.email.from}
+                autoComplete="off"
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, from: event.target.value },
+                  }))
+                }
+                onBlur={() => commitDestField('from', destDraft.email.from.trim())}
+              />
+            </div>
+            <div className="space-y-1.5 lg:col-span-2">
+              <Label htmlFor="notify-email-to">{t('settings.notifications.emailTo')}</Label>
+              <Input
+                id="notify-email-to"
+                value={destDraft.email.to}
+                autoComplete="off"
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    email: { ...prev.email, to: event.target.value },
+                  }))
+                }
+                onBlur={() => commitDestField('to', destDraft.email.to.trim())}
+              />
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!isEmailDestinationReady(destDraft.email) || testingChannel !== null}
+            onClick={() => void testDestination('email')}
+          >
+            {testingChannel === 'email'
+              ? t('settings.notifications.destTesting')
+              : t('settings.notifications.testEmail')}
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold">{t('settings.notifications.webhookTitle')}</h4>
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.notifications.webhookNotFanout')}
+          </p>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-1.5 lg:col-span-2">
+              <Label htmlFor="notify-webhook-url">{t('settings.notifications.webhookUrl')}</Label>
+              <Input
+                id="notify-webhook-url"
+                value={destDraft.webhook.url}
+                autoComplete="off"
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    webhook: { ...prev.webhook, url: event.target.value },
+                  }))
+                }
+                onBlur={() => commitWebhookField('url', destDraft.webhook.url.trim())}
+              />
+            </div>
+            <div className="space-y-1.5 lg:col-span-2">
+              <Label htmlFor="notify-webhook-hmac">{t('settings.notifications.webhookHmac')}</Label>
+              <Input
+                id="notify-webhook-hmac"
+                type="password"
+                autoComplete="new-password"
+                value={destDraft.webhook.hmac_secret}
+                placeholder={
+                  destRef.current.webhook.hmac_secret === SECRET_REDACTED
+                    ? t('settings.notifications.secretKept')
+                    : undefined
+                }
+                onChange={(event) =>
+                  setDestDraft((prev) => ({
+                    ...prev,
+                    webhook: { ...prev.webhook, hmac_secret: event.target.value },
+                  }))
+                }
+                onBlur={() => commitWebhookField('hmac_secret', destDraft.webhook.hmac_secret)}
+              />
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!isWebhookDestinationReady(destDraft.webhook) || testingChannel !== null}
+            onClick={() => void testDestination('webhook')}
+          >
+            {testingChannel === 'webhook'
+              ? t('settings.notifications.destTesting')
+              : t('settings.notifications.testWebhook')}
+          </Button>
+        </div>
       </div>
 
       <Separator />

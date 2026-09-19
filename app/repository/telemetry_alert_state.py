@@ -54,3 +54,31 @@ class TelemetryAlertStateRepository:
                 (public_key, rule_id, consecutive_misses, last_fired_at, last_value),
             ):
                 pass
+
+    @staticmethod
+    async def list_latched(public_keys: list[str]) -> list[dict[str, Any]]:
+        """Current latches (last_fired_at set) for the given still-tracked keys."""
+        if not public_keys:
+            return []
+        placeholders = ",".join("?" * len(public_keys))
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"""
+                SELECT public_key, rule_id, consecutive_misses, last_fired_at, last_value
+                FROM telemetry_alert_state
+                WHERE last_fired_at IS NOT NULL AND public_key IN ({placeholders})
+                ORDER BY public_key, rule_id
+                """,
+                public_keys,
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "public_key": row["public_key"],
+                "rule_id": row["rule_id"],
+                "consecutive_misses": int(row["consecutive_misses"] or 0),
+                "last_fired_at": row["last_fired_at"],
+                "last_value": row["last_value"],
+            }
+            for row in rows
+        ]

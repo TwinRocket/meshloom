@@ -15,6 +15,7 @@ from app.models import (
     BackupExport,
     BackupRestoreRequest,
     BackupRestoreResult,
+    NotificationDestinationsUpdate,
     TelemetryAlertRules,
     UiPreferences,
 )
@@ -113,7 +114,11 @@ class AppSettingsUpdate(BaseModel):
     )
     telemetry_alert_rules: TelemetryAlertRules | None = Field(
         default=None,
-        description="Global telemetry alert thresholds plus optional per-node overrides",
+        description="Global telemetry alert rules plus optional per-node overrides",
+    )
+    notification_destinations: NotificationDestinationsUpdate | None = Field(
+        default=None,
+        description="SMTP and webhook destinations; omit/null secrets keep stored values",
     )
 
 
@@ -217,10 +222,22 @@ def _build_schedule(
     )
 
 
-async def _settings_response() -> AppSettings:
+async def _present_settings(settings: AppSettings) -> AppSettings:
     from app.services.directory import annotate_directory_available
+    from app.telemetry_alerts import redact_notification_destinations
 
-    return await annotate_directory_available(await AppSettingsRepository.get())
+    redacted = settings.model_copy(
+        update={
+            "notification_destinations": redact_notification_destinations(
+                settings.notification_destinations
+            )
+        }
+    )
+    return await annotate_directory_available(redacted)
+
+
+async def _settings_response() -> AppSettings:
+    return await _present_settings(await AppSettingsRepository.get())
 
 
 @router.get("", response_model=AppSettings)
@@ -315,6 +332,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         # Pass the PATCH fragment through; persist merges unset/null overrides.
         kwargs["telemetry_alert_rules"] = update.telemetry_alert_rules
 
+    if update.notification_destinations is not None:
+        kwargs["notification_destinations"] = update.notification_destinations
+
     # Flood scope
     flood_scope_changed = False
     if update.flood_scope is not None:
@@ -349,9 +369,7 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
             logger.info("known_regions changed; scheduling region backfill")
             asyncio.create_task(backfill_message_regions(result.known_regions))
 
-        from app.services.directory import annotate_directory_available
-
-        return await annotate_directory_available(result)
+        return await _present_settings(result)
 
     return await _settings_response()
 
@@ -405,14 +423,14 @@ async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggle
 async def toggle_blocked_key(request: BlockKeyRequest) -> AppSettings:
     """Toggle a public key's blocked status."""
     logger.info("Toggling blocked key: %s", request.key[:12])
-    return await AppSettingsRepository.toggle_blocked_key(request.key)
+    return await _present_settings(await AppSettingsRepository.toggle_blocked_key(request.key))
 
 
 @router.post("/blocked-names/toggle", response_model=AppSettings)
 async def toggle_blocked_name(request: BlockNameRequest) -> AppSettings:
     """Toggle a display name's blocked status."""
     logger.info("Toggling blocked name: %s", request.name)
-    return await AppSettingsRepository.toggle_blocked_name(request.name)
+    return await _present_settings(await AppSettingsRepository.toggle_blocked_name(request.name))
 
 
 @router.post("/tracked-telemetry/toggle", response_model=TrackedTelemetryResponse)
@@ -468,7 +486,12 @@ async def toggle_tracked_telemetry(request: TrackedTelemetryRequest) -> TrackedT
 
     new_list = current + [key]
     logger.info("Adding repeater %s to tracked telemetry", key[:12])
-    await AppSettingsRepository.update(tracked_telemetry_repeaters=new_list)
+    from app.telemetry_alerts import alerting_off_patch
+
+    await AppSettingsRepository.update(
+        tracked_telemetry_repeaters=new_list,
+        telemetry_alert_rules=alerting_off_patch(key),
+    )
     return TrackedTelemetryResponse(
         tracked_telemetry_repeaters=new_list,
         names=await _resolve_names(new_list),
@@ -570,7 +593,12 @@ async def toggle_tracked_telemetry_contact(
 
     new_list = current + [key]
     logger.info("Adding contact %s to tracked telemetry", key[:12])
-    await AppSettingsRepository.update(tracked_telemetry_contacts=new_list)
+    from app.telemetry_alerts import alerting_off_patch
+
+    await AppSettingsRepository.update(
+        tracked_telemetry_contacts=new_list,
+        telemetry_alert_rules=alerting_off_patch(key),
+    )
     return TrackedTelemetryContactsResponse(
         tracked_telemetry_contacts=new_list,
         names=await _resolve_names(new_list),
@@ -580,6 +608,95 @@ async def toggle_tracked_telemetry_contact(
             settings.telemetry_routed_hourly,
         ),
     )
+
+
+class TelemetryAlertLatch(BaseModel):
+    public_key: str
+    rule_id: str
+    consecutive_misses: int = 0
+    last_fired_at: int | None = None
+    last_value: float | None = None
+
+
+class TelemetryAlertCatalogNode(BaseModel):
+    public_key: str
+    name: str
+    alerting: bool
+
+
+class TelemetryAlertCatalog(BaseModel):
+    metrics: list[str]
+    latches: list[TelemetryAlertLatch]
+    tracked: list[TelemetryAlertCatalogNode] = Field(default_factory=list)
+
+
+class NotificationDestTestRequest(BaseModel):
+    channel: Literal["email", "webhook"]
+
+
+class NotificationDestTestResponse(BaseModel):
+    status: str
+    channel: Literal["email", "webhook"]
+
+
+@router.get("/telemetry-alert-catalog", response_model=TelemetryAlertCatalog)
+async def get_telemetry_alert_catalog() -> TelemetryAlertCatalog:
+    """Available metrics from last tracked snapshots, plus current latches."""
+    from app.repository.contact_telemetry import ContactTelemetryRepository
+    from app.repository.repeater_telemetry import RepeaterTelemetryRepository
+    from app.repository.telemetry_alert_state import TelemetryAlertStateRepository
+    from app.telemetry_alerts import catalog_metrics_from_snapshot, resolve_node_rules
+
+    settings = await AppSettingsRepository.get()
+    tracked = list(
+        dict.fromkeys(settings.tracked_telemetry_repeaters + settings.tracked_telemetry_contacts)
+    )
+    metrics: set[str] = set()
+    nodes: list[TelemetryAlertCatalogNode] = []
+    for key in tracked:
+        snap = await RepeaterTelemetryRepository.get_latest(key)
+        if snap is None:
+            snap = await ContactTelemetryRepository.get_latest(key)
+        data = snap.get("data") if snap else None
+        metrics |= catalog_metrics_from_snapshot(data if isinstance(data, dict) else None)
+        contact = await ContactRepository.get_by_key(key)
+        name = contact.name if contact and contact.name else key[:12]
+        nodes.append(
+            TelemetryAlertCatalogNode(
+                public_key=key,
+                name=name,
+                alerting=resolve_node_rules(settings.telemetry_alert_rules, key).alerting,
+            )
+        )
+    latches = await TelemetryAlertStateRepository.list_latched(tracked)
+    return TelemetryAlertCatalog(
+        metrics=sorted(metrics),
+        latches=[TelemetryAlertLatch(**row) for row in latches],
+        tracked=nodes,
+    )
+
+
+@router.post(
+    "/notification-destinations/test",
+    response_model=NotificationDestTestResponse,
+)
+async def test_notification_destinations(
+    request: NotificationDestTestRequest,
+) -> NotificationDestTestResponse:
+    """Send a fixed test payload on one channel. Does not create a latch."""
+    from app.notify import TEST_ALERT_PAYLOAD, send_email_alert, send_webhook_alert
+
+    dest = (await AppSettingsRepository.get()).notification_destinations
+    try:
+        if request.channel == "email":
+            await send_email_alert(dest, TEST_ALERT_PAYLOAD)
+        else:
+            await send_webhook_alert(dest, TEST_ALERT_PAYLOAD)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 
 @router.get("/tracked-telemetry-contacts/schedule", response_model=TelemetrySchedule)

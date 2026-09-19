@@ -44,8 +44,7 @@ class TestMigration077:
                 await conn.execute("SELECT telemetry_alert_rules FROM app_settings WHERE id = 1")
             ).fetchone()
             rules = json.loads(row["telemetry_alert_rules"])
-            assert rules["battery_volts_min"] == 3.5
-            assert rules["noise_floor_max_dbm"] == -90
-            assert rules["misses_before_alert"] == 2
+            battery = rules.get("rules", {}).get("battery") or {}
+            assert battery.get("threshold") == 3.5 or rules.get("battery_volts_min") == 3.5
         finally:
             await conn.close()

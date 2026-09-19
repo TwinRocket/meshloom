@@ -293,6 +293,11 @@ describe('SettingsModal', () => {
       model: 'MeshloomProxy/abc123def456',
     });
     vi.spyOn(api, 'scanRadioBle').mockResolvedValue({ devices: [] });
+    vi.spyOn(api, 'getTelemetryAlertCatalog').mockResolvedValue({
+      metrics: [],
+      latches: [],
+      tracked: [],
+    });
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
       locked: false,
@@ -923,6 +928,21 @@ describe('SettingsModal', () => {
     expect(screen.getByText(i18n.t('settings.notifications.exceptions'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.vapidSubject'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.ossUpdate'))).toBeInTheDocument();
+    expect(
+      screen.queryByText(i18n.t('settings.notifications.telemetryAlert'))
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.notifications.destinations'))).toBeInTheDocument();
+  });
+
+  it('renders the alerts section from the external sidebar', async () => {
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'alerts',
+    });
+
+    expect(await screen.findByText(i18n.t('settings.alerts.voices'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('settings.alerts.voicePush'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.alerts.globalRules'))).toBeInTheDocument();
   });
 
   it('lists the new Windows 95 and iPhone themes', () => {
@@ -1536,6 +1556,9 @@ describe('SettingsModal', () => {
 
     expect(checkbox).toBeInTheDocument();
     expect(checkbox.checked).toBe(false);
+    expect(
+      screen.queryByLabelText(i18n.t('settings.radioApp.batteryVoltsMin'))
+    ).not.toBeInTheDocument();
 
     fireEvent.click(checkbox);
 
