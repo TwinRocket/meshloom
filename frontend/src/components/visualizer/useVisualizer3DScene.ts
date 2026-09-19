@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
+import { createDirectoryGlobeElement } from '../messagePath/DirectoryGlobeIcon';
 import { COLORS, getLinkId } from '../../utils/visualizerUtils';
 import type { VisualizerData3D } from './useVisualizerData3D';
 import {
@@ -354,23 +355,39 @@ export function useVisualizer3DScene({
           labelDiv.style.textAlign = 'center';
           labelDiv.style.whiteSpace = 'nowrap';
           labelDiv.style.textShadow = '0 0 4px #000, 0 0 2px #000';
+          labelDiv.style.display = 'flex';
+          labelDiv.style.alignItems = 'center';
+          labelDiv.style.justifyContent = 'center';
+          labelDiv.style.gap = '3px';
+          const labelGlobe = createDirectoryGlobeElement();
+          const labelText = document.createElement('span');
+          labelDiv.append(labelGlobe, labelText);
           const label = new CSS2DObject(labelDiv);
           label.position.set(0, -(radius + 6), 0);
           mesh.add(label);
 
-          nd = { mesh, label, labelDiv };
+          nd = { mesh, label, labelDiv, labelText, labelGlobe };
           nodeMeshesRef.current.set(node.id, nd);
           raycastTargetsRef.current.push(mesh);
         }
 
         nd.mesh.position.set(node.x ?? 0, node.y ?? 0, node.z ?? 0);
-        const labelColor = node.isAmbiguous ? COLORS.ambiguous : '#e5e7eb';
+        const fromCommunity = node.nameSource === 'community';
+        const labelColor = fromCommunity
+          ? '#e5e7eb'
+          : node.isAmbiguous
+            ? COLORS.ambiguous
+            : '#e5e7eb';
         if (nd.labelDiv.style.color !== labelColor) {
           nd.labelDiv.style.color = labelColor;
         }
+        const globeDisplay = fromCommunity ? 'inline-block' : 'none';
+        if (nd.labelGlobe.style.display !== globeDisplay) {
+          nd.labelGlobe.style.display = globeDisplay;
+        }
         const labelText = getSceneNodeLabel(node);
-        if (nd.labelDiv.textContent !== labelText) {
-          nd.labelDiv.textContent = labelText;
+        if (nd.labelText.textContent !== labelText) {
+          nd.labelText.textContent = labelText;
         }
       }
 

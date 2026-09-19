@@ -6,8 +6,15 @@ import type { Contact, ContactAdvertPathSummary, RadioConfig, RawPacket } from '
 import { CONTACT_TYPE_REPEATER } from '../types';
 import { buildLinkKey } from '../utils/visualizerUtils';
 
-const { packetFixtures } = vi.hoisted(() => ({
+const { packetFixtures, resolveDirectoryHops } = vi.hoisted(() => ({
   packetFixtures: new Map<string, unknown>(),
+  resolveDirectoryHops: vi.fn(),
+}));
+
+vi.mock('../api', () => ({
+  api: {
+    resolveDirectoryHops,
+  },
 }));
 
 vi.mock('../utils/visualizerUtils', async () => {
@@ -88,6 +95,7 @@ function renderVisualizerData({
   collapseLikelyKnownSiblingRepeaters = true,
   repeaterAdvertPaths = [],
   useAdvertPathHints = false,
+  directoryEnabled = false,
 }: {
   packets: RawPacket[];
   contacts: Contact[];
@@ -97,6 +105,7 @@ function renderVisualizerData({
   collapseLikelyKnownSiblingRepeaters?: boolean;
   repeaterAdvertPaths?: ContactAdvertPathSummary[];
   useAdvertPathHints?: boolean;
+  directoryEnabled?: boolean;
 }) {
   return renderHook(() =>
     useVisualizerData3D({
@@ -115,12 +124,14 @@ function renderVisualizerData({
       observationWindowSec: 15,
       pruneStaleNodes: false,
       pruneStaleMinutes: 5,
+      directoryEnabled,
     })
   );
 }
 
 afterEach(() => {
   packetFixtures.clear();
+  resolveDirectoryHops.mockReset();
 });
 
 describe('useVisualizerData3D', () => {
@@ -444,5 +455,66 @@ describe('useVisualizerData3D', () => {
 
     expect(result.current.links.size).toBe(0);
     expect(Array.from(result.current.nodes.keys())).toEqual(['self']);
+  });
+
+  it('does not fetch Community names when the directory is off', async () => {
+    const selfKey = 'ffffffffffff0000000000000000000000000000000000000000000000000000';
+    const aliceKey = 'aaaaaaaaaaaa0000000000000000000000000000000000000000000000000000';
+    packetFixtures.set('dm-unknown-hop-off', {
+      payloadType: PayloadType.TextMessage,
+      messageHash: 'dm-unknown-hop-off',
+      pathBytes: ['aabb'],
+      srcHash: 'aaaaaaaaaaaa',
+      dstHash: 'ffffffffffff',
+      advertPubkey: null,
+      groupTextSender: null,
+      anonRequestPubkey: null,
+    });
+
+    renderVisualizerData({
+      packets: [createPacket('dm-unknown-hop-off')],
+      contacts: [createContact(aliceKey, 'Alice')],
+      config: createConfig(selfKey),
+      showAmbiguousPaths: true,
+      directoryEnabled: false,
+    });
+
+    await waitFor(() => expect(resolveDirectoryHops).not.toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    expect(resolveDirectoryHops).not.toHaveBeenCalled();
+  });
+
+  it('batches unknown hop prefixes and overlays Community names', async () => {
+    const selfKey = 'ffffffffffff0000000000000000000000000000000000000000000000000000';
+    const aliceKey = 'aaaaaaaaaaaa0000000000000000000000000000000000000000000000000000';
+    resolveDirectoryHops.mockResolvedValue({
+      resolved: {
+        AABB: { name: 'RemoteHill', source: 'corescope', hash_width: 2 },
+      },
+    });
+    packetFixtures.set('dm-unknown-hop-on', {
+      payloadType: PayloadType.TextMessage,
+      messageHash: 'dm-unknown-hop-on',
+      pathBytes: ['aabb'],
+      srcHash: 'aaaaaaaaaaaa',
+      dstHash: 'ffffffffffff',
+      advertPubkey: null,
+      groupTextSender: null,
+      anonRequestPubkey: null,
+    });
+
+    const { result } = renderVisualizerData({
+      packets: [createPacket('dm-unknown-hop-on')],
+      contacts: [createContact(aliceKey, 'Alice')],
+      config: createConfig(selfKey),
+      showAmbiguousPaths: true,
+      directoryEnabled: true,
+    });
+
+    await waitFor(() => expect(resolveDirectoryHops).toHaveBeenCalled());
+    expect(resolveDirectoryHops).toHaveBeenCalledWith(['AABB']);
+    await waitFor(() => expect(result.current.communityNames.get('?aabb')).toBe('RemoteHill'));
+    expect(result.current.nodes.get('?aabb')?.nameSource).toBe('community');
+    expect(result.current.nodes.get('?aabb')?.communityName).toBe('RemoteHill');
   });
 });

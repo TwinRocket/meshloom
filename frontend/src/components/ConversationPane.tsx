@@ -366,6 +366,7 @@ export function ConversationPane({
           channels={channels}
           config={config}
           radioOffline={!health?.radio_connected}
+          directoryEnabled={directoryEnabled}
         />
       </Suspense>
     );

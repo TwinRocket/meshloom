@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { PacketNetworkNode } from '../../networkGraph/packetNetworkGraph';
+import { DirectoryGlobeIcon } from '../messagePath/DirectoryGlobeIcon';
 import { formatRelativeTime } from './shared';
 
 function formatActivityReason(
@@ -20,6 +21,7 @@ interface VisualizerTooltipProps {
   canonicalNodes: Map<string, PacketNetworkNode>;
   canonicalNeighborIds: Map<string, string[]>;
   renderedNodeIds: Set<string>;
+  communityNames?: Map<string, string>;
 }
 
 export function VisualizerTooltip({
@@ -27,6 +29,7 @@ export function VisualizerTooltip({
   canonicalNodes,
   canonicalNeighborIds,
   renderedNodeIds,
+  communityNames,
 }: VisualizerTooltipProps) {
   const { t } = useTranslation();
   if (!activeNodeId) return null;
@@ -34,16 +37,24 @@ export function VisualizerTooltip({
   const node = canonicalNodes.get(activeNodeId);
   if (!node) return null;
 
+  const communityName = communityNames?.get(activeNodeId);
+  const displayName =
+    communityName || node.name || (node.type === 'self' ? t('visualizer.me') : node.id.slice(0, 8));
+
   const neighborIds = canonicalNeighborIds.get(activeNodeId) ?? [];
   const neighbors = neighborIds
     .map((nid) => {
       const neighbor = canonicalNodes.get(nid);
       if (!neighbor) return null;
-      const displayName =
-        neighbor.name || (neighbor.type === 'self' ? t('visualizer.me') : neighbor.id.slice(0, 8));
+      const neighborCommunityName = communityNames?.get(nid);
+      const neighborName =
+        neighborCommunityName ||
+        neighbor.name ||
+        (neighbor.type === 'self' ? t('visualizer.me') : neighbor.id.slice(0, 8));
       return {
         id: nid,
-        name: displayName,
+        name: neighborName,
+        fromCommunity: Boolean(neighborCommunityName),
         ambiguousNames: neighbor.ambiguousNames,
         hidden: !renderedNodeIds.has(nid),
       };
@@ -53,9 +64,13 @@ export function VisualizerTooltip({
   return (
     <div className="absolute top-4 right-4 bg-background/90 backdrop-blur-sm rounded-lg p-3 text-xs border border-border z-10 max-w-72 max-h-[calc(100%-2rem)] overflow-y-auto">
       <div className="flex flex-col gap-1">
-        <div className="font-medium">
-          {node.name || (node.type === 'self' ? t('visualizer.me') : node.id.slice(0, 8))}
+        <div className="flex items-center gap-1.5 font-medium min-w-0">
+          {communityName ? <DirectoryGlobeIcon /> : null}
+          <span className="truncate">{displayName}</span>
         </div>
+        {communityName ? (
+          <div className="text-muted-foreground">{t('path.directoryGlobe')}</div>
+        ) : null}
         <div className="text-muted-foreground">{t('visualizer.id', { id: node.id })}</div>
         <div className="text-muted-foreground">
           {node.isAmbiguous
@@ -95,10 +110,14 @@ export function VisualizerTooltip({
             <div className="mb-0.5">{t('visualizer.trafficWith')}</div>
             <ul className="pl-3 flex flex-col gap-0.5">
               {neighbors.map((neighbor) => (
-                <li key={neighbor.id}>
-                  {neighbor.name}
+                <li key={neighbor.id} className="flex items-center gap-1 min-w-0">
+                  {neighbor.fromCommunity ? <DirectoryGlobeIcon /> : null}
+                  <span className="truncate">{neighbor.name}</span>
                   {neighbor.hidden && (
-                    <span className="text-muted-foreground/60"> {t('visualizer.hidden')}</span>
+                    <span className="text-muted-foreground/60 shrink-0">
+                      {' '}
+                      {t('visualizer.hidden')}
+                    </span>
                   )}
                   {neighbor.ambiguousNames && neighbor.ambiguousNames.length > 0 && (
                     <span className="text-muted-foreground/60">

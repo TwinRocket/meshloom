@@ -18,6 +18,7 @@ interface VisualizerViewProps {
   channels: Channel[];
   config: RadioConfig | null;
   radioOffline?: boolean;
+  directoryEnabled?: boolean;
 }
 
 export function VisualizerView({
@@ -26,6 +27,7 @@ export function VisualizerView({
   channels,
   config,
   radioOffline = false,
+  directoryEnabled = false,
 }: VisualizerViewProps) {
   const { t } = useTranslation();
   const packets = useRawPackets();
@@ -114,6 +116,7 @@ export function VisualizerView({
               fullScreen={fullScreen}
               onFullScreenChange={setFullScreen}
               radioOffline={radioOffline}
+              directoryEnabled={directoryEnabled}
             />
           </div>
 

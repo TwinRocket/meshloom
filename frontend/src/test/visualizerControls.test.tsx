@@ -98,6 +98,14 @@ describe('VisualizerControls', () => {
     expect(props.setShowControls).toHaveBeenCalledWith(true);
   });
 
+  it('explains the Community globe in the node legend', () => {
+    renderControls();
+    openPanel('visualizer.groupLegend');
+
+    expect(screen.getByText(i18n.t('path.directoryGlobe'))).toBeInTheDocument();
+    expect(screen.getByTestId('directory-globe-icon')).toBeInTheDocument();
+  });
+
   it('allows clearing numeric inputs while editing', () => {
     renderControls();
     openPanel('visualizer.groupFilters');

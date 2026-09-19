@@ -6,6 +6,8 @@ import type { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
 import i18n from '../../i18n';
 import type { NodeType } from '../../utils/visualizerUtils';
 
+export type GraphNodeNameSource = 'community';
+
 export interface GraphNode extends SimulationNodeDatum3D {
   id: string;
   name: string | null;
@@ -16,6 +18,8 @@ export interface GraphNode extends SimulationNodeDatum3D {
   lastSeen?: number | null;
   probableIdentity?: string | null;
   ambiguousNames?: string[];
+  communityName?: string | null;
+  nameSource?: GraphNodeNameSource;
 }
 
 export interface GraphLink extends SimulationLinkDatum<GraphNode> {
@@ -31,6 +35,8 @@ export interface NodeMeshData {
   mesh: THREE.Mesh;
   label: CSS2DObject;
   labelDiv: HTMLDivElement;
+  labelText: HTMLSpanElement;
+  labelGlobe: SVGSVGElement;
 }
 
 export const NODE_COLORS = {
@@ -80,7 +86,12 @@ export function formatRelativeTime(timestamp: number): string {
     : i18n.t('visualizer.minutesAgo', { minutes });
 }
 
-export function getSceneNodeLabel(node: Pick<GraphNode, 'id' | 'name' | 'type' | 'isAmbiguous'>) {
+export function getSceneNodeLabel(
+  node: Pick<GraphNode, 'id' | 'name' | 'type' | 'isAmbiguous' | 'communityName' | 'nameSource'>
+) {
+  if (node.nameSource === 'community' && node.communityName) {
+    return node.communityName;
+  }
   const baseLabel =
     node.name || (node.type === 'self' ? i18n.t('visualizer.me') : node.id.slice(0, 8));
   return node.isAmbiguous ? `${baseLabel} (?)` : baseLabel;

@@ -109,4 +109,44 @@ describe('VisualizerTooltip', () => {
 
     vi.useRealTimers();
   });
+
+  it('marks Community-resolved names with the directory globe', () => {
+    const node = createNode({
+      id: '?aabb',
+      type: 'repeater',
+      name: 'AABB',
+      isAmbiguous: true,
+    });
+    const neighbor = createNode({
+      id: 'aabbccddeeff',
+      type: 'client',
+      name: null,
+    });
+
+    render(
+      <VisualizerTooltip
+        activeNodeId={node.id}
+        canonicalNodes={
+          new Map([
+            [node.id, node],
+            [neighbor.id, neighbor],
+          ])
+        }
+        canonicalNeighborIds={new Map([[node.id, [neighbor.id]]])}
+        renderedNodeIds={new Set([node.id, neighbor.id])}
+        communityNames={
+          new Map([
+            [node.id, 'RemoteHill'],
+            [neighbor.id, 'Companion'],
+          ])
+        }
+      />
+    );
+
+    expect(screen.getByText('RemoteHill')).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('path.directoryGlobe'))).toBeInTheDocument();
+    expect(screen.getAllByTestId('directory-globe-icon')).toHaveLength(2);
+    expect(screen.getByText('Companion')).toBeInTheDocument();
+    expect(screen.queryByText('AABB')).not.toBeInTheDocument();
+  });
 });

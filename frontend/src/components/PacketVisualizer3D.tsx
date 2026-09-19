@@ -16,6 +16,7 @@ interface PacketVisualizer3DProps {
   fullScreen?: boolean;
   onFullScreenChange?: (fullScreen: boolean) => void;
   radioOffline?: boolean;
+  directoryEnabled?: boolean;
 }
 
 export function PacketVisualizer3D({
@@ -25,6 +26,7 @@ export function PacketVisualizer3D({
   fullScreen,
   onFullScreenChange,
   radioOffline = false,
+  directoryEnabled = false,
 }: PacketVisualizer3DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -125,6 +127,7 @@ export function PacketVisualizer3D({
     observationWindowSec,
     pruneStaleNodes,
     pruneStaleMinutes,
+    directoryEnabled,
   });
 
   const { hoveredNodeId, pinnedNodeId } = useVisualizer3DScene({
@@ -202,6 +205,7 @@ export function PacketVisualizer3D({
           canonicalNodes={data.canonicalNodes}
           canonicalNeighborIds={data.canonicalNeighborIds}
           renderedNodeIds={data.renderedNodeIds}
+          communityNames={data.communityNames}
         />
       </div>
     </div>

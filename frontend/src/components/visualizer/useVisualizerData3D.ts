@@ -11,6 +11,7 @@ import {
   type Simulation3D,
 } from 'd3-force-3d';
 
+import { api } from '../../api';
 import type { PacketNetworkNode } from '../../networkGraph/packetNetworkGraph';
 import {
   buildPacketNetworkContext,
@@ -26,10 +27,19 @@ import {
 import {
   type Contact,
   type ContactAdvertPathSummary,
+  type DirectoryHopHit,
   type RadioConfig,
   type RawPacket,
 } from '../../types';
 import { getRawPacketObservationKey } from '../../utils/rawPacketIdentity';
+import {
+  applyDirectoryName,
+  buildCommunityNames,
+  chunkDirectoryPrefixes,
+  collectDirectoryPrefixes,
+  DIRECTORY_RESOLVE_DEBOUNCE_MS,
+  normalizeDirectoryHits,
+} from '../../utils/visualizerDirectoryNames';
 import {
   buildLinkKey,
   dedupeConsecutive,
@@ -57,6 +67,7 @@ export interface UseVisualizerData3DOptions {
   observationWindowSec: number;
   pruneStaleNodes: boolean;
   pruneStaleMinutes: number;
+  directoryEnabled?: boolean;
 }
 
 export interface VisualizerData3D {
@@ -65,10 +76,23 @@ export interface VisualizerData3D {
   canonicalNodes: Map<string, PacketNetworkNode>;
   canonicalNeighborIds: Map<string, string[]>;
   renderedNodeIds: Set<string>;
+  communityNames: Map<string, string>;
   particles: Particle[];
   stats: { processed: number; animated: number; nodes: number; links: number };
   expandContract: () => void;
   clearAndReset: () => void;
+}
+
+function communityNameMapsEqual(left: Map<string, string>, right: Map<string, string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const [nodeId, name] of left) {
+    if (right.get(nodeId) !== name) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function buildInitialRenderNode(node: PacketNetworkNode): GraphNode {
@@ -114,6 +138,7 @@ export function useVisualizerData3D({
   observationWindowSec,
   pruneStaleNodes,
   pruneStaleMinutes,
+  directoryEnabled = false,
 }: UseVisualizerData3DOptions): VisualizerData3D {
   const networkStateRef = useRef(createPacketNetworkState(config?.name || 'Me'));
   const nodesRef = useRef<Map<string, GraphNode>>(new Map());
@@ -126,6 +151,9 @@ export function useVisualizerData3D({
   const speedMultiplierRef = useRef(particleSpeedMultiplier);
   const observationWindowRef = useRef(observationWindowSec * 1000);
   const stretchRafRef = useRef<number | null>(null);
+  const requestedDirectoryPrefixesRef = useRef<Set<string>>(new Set());
+  const [directoryHits, setDirectoryHits] = useState<Record<string, DirectoryHopHit>>({});
+  const [communityNames, setCommunityNames] = useState<Map<string, string>>(() => new Map());
   const [stats, setStats] = useState({ processed: 0, animated: 0, nodes: 0, links: 0 });
   const [, setProjectionVersion] = useState(0);
 
@@ -269,8 +297,16 @@ export function useVisualizerData3D({
     const previousNodes = nodesRef.current;
     const nextNodes = new Map<string, GraphNode>();
 
+    const nextCommunityNames = directoryEnabled
+      ? buildCommunityNames(networkStateRef.current.nodes.values(), directoryHits, contacts)
+      : new Map<string, string>();
+
     for (const [nodeId, node] of projection.nodes) {
-      nextNodes.set(nodeId, upsertRenderNode(node, previousNodes.get(nodeId)));
+      const overlay = directoryEnabled ? applyDirectoryName(node, directoryHits, contacts) : null;
+      const renderNode = upsertRenderNode(node, previousNodes.get(nodeId));
+      renderNode.communityName = overlay?.communityName ?? null;
+      renderNode.nameSource = overlay?.nameSource;
+      nextNodes.set(nodeId, renderNode);
     }
 
     const nextLinks = new Map<string, GraphLink>();
@@ -287,9 +323,15 @@ export function useVisualizerData3D({
 
     nodesRef.current = nextNodes;
     linksRef.current = nextLinks;
+    setCommunityNames((previous) =>
+      communityNameMapsEqual(previous, nextCommunityNames) ? previous : nextCommunityNames
+    );
     syncSimulation();
   }, [
     collapseLikelyKnownSiblingRepeaters,
+    contacts,
+    directoryEnabled,
+    directoryHits,
     showAmbiguousNodes,
     showAmbiguousPaths,
     syncSimulation,
@@ -327,6 +369,44 @@ export function useVisualizerData3D({
   useEffect(() => {
     rebuildRenderProjection();
   }, [rebuildRenderProjection]);
+
+  useEffect(() => {
+    if (!directoryEnabled) {
+      return;
+    }
+
+    const prefixes = collectDirectoryPrefixes(
+      networkStateRef.current.nodes.values(),
+      contacts
+    ).filter((prefix) => !requestedDirectoryPrefixesRef.current.has(prefix));
+    if (prefixes.length === 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      for (const prefix of prefixes) {
+        requestedDirectoryPrefixesRef.current.add(prefix);
+      }
+
+      void (async () => {
+        const merged: Record<string, DirectoryHopHit> = {};
+        for (const chunk of chunkDirectoryPrefixes(prefixes)) {
+          try {
+            const response = await api.resolveDirectoryHops(chunk);
+            Object.assign(merged, normalizeDirectoryHits(response.resolved));
+          } catch (error) {
+            console.debug('Failed to resolve Community directory names', error);
+          }
+        }
+        if (Object.keys(merged).length === 0) {
+          return;
+        }
+        setDirectoryHits((previous) => ({ ...previous, ...merged }));
+      })();
+    }, DIRECTORY_RESOLVE_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [contacts, directoryEnabled, packets.length, stats.nodes]);
 
   const publishPacket = useCallback((packetKey: string) => {
     const pending = pendingRef.current.get(packetKey);
@@ -597,6 +677,7 @@ export function useVisualizerData3D({
     canonicalNodes: networkStateRef.current.nodes,
     canonicalNeighborIds: snapshotNeighborIds(networkStateRef.current),
     renderedNodeIds: new Set(nodesRef.current.keys()),
+    communityNames,
     particles: particlesRef.current,
     stats,
     expandContract,

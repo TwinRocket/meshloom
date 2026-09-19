@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Checkbox } from '../ui/checkbox';
 import { PACKET_LEGEND_ITEMS } from '../../utils/visualizerUtils';
+import { DirectoryGlobeIcon } from '../messagePath/DirectoryGlobeIcon';
 import { NODE_LEGEND_ITEMS } from './shared';
 import { cn } from '@/lib/utils';
 
@@ -552,6 +553,10 @@ export function VisualizerControls({
                     <span>{t(NODE_LABEL_KEYS[index])}</span>
                   </div>
                 ))}
+                <div className="flex items-center gap-2">
+                  <DirectoryGlobeIcon />
+                  <span>{t('path.directoryGlobe')}</span>
+                </div>
               </div>
             </div>
           )}
