@@ -126,6 +126,7 @@
     "trace": "Trace",
     "messageSearch": "Recherche de messages",
     "showChannelFinder": "Afficher le chercheur de canaux",
+    "discoveredChannels": "Canaux découverts",
     "hideChannelFinder": "Masquer le chercheur de canaux",
     "running": "en cours",
     "idle": "inactif",
@@ -159,5 +160,24 @@
     "loadingSearch": "Chargement de la recherche…",
     "loadingSettings": "Chargement des réglages…",
     "loadingChannelFinder": "Chargement du chercheur de canaux…"
+  },
+  "toolsView": {
+    "discoveredDescription": "Salons hashtag ouverts automatiquement, à garder ou à refuser"
+  },
+  "discovered": {
+    "title": "Canaux découverts",
+    "empty": "Aucun canal découvert en attente. Les nouveaux salons hashtag apparaissent ici plutôt que dans le chat.",
+    "adopt": "Adopter",
+    "refuse": "Refuser",
+    "adopted": "{{name}} ajouté au chat",
+    "refused": "Canal refusé",
+    "adoptFailed": "Impossible d’adopter ce canal",
+    "refuseFailed": "Impossible de refuser ce canal",
+    "rejected": "Refusés",
+    "rejectedTitle": "Canaux refusés",
+    "rejectedEmpty": "Aucun canal refusé.",
+    "rejectedLoadFailed": "Impossible de charger les canaux refusés",
+    "toast": "{{name}} a été découvert",
+    "toastAction": "Ouvrir"
   }
 }

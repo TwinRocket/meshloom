@@ -137,12 +137,18 @@ TEMP_RADIO_SLOT = 0
 @router.post("/channel", response_model=Message)
 async def send_channel_message(request: SendChannelMessageRequest) -> Message:
     """Send a message to a channel."""
-    radio_manager.require_connected()
-
-    # Get channel info from our database
     from app.repository import ChannelRepository
+    from app.services.channel_membership import is_pending_channel
 
     db_channel = await ChannelRepository.get_by_key(request.channel_key)
+    if is_pending_channel(db_channel):
+        raise HTTPException(
+            status_code=409,
+            detail="Pending channels cannot be sent to until they are adopted",
+        )
+
+    radio_manager.require_connected()
+
     if not db_channel:
         raise HTTPException(
             status_code=404, detail=f"Channel {request.channel_key} not found in database"

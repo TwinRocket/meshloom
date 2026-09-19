@@ -104,6 +104,7 @@ class TestBundledUnlock:
         assert stored is not None
         assert stored.name == "#fr"
         assert stored.is_hashtag is True
+        assert stored.membership == "pending"
         messages = await MessageRepository.get_all(
             msg_type="CHAN", conversation_key=key.hex().upper(), limit=10
         )
@@ -157,6 +158,7 @@ class TestCommunityResolve:
         assert stored is not None
         assert stored.name == f"#{name}"
         assert stored.is_hashtag is True
+        assert stored.membership == "pending"
         assert dispatch.await_count == 1
         assert dispatch.await_args.args[0]["event"] == "channel_found"
         assert dispatch.await_args.args[0]["name"] == f"#{name}"
@@ -350,3 +352,4 @@ class TestCreateDoesNotNotify:
         stored = await ChannelRepository.get_by_key(key)
         assert stored is not None
         assert stored.is_hashtag is True
+        assert stored.membership == "adopted"

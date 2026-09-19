@@ -9,7 +9,7 @@ import {
   Spline,
   Crosshair,
   Search,
-  Unlock,
+  Hash,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation } from '../types';
@@ -38,7 +38,7 @@ export const NAV_ITEMS: { target: BottomNavTarget; labelKey: string; Icon: Lucid
 export const UNREAD_BADGE_MAX = 99;
 
 export type RailItemId =
-  BottomNavTarget | 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'cracker';
+  BottomNavTarget | 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered';
 
 export interface RailItem {
   id: RailItemId;
@@ -55,24 +55,12 @@ export interface RailItem {
   overlay?: boolean;
 }
 
-const tool = (
-  id: Exclude<RailItemId, BottomNavTarget | 'cracker'>,
-  labelKey: string,
-  Icon: LucideIcon
-) => ({
+const tool = (id: Exclude<RailItemId, BottomNavTarget>, labelKey: string, Icon: LucideIcon) => ({
   id,
   labelKey,
   Icon,
   permanent: false,
   conversation: { type: id, id, name: id } as Conversation,
-});
-
-const overlay = (id: 'cracker', labelKey: string, Icon: LucideIcon): RailItem => ({
-  id,
-  labelKey,
-  Icon,
-  permanent: false,
-  overlay: true,
 });
 
 /**
@@ -112,7 +100,7 @@ export const RAIL_ITEMS: RailItem[] = [
   tool('trace', 'sidebar.trace', Spline),
   tool('locate', 'locate.title', Crosshair),
   tool('search', 'sidebar.messageSearch', Search),
-  overlay('cracker', 'sidebar.showChannelFinder', Unlock),
+  tool('discovered', 'sidebar.discoveredChannels', Hash),
 ];
 
 const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
@@ -127,8 +115,10 @@ const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
  */
 export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id);
 
-/** localStorage flag so a stored rail is only given the overlay once. */
-export const RAIL_OVERLAY_BACKFILL_KEY = 'meshloom-rail-overlay-cracker';
+/** localStorage flag so a stored rail is only given the discovered tool once. */
+export const RAIL_DISCOVERED_BACKFILL_KEY = 'meshloom-rail-tool-discovered';
+/** @deprecated kept so older tests that imported the cracker key still typecheck during the move */
+export const RAIL_OVERLAY_BACKFILL_KEY = RAIL_DISCOVERED_BACKFILL_KEY;
 
 /** The bottom group's entries, in the order they are drawn. */
 export const ANCHORED_RAIL_ITEMS = ANCHORED_RAIL_IDS.map((id) =>
@@ -167,22 +157,25 @@ export function resolveRail(stored: string[] | undefined): RailItem[] {
 }
 
 /**
- * Add the channel-finder overlay to a stored rail that predates it.
+ * Add the discovered-channels tool to a stored rail that predates it.
  *
- * Empty stored lists already resolve to DEFAULT_RAIL (which includes the overlay).
+ * Empty stored lists already resolve to DEFAULT_RAIL (which includes the tool).
  * A non-empty stored list that never knew about it gets the entry appended once;
  * after that persist, removing it is a choice and is left alone.
  */
-export function backfillRailOverlaysOnce(
+export function backfillRailToolsOnce(
   stored: string[] | undefined,
   alreadyBackfilled: boolean
 ): { ids: RailItemId[]; shouldPersist: boolean } {
   const ids = resolveRail(stored).map((item) => item.id);
-  if (ids.includes('cracker') || alreadyBackfilled) {
+  if (ids.includes('discovered') || alreadyBackfilled) {
     return { ids, shouldPersist: false };
   }
   return {
-    ids: [...ids, 'cracker'],
+    ids: [...ids, 'discovered'],
     shouldPersist: Array.isArray(stored) && stored.length > 0,
   };
 }
+
+/** @deprecated use backfillRailToolsOnce */
+export const backfillRailOverlaysOnce = backfillRailToolsOnce;

@@ -1,4 +1,5 @@
 import type { Channel, Contact } from '../types';
+import { isPendingChannel } from './channelMembership';
 import { getStateKey } from './conversationState';
 
 /**
@@ -21,6 +22,7 @@ export function countUnreadConversations(
 ): number {
   let total = 0;
   for (const channel of channels) {
+    if (isPendingChannel(channel)) continue;
     if ((unreadCounts[getStateKey('channel', channel.key)] ?? 0) > 0) total += 1;
   }
   for (const contact of contacts) {

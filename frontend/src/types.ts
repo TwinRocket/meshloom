@@ -361,6 +361,12 @@ export interface Channel {
   last_read_at: number | null;
   favorite: boolean;
   muted: boolean;
+  membership?: 'adopted' | 'pending';
+}
+
+export interface RejectedChannel {
+  key: string;
+  name: string;
 }
 
 export interface ChannelMessageCounts {
@@ -461,7 +467,16 @@ export interface ResendChannelMessageResponse {
 }
 
 type ConversationType =
-  'contact' | 'channel' | 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate';
+  | 'contact'
+  | 'channel'
+  | 'raw'
+  | 'map'
+  | 'live'
+  | 'visualizer'
+  | 'search'
+  | 'trace'
+  | 'locate'
+  | 'discovered';
 
 export interface Conversation {
   type: ConversationType;

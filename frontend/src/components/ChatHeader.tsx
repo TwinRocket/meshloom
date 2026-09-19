@@ -45,6 +45,8 @@ interface ChatHeaderProps {
   onOpenChannelInfo?: (channelKey: string) => void;
   /** Leaves the conversation for the list. Narrow layouts only — where it is the way out. */
   onBack?: () => void;
+  /** Hide chat actions for a pending catalogue channel. */
+  pending?: boolean;
 }
 
 export function ChatHeader({
@@ -66,6 +68,7 @@ export function ChatHeader({
   onDeleteContact,
   onOpenContactInfo,
   onOpenChannelInfo,
+  pending = false,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -220,154 +223,163 @@ export function ChatHeader({
         </h2>
       </span>
       <div className="relative flex items-center justify-end gap-1.5">
-        <button
-          type="button"
-          onClick={() => setActionsOpen((open) => !open)}
-          aria-expanded={actionsOpen}
-          aria-label={t('chatHeader.moreActions')}
-          className={cn(headerActionClass, 'conversation-header-more')}
-        >
-          <MoreVertical className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <div className={cn('conversation-header-actions', actionsOpen && 'is-open')}>
-          {conversation.type === 'contact' && !activeContactIsRoomServer && (
+        {!pending && (
+          <>
             <button
-              className={headerActionDisabledClass}
-              onClick={() => setPathDiscoveryOpen(true)}
-              title={
-                activeContactIsPrefixOnly
-                  ? t('chatHeader.pathDiscoveryUnavailable')
-                  : t('chatHeader.pathDiscoveryTitle')
-              }
-              aria-label={t('chatHeader.pathDiscovery')}
-              disabled={activeContactIsPrefixOnly}
+              type="button"
+              onClick={() => setActionsOpen((open) => !open)}
+              aria-expanded={actionsOpen}
+              aria-label={t('chatHeader.moreActions')}
+              className={cn(headerActionClass, 'conversation-header-more')}
             >
-              <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <MoreVertical className="h-4 w-4" aria-hidden="true" />
             </button>
-          )}
-          {conversation.type === 'contact' && !activeContactIsRoomServer && (
-            <button
-              className={headerActionDisabledClass}
-              onClick={onTrace}
-              title={
-                activeContactIsPrefixOnly
-                  ? t('chatHeader.directTraceUnavailable')
-                  : t('chatHeader.directTraceTitle')
-              }
-              aria-label={t('chatHeader.directTrace')}
-              disabled={activeContactIsPrefixOnly}
-            >
-              <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
-            </button>
-          )}
-          {pushSupported && onTogglePush && (
-            <button
-              className={headerActionClass}
-              onClick={() => void onTogglePush()}
-              title={t('chatHeader.notifications')}
-              aria-label={t('chatHeader.notifications')}
-              aria-pressed={!!pushEnabledForConversation}
-            >
-              <Bell
-                className={cn(
-                  'h-4 w-4',
-                  pushEnabledForConversation ? 'text-primary' : 'text-muted-foreground'
+            <div className={cn('conversation-header-actions', actionsOpen && 'is-open')}>
+              {conversation.type === 'contact' && !activeContactIsRoomServer && (
+                <button
+                  className={headerActionDisabledClass}
+                  onClick={() => setPathDiscoveryOpen(true)}
+                  title={
+                    activeContactIsPrefixOnly
+                      ? t('chatHeader.pathDiscoveryUnavailable')
+                      : t('chatHeader.pathDiscoveryTitle')
+                  }
+                  aria-label={t('chatHeader.pathDiscovery')}
+                  disabled={activeContactIsPrefixOnly}
+                >
+                  <Route className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                </button>
+              )}
+              {conversation.type === 'contact' && !activeContactIsRoomServer && (
+                <button
+                  className={headerActionDisabledClass}
+                  onClick={onTrace}
+                  title={
+                    activeContactIsPrefixOnly
+                      ? t('chatHeader.directTraceUnavailable')
+                      : t('chatHeader.directTraceTitle')
+                  }
+                  aria-label={t('chatHeader.directTrace')}
+                  disabled={activeContactIsPrefixOnly}
+                >
+                  <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
+                </button>
+              )}
+              {!pending && pushSupported && onTogglePush && (
+                <button
+                  className={headerActionClass}
+                  onClick={() => void onTogglePush()}
+                  title={t('chatHeader.notifications')}
+                  aria-label={t('chatHeader.notifications')}
+                  aria-pressed={!!pushEnabledForConversation}
+                >
+                  <Bell
+                    className={cn(
+                      'h-4 w-4',
+                      pushEnabledForConversation ? 'text-primary' : 'text-muted-foreground'
+                    )}
+                    fill={pushEnabledForConversation ? 'currentColor' : 'none'}
+                    aria-hidden="true"
+                  />
+                </button>
+              )}
+              {!pending && conversation.type === 'channel' && onToggleMute && (
+                <button
+                  className={headerActionClass}
+                  onClick={() => onToggleMute(conversation.id)}
+                  title={
+                    activeChannel?.muted
+                      ? t('chatHeader.unmuteChannel')
+                      : t('chatHeader.muteChannel')
+                  }
+                  aria-label={
+                    activeChannel?.muted
+                      ? t('chatHeader.unmuteChannel')
+                      : t('chatHeader.muteChannel')
+                  }
+                  aria-pressed={!!activeChannel?.muted}
+                >
+                  <BellOff
+                    className={cn(
+                      'h-4 w-4',
+                      activeChannel?.muted ? 'text-primary' : 'text-muted-foreground'
+                    )}
+                    aria-hidden="true"
+                  />
+                </button>
+              )}
+              {!pending && conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
+                <button
+                  className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={handleEditFloodScopeOverride}
+                  title={t('chatHeader.regionalOverride')}
+                  aria-label={t('chatHeader.regionalOverride')}
+                >
+                  <Globe2
+                    className={`h-4 w-4 ${activeFloodScopeLabel ? 'text-[hsl(var(--region-override))]' : 'text-muted-foreground'}`}
+                    aria-hidden="true"
+                  />
+                  {activeFloodScopeBadge && (
+                    <span className="hidden text-[0.6875rem] font-medium text-[hsl(var(--region-override))] sm:inline">
+                      {activeFloodScopeBadge}
+                    </span>
+                  )}
+                </button>
+              )}
+              {!pending && showPathHashModeOverride && (
+                <button
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={handleEditPathHashModeOverride}
+                  title={t('chatHeader.pathHashOverride')}
+                  aria-label={t('chatHeader.pathHashOverride')}
+                >
+                  <ChevronsLeftRight
+                    className={`h-4 w-4 ${activePathHashModeOverride != null ? 'text-status-connected' : 'text-muted-foreground'}`}
+                    aria-hidden="true"
+                  />
+                </button>
+              )}
+              {!pending && (conversation.type === 'channel' || conversation.type === 'contact') && (
+                <button
+                  className={headerActionClass}
+                  onClick={() =>
+                    onToggleFavorite(conversation.type as 'channel' | 'contact', conversation.id)
+                  }
+                  title={favoriteTitle}
+                  aria-label={isFav ? t('chatHeader.removeFavorite') : t('chatHeader.addFavorite')}
+                >
+                  {isFav ? (
+                    <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
+                  ) : (
+                    <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  )}
+                </button>
+              )}
+              {!pending &&
+                !(conversation.type === 'channel' && isPublicChannelKey(conversation.id)) && (
+                  <button
+                    className={cn(
+                      headerActionClass,
+                      'ml-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
+                    )}
+                    onClick={() => {
+                      if (conversation.type === 'channel') {
+                        onDeleteChannel(conversation.id);
+                      } else {
+                        onDeleteContact(conversation.id);
+                      }
+                    }}
+                    title={t('chatHeader.delete')}
+                    aria-label={t('chatHeader.delete')}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
                 )}
-                fill={pushEnabledForConversation ? 'currentColor' : 'none'}
-                aria-hidden="true"
-              />
-            </button>
-          )}
-          {conversation.type === 'channel' && onToggleMute && (
-            <button
-              className={headerActionClass}
-              onClick={() => onToggleMute(conversation.id)}
-              title={
-                activeChannel?.muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')
-              }
-              aria-label={
-                activeChannel?.muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')
-              }
-              aria-pressed={!!activeChannel?.muted}
-            >
-              <BellOff
-                className={cn(
-                  'h-4 w-4',
-                  activeChannel?.muted ? 'text-primary' : 'text-muted-foreground'
-                )}
-                aria-hidden="true"
-              />
-            </button>
-          )}
-          {conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
-            <button
-              className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={handleEditFloodScopeOverride}
-              title={t('chatHeader.regionalOverride')}
-              aria-label={t('chatHeader.regionalOverride')}
-            >
-              <Globe2
-                className={`h-4 w-4 ${activeFloodScopeLabel ? 'text-[hsl(var(--region-override))]' : 'text-muted-foreground'}`}
-                aria-hidden="true"
-              />
-              {activeFloodScopeBadge && (
-                <span className="hidden text-[0.6875rem] font-medium text-[hsl(var(--region-override))] sm:inline">
-                  {activeFloodScopeBadge}
-                </span>
-              )}
-            </button>
-          )}
-          {showPathHashModeOverride && (
-            <button
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={handleEditPathHashModeOverride}
-              title={t('chatHeader.pathHashOverride')}
-              aria-label={t('chatHeader.pathHashOverride')}
-            >
-              <ChevronsLeftRight
-                className={`h-4 w-4 ${activePathHashModeOverride != null ? 'text-status-connected' : 'text-muted-foreground'}`}
-                aria-hidden="true"
-              />
-            </button>
-          )}
-          {(conversation.type === 'channel' || conversation.type === 'contact') && (
-            <button
-              className={headerActionClass}
-              onClick={() =>
-                onToggleFavorite(conversation.type as 'channel' | 'contact', conversation.id)
-              }
-              title={favoriteTitle}
-              aria-label={isFav ? t('chatHeader.removeFavorite') : t('chatHeader.addFavorite')}
-            >
-              {isFav ? (
-                <Star className="h-4 w-4 fill-current text-favorite" aria-hidden="true" />
-              ) : (
-                <Star className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              )}
-            </button>
-          )}
-          {!(conversation.type === 'channel' && isPublicChannelKey(conversation.id)) && (
-            <button
-              className={cn(
-                headerActionClass,
-                'ml-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
-              )}
-              onClick={() => {
-                if (conversation.type === 'channel') {
-                  onDeleteChannel(conversation.id);
-                } else {
-                  onDeleteContact(conversation.id);
-                }
-              }}
-              title={t('chatHeader.delete')}
-              aria-label={t('chatHeader.delete')}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </div>
-      {conversation.type === 'channel' && activeFloodScopeBadge && (
+      {!pending && conversation.type === 'channel' && activeFloodScopeBadge && (
         <button
           className="col-span-2 mt-0.5 flex items-center gap-1 text-left sm:hidden"
           onClick={handleEditFloodScopeOverride}

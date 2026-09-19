@@ -6,7 +6,7 @@ import {
   Waypoints as Trace,
   Crosshair,
   Search,
-  Unlock,
+  Hash,
   CheckCheck,
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
@@ -22,17 +22,14 @@ import { cn } from '../lib/utils';
  * channel finder are for.
  */
 
-type ToolId = 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search';
+type ToolId = 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
   /** The tool open beside this list. Desktop only; a phone shows one at a time. */
   activeConversation?: Conversation | null;
-  onToggleCracker: () => void;
   onMarkAllRead: () => void;
-  crackerVisible: boolean;
-  /** How many candidate keys the channel finder still has to try. */
-  crackerQueueCount?: number;
+  pendingCount?: number;
   health?: HealthStatus | null;
   /** Opens the radio read-out. The dot means the same thing on every screen. */
   onOpenRadioStatus?: () => void;
@@ -77,6 +74,12 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     descriptionKey: 'toolsView.searchDescription',
     Icon: Search,
   },
+  {
+    id: 'discovered',
+    labelKey: 'sidebar.discoveredChannels',
+    descriptionKey: 'toolsView.discoveredDescription',
+    Icon: Hash,
+  },
 ];
 
 const ROW_CLASS =
@@ -85,10 +88,8 @@ const ROW_CLASS =
 export function ToolsView({
   onSelectConversation,
   activeConversation,
-  onToggleCracker,
   onMarkAllRead,
-  crackerVisible,
-  crackerQueueCount = 0,
+  pendingCount = 0,
   health,
   onOpenRadioStatus,
   updateAvailable,
@@ -125,34 +126,18 @@ export function ToolsView({
                 >
                   <Icon className="h-5 w-5" />
                 </span>
-                <span className="flex min-w-0 flex-col">
+                <span className="flex min-w-0 flex-1 flex-col">
                   <span className="font-medium">{t(labelKey)}</span>
                   <span className="text-sm text-muted-foreground">{t(descriptionKey)}</span>
                 </span>
+                {id === 'discovered' && pendingCount > 0 && (
+                  <span className="ml-auto shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[0.6875rem] font-semibold text-primary-foreground">
+                    {pendingCount > 99 ? '99+' : pendingCount}
+                  </span>
+                )}
               </button>
             </li>
           ))}
-
-          <li>
-            <button type="button" className={ROW_CLASS} onClick={onToggleCracker}>
-              <span
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                aria-hidden="true"
-              >
-                <Unlock className="h-5 w-5" />
-              </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="font-medium">
-                  {crackerVisible ? t('sidebar.hideChannelFinder') : t('sidebar.showChannelFinder')}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {crackerQueueCount > 0
-                    ? t('toolsView.crackerQueued', { count: crackerQueueCount })
-                    : t('toolsView.crackerDescription')}
-                </span>
-              </span>
-            </button>
-          </li>
 
           <li>
             <button type="button" className={ROW_CLASS} onClick={onMarkAllRead}>

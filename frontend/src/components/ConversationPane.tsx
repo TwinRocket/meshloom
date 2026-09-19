@@ -29,6 +29,8 @@ import type {
   RadioTraceResponse,
 } from '../types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
+import { isPendingChannel } from '../utils/channelMembership';
+import { DiscoveredChannelsView } from './DiscoveredChannelsView';
 import {
   getContactDisplayName,
   isPrefixOnlyContact,
@@ -112,6 +114,14 @@ interface ConversationPaneProps {
   onOpenDirectorySettings?: () => void;
   onOpenCommunitySettings?: () => void;
   onAdvertise?: (mode: RadioAdvertMode) => Promise<void>;
+  unreadCounts?: Record<string, number>;
+  lastMessageTimes?: Record<string, number>;
+  lastMessagePreviews?: Record<string, string>;
+  onToggleCracker?: () => void;
+  crackerVisible?: boolean;
+  crackerQueueCount?: number;
+  onAdoptChannel?: (key: string) => Promise<void>;
+  onRefuseChannel?: (key: string) => Promise<void>;
 }
 
 function LoadingPane({ label }: { label: string }) {
@@ -195,6 +205,14 @@ export function ConversationPane({
   onOpenDirectorySettings,
   onOpenCommunitySettings,
   onAdvertise,
+  unreadCounts = {},
+  lastMessageTimes = {},
+  lastMessagePreviews = {},
+  onToggleCracker,
+  crackerVisible = false,
+  crackerQueueCount = 0,
+  onAdoptChannel,
+  onRefuseChannel,
 }: ConversationPaneProps) {
   const { t } = useTranslation();
   const [advertisingMode, setAdvertisingMode] = useState<RadioAdvertMode | null>(null);
@@ -387,6 +405,25 @@ export function ConversationPane({
     return null;
   }
 
+  if (activeConversation.type === 'discovered') {
+    return (
+      <DiscoveredChannelsView
+        channels={channels}
+        unreadCounts={unreadCounts}
+        lastMessageTimes={lastMessageTimes}
+        lastMessagePreviews={lastMessagePreviews}
+        onSelectConversation={onSelectConversation}
+        onBackToTools={onBackToTools}
+        onToggleCracker={onToggleCracker ?? (() => undefined)}
+        crackerVisible={crackerVisible}
+        crackerQueueCount={crackerQueueCount}
+        onAdoptedRejected={(key) => {
+          void onAdoptChannel?.(key);
+        }}
+      />
+    );
+  }
+
   if (activeConversation.type === 'trace') {
     return (
       <TracePane
@@ -459,6 +496,9 @@ export function ConversationPane({
         onOpenContactInfo={onOpenContactInfo}
         onOpenChannelInfo={onOpenChannelInfo}
         onBack={onBack}
+        pending={isPendingChannel(
+          channels.find((channel) => channel.key === activeConversation.id)
+        )}
       />
       {activeConversation.type === 'contact' && isPrefixOnlyActiveContact && (
         <ContactResolutionBanner variant="prefix-only" />
@@ -523,7 +563,27 @@ export function ConversationPane({
             directoryEnabled={directoryEnabled}
             conversationKey={activeConversation.id}
           />
-          {!(activeConversation.type === 'contact' && isPrefixOnlyActiveContact) ? (
+          {activeConversation.type === 'channel' &&
+          isPendingChannel(channels.find((channel) => channel.key === activeConversation.id)) ? (
+            <div className="flex shrink-0 gap-2 border-t border-border p-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 flex-1 border-green-600/50 text-green-700 hover:bg-green-600/10 dark:text-green-400"
+                onClick={() => void onAdoptChannel?.(activeConversation.id)}
+              >
+                {t('discovered.adopt')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 flex-1 border-destructive/50 text-destructive hover:bg-destructive/10"
+                onClick={() => void onRefuseChannel?.(activeConversation.id)}
+              >
+                {t('discovered.refuse')}
+              </Button>
+            </div>
+          ) : !(activeConversation.type === 'contact' && isPrefixOnlyActiveContact) ? (
             <MessageInput
               ref={messageInputRef}
               onSend={onSendMessage}

@@ -840,6 +840,14 @@ async def send_channel_message_to_channel(
     scopes this send, an empty string forces unscoped flood, and ``SCOPE_UNSET``
     falls back to the channel's persisted override.
     """
+    from app.services.channel_membership import is_pending_channel
+
+    if is_pending_channel(channel):
+        raise HTTPException(
+            status_code=409,
+            detail="Pending channels cannot be sent to until they are adopted",
+        )
+
     sent_at: int | None = None
     sender_timestamp: int | None = None
     radio_name = ""
@@ -967,6 +975,14 @@ async def resend_channel_message_record(
     message_repository=MessageRepository,
 ) -> ResendChannelMessageResponse:
     """Resend a stored outgoing channel message."""
+    from app.services.channel_membership import is_pending_channel
+
+    if is_pending_channel(channel):
+        raise HTTPException(
+            status_code=409,
+            detail="Pending channels cannot be sent to until they are adopted",
+        )
+
     try:
         key_bytes = bytes.fromhex(message.conversation_key)
     except ValueError:

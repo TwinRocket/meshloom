@@ -161,14 +161,15 @@ async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> st
     key_bytes = secret if isinstance(secret, bytes) else bytes(secret)
     key_hex = key_bytes.hex().upper()
 
-    await ChannelRepository.upsert(
+    from app.services.channel_membership import adopt_channel_record
+    from app.services.meshloom_community import schedule_hashtag_names_publish
+
+    await adopt_channel_record(
         key=key_hex,
         name=name,
         is_hashtag=is_hashtag,
         on_radio=on_radio,
     )
-    from app.services.meshloom_community import schedule_hashtag_names_publish
-
     await schedule_hashtag_names_publish([name], is_hashtag=is_hashtag)
     return key_hex
 

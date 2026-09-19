@@ -255,7 +255,21 @@ export function useRealtimeAppState({
         }
       },
       onChannel: (channel: Channel) => {
+        const existed = channelsRef.current.some((item) => item.key === channel.key);
         mergeChannelIntoList(channel);
+        if (!existed && channel.membership === 'pending') {
+          toast(i18n.t('discovered.toast', { name: channel.name }), {
+            action: {
+              label: i18n.t('discovered.toastAction'),
+              onClick: () =>
+                setActiveConversation({
+                  type: 'channel',
+                  id: channel.key,
+                  name: channel.name,
+                }),
+            },
+          });
+        }
       },
       onContactDeleted: (publicKey: string) => {
         setContacts((prev) => prev.filter((c) => c.public_key !== publicKey));

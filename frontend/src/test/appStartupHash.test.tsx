@@ -267,6 +267,18 @@ describe('App startup hash resolution', () => {
     });
   });
 
+  it('restores discovered channels from the URL hash', async () => {
+    setHash('#discovered');
+
+    render(<App />);
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node).toHaveTextContent('discovered:discovered:');
+      }
+    });
+  });
+
   it('reopens the last viewed trace tool even when channels are unavailable', async () => {
     setHash('');
     localStorage.setItem(REOPEN_LAST_CONVERSATION_KEY, '1');

@@ -131,9 +131,12 @@ def _channel_key_from_secret(secret: bytes) -> str:
 
 
 def project_host_channels(channels: list[Any]) -> list[Any]:
-    public = [ch for ch in channels if is_public_channel_key(ch.key)]
+    from app.services.channel_membership import MEMBERSHIP_PENDING
+
+    visible = [ch for ch in channels if getattr(ch, "membership", "adopted") != MEMBERSHIP_PENDING]
+    public = [ch for ch in visible if is_public_channel_key(ch.key)]
     rest = sorted(
-        (ch for ch in channels if not is_public_channel_key(ch.key)),
+        (ch for ch in visible if not is_public_channel_key(ch.key)),
         key=lambda ch: ch.key.upper(),
     )
     if public:
@@ -728,7 +731,6 @@ class RadioProxyManager:
         return encode_channel_info(channel_idx=idx)
 
     async def _set_channel(self, session: ProxySession, parsed) -> None:
-        from app.repository import ChannelRepository
 
         empty = not parsed.name.strip() or is_empty_channel_secret(parsed.secret)
         if empty:
@@ -740,7 +742,9 @@ class RadioProxyManager:
         session.cleared.discard(parsed.channel_idx)
         session.slots[parsed.channel_idx] = key
         is_hashtag = parsed.name.startswith("#")
-        await ChannelRepository.upsert_name(key, parsed.name, is_hashtag=is_hashtag)
+        from app.services.channel_membership import adopt_channel_record
+
+        await adopt_channel_record(key=key, name=parsed.name, is_hashtag=is_hashtag)
         await session.write_response(encode_ok())
 
     async def _sync_next_message(self, session: ProxySession) -> None:

@@ -20,6 +20,7 @@ export type { BottomNavTarget };
 interface Props {
   active: BottomNavTarget | null;
   unreadTotal: number;
+  pendingCount?: number;
   onSelect: (target: BottomNavTarget) => void;
   className?: string;
   updateAvailable?: boolean;
@@ -29,6 +30,7 @@ interface Props {
 export function BottomNav({
   active,
   unreadTotal,
+  pendingCount = 0,
   onSelect,
   className,
   updateAvailable = false,
@@ -54,7 +56,8 @@ export function BottomNav({
       <div className="liquid-surface pointer-events-auto flex w-full max-w-md items-stretch justify-between gap-0 rounded-[1.75rem] p-1.5">
         {NAV_ITEMS.map(({ target, labelKey, Icon }) => {
           const isActive = active === target;
-          const badge = target === 'conversations' ? unreadTotal : 0;
+          const badge =
+            target === 'conversations' ? unreadTotal : target === 'tools' ? pendingCount : 0;
           const showUpdate = target === 'settings' && updateAvailable;
           return (
             <div key={target} className="relative flex min-w-0 flex-1">

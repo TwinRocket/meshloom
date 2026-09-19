@@ -142,6 +142,11 @@ describe('useFaviconBadge', () => {
         channels
       )
     ).toBe('red');
+    expect(
+      deriveFaviconBadgeState({}, { [getStateKey('channel', 'pending-chan')]: true }, [
+        { ...makeChannel('pending-chan'), membership: 'pending' },
+      ])
+    ).toBe('none');
   });
 
   it('builds a dot-only badge into the base svg markup', () => {
@@ -167,6 +172,15 @@ describe('useFaviconBadge', () => {
         [makeChannel('fav-chan', true)]
       )
     ).toBe(10);
+    expect(
+      getFavoriteUnreadCount(
+        {
+          [getStateKey('channel', 'pending-fav')]: 4,
+        },
+        [],
+        [{ ...makeChannel('pending-fav', true), membership: 'pending' }]
+      )
+    ).toBe(0);
     expect(getUnreadTitle({}, [], [])).toBe(i18n.t('pwa.title'));
     expect(
       getUnreadTitle(

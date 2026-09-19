@@ -13,6 +13,7 @@ const SUPPORTED_TYPES: Conversation['type'][] = [
   'visualizer',
   'trace',
   'locate',
+  'discovered',
 ];
 
 function isSupportedType(value: unknown): value is Conversation['type'] {
@@ -126,6 +127,14 @@ export function captureLastViewedConversationFromHash(): void {
       id: 'locate',
       name: 'RF Locate',
       ...(hashConversation.locateKey && { locateKey: hashConversation.locateKey }),
+    });
+    return;
+  }
+  if (hashConversation.type === 'discovered') {
+    saveLastViewedConversation({
+      type: 'discovered',
+      id: 'discovered',
+      name: 'Discovered channels',
     });
     return;
   }

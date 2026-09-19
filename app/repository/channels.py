@@ -1,95 +1,136 @@
 import time
+from typing import Any
 
 from app.database import db
 from app.models import Channel
+from app.services.channel_membership import (
+    MEMBERSHIP_ADOPTED,
+    ChannelMembership,
+    coerce_membership,
+    normalize_channel_key,
+)
+
+
+def _channel_from_row(row: Any) -> Channel:
+    membership = MEMBERSHIP_ADOPTED
+    try:
+        membership = coerce_membership(row["membership"])
+    except (KeyError, IndexError, TypeError):
+        membership = MEMBERSHIP_ADOPTED
+    return Channel(
+        key=row["key"],
+        name=row["name"],
+        is_hashtag=bool(row["is_hashtag"]),
+        on_radio=bool(row["on_radio"]),
+        flood_scope_override=row["flood_scope_override"],
+        path_hash_mode_override=row["path_hash_mode_override"],
+        last_read_at=row["last_read_at"],
+        favorite=bool(row["favorite"]),
+        muted=bool(row["muted"]),
+        membership=membership,
+    )
+
+
+_CHANNEL_SELECT = (
+    "SELECT key, name, is_hashtag, on_radio, flood_scope_override, "
+    "path_hash_mode_override, last_read_at, favorite, muted, membership "
+    "FROM channels"
+)
 
 
 class ChannelRepository:
     @staticmethod
-    async def upsert(key: str, name: str, is_hashtag: bool = False, on_radio: bool = False) -> None:
+    async def upsert(
+        key: str,
+        name: str,
+        is_hashtag: bool = False,
+        on_radio: bool = False,
+        membership: ChannelMembership = MEMBERSHIP_ADOPTED,
+    ) -> None:
         """Upsert a channel. Key is 32-char hex string."""
         async with db.tx() as conn:
             async with conn.execute(
                 """
-                INSERT INTO channels (key, name, is_hashtag, on_radio, flood_scope_override)
-                VALUES (?, ?, ?, ?, NULL)
+                INSERT INTO channels (key, name, is_hashtag, on_radio, flood_scope_override, membership)
+                VALUES (?, ?, ?, ?, NULL, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     name = excluded.name,
                     is_hashtag = excluded.is_hashtag,
-                    on_radio = excluded.on_radio
+                    on_radio = excluded.on_radio,
+                    membership = excluded.membership
                 """,
-                (key.upper(), name, is_hashtag, on_radio),
+                (
+                    normalize_channel_key(key),
+                    name,
+                    is_hashtag,
+                    on_radio,
+                    coerce_membership(membership),
+                ),
             ):
                 pass
 
     @staticmethod
-    async def upsert_name(key: str, name: str, *, is_hashtag: bool = False) -> None:
+    async def upsert_name(
+        key: str,
+        name: str,
+        *,
+        is_hashtag: bool = False,
+        membership: ChannelMembership = MEMBERSHIP_ADOPTED,
+    ) -> None:
         """Create or rename a channel without touching radio/read/override state."""
         async with db.tx() as conn:
             async with conn.execute(
                 """
-                INSERT INTO channels (key, name, is_hashtag, on_radio, flood_scope_override)
-                VALUES (?, ?, ?, 0, NULL)
+                INSERT INTO channels (key, name, is_hashtag, on_radio, flood_scope_override, membership)
+                VALUES (?, ?, ?, 0, NULL, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     name = excluded.name,
-                    is_hashtag = excluded.is_hashtag
+                    is_hashtag = excluded.is_hashtag,
+                    membership = excluded.membership
                 """,
-                (key.upper(), name, is_hashtag),
+                (normalize_channel_key(key), name, is_hashtag, coerce_membership(membership)),
             ):
                 pass
+
+    @staticmethod
+    async def insert_if_absent(
+        key: str,
+        name: str,
+        *,
+        is_hashtag: bool = False,
+        membership: ChannelMembership = MEMBERSHIP_ADOPTED,
+    ) -> bool:
+        """Insert a channel only when the key is new. Existing rows are left alone."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                """
+                INSERT INTO channels (key, name, is_hashtag, on_radio, flood_scope_override, membership)
+                VALUES (?, ?, ?, 0, NULL, ?)
+                ON CONFLICT(key) DO NOTHING
+                """,
+                (normalize_channel_key(key), name, is_hashtag, coerce_membership(membership)),
+            ) as cursor:
+                return (cursor.rowcount or 0) > 0
 
     @staticmethod
     async def get_by_key(key: str) -> Channel | None:
         """Get a channel by its key (32-char hex string)."""
         async with db.readonly() as conn:
             async with conn.execute(
-                """
-                SELECT key, name, is_hashtag, on_radio, flood_scope_override, path_hash_mode_override, last_read_at, favorite, muted
-                FROM channels
-                WHERE key = ?
-                """,
-                (key.upper(),),
+                f"{_CHANNEL_SELECT} WHERE key = ?",
+                (normalize_channel_key(key),),
             ) as cursor:
                 row = await cursor.fetchone()
         if row:
-            return Channel(
-                key=row["key"],
-                name=row["name"],
-                is_hashtag=bool(row["is_hashtag"]),
-                on_radio=bool(row["on_radio"]),
-                flood_scope_override=row["flood_scope_override"],
-                path_hash_mode_override=row["path_hash_mode_override"],
-                last_read_at=row["last_read_at"],
-                favorite=bool(row["favorite"]),
-                muted=bool(row["muted"]),
-            )
+            return _channel_from_row(row)
         return None
 
     @staticmethod
     async def get_all() -> list[Channel]:
         async with db.readonly() as conn:
-            async with conn.execute(
-                """
-                SELECT key, name, is_hashtag, on_radio, flood_scope_override, path_hash_mode_override, last_read_at, favorite, muted
-                FROM channels
-                ORDER BY name
-                """
-            ) as cursor:
+            async with conn.execute(f"{_CHANNEL_SELECT} ORDER BY name") as cursor:
                 rows = await cursor.fetchall()
-        return [
-            Channel(
-                key=row["key"],
-                name=row["name"],
-                is_hashtag=bool(row["is_hashtag"]),
-                on_radio=bool(row["on_radio"]),
-                flood_scope_override=row["flood_scope_override"],
-                path_hash_mode_override=row["path_hash_mode_override"],
-                last_read_at=row["last_read_at"],
-                favorite=bool(row["favorite"]),
-                muted=bool(row["muted"]),
-            )
-            for row in rows
-        ]
+        return [_channel_from_row(row) for row in rows]
 
     @staticmethod
     async def set_favorite(key: str, value: bool) -> bool:
@@ -97,7 +138,7 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE channels SET favorite = ? WHERE key = ?",
-                (1 if value else 0, key.upper()),
+                (1 if value else 0, normalize_channel_key(key)),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0
@@ -108,7 +149,7 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE channels SET muted = ? WHERE key = ?",
-                (1 if value else 0, key.upper()),
+                (1 if value else 0, normalize_channel_key(key)),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0
@@ -119,7 +160,7 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "DELETE FROM channels WHERE key = ?",
-                (key.upper(),),
+                (normalize_channel_key(key),),
             ):
                 pass
 
@@ -133,7 +174,7 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE channels SET last_read_at = ? WHERE key = ?",
-                (ts, key.upper()),
+                (ts, normalize_channel_key(key)),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0
@@ -144,7 +185,7 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE channels SET flood_scope_override = ? WHERE key = ?",
-                (flood_scope_override, key.upper()),
+                (flood_scope_override, normalize_channel_key(key)),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0
@@ -155,14 +196,17 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE channels SET path_hash_mode_override = ? WHERE key = ?",
-                (path_hash_mode_override, key.upper()),
+                (path_hash_mode_override, normalize_channel_key(key)),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0
 
     @staticmethod
     async def mark_all_read(timestamp: int) -> None:
-        """Mark all channels as read at the given timestamp."""
+        """Mark adopted channels as read at the given timestamp."""
         async with db.tx() as conn:
-            async with conn.execute("UPDATE channels SET last_read_at = ?", (timestamp,)):
+            async with conn.execute(
+                "UPDATE channels SET last_read_at = ? WHERE membership = ?",
+                (timestamp, MEMBERSHIP_ADOPTED),
+            ):
                 pass

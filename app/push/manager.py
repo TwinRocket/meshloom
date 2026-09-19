@@ -326,6 +326,8 @@ class PushManager:
                 logger.debug("Push dispatch: failed to load channel", exc_info=True)
             if channel is not None:
                 is_hashtag = bool(channel.is_hashtag)
+            if channel is not None and channel.membership == "pending":
+                return
 
         flags = {
             media: conversation_is_enabled(

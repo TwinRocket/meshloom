@@ -645,4 +645,44 @@ describe('ConversationPane', () => {
     expect(screen.getByText(i18n.t('conversation.prefixOnlyBanner'))).toBeInTheDocument();
     expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
   });
+
+  it('renders the discovered-channels inbox instead of chat chrome', () => {
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: {
+            type: 'discovered',
+            id: 'discovered',
+            name: 'Discovered channels',
+          },
+          channels: [{ ...channel, membership: 'pending', name: '#mesh', is_hashtag: true }],
+        })}
+      />
+    );
+
+    expect(screen.getByText(i18n.t('discovered.title'))).toBeInTheDocument();
+    expect(screen.getByText('#mesh')).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+  });
+
+  it('replaces the composer with adopt and refuse on a pending channel', () => {
+    const onAdoptChannel = vi.fn(async () => {});
+    const onRefuseChannel = vi.fn(async () => {});
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: { type: 'channel', id: channel.key, name: channel.name },
+          channels: [{ ...channel, membership: 'pending' }],
+          onAdoptChannel,
+          onRefuseChannel,
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('discovered.adopt') }));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('discovered.refuse') }));
+    expect(onAdoptChannel).toHaveBeenCalledWith(channel.key);
+    expect(onRefuseChannel).toHaveBeenCalledWith(channel.key);
+  });
 });

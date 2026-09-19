@@ -27,6 +27,7 @@ import { ToolsView } from './ToolsView';
 import { SettingsIndexView } from './SettingsIndexView';
 import type { NavigationData } from './navigationData';
 import { countUnreadConversations } from '../utils/unreadConversations';
+import { isPendingChannel, pendingChannels } from '../utils/channelMembership';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { ContactInfoPane } from './ContactInfoPane';
@@ -226,18 +227,24 @@ export function AppShell({
   // the screen, and floating over it would either cover the send control or steal a
   // strip of history for the whole session.
   // Room servers are contacts, so they are covered by 'contact'.
+  const activeChannel =
+    activeType === 'channel'
+      ? sidebarProps.channels.find((channel) => channel.key === activeId)
+      : undefined;
+  const pendingOpen = isPendingChannel(activeChannel);
+  const pendingCount = pendingChannels(sidebarProps.channels).length;
   const inConversation = activeType === 'contact' || activeType === 'channel';
   // Settings render over whatever conversation was last open, so the conversation
   // underneath must not be what decides.
   const showBottomNav = showSettings || !inConversation;
   // Which of the bar's destinations is on screen. A tool opened from the Tools screen
   // keeps Tools lit, because that is where the reader came from and where Back goes.
-  const TOOL_TYPES = ['raw', 'live', 'visualizer', 'trace', 'locate', 'search'];
+  const TOOL_TYPES = ['raw', 'live', 'visualizer', 'trace', 'locate', 'search', 'discovered'];
   const bottomNavTarget: BottomNavTarget | null = showSettings
     ? 'settings'
     : activeType === 'map'
       ? 'map'
-      : activeType && TOOL_TYPES.includes(activeType)
+      : pendingOpen || (activeType && TOOL_TYPES.includes(activeType))
         ? 'tools'
         : mobileScreen === 'tools'
           ? 'tools'
@@ -333,10 +340,8 @@ export function AppShell({
   ) : mobileScreen === 'tools' ? (
     <ToolsView
       onSelectConversation={sidebarProps.onSelectConversation}
-      onToggleCracker={sidebarProps.onToggleCracker}
       onMarkAllRead={sidebarProps.onMarkAllRead}
-      crackerVisible={sidebarProps.showCracker}
-      crackerQueueCount={crackerQueueCount}
+      pendingCount={pendingCount}
       health={statusProps.health}
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
       updateAvailable={updateAvailable}
@@ -395,12 +400,12 @@ export function AppShell({
         <DesktopRail
           active={bottomNavTarget}
           unreadTotal={unreadTotal}
+          pendingCount={pendingCount}
           onSelect={handleBottomNav}
           health={statusProps.health ?? null}
           updateAvailable={updateAvailable}
           onOpenUpdate={() => setUpdateDialogOpen(true)}
           order={navRailOrder}
-          overlayPressed={{ cracker: showCracker }}
           // Settings render over whatever was open, so the pane underneath must not
           // keep the rail lit: two places cannot both be where you are.
           activeToolId={showSettings ? null : (activeType ?? null)}
@@ -464,8 +469,23 @@ export function AppShell({
               communityEnabled={communityStatus?.enabled ?? true}
               communityIata={communityStatus?.iata}
               onOpenCommunitySettings={() => handleOpenSettings('community')}
-              onBack={onClearActiveConversation}
+              onBack={
+                pendingOpen
+                  ? () =>
+                      sidebarProps.onSelectConversation({
+                        type: 'discovered',
+                        id: 'discovered',
+                        name: t('discovered.title'),
+                      })
+                  : onClearActiveConversation
+              }
               onBackToTools={handleBackToTools}
+              unreadCounts={sidebarProps.unreadCounts}
+              lastMessageTimes={sidebarProps.lastMessageTimes}
+              lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
+              onToggleCracker={sidebarProps.onToggleCracker}
+              crackerVisible={sidebarProps.showCracker}
+              crackerQueueCount={crackerQueueCount}
             />
           </div>
 
@@ -555,6 +575,7 @@ export function AppShell({
         <BottomNav
           active={bottomNavTarget}
           unreadTotal={unreadTotal}
+          pendingCount={pendingCount}
           onSelect={handleBottomNav}
           updateAvailable={updateAvailable}
           onOpenUpdate={() => setUpdateDialogOpen(true)}

@@ -84,6 +84,18 @@ describe('ConversationListView', () => {
     expect(names.length).toBeGreaterThan(0);
   });
 
+  it('keeps pending catalogue channels out of the chat list', () => {
+    renderList({
+      channels: [
+        channel({ key: 'C1', name: '#alpha' }),
+        channel({ key: 'C2', name: '#beta', membership: 'pending' }),
+      ],
+    });
+    const names = rowNames().join('|');
+    expect(names).toContain('#alpha');
+    expect(names).not.toContain('#beta');
+  });
+
   it('narrows to unread without losing the rest of the list', () => {
     renderList();
     expect(rowNames().join('|')).toContain('#beta');

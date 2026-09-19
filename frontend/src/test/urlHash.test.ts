@@ -44,6 +44,12 @@ describe('parseHashConversation', () => {
     expect(parseHashConversation()).toBeNull();
   });
 
+  it('parses #discovered as discovered type', () => {
+    window.location.hash = '#discovered';
+
+    expect(parseHashConversation()).toEqual({ type: 'discovered', name: 'discovered' });
+  });
+
   it('parses #raw as raw type', () => {
     window.location.hash = '#raw';
 
@@ -395,6 +401,12 @@ describe('getLocateHash', () => {
 describe('getConversationHash', () => {
   it('encodes live conversations', () => {
     expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
+  });
+
+  it('encodes discovered conversations', () => {
+    expect(
+      getConversationHash({ type: 'discovered', id: 'discovered', name: 'Discovered channels' })
+    ).toBe('#discovered');
   });
 
   it('encodes locate conversations', () => {

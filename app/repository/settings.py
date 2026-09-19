@@ -12,6 +12,7 @@ from app.models import (
     AppSettings,
     NotificationDestinations,
     NotificationDestinationsUpdate,
+    RejectedChannel,
     TelemetryAlertRules,
     UiPreferences,
 )
@@ -215,7 +216,7 @@ class AppSettingsRepository:
             SELECT max_radio_contacts, auto_decrypt_dm_on_advert,
                    last_message_times,
                    advert_interval, last_advert_time, flood_scope, known_regions,
-                   blocked_keys, blocked_names, discovery_blocked_types,
+                   blocked_keys, blocked_names, rejected_channels, discovery_blocked_types,
                    tracked_telemetry_repeaters, tracked_telemetry_contacts,
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
@@ -272,6 +273,13 @@ class AppSettingsRepository:
                 blocked_names = json.loads(row["blocked_names"])
             except (json.JSONDecodeError, TypeError):
                 blocked_names = []
+
+        from app.services.channel_membership import coerce_rejected_channels
+
+        try:
+            rejected_channels = coerce_rejected_channels(row["rejected_channels"])
+        except (KeyError, TypeError):
+            rejected_channels = []
 
         # Parse known_regions JSON
         known_regions: list[str] = []
@@ -383,6 +391,7 @@ class AppSettingsRepository:
             known_regions=known_regions,
             blocked_keys=blocked_keys,
             blocked_names=blocked_names,
+            rejected_channels=rejected_channels,
             discovery_blocked_types=discovery_blocked_types,
             tracked_telemetry_repeaters=tracked_telemetry_repeaters,
             tracked_telemetry_contacts=tracked_telemetry_contacts,
@@ -411,6 +420,7 @@ class AppSettingsRepository:
         known_regions: list[str] | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        rejected_channels: list[RejectedChannel] | None = None,
         discovery_blocked_types: list[int] | None = None,
         tracked_telemetry_repeaters: list[str] | None = None,
         tracked_telemetry_contacts: list[str] | None = None,
@@ -475,6 +485,12 @@ class AppSettingsRepository:
         if blocked_names is not None:
             updates.append("blocked_names = ?")
             params.append(json.dumps(blocked_names))
+
+        if rejected_channels is not None:
+            from app.services.channel_membership import rejected_channels_payload
+
+            updates.append("rejected_channels = ?")
+            params.append(json.dumps(rejected_channels_payload(rejected_channels)))
 
         if discovery_blocked_types is not None:
             updates.append("discovery_blocked_types = ?")
@@ -576,6 +592,7 @@ class AppSettingsRepository:
         known_regions: list[str] | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        rejected_channels: list[RejectedChannel] | None = None,
         discovery_blocked_types: list[int] | None = None,
         tracked_telemetry_repeaters: list[str] | None = None,
         tracked_telemetry_contacts: list[str] | None = None,
@@ -607,6 +624,7 @@ class AppSettingsRepository:
                 known_regions=known_regions,
                 blocked_keys=blocked_keys,
                 blocked_names=blocked_names,
+                rejected_channels=rejected_channels,
                 discovery_blocked_types=discovery_blocked_types,
                 tracked_telemetry_repeaters=tracked_telemetry_repeaters,
                 tracked_telemetry_contacts=tracked_telemetry_contacts,
@@ -707,6 +725,49 @@ class AppSettingsRepository:
                 new_names = settings.blocked_names + [name]
             await AppSettingsRepository._apply_updates(conn, blocked_names=new_names)
             return await AppSettingsRepository._get_in_conn(conn)
+
+    @staticmethod
+    async def get_rejected_channels() -> list[RejectedChannel]:
+        settings = await AppSettingsRepository.get()
+        return list(settings.rejected_channels)
+
+    @staticmethod
+    async def find_rejected_channel(key: str) -> RejectedChannel | None:
+        from app.services.channel_membership import normalize_channel_key
+
+        wanted = normalize_channel_key(key)
+        for item in await AppSettingsRepository.get_rejected_channels():
+            if item.key == wanted:
+                return item
+        return None
+
+    @staticmethod
+    async def is_rejected_channel(key: str) -> bool:
+        return await AppSettingsRepository.find_rejected_channel(key) is not None
+
+    @staticmethod
+    async def add_rejected_channel(key: str, name: str) -> None:
+        from app.services.channel_membership import normalize_channel_key
+
+        wanted = normalize_channel_key(key)
+        label = (name or "").strip() or wanted
+        async with db.tx() as conn:
+            settings = await AppSettingsRepository._get_in_conn(conn)
+            items = [item for item in settings.rejected_channels if item.key != wanted]
+            items.append(RejectedChannel(key=wanted, name=label))
+            await AppSettingsRepository._apply_updates(conn, rejected_channels=items)
+
+    @staticmethod
+    async def remove_rejected_channel(key: str) -> None:
+        from app.services.channel_membership import normalize_channel_key
+
+        wanted = normalize_channel_key(key)
+        async with db.tx() as conn:
+            settings = await AppSettingsRepository._get_in_conn(conn)
+            items = [item for item in settings.rejected_channels if item.key != wanted]
+            if len(items) == len(settings.rejected_channels):
+                return
+            await AppSettingsRepository._apply_updates(conn, rejected_channels=items)
 
     @staticmethod
     async def get_vapid_keys() -> tuple[str, str]:

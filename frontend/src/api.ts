@@ -11,6 +11,7 @@ import type {
   BulkCreateHashtagChannelsResult,
   Channel,
   ChannelDetail,
+  RejectedChannel,
   CommandResponse,
   Contact,
   ContactAnalytics,
@@ -347,6 +348,10 @@ export const api = {
     }),
   deleteChannel: (key: string) =>
     fetchJson<{ status: string }>(`/channels/${key}`, { method: 'DELETE' }),
+  getRejectedChannels: () => fetchJson<RejectedChannel[]>('/channels/rejected'),
+  adoptChannel: (key: string) => fetchJson<Channel>(`/channels/${key}/adopt`, { method: 'POST' }),
+  refuseChannel: (key: string) =>
+    fetchJson<{ status: string; key: string }>(`/channels/${key}/refuse`, { method: 'POST' }),
   getChannelDetail: (key: string) => fetchJson<ChannelDetail>(`/channels/${key}/detail`),
   markChannelRead: (key: string) =>
     fetchJson<{ status: string; key: string }>(`/channels/${key}/mark-read`, {

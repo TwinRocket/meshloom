@@ -212,6 +212,8 @@ export function App() {
     handleBulkCreateHashtagChannels,
     handleDeleteChannel,
     handleDeleteContact,
+    handleAdoptChannel,
+    handleRefuseChannel,
   } = useContactsAndChannels({
     setActiveConversation: (conv) => setActiveConversationRef.current(conv),
     pendingDeleteFallbackRef,
@@ -666,6 +668,8 @@ export function App() {
     onToggleMute: handleToggleMute,
     onDeleteContact: handleDeleteContact,
     onDeleteChannel: handleDeleteChannel,
+    onAdoptChannel: handleAdoptChannel,
+    onRefuseChannel: handleRefuseChannel,
     onSetChannelFloodScopeOverride: handleSetChannelFloodScopeOverride,
     onSetChannelPathHashModeOverride: handleSetChannelPathHashModeOverride,
     onSelectConversation: handleSelectConversationWithTargetReset,

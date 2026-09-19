@@ -196,6 +196,47 @@ export function useContactsAndChannels({
     ]
   );
 
+  const handleAdoptChannel = useCallback(
+    async (key: string) => {
+      try {
+        const stored = await api.adoptChannel(key);
+        const refreshed = await api.getChannels();
+        setChannels(refreshed);
+        setActiveConversation({ type: 'channel', id: stored.key, name: stored.name });
+        toast.success(i18n.t('discovered.adopted', { name: stored.name }));
+      } catch (err) {
+        console.error('Failed to adopt channel:', err);
+        toast.error(i18n.t('discovered.adoptFailed'), {
+          description: formatApiError(err, i18n.t),
+        });
+      }
+    },
+    [setActiveConversation]
+  );
+
+  const handleRefuseChannel = useCallback(
+    async (key: string) => {
+      try {
+        await api.refuseChannel(key);
+        removeConversationMessages(key);
+        const refreshed = await api.getChannels();
+        setChannels(refreshed);
+        setActiveConversation({
+          type: 'discovered',
+          id: 'discovered',
+          name: i18n.t('discovered.title'),
+        });
+        toast.success(i18n.t('discovered.refused'));
+      } catch (err) {
+        console.error('Failed to refuse channel:', err);
+        toast.error(i18n.t('discovered.refuseFailed'), {
+          description: formatApiError(err, i18n.t),
+        });
+      }
+    },
+    [removeConversationMessages, setActiveConversation]
+  );
+
   return {
     contacts,
     contactsLoaded,
@@ -212,5 +253,7 @@ export function useContactsAndChannels({
     handleBulkCreateHashtagChannels,
     handleDeleteChannel,
     handleDeleteContact,
+    handleAdoptChannel,
+    handleRefuseChannel,
   };
 }

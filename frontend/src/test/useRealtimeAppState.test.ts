@@ -14,10 +14,10 @@ const mocks = vi.hoisted(() => ({
   api: {
     getChannels: vi.fn(),
   },
-  toast: {
+  toast: Object.assign(vi.fn(), {
     success: vi.fn(),
     error: vi.fn(),
-  },
+  }),
 }));
 
 vi.mock('../api', () => ({
@@ -331,6 +331,50 @@ describe('useRealtimeAppState', () => {
 
     expect(getRawPackets()).toEqual([packet]);
     expect(getRawPacketStatsSession().totalObservedPackets).toBe(1);
+  });
+
+  it('toasts a newly discovered pending channel', () => {
+    const { args, fns } = createRealtimeArgs();
+    const pending: Channel = {
+      ...publicChannel,
+      key: '11'.repeat(16),
+      name: '#mesh',
+      is_hashtag: true,
+      membership: 'pending',
+    };
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onChannel?.(pending);
+    });
+
+    expect(fns.setChannels).toHaveBeenCalledWith(expect.any(Function));
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.stringContaining('#mesh'),
+      expect.objectContaining({
+        action: expect.objectContaining({ label: expect.any(String) }),
+      })
+    );
+  });
+
+  it('does not toast when an existing pending channel is updated', () => {
+    const pending: Channel = {
+      ...publicChannel,
+      key: '11'.repeat(16),
+      name: '#mesh',
+      is_hashtag: true,
+      membership: 'pending',
+    };
+    const { args } = createRealtimeArgs({
+      channelsRef: { current: [publicChannel, pending] },
+    });
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onChannel?.(pending);
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 
   it('routes message_deleted to removeMessage', () => {

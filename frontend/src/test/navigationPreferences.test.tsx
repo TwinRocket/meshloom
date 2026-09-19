@@ -52,7 +52,7 @@ describe('resolveRail', () => {
     // never saw, and the tools have no other entry on desktop.
     expect(DEFAULT_RAIL).toContain('live');
     expect(DEFAULT_RAIL).toContain('search');
-    expect(DEFAULT_RAIL).toContain('cracker');
+    expect(DEFAULT_RAIL).toContain('discovered');
     expect(resolveRail([]).map((i) => i.id)).toEqual(DEFAULT_RAIL);
   });
 
@@ -74,7 +74,7 @@ describe('resolveRail', () => {
     const optional = RAIL_ITEMS.filter((i) => !i.permanent).map((i) => i.id);
     expect(optional).toContain('live');
     expect(optional).toContain('raw');
-    expect(optional).toContain('cracker');
+    expect(optional).toContain('discovered');
     expect(resolveRail(['conversations', 'live']).map((i) => i.id)).toContain('live');
   });
 });
@@ -150,28 +150,28 @@ describe('SettingsNavigationSection', () => {
   });
 });
 
-describe('channel finder overlay', () => {
-  it('is on the default rail as an overlay, not a conversation', () => {
-    const cracker = RAIL_ITEMS.find((item) => item.id === 'cracker');
-    expect(cracker?.overlay).toBe(true);
-    expect(cracker?.conversation).toBeUndefined();
-    expect(cracker?.labelKey).toBe('sidebar.showChannelFinder');
+describe('discovered channels tool', () => {
+  it('is on the default rail as a conversation, not an overlay', () => {
+    const discovered = RAIL_ITEMS.find((item) => item.id === 'discovered');
+    expect(discovered?.overlay).toBeUndefined();
+    expect(discovered?.conversation?.type).toBe('discovered');
+    expect(discovered?.labelKey).toBe('sidebar.discoveredChannels');
   });
 
-  it('backfills a stored rail that predates the overlay, once', () => {
+  it('backfills a stored rail that predates the tool, once', () => {
     const stored = ['conversations', 'map', 'live'];
     const first = backfillRailOverlaysOnce(stored, false);
     expect(first.shouldPersist).toBe(true);
-    expect(first.ids).toEqual(['conversations', 'map', 'live', 'cracker']);
+    expect(first.ids).toEqual(['conversations', 'map', 'live', 'discovered']);
 
     const afterRemoval = backfillRailOverlaysOnce(stored, true);
     expect(afterRemoval.shouldPersist).toBe(false);
     expect(afterRemoval.ids).toEqual(['conversations', 'map', 'live']);
   });
 
-  it('does not persist when the defaults already include the overlay', () => {
+  it('does not persist when the defaults already include the tool', () => {
     const empty = backfillRailOverlaysOnce([], false);
-    expect(empty.ids).toContain('cracker');
+    expect(empty.ids).toContain('discovered');
     expect(empty.shouldPersist).toBe(false);
   });
 });

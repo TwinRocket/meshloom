@@ -79,6 +79,7 @@ def _channel_to_backup(channel) -> BackupChannel:
         path_hash_mode_override=channel.path_hash_mode_override,
         favorite=channel.favorite,
         muted=channel.muted,
+        membership=channel.membership,
     )
 
 
@@ -135,7 +136,9 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
 
     channels_upserted = 0
     for item in request.channels:
-        await ChannelRepository.upsert(item.key, item.name, item.is_hashtag)
+        await ChannelRepository.upsert(
+            item.key, item.name, item.is_hashtag, membership=item.membership
+        )
         await ChannelRepository.set_favorite(item.key, item.favorite)
         await ChannelRepository.set_muted(item.key, item.muted)
         await ChannelRepository.update_flood_scope_override(item.key, item.flood_scope_override)
@@ -189,6 +192,7 @@ async def _restore_settings(settings: AppSettings) -> None:
         known_regions=settings.known_regions,
         blocked_keys=settings.blocked_keys,
         blocked_names=settings.blocked_names,
+        rejected_channels=settings.rejected_channels,
         discovery_blocked_types=settings.discovery_blocked_types,
         tracked_telemetry_repeaters=settings.tracked_telemetry_repeaters,
         tracked_telemetry_contacts=settings.tracked_telemetry_contacts,

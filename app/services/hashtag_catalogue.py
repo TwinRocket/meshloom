@@ -21,6 +21,7 @@ from app.decoder import extract_payload, try_decrypt_packet_with_channel_key
 from app.repository.channels import ChannelRepository
 from app.repository.raw_packets import RawPacketRepository
 from app.repository.settings import AppSettingsRepository
+from app.services.channel_membership import MEMBERSHIP_PENDING
 from app.services.meshloom_community import (
     get_community_effective,
     reset_stats_client_for_tests,
@@ -135,11 +136,13 @@ async def _apply_matched_name(name: str, packets: list[bytes]) -> bool:
 
     key_hex = key.hex().upper()
     display = _display_name(publish)
-    existing = await ChannelRepository.get_by_key(key_hex)
-    if existing is not None:
+    if await AppSettingsRepository.is_rejected_channel(key_hex):
         return False
-
-    await ChannelRepository.upsert_name(key_hex, display, is_hashtag=True)
+    inserted = await ChannelRepository.insert_if_absent(
+        key_hex, display, is_hashtag=True, membership=MEMBERSHIP_PENDING
+    )
+    if not inserted:
+        return False
     stored = await ChannelRepository.get_by_key(key_hex)
     if stored is None:
         return False

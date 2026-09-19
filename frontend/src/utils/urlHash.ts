@@ -8,7 +8,16 @@ import {
 
 interface ParsedHashConversation {
   type:
-    'channel' | 'contact' | 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate';
+    | 'channel'
+    | 'contact'
+    | 'raw'
+    | 'map'
+    | 'live'
+    | 'visualizer'
+    | 'search'
+    | 'trace'
+    | 'locate'
+    | 'discovered';
   /** Conversation identity token (channel key or contact public key, or legacy name token) */
   name: string;
   /** Optional human-readable label segment (ignored for identity resolution) */
@@ -53,6 +62,10 @@ export function parseHashConversation(): ParsedHashConversation | null {
 
   if (hash === 'locate') {
     return { type: 'locate', name: 'locate' };
+  }
+
+  if (hash === 'discovered') {
+    return { type: 'discovered', name: 'discovered' };
   }
 
   if (hash.startsWith('locate/')) {
@@ -176,6 +189,7 @@ export function getConversationHash(conv: Conversation | null): string {
   if (conv.type === 'search') return '#search';
   if (conv.type === 'trace') return '#trace';
   if (conv.type === 'locate') return getLocateHash(conv.locateKey);
+  if (conv.type === 'discovered') return '#discovered';
 
   // Use immutable IDs for identity, append readable label for UX.
   if (conv.type === 'channel') {

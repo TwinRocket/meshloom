@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS channels (
     path_hash_mode_override INTEGER,
     last_read_at INTEGER,
     favorite INTEGER DEFAULT 0,
-    muted INTEGER DEFAULT 0
+    muted INTEGER DEFAULT 0,
+    membership TEXT NOT NULL DEFAULT 'adopted'
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -130,7 +131,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
     radio_proxy_enabled INTEGER DEFAULT 0,
     radio_proxy_bind TEXT DEFAULT '0.0.0.0',
     radio_proxy_port INTEGER DEFAULT 5001,
-    radio_proxy_max_clients INTEGER DEFAULT 8
+    radio_proxy_max_clients INTEGER DEFAULT 8,
+    rejected_channels TEXT DEFAULT '[]'
 );
 INSERT OR IGNORE INTO app_settings (id) VALUES (1);
 

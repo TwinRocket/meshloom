@@ -10,18 +10,15 @@ import i18n from '../i18n';
 
 function renderTools(overrides?: Partial<React.ComponentProps<typeof ToolsView>>) {
   const onSelectConversation = vi.fn();
-  const onToggleCracker = vi.fn();
   const onMarkAllRead = vi.fn();
   render(
     <ToolsView
       onSelectConversation={onSelectConversation}
-      onToggleCracker={onToggleCracker}
       onMarkAllRead={onMarkAllRead}
-      crackerVisible={false}
       {...overrides}
     />
   );
-  return { onSelectConversation, onToggleCracker, onMarkAllRead };
+  return { onSelectConversation, onMarkAllRead };
 }
 
 describe('ToolsView', () => {
@@ -34,6 +31,7 @@ describe('ToolsView', () => {
       'sidebar.trace',
       'locate.title',
       'sidebar.messageSearch',
+      'sidebar.discoveredChannels',
     ]) {
       expect(screen.getByText(i18n.t(key))).toBeInTheDocument();
     }
@@ -53,11 +51,8 @@ describe('ToolsView', () => {
     expect(screen.getByText(i18n.t('toolsView.packetFeedDescription'))).toBeInTheDocument();
   });
 
-  it('reports the channel finder and mark-all-read to the shell', () => {
-    const { onToggleCracker, onMarkAllRead } = renderTools();
-    fireEvent.click(screen.getByText(i18n.t('sidebar.showChannelFinder')));
-    expect(onToggleCracker).toHaveBeenCalled();
-
+  it('reports mark-all-read to the shell', () => {
+    const { onMarkAllRead } = renderTools();
     fireEvent.click(screen.getByText(i18n.t('sidebar.markAllRead')));
     expect(onMarkAllRead).toHaveBeenCalled();
   });

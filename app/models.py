@@ -357,6 +357,20 @@ class Channel(BaseModel):
     last_read_at: int | None = None  # Server-side read state tracking
     favorite: bool = False
     muted: bool = False
+    membership: Literal["adopted", "pending"] = Field(
+        default="adopted",
+        description=(
+            "adopted = in the classic chat; pending = catalogue-opened, waiting "
+            "for adopt/refuse. Existing rows default to adopted."
+        ),
+    )
+
+
+class RejectedChannel(BaseModel):
+    """A refused catalogue channel that must not auto-reopen."""
+
+    key: str = Field(description="Channel key (32-char hex, uppercase)")
+    name: str
 
 
 class ChannelMessageCounts(BaseModel):
@@ -1298,6 +1312,10 @@ class AppSettings(BaseModel):
         default_factory=list,
         description="Public keys whose messages are hidden from the UI",
     )
+    rejected_channels: list[RejectedChannel] = Field(
+        default_factory=list,
+        description="Refused catalogue channels that must not auto-reopen",
+    )
     blocked_names: list[str] = Field(
         default_factory=list,
         description="Display names whose messages are hidden from the UI",
@@ -1632,6 +1650,7 @@ class BackupChannel(BaseModel):
     path_hash_mode_override: int | None = None
     favorite: bool = False
     muted: bool = False
+    membership: Literal["adopted", "pending"] = "adopted"
 
 
 class BackupExport(BaseModel):

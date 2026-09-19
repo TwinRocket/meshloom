@@ -6,19 +6,19 @@ import i18n from '../i18n';
 import { initLastMessageTimes } from '../utils/conversationState';
 import { applyTheme, cacheTheme, getSavedTheme, serverChoseTheme } from '../utils/theme';
 import type { AppSettings, AppSettingsUpdate } from '../types';
-import { RAIL_OVERLAY_BACKFILL_KEY, backfillRailOverlaysOnce } from '../components/navDestinations';
+import { RAIL_DISCOVERED_BACKFILL_KEY, backfillRailToolsOnce } from '../components/navDestinations';
 
-function railOverlayAlreadyBackfilled(): boolean {
+function railToolAlreadyBackfilled(): boolean {
   try {
-    return localStorage.getItem(RAIL_OVERLAY_BACKFILL_KEY) === '1';
+    return localStorage.getItem(RAIL_DISCOVERED_BACKFILL_KEY) === '1';
   } catch {
     return false;
   }
 }
 
-function markRailOverlayBackfilled(): void {
+function markRailToolBackfilled(): void {
   try {
-    localStorage.setItem(RAIL_OVERLAY_BACKFILL_KEY, '1');
+    localStorage.setItem(RAIL_DISCOVERED_BACKFILL_KEY, '1');
   } catch {
     // Private mode or quota — the next load may backfill again.
   }
@@ -56,8 +56,8 @@ export function useAppSettings() {
   const fetchAppSettings = useCallback(async () => {
     try {
       const data = await takePrefetchOrFetch('settings', api.getSettings);
-      const alreadyBackfilled = railOverlayAlreadyBackfilled();
-      const backfill = backfillRailOverlaysOnce(data.ui_preferences?.nav_rail, alreadyBackfilled);
+      const alreadyBackfilled = railToolAlreadyBackfilled();
+      const backfill = backfillRailToolsOnce(data.ui_preferences?.nav_rail, alreadyBackfilled);
       const next = backfill.shouldPersist
         ? {
             ...data,
@@ -73,12 +73,12 @@ export function useAppSettings() {
       if (backfill.shouldPersist) {
         try {
           await api.updateSettings({ ui_preferences: next.ui_preferences });
-          markRailOverlayBackfilled();
+          markRailToolBackfilled();
         } catch (err) {
           console.error('Failed to backfill desktop rail:', err);
         }
       } else if (!alreadyBackfilled) {
-        markRailOverlayBackfilled();
+        markRailToolBackfilled();
       }
     } catch (err) {
       console.error('Failed to fetch app settings:', err);

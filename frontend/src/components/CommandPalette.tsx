@@ -24,6 +24,7 @@ import {
 } from './ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import { getContactDisplayName } from '../utils/pubkey';
+import { adoptedChannels } from '../utils/channelMembership';
 import {
   SETTINGS_SECTION_LABELS,
   SETTINGS_SECTION_ORDER,
@@ -61,7 +62,7 @@ interface ToolItem extends Searchable {
   id: string;
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  type: 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate';
+  type: 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate' | 'discovered';
 }
 
 interface SettingItem extends Searchable {
@@ -78,6 +79,7 @@ const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'search', icon: Search, type: 'search' },
   { id: 'trace', icon: Route, type: 'trace' },
   { id: 'locate', icon: Crosshair, type: 'locate' },
+  { id: 'discovered', icon: Hash, type: 'discovered' },
 ];
 
 const TOOL_NAME_KEYS: Record<string, string> = {
@@ -88,6 +90,7 @@ const TOOL_NAME_KEYS: Record<string, string> = {
   search: 'commandPalette.messageSearch',
   trace: 'commandPalette.routeTrace',
   locate: 'locate.title',
+  discovered: 'sidebar.discoveredChannels',
 };
 
 const TOOL_SEARCH_EXTRA: Record<string, string> = {
@@ -207,7 +210,7 @@ export function CommandPalette({
     }
     const fch: SearchableChannel[] = [];
     const rch: SearchableChannel[] = [];
-    for (const ch of channels) {
+    for (const ch of adoptedChannels(channels)) {
       const entry: SearchableChannel = {
         channel: ch,
         searchText: ch.name.toLowerCase(),

@@ -31,7 +31,10 @@ function getUnreadFavoriteChannelCount(
 ): number {
   return channels.reduce(
     (sum, channel) =>
-      sum + (channel.favorite ? unreadCounts[getStateKey('channel', channel.key)] || 0 : 0),
+      sum +
+      (channel.favorite && channel.membership !== 'pending'
+        ? unreadCounts[getStateKey('channel', channel.key)] || 0
+        : 0),
     0
   );
 }
@@ -52,7 +55,7 @@ export function getFavoriteUnreadCount(
     }
   }
   for (const channel of channels) {
-    if (channel.favorite) {
+    if (channel.favorite && channel.membership !== 'pending') {
       sum += unreadCounts[getStateKey('channel', channel.key)] || 0;
     }
   }
@@ -73,12 +76,21 @@ export function getUnreadTitle(
   return i18n.t('pwa.unreadTitle', { count: label, defaultValue: '({{count}}) Meshloom' });
 }
 
+function hasAdoptedMention(mentions: Record<string, boolean>, channels: Channel[]): boolean {
+  const pendingKeys = new Set(
+    channels
+      .filter((channel) => channel.membership === 'pending')
+      .map((channel) => getStateKey('channel', channel.key))
+  );
+  return Object.entries(mentions).some(([stateKey, on]) => on && !pendingKeys.has(stateKey));
+}
+
 export function deriveFaviconBadgeState(
   unreadCounts: Record<string, number>,
   mentions: Record<string, boolean>,
   channels: Channel[]
 ): FaviconBadgeState {
-  if (Object.values(mentions).some(Boolean) || getUnreadDirectMessageCount(unreadCounts) > 0) {
+  if (hasAdoptedMention(mentions, channels) || getUnreadDirectMessageCount(unreadCounts) > 0) {
     return 'red';
   }
 

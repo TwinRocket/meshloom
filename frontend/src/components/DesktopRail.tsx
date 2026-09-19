@@ -28,6 +28,7 @@ export const MESHLOOM_SITE_URL = 'https://meshloom.app';
 interface Props {
   active: BottomNavTarget | null;
   unreadTotal: number;
+  pendingCount?: number;
   onSelect: (target: BottomNavTarget) => void;
   health: HealthStatus | null;
   /** Opens the read-out the rail status summarises. */
@@ -50,6 +51,7 @@ const DOOR_CLASS =
 export function DesktopRail({
   active,
   unreadTotal,
+  pendingCount = 0,
   onSelect,
   health,
   onOpenRadioStatus,
@@ -91,7 +93,9 @@ export function DesktopRail({
           : permanent
             ? active === target
             : activeToolId === id;
-        const badge = id === 'conversations' && unreadTotal > 0;
+        const badgeCount =
+          id === 'conversations' ? unreadTotal : id === 'discovered' ? pendingCount : 0;
+        const badge = badgeCount > 0;
         return (
           <button
             key={id}
@@ -115,7 +119,7 @@ export function DesktopRail({
                 className="absolute -right-0.5 -top-0.5 min-w-[1.05rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground"
                 aria-hidden="true"
               >
-                {unreadTotal > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : unreadTotal}
+                {badgeCount > UNREAD_BADGE_MAX ? `${UNREAD_BADGE_MAX}+` : badgeCount}
               </span>
             )}
           </button>

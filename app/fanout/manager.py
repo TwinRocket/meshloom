@@ -298,6 +298,23 @@ class FanoutManager:
 
     async def broadcast_message(self, data: dict) -> None:
         """Dispatch a decoded message to modules whose scope matches."""
+        if data.get("type") == "CHAN":
+            conversation_key = str(data.get("conversation_key") or "")
+            if conversation_key:
+                from app.repository.channels import ChannelRepository
+                from app.services.channel_membership import is_pending_channel
+
+                try:
+                    channel = await ChannelRepository.get_by_key(conversation_key)
+                except Exception:
+                    logger.debug(
+                        "Fanout: failed to load channel %s for pending check",
+                        conversation_key,
+                        exc_info=True,
+                    )
+                    channel = None
+                if is_pending_channel(channel):
+                    return
         await self._dispatch_matching(
             data,
             matcher=_scope_matches_message,

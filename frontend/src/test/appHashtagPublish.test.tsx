@@ -204,6 +204,12 @@ describe('App hashtag publish ownership', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
+        name: i18n.t('sidebar.discoveredChannels'),
+        hidden: true,
+      })
+    );
+    fireEvent.click(
+      screen.getByRole('button', {
         name: i18n.t('sidebar.showChannelFinder'),
         hidden: true,
       })

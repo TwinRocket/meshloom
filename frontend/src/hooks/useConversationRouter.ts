@@ -52,6 +52,8 @@ function resolveConversationFromHash(
         name: 'RF Locate',
         locateKey: hashConv.locateKey,
       };
+    case 'discovered':
+      return { type: 'discovered', id: 'discovered', name: i18n.t('discovered.title') };
     case 'channel': {
       const channel = resolveChannelFromHashToken(hashConv.name, channels);
       return channel ? { type: 'channel', id: channel.key, name: channel.name } : null;
@@ -182,6 +184,15 @@ export function useConversationRouter({
       hasSetDefaultConversation.current = true;
       return;
     }
+    if (hashConv?.type === 'discovered') {
+      setActiveConversationState({
+        type: 'discovered',
+        id: 'discovered',
+        name: i18n.t('discovered.title'),
+      });
+      hasSetDefaultConversation.current = true;
+      return;
+    }
 
     // No hash: optionally restore last-viewed non-data conversation if enabled on this device.
     if (!hashConv && getReopenLastConversationEnabled()) {
@@ -193,7 +204,8 @@ export function useConversationRouter({
           lastViewed.type === 'live' ||
           lastViewed.type === 'visualizer' ||
           lastViewed.type === 'trace' ||
-          lastViewed.type === 'locate')
+          lastViewed.type === 'locate' ||
+          lastViewed.type === 'discovered')
       ) {
         setActiveConversationState(lastViewed);
         hasSetDefaultConversation.current = true;

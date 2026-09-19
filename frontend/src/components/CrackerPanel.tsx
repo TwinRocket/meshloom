@@ -103,7 +103,7 @@ export function CrackerPanel({
   const turboModeRef = useRef(false);
   const twoWordModeRef = useRef(false);
   const seenPayloadsRef = useRef<Set<string>>(new Set());
-  const existingChannelKeysRef = useRef<Set<string>>(new Set());
+  const adoptedChannelKeysRef = useRef<Set<string>>(new Set());
   const englishWordlistRef = useRef<string[] | null>(null);
 
   const priorityPartitions = useMemo(
@@ -192,14 +192,19 @@ export function CrackerPanel({
   }, []);
 
   // Get existing channel keys for filtering (memoized to avoid recreating on every render)
-  const existingChannelKeys = useMemo(
-    () => new Set(channels.map((c) => c.key.toUpperCase())),
+  const adoptedChannelKeys = useMemo(
+    () =>
+      new Set(
+        channels
+          .filter((channel) => channel.membership !== 'pending')
+          .map((c) => c.key.toUpperCase())
+      ),
     [channels]
   );
 
   useEffect(() => {
-    existingChannelKeysRef.current = existingChannelKeys;
-  }, [existingChannelKeys]);
+    adoptedChannelKeysRef.current = adoptedChannelKeys;
+  }, [adoptedChannelKeys]);
 
   // Filter packets to only undecrypted GROUP_TEXT
   const undecryptedGroupText = useMemo(
@@ -418,7 +423,7 @@ export function CrackerPanel({
 
         // Auto-add channel if not already exists
         const keyUpper = result.key.toUpperCase();
-        if (!existingChannelKeysRef.current.has(keyUpper)) {
+        if (!adoptedChannelKeysRef.current.has(keyUpper)) {
           try {
             const channelName = '#' + result.roomName;
             await onChannelCreate(channelName, result.key, includeHistoricalRef.current);

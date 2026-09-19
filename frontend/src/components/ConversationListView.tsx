@@ -7,6 +7,7 @@ import { RadioStatusChip } from './RadioStatusChip';
 import { getStateKey } from '../utils/conversationState';
 import { describeMessagePreview } from '../utils/messagePreview';
 import { countUnreadConversations } from '../utils/unreadConversations';
+import { adoptedChannels } from '../utils/channelMembership';
 import { cn } from '../lib/utils';
 
 /**
@@ -159,7 +160,7 @@ export function ConversationListView({
     // channel key or the public key. Reading them raw looked like a list where
     // nothing had ever been said: no previews, no times, no unread badges, and an
     // "unread" filter that was always empty while the bar counted four.
-    const channelRows: Row[] = channels.map((channel) => {
+    const channelRows: Row[] = adoptedChannels(channels).map((channel) => {
       const stateKey = getStateKey('channel', channel.key);
       return {
         key: channel.key,

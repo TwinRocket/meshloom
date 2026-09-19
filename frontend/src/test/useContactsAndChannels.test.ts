@@ -21,6 +21,8 @@ vi.mock('../api', () => ({
     bulkCreateHashtagChannels: vi.fn(),
     deleteContact: vi.fn(),
     deleteChannel: vi.fn(),
+    adoptChannel: vi.fn(),
+    refuseChannel: vi.fn(),
     decryptHistoricalPackets: vi.fn(),
     getUndecryptedPacketCount: vi.fn(),
   },
@@ -210,6 +212,59 @@ describe('useContactsAndChannels', () => {
       expect(api.getChannels).toHaveBeenCalled();
       expect(api.getUndecryptedPacketCount).toHaveBeenCalled();
       expect(response).toEqual(resultPayload);
+    });
+  });
+
+  describe('adopt and refuse', () => {
+    it('adopts a pending channel and opens it in chat', async () => {
+      const { api } = await import('../api');
+      const stored = {
+        key: 'AA'.repeat(16),
+        name: '#mesh',
+        is_hashtag: true,
+        on_radio: false,
+        last_read_at: null,
+        favorite: false,
+        muted: false,
+        membership: 'adopted' as const,
+      };
+      vi.mocked(api.adoptChannel).mockResolvedValueOnce(stored);
+      vi.mocked(api.getChannels).mockResolvedValueOnce([stored]);
+
+      const { result } = renderUseContactsAndChannels();
+      await act(async () => {
+        await result.current.handleAdoptChannel(stored.key);
+      });
+
+      expect(api.adoptChannel).toHaveBeenCalledWith(stored.key);
+      expect(result.current.channels).toEqual([stored]);
+      expect(setActiveConversation).toHaveBeenCalledWith({
+        type: 'channel',
+        id: stored.key,
+        name: stored.name,
+      });
+    });
+
+    it('refuses a channel and returns to the discovered inbox', async () => {
+      const { api } = await import('../api');
+      vi.mocked(api.refuseChannel).mockResolvedValueOnce({
+        status: 'ok',
+        key: 'AA'.repeat(16),
+      });
+      vi.mocked(api.getChannels).mockResolvedValueOnce([]);
+
+      const { result } = renderUseContactsAndChannels();
+      await act(async () => {
+        await result.current.handleRefuseChannel('AA'.repeat(16));
+      });
+
+      expect(api.refuseChannel).toHaveBeenCalledWith('AA'.repeat(16));
+      expect(removeConversationMessages).toHaveBeenCalledWith('AA'.repeat(16));
+      expect(setActiveConversation).toHaveBeenCalledWith({
+        type: 'discovered',
+        id: 'discovered',
+        name: expect.any(String),
+      });
     });
   });
 });

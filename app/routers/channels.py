@@ -11,10 +11,22 @@ from app.channel_constants import (
     is_public_channel_name,
 )
 from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
-from app.models import Channel, ChannelDetail, ChannelMessageCounts, ChannelTopSender
+from app.models import (
+    Channel,
+    ChannelDetail,
+    ChannelMessageCounts,
+    ChannelTopSender,
+    RejectedChannel,
+)
 from app.packet_processor import create_message_from_decrypted
 from app.region_scope import UNSCOPED_OVERRIDE_MARKER, is_unscoped, normalize_region_scope
-from app.repository import ChannelRepository, MessageRepository, RawPacketRepository
+from app.repository import (
+    AppSettingsRepository,
+    ChannelRepository,
+    MessageRepository,
+    RawPacketRepository,
+)
+from app.services.channel_membership import adopt_channel_record
 from app.services.meshloom_community import schedule_hashtag_names_publish
 from app.websocket import broadcast_event, broadcast_success
 
@@ -210,6 +222,12 @@ async def list_channels() -> list[Channel]:
     return await ChannelRepository.get_all()
 
 
+@router.get("/rejected", response_model=list[RejectedChannel])
+async def list_rejected_channels() -> list[RejectedChannel]:
+    """List refused catalogue channels that will not auto-reopen."""
+    return await AppSettingsRepository.get_rejected_channels()
+
+
 @router.get("/{key}/detail", response_model=ChannelDetail)
 async def get_channel_detail(key: str) -> ChannelDetail:
     """Get comprehensive channel profile data with message statistics."""
@@ -241,17 +259,19 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
 
     logger.info("Creating channel %s: %s (hashtag=%s)", key_hex, channel_name, is_hashtag)
 
-    # Store in database only - radio sync happens at send time
-    await ChannelRepository.upsert(
-        key=key_hex,
-        name=channel_name,
-        is_hashtag=is_hashtag,
-        on_radio=False,
-    )
-
-    stored = await ChannelRepository.get_by_key(key_hex)
-    if stored is None:
-        raise HTTPException(status_code=500, detail="Channel was created but could not be reloaded")
+    # Store in database only - radio sync happens at send time.
+    # Manual create always adopts (and un-rejects if the key was refused).
+    try:
+        stored = await adopt_channel_record(
+            key=key_hex,
+            name=channel_name,
+            is_hashtag=is_hashtag,
+            on_radio=False,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=500, detail="Channel was created but could not be reloaded"
+        ) from exc
 
     await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
     _broadcast_channel_update(stored)
@@ -279,22 +299,22 @@ async def bulk_create_hashtag_channels(
 
         key_hex, channel_name, is_hashtag = _derive_channel_identity(normalized_name)
         existing = await ChannelRepository.get_by_key(key_hex)
-        if existing is not None:
+        if existing is not None and existing.membership == "adopted":
             existing_count += 1
             continue
 
-        await ChannelRepository.upsert(
-            key=key_hex,
-            name=channel_name,
-            is_hashtag=is_hashtag,
-            on_radio=False,
-        )
-        stored = await ChannelRepository.get_by_key(key_hex)
-        if stored is None:
+        try:
+            stored = await adopt_channel_record(
+                key=key_hex,
+                name=channel_name,
+                is_hashtag=is_hashtag,
+                on_radio=False,
+            )
+        except RuntimeError as exc:
             raise HTTPException(
                 status_code=500,
                 detail="Channel was created but could not be reloaded",
-            )
+            ) from exc
 
         created_channels.append(stored)
         decrypt_targets.append((bytes.fromhex(stored.key), stored.key, stored.name))
@@ -404,6 +424,66 @@ async def set_channel_path_hash_mode_override(
 
     broadcast_event("channel", refreshed.model_dump())
     return refreshed
+
+
+@router.post("/{key}/adopt", response_model=Channel)
+async def adopt_channel(key: str) -> Channel:
+    """Move a pending or previously refused channel into the classic chat."""
+    existing = await ChannelRepository.get_by_key(key)
+    rejected = await AppSettingsRepository.find_rejected_channel(key)
+    if existing is not None:
+        name = existing.name
+        is_hashtag = existing.is_hashtag
+        on_radio = existing.on_radio
+    elif rejected is not None:
+        name = rejected.name
+        is_hashtag = name.startswith("#")
+        on_radio = False
+    else:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    try:
+        stored = await adopt_channel_record(
+            key=key,
+            name=name,
+            is_hashtag=is_hashtag,
+            on_radio=on_radio,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=500, detail="Channel was adopted but could not be reloaded"
+        ) from exc
+
+    if existing is None:
+        from app.routers.packets import _run_historical_channel_decryption
+
+        await _run_historical_channel_decryption(bytes.fromhex(stored.key), stored.key, stored.name)
+
+    await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
+    _broadcast_channel_update(stored)
+    return stored
+
+
+@router.post("/{key}/refuse")
+async def refuse_channel(key: str) -> dict:
+    """Delete a pending channel and remember the key so the catalogue does not reopen it."""
+    if is_public_channel_key(key):
+        raise HTTPException(
+            status_code=400, detail="The canonical Public channel cannot be refused"
+        )
+
+    channel = await ChannelRepository.get_by_key(key)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if channel.membership != "pending":
+        raise HTTPException(
+            status_code=400,
+            detail="Only pending discovered channels can be refused",
+        )
+
+    await AppSettingsRepository.add_rejected_channel(channel.key, channel.name)
+    await ChannelRepository.delete(channel.key)
+    broadcast_event("channel_deleted", {"key": channel.key})
+    return {"status": "ok", "key": channel.key}
 
 
 @router.delete("/{key}")

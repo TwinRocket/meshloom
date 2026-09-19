@@ -142,6 +142,7 @@
     "trace": "Trace",
     "messageSearch": "Message Search",
     "showChannelFinder": "Show Channel Finder",
+    "discoveredChannels": "Discovered channels",
     "hideChannelFinder": "Hide Channel Finder",
     "running": "running",
     "idle": "idle",
@@ -2602,7 +2603,24 @@
     "markAllReadDescription": "Clear every unread badge",
     "liveDescription": "Packets landing on the map as they are heard",
     "crackerQueued_one": "{{count}} key still to try",
-    "crackerQueued_other": "{{count}} keys still to try"
+    "crackerQueued_other": "{{count}} keys still to try",
+    "discoveredDescription": "Hashtag rooms opened automatically, waiting to be kept or refused"
+  },
+  "discovered": {
+    "title": "Discovered channels",
+    "empty": "No discovered channels waiting. New hashtag rooms appear here instead of Chat.",
+    "adopt": "Adopt",
+    "refuse": "Refuse",
+    "adopted": "{{name}} added to Chat",
+    "refused": "Channel refused",
+    "adoptFailed": "Could not adopt this channel",
+    "refuseFailed": "Could not refuse this channel",
+    "rejected": "Refused",
+    "rejectedTitle": "Refused channels",
+    "rejectedEmpty": "No refused channels.",
+    "rejectedLoadFailed": "Could not load refused channels",
+    "toast": "Discovered {{name}}",
+    "toastAction": "Open"
   },
   "settingsIndex": {
     "title": "Settings",

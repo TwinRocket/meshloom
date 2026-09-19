@@ -35,6 +35,12 @@ describe('countUnreadConversations', () => {
     expect(countUnreadConversations([channel('A')], [contact('bb')], {})).toBe(0);
   });
 
+  it('skips pending catalogue channels', () => {
+    const pending = { ...channel('A'), membership: 'pending' as const };
+    const counts = { [getStateKey('channel', 'A')]: 4 };
+    expect(countUnreadConversations([pending], [], counts)).toBe(0);
+  });
+
   it('reads the state key, not the raw key', () => {
     // The raw channel key is not how the map is indexed; reading it that way
     // silently counts nothing.

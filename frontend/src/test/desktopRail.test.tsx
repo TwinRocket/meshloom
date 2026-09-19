@@ -49,23 +49,26 @@ describe('DesktopRail', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('toggles the channel-finder overlay instead of opening a conversation', () => {
+  it('opens discovered channels as a tool conversation', () => {
     const onSelectTool = vi.fn();
     render(
       <DesktopRail
         active={null}
         unreadTotal={0}
+        pendingCount={2}
         onSelect={vi.fn()}
         health={health}
         onOpenRadioStatus={vi.fn()}
         onSelectTool={onSelectTool}
-        overlayPressed={{ cracker: false }}
       />
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: i18n.t('sidebar.showChannelFinder'), hidden: true })
-    );
-    expect(onSelectTool).toHaveBeenCalledWith('cracker');
+    const button = screen.getByRole('button', {
+      name: i18n.t('sidebar.discoveredChannels'),
+      hidden: true,
+    });
+    expect(button).toHaveTextContent('2');
+    fireEvent.click(button);
+    expect(onSelectTool).toHaveBeenCalledWith('discovered');
   });
 
   it('opens meshloom.app from the mark and conversations from the chat glyph', () => {
@@ -100,7 +103,7 @@ describe('DesktopRail', () => {
     expect(onSelect).toHaveBeenCalledWith('conversations');
   });
 
-  it('marks the channel-finder overlay as pressed when it is open', () => {
+  it('marks the discovered-channels tool as current when it is open', () => {
     render(
       <DesktopRail
         active={null}
@@ -109,11 +112,11 @@ describe('DesktopRail', () => {
         health={health}
         onOpenRadioStatus={vi.fn()}
         onSelectTool={vi.fn()}
-        overlayPressed={{ cracker: true }}
+        activeToolId="discovered"
       />
     );
     expect(
-      screen.getByRole('button', { name: i18n.t('sidebar.showChannelFinder'), hidden: true })
-    ).toHaveAttribute('aria-pressed', 'true');
+      screen.getByRole('button', { name: i18n.t('sidebar.discoveredChannels'), hidden: true })
+    ).toHaveAttribute('aria-current', 'page');
   });
 });
