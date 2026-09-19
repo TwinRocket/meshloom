@@ -1,3 +1,31 @@
+## [4.14.0] - 2026-09-19
+
+Meshloom can now call you when something is off. This release watches the nodes you already poll, delivers the news the way you want, and makes managing several Meshloom instances simpler.
+
+### What's new
+
+- **Telemetry alerts for the nodes you already watch.** A low battery or a silent repeater used to be something you noticed in a dashboard, if you were looking. Settings → Alerts now watches the nodes you already poll: battery, noise, a missing GPS fix, missed polls, and the sensor readings Meshloom already collects. Defaults apply everywhere; a single node can have its own thresholds. Alerts stay quiet until you track a node and turn a rule on.
+- **Choose how each event reaches you.** Push was the only voice. Email and a webhook are now destinations you set once in Settings → Notifications.
+- **Name the server, for people running more than one.** Someone with Meshloom at home, at work and at a relative's house had three interfaces that looked identical. A band across the top can now say which one you opened. It lives with the instance, so every phone and laptop sees the same name. Size, weight, a handful of fonts, and a colour you can tell apart at a glance. Empty means no band at all — still the default.
+- **Favourites wear a star.** A long mixed list used to look the same for everyone. A small star on the avatar now marks the people and rooms you pinned.
+- **Discovered hashtag rooms wait in their own inbox.** Channels Meshloom discovers from Meshloom Community no longer land in Chat as if you had joined them. They wait under Tools → Discovered channels until you adopt or refuse them, and they stay out of the usual notification noise. Rooms you already have stay where they are.
+
+---
+
+### Français
+
+Meshloom peut désormais vous appeler quand quelque chose cloche. Cette version veille sur les nœuds que vous interrogez déjà, vous prévient comme vous le souhaitez, et rend plus simple la gestion de plusieurs instances de Meshloom.
+
+#### Quoi de neuf
+
+- **Des alertes de télémétrie pour les nœuds que vous suivez déjà.** Une batterie faible ou un répéteur silencieux, c'était quelque chose qu'on voyait sur un tableau de bord, si on regardait. Réglages → Alertes surveille désormais les nœuds que vous interrogez déjà : batterie, bruit, un GPS qui disparaît, des sondes manquées, et les capteurs que Meshloom collecte déjà. Les seuils par défaut s'appliquent partout ; un nœud peut avoir ses propres seuils. Les alertes restent silencieuses tant que vous ne suivez pas un nœud et n'activez pas une règle.
+- **Choisissez comment chaque événement vous atteint.** La notification push était la seule voix. L'e-mail et un webhook sont désormais des destinations que vous réglez une fois dans Réglages → Notifications.
+- **Nommez le serveur, pour ceux qui en font tourner plusieurs.** Quelqu'un avec Meshloom à la maison, au travail et chez un proche avait trois interfaces identiques. Un bandeau en haut de page peut désormais dire laquelle vous avez ouverte. Il vit avec l'instance, donc chaque téléphone et chaque ordinateur voient le même nom. Taille, graisse, quelques polices, et une couleur qu'on distingue d'un coup d'œil. Vide, c'est aucun bandeau — toujours le défaut.
+- **Les favoris portent une étoile.** Une longue liste mélangée avait le même visage pour tout le monde. Une petite étoile sur l'avatar marque désormais les personnes et les salons que vous avez épinglés.
+- **Les salons hashtag découverts attendent dans leur propre boîte.** Les canaux que Meshloom découvrent depuis Meshloom Community n'atterrissent plus dans Discussions comme si vous les aviez rejoints. Ils attendent sous Outils → Canaux découverts jusqu'à ce que vous les adoptiez ou les refusiez, et ils restent hors du bruit habituel des notifications. Les salons que vous avez déjà restent où ils sont.
+
+---
+
 ## [4.13.6] - 2026-09-19
 
 The mesh graph still labelled unknown hops as hex, even when Meshloom Community already knew the name.
