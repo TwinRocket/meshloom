@@ -5,7 +5,7 @@
 #
 # The tag is rewritten by scripts/build/publish.sh alongside the add-on's version,
 # so the add-on cannot advertise one release and install another.
-FROM ghcr.io/twinrocket/meshloom:4.13.5
+FROM ghcr.io/twinrocket/meshloom:4.13.6
 
 COPY run.py /usr/local/bin/meshloom-addon
 RUN chmod +x /usr/local/bin/meshloom-addon
