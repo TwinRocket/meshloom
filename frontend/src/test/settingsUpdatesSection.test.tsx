@@ -55,6 +55,32 @@ describe('SettingsUpdatesSection', () => {
     expect(onApply).toHaveBeenCalled();
   });
 
+  it('shows a leftover job error only while an update is still available', () => {
+    const failedJob: OssUpdateJob = {
+      state: 'failed',
+      phase: 'installing',
+      percent: 80,
+      error: 'See systemctl status meshloom-update.service',
+      started_at: 1,
+    };
+    const { rerender } = render(<SettingsUpdatesSection updates={status({ job: failedJob })} />);
+    expect(screen.getByText('See systemctl status meshloom-update.service')).toBeInTheDocument();
+
+    rerender(
+      <SettingsUpdatesSection
+        updates={status({
+          current: '3.3.0',
+          latest: '3.3.0',
+          update_available: false,
+          job: failedJob,
+        })}
+      />
+    );
+    expect(
+      screen.queryByText('See systemctl status meshloom-update.service')
+    ).not.toBeInTheDocument();
+  });
+
   it('hides install when no update is available', () => {
     render(
       <SettingsUpdatesSection

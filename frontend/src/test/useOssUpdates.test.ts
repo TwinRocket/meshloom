@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, api } from '../api';
 import {
+  OSS_UPDATE_JOB_POLL_MS,
   OSS_UPDATE_RESTART_TIMEOUT_MS,
   OSS_UPDATE_SUCCEEDED_STALE_MS,
   UPDATE_TARGET_STORAGE_KEY,
@@ -188,6 +189,49 @@ describe('useOssUpdates', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it('reloads when the version already matches even if the job failed', async () => {
+    const reload = vi.spyOn(ossUpdateActions, 'reloadWindow').mockImplementation(() => {});
+    vi.spyOn(api, 'getUpdates')
+      .mockResolvedValueOnce(status())
+      .mockResolvedValue(
+        status({
+          current: '1.1.0',
+          latest: '1.1.0',
+          update_available: false,
+          job: {
+            state: 'failed',
+            phase: 'installing',
+            percent: 80,
+            error: 'systemctl start failed',
+            started_at: 1,
+          },
+        })
+      );
+    vi.spyOn(api, 'applyUpdate').mockResolvedValue(
+      status({
+        job: {
+          state: 'applying',
+          phase: 'preparing',
+          percent: null,
+          error: null,
+          started_at: 1,
+        },
+      })
+    );
+
+    const { result } = renderHook(() => useOssUpdates());
+    await waitFor(() => {
+      expect(result.current.status?.current).toBe('1.0.0');
+    });
+    await act(async () => {
+      await result.current.apply();
+    });
+    await waitFor(() => {
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.applyError).toBeNull();
+  });
+
   it('flashes 100% and reloads when the new version is live', async () => {
     const reload = vi.spyOn(ossUpdateActions, 'reloadWindow').mockImplementation(() => {});
     vi.spyOn(api, 'getUpdates')
@@ -328,6 +372,40 @@ describe('useOssUpdates', () => {
     expect(result.current.applying).toBe(false);
     expect(result.current.applyError).toBeTruthy();
     expect(result.current.showProgress).toBe(true);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('cancels the succeeded-stale timer when /updates goes down', async () => {
+    vi.useFakeTimers();
+    const reload = vi.spyOn(ossUpdateActions, 'reloadWindow').mockImplementation(() => {});
+    sessionStorage.setItem(UPDATE_TARGET_STORAGE_KEY, '1.1.0');
+    let calls = 0;
+    vi.spyOn(api, 'getUpdates').mockImplementation(async () => {
+      calls += 1;
+      if (calls <= 2) {
+        return status({
+          job: { state: 'succeeded', phase: 'done', percent: 100, error: null, started_at: 1 },
+        });
+      }
+      throw new Error('down');
+    });
+    vi.spyOn(api, 'getHealth').mockRejectedValue(new Error('down'));
+
+    const { result } = renderHook(() => useOssUpdates());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OSS_UPDATE_JOB_POLL_MS);
+    });
+    expect(result.current.progressPhase).toBe('restarting');
+    expect(result.current.applying).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(OSS_UPDATE_SUCCEEDED_STALE_MS);
+    });
+    expect(result.current.applyError).toBeNull();
+    expect(result.current.applying).toBe(true);
     expect(reload).not.toHaveBeenCalled();
   });
 

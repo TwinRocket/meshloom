@@ -123,6 +123,34 @@ class TestSemVerAndCache:
         assert status["update_available"] is True
         assert status["html_url"] == _STATS_PAYLOAD["html_url"]
 
+    def test_env_latest_override_wins_over_catalogue(self, monkeypatch: pytest.MonkeyPatch):
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = dict(_STATS_PAYLOAD)
+        monkeypatch.setenv("MESHLOOM_UPDATE_LATEST", "9.9.9")
+        monkeypatch.setenv("MESHLOOM_UPDATE_HTML_URL", "https://example.invalid/private")
+        with patch(
+            "app.services.oss_updates.get_app_build_info",
+            return_value=_build("1.0.0"),
+        ):
+            status = get_update_status()
+        assert status["latest"] == "9.9.9"
+        assert status["update_available"] is True
+        assert status["html_url"] == "https://example.invalid/private"
+
+    def test_env_latest_override_keeps_catalogue_html(self, monkeypatch: pytest.MonkeyPatch):
+        import app.services.oss_updates as oss_updates
+
+        oss_updates._latest_payload = dict(_STATS_PAYLOAD)
+        monkeypatch.setenv("MESHLOOM_UPDATE_LATEST", "8.8.8")
+        with patch(
+            "app.services.oss_updates.get_app_build_info",
+            return_value=_build("1.0.0"),
+        ):
+            status = get_update_status()
+        assert status["latest"] == "8.8.8"
+        assert status["html_url"] == _STATS_PAYLOAD["html_url"]
+
     def test_equal_or_older_latest_is_not_available(self):
         assert is_newer_release("1.2.3", "1.2.3") is False
         assert is_newer_release("1.2.2", "1.2.3") is False

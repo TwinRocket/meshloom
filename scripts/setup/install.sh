@@ -1101,7 +1101,9 @@ persist_installer_state() {
 # apply helper. Package units ship in the .deb; Compose units are written here
 # because the curl one-liner has no sibling files on disk.
 _package_update_helper_present() {
-    [ -x /usr/lib/meshloom/apply-update ] && [ -f /usr/lib/systemd/system/meshloom-update.service ]
+    [ -x /usr/lib/meshloom/apply-update ] \
+        && [ -f /usr/lib/systemd/system/meshloom-update.service ] \
+        && [ -f /usr/lib/systemd/system/meshloom-update.path ]
 }
 
 _env_ensure_key() {
@@ -1128,12 +1130,13 @@ _restore_package_update_helper() {
 }
 
 _install_package_update_helper_fallback() {
-    as_root mkdir -p /usr/lib/meshloom /usr/lib/systemd/system /usr/share/polkit-1/rules.d
+    as_root mkdir -p /usr/lib/meshloom /usr/lib/systemd/system /usr/share/polkit-1/rules.d /var/lib/meshloom
     as_root tee /usr/lib/meshloom/apply-update >/dev/null <<'EOF'
 #!/bin/sh
 # Fallback helper written by install.sh when the packaged files are missing.
 set -e
 JOB_PATH="${MESHLOOM_UPDATE_JOB_PATH:-/var/lib/meshloom/update-job.json}"
+REQUEST_PATH="/var/lib/meshloom/request-update"
 STARTED_AT=$(date +%s)
 LAST_ATTEMPT=
 TARGET=
@@ -1157,6 +1160,10 @@ write_job() {
     chown meshloom:meshloom "$tmp" 2>/dev/null || true
     mv -f "$tmp" "$JOB_PATH"
 }
+rm -f "$REQUEST_PATH"
+mkdir -p /var/lib/meshloom
+chown meshloom:meshloom /var/lib/meshloom 2>/dev/null || true
+chmod 0750 /var/lib/meshloom 2>/dev/null || true
 load_identity
 write_job applying preparing null
 if command -v apt-get >/dev/null 2>&1; then
@@ -1178,8 +1185,15 @@ fi
 write_job applying restarting null
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable meshloom || { write_job failed restarting "\"systemctl enable meshloom failed\""; exit 1; }
-    systemctl start meshloom || { write_job failed restarting "\"meshloom.service failed to start\""; exit 1; }
+    systemctl enable meshloom || true
+    i=0
+    while [ "$i" -lt 15 ]; do
+        systemctl is-active --quiet meshloom && break
+        systemctl start meshloom || true
+        i=$((i + 1))
+        sleep 1
+    done
+    systemctl is-active --quiet meshloom || { write_job failed restarting "\"meshloom.service failed to start\""; exit 1; }
 fi
 write_job succeeded done null
 EOF
@@ -1196,6 +1210,18 @@ User=root
 ExecStart=/usr/lib/meshloom/apply-update
 TimeoutStartSec=30min
 EOF
+    as_root tee /usr/lib/systemd/system/meshloom-update.path >/dev/null <<'EOF'
+[Unit]
+Description=Watch Meshloom package update request
+
+[Path]
+PathExists=/var/lib/meshloom/request-update
+PathChanged=/var/lib/meshloom/request-update
+Unit=meshloom-update.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
     as_root tee /usr/share/polkit-1/rules.d/60-meshloom-update.rules >/dev/null <<'EOF'
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.systemd1.manage-units" &&
@@ -1206,6 +1232,11 @@ polkit.addRule(function(action, subject) {
     }
 });
 EOF
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        rm -f /var/lib/meshloom/request-update
+        as_root systemctl daemon-reload || true
+        as_root systemctl enable --now meshloom-update.path || true
+    fi
 }
 
 ensure_update_helper() {

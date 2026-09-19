@@ -14,7 +14,7 @@ from app.services.oss_updates import get_update_status, refresh_oss_update_cache
 from app.services.update_apply import (
     UpdateApplyBusy,
     expire_stale_applying_job,
-    public_job,
+    public_job_for_client,
     start_apply,
 )
 from app.services.update_window import (
@@ -129,7 +129,12 @@ async def build_update_status() -> UpdateStatusResponse:
             if pending_auto
             else None
         ),
-        job=UpdateJobResponse.model_validate(public_job()),
+        job=UpdateJobResponse.model_validate(
+            public_job_for_client(
+                current=catalogue["current"],
+                latest=catalogue["latest"] if isinstance(catalogue.get("latest"), str) else None,
+            )
+        ),
     )
 
 

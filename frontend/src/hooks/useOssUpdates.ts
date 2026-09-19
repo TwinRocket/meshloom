@@ -269,6 +269,11 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
       if (cancelledRef.current || !data || typeof data.current !== 'string') return;
       persistStatus(data);
 
+      if (target && versionsMatch(data.current, target)) {
+        await flashAndReload();
+        return;
+      }
+
       if (data.job?.state === 'failed') {
         stopJobPolling();
         setApplying(false);
@@ -276,11 +281,6 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
         setApplyError(data.job.error || i18n.t('updates.failed'));
         setProgressPhase(data.job.phase);
         setProgressPercent(jobProgressPercent(data.job));
-        return;
-      }
-
-      if (target && versionsMatch(data.current, target)) {
-        await flashAndReload();
         return;
       }
 
@@ -310,6 +310,7 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
       }
     } catch {
       if (cancelledRef.current) return;
+      stopSucceededTimeout();
       setApplying(true);
       setShowProgress(true);
       setProgressPhase('restarting');
@@ -412,16 +413,16 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
       const next = await api.applyUpdate();
       if (cancelledRef.current) return;
       persistStatus(next);
+      if (targetRef.current && versionsMatch(next.current, targetRef.current)) {
+        await flashAndReload();
+        return;
+      }
       if (next.job?.state === 'failed') {
         stopJobPolling();
         setApplying(false);
         setApplyError(next.job.error || i18n.t('updates.failed'));
         setProgressPhase(next.job.phase);
         setProgressPercent(jobProgressPercent(next.job));
-        return;
-      }
-      if (versionsMatch(next.current, targetRef.current)) {
-        await flashAndReload();
         return;
       }
       setProgressPhase(next.job?.phase ?? 'preparing');

@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch Meshloom package update request
+Documentation=https://github.com/TwinRocket/meshloom
+
+[Path]
+PathExists=/var/lib/meshloom/request-update
+PathChanged=/var/lib/meshloom/request-update
+Unit=meshloom-update.service
+
+[Install]
+WantedBy=multi-user.target

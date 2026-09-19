@@ -19,9 +19,12 @@ from app.services.update_apply import (
     job_path,
     last_attempt_recent,
     public_job,
+    public_job_for_client,
     read_job,
     request_path,
     start_apply,
+    start_package_helper,
+    versions_match,
     write_job,
 )
 
@@ -30,6 +33,12 @@ from app.services.update_apply import (
 def job_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("MESHLOOM_UPDATE_JOB_PATH", str(tmp_path / "update-job.json"))
     return tmp_path
+
+
+def test_package_request_path_is_canonical() -> None:
+    from app.services.update_apply import PACKAGE_REQUEST_PATH
+
+    assert Path("/var/lib/meshloom/request-update") == PACKAGE_REQUEST_PATH
 
 
 def test_job_path_override_and_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,6 +72,30 @@ def test_write_and_read_job_round_trip(job_dir: Path) -> None:
     assert set(public) == {"state", "phase", "percent", "error", "started_at"}
 
 
+def test_versions_match_ignores_leading_v() -> None:
+    assert versions_match("v1.2.3", "1.2.3") is True
+    assert versions_match("1.2.3", "1.2.4") is False
+    assert versions_match("", "1.2.3") is False
+
+
+def test_public_job_for_client_hides_failed_when_already_current(job_dir: Path) -> None:
+    write_job(
+        state="failed",
+        phase="installing",
+        error="See systemctl status meshloom-update.service",
+        target="1.2.3",
+    )
+    hidden = public_job_for_client(current="1.2.3", latest="1.2.3")
+    assert hidden["state"] == "succeeded"
+    assert hidden["error"] is None
+    assert hidden["phase"] == "done"
+    assert read_job()["state"] == "failed"
+
+    visible = public_job_for_client(current="1.2.2", latest="1.2.3")
+    assert visible["state"] == "failed"
+    assert visible["error"]
+
+
 def test_last_attempt_recent_uses_backoff(job_dir: Path) -> None:
     write_job(state="failed", phase="installing", error="boom", last_attempt=1_000)
     assert last_attempt_recent(read_job(), now=1_000 + 60) is True
@@ -77,6 +110,111 @@ async def test_start_apply_package_starts_unit(job_dir: Path) -> None:
     assert job["state"] == "applying"
     assert job["phase"] == "preparing"
     assert job["target"] == "9.9.9"
+
+
+@pytest.mark.asyncio
+async def test_start_package_helper_writes_canonical_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unit = tmp_path / "meshloom-update.path"
+    unit.write_text("[Path]\n", encoding="utf-8")
+    request = tmp_path / "canonical" / "request-update"
+    request.parent.mkdir()
+    request.write_text("leftover\n", encoding="utf-8")
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", unit)
+    monkeypatch.setattr("app.services.update_apply.PACKAGE_REQUEST_PATH", request)
+    with (
+        patch(
+            "app.services.update_apply.package_path_watcher_active",
+            new=AsyncMock(return_value=True),
+        ),
+        patch("asyncio.create_subprocess_exec") as spawn,
+    ):
+        await start_package_helper()
+    spawn.assert_not_called()
+    assert request.read_text(encoding="utf-8") == "1\n"
+
+
+@pytest.mark.asyncio
+async def test_start_apply_package_does_not_use_job_dir_request(
+    job_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unit = tmp_path / "meshloom-update.path"
+    unit.write_text("[Path]\n", encoding="utf-8")
+    request = tmp_path / "canonical-request"
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", unit)
+    monkeypatch.setattr("app.services.update_apply.PACKAGE_REQUEST_PATH", request)
+    with patch(
+        "app.services.update_apply.package_path_watcher_active",
+        new=AsyncMock(return_value=True),
+    ):
+        job = await start_apply("package", target="1.2.3")
+    assert request.read_text(encoding="utf-8") == "1\n"
+    assert not (job_dir / "request-update").exists()
+    assert job["state"] == "applying"
+    assert job["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_start_package_helper_falls_back_to_no_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", tmp_path / "missing.path")
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as spawn:
+        await start_package_helper()
+    spawn.assert_awaited_once()
+    assert spawn.await_args.args[:4] == (
+        "systemctl",
+        "start",
+        "--no-block",
+        "meshloom-update.service",
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_package_helper_falls_back_when_watcher_inactive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unit = tmp_path / "meshloom-update.path"
+    unit.write_text("[Path]\n", encoding="utf-8")
+    request = tmp_path / "request-update"
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", unit)
+    monkeypatch.setattr("app.services.update_apply.PACKAGE_REQUEST_PATH", request)
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    with (
+        patch(
+            "app.services.update_apply.package_path_watcher_active",
+            new=AsyncMock(return_value=False),
+        ),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as spawn,
+    ):
+        await start_package_helper()
+    spawn.assert_awaited_once()
+    assert spawn.await_args.args[:4] == (
+        "systemctl",
+        "start",
+        "--no-block",
+        "meshloom-update.service",
+    )
+    assert not request.exists()
+
+
+@pytest.mark.asyncio
+async def test_start_apply_does_not_overwrite_job_after_enqueue(job_dir: Path) -> None:
+    async def helper() -> None:
+        write_job(state="applying", phase="downloading", percent=50, target="1.2.3")
+
+    with patch("app.services.update_apply.start_package_helper", new=helper):
+        job = await start_apply("package", target="1.2.3")
+    assert job["state"] == "applying"
+    assert job["phase"] == "downloading"
+    assert job["percent"] == 50
+    assert job.get("error") is None
 
 
 @pytest.mark.asyncio
@@ -204,6 +342,43 @@ class TestUpdatesRouter:
         assert data["next_auto_apply_at"] is None
         assert data["job"]["state"] == "idle"
         assert "last_attempt" not in data["job"]
+
+    def test_get_updates_hides_failed_job_when_current_matches(self, job_dir: Path) -> None:
+        from app.main import app
+
+        write_job(
+            state="failed",
+            phase="installing",
+            error="See systemctl status meshloom-update.service",
+            target="9.9.9",
+        )
+        with (
+            patch(
+                "app.routers.updates.get_update_status",
+                return_value={
+                    "current": "9.9.9",
+                    "latest": "9.9.9",
+                    "update_available": False,
+                    "html_url": None,
+                },
+            ),
+            patch(
+                "app.routers.updates.detect_install_kind",
+                return_value=("package", True),
+            ),
+            patch(
+                "app.routers.updates.AppSettingsRepository.get",
+                new=AsyncMock(return_value=_settings()),
+            ),
+        ):
+            with TestClient(app) as client:
+                response = client.get("/api/updates")
+
+        assert response.status_code == 200
+        job = response.json()["job"]
+        assert job["state"] == "succeeded"
+        assert job["error"] is None
+        assert read_job()["state"] == "failed"
 
     def test_apply_unsupported_is_409(self, job_dir: Path) -> None:
         from app.main import app

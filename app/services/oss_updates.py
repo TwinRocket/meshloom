@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any
@@ -65,6 +66,15 @@ def _payload_html_url(payload: dict[str, Any] | None) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return value.strip()
+
+
+def _env_latest_override() -> tuple[str | None, str | None]:
+    """Private spare-node pin. Never shipped in meshloom.env."""
+    latest = (os.environ.get("MESHLOOM_UPDATE_LATEST") or "").strip()
+    if not latest:
+        return None, None
+    html = (os.environ.get("MESHLOOM_UPDATE_HTML_URL") or "").strip() or None
+    return latest, html
 
 
 def _cancel_window_timer() -> None:
@@ -153,8 +163,9 @@ async def refresh_oss_update_cache() -> dict[str, Any] | None:
 
 def get_update_status() -> dict[str, Any]:
     current = get_app_build_info().version
-    latest = _payload_version(_latest_payload)
-    html_url = _payload_html_url(_latest_payload)
+    env_latest, env_html = _env_latest_override()
+    latest = env_latest or _payload_version(_latest_payload)
+    html_url = env_html or _payload_html_url(_latest_payload)
     update_available = (
         latest is not None
         and not is_unknown_local_version(current)

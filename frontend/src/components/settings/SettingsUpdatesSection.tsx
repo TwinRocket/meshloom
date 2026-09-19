@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { versionsMatch } from '../../hooks/useOssUpdates';
 import type { OssUpdateSettingsPatch, OssUpdateStatus } from '../../types';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -75,6 +76,10 @@ export function SettingsUpdatesSection({
   const showManualHelp = (kind === 'container' || kind === 'source') && !applySupported;
   const showRecipes = !applySupported && kind !== 'addon';
   const showInstall = applySupported && updateAvailable && Boolean(onApply);
+  const showJobError =
+    Boolean(updates?.job?.error) &&
+    updateAvailable &&
+    !versionsMatch(updates?.current, updates?.latest);
   const checkedAt = formatUnixSeconds(updates?.checked_at);
   const nextAutoApply = formatUnixSeconds(updates?.next_auto_apply_at);
   const weekdays = resolvedWeekdays(updates);
@@ -145,7 +150,7 @@ export function SettingsUpdatesSection({
           <StatusRow label={t('settings.updates.installKind.label')} value={installKindLabel} />
           <StatusRow label={t('settings.updates.job')} value={jobLabel} />
         </dl>
-        {job?.error ? <p className="text-[0.8125rem] text-destructive">{job.error}</p> : null}
+        {showJobError ? <p className="text-[0.8125rem] text-destructive">{job?.error}</p> : null}
       </SettingsGroup>
 
       <SettingsGroup id="settings-updates-actions">

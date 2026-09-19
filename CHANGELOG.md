@@ -1,3 +1,29 @@
+## [4.13.5] - 2026-09-19
+
+Install still painted a red `systemctl` error after a successful package upgrade, because Meshloom waited inside the service that the upgrade restarts.
+
+### Changed
+
+- **Click Install without the leftover systemctl error.** The app no longer blocks on `systemctl start`. It drops a request file; systemd starts the helper. The old process is killed so the tab sees a restart and reloads on the new version, even if the last job file still says failed.
+- **The next Install click starts.** After this upgrade the update watcher is already running, so a later apply is not a silent 202.
+
+Auto-update windows and non-package installs are unchanged.
+
+---
+
+### Français
+
+Installer affichait encore une erreur `systemctl` rouge après une mise à jour de paquet réussie : Meshloom attendait à l’intérieur du service que l’upgrade redémarre.
+
+#### Modifications
+
+- **Cliquer sur Installer sans l’erreur systemctl résiduelle.** L’app ne bloque plus sur `systemctl start`. Elle pose un fichier de demande ; systemd lance le helper. L’ancien process est tué pour que l’onglet voie un redémarrage et se recharge sur la nouvelle version, même si le dernier job dit encore failed.
+- **Le clic Installer suivant part.** Après cette mise à jour, le watcher est déjà actif, donc un apply plus tard n’est plus un 202 silencieux.
+
+Les fenêtres d’auto-update et les installs hors paquet ne changent pas.
+
+---
+
 ## [4.13.4] - 2026-09-18
 
 `#live` was still painting Community nodes that had not advertised for days, because Stats treated every directory pull as a fresh sighting.

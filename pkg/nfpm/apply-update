@@ -4,6 +4,7 @@
 set -e
 
 JOB_PATH="${MESHLOOM_UPDATE_JOB_PATH:-/var/lib/meshloom/update-job.json}"
+REQUEST_PATH="/var/lib/meshloom/request-update"
 STATE=applying
 PHASE=preparing
 PERCENT=
@@ -180,7 +181,13 @@ if [ "$(id -u)" -ne 0 ]; then
     fail "must run as root"
 fi
 
+# Drop the path-unit trigger first so PathExists cannot re-fire this oneshot.
+rm -f "$REQUEST_PATH"
 mkdir -p /var/lib/meshloom
+if command -v chown >/dev/null 2>&1 && getent passwd meshloom >/dev/null 2>&1; then
+    chown meshloom:meshloom /var/lib/meshloom 2>/dev/null || true
+    chmod 0750 /var/lib/meshloom 2>/dev/null || true
+fi
 load_identity
 write_job
 
@@ -224,8 +231,15 @@ PERCENT=90
 write_job
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable meshloom || fail "systemctl enable meshloom failed"
-    systemctl start meshloom || fail "meshloom.service failed to start"
+    systemctl enable meshloom || true
+    i=0
+    while [ "$i" -lt 15 ]; do
+        systemctl is-active --quiet meshloom && break
+        systemctl start meshloom || true
+        i=$((i + 1))
+        sleep 1
+    done
+    systemctl is-active --quiet meshloom || fail "meshloom.service failed to start"
 fi
 succeed
 echo "meshloom apply-update: succeeded"

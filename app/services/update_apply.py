@@ -17,6 +17,8 @@ JobPhase = Literal["preparing", "downloading", "installing", "restarting", "done
 
 DEFAULT_DATA_DIR = Path("/var/lib/meshloom")
 DEFAULT_JOB_PATH = DEFAULT_DATA_DIR / "update-job.json"
+PACKAGE_REQUEST_PATH = DEFAULT_DATA_DIR / "request-update"
+UPDATE_PATH_UNIT = Path("/usr/lib/systemd/system/meshloom-update.path")
 AUTO_UPDATE_BACKOFF_SECONDS = 6 * 3600
 APPLYING_TTL_SECONDS = 20 * 60
 APPLY_TIMEOUT_ERROR = "apply timed out"
@@ -51,6 +53,39 @@ def request_path() -> Path:
     return job_path().with_name("request-update")
 
 
+def write_request_file(path: Path) -> None:
+    """Drop a leftover first: PathExists is level-triggered if the file is already there."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    path.write_text("1\n", encoding="utf-8")
+
+
+def package_path_unit_present() -> bool:
+    return UPDATE_PATH_UNIT.exists()
+
+
+async def package_path_watcher_active() -> bool:
+    """True only when the packaged .path unit is loaded and actually watching."""
+    if not package_path_unit_present():
+        return False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl",
+            "is-active",
+            "--quiet",
+            "meshloom-update.path",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    await proc.communicate()
+    return proc.returncode == 0
+
+
 def idle_job() -> dict[str, Any]:
     return {
         "state": "idle",
@@ -65,6 +100,38 @@ def public_job(job: dict[str, Any] | None = None) -> dict[str, Any]:
     """GET/POST body job object — no last_attempt / target."""
     current = job if job is not None else read_job()
     return {key: current.get(key) for key in _PUBLIC_JOB_KEYS}
+
+
+def normalize_update_version(value: str | None) -> str:
+    if not value:
+        return ""
+    text = value.strip()
+    if len(text) > 1 and text[0] in {"v", "V"} and text[1].isdigit():
+        return text[1:]
+    return text
+
+
+def versions_match(left: str | None, right: str | None) -> bool:
+    left_norm = normalize_update_version(left)
+    right_norm = normalize_update_version(right)
+    return bool(left_norm) and left_norm == right_norm
+
+
+def public_job_for_client(
+    job: dict[str, Any] | None = None,
+    *,
+    current: str | None = None,
+    latest: str | None = None,
+) -> dict[str, Any]:
+    """Hide a leftover failed job when this process is already on the target."""
+    raw = job if job is not None else read_job()
+    public = public_job(raw)
+    if public.get("state") != "failed":
+        return public
+    target = raw.get("target") if isinstance(raw.get("target"), str) else None
+    if versions_match(current, target) or versions_match(current, latest):
+        return {**public, "state": "succeeded", "phase": "done", "error": None}
+    return public
 
 
 def read_job() -> dict[str, Any]:
@@ -198,10 +265,14 @@ def last_attempt_recent(job: dict[str, Any], *, now: int | None = None) -> bool:
 
 
 async def start_package_helper() -> None:
-    """``systemctl start meshloom-update.service`` (pkg/nfpm helper)."""
+    """Enqueue the packaged oneshot via the path unit, or ``systemctl --no-block``."""
+    if await package_path_watcher_active():
+        write_request_file(PACKAGE_REQUEST_PATH)
+        return
     proc = await asyncio.create_subprocess_exec(
         "systemctl",
         "start",
+        "--no-block",
         "meshloom-update.service",
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
@@ -215,14 +286,7 @@ async def start_package_helper() -> None:
 
 
 def start_compose_helper() -> None:
-    path = request_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # PathExists only fires on absent → present. Drop a leftover request first.
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-    path.write_text("1\n", encoding="utf-8")
+    write_request_file(request_path())
 
 
 async def start_apply(kind: str, *, target: str | None = None) -> dict[str, Any]:

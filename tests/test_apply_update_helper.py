@@ -12,6 +12,7 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parents[1] / "pkg" / "nfpm"
 SCRIPT = PKG / "apply-update"
 SERVICE = PKG / "meshloom-update.service"
+PATH_UNIT = PKG / "meshloom-update.path"
 POLKIT = PKG / "meshloom-update.polkit"
 NFPM = PKG / "nfpm.yaml.tmpl"
 
@@ -53,6 +54,12 @@ def test_apply_update_is_meshloom_only() -> None:
     assert chown_at < mv_at
     assert 'rm -f "$JOB_PATH"' not in text
     assert 'rm "$JOB_PATH"' not in text
+    rm_request_at = text.index('rm -f "$REQUEST_PATH"')
+    apt_at = text.index("apt-get update")
+    assert text.index("must run as root") < rm_request_at < apt_at
+    assert "systemctl enable meshloom || true" in active
+    assert "systemctl is-active --quiet meshloom" in active
+    assert "systemctl enable meshloom || fail" not in active
 
 
 def test_update_unit_and_polkit_are_start_only() -> None:
@@ -75,4 +82,10 @@ def test_update_unit_and_polkit_are_start_only() -> None:
     assert "dst: /usr/lib/meshloom/apply-update" in nfpm
     assert "mode: 0755" in nfpm
     assert "dst: /usr/lib/systemd/system/meshloom-update.service" in nfpm
+    assert "dst: /usr/lib/systemd/system/meshloom-update.path" in nfpm
     assert "dst: /usr/share/polkit-1/rules.d/60-meshloom-update.rules" in nfpm
+
+    path_unit = PATH_UNIT.read_text(encoding="utf-8")
+    assert "PathExists=/var/lib/meshloom/request-update" in path_unit
+    assert "PathChanged=/var/lib/meshloom/request-update" in path_unit
+    assert "Unit=meshloom-update.service" in path_unit
