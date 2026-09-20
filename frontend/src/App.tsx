@@ -272,6 +272,32 @@ export function App() {
     [setContacts, setChannels, t]
   );
 
+  const handleTogglePin = useCallback(
+    async (type: 'channel' | 'contact', id: string) => {
+      if (type === 'contact') {
+        setContacts((prev) =>
+          prev.map((c) => (c.public_key === id ? { ...c, pinned: !c.pinned } : c))
+        );
+      } else {
+        setChannels((prev) => prev.map((c) => (c.key === id ? { ...c, pinned: !c.pinned } : c)));
+      }
+
+      try {
+        await api.togglePin(type, id);
+      } catch {
+        if (type === 'contact') {
+          setContacts((prev) =>
+            prev.map((c) => (c.public_key === id ? { ...c, pinned: !c.pinned } : c))
+          );
+        } else {
+          setChannels((prev) => prev.map((c) => (c.key === id ? { ...c, pinned: !c.pinned } : c)));
+        }
+        toast.error(t('toast.pinFailed'));
+      }
+    },
+    [setContacts, setChannels, t]
+  );
+
   // useConversationRouter is called second — it receives channels/contacts as inputs
   const {
     activeConversation,
@@ -665,6 +691,55 @@ export function App() {
     },
     blockedKeys: appSettings?.blocked_keys ?? [],
     blockedNames: appSettings?.blocked_names ?? [],
+    onTogglePin: handleTogglePin,
+    onToggleFavorite: handleToggleFavorite,
+    onMuteChannel: handleMuteChannel,
+    onDeleteChannel: handleDeleteChannel,
+    onDeleteContact: handleDeleteContact,
+    onSetChannelFloodScopeOverride: handleSetChannelFloodScopeOverride,
+    getNotifyMediaEnabled: (conversation: Conversation): NotificationMediaFlags => {
+      const empty: NotificationMediaFlags = { push: false, email: false, webhook: false };
+      if (conversation.type !== 'contact' && conversation.type !== 'channel') {
+        return empty;
+      }
+      const policy = conversationPushPolicy(conversation, channels);
+      if (!policy) return empty;
+      const key = getStateKey(conversation.type, conversation.id);
+      return {
+        push: pushSubscription.isConversationMediaEnabled(key, policy, 'push'),
+        email: pushSubscription.isConversationMediaEnabled(key, policy, 'email'),
+        webhook: pushSubscription.isConversationMediaEnabled(key, policy, 'webhook'),
+      };
+    },
+    onSetConversationMediaFor: async (
+      conversation: Conversation,
+      channel: NotificationMediaChannel,
+      enabled: boolean
+    ) => {
+      if (conversation.type !== 'contact' && conversation.type !== 'channel') {
+        return;
+      }
+      const key = getStateKey(conversation.type, conversation.id);
+      if (
+        channel === 'push' &&
+        enabled &&
+        !pushSubscription.isSubscribed &&
+        pushSubscription.isSupported
+      ) {
+        await pushSubscription.subscribe();
+      }
+      await pushSubscription.setConversationOverride(key, { [channel]: enabled });
+    },
+    onOpenNotifySettings: () => {
+      setSettingsSection('notifications');
+      if (!showSettings) handleToggleSettingsView();
+    },
+    emailReady: isEmailDestinationReady(
+      resolveNotificationDestinations(appSettings?.notification_destinations).email
+    ),
+    webhookReady: isWebhookDestinationReady(
+      resolveNotificationDestinations(appSettings?.notification_destinations).webhook
+    ),
   };
   const bulkAddChannelResultModalProps = {
     result: bulkAddResult,
@@ -698,6 +773,7 @@ export function App() {
     onRunTracePath: api.requestRadioTrace,
     onPathDiscovery: handlePathDiscovery,
     onToggleFavorite: handleToggleFavorite,
+    onTogglePin: handleTogglePin,
     onMuteChannel: handleMuteChannel,
     onDeleteContact: handleDeleteContact,
     onDeleteChannel: handleDeleteChannel,

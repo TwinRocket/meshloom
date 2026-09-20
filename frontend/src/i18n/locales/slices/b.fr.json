@@ -101,6 +101,10 @@
     "removeFavorite": "Retirer des favoris",
     "addFavoriteContact": "Ajouter aux favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
     "removeFavoriteContact": "Retirer des favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
+    "pin": "Épingler la conversation",
+    "unpin": "Désépingler la conversation",
+    "leaveChannel": "Quitter le canal",
+    "deleteConversation": "Supprimer la conversation",
     "delete": "Supprimer"
   },
   "conversation": {

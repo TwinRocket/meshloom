@@ -142,6 +142,17 @@ class FavoriteToggleResponse(BaseModel):
     favorite: bool
 
 
+class PinRequest(BaseModel):
+    type: Literal["channel", "contact"] = Field(description="'channel' or 'contact'")
+    id: str = Field(description="Channel key or contact public key")
+
+
+class PinToggleResponse(BaseModel):
+    type: Literal["channel", "contact"]
+    id: str
+    pinned: bool
+
+
 class MuteChannelRequest(BaseModel):
     key: str = Field(description="Channel key to mute or unmute")
     duration_seconds: int | None = Field(
@@ -407,6 +418,27 @@ async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
         logger.info("%s channel favorite: %s", "Added" if new_value else "Removed", request.id[:12])
 
     return FavoriteToggleResponse(type=request.type, id=request.id, favorite=new_value)
+
+
+@router.post("/pins/toggle", response_model=PinToggleResponse)
+async def toggle_pin(request: PinRequest) -> PinToggleResponse:
+    """Toggle a conversation's pinned status."""
+    if request.type == "contact":
+        contact = await ContactRepository.get_by_key(request.id)
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        new_value = not contact.pinned
+        await ContactRepository.set_pinned(request.id, new_value)
+        logger.info("%s contact pin: %s", "Added" if new_value else "Removed", request.id[:12])
+    else:
+        channel = await ChannelRepository.get_by_key(request.id)
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
+        new_value = not channel.pinned
+        await ChannelRepository.set_pinned(request.id, new_value)
+        logger.info("%s channel pin: %s", "Added" if new_value else "Removed", request.id[:12])
+
+    return PinToggleResponse(type=request.type, id=request.id, pinned=new_value)
 
 
 @router.post("/muted-channels/toggle", response_model=MuteChannelToggleResponse)

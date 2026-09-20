@@ -365,6 +365,17 @@ export function AppShell({
       updateAvailable={updateAvailable}
       activeConversation={conversationPaneProps.activeConversation}
       onCollapseList={onToggleConversationList}
+      onTogglePin={sidebarProps.onTogglePin}
+      onToggleFavorite={sidebarProps.onToggleFavorite}
+      onMuteChannel={sidebarProps.onMuteChannel}
+      onDeleteChannel={sidebarProps.onDeleteChannel}
+      onDeleteContact={sidebarProps.onDeleteContact}
+      onSetChannelFloodScopeOverride={sidebarProps.onSetChannelFloodScopeOverride}
+      getNotifyMediaEnabled={sidebarProps.getNotifyMediaEnabled}
+      onSetConversationMedia={sidebarProps.onSetConversationMediaFor}
+      onOpenNotifySettings={sidebarProps.onOpenNotifySettings}
+      emailReady={sidebarProps.emailReady}
+      webhookReady={sidebarProps.webhookReady}
     />
   );
 

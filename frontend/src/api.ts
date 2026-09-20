@@ -614,6 +614,12 @@ export const api = {
       body: JSON.stringify({ type, id }),
     }),
 
+  togglePin: (type: 'channel' | 'contact', id: string) =>
+    fetchJson<{ type: string; id: string; pinned: boolean }>('/settings/pins/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ type, id }),
+    }),
+
   toggleChannelMute: (key: string, durationSeconds?: number) =>
     fetchJson<{ key: string; muted: boolean; muted_until: number | null }>(
       '/settings/muted-channels/toggle',

@@ -67,6 +67,7 @@ def _contact_to_backup(contact) -> BackupContact:
         last_contacted=contact.last_contacted,
         first_seen=contact.first_seen,
         favorite=contact.favorite,
+        pinned=contact.pinned,
     )
 
 
@@ -78,6 +79,7 @@ def _channel_to_backup(channel) -> BackupChannel:
         flood_scope_override=channel.flood_scope_override,
         path_hash_mode_override=channel.path_hash_mode_override,
         favorite=channel.favorite,
+        pinned=channel.pinned,
         muted=channel.muted,
         muted_until=channel.muted_until,
         membership=channel.membership,
@@ -137,6 +139,7 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
             )
         )
         await ContactRepository.set_favorite(item.public_key, item.favorite)
+        await ContactRepository.set_pinned(item.public_key, item.pinned)
         contacts_upserted += 1
 
     channels_upserted = 0
@@ -145,6 +148,7 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
             item.key, item.name, item.is_hashtag, membership=item.membership
         )
         await ChannelRepository.set_favorite(item.key, item.favorite)
+        await ChannelRepository.set_pinned(item.key, item.pinned)
         await ChannelRepository.set_muted(item.key, item.muted, item.muted_until)
         await ChannelRepository.update_flood_scope_override(item.key, item.flood_scope_override)
         await ChannelRepository.update_path_hash_mode_override(

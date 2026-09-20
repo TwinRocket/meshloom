@@ -202,6 +202,7 @@ class ContactRepository:
             last_seen=row["last_seen"],
             on_radio=bool(row["on_radio"]),
             favorite=bool(row["favorite"]) if "favorite" in available_columns else False,
+            pinned=bool(row["pinned"]) if "pinned" in available_columns else False,
             last_contacted=row["last_contacted"],
             last_read_at=row["last_read_at"],
             first_seen=row["first_seen"],
@@ -556,6 +557,16 @@ class ContactRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE contacts SET favorite = ? WHERE public_key = ?",
+                (1 if value else 0, public_key.lower()),
+            ):
+                pass
+
+    @staticmethod
+    async def set_pinned(public_key: str, value: bool) -> None:
+        """Set or clear the pinned flag for a contact."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE contacts SET pinned = ? WHERE public_key = ?",
                 (1 if value else 0, public_key.lower()),
             ):
                 pass

@@ -76,6 +76,7 @@ interface ConversationPaneProps {
   ) => Promise<RadioTraceResponse>;
   onPathDiscovery: (publicKey: string) => Promise<PathDiscoveryResponse>;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => Promise<void>;
+  onTogglePin?: (type: 'channel' | 'contact', id: string) => Promise<void>;
   onMuteChannel: (key: string, durationSeconds: number) => Promise<void>;
   onDeleteContact: (publicKey: string) => Promise<void>;
   onDeleteChannel: (key: string) => Promise<void>;
@@ -172,6 +173,7 @@ export function ConversationPane({
   onRunTracePath,
   onPathDiscovery,
   onToggleFavorite,
+  onTogglePin,
   onMuteChannel,
   onDeleteContact,
   onDeleteChannel,
@@ -494,6 +496,7 @@ export function ConversationPane({
         onTrace={onTrace}
         onPathDiscovery={onPathDiscovery}
         onToggleFavorite={onToggleFavorite}
+        onTogglePin={onTogglePin}
         onMuteChannel={onMuteChannel}
         onSetChannelFloodScopeOverride={onSetChannelFloodScopeOverride}
         onSetChannelPathHashModeOverride={onSetChannelPathHashModeOverride}

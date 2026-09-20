@@ -277,6 +277,7 @@ export interface Contact {
   last_seen: number | null;
   on_radio: boolean;
   favorite: boolean;
+  pinned?: boolean;
   last_contacted: number | null;
   last_read_at: number | null;
   first_seen: number | null;
@@ -360,6 +361,7 @@ export interface Channel {
   path_hash_mode_override?: number | null;
   last_read_at: number | null;
   favorite: boolean;
+  pinned?: boolean;
   muted: boolean;
   muted_until?: number | null;
   membership?: 'adopted' | 'pending';

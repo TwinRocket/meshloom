@@ -215,6 +215,7 @@
     "checkConnection": "Vérifiez votre connexion",
     "contactKeyCopied": "Clé du contact copiée !",
     "favoriteFailed": "Échec de la mise à jour du favori",
+    "pinFailed": "Échec de la mise à jour de l’épingle",
     "muteFailed": "Échec de la mise à jour du mute",
     "loadMessagesFailed": "Échec du chargement des messages",
     "loadOlderFailed": "Échec du chargement des messages plus anciens",

@@ -246,6 +246,55 @@ class TestToggleFavorite:
         mock_create_task.assert_not_called()
 
 
+class TestTogglePin:
+    @pytest.mark.asyncio
+    async def test_pins_contact_when_not_pinned(self, test_db):
+        from app.routers.settings import PinRequest, toggle_pin
+
+        await ContactRepository.upsert(ContactUpsert(public_key="aa" * 32, name="Alice"))
+        result = await toggle_pin(PinRequest(type="contact", id="aa" * 32))
+        assert result.pinned is True
+        assert result.type == "contact"
+        stored = await ContactRepository.get_by_key("aa" * 32)
+        assert stored is not None
+        assert stored.pinned is True
+
+    @pytest.mark.asyncio
+    async def test_unpins_when_already_pinned(self, test_db):
+        from app.routers.settings import PinRequest, toggle_pin
+
+        await ContactRepository.upsert(ContactUpsert(public_key="aa" * 32, name="Alice"))
+        await ContactRepository.set_pinned("aa" * 32, True)
+        result = await toggle_pin(PinRequest(type="contact", id="aa" * 32))
+        assert result.pinned is False
+        stored = await ContactRepository.get_by_key("aa" * 32)
+        assert stored is not None
+        assert stored.pinned is False
+
+    @pytest.mark.asyncio
+    async def test_pins_channel(self, test_db):
+        from app.repository import ChannelRepository
+        from app.routers.settings import PinRequest, toggle_pin
+
+        key = "ab" * 16
+        await ChannelRepository.upsert(key, "#ops", is_hashtag=True)
+        result = await toggle_pin(PinRequest(type="channel", id=key))
+        assert result.pinned is True
+        stored = await ChannelRepository.get_by_key(key)
+        assert stored is not None
+        assert stored.pinned is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_contact_returns_404(self, test_db):
+        from fastapi import HTTPException
+
+        from app.routers.settings import PinRequest, toggle_pin
+
+        with pytest.raises(HTTPException) as exc:
+            await toggle_pin(PinRequest(type="contact", id="ff" * 32))
+        assert exc.value.status_code == 404
+
+
 class TestMuteChannel:
     @pytest.mark.asyncio
     async def test_duration_mutes_until_timestamp(self, test_db):
