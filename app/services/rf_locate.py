@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.models import (
     CONTACT_TYPE_REPEATER,
     Contact,
+    ContactAdvertPath,
     LocateAmbiguousDetail,
     LocateAnchor,
     LocateCandidate,
@@ -25,14 +26,7 @@ from app.repository import (
     ContactRepository,
     MessageRepository,
 )
-from app.services.directory import (
-    ALLOWED_HOP_HEX_LENS,
-    directory_is_available,
-    get_directory_node_reach,
-    is_valid_map_location,
-    resolve_directory_hops,
-    search_directory_nodes,
-)
+from app.services.directory import directory_is_available, is_valid_map_location
 from app.services.radio_runtime import radio_runtime
 
 DEFAULT_RADIUS_KM = 20.0
@@ -93,15 +87,15 @@ def _message_path_is_zero_hop(path: MessagePath) -> bool:
     return False
 
 
-async def _local_zero_hop(
-    public_key: str,
+def _local_zero_hop(
+    advert_paths: list[ContactAdvertPath],
+    message_paths: list[MessagePath],
     radius_km: float,
     radio_lat: float | None,
     radio_lon: float | None,
     radio_name: str | None,
     radio_key: str | None,
 ) -> tuple[list[LocateAnchor], bool]:
-    advert_paths = await ContactAdvertPathRepository.get_recent_for_contact(public_key)
     heard_direct = any(path.path_len == 0 for path in advert_paths)
     best_snr: float | None = None
     last_seen: int | None = None
@@ -112,7 +106,6 @@ async def _local_zero_hop(
         heard_count += path.heard_count
         last_seen = path.last_seen if last_seen is None else max(last_seen, path.last_seen)
 
-    message_paths = await MessageRepository.list_recent_paths_for_contact(public_key)
     for path in message_paths:
         if not _message_path_is_zero_hop(path):
             continue
@@ -145,9 +138,8 @@ async def _local_zero_hop(
 
 
 async def _first_hop_anchors(
-    public_key: str, radius_km: float, directory_enabled: bool
+    advert_paths: list[ContactAdvertPath], radius_km: float
 ) -> tuple[list[LocateAnchor], list[LocateUnresolvedHop]]:
-    advert_paths = await ContactAdvertPathRepository.get_recent_for_contact(public_key)
     hop_stats: dict[str, dict[str, int]] = {}
     for path in advert_paths:
         prefix = path.next_hop
@@ -162,7 +154,6 @@ async def _first_hop_anchors(
 
     anchors: list[LocateAnchor] = []
     unresolved: list[LocateUnresolvedHop] = []
-    hop_prefixes_for_directory: list[str] = []
 
     for prefix, stats in hop_stats.items():
         if len(prefix) == 2:
@@ -181,10 +172,7 @@ async def _first_hop_anchors(
             )
             continue
         if contact is None:
-            if len(prefix) in ALLOWED_HOP_HEX_LENS:
-                hop_prefixes_for_directory.append(prefix)
-            else:
-                unresolved.append(LocateUnresolvedHop(prefix=prefix, reason="unmatched"))
+            unresolved.append(LocateUnresolvedHop(prefix=prefix, reason="unmatched"))
             continue
         if (
             contact.lat is None
@@ -209,33 +197,6 @@ async def _first_hop_anchors(
             )
         )
 
-    if directory_enabled and hop_prefixes_for_directory:
-        resolved = await resolve_directory_hops(hop_prefixes_for_directory)
-        pending = set(hop_prefixes_for_directory)
-        for prefix, hit in resolved.resolved.items():
-            pending.discard(prefix)
-            if hit.lat is None or hit.lon is None or not is_valid_map_location(hit.lat, hit.lon):
-                unresolved.append(LocateUnresolvedHop(prefix=prefix, reason="no_gps"))
-                continue
-            stats = hop_stats.get(prefix, {"heard_count": 0, "last_seen": 0})
-            anchors.append(
-                LocateAnchor(
-                    kind="first_hop",
-                    source="corescope",
-                    name=hit.name,
-                    public_key=hit.public_key,
-                    hop_prefix=prefix.lower(),
-                    lat=hit.lat,
-                    lon=hit.lon,
-                    radius_km=radius_km,
-                    heard_count=stats["heard_count"],
-                    last_seen=stats["last_seen"] or None,
-                    calibratable=bool(hit.public_key),
-                )
-            )
-        for prefix in pending:
-            unresolved.append(LocateUnresolvedHop(prefix=prefix, reason="unmatched"))
-
     return anchors, unresolved
 
 
@@ -249,7 +210,7 @@ def _identity_from_contact(contact: Contact, *, inferred: bool = False) -> Locat
     )
 
 
-async def _resolve_hex_query(query: str, directory_enabled: bool) -> LocateIdentity:
+async def _resolve_hex_query(query: str) -> LocateIdentity:
     lowered = query.lower()
     if len(lowered) == 2:
         raise HTTPException(status_code=400, detail="1-byte hop prefixes are not resolved")
@@ -268,85 +229,25 @@ async def _resolve_hex_query(query: str, directory_enabled: bool) -> LocateIdent
     if contact:
         return _identity_from_contact(contact)
 
-    if len(lowered) in {4, 6} and directory_enabled:
-        hops = await resolve_directory_hops([lowered])
-        hit = hops.resolved.get(lowered.upper())
-        if hit and hit.public_key:
-            local = await ContactRepository.get_by_key(hit.public_key)
-            if local:
-                return _identity_from_contact(local, inferred=True)
-            return LocateIdentity(
-                public_key=hit.public_key,
-                name=hit.name,
-                inferred=True,
-            )
-        if hit and hit.name:
-            named = await ContactRepository.get_by_name(hit.name)
-            if len(named) == 1:
-                return _identity_from_contact(named[0], inferred=True)
-            if len(named) > 1:
-                _raise_ambiguous(query, [_candidate_from_contact(item) for item in named])
-
-    if directory_enabled and len(lowered) >= 4:
-        search = await search_directory_nodes(lowered)
-        if len(search.nodes) == 1:
-            hit = search.nodes[0]
-            local = await ContactRepository.get_by_key(hit.public_key)
-            if local:
-                return _identity_from_contact(local)
-            return LocateIdentity(public_key=hit.public_key, name=hit.name, inferred=True)
-        if len(search.nodes) > 1:
-            _raise_ambiguous(
-                query,
-                [
-                    LocateCandidate(
-                        public_key=node.public_key,
-                        name=node.name,
-                        role=node.role,
-                    )
-                    for node in search.nodes[:12]
-                ],
-            )
-
     raise HTTPException(status_code=404, detail="No unique identity for this query")
 
 
-async def _resolve_name_query(query: str, directory_enabled: bool) -> LocateIdentity:
+async def _resolve_name_query(query: str) -> LocateIdentity:
     named = await ContactRepository.get_by_name(query)
     if len(named) == 1:
         return _identity_from_contact(named[0])
     if len(named) > 1:
         _raise_ambiguous(query, [_candidate_from_contact(item) for item in named])
-    if directory_enabled:
-        search = await search_directory_nodes(query)
-        if len(search.nodes) == 1:
-            hit = search.nodes[0]
-            local = await ContactRepository.get_by_key(hit.public_key)
-            if local:
-                return _identity_from_contact(local)
-            return LocateIdentity(public_key=hit.public_key, name=hit.name, inferred=True)
-        if len(search.nodes) > 1:
-            _raise_ambiguous(
-                query,
-                [
-                    LocateCandidate(
-                        public_key=node.public_key,
-                        name=node.name,
-                        role=node.role,
-                    )
-                    for node in search.nodes[:12]
-                ],
-            )
     raise HTTPException(status_code=404, detail="Identity is insufficient to locate")
 
 
-async def _resolve_identity(query: str, directory_enabled: bool) -> LocateIdentity:
+async def _resolve_identity(query: str) -> LocateIdentity:
     text = query.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Query is required")
     if _HEX_RE.fullmatch(text):
-        return await _resolve_hex_query(text, directory_enabled)
-    return await _resolve_name_query(text, directory_enabled)
+        return await _resolve_hex_query(text)
+    return await _resolve_name_query(text)
 
 
 def _source_badge(anchors: list[LocateAnchor]) -> LocateSource | None:
@@ -365,7 +266,7 @@ async def locate_query(query: str, radius_km: float | None = None) -> LocateResp
     directory_enabled = await directory_is_available()
 
     try:
-        identity = await _resolve_identity(query, directory_enabled)
+        identity = await _resolve_identity(query)
     except HTTPException as exc:
         if exc.status_code == 404:
             return LocateResponse(
@@ -377,19 +278,19 @@ async def locate_query(query: str, radius_km: float | None = None) -> LocateResp
         raise
 
     radio_lat, radio_lon, radio_name, radio_key = _local_radio_gps()
-    local_anchors, heard_direct = await _local_zero_hop(
-        identity.public_key,
+    advert_paths = await ContactAdvertPathRepository.get_recent_for_contact(identity.public_key)
+    message_paths = await MessageRepository.list_recent_paths_for_contact(identity.public_key)
+    local_anchors, heard_direct = _local_zero_hop(
+        advert_paths,
+        message_paths,
         radius,
         radio_lat,
         radio_lon,
         radio_name,
         radio_key,
     )
-    first_hop_anchors, unresolved = await _first_hop_anchors(
-        identity.public_key, radius, directory_enabled
-    )
+    first_hop_anchors, unresolved = await _first_hop_anchors(advert_paths, radius)
 
-    directory_anchors: list[LocateAnchor] = []
     declared_gps: LocateDeclaredGps | None = None
     contact = await ContactRepository.get_by_key(identity.public_key)
     if (
@@ -400,37 +301,7 @@ async def locate_query(query: str, radius_km: float | None = None) -> LocateResp
     ):
         declared_gps = LocateDeclaredGps(lat=contact.lat, lon=contact.lon, source="advert")
 
-    if directory_enabled:
-        reach = await get_directory_node_reach(identity.public_key)
-        if (
-            declared_gps is None
-            and reach.node
-            and reach.node.lat is not None
-            and reach.node.lon is not None
-        ):
-            declared_gps = LocateDeclaredGps(
-                lat=reach.node.lat, lon=reach.node.lon, source="corescope"
-            )
-        if reach.node and not identity.name:
-            identity = identity.model_copy(update={"name": reach.node.name})
-        for observer in reach.observers:
-            if observer.lat is None or observer.lon is None:
-                continue
-            directory_anchors.append(
-                LocateAnchor(
-                    kind="corescope_0hop",
-                    source="corescope",
-                    name=observer.name,
-                    public_key=observer.public_key,
-                    lat=observer.lat,
-                    lon=observer.lon,
-                    radius_km=radius,
-                    snr=observer.avg_snr,
-                    heard_count=observer.count or None,
-                )
-            )
-
-    anchors = _dedupe_anchors([*local_anchors, *first_hop_anchors, *directory_anchors])
+    anchors = _dedupe_anchors([*local_anchors, *first_hop_anchors])
     source = _source_badge(anchors)
     empty_reason_value: LocateEmptyReason | None = None
     if not anchors:

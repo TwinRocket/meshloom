@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { CONTACT_TYPE_REPEATER } from '../types';
 import { calculateDistance, isValidLocation } from '../utils/pathUtils';
+import { applyHopOverlay, firstHopPrefixes, mergeReachOverlay } from '../utils/locateOverlay';
 import { calibrateRadiusKm } from '../utils/locateZone';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -27,6 +28,9 @@ interface LocatePaneProps {
   onSelectLocate: (query: string) => void;
   onOpenDirectorySettings?: () => void;
 }
+
+const PUBKEY_RE = /^[0-9a-fA-F]{64}$/;
+const HEX_RE = /^[0-9a-fA-F]+$/;
 
 function isAmbiguousDetail(
   detail: unknown
@@ -47,6 +51,15 @@ function sourceLabel(source: LocateResponse['source'], t: (key: string) => strin
   return t('locate.sourceUnknown');
 }
 
+function toCandidate(contact: Contact): LocateCandidate {
+  return {
+    public_key: contact.public_key,
+    name: contact.name,
+    type: contact.type,
+    last_seen: contact.last_seen ?? null,
+  };
+}
+
 export function LocatePane({
   onBackToTools,
   contacts,
@@ -58,12 +71,28 @@ export function LocatePane({
   const { t } = useTranslation();
   const [query, setQuery] = useState(locateKey ?? '');
   const [loading, setLoading] = useState(false);
+  const [communityPending, setCommunityPending] = useState(false);
+  const [communityError, setCommunityError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LocateResponse | null>(null);
   const [candidates, setCandidates] = useState<LocateCandidate[]>([]);
+  const [directoryHits, setDirectoryHits] = useState<LocateCandidate[]>([]);
   const [showDisks, setShowDisks] = useState(true);
   const [radiusOverrides, setRadiusOverrides] = useState<Record<string, number>>({});
   const [calibratingKey, setCalibratingKey] = useState<string | null>(null);
+
+  const localSuggestions = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle || PUBKEY_RE.test(needle)) return [];
+    return contacts
+      .filter(
+        (contact) =>
+          (contact.name ?? '').toLowerCase().includes(needle) ||
+          contact.public_key.toLowerCase().startsWith(needle)
+      )
+      .slice(0, 12)
+      .map(toCandidate);
+  }, [contacts, query]);
 
   useEffect(() => {
     setQuery(locateKey ?? '');
@@ -74,6 +103,8 @@ export function LocatePane({
       setResult(null);
       setCandidates([]);
       setError(null);
+      setCommunityPending(false);
+      setCommunityError(false);
       return;
     }
     let cancelled = false;
@@ -81,13 +112,39 @@ export function LocatePane({
     setError(null);
     setCandidates([]);
     setRadiusOverrides({});
+    setCommunityPending(false);
+    setCommunityError(false);
     api
       .locate(locateKey)
-      .then((payload) => {
-        if (!cancelled) setResult(payload);
+      .then(async (payload) => {
+        if (cancelled) return;
+        setResult(payload);
+        setLoading(false);
+        if (!directoryEnabled || !payload.identity) return;
+        setCommunityPending(true);
+        const prefixes = firstHopPrefixes(payload.unresolved_hops, payload.anchors);
+        try {
+          const [reach, hops] = await Promise.all([
+            api.getDirectoryNodeReach(payload.identity.public_key).catch(() => null),
+            prefixes.length
+              ? api.resolveDirectoryHops(prefixes).catch(() => null)
+              : Promise.resolve(null),
+          ]);
+          if (cancelled) return;
+          let next = payload;
+          if (reach) next = mergeReachOverlay(next, reach);
+          if (hops) next = applyHopOverlay(next, hops, prefixes);
+          if (!reach && !hops) setCommunityError(true);
+          setResult(next);
+        } catch {
+          if (!cancelled) setCommunityError(true);
+        } finally {
+          if (!cancelled) setCommunityPending(false);
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        setLoading(false);
         if (err instanceof ApiError && err.status === 409 && isAmbiguousDetail(err.detail)) {
           setResult(null);
           setCandidates(err.detail.candidates);
@@ -100,14 +157,46 @@ export function LocatePane({
         }
         setResult(null);
         setError(err instanceof Error ? err.message : t('locate.loadFailed'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [locateKey, t]);
+  }, [locateKey, directoryEnabled, t]);
+
+  useEffect(() => {
+    const needle = query.trim();
+    if (
+      !directoryEnabled ||
+      localSuggestions.length > 0 ||
+      needle.length < 3 ||
+      PUBKEY_RE.test(needle)
+    ) {
+      setDirectoryHits([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void api
+        .searchDirectoryNodes(needle)
+        .then((payload) => {
+          if (controller.signal.aborted) return;
+          setDirectoryHits(
+            payload.nodes.slice(0, 12).map((node) => ({
+              public_key: node.public_key,
+              name: node.name,
+              role: node.role,
+            }))
+          );
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setDirectoryHits([]);
+        });
+    }, 300);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [directoryEnabled, localSuggestions.length, query]);
 
   const anchors = useMemo(() => {
     if (!result) return [];
@@ -118,10 +207,41 @@ export function LocatePane({
     });
   }, [result, radiusOverrides]);
 
+  const pickList =
+    candidates.length > 0
+      ? candidates
+      : localSuggestions.length > 0
+        ? localSuggestions
+        : directoryHits;
+  const showTypeahead = !locateKey && candidates.length === 0 && pickList.length > 0;
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     const next = query.trim();
     if (!next) return;
+    if (PUBKEY_RE.test(next)) {
+      onSelectLocate(next.toLowerCase());
+      return;
+    }
+    if (HEX_RE.test(next) && next.length === 2) {
+      return;
+    }
+    if (localSuggestions.length === 1) {
+      onSelectLocate(localSuggestions[0].public_key);
+      return;
+    }
+    if (localSuggestions.length > 1) {
+      setCandidates(localSuggestions);
+      return;
+    }
+    if (directoryHits.length === 1) {
+      onSelectLocate(directoryHits[0].public_key);
+      return;
+    }
+    if (directoryHits.length > 1) {
+      setCandidates(directoryHits);
+      return;
+    }
     onSelectLocate(next);
   };
 
@@ -174,6 +294,9 @@ export function LocatePane({
   const identityLabel = result?.identity
     ? result.identity.name || result.identity.public_key.slice(0, 12)
     : null;
+  const showEmpty =
+    result?.empty_reason === 'no_anchors' && !communityPending && anchors.length === 0;
+  const showMap = anchors.length > 0 || Boolean(result?.declared_gps) || communityPending;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto" data-testid="locate-pane">
@@ -206,18 +329,28 @@ export function LocatePane({
       <div className="flex flex-1 flex-col gap-4 p-4 lg:min-h-0 lg:flex-row">
         <section className="flex w-full flex-col gap-3 lg:max-w-[24rem]">
           {loading && <p className="text-sm text-muted-foreground">{t('locate.loading')}</p>}
+          {communityPending && (
+            <p className="text-sm text-muted-foreground" data-testid="locate-community-pending">
+              {t('locate.communityPending')}
+            </p>
+          )}
+          {communityError && (
+            <p className="text-sm text-muted-foreground" data-testid="locate-community-error">
+              {t('locate.communityUnavailable')}
+            </p>
+          )}
           {error && (
             <p className="text-sm text-destructive" data-testid="locate-error">
               {error}
             </p>
           )}
 
-          {candidates.length > 0 && (
+          {(candidates.length > 0 || showTypeahead) && (
             <div data-testid="locate-candidates">
               <h3 className="text-sm font-semibold">{t('locate.pickIdentity')}</h3>
               <p className="mt-1 text-xs text-muted-foreground">{t('locate.ambiguousHelp')}</p>
               <ul className="mt-2 space-y-1">
-                {candidates.map((candidate) => (
+                {pickList.map((candidate) => (
                   <li key={candidate.public_key}>
                     <button
                       type="button"
@@ -260,9 +393,9 @@ export function LocatePane({
             </div>
           )}
 
-          {result?.empty_reason === 'no_anchors' && (
+          {showEmpty && (
             <p className="text-sm text-muted-foreground" data-testid="locate-empty">
-              {result.heard_locally_0hop && !result.radio_has_gps
+              {result?.heard_locally_0hop && !result.radio_has_gps
                 ? t('locate.heardNoGps')
                 : t('locate.noObservers')}
             </p>
@@ -373,7 +506,7 @@ export function LocatePane({
         </section>
 
         <section className="flex min-h-72 flex-1 flex-col gap-2">
-          {anchors.length > 0 || result?.declared_gps ? (
+          {showMap && (anchors.length > 0 || result?.declared_gps) ? (
             <>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <input
@@ -391,7 +524,7 @@ export function LocatePane({
             </>
           ) : (
             <div className="flex min-h-72 flex-1 items-center justify-center rounded border border-dashed border-border text-sm text-muted-foreground">
-              {t('locate.mapEmpty')}
+              {communityPending ? t('locate.communityPending') : t('locate.mapEmpty')}
             </div>
           )}
         </section>

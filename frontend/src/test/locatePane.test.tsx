@@ -6,10 +6,20 @@ import i18n from '../i18n';
 import type { LocateResponse } from '../types';
 import { ApiError } from '../api';
 
-const { locate, getDirectoryNodeNeighbors, repeaterNeighbors } = vi.hoisted(() => ({
+const {
+  locate,
+  getDirectoryNodeNeighbors,
+  repeaterNeighbors,
+  getDirectoryNodeReach,
+  resolveDirectoryHops,
+  searchDirectoryNodes,
+} = vi.hoisted(() => ({
   locate: vi.fn(),
   getDirectoryNodeNeighbors: vi.fn(),
   repeaterNeighbors: vi.fn(),
+  getDirectoryNodeReach: vi.fn(),
+  resolveDirectoryHops: vi.fn(),
+  searchDirectoryNodes: vi.fn(),
 }));
 
 vi.mock('../api', async () => {
@@ -21,6 +31,9 @@ vi.mock('../api', async () => {
       locate,
       getDirectoryNodeNeighbors,
       repeaterNeighbors,
+      getDirectoryNodeReach,
+      resolveDirectoryHops,
+      searchDirectoryNodes,
     },
   };
 });
@@ -57,6 +70,16 @@ describe('LocatePane', () => {
     locate.mockReset();
     getDirectoryNodeNeighbors.mockReset();
     repeaterNeighbors.mockReset();
+    getDirectoryNodeReach.mockReset();
+    resolveDirectoryHops.mockReset();
+    searchDirectoryNodes.mockReset();
+    getDirectoryNodeReach.mockResolvedValue({
+      node: null,
+      observers: [],
+      directory_enabled: true,
+    });
+    resolveDirectoryHops.mockResolvedValue({ resolved: {} });
+    searchDirectoryNodes.mockResolvedValue({ nodes: [], directory_enabled: true });
   });
 
   it('shows a CoreScope CTA when never heard and directory is off', async () => {
@@ -132,5 +155,73 @@ describe('LocatePane', () => {
     await waitFor(() => {
       expect(locate).not.toHaveBeenCalled();
     });
+  });
+
+  it('lists local prefix matches without calling locate', async () => {
+    const onSelectLocate = vi.fn();
+    render(
+      <LocatePane
+        contacts={[
+          {
+            public_key: 'abcd' + '11'.repeat(30),
+            name: 'Alpha',
+            type: 1,
+            flags: 0,
+            direct_path: null,
+            direct_path_len: 0,
+            direct_path_hash_mode: 0,
+            last_advert: null,
+            lat: null,
+            lon: null,
+            last_seen: null,
+            on_radio: false,
+            favorite: false,
+            last_contacted: null,
+            last_read_at: null,
+            first_seen: null,
+          },
+        ]}
+        onSelectLocate={onSelectLocate}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(i18n.t('locate.searchPlaceholder')), {
+      target: { value: 'ab' },
+    });
+    expect(await screen.findByTestId('locate-candidates')).toHaveTextContent('Alpha');
+    expect(locate).not.toHaveBeenCalled();
+  });
+
+  it('does not submit a 1-byte hex hop', async () => {
+    const onSelectLocate = vi.fn();
+    render(<LocatePane contacts={[]} onSelectLocate={onSelectLocate} />);
+    fireEvent.change(screen.getByLabelText(i18n.t('locate.searchPlaceholder')), {
+      target: { value: '1a' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('locate.search') }));
+    expect(onSelectLocate).not.toHaveBeenCalled();
+    expect(locate).not.toHaveBeenCalled();
+  });
+
+  it('keeps the local result when Community reach fails', async () => {
+    locate.mockResolvedValue(
+      emptyLocate({
+        directory_enabled: true,
+        empty_reason: 'no_anchors',
+      })
+    );
+    getDirectoryNodeReach.mockRejectedValue(new ApiError('Stats request failed', 500));
+
+    render(
+      <LocatePane
+        contacts={[]}
+        locateKey={'aa'.repeat(32)}
+        directoryEnabled
+        onSelectLocate={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByTestId('locate-community-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('locate-error')).not.toBeInTheDocument();
   });
 });

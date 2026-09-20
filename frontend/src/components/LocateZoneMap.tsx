@@ -11,6 +11,7 @@ import {
 import 'leaflet/dist/leaflet.css';
 
 import type { LocateAnchor, LocateDeclaredGps } from '../types';
+import { diskBounds } from '../utils/locateOverlay';
 import { disksToIntersectionRing, snrToOpacity } from '../utils/locateZone';
 import {
   OSM_RASTER_REFERRER_POLICY,
@@ -40,8 +41,7 @@ function FitDisks({
 }) {
   const map = useMap();
   useEffect(() => {
-    const points: [number, number][] = anchors.map((anchor) => [anchor.lat, anchor.lon]);
-    if (declaredGps) points.push([declaredGps.lat, declaredGps.lon]);
+    const points = diskBounds(anchors, declaredGps);
     if (points.length === 0) return;
     if (points.length === 1) {
       map.setView(points[0], 9);
