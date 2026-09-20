@@ -251,6 +251,31 @@ export function formatOpenReaction(
 }
 
 /**
+ * Body a rich-payload parser should see: channel "Name: " stripped, then a
+ * leading Open reply mention ("@[Name] ") if one is there.
+ */
+export function richMessageBody(fields: { type: 'PRIV' | 'CHAN'; text: string }): string {
+  const content = fields.type === 'PRIV' ? fields.text : parseSenderFromText(fields.text).content;
+  return splitReplyMention(content)?.body ?? content;
+}
+
+/**
+ * Open hash inputs for a stored message, or null when it cannot be a target
+ * (missing timestamp, or the row is itself a reaction).
+ */
+export function openReactionHashSource(fields: {
+  type: 'PRIV' | 'CHAN';
+  sender_timestamp: number | null;
+  sender_name: string | null;
+  text: string;
+}): ReactionHashSource | null {
+  if (fields.sender_timestamp == null) return null;
+  const body = richMessageBody(fields);
+  if (parseReaction(body) || parseMeshCoreOneReaction(body)) return null;
+  return reactionHashSourceFromFields(fields);
+}
+
+/**
  * Map stored Meshloom message fields onto Open hash inputs.
  * Channel text is stored as "Name: body"; the hash uses the body only.
  * DMs omit senderName (Open 1:1 implicit).

@@ -706,7 +706,7 @@ describe('MessageList Open reactions and replies', () => {
     expect(screen.queryByText(/m:43\.580000/)).not.toBeInTheDocument();
   });
 
-  it('attaches a matching Open reaction as a badge on the target, not a standalone row', () => {
+  it('attaches a matching Open reaction as a badge on the target, not a standalone row', async () => {
     const wire = formatOpenReaction(1700000000, 'Alice', 'hello world', '🔥');
     render(
       <MessageList
@@ -729,6 +729,60 @@ describe('MessageList Open reactions and replies', () => {
     expect(screen.getByTestId('message-reactions')).toHaveTextContent('🔥');
     expect(screen.queryByText(i18n.t('messageList.reacted'))).not.toBeInTheDocument();
     expect(screen.queryByText(wire!)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('message-reaction-badge'));
+    expect(screen.getByTestId('message-reaction-reactors')).toHaveTextContent('Bob');
+    expect(screen.getByText(i18n.t('messageList.reactionCount', { count: 1 }))).toBeInTheDocument();
+  });
+
+  it('stacks matching Open reactions on one chip and lists people only after a click', async () => {
+    const fire = formatOpenReaction(1700000000, 'Alice', 'hello world', '🔥');
+    const thumbs = formatOpenReaction(1700000000, 'Alice', 'hello world', '👍');
+    render(
+      <MessageList
+        messages={[
+          createMessage({ id: 1, text: 'Alice: hello world', sender_name: 'Alice' }),
+          createMessage({
+            id: 2,
+            text: `Bob: ${fire}`,
+            sender_name: 'Bob',
+            sender_timestamp: 1700000002,
+            received_at: 1700000003,
+          }),
+          createMessage({
+            id: 3,
+            text: `Cara: ${thumbs}`,
+            sender_name: 'Cara',
+            sender_timestamp: 1700000004,
+            received_at: 1700000005,
+          }),
+          createMessage({
+            id: 4,
+            text: `Dan: ${fire}`,
+            sender_name: 'Dan',
+            sender_timestamp: 1700000006,
+            received_at: 1700000007,
+          }),
+        ]}
+        contacts={[]}
+        loading={false}
+      />
+    );
+
+    const stack = screen.getByTestId('message-reaction-badge');
+    expect(stack).toHaveTextContent('🔥');
+    expect(stack).toHaveTextContent('👍');
+    expect(stack).toHaveTextContent('3');
+    expect(screen.getAllByTestId('message-reaction-badge')).toHaveLength(1);
+    expect(screen.queryByTestId('message-reaction-reactors')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+
+    await userEvent.click(stack);
+    const list = screen.getByTestId('message-reaction-reactors');
+    expect(list).toHaveTextContent('Bob');
+    expect(list).toHaveTextContent('Cara');
+    expect(list).toHaveTextContent('Dan');
+    expect(screen.getByText(i18n.t('messageList.reactionCount', { count: 3 }))).toBeInTheDocument();
   });
 
   it('keeps an unmatched Open reaction as a standalone reacted row when rich payloads are on', () => {

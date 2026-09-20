@@ -828,6 +828,7 @@ class MessageRepository:
         mention_flags: dict[str, bool] = {}
         last_message_times: dict[str, int] = {}
         last_message_previews: dict[str, str] = {}
+        last_message_outgoing: dict[str, bool] = {}
         last_read_ats: dict[str, int | None] = {}
         # id of the oldest unread message per conversation.
         first_unread_ids: dict[str, int | None] = {}
@@ -963,7 +964,7 @@ class MessageRepository:
             async with conn.execute(
                 f"""
                 WITH ranked AS (
-                    SELECT type, conversation_key, received_at, text,
+                    SELECT type, conversation_key, received_at, text, outgoing,
                            ROW_NUMBER() OVER (
                                PARTITION BY type, conversation_key
                                ORDER BY received_at DESC, id DESC
@@ -972,7 +973,8 @@ class MessageRepository:
                     {last_time_where_sql}
                 )
                 SELECT type, conversation_key, received_at AS last_message_time,
-                       SUBSTR(COALESCE(text, ''), 1, 120) AS last_message_preview
+                       SUBSTR(COALESCE(text, ''), 1, 120) AS last_message_preview,
+                       outgoing
                 FROM ranked
                 WHERE rn = 1
                 """,
@@ -984,6 +986,7 @@ class MessageRepository:
                 state_key = f"{prefix}-{row['conversation_key']}"
                 last_message_times[state_key] = row["last_message_time"]
                 last_message_previews[state_key] = row["last_message_preview"] or ""
+                last_message_outgoing[state_key] = bool(row["outgoing"])
 
         # Only include last_read_ats for conversations that actually have messages.
         # Without this filter, every contact heard via advertisement (even without
@@ -995,6 +998,7 @@ class MessageRepository:
             "mentions": mention_flags,
             "last_message_times": last_message_times,
             "last_message_previews": last_message_previews,
+            "last_message_outgoing": last_message_outgoing,
             "last_read_ats": last_read_ats,
             "first_unread_ids": first_unread_ids,
         }

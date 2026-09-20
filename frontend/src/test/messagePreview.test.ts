@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { describeMessagePreview } from '../utils/messagePreview';
-import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
+import {
+  describeMessagePreview,
+  reactionTargetExcerptFromMessages,
+} from '../utils/messagePreview';
+import { formatGif, formatLocation, formatOpenReaction } from '../utils/meshcoreOpenPayloads';
 import i18n from '../i18n';
 
 /**
@@ -37,6 +40,39 @@ describe('describeMessagePreview', () => {
     expect(out).toContain('👍');
   });
 
+  it('names who reacted when the channel prefix is still on the wire', () => {
+    expect(describeMessagePreview('r-06-PSCEL-Basefer: r:90fd:00')).toBe(
+      i18n.t('messagePreview.theyReacted', { name: 'r-06-PSCEL-Basefer', emoji: '👍' })
+    );
+    expect(describeMessagePreview('r-06-PSCEL-Basefer:r:90fd:00')).toBe(
+      i18n.t('messagePreview.theyReacted', { name: 'r-06-PSCEL-Basefer', emoji: '👍' })
+    );
+  });
+
+  it('says you reacted when the last message is outgoing', () => {
+    expect(describeMessagePreview('r:1a2b:00', { outgoing: true })).toBe(
+      i18n.t('messagePreview.youReacted', { emoji: '👍' })
+    );
+    expect(
+      describeMessagePreview('Radio: r:1a2b:00', { selfName: 'Radio' })
+    ).toBe(i18n.t('messagePreview.youReacted', { emoji: '👍' }));
+  });
+
+  it('quotes the target when an excerpt is known', () => {
+    expect(
+      describeMessagePreview('Alice: r:1a2b:00', { targetExcerpt: 'Encore un truc ne' })
+    ).toBe(
+      i18n.t('messagePreview.theyReactedTo', {
+        name: 'Alice',
+        emoji: '👍',
+        excerpt: 'Encore un truc ne',
+      })
+    );
+    expect(
+      describeMessagePreview('r:1a2b:00', { outgoing: true, targetExcerpt: 'hello world' })
+    ).toBe(i18n.t('messagePreview.youReactedTo', { emoji: '👍', excerpt: 'hello world' }));
+  });
+
   it('leaves ordinary text exactly as it is', () => {
     // Including text that merely starts with a letter and a colon.
     for (const text of ['bonjour', 'note: rendez-vous demain', 'https://example.org', '  ']) {
@@ -47,5 +83,25 @@ describe('describeMessagePreview', () => {
   it('does not mistake a malformed payload for a rich one', () => {
     expect(describeMessagePreview('g:')).toBe('g:');
     expect(describeMessagePreview('m:200,999|nulle part|loc')).toBe('m:200,999|nulle part|loc');
+  });
+
+  it('resolves an Open reaction target excerpt from loaded messages', () => {
+    const wire = formatOpenReaction(1700000000, 'Alice', 'Encore un truc ne va pas', '👍');
+    expect(
+      reactionTargetExcerptFromMessages(`Bob: ${wire}`, [
+        {
+          type: 'CHAN',
+          sender_timestamp: 1700000000,
+          sender_name: 'Alice',
+          text: 'Alice: Encore un truc ne va pas',
+        },
+        {
+          type: 'CHAN',
+          sender_timestamp: 1700000002,
+          sender_name: 'Bob',
+          text: `Bob: ${wire}`,
+        },
+      ])
+    ).toBe('Encore un truc ne va pas');
   });
 });

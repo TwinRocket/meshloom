@@ -1023,6 +1023,13 @@ class UnreadCounts(BaseModel):
             "Same row as last_message_times (ROW_NUMBER by received_at DESC, id DESC)."
         ),
     )
+    last_message_outgoing: dict[str, bool] = Field(
+        default_factory=dict,
+        description=(
+            "Map of stateKey -> whether the newest message was sent by this radio. "
+            "Same row as last_message_previews."
+        ),
+    )
     first_unread_ids: dict[str, int | None] = Field(
         default_factory=dict,
         description=(

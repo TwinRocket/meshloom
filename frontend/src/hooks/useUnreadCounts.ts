@@ -27,6 +27,8 @@ interface UseUnreadCountsResult {
   lastMessageTimes: ConversationTimes;
   /** stateKey -> last message text (truncated), for the sidebar excerpt line. */
   lastMessagePreviews: Record<string, string>;
+  /** stateKey -> whether the newest message was sent by this radio. */
+  lastMessageOutgoing: Record<string, boolean>;
   unreadLastReadAts: Record<string, number | null>;
   /** stateKey -> id of the oldest unread message, for placing the unread divider. */
   firstUnreadIds: Record<string, number | null>;
@@ -51,6 +53,7 @@ export function useUnreadCounts(
   const [mentions, setMentions] = useState<Record<string, boolean>>({});
   const [lastMessageTimes, setLastMessageTimes] = useState<ConversationTimes>(getLastMessageTimes);
   const [lastMessagePreviews, setLastMessagePreviews] = useState<Record<string, string>>({});
+  const [lastMessageOutgoing, setLastMessageOutgoing] = useState<Record<string, boolean>>({});
   const [unreadLastReadAts, setUnreadLastReadAts] = useState<Record<string, number | null>>({});
   const [firstUnreadIds, setFirstUnreadIds] = useState<Record<string, number | null>>({});
 
@@ -91,6 +94,10 @@ export function useUnreadCounts(
     const previews = data.last_message_previews ?? {};
     if (Object.keys(previews).length > 0) {
       setLastMessagePreviews((prev) => ({ ...prev, ...previews }));
+    }
+    const outgoing = data.last_message_outgoing ?? {};
+    if (Object.keys(outgoing).length > 0) {
+      setLastMessageOutgoing((prev) => ({ ...prev, ...outgoing }));
     }
   }, []);
 
@@ -228,6 +235,10 @@ export function useUnreadCounts(
         ...prev,
         [stateKey]: (msg.text ?? '').slice(0, PREVIEW_MAX_LEN),
       }));
+      setLastMessageOutgoing((prev) => ({
+        ...prev,
+        [stateKey]: Boolean(msg.outgoing),
+      }));
 
       if (!isActiveConversation && !msg.outgoing && isNewMessage) {
         incrementUnread(stateKey, msg.id, hasMention);
@@ -270,6 +281,13 @@ export function useUnreadCounts(
       delete next[oldStateKey];
       return next;
     });
+    setLastMessageOutgoing((prev) => {
+      if (!(oldStateKey in prev)) return prev;
+      const next = { ...prev };
+      next[newStateKey] = next[newStateKey] ?? next[oldStateKey];
+      delete next[oldStateKey];
+      return next;
+    });
 
     setLastMessageTimes(renameConversationTimeKey(oldStateKey, newStateKey));
   }, []);
@@ -305,6 +323,12 @@ export function useUnreadCounts(
       delete next[stateKey];
       return next;
     });
+    setLastMessageOutgoing((prev) => {
+      if (!(stateKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[stateKey];
+      return next;
+    });
   }, []);
 
   // Mark all conversations as read
@@ -327,6 +351,7 @@ export function useUnreadCounts(
     mentions,
     lastMessageTimes,
     lastMessagePreviews,
+    lastMessageOutgoing,
     unreadLastReadAts,
     firstUnreadIds,
     recordMessageEvent,

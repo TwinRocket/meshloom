@@ -54,6 +54,12 @@
     "reacted": "reacted",
     "reactedTo": "reacted to {{sender}}",
     "reactWith": "React with {{emoji}}",
+    "reactionAria": "{{emoji}}, {{names}}",
+    "reactionStackAria": "{{emojis}}, {{count}}",
+    "reactionCount_one": "{{count}} reaction",
+    "reactionCount_other": "{{count}} reactions",
+    "reactionAll": "All reactions",
+    "reactionFilters": "Filter reactions",
     "mention": "Mention {{name}}",
     "contactInfo": "Contact info",
     "messageDetails": "Message details",
@@ -2715,7 +2721,12 @@
     "gif": "GIF",
     "location": "Location",
     "locationNamed": "Location · {{label}}",
-    "reaction": "Reacted {{emoji}}"
+    "reaction": "Reacted {{emoji}}",
+    "youReacted": "You reacted {{emoji}}",
+    "youReactedTo": "You reacted {{emoji}} to: '{{excerpt}}'",
+    "theyReacted": "{{name}} reacted {{emoji}}",
+    "theyReactedTo": "{{name}} reacted {{emoji}} to: '{{excerpt}}'",
+    "reactedTo": "Reacted {{emoji}} to: '{{excerpt}}'"
   },
   "radioSetup": {
     "bannerTitle": "No radio connected",

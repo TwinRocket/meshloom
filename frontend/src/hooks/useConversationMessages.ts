@@ -51,6 +51,16 @@ export class ConversationMessageCache {
     };
   }
 
+  /** Read without touching LRU order — safe from a list render. */
+  peek(id: string): CachedConversationEntry | undefined {
+    const entry = this.cache.get(id);
+    if (!entry) return undefined;
+    return {
+      messages: entry.messages,
+      hasOlderMessages: entry.hasOlderMessages,
+    };
+  }
+
   set(id: string, entry: CachedConversationEntry): void {
     const internalEntry = this.normalizeEntry(entry);
     this.cache.delete(id);

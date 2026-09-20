@@ -26,9 +26,9 @@ import {
   parseLocation,
   parseMeshCoreOneReaction,
   parseReaction,
-  reactionHashSourceFromFields,
+  openReactionHashSource,
+  richMessageBody,
   splitReplyMention,
-  type ReactionHashSource,
 } from '../utils/meshcoreOpenPayloads';
 import { useTranslation } from 'react-i18next';
 import { useRichPayloads } from '../contexts/RichPayloadContext';
@@ -47,6 +47,7 @@ import {
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { toast } from './ui/sonner';
 import { Button } from './ui/button';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
 import {
   Dialog,
   DialogContent,
@@ -304,29 +305,21 @@ function renderMeshcoreOpenPayload(
   return null;
 }
 
-function messageRichBody(msg: Message): string {
-  const content = msg.type === 'PRIV' ? msg.text : parseSenderFromText(msg.text).content;
-  return splitReplyMention(content)?.body ?? content;
-}
+const messageRichBody = richMessageBody;
+const openReactionSource = openReactionHashSource;
 
-function openReactionSource(msg: Message): ReactionHashSource | null {
-  if (msg.sender_timestamp == null) return null;
-  const body = messageRichBody(msg);
-  if (parseReaction(body) || parseMeshCoreOneReaction(body)) return null;
-  return reactionHashSourceFromFields({
-    type: msg.type,
-    sender_timestamp: msg.sender_timestamp,
-    sender_name: msg.sender_name,
-    text: msg.text,
-  });
+interface AttachedReaction {
+  emoji: string;
+  outgoing: boolean;
+  reactorName: string | null;
 }
 
 function attachOpenReactionsAtRender(messages: Message[]): {
   sortedMessages: Message[];
-  reactionsById: Map<number, string[]>;
+  reactionsById: Map<number, AttachedReaction[]>;
 } {
   const hidden = new Set<number>();
-  const reactionsById = new Map<number, string[]>();
+  const reactionsById = new Map<number, AttachedReaction[]>();
   for (const msg of messages) {
     const open = parseReaction(messageRichBody(msg));
     if (!open) continue;
@@ -335,7 +328,13 @@ function attachOpenReactionsAtRender(messages: Message[]): {
     hidden.add(msg.id);
     const targetId = messages[attached.targetIndex].id;
     const list = reactionsById.get(targetId) ?? [];
-    list.push(attached.reaction.emoji);
+    list.push({
+      emoji: attached.reaction.emoji,
+      outgoing: msg.outgoing,
+      reactorName:
+        msg.sender_name ||
+        (msg.type === 'CHAN' ? parseSenderFromText(msg.text).sender : null),
+    });
     reactionsById.set(targetId, list);
   }
   if (hidden.size === 0) return { sortedMessages: messages, reactionsById };
@@ -344,19 +343,183 @@ function attachOpenReactionsAtRender(messages: Message[]): {
 
 const LONG_PRESS_MS = 500;
 
-function MessageReactionBadges({ emojis }: { emojis: string[] }) {
-  if (emojis.length === 0) return null;
+function reactorLabel(
+  reactor: AttachedReaction,
+  youLabel: string,
+  unknownLabel: string
+): string {
+  return reactor.outgoing ? youLabel : reactor.reactorName || unknownLabel;
+}
+
+function groupReactions(reactions: AttachedReaction[]): { emoji: string; count: number }[] {
+  const order: string[] = [];
+  const counts = new Map<string, number>();
+  for (const reaction of reactions) {
+    const current = counts.get(reaction.emoji);
+    if (current == null) {
+      order.push(reaction.emoji);
+      counts.set(reaction.emoji, 1);
+      continue;
+    }
+    counts.set(reaction.emoji, current + 1);
+  }
+  return order.map((emoji) => ({ emoji, count: counts.get(emoji) ?? 0 }));
+}
+
+function uniqueReactorRows(
+  reactions: AttachedReaction[],
+  youLabel: string,
+  unknownLabel: string
+): { key: string; label: string; emoji: string }[] {
+  const seen = new Set<string>();
+  const rows: { key: string; label: string; emoji: string }[] = [];
+  for (const reaction of reactions) {
+    const label = reactorLabel(reaction, youLabel, unknownLabel);
+    const key = `${reaction.emoji}:${label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ key, label, emoji: reaction.emoji });
+  }
+  return rows;
+}
+
+function MessageReactionBadges({ reactions }: { reactions: AttachedReaction[] }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [filterEmoji, setFilterEmoji] = useState<string | null>(null);
+
+  const groups = useMemo(() => groupReactions(reactions), [reactions]);
+  const youLabel = t('messageList.you');
+  const unknownLabel = t('messageList.unknown');
+  const people = useMemo(
+    () => uniqueReactorRows(reactions, youLabel, unknownLabel),
+    [reactions, youLabel, unknownLabel]
+  );
+  const visiblePeople = filterEmoji
+    ? people.filter((row) => row.emoji === filterEmoji)
+    : people;
+
+  if (reactions.length === 0) return null;
+
+  const emojis = groups.map((group) => group.emoji).join('');
+  const stackAria = t('messageList.reactionStackAria', {
+    emojis,
+    count: people.length,
+  });
+
   return (
-    <div className="mt-1 flex flex-wrap gap-1" data-testid="message-reactions">
-      {emojis.map((emoji, index) => (
-        <span
-          key={`${emoji}-${index}`}
-          className="rounded bg-muted px-1.5 py-0.5 text-[0.8125rem] leading-none"
+    <>
+      <div className="mt-1" data-testid="message-reactions">
+        <button
+          type="button"
+          data-testid="message-reaction-badge"
+          aria-label={stackAria}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="inline-flex items-center rounded-full border border-border/60 bg-muted/80 px-1.5 py-0.5 hover:bg-accent"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setFilterEmoji(null);
+            setOpen(true);
+          }}
         >
-          {emoji}
-        </span>
-      ))}
-    </div>
+          <span className="flex items-center" aria-hidden="true">
+            {groups.map(({ emoji }, index) => (
+              <span
+                key={emoji}
+                className={cn(
+                  'text-[0.8125rem] leading-none',
+                  index > 0 && '-ml-1',
+                  'rounded-full bg-muted/80'
+                )}
+              >
+                {emoji}
+              </span>
+            ))}
+          </span>
+          {people.length > 1 && (
+            <span className="ml-1 text-[0.6875rem] tabular-nums text-muted-foreground">
+              {people.length}
+            </span>
+          )}
+        </button>
+      </div>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setFilterEmoji(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="mx-auto max-h-[70vh] max-w-lg rounded-t-xl p-0"
+        >
+          <SheetHeader className="border-b border-border/40 px-4 pb-3 pt-4 text-left">
+            <SheetTitle className="text-base">
+              {t('messageList.reactionCount', { count: people.length })}
+            </SheetTitle>
+            <SheetDescription className="sr-only">
+              {stackAria}
+            </SheetDescription>
+          </SheetHeader>
+          {groups.length > 1 && (
+            <div
+              className="flex gap-2 overflow-x-auto px-4 py-3"
+              role="tablist"
+              aria-label={t('messageList.reactionFilters')}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={filterEmoji == null}
+                aria-label={t('messageList.reactionAll')}
+                className={cn(
+                  'inline-flex h-8 shrink-0 items-center justify-center rounded-full border px-3',
+                  filterEmoji == null
+                    ? 'border-primary/50 bg-primary/15 text-primary'
+                    : 'border-border text-muted-foreground'
+                )}
+                onClick={() => setFilterEmoji(null)}
+              >
+                <Smile className="h-4 w-4" aria-hidden="true" />
+              </button>
+              {groups.map(({ emoji, count }) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  role="tab"
+                  aria-selected={filterEmoji === emoji}
+                  aria-label={`${emoji} ${count}`}
+                  className={cn(
+                    'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-sm',
+                    filterEmoji === emoji
+                      ? 'border-primary/50 bg-primary/15 text-primary'
+                      : 'border-border text-muted-foreground'
+                  )}
+                  onClick={() => setFilterEmoji(emoji)}
+                >
+                  <span aria-hidden="true">{emoji}</span>
+                  <span className="tabular-nums">{count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <ul className="min-h-0 overflow-y-auto px-2 pb-4" data-testid="message-reaction-reactors">
+            {visiblePeople.map((row) => (
+              <li key={row.key} className="flex items-center gap-3 px-2 py-2">
+                <ContactAvatar name={row.label} publicKey={row.label} size={36} />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.label}</span>
+                <span className="text-xl leading-none" aria-hidden="true">
+                  {row.emoji}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
 
@@ -1412,7 +1575,7 @@ export function MessageList({
                 : displaySender;
             const canReply = Boolean(!msg.outgoing && onSenderClick && replyName);
             const canReact = Boolean(!msg.outgoing && onSendMessage && openReactionSource(msg));
-            const attachedEmojis = reactionsById.get(msg.id) ?? [];
+            const attachedReactions = reactionsById.get(msg.id) ?? [];
 
             // Determine if we should show avatar (first message in a chunk from same sender)
             const currentSenderKey = getSenderKey(
@@ -1705,7 +1868,7 @@ export function MessageList({
                         ))}
                       {msg.region && <RegionBadge region={msg.region} className="ml-0" />}
                     </div>
-                    <MessageReactionBadges emojis={attachedEmojis} />
+                    <MessageReactionBadges reactions={attachedReactions} />
                     {openActionsId === msg.id && (
                       <MessageActionMenu
                         messageId={msg.id}

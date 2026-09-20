@@ -54,6 +54,12 @@
     "reacted": "a réagi",
     "reactedTo": "a réagi à {{sender}}",
     "reactWith": "Réagir avec {{emoji}}",
+    "reactionAria": "{{emoji}}, {{names}}",
+    "reactionStackAria": "{{emojis}}, {{count}}",
+    "reactionCount_one": "{{count}} réaction",
+    "reactionCount_other": "{{count}} réactions",
+    "reactionAll": "Toutes les réactions",
+    "reactionFilters": "Filtrer les réactions",
     "mention": "Mentionner {{name}}",
     "contactInfo": "Fiche du contact",
     "messageDetails": "Détails du message",
@@ -2715,7 +2721,12 @@
     "gif": "GIF",
     "location": "Position",
     "locationNamed": "Position · {{label}}",
-    "reaction": "A réagi {{emoji}}"
+    "reaction": "A réagi par {{emoji}}",
+    "youReacted": "Vous avez réagi par {{emoji}}",
+    "youReactedTo": "Vous avez réagi par {{emoji}} à : « {{excerpt}} »",
+    "theyReacted": "{{name}} a réagi par {{emoji}}",
+    "theyReactedTo": "{{name}} a réagi par {{emoji}} à : « {{excerpt}} »",
+    "reactedTo": "A réagi par {{emoji}} à : « {{excerpt}} »"
   },
   "radioSetup": {
     "bannerTitle": "Aucune radio connectée",

@@ -1045,6 +1045,8 @@ class TestReadStateEndpoints:
         # Outgoing channel send is a valid last-message preview.
         assert result["last_message_previews"][f"channel-{chan_key}"] == "Me: outgoing"
         assert result["last_message_previews"][f"contact-{contact_key}"] == "hi @[TeStUsEr] there"
+        assert result["last_message_outgoing"][f"channel-{chan_key}"] is True
+        assert result["last_message_outgoing"][f"contact-{contact_key}"] is False
         assert result["last_read_ats"][f"channel-{chan_key}"] == 1000
         assert result["last_read_ats"][f"contact-{contact_key}"] == 1000
 

@@ -1,11 +1,31 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, PanelLeftClose, Search, Star, X, Plus } from 'lucide-react';
-import type { Channel, Contact, Conversation, HealthStatus } from '../types';
+import type { Channel, Contact, Conversation, HealthStatus, Message } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
 import { getStateKey } from '../utils/conversationState';
-import { describeMessagePreview } from '../utils/messagePreview';
+import { conversationMessageCache } from '../hooks/useConversationMessages';
+import {
+  describeMessagePreview,
+  reactionTargetExcerptFromMessages,
+  type MessagePreviewContext,
+} from '../utils/messagePreview';
+
+function describeConversationPreview(
+  text: string,
+  context: MessagePreviewContext,
+  conversationId: string,
+  liveMessages?: Message[]
+): string {
+  const messages = liveMessages ?? conversationMessageCache.peek(conversationId)?.messages;
+  return describeMessagePreview(text, {
+    ...context,
+    targetExcerpt: messages
+      ? reactionTargetExcerptFromMessages(text, messages)
+      : context.targetExcerpt,
+  });
+}
 import { countUnreadConversations } from '../utils/unreadConversations';
 import { adoptedChannels } from '../utils/channelMembership';
 import { cn } from '../lib/utils';
@@ -32,6 +52,10 @@ interface Props {
   mentions: Record<string, boolean>;
   lastMessageTimes: Record<string, number>;
   lastMessagePreviews: Record<string, string>;
+  lastMessageOutgoing?: Record<string, boolean>;
+  radioName?: string | null;
+  /** Messages of the conversation open beside this list — used to quote a reaction target. */
+  activeMessages?: Message[];
   onSelectConversation: (conversation: Conversation) => void;
   /** The conversation open beside this list. Desktop only. */
   activeConversation?: Conversation | null;
@@ -138,6 +162,9 @@ export function ConversationListView({
   mentions,
   lastMessageTimes,
   lastMessagePreviews,
+  lastMessageOutgoing = {},
+  radioName = null,
+  activeMessages = [],
   onSelectConversation,
   activeConversation,
   onNewMessage,
@@ -171,7 +198,17 @@ export function ConversationListView({
         mentioned: mentions[stateKey] === true,
         favorite: channel.favorite,
         lastAt: lastMessageTimes[stateKey] ?? 0,
-        preview: describeMessagePreview(lastMessagePreviews[stateKey] ?? ''),
+        preview: describeConversationPreview(
+          lastMessagePreviews[stateKey] ?? '',
+          {
+            outgoing: lastMessageOutgoing[stateKey],
+            selfName: radioName,
+          },
+          channel.key,
+          activeConversation?.type === 'channel' && activeConversation.id === channel.key
+            ? activeMessages
+            : undefined
+        ),
       };
     });
 
@@ -187,7 +224,18 @@ export function ConversationListView({
         mentioned: mentions[stateKey] === true,
         favorite: contact.favorite,
         lastAt: lastMessageTimes[stateKey] ?? 0,
-        preview: describeMessagePreview(lastMessagePreviews[stateKey] ?? ''),
+        preview: describeConversationPreview(
+          lastMessagePreviews[stateKey] ?? '',
+          {
+            outgoing: lastMessageOutgoing[stateKey],
+            selfName: radioName,
+            conversationName: name,
+          },
+          contact.public_key,
+          activeConversation?.type === 'contact' && activeConversation.id === contact.public_key
+            ? activeMessages
+            : undefined
+        ),
         contact,
       };
     });
@@ -198,7 +246,18 @@ export function ConversationListView({
       if (a.lastAt !== b.lastAt) return b.lastAt - a.lastAt;
       return a.name.localeCompare(b.name);
     });
-  }, [channels, contacts, unreadCounts, mentions, lastMessageTimes, lastMessagePreviews]);
+  }, [
+    channels,
+    contacts,
+    unreadCounts,
+    mentions,
+    lastMessageTimes,
+    lastMessagePreviews,
+    lastMessageOutgoing,
+    radioName,
+    activeConversation,
+    activeMessages,
+  ]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();

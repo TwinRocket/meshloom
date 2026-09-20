@@ -2,7 +2,8 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ConversationListView } from '../components/ConversationListView';
 import i18n from '../i18n';
-import type { Channel, Contact } from '../types';
+import type { Channel, Contact, Message } from '../types';
+import { formatOpenReaction } from '../utils/meshcoreOpenPayloads';
 
 /**
  * The list is the phone's home screen, so what it shows and in what order is the
@@ -225,6 +226,60 @@ describe('ConversationListView', () => {
     expect(
       screen.getByText(i18n.t('conversationList.unreadCount', { count: 3 }))
     ).toBeInTheDocument();
+  });
+
+  it('rewrites a last-message reaction as a sentence, not the wire form', () => {
+    renderList({
+      lastMessagePreviews: {
+        'channel-C1': 'r-06-PSCEL-Basefer: r:90fd:00',
+      },
+    });
+    const alpha = screen.getAllByRole('button', { name: /#alpha/ })[0];
+    expect(alpha.textContent).toContain(
+      i18n.t('messagePreview.theyReacted', { name: 'r-06-PSCEL-Basefer', emoji: '👍' })
+    );
+    expect(alpha.textContent).not.toContain('r:90fd:00');
+  });
+
+  it('quotes the reacted message when that conversation is loaded', () => {
+    const wire = formatOpenReaction(1700000000, 'Alice', 'Encore un truc ne va pas', '👍');
+    renderList({
+      activeConversation: { type: 'channel', id: 'C1', name: '#alpha' },
+      lastMessagePreviews: {
+        'channel-C1': `r-06-PSCEL-Basefer: ${wire}`,
+      },
+      lastMessageOutgoing: { 'channel-C1': false },
+      activeMessages: [
+        {
+          id: 1,
+          type: 'CHAN',
+          conversation_key: 'C1',
+          text: 'Alice: Encore un truc ne va pas',
+          sender_timestamp: 1700000000,
+          received_at: 1700000001,
+          outgoing: false,
+          sender_name: 'Alice',
+        } as Message,
+        {
+          id: 2,
+          type: 'CHAN',
+          conversation_key: 'C1',
+          text: `r-06-PSCEL-Basefer: ${wire}`,
+          sender_timestamp: 1700000002,
+          received_at: 1700000003,
+          outgoing: false,
+          sender_name: 'r-06-PSCEL-Basefer',
+        } as Message,
+      ],
+    });
+    const alpha = screen.getAllByRole('button', { name: /#alpha/ })[0];
+    expect(alpha.textContent).toContain(
+      i18n.t('messagePreview.theyReactedTo', {
+        name: 'r-06-PSCEL-Basefer',
+        emoji: '👍',
+        excerpt: 'Encore un truc ne va pas',
+      })
+    );
   });
 
   it('marks a favourite on the list avatar, not on every other row', () => {

@@ -355,6 +355,9 @@ export function AppShell({
       mentions={sidebarProps.mentions}
       lastMessageTimes={sidebarProps.lastMessageTimes}
       lastMessagePreviews={sidebarProps.lastMessagePreviews ?? {}}
+      lastMessageOutgoing={sidebarProps.lastMessageOutgoing ?? {}}
+      radioName={sidebarProps.radioName}
+      activeMessages={sidebarProps.activeMessages}
       onSelectConversation={sidebarProps.onSelectConversation}
       onNewMessage={sidebarProps.onNewMessage}
       health={statusProps.health}

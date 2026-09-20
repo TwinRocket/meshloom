@@ -449,6 +449,7 @@ describe('useUnreadCounts', () => {
     expect(result.current.mentions[getStateKey('channel', CHANNEL_KEY)]).toBe(true);
     expect(result.current.lastMessageTimes[getStateKey('channel', CHANNEL_KEY)]).toBe(1700001234);
     expect(result.current.lastMessagePreviews[getStateKey('channel', CHANNEL_KEY)]).toBe('hello');
+    expect(result.current.lastMessageOutgoing[getStateKey('channel', CHANNEL_KEY)]).toBe(false);
   });
 
   it('recordMessageEvent skips unread increment for active or non-new messages but still tracks time', async () => {

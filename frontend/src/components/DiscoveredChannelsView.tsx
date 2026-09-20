@@ -5,6 +5,7 @@ import { Hash, Unlock, Ban } from 'lucide-react';
 import type { Channel, Conversation } from '../types';
 import { pendingChannels } from '../utils/channelMembership';
 import { getStateKey } from '../utils/conversationState';
+import { describeMessagePreview } from '../utils/messagePreview';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { ToolPaneHeader } from './ToolPaneHeader';
@@ -47,7 +48,7 @@ export function DiscoveredChannelsView({
           channel,
           unread: unreadCounts[stateKey] ?? 0,
           lastAt: lastMessageTimes[stateKey] ?? 0,
-          preview: lastMessagePreviews[stateKey] ?? '',
+          preview: describeMessagePreview(lastMessagePreviews[stateKey] ?? ''),
         };
       })
       .sort((a, b) => {

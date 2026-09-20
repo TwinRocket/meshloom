@@ -1667,6 +1667,8 @@ export interface UnreadCounts {
   last_message_times: Record<string, number>;
   /** stateKey -> last message text, truncated to ~120 characters. */
   last_message_previews: Record<string, string>;
+  /** stateKey -> whether the newest message was sent by this radio. */
+  last_message_outgoing?: Record<string, boolean>;
   last_read_ats: Record<string, number | null>;
   /** stateKey -> id of the oldest unread message. Locates the unread divider. */
   first_unread_ids: Record<string, number | null>;

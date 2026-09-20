@@ -1,4 +1,4 @@
-import type { Channel, Contact, Conversation } from '../types';
+import type { Channel, Contact, Conversation, Message } from '../types';
 import type { ConversationTimes } from '../utils/conversationState';
 
 /**
@@ -21,6 +21,9 @@ export interface NavigationData {
   onNewMessage: (event?: React.MouseEvent<HTMLButtonElement>) => void;
   lastMessageTimes: ConversationTimes;
   lastMessagePreviews?: Record<string, string>;
+  lastMessageOutgoing?: Record<string, boolean>;
+  radioName?: string | null;
+  activeMessages?: Message[];
   unreadCounts: Record<string, number>;
   /** Which conversations hold unread messages that mention this node. */
   mentions: Record<string, boolean>;
