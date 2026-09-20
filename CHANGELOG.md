@@ -1,3 +1,33 @@
+## [4.14.2] - 2026-09-20
+
+A thumbs-up in the conversation list used to show up as coded text. A conversation you watched would slip down as others spoke. And the locate map could empty itself while Community was still thinking.
+
+### What's new
+
+- **The list now says who reacted.** In the chat itself the emoji was already on the message. The conversation list, though, showed `r:90fd:00`. It now reads as a sentence: Alice reacted 👍 to "see you at 8". A GIF or a place says so in plain words, too.
+- **Pin keeps a chat at the top of the list.** Favourites are unchanged: still the shortcut row of faces at the top. Pinning is different—it holds a contact or channel up in the main list, still sorted among pins by who spoke last. Use the chevron on each row, or the same menu from the chat header: pin, notifications, mute, favourite, a channel's regional setting, leave or delete.
+
+### Fixed
+
+- **Locate someone from what you already know.** Start typing a name and matching contacts from your list show up right away. The map is drawn from your radio and local store first. If Community later adds people it has heard, those circles appear when they arrive. When Community is slow or silent, the local map stays put instead of going blank.
+
+---
+
+### Français
+
+Un pouce en l'air, dans la liste, s'écrivait en code. Une conversation qu'on suivait glissait vers le bas quand d'autres parlaient. Et la carte de localisation pouvait se vider pendant que Community réfléchissait encore.
+
+#### Quoi de neuf
+
+- **Dans la liste, une réaction se lit comme une phrase.** Dans le fil, l'emoji était déjà sur le message. C'est la liste qui montrait `r:90fd:00`. Maintenant : Alice a réagi par 👍 à « on se voit à 20 h ». Un GIF ou un lieu s'écrivent aussi en clair.
+- **Épingler garde un fil en haut de la liste.** Les favoris, eux, ne changent pas : toujours la rangée de raccourcis en haut. L'épingle, c'est autre chose — elle maintient un contact ou un salon en tête dans la liste principale, toujours triés entre épinglés selon le dernier message. Le chevron sur chaque ligne, ou le même menu depuis l'en-tête du fil : épingler, notifications, sourdine, favori, réglage régional du salon, quitter ou supprimer.
+
+#### Corrections
+
+- **Localiser quelqu'un avec ce qu'on connaît déjà.** On commence à taper un nom et les contacts correspondants de la liste apparaissent tout de suite. La carte se trace d'abord avec la radio et ce que Meshloom a en local. Si Community ajoute ensuite des personnes qu'il a entendues, les cercles s'affichent quand ils arrivent. Si Community est lent ou ne répond pas, la carte locale reste à l'écran au lieu de disparaître.
+
+---
+
 ## [4.14.1] - 2026-09-19
 
 The conversation header had two bells. One now picks how you are notified. The other is a speaker, and it mutes a channel for a while.
