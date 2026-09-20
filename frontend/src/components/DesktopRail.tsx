@@ -6,7 +6,7 @@ import {
   resolveRail,
   UNREAD_BADGE_MAX,
 } from './navDestinations';
-import { RadioStatusChip } from './RadioStatusChip';
+import { RadioBatteryChip, RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
 
@@ -137,14 +137,16 @@ export function DesktopRail({
           beside the thing opened from it. There is no catalogue here. */}
       <div className="mt-auto flex flex-col items-center gap-1 pt-2">
         {/* Word and transport, not a coloured dot: this is the one desktop
-            status, so it has to say what it is before anyone opens it. The
-            gear beneath it still goes to the settings. */}
+            status, so it has to say what it is before anyone opens it.
+            Battery is a second tile — a third muted line under TCP was
+            unreadable at this size. The gear beneath still goes to settings. */}
         <RadioStatusChip
           health={health}
           compact
           onOpenStatus={onOpenRadioStatus}
           updateAvailable={updateAvailable}
         />
+        <RadioBatteryChip health={health} onOpenStatus={onOpenRadioStatus} />
 
         {ANCHORED_RAIL_ITEMS.map(({ target, labelKey, Icon }) => (
           <div key={target} className="relative">

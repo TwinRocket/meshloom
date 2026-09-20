@@ -1,14 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DesktopRail, MESHLOOM_SITE_URL } from '../components/DesktopRail';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
+import { setShowBatteryPercent, setShowBatteryVoltage } from '../utils/batteryDisplay';
 
 const health = {
   radio_connected: true,
   radio_state: 'connected',
   connection_info: 'TCP: 192.168.1.204:5051',
+  radio_stats: { battery_mv: 4050 },
 } as HealthStatus;
 
 function renderRail(updateAvailable: boolean, onOpenUpdate = vi.fn()) {
@@ -28,6 +30,11 @@ function renderRail(updateAvailable: boolean, onOpenUpdate = vi.fn()) {
 }
 
 describe('DesktopRail', () => {
+  beforeEach(() => {
+    setShowBatteryPercent(false);
+    setShowBatteryVoltage(false);
+  });
+
   it('shows the radio word and transport above settings, not a coloured dot', () => {
     renderRail(false);
     const rail = screen.getByRole('navigation', { hidden: true });
@@ -118,5 +125,13 @@ describe('DesktopRail', () => {
     expect(
       screen.getByRole('button', { name: i18n.t('sidebar.discoveredChannels'), hidden: true })
     ).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('gives battery its own tile under the radio status, not a third muted line', () => {
+    setShowBatteryPercent(true);
+    renderRail(false);
+    const rail = screen.getByRole('navigation', { hidden: true });
+    expect(rail).toHaveTextContent('90%');
+    expect(rail).toHaveTextContent(i18n.t('statusBar.radioOkShort'));
   });
 });

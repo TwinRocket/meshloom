@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { Battery } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
 import {
   BATTERY_DISPLAY_CHANGE_EVENT,
+  formatBatteryBadgeLines,
   formatBatteryChip,
   formatBatteryLabel,
   getShowBatteryPercent,
@@ -26,8 +28,9 @@ import {
  * On a phone this is a labelled pill in the list header — the only place the
  * status can live once the app header is gone. On the desktop rail it is a
  * stacked tile: the word and the transport, never a coloured dot alone.
- * Optional battery % / voltage rides on the same tile when Local settings ask
- * for it — the old status bar that used to show those values is gone.
+ * Battery is a second rail tile when Local settings ask for it: a 40px status
+ * chip cannot carry a readable percent. The phone pill still keeps the value
+ * inline, at the same size as the status word.
  */
 
 /** Applied to the status pip when a Meshloom update is available. */
@@ -152,6 +155,83 @@ function useBatteryDisplayPrefs() {
   return prefs;
 }
 
+const COMPACT_TILE_CLASS =
+  'inline-flex h-auto min-h-10 w-10 flex-col items-center justify-center gap-0.5 rounded-xl border border-border/60 bg-muted/40 px-0.5 py-1';
+
+function BatteryMark({ className }: { className?: string }) {
+  return <Battery className={cn('shrink-0', className)} aria-hidden="true" data-battery-icon="" />;
+}
+
+/**
+ * Own tile on the desktop rail so the battery figure is as large as a
+ * destination label, not a third muted line under TCP.
+ */
+export function RadioBatteryChip({
+  health,
+  onOpenStatus,
+  className,
+}: {
+  health: HealthStatus | null;
+  onOpenStatus?: () => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const prefs = useBatteryDisplayPrefs();
+  const batteryMv = radioBatteryMv(health);
+  const lines =
+    batteryMv != null ? formatBatteryBadgeLines(batteryMv, prefs.percent, prefs.voltage) : [];
+  const title =
+    batteryMv != null ? formatBatteryLabel(batteryMv, prefs.percent, prefs.voltage) : null;
+
+  if (lines.length === 0 || !title) return null;
+
+  const label = t('radioStatus.openStatus', {
+    status: `${t('radioStatus.battery')} — ${title}`,
+  });
+  const classes = cn(COMPACT_TILE_CLASS, 'text-foreground', className);
+  const content = (
+    <>
+      <BatteryMark className="h-3 w-3 text-muted-foreground" />
+      {lines.map((line, index) => (
+        <span
+          key={line}
+          className={cn(
+            'max-w-full truncate tabular-nums leading-none',
+            index === 0
+              ? 'text-sm font-semibold'
+              : 'text-[0.6875rem] font-medium text-muted-foreground'
+          )}
+        >
+          {line}
+        </span>
+      ))}
+    </>
+  );
+
+  if (!onOpenStatus) {
+    return (
+      <span className={classes} role="status" title={title}>
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenStatus}
+      className={cn(
+        classes,
+        'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+      )}
+      title={title}
+      aria-label={label}
+    >
+      {content}
+    </button>
+  );
+}
+
 export function RadioStatusChip({
   health,
   onOpenRadioSettings,
@@ -194,7 +274,9 @@ export function RadioStatusChip({
         : t('statusBar.radioDisconnectedShort');
 
   const hint = radioTransportHint(health?.connection_info);
-  const title = [label, health?.connection_info, batteryTitle].filter(Boolean).join(' — ');
+  const title = compact
+    ? [label, health?.connection_info].filter(Boolean).join(' — ')
+    : [label, health?.connection_info, batteryTitle].filter(Boolean).join(' — ');
 
   const content = compact ? (
     <>
@@ -212,11 +294,6 @@ export function RadioStatusChip({
           {hint}
         </span>
       )}
-      {batteryChip && (
-        <span className="max-w-full truncate text-[0.5625rem] leading-none tabular-nums text-muted-foreground">
-          {batteryChip}
-        </span>
-      )}
     </>
   ) : (
     <>
@@ -228,7 +305,10 @@ export function RadioStatusChip({
       />
       <span className="truncate">{label}</span>
       {batteryChip && (
-        <span className="shrink-0 tabular-nums text-muted-foreground">{batteryChip}</span>
+        <span className="inline-flex shrink-0 items-center gap-1 tabular-nums text-xs font-semibold text-foreground">
+          <BatteryMark className="h-3 w-3 text-muted-foreground" />
+          {batteryChip}
+        </span>
       )}
     </>
   );

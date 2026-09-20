@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import {
+  RadioBatteryChip,
   RadioStatusChip,
   STATUS_DOT_UPDATE_AVAILABLE_CLASS,
   radioTransportHint,
@@ -97,37 +98,79 @@ describe('RadioStatusChip', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('keeps battery off the chip until a Local setting asks for it', () => {
-    render(<RadioStatusChip health={connected} compact />);
-    expect(screen.queryByText('90%')).not.toBeInTheDocument();
-    expect(screen.queryByText('4.05V')).not.toBeInTheDocument();
-  });
-
-  it('shows battery percent on the rail tile when that setting is on', () => {
+  it('keeps battery off the compact status tile — that figure has its own badge', () => {
     setShowBatteryPercent(true);
     render(<RadioStatusChip health={connected} compact />);
-    expect(screen.getByText('90%')).toBeInTheDocument();
+    expect(screen.queryByText('90%')).not.toBeInTheDocument();
     expect(screen.getByText('TCP')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveAttribute(
-      'title',
-      `${i18n.t('statusBar.radioOk')} — TCP: 192.168.1.204:5051 — 90%`
-    );
   });
 
-  it('shows volts on the rail tile when only voltage is requested', () => {
+  it('shows a readable battery figure on the phone pill', () => {
+    setShowBatteryPercent(true);
+    render(<RadioStatusChip health={connected} />);
+    expect(screen.getByText('90%')).toBeInTheDocument();
+  });
+});
+
+describe('RadioBatteryChip', () => {
+  beforeEach(() => {
+    setShowBatteryPercent(false);
+    setShowBatteryVoltage(false);
+  });
+
+  it('stays off until a Local setting asks for it', () => {
+    const { container } = render(<RadioBatteryChip health={connected} />);
+    expect(screen.queryByText('90%')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-battery-icon]')).not.toBeInTheDocument();
+  });
+
+  it('vanishes again when both Local settings are turned off', () => {
+    setShowBatteryPercent(true);
+    const { container } = render(<RadioBatteryChip health={connected} />);
+    expect(screen.getByText('90%')).toBeInTheDocument();
+    act(() => {
+      setShowBatteryPercent(false);
+      setShowBatteryVoltage(false);
+      window.dispatchEvent(new Event(BATTERY_DISPLAY_CHANGE_EVENT));
+    });
+    expect(screen.queryByText('90%')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-battery-icon]')).not.toBeInTheDocument();
+  });
+
+  it('shows a large percent on its own tile, with a battery mark', () => {
+    setShowBatteryPercent(true);
+    const { container } = render(<RadioBatteryChip health={connected} />);
+    expect(screen.getByRole('status')).toHaveTextContent('90%');
+    expect(screen.getByRole('status')).toHaveAttribute('title', '90%');
+    expect(container.querySelector('[data-battery-icon]')).toBeInTheDocument();
+  });
+
+  it('stacks percent and voltage when both settings are on', () => {
+    setShowBatteryPercent(true);
     setShowBatteryVoltage(true);
-    render(<RadioStatusChip health={connected} compact />);
+    render(<RadioBatteryChip health={connected} />);
+    expect(screen.getByText('90%')).toBeInTheDocument();
     expect(screen.getByText('4.05V')).toBeInTheDocument();
   });
 
   it('picks up a battery-display change without remounting', () => {
-    render(<RadioStatusChip health={connected} compact />);
+    render(<RadioBatteryChip health={connected} />);
     expect(screen.queryByText('90%')).not.toBeInTheDocument();
     act(() => {
       setShowBatteryPercent(true);
       window.dispatchEvent(new Event(BATTERY_DISPLAY_CHANGE_EVENT));
     });
     expect(screen.getByText('90%')).toBeInTheDocument();
+  });
+});
+
+describe('RadioStatusChip pulse', () => {
+  beforeEach(() => {
+    setStatusDotPulseEnabled(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('glitters the existing pip when a packet arrives', () => {

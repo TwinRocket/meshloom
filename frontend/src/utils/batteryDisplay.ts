@@ -50,6 +50,18 @@ export function formatBatteryChip(
   return `${(mv / 1000).toFixed(2)}V`;
 }
 
+/** One readable line per enabled setting, for a dedicated rail tile. */
+export function formatBatteryBadgeLines(
+  mv: number,
+  showPercent: boolean,
+  showVoltage: boolean
+): string[] {
+  const lines: string[] = [];
+  if (showPercent) lines.push(`${mvToPercent(mv)}%`);
+  if (showVoltage) lines.push(`${(mv / 1000).toFixed(2)}V`);
+  return lines;
+}
+
 export function radioBatteryMv(
   health: { radio_stats?: { battery_mv?: number | null } | null } | null | undefined
 ): number | null {

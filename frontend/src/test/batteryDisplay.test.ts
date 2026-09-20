@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatBatteryBadgeLines,
   formatBatteryChip,
   formatBatteryLabel,
   mvToPercent,
@@ -59,6 +60,16 @@ describe('formatBatteryChip', () => {
 
   it('uses volts when only voltage is requested', () => {
     expect(formatBatteryChip(4050, false, true)).toBe('4.05V');
+  });
+});
+
+describe('formatBatteryBadgeLines', () => {
+  it('returns no lines when both toggles are off', () => {
+    expect(formatBatteryBadgeLines(4050, false, false)).toEqual([]);
+  });
+
+  it('keeps percent and voltage as separate readable lines', () => {
+    expect(formatBatteryBadgeLines(4050, true, true)).toEqual(['90%', '4.05V']);
   });
 });
 
