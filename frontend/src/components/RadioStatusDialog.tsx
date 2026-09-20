@@ -12,6 +12,7 @@ import {
 } from './ui/dialog';
 import { STATUS_DOT_UPDATE_AVAILABLE_CLASS } from './RadioStatusChip';
 import { cn } from '../lib/utils';
+import { mvToPercent, radioBatteryMv } from '../utils/batteryDisplay';
 
 /**
  * What the radio is doing, how this app is reaching it, and a way to advert
@@ -88,6 +89,13 @@ export function RadioStatusDialog({
     rows.push({
       label: t('radioStatus.proxy'),
       value: t('radioStatus.proxyListening', { port: proxy.port }),
+    });
+  }
+  const batteryMv = radioBatteryMv(health);
+  if (batteryMv != null) {
+    rows.push({
+      label: t('radioStatus.battery'),
+      value: `${mvToPercent(batteryMv)}% · ${(batteryMv / 1000).toFixed(2)}V`,
     });
   }
   if (health?.app_info?.version) {

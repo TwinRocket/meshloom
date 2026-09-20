@@ -123,4 +123,15 @@ describe('RadioStatusDialog', () => {
       onOpenUpdates.mock.invocationCallOrder[0]
     );
   });
+
+  it('answers battery level when the radio has reported one', () => {
+    open({
+      health: {
+        ...health,
+        radio_stats: { battery_mv: 4050 },
+      } as HealthStatus,
+    });
+    expect(screen.getByText(i18n.t('radioStatus.battery'))).toBeInTheDocument();
+    expect(screen.getByText('90% · 4.05V')).toBeInTheDocument();
+  });
 });

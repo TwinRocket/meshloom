@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { mvToPercent, formatBatteryLabel } from '../utils/batteryDisplay';
+import {
+  formatBatteryChip,
+  formatBatteryLabel,
+  mvToPercent,
+  radioBatteryMv,
+} from '../utils/batteryDisplay';
 
 describe('mvToPercent', () => {
   it('clamps to 100 above table ceiling', () => {
@@ -40,5 +45,32 @@ describe('formatBatteryLabel', () => {
 
   it('returns combined when both enabled', () => {
     expect(formatBatteryLabel(4050, true, true)).toBe('90% (4050mV)');
+  });
+});
+
+describe('formatBatteryChip', () => {
+  it('returns null when both toggles are off', () => {
+    expect(formatBatteryChip(4050, false, false)).toBeNull();
+  });
+
+  it('prefers percentage when both are on so the rail tile stays short', () => {
+    expect(formatBatteryChip(4050, true, true)).toBe('90%');
+  });
+
+  it('uses volts when only voltage is requested', () => {
+    expect(formatBatteryChip(4050, false, true)).toBe('4.05V');
+  });
+});
+
+describe('radioBatteryMv', () => {
+  it('reads a positive millivolt reading from health stats', () => {
+    expect(radioBatteryMv({ radio_stats: { battery_mv: 4050 } })).toBe(4050);
+  });
+
+  it('ignores missing, zero, or negative readings', () => {
+    expect(radioBatteryMv(null)).toBeNull();
+    expect(radioBatteryMv({ radio_stats: { battery_mv: 0 } })).toBeNull();
+    expect(radioBatteryMv({ radio_stats: { battery_mv: -1 } })).toBeNull();
+    expect(radioBatteryMv({ radio_stats: { battery_mv: null } })).toBeNull();
   });
 });

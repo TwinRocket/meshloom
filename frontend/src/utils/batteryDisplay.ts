@@ -39,6 +39,24 @@ export function formatBatteryLabel(
   return `${mv}mV`;
 }
 
+/** Compact chip text: percent when requested, otherwise volts that fit a 40px tile. */
+export function formatBatteryChip(
+  mv: number,
+  showPercent: boolean,
+  showVoltage: boolean
+): string | null {
+  if (!showPercent && !showVoltage) return null;
+  if (showPercent) return `${mvToPercent(mv)}%`;
+  return `${(mv / 1000).toFixed(2)}V`;
+}
+
+export function radioBatteryMv(
+  health: { radio_stats?: { battery_mv?: number | null } | null } | null | undefined
+): number | null {
+  const mv = health?.radio_stats?.battery_mv;
+  return mv != null && mv > 0 ? mv : null;
+}
+
 const PERCENT_KEY = 'meshloom-show-battery-percent';
 const VOLTAGE_KEY = 'meshloom-show-battery-voltage';
 
