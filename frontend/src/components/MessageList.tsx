@@ -332,8 +332,7 @@ function attachOpenReactionsAtRender(messages: Message[]): {
       emoji: attached.reaction.emoji,
       outgoing: msg.outgoing,
       reactorName:
-        msg.sender_name ||
-        (msg.type === 'CHAN' ? parseSenderFromText(msg.text).sender : null),
+        msg.sender_name || (msg.type === 'CHAN' ? parseSenderFromText(msg.text).sender : null),
     });
     reactionsById.set(targetId, list);
   }
@@ -343,11 +342,7 @@ function attachOpenReactionsAtRender(messages: Message[]): {
 
 const LONG_PRESS_MS = 500;
 
-function reactorLabel(
-  reactor: AttachedReaction,
-  youLabel: string,
-  unknownLabel: string
-): string {
+function reactorLabel(reactor: AttachedReaction, youLabel: string, unknownLabel: string): string {
   return reactor.outgoing ? youLabel : reactor.reactorName || unknownLabel;
 }
 
@@ -395,9 +390,7 @@ function MessageReactionBadges({ reactions }: { reactions: AttachedReaction[] })
     () => uniqueReactorRows(reactions, youLabel, unknownLabel),
     [reactions, youLabel, unknownLabel]
   );
-  const visiblePeople = filterEmoji
-    ? people.filter((row) => row.emoji === filterEmoji)
-    : people;
+  const visiblePeople = filterEmoji ? people.filter((row) => row.emoji === filterEmoji) : people;
 
   if (reactions.length === 0) return null;
 
@@ -452,17 +445,12 @@ function MessageReactionBadges({ reactions }: { reactions: AttachedReaction[] })
           if (!next) setFilterEmoji(null);
         }}
       >
-        <SheetContent
-          side="bottom"
-          className="mx-auto max-h-[70vh] max-w-lg rounded-t-xl p-0"
-        >
+        <SheetContent side="bottom" className="mx-auto max-h-[70vh] max-w-lg rounded-t-xl p-0">
           <SheetHeader className="border-b border-border/40 px-4 pb-3 pt-4 text-left">
             <SheetTitle className="text-base">
               {t('messageList.reactionCount', { count: people.length })}
             </SheetTitle>
-            <SheetDescription className="sr-only">
-              {stackAria}
-            </SheetDescription>
+            <SheetDescription className="sr-only">{stackAria}</SheetDescription>
           </SheetHeader>
           {groups.length > 1 && (
             <div

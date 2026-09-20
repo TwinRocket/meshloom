@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  describeMessagePreview,
-  reactionTargetExcerptFromMessages,
-} from '../utils/messagePreview';
+import { describeMessagePreview, reactionTargetExcerptFromMessages } from '../utils/messagePreview';
 import { formatGif, formatLocation, formatOpenReaction } from '../utils/meshcoreOpenPayloads';
 import i18n from '../i18n';
 
@@ -53,15 +50,13 @@ describe('describeMessagePreview', () => {
     expect(describeMessagePreview('r:1a2b:00', { outgoing: true })).toBe(
       i18n.t('messagePreview.youReacted', { emoji: '👍' })
     );
-    expect(
-      describeMessagePreview('Radio: r:1a2b:00', { selfName: 'Radio' })
-    ).toBe(i18n.t('messagePreview.youReacted', { emoji: '👍' }));
+    expect(describeMessagePreview('Radio: r:1a2b:00', { selfName: 'Radio' })).toBe(
+      i18n.t('messagePreview.youReacted', { emoji: '👍' })
+    );
   });
 
   it('quotes the target when an excerpt is known', () => {
-    expect(
-      describeMessagePreview('Alice: r:1a2b:00', { targetExcerpt: 'Encore un truc ne' })
-    ).toBe(
+    expect(describeMessagePreview('Alice: r:1a2b:00', { targetExcerpt: 'Encore un truc ne' })).toBe(
       i18n.t('messagePreview.theyReactedTo', {
         name: 'Alice',
         emoji: '👍',
