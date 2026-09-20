@@ -157,61 +157,16 @@ class TestLocateLocalZeroHop:
 
     @pytest.mark.asyncio
     async def test_community_on_without_manual_url_is_not_directory_off(self, test_db):
-        from app.models import DirectoryReachResponse
-        from app.services.meshloom_community import update_community
-
         await update_community(enabled=True, iata="LYS")
         key = "11" * 32
-        empty_reach = DirectoryReachResponse(directory_enabled=True)
-        with patch(
-            "app.services.rf_locate.get_directory_node_reach",
-            new=AsyncMock(return_value=empty_reach),
-        ):
-            result = await locate_query(key)
+        result = await locate_query(key)
         assert result.directory_enabled is True
         assert result.empty_reason == "no_anchors"
 
 
-class TestLocateDirectoryReach:
-    @staticmethod
-    def _community_reach(key: str, observer_key: str, *, snr: float, lat: float, lon: float):
-        async def fake_data(path: str, **_kwargs: object) -> object:
-            if path.endswith("/reach"):
-                return {
-                    "node": {"pubkey": key, "name": "Ghost", "lat": None, "lon": None},
-                    "direct_observers": [
-                        {
-                            "pubkey": observer_key,
-                            "name": "ObsA",
-                            "count": 4,
-                            "avg_snr": snr,
-                            "lat": lat,
-                            "lon": lon,
-                        }
-                    ],
-                }
-            return {}
-
-        return fake_data
-
+class TestLocateStaysLocal:
     @pytest.mark.asyncio
-    async def test_community_observers_become_disks(self, test_db):
-        reset_directory_nodes_cache()
-        key = "22" * 32
-        await update_community(enabled=True, iata="LYS")
-        with patch(
-            "app.services.directory._community_directory_data",
-            side_effect=self._community_reach("22" * 32, "33" * 32, snr=8.1, lat=48.0, lon=2.0),
-        ):
-            result = await locate_query(key)
-        assert result.directory_enabled is True
-        assert result.source == "corescope"
-        assert result.anchors[0].kind == "corescope_0hop"
-        assert result.anchors[0].snr == pytest.approx(8.1)
-        assert result.empty_reason is None
-
-    @pytest.mark.asyncio
-    async def test_stats_failure_is_not_empty(self, test_db):
+    async def test_stats_failure_does_not_500(self, test_db):
         reset_directory_nodes_cache()
         key = "44" * 32
         await update_community(enabled=True, iata="LYS")
@@ -223,25 +178,29 @@ class TestLocateDirectoryReach:
             "app.services.directory._community_directory_data",
             side_effect=fake_data,
         ):
-            with pytest.raises(HTTPException) as exc:
-                await locate_query(key)
-        assert exc.value.status_code == 500
-        assert "empty" not in str(exc.value.detail).lower()
+            result = await locate_query(key)
+        assert result.identity is not None
+        assert result.anchors == []
+        assert result.empty_reason == "no_anchors"
 
     @pytest.mark.asyncio
-    async def test_mixte_source_when_local_and_directory(self, test_db):
-        reset_directory_nodes_cache()
+    async def test_unknown_prefix_does_not_call_stats(self, test_db):
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.directory.search_directory_nodes",
+            new=AsyncMock(side_effect=AssertionError("search should stay out of /locate")),
+        ):
+            result = await locate_query("abcd")
+        assert result.identity is None
+        assert result.empty_reason == "insufficient_identity"
+
+    @pytest.mark.asyncio
+    async def test_local_zero_hop_survives_without_directory_merge(self, test_db):
         key = "66" * 32
         await _insert_contact(key, "Both")
         await ContactAdvertPathRepository.record_observation(key, "", 1_700_000_000, hop_count=0)
         await update_community(enabled=True, iata="LYS")
-        with (
-            patch("app.services.rf_locate.radio_runtime", _radio_info()),
-            patch(
-                "app.services.directory._community_directory_data",
-                side_effect=self._community_reach(key, "77" * 32, snr=-2.0, lat=49.0, lon=3.0),
-            ),
-        ):
+        with patch("app.services.rf_locate.radio_runtime", _radio_info()):
             result = await locate_query(key)
-        assert result.source == "mixte"
-        assert {anchor.kind for anchor in result.anchors} == {"local_0hop", "corescope_0hop"}
+        assert result.source == "local"
+        assert {anchor.kind for anchor in result.anchors} == {"local_0hop"}
