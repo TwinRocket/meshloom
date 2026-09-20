@@ -1830,6 +1830,10 @@
     "removeFavorite": "Retirer des favoris",
     "addFavoriteContact": "Ajouter aux favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
     "removeFavoriteContact": "Retirer des favoris. Les contacts favoris restent chargés sur la radio pour les accusés de réception.",
+    "pin": "Épingler la conversation",
+    "unpin": "Désépingler la conversation",
+    "leaveChannel": "Quitter le canal",
+    "deleteConversation": "Supprimer la conversation",
     "delete": "Supprimer",
     "moreActions": "Plus d’actions"
   },
@@ -2484,6 +2488,7 @@
     "checkConnection": "Vérifiez votre connexion",
     "contactKeyCopied": "Clé du contact copiée !",
     "favoriteFailed": "Échec de la mise à jour du favori",
+    "pinFailed": "Échec de la mise à jour de l’épingle",
     "muteFailed": "Échec de la mise à jour du mute",
     "loadMessagesFailed": "Échec du chargement des messages",
     "loadOlderFailed": "Échec du chargement des messages plus anciens",
@@ -2610,6 +2615,8 @@
     "unreadCount_one": "{{count}} message non lu",
     "unreadCount_other": "{{count}} messages non lus",
     "favorite": "Favori",
+    "pinned": "Épinglée",
+    "conversationOptions": "Options de la conversation",
     "collapseList": "Masquer la liste des discussions",
     "expandList": "Afficher la liste des discussions",
     "resizeList": "Redimensionner la liste des discussions"

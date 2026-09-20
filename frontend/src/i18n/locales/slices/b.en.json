@@ -101,6 +101,10 @@
     "removeFavorite": "Remove from favorites",
     "addFavoriteContact": "Add to favorites. Favorite contacts stay loaded on the radio for ACK support.",
     "removeFavoriteContact": "Remove from favorites. Favorite contacts stay loaded on the radio for ACK support.",
+    "pin": "Pin conversation",
+    "unpin": "Unpin conversation",
+    "leaveChannel": "Leave channel",
+    "deleteConversation": "Delete conversation",
     "delete": "Delete"
   },
   "conversation": {

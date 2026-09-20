@@ -1830,6 +1830,10 @@
     "removeFavorite": "Remove from favorites",
     "addFavoriteContact": "Add to favorites. Favorite contacts stay loaded on the radio for ACK support.",
     "removeFavoriteContact": "Remove from favorites. Favorite contacts stay loaded on the radio for ACK support.",
+    "pin": "Pin conversation",
+    "unpin": "Unpin conversation",
+    "leaveChannel": "Leave channel",
+    "deleteConversation": "Delete conversation",
     "delete": "Delete",
     "moreActions": "More actions"
   },
@@ -2484,6 +2488,7 @@
     "checkConnection": "Check your connection",
     "contactKeyCopied": "Contact key copied!",
     "favoriteFailed": "Failed to update favorite",
+    "pinFailed": "Failed to update pin",
     "muteFailed": "Failed to update mute",
     "loadMessagesFailed": "Failed to load messages",
     "loadOlderFailed": "Failed to load older messages",
@@ -2610,6 +2615,8 @@
     "unreadCount_one": "{{count}} unread message",
     "unreadCount_other": "{{count}} unread messages",
     "favorite": "Favourite",
+    "pinned": "Pinned",
+    "conversationOptions": "Conversation options",
     "collapseList": "Hide conversation list",
     "expandList": "Show conversation list",
     "resizeList": "Resize conversation list"

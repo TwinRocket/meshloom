@@ -112,6 +112,7 @@ class Contact(BaseModel):
     last_seen: int | None = None
     on_radio: bool = False
     favorite: bool = False
+    pinned: bool = False
     last_contacted: int | None = None  # Last time we sent/received a message
     last_read_at: int | None = None  # Server-side read state tracking
     first_seen: int | None = None
@@ -356,6 +357,7 @@ class Channel(BaseModel):
     )
     last_read_at: int | None = None  # Server-side read state tracking
     favorite: bool = False
+    pinned: bool = False
     muted: bool = False
     muted_until: int | None = Field(
         default=None,
@@ -1651,6 +1653,7 @@ class BackupContact(BaseModel):
     last_contacted: int | None = None
     first_seen: int | None = None
     favorite: bool = False
+    pinned: bool = False
 
 
 class BackupChannel(BaseModel):
@@ -1660,6 +1663,7 @@ class BackupChannel(BaseModel):
     flood_scope_override: str | None = None
     path_hash_mode_override: int | None = None
     favorite: bool = False
+    pinned: bool = False
     muted: bool = False
     muted_until: int | None = None
     membership: Literal["adopted", "pending"] = "adopted"

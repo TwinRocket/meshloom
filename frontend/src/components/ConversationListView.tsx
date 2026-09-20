@@ -1,9 +1,29 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, PanelLeftClose, Search, Star, X, Plus } from 'lucide-react';
-import type { Channel, Contact, Conversation, HealthStatus, Message } from '../types';
+import {
+  ChevronDown,
+  ChevronRight,
+  PanelLeftClose,
+  Pin,
+  Search,
+  Star,
+  X,
+  Plus,
+} from 'lucide-react';
+import type {
+  Channel,
+  Contact,
+  Conversation,
+  HealthStatus,
+  Message,
+  NotificationMediaChannel,
+  NotificationMediaFlags,
+} from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
+import { ConversationOverflowMenu } from './ConversationOverflowMenu';
+import { ChannelFloodScopeOverrideModal } from './ChannelFloodScopeOverrideModal';
+import { isPublicChannelKey } from '../utils/publicChannel';
 import { getStateKey } from '../utils/conversationState';
 import { conversationMessageCache } from '../hooks/useConversationMessages';
 import {
@@ -11,6 +31,9 @@ import {
   reactionTargetExcerptFromMessages,
   type MessagePreviewContext,
 } from '../utils/messagePreview';
+import { countUnreadConversations } from '../utils/unreadConversations';
+import { adoptedChannels } from '../utils/channelMembership';
+import { cn } from '../lib/utils';
 
 function describeConversationPreview(
   text: string,
@@ -26,9 +49,6 @@ function describeConversationPreview(
       : context.targetExcerpt,
   });
 }
-import { countUnreadConversations } from '../utils/unreadConversations';
-import { adoptedChannels } from '../utils/channelMembership';
-import { cn } from '../lib/utils';
 
 /**
  * The conversation list, as a screen rather than a drawer.
@@ -67,6 +87,21 @@ interface Props {
   updateAvailable?: boolean;
   /** Desktop: fold the list column so the conversation can use the width. */
   onCollapseList?: () => void;
+  onTogglePin?: (type: 'channel' | 'contact', id: string) => void;
+  onToggleFavorite?: (type: 'channel' | 'contact', id: string) => void;
+  onMuteChannel?: (key: string, durationSeconds: number) => void;
+  onDeleteChannel?: (key: string) => void;
+  onDeleteContact?: (publicKey: string) => void;
+  onSetChannelFloodScopeOverride?: (key: string, floodScopeOverride: string) => void;
+  getNotifyMediaEnabled?: (conversation: Conversation) => NotificationMediaFlags;
+  onSetConversationMedia?: (
+    conversation: Conversation,
+    channel: NotificationMediaChannel,
+    enabled: boolean
+  ) => void;
+  onOpenNotifySettings?: () => void;
+  emailReady?: boolean;
+  webhookReady?: boolean;
 }
 
 interface Row {
@@ -77,9 +112,11 @@ interface Row {
   unread: number;
   mentioned: boolean;
   favorite: boolean;
+  pinned: boolean;
   lastAt: number;
   preview: string;
   contact?: Contact;
+  channel?: Channel;
 }
 
 const FAVORITES_COLLAPSED_KEY = 'meshloom-conversation-favorites-collapsed';
@@ -172,10 +209,23 @@ export function ConversationListView({
   onOpenRadioStatus,
   updateAvailable,
   onCollapseList,
+  onTogglePin,
+  onToggleFavorite,
+  onMuteChannel,
+  onDeleteChannel,
+  onDeleteContact,
+  onSetChannelFloodScopeOverride,
+  getNotifyMediaEnabled,
+  onSetConversationMedia,
+  onOpenNotifySettings,
+  emailReady = false,
+  webhookReady = false,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ConversationFilter>('all');
+  const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
+  const [regionRow, setRegionRow] = useState<Row | null>(null);
 
   // Which row the pane beside this list is showing. Nothing is open on a phone
   // while the list is the screen, so this simply never matches there.
@@ -197,6 +247,7 @@ export function ConversationListView({
         unread: unreadCounts[stateKey] ?? 0,
         mentioned: mentions[stateKey] === true,
         favorite: channel.favorite,
+        pinned: channel.pinned === true,
         lastAt: lastMessageTimes[stateKey] ?? 0,
         preview: describeConversationPreview(
           lastMessagePreviews[stateKey] ?? '',
@@ -209,6 +260,7 @@ export function ConversationListView({
             ? activeMessages
             : undefined
         ),
+        channel,
       };
     });
 
@@ -223,6 +275,7 @@ export function ConversationListView({
         unread: unreadCounts[stateKey] ?? 0,
         mentioned: mentions[stateKey] === true,
         favorite: contact.favorite,
+        pinned: contact.pinned === true,
         lastAt: lastMessageTimes[stateKey] ?? 0,
         preview: describeConversationPreview(
           lastMessagePreviews[stateKey] ?? '',
@@ -240,9 +293,11 @@ export function ConversationListView({
       };
     });
 
-    // Newest first, and conversations nobody has written in yet fall to the bottom
-    // in name order rather than in whatever order the API returned them.
+    // Pinned conversations stay at the top. Among pins — and among the rest —
+    // newest activity wins; conversations nobody has written in yet fall to
+    // the bottom of their group in name order.
     return [...channelRows, ...contactRows].sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       if (a.lastAt !== b.lastAt) return b.lastAt - a.lastAt;
       return a.name.localeCompare(b.name);
     });
@@ -490,61 +545,136 @@ export function ConversationListView({
           </p>
         ) : (
           <ul>
-            {visible.map((row) => (
-              <li key={`${row.kind}-${row.key}`}>
-                <button
-                  type="button"
-                  onClick={() => onSelectConversation(row.conversation)}
-                  aria-current={isOpen(row) ? 'page' : undefined}
-                  className={cn(
-                    'flex w-full items-center gap-3 px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                    isOpen(row) ? 'bg-accent/60' : 'hover:bg-accent/40'
-                  )}
-                >
-                  <ConversationAvatar row={row} size={44} showFavoriteMark />
+            {visible.map((row) => {
+              const menuKey = `${row.kind}-${row.key}`;
+              return (
+                <li key={menuKey}>
+                  <div
+                    className={cn(
+                      'group flex items-center',
+                      isOpen(row) ? 'bg-accent/60' : 'hover:bg-accent/40'
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSelectConversation(row.conversation)}
+                      aria-current={isOpen(row) ? 'page' : undefined}
+                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      <ConversationAvatar row={row} size={44} showFavoriteMark />
 
-                  {/* The rule starts after the avatar rather than spanning the
-                      screen: a full-width line reads as a division of the page, an
-                      inset one as a gap between two rows of the same list. */}
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 border-b border-border/20 pb-2.5">
-                    <span className="flex items-baseline gap-2">
-                      <span className="truncate font-medium">{row.name}</span>
-                      <span className="ml-auto shrink-0 text-[0.6875rem] text-muted-foreground">
-                        {formatWhen(row.lastAt, i18n.language)}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-sm text-muted-foreground">
-                        {row.preview || t('conversationList.noMessages')}
-                      </span>
-                      {row.unread > 0 && (
-                        <span
-                          className={cn(
-                            'ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums',
-                            row.mentioned
-                              ? 'bg-[hsl(var(--badge-mention))] text-primary-foreground'
-                              : 'bg-primary text-primary-foreground'
+                      {/* The rule starts after the avatar rather than spanning the
+                          screen: a full-width line reads as a division of the page, an
+                          inset one as a gap between two rows of the same list. */}
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5 border-b border-border/20 pb-2.5">
+                        <span className="flex items-baseline gap-2">
+                          <span className="truncate font-medium">{row.name}</span>
+                          <span className="ml-auto flex shrink-0 items-center gap-1 text-[0.6875rem] text-muted-foreground">
+                            {row.pinned && (
+                              <Pin
+                                className="h-3 w-3 fill-current"
+                                aria-hidden="true"
+                                data-testid="pin-mark"
+                              />
+                            )}
+                            {formatWhen(row.lastAt, i18n.language)}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="truncate text-sm text-muted-foreground">
+                            {row.preview || t('conversationList.noMessages')}
+                          </span>
+                          {row.unread > 0 && (
+                            <span
+                              className={cn(
+                                'ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums',
+                                row.mentioned
+                                  ? 'bg-[hsl(var(--badge-mention))] text-primary-foreground'
+                                  : 'bg-primary text-primary-foreground'
+                              )}
+                            >
+                              {row.unread > 99 ? '99+' : row.unread}
+                            </span>
                           )}
-                        >
-                          {row.unread > 99 ? '99+' : row.unread}
+                        </span>
+                      </span>
+                      {row.favorite && (
+                        <span className="sr-only">{t('conversationList.favorite')}</span>
+                      )}
+                      {row.pinned && (
+                        <span className="sr-only">{t('conversationList.pinned')}</span>
+                      )}
+                      {row.unread > 0 && (
+                        <span className="sr-only">
+                          {t('conversationList.unreadCount', { count: row.unread })}
                         </span>
                       )}
-                    </span>
-                  </span>
-                  {row.favorite && (
-                    <span className="sr-only">{t('conversationList.favorite')}</span>
-                  )}
-                  {row.unread > 0 && (
-                    <span className="sr-only">
-                      {t('conversationList.unreadCount', { count: row.unread })}
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
+                    </button>
+                    {onTogglePin && onToggleFavorite && (
+                      <div className="pr-2">
+                        <ConversationOverflowMenu
+                          open={openMenuKey === menuKey}
+                          onOpenChange={(next) => setOpenMenuKey(next ? menuKey : null)}
+                          pinned={row.pinned}
+                          favorite={row.favorite}
+                          canNotify={!!onSetConversationMedia && !!getNotifyMediaEnabled}
+                          notifyMediaEnabled={getNotifyMediaEnabled?.(row.conversation)}
+                          emailReady={emailReady}
+                          webhookReady={webhookReady}
+                          canMute={row.kind === 'channel' && !!onMuteChannel}
+                          muted={row.channel?.muted}
+                          mutedUntil={row.channel?.muted_until}
+                          canRegion={row.kind === 'channel' && !!onSetChannelFloodScopeOverride}
+                          canDelete={
+                            row.kind === 'contact'
+                              ? !!onDeleteContact
+                              : !!onDeleteChannel && !isPublicChannelKey(row.key)
+                          }
+                          isChannel={row.kind === 'channel'}
+                          onTogglePin={() => onTogglePin(row.kind, row.key)}
+                          onToggleFavorite={() => onToggleFavorite(row.kind, row.key)}
+                          onSetMedia={
+                            onSetConversationMedia
+                              ? (channel, enabled) =>
+                                  onSetConversationMedia(row.conversation, channel, enabled)
+                              : undefined
+                          }
+                          onOpenNotifySettings={onOpenNotifySettings}
+                          onMute={
+                            onMuteChannel ? (seconds) => onMuteChannel(row.key, seconds) : undefined
+                          }
+                          onEditRegion={
+                            onSetChannelFloodScopeOverride ? () => setRegionRow(row) : undefined
+                          }
+                          onDelete={() => {
+                            if (row.kind === 'channel') {
+                              onDeleteChannel?.(row.key);
+                            } else {
+                              onDeleteContact?.(row.key);
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+      {regionRow?.channel && onSetChannelFloodScopeOverride && (
+        <ChannelFloodScopeOverrideModal
+          open
+          onClose={() => setRegionRow(null)}
+          roomName={regionRow.name}
+          currentOverride={regionRow.channel.flood_scope_override ?? null}
+          onSetOverride={(value) => {
+            onSetChannelFloodScopeOverride(regionRow.key, value);
+            setRegionRow(null);
+          }}
+        />
+      )}
     </div>
   );
 }

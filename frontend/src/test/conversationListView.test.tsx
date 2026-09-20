@@ -300,4 +300,32 @@ describe('ConversationListView', () => {
     const favStrip = screen.getByRole('list', { name: i18n.t('conversationList.favorites') });
     expect(within(favStrip).queryByTestId('favorite-mark')).not.toBeInTheDocument();
   });
+
+  it('keeps pinned conversations above unpinned ones, newest pin first', () => {
+    renderList({
+      channels: [
+        channel({ key: 'C1', name: '#alpha' }),
+        channel({ key: 'C2', name: '#beta', pinned: true }),
+      ],
+      contacts: [
+        contact({ public_key: 'aa'.repeat(32), name: 'Alice', pinned: true }),
+        contact({ public_key: 'bb'.repeat(32), name: 'Bob' }),
+      ],
+    });
+    const names = rowNames().join('|');
+    expect(names.indexOf('Alice')).toBeLessThan(names.indexOf('#beta'));
+    expect(names.indexOf('#beta')).toBeLessThan(names.indexOf('#alpha'));
+  });
+
+  it('does not open the conversation when the options chevron is used', () => {
+    const { onSelectConversation } = renderList({
+      onTogglePin: vi.fn(),
+      onToggleFavorite: vi.fn(),
+    });
+    fireEvent.click(
+      screen.getAllByRole('button', { name: i18n.t('conversationList.conversationOptions') })[0]
+    );
+    expect(onSelectConversation).not.toHaveBeenCalled();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
 });

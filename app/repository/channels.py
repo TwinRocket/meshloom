@@ -19,6 +19,13 @@ def effective_channel_muted(muted: bool, muted_until: int | None, now: int | Non
     return muted_until > (now if now is not None else int(time.time()))
 
 
+def _row_pinned(row: Any) -> bool:
+    try:
+        return bool(row["pinned"])
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
 def _row_muted_until(row: Any) -> int | None:
     try:
         raw = row["muted_until"]
@@ -50,6 +57,7 @@ def _channel_from_row(row: Any) -> Channel:
         path_hash_mode_override=row["path_hash_mode_override"],
         last_read_at=row["last_read_at"],
         favorite=bool(row["favorite"]),
+        pinned=_row_pinned(row),
         muted=muted,
         muted_until=muted_until if muted else None,
         membership=membership,
@@ -58,7 +66,7 @@ def _channel_from_row(row: Any) -> Channel:
 
 _CHANNEL_SELECT = (
     "SELECT key, name, is_hashtag, on_radio, flood_scope_override, "
-    "path_hash_mode_override, last_read_at, favorite, muted, muted_until, membership "
+    "path_hash_mode_override, last_read_at, favorite, pinned, muted, muted_until, membership "
     "FROM channels"
 )
 
@@ -163,6 +171,17 @@ class ChannelRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE channels SET favorite = ? WHERE key = ?",
+                (1 if value else 0, normalize_channel_key(key)),
+            ) as cursor:
+                rowcount = cursor.rowcount
+        return rowcount > 0
+
+    @staticmethod
+    async def set_pinned(key: str, value: bool) -> bool:
+        """Set or clear the pinned flag for a channel. Returns True if row was found."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE channels SET pinned = ? WHERE key = ?",
                 (1 if value else 0, normalize_channel_key(key)),
             ) as cursor:
                 rowcount = cursor.rowcount

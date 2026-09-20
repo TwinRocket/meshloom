@@ -431,6 +431,37 @@ class TestDebugEndpoint:
         assert "sidebar_sort_order" not in payload["settings"]
 
 
+class TestPinToggle:
+    @pytest.mark.asyncio
+    async def test_toggle_contact_and_channel_pin(self, test_db, client):
+        pub_key = "cd" * 32
+        await _insert_contact(pub_key, "Bob")
+        channel_key = "ab" * 16
+        from app.repository import ChannelRepository
+
+        await ChannelRepository.upsert(channel_key, "#ops", is_hashtag=True)
+
+        pinned = await client.post(
+            "/api/settings/pins/toggle",
+            json={"type": "contact", "id": pub_key},
+        )
+        assert pinned.status_code == 200
+        assert pinned.json()["pinned"] is True
+
+        missing = await client.post(
+            "/api/settings/pins/toggle",
+            json={"type": "contact", "id": "ff" * 32},
+        )
+        assert missing.status_code == 404
+
+        channel = await client.post(
+            "/api/settings/pins/toggle",
+            json={"type": "channel", "id": channel_key},
+        )
+        assert channel.status_code == 200
+        assert channel.json()["pinned"] is True
+
+
 class TestRadioDisconnectedHandler:
     """Test that RadioDisconnectedError maps to 423."""
 

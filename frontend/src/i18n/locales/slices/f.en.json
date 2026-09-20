@@ -215,6 +215,7 @@
     "checkConnection": "Check your connection",
     "contactKeyCopied": "Contact key copied!",
     "favoriteFailed": "Failed to update favorite",
+    "pinFailed": "Failed to update pin",
     "muteFailed": "Failed to update mute",
     "loadMessagesFailed": "Failed to load messages",
     "loadOlderFailed": "Failed to load older messages",

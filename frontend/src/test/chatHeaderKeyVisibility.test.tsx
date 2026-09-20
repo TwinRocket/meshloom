@@ -34,6 +34,7 @@ const baseProps = {
     throw new Error('unused');
   }) as (_: string) => Promise<PathDiscoveryResponse>,
   onToggleFavorite: noop,
+  onTogglePin: noop,
   onSetChannelFloodScopeOverride: noop,
   onDeleteChannel: noop,
   onDeleteContact: noop,
@@ -349,5 +350,24 @@ describe('ChatHeader key visibility', () => {
     );
 
     expect(onSetChannelFloodScopeOverride).toHaveBeenCalledWith(key, '*');
+  });
+
+  it('pins the open conversation from the header', () => {
+    const key = 'AB'.repeat(16);
+    const channel = makeChannel(key, '#flightless', true);
+    const conversation: Conversation = { type: 'channel', id: key, name: '#flightless' };
+    const onTogglePin = vi.fn();
+
+    render(
+      <ChatHeader
+        {...baseProps}
+        conversation={conversation}
+        channels={[channel]}
+        onTogglePin={onTogglePin}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.pin') }));
+    expect(onTogglePin).toHaveBeenCalledWith('channel', key);
   });
 });

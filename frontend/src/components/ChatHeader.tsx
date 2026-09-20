@@ -4,6 +4,7 @@ import {
   ChevronsLeftRight,
   Globe2,
   Info,
+  Pin,
   Route,
   Star,
   Trash2,
@@ -46,6 +47,7 @@ interface ChatHeaderProps {
   onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => void;
+  onTogglePin?: (type: 'channel' | 'contact', id: string) => void;
   onMuteChannel?: (key: string, durationSeconds: number) => void;
   onSetChannelFloodScopeOverride?: (key: string, floodScopeOverride: string) => void;
   onSetChannelPathHashModeOverride?: (key: string, pathHashModeOverride: number | null) => void;
@@ -73,6 +75,7 @@ export function ChatHeader({
   onSetConversationMedia,
   onOpenNotifySettings,
   onToggleFavorite,
+  onTogglePin,
   onMuteChannel,
   onSetChannelFloodScopeOverride,
   onSetChannelPathHashModeOverride,
@@ -128,6 +131,12 @@ export function ChatHeader({
       ? (activeContact?.favorite ?? false)
       : conversation.type === 'channel'
         ? (activeChannel?.favorite ?? false)
+        : false;
+  const isPinned =
+    conversation.type === 'contact'
+      ? (activeContact?.pinned ?? false)
+      : conversation.type === 'channel'
+        ? (activeChannel?.pinned ?? false)
         : false;
   const favoriteTitle =
     conversation.type === 'contact'
@@ -324,6 +333,27 @@ export function ChatHeader({
                   />
                 </button>
               )}
+              {!pending &&
+                onTogglePin &&
+                (conversation.type === 'channel' || conversation.type === 'contact') && (
+                  <button
+                    className={headerActionClass}
+                    onClick={() =>
+                      onTogglePin(conversation.type as 'channel' | 'contact', conversation.id)
+                    }
+                    title={isPinned ? t('chatHeader.unpin') : t('chatHeader.pin')}
+                    aria-label={isPinned ? t('chatHeader.unpin') : t('chatHeader.pin')}
+                    aria-pressed={isPinned}
+                  >
+                    <Pin
+                      className={cn(
+                        'h-4 w-4',
+                        isPinned ? 'fill-current text-primary' : 'text-muted-foreground'
+                      )}
+                      aria-hidden="true"
+                    />
+                  </button>
+                )}
               {!pending && (conversation.type === 'channel' || conversation.type === 'contact') && (
                 <button
                   className={headerActionClass}

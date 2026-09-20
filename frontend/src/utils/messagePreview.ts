@@ -89,8 +89,7 @@ function describeReactionPreview(
   context: MessagePreviewContext
 ): string {
   const you =
-    context.outgoing === true ||
-    Boolean(sender && context.selfName && sender === context.selfName);
+    context.outgoing === true || Boolean(sender && context.selfName && sender === context.selfName);
   const name = sender || (context.outgoing === false ? context.conversationName : null) || null;
   const excerpt = clipExcerpt(context.targetExcerpt);
 
