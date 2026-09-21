@@ -115,6 +115,7 @@ interface AppShellProps {
   conversationListCollapsed?: boolean;
   onToggleConversationList?: () => void;
   onExpandConversationList?: () => void;
+  onCommunityStatusChange?: (status: CommunityStatus) => void;
 }
 
 export function AppShell({
@@ -150,6 +151,7 @@ export function AppShell({
   conversationListCollapsed = false,
   onToggleConversationList,
   onExpandConversationList,
+  onCommunityStatusChange,
 }: AppShellProps) {
   const { t } = useTranslation();
   const [crackerQueueCount, setCrackerQueueCount] = useState(0);
@@ -187,18 +189,26 @@ export function AppShell({
   const [identityModalForced, setIdentityModalForced] = useState(false);
   const [communityStatus, setCommunityStatus] = useState<CommunityStatus | null>(null);
 
+  const updateCommunityStatus = useCallback(
+    (status: CommunityStatus) => {
+      setCommunityStatus(status);
+      onCommunityStatusChange?.(status);
+    },
+    [onCommunityStatusChange]
+  );
+
   useEffect(() => {
     let cancelled = false;
     void Promise.resolve(api.getCommunity?.()).then(
       (status) => {
-        if (!cancelled && status) setCommunityStatus(status);
+        if (!cancelled && status) updateCommunityStatus(status);
       },
       () => undefined
     );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [updateCommunityStatus]);
 
   const crackerMounted = useRef(false);
   if (showCracker) {
@@ -239,7 +249,16 @@ export function AppShell({
   const showBottomNav = showSettings || !inConversation;
   // Which of the bar's destinations is on screen. A tool opened from the Tools screen
   // keeps Tools lit, because that is where the reader came from and where Back goes.
-  const TOOL_TYPES = ['raw', 'live', 'visualizer', 'trace', 'locate', 'search', 'discovered'];
+  const TOOL_TYPES = [
+    'raw',
+    'control',
+    'live',
+    'visualizer',
+    'trace',
+    'locate',
+    'search',
+    'discovered',
+  ];
   const bottomNavTarget: BottomNavTarget | null = showSettings
     ? 'settings'
     : activeType === 'map'
@@ -576,7 +595,7 @@ export function AppShell({
                     updatesApplying={ossUpdates.applying}
                     onOpenManualHelp={() => setUpdateDialogOpen(true)}
                     onClose={onCloseSettingsView}
-                    onCommunityStatusChange={setCommunityStatus}
+                    onCommunityStatusChange={updateCommunityStatus}
                   />
                 </Suspense>
               </div>

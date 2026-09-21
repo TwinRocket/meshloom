@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 import { createDirectoryGlobeElement } from '../messagePath/DirectoryGlobeIcon';
-import { COLORS, getLinkId } from '../../utils/visualizerUtils';
+import { buildLinkKey, COLORS, getLinkId } from '../../utils/visualizerUtils';
 import type { VisualizerData3D } from './useVisualizerData3D';
 import {
   arraysEqual,
@@ -58,10 +58,35 @@ export function useVisualizer3DScene({
   const hoveredNeighborIdsRef = useRef<string[]>([]);
   const pinnedNodeIdRef = useRef<string | null>(null);
   const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null);
+  const autoPinnedFocusKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    const focusKey = data.focusedObservationKey;
+    if (!focusKey || autoPinnedFocusKeyRef.current === focusKey) {
+      return;
+    }
+    if (data.focusedNodeIds.size === 0) {
+      return;
+    }
+    let preferred: string | null = null;
+    for (const nodeId of data.focusedNodeIds) {
+      if (nodeId !== 'self') {
+        preferred = nodeId;
+        break;
+      }
+    }
+    preferred ??= data.focusedNodeIds.values().next().value ?? null;
+    if (!preferred) {
+      return;
+    }
+    autoPinnedFocusKeyRef.current = focusKey;
+    pinnedNodeIdRef.current = preferred;
+    setPinnedNodeId(preferred);
+  }, [data.focusedObservationKey, data.focusedNodeIds]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -332,7 +357,7 @@ export function useVisualizer3DScene({
 
       controls.update();
 
-      const { nodes, links, particles } = dataRef.current;
+      const { nodes, links, particles, focusedNodeIds, focusedLinkKeys } = dataRef.current;
       const currentNodeIds = new Set<string>();
 
       for (const node of nodes.values()) {
@@ -427,7 +452,11 @@ export function useVisualizer3DScene({
         }
       }
 
-      const connectedIds = activeId ? new Set<string>([activeId]) : null;
+      const connectedIds =
+        activeId || focusedNodeIds.size > 0 ? new Set<string>(focusedNodeIds) : null;
+      if (activeId) {
+        connectedIds?.add(activeId);
+      }
 
       const linkLine = linkLineRef.current;
       if (linkLine) {
@@ -486,8 +515,20 @@ export function useVisualizer3DScene({
           positions[idx++] = ty;
           positions[idx++] = tz;
 
+          const isFocusLink = focusedLinkKeys.has(buildLinkKey(sourceId, targetId));
+          if (isFocusLink) {
+            connectedIds?.add(sourceId);
+            connectedIds?.add(targetId);
+          }
           if (activeId && (sourceId === activeId || targetId === activeId)) {
             connectedIds?.add(sourceId === activeId ? targetId : sourceId);
+            hlPositions[hlIdx++] = sx;
+            hlPositions[hlIdx++] = sy;
+            hlPositions[hlIdx++] = sz;
+            hlPositions[hlIdx++] = tx;
+            hlPositions[hlIdx++] = ty;
+            hlPositions[hlIdx++] = tz;
+          } else if (isFocusLink) {
             hlPositions[hlIdx++] = sx;
             hlPositions[hlIdx++] = sy;
             hlPositions[hlIdx++] = sz;
@@ -499,12 +540,14 @@ export function useVisualizer3DScene({
 
         for (const link of dashedLinks) {
           const { sourceId, targetId } = getLinkId(link);
-          if (activeId && (sourceId === activeId || targetId === activeId)) {
+          const isFocusLink = focusedLinkKeys.has(buildLinkKey(sourceId, targetId));
+          if (activeId && (sourceId === activeId || targetId === activeId || isFocusLink)) {
             const sNode = nodes.get(sourceId);
             const tNode = nodes.get(targetId);
             if (!sNode || !tNode) continue;
 
-            connectedIds?.add(sourceId === activeId ? targetId : sourceId);
+            connectedIds?.add(sourceId);
+            connectedIds?.add(targetId);
             hlPositions[hlIdx++] = sNode.x ?? 0;
             hlPositions[hlIdx++] = sNode.y ?? 0;
             hlPositions[hlIdx++] = sNode.z ?? 0;
@@ -668,7 +711,7 @@ export function useVisualizer3DScene({
         const node = nodes.get(id);
         if (!node) continue;
         const mat = nd.mesh.material as THREE.MeshBasicMaterial;
-        if (id === activeId) {
+        if (id === activeId || focusedNodeIds.has(id)) {
           mat.color.set(0xffd700);
         } else if (connectedIds?.has(id)) {
           mat.color.set(0xfff0b3);

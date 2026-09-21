@@ -196,10 +196,43 @@ describe('App hashtag publish ownership', () => {
     mocks.api.putCommunityHashtags.mockResolvedValue({ hashtags: [] });
   });
 
-  it('does not PUT hashtag names when showCracker opens', async () => {
+  it('fetches community hashtag names on mount when community is enabled', async () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByTestId('message-list')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(mocks.api.getCommunityHashtags).toHaveBeenCalled();
+    });
+    expect(mocks.api.putCommunityHashtags).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch hashtag names when community is disabled', async () => {
+    mocks.api.getCommunity.mockResolvedValue({
+      enabled: false,
+      locked: false,
+      iata: '',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: false,
+      publisher_connected: false,
+      env_seeded: false,
+    });
+
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('message-list')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(mocks.api.getCommunity).toHaveBeenCalled();
+    });
+    expect(mocks.api.getCommunityHashtags).not.toHaveBeenCalled();
+  });
+
+  it('does not PUT hashtag names when showCracker opens', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(mocks.api.getCommunityHashtags).toHaveBeenCalled();
     });
     expect(mocks.api.putCommunityHashtags).not.toHaveBeenCalled();
 
@@ -216,9 +249,6 @@ describe('App hashtag publish ownership', () => {
       })
     );
 
-    await waitFor(() => {
-      expect(mocks.api.getCommunityHashtags).toHaveBeenCalled();
-    });
     expect(mocks.api.putCommunityHashtags).not.toHaveBeenCalled();
   });
 });

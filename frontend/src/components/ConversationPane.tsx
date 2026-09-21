@@ -32,6 +32,7 @@ import type {
 } from '../types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
 import { isPendingChannel } from '../utils/channelMembership';
+import { ControlJournalView } from './ControlJournalView';
 import { DiscoveredChannelsView } from './DiscoveredChannelsView';
 import {
   getContactDisplayName,
@@ -403,6 +404,21 @@ export function ConversationPane({
         contacts={contacts}
         channels={channels}
         radioOffline={!health?.radio_connected}
+        onOpenContactInfo={onOpenContactInfo}
+        onSelectConversation={onSelectConversation}
+      />
+    );
+  }
+
+  if (activeConversation.type === 'control') {
+    return (
+      <ControlJournalView
+        contacts={contacts}
+        channels={channels}
+        onOpenContactInfo={onOpenContactInfo}
+        onSelectConversation={onSelectConversation}
+        publicKey={config?.public_key}
+        onBackToTools={onBackToTools}
       />
     );
   }

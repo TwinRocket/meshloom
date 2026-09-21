@@ -242,6 +242,42 @@ describe('App startup hash resolution', () => {
     });
   });
 
+  it('restores the control journal from the URL hash', async () => {
+    setHash('#control');
+
+    render(<App />);
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node.textContent).toMatch(/^control:control:/);
+      }
+    });
+    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+  });
+
+  it('reopens the last viewed control journal even when channels are unavailable', async () => {
+    setHash('');
+    localStorage.setItem(REOPEN_LAST_CONVERSATION_KEY, '1');
+    localStorage.setItem(
+      LAST_VIEWED_CONVERSATION_KEY,
+      JSON.stringify({
+        type: 'control',
+        id: 'control',
+        name: 'Control journal',
+      })
+    );
+    mocks.api.getChannels.mockResolvedValue([]);
+
+    render(<App />);
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node).toHaveTextContent('control:control:Control journal');
+      }
+    });
+    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+  });
+
   it('restores the trace tool from the URL hash', async () => {
     setHash('#trace');
 

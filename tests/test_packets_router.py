@@ -40,6 +40,23 @@ def _group_text_packet(channel_hash: int, cipher_mac: bytes, ciphertext_byte: in
     return bytes([0x15, 0x00, channel_hash]) + cipher_mac + bytes([ciphertext_byte]) * 16
 
 
+def _encrypted_group_data_packet(channel_key: bytes, blob: bytes) -> bytes:
+    """Build a FLOOD GROUP_DATA v0 packet encryptable by the shared helper."""
+    import hashlib
+    import hmac
+
+    from Crypto.Cipher import AES
+
+    plaintext = (0x0042).to_bytes(2, "little") + bytes([len(blob)]) + blob
+    pad_len = (16 - len(plaintext) % 16) % 16
+    if pad_len == 0:
+        pad_len = 16
+    padded = plaintext + bytes(pad_len)
+    ciphertext = AES.new(channel_key, AES.MODE_ECB).encrypt(padded)
+    mac = hmac.new(channel_key + bytes(16), ciphertext, hashlib.sha256).digest()[:2]
+    return bytes([0x19, 0x00]) + hashlib.sha256(channel_key).digest()[:1] + mac + ciphertext
+
+
 class TestUndecryptedCount:
     """Test GET /api/packets/undecrypted/count."""
 
@@ -226,7 +243,207 @@ class TestGetRawPacket:
             "contact_key": None,
             "sender_timestamp": 1700000000,
             "message": "Alice: hello",
+            "group_data": None,
         }
+
+    @pytest.mark.asyncio
+    async def test_group_data_uses_helper_and_mac_picks_hash_collision_winner(
+        self, test_db, client
+    ):
+        import hashlib
+        import hmac
+
+        from Crypto.Cipher import AES
+
+        from app.decoder import PayloadType
+
+        loser_key, winner_key = _channel_keys_sharing_hash_byte()
+        assert hashlib.sha256(loser_key).digest()[0] == hashlib.sha256(winner_key).digest()[0]
+
+        await ChannelRepository.upsert(key=loser_key.hex().upper(), name="#loser", is_hashtag=False)
+        await ChannelRepository.upsert(
+            key=winner_key.hex().upper(), name="#winner", is_hashtag=False
+        )
+
+        blob = b"mac-wins"
+        plaintext = (0x0042).to_bytes(2, "little") + bytes([len(blob)]) + blob
+        pad_len = (16 - len(plaintext) % 16) % 16
+        if pad_len == 0:
+            pad_len = 16
+        padded = plaintext + bytes(pad_len)
+        ciphertext = AES.new(winner_key, AES.MODE_ECB).encrypt(padded)
+        mac = hmac.new(winner_key + bytes(16), ciphertext, hashlib.sha256).digest()[:2]
+        channel_hash = hashlib.sha256(winner_key).digest()[:1]
+        raw = bytes([0x19, 0x00]) + channel_hash + mac + ciphertext
+        assert (raw[0] >> 2) & 0x0F == PayloadType.GROUP_DATA
+
+        packet_id, _ = await RawPacketRepository.create(raw, 1700000100)
+
+        response = await client.get(f"/api/packets/{packet_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["decrypted"] is True
+        assert data["payload_type"] == "GROUP_DATA"
+        info = data["decrypted_info"]
+        assert info["channel_name"] == "#winner"
+        assert info["channel_key"] == winner_key.hex().upper()
+        assert info["sender"] is None
+        assert info["contact_key"] is None
+        assert info["sender_timestamp"] is None
+        assert info["message"] is None
+        assert info["group_data"] == {
+            "data_type": 0x0042,
+            "data_len": len(blob),
+            "data_hex": blob.hex(),
+            "data_text": "mac-wins",
+        }
+
+        count = await client.get("/api/packets/undecrypted/count")
+        assert count.status_code == 200
+        assert count.json()["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_group_data_ws_decrypt_still_prunes_as_undecrypted(self, test_db, client):
+        """A WS-open GroupData packet stays message_id IS NULL and is pruneable."""
+        import hashlib
+        import hmac
+
+        from Crypto.Cipher import AES
+
+        channel_key = hashlib.sha256(b"#gdprune").digest()[:16]
+        await ChannelRepository.upsert(
+            key=channel_key.hex().upper(), name="#gdprune", is_hashtag=True
+        )
+        blob = b"old"
+        plaintext = (1).to_bytes(2, "little") + bytes([len(blob)]) + blob
+        pad_len = (16 - len(plaintext) % 16) % 16
+        if pad_len == 0:
+            pad_len = 16
+        padded = plaintext + bytes(pad_len)
+        ciphertext = AES.new(channel_key, AES.MODE_ECB).encrypt(padded)
+        mac = hmac.new(channel_key + bytes(16), ciphertext, hashlib.sha256).digest()[:2]
+        raw = bytes([0x19, 0x00]) + hashlib.sha256(channel_key).digest()[:1] + mac + ciphertext
+
+        old_ts = int(time.time()) - (30 * 86400)
+        packet_id, _ = await RawPacketRepository.create(raw, old_ts)
+
+        detail = await client.get(f"/api/packets/{packet_id}")
+        assert detail.status_code == 200
+        assert detail.json()["decrypted"] is True
+        assert await RawPacketRepository.get_undecrypted_count() == 1
+
+        response = await client.post(
+            "/api/packets/maintenance",
+            json={"prune_undecrypted_days": 7},
+        )
+        assert response.status_code == 200
+        assert response.json()["packets_deleted"] == 1
+        assert await RawPacketRepository.get_undecrypted_count() == 0
+
+
+class TestGetRawPacketHistory:
+    """Test GET /api/packets/history (declared before /{packet_id})."""
+
+    @pytest.mark.asyncio
+    async def test_history_route_not_captured_as_packet_id(self, test_db, client):
+        response = await client.get("/api/packets/history")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {"items": [], "total": 0, "truncated": False, "scanned": 0}
+
+    @pytest.mark.asyncio
+    async def test_bad_limit_returns_422(self, test_db, client):
+        assert (await client.get("/api/packets/history?limit=0")).status_code == 422
+        assert (await client.get("/api/packets/history?limit=5001")).status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_bad_max_scan_returns_422(self, test_db, client):
+        assert (await client.get("/api/packets/history?max_scan=0")).status_code == 422
+        assert (await client.get("/api/packets/history?max_scan=20001")).status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_group_data_redecrypts_via_helper_without_message_id(self, test_db, client):
+        import hashlib
+
+        from app.decoder import PayloadType
+
+        channel_key = hashlib.sha256(b"#gdhistory").digest()[:16]
+        await ChannelRepository.upsert(
+            key=channel_key.hex().upper(), name="#gdhistory", is_hashtag=True
+        )
+        raw = _encrypted_group_data_packet(channel_key, b"hist-gd")
+        assert (raw[0] >> 2) & 0x0F == PayloadType.GROUP_DATA
+        packet_id, _ = await RawPacketRepository.create(raw, 1700000200)
+
+        response = await client.get("/api/packets/history?payload_type=GROUP_DATA")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["scanned"] == 1
+        assert data["truncated"] is False
+        assert len(data["items"]) == 1
+        item = data["items"][0]
+        assert item["id"] == packet_id
+        assert item["payload_type"] == "GROUP_DATA"
+        assert item["decrypted"] is True
+        assert item["rssi"] is None
+        assert item["snr"] is None
+        assert "observation_id" not in item
+        info = item["decrypted_info"]
+        assert info["channel_name"] == "#gdhistory"
+        assert info["channel_key"] == channel_key.hex().upper()
+        assert info["message"] is None
+        assert info["group_data"]["data_text"] == "hist-gd"
+        assert await RawPacketRepository.get_linked_message_id(packet_id) is None
+        assert await RawPacketRepository.get_undecrypted_count() == 1
+
+    @pytest.mark.asyncio
+    async def test_pagination_after_id(self, test_db, client):
+        ids = await _insert_raw_packets(5)
+        first = await client.get("/api/packets/history?limit=2")
+
+        assert first.status_code == 200
+        first_data = first.json()
+        assert [item["id"] for item in first_data["items"]] == [ids[4], ids[3]]
+        assert first_data["total"] == 5
+        assert first_data["truncated"] is False
+
+        second = await client.get(f"/api/packets/history?limit=2&after_id={ids[3]}")
+
+        assert second.status_code == 200
+        second_data = second.json()
+        assert [item["id"] for item in second_data["items"]] == [ids[2], ids[1]]
+        assert second_data["total"] == 3
+        assert second_data["truncated"] is False
+
+    @pytest.mark.asyncio
+    async def test_truncated_and_scanned_when_max_scan_hits(self, test_db, client):
+        await _insert_raw_packets(5)
+
+        response = await client.get("/api/packets/history?limit=10&max_scan=2")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scanned"] == 2
+        assert data["truncated"] is True
+        assert data["total"] == 5
+        assert len(data["items"]) == 2
+
+
+def _channel_keys_sharing_hash_byte() -> tuple[bytes, bytes]:
+    import hashlib
+
+    seen: dict[int, bytes] = {}
+    for n in range(1, 20_000):
+        key = n.to_bytes(16, "little")
+        digest0 = hashlib.sha256(key).digest()[0]
+        if digest0 in seen:
+            return seen[digest0], key
+        seen[digest0] = key
+    raise RuntimeError("could not find channel keys sharing a hash byte")
 
 
 class TestDecryptHistoricalPackets:

@@ -1121,6 +1121,108 @@ class TestRawPacketStorage:
         assert raw_broadcast["decrypted_info"]["channel_name"] == fixture["channel_name"]
 
 
+def _encrypt_channel_blob(channel_key: bytes, plaintext: bytes) -> bytes:
+    """Inverse of decrypt_channel_blob: PKCS-style zero-pad to 16, AES-128 ECB, HMAC."""
+    import hashlib as _hashlib
+    import hmac as _hmac
+
+    pad_len = (16 - len(plaintext) % 16) % 16
+    if pad_len == 0:
+        pad_len = 16
+    padded = plaintext + bytes(pad_len)
+    ciphertext = AES.new(channel_key, AES.MODE_ECB).encrypt(padded)
+    mac = _hmac.new(channel_key + bytes(16), ciphertext, _hashlib.sha256).digest()[:2]
+    channel_hash = _hashlib.sha256(channel_key).digest()[:1]
+    return channel_hash + mac + ciphertext
+
+
+def _build_group_data_packet(channel_key: bytes, data_type: int, data: bytes) -> bytes:
+    """FLOOD + GROUP_DATA + v0. Header: (0<<6)|(6<<2)|1 = 0x19."""
+    plaintext = data_type.to_bytes(2, "little") + bytes([len(data)]) + data
+    payload = _encrypt_channel_blob(channel_key, plaintext)
+    return bytes([0x19, 0x00]) + payload
+
+
+class TestGroupDataPipeline:
+    """GroupData is decrypted onto the raw-packet contract without a messages row."""
+
+    @pytest.mark.asyncio
+    async def test_group_data_broadcasts_decrypted_info_without_message_row(
+        self, test_db, captured_broadcasts
+    ):
+        import hashlib as _hashlib
+
+        from app.packet_processor import process_raw_packet
+
+        channel_name = "#gdroom"
+        channel_key = _hashlib.sha256(channel_name.encode()).digest()[:16]
+        channel_key_hex = channel_key.hex().upper()
+        await ChannelRepository.upsert(key=channel_key_hex, name=channel_name, is_hashtag=True)
+
+        blob = b"sensor-ok"
+        raw_packet = _build_group_data_packet(channel_key, 0x00AB, blob)
+
+        broadcasts, mock_broadcast = captured_broadcasts
+        with (
+            patch("app.packet_processor.broadcast_event", mock_broadcast),
+            patch.object(RawPacketRepository, "mark_decrypted") as mock_mark,
+            patch.object(MessageRepository, "create") as mock_create,
+        ):
+            result = await process_raw_packet(raw_packet, timestamp=1700000000)
+
+        mock_mark.assert_not_called()
+        mock_create.assert_not_called()
+        assert result["message_id"] is None
+
+        messages = await MessageRepository.get_all(limit=10)
+        assert messages == []
+        assert await RawPacketRepository.get_undecrypted_count() == 1
+
+        raw_broadcasts = [b for b in broadcasts if b["type"] == "raw_packet"]
+        assert len(raw_broadcasts) == 1
+        raw_broadcast = raw_broadcasts[0]["data"]
+        assert raw_broadcast["decrypted"] is True
+        assert raw_broadcast["payload_type"] == "GROUP_DATA"
+        info = raw_broadcast["decrypted_info"]
+        assert info["channel_name"] == channel_name
+        assert info["channel_key"] == channel_key_hex
+        assert info["sender"] is None
+        assert info["contact_key"] is None
+        assert info["sender_timestamp"] is None
+        assert info["message"] is None
+        group_data = info["group_data"]
+        assert group_data["data_type"] == 0x00AB
+        assert group_data["data_len"] == len(blob)
+        assert group_data["data_hex"] == blob.hex()
+        assert group_data["data_text"] == "sensor-ok"
+
+        packet_row = await RawPacketRepository.get_by_id(result["packet_id"])
+        assert packet_row is not None
+        assert packet_row[3] is None
+
+    @pytest.mark.asyncio
+    async def test_group_data_ws_decrypt_still_undecrypted_in_db(
+        self, test_db, captured_broadcasts
+    ):
+        import hashlib as _hashlib
+
+        from app.packet_processor import process_raw_packet
+
+        channel_key = _hashlib.sha256(b"#gdcount").digest()[:16]
+        await ChannelRepository.upsert(
+            key=channel_key.hex().upper(), name="#gdcount", is_hashtag=True
+        )
+        raw_packet = _build_group_data_packet(channel_key, 1, b"x")
+
+        broadcasts, mock_broadcast = captured_broadcasts
+        with patch("app.packet_processor.broadcast_event", mock_broadcast):
+            await process_raw_packet(raw_packet, timestamp=1700000000)
+
+        raw_broadcasts = [b for b in broadcasts if b["type"] == "raw_packet"]
+        assert raw_broadcasts[0]["data"]["decrypted"] is True
+        assert await RawPacketRepository.get_undecrypted_count() == 1
+
+
 class TestCreateDMMessageFromDecrypted:
     """Test the DM message creation function for direct message decryption."""
 

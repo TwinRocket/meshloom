@@ -1,12 +1,44 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
+import eEn from '../i18n/locales/slices/e.en.json';
+import eFr from '../i18n/locales/slices/e.fr.json';
 import { RawPacketFeedView } from '../components/RawPacketFeedView';
+import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
-import { resetRawPacketStore, seedRawPacketStore } from '../stores/rawPacketStore';
+import { api } from '../api';
+import {
+  getReplayPacketKeys,
+  getReplayPackets,
+  isReplayActive,
+  resetRawPacketReplayStore,
+} from '../stores/rawPacketReplayStore';
+import {
+  clearRawPackets,
+  getRawPackets,
+  recordRawPacket,
+  resetRawPacketStore,
+  seedRawPacketStore,
+} from '../stores/rawPacketStore';
+import { setVisualizerFocusHandoff } from '../utils/visualizerFocusHandoff';
+import { clearRawPacketDerivedCache } from '../utils/rawPacketDerivedCache';
+import { updateUrlHash } from '../utils/urlHash';
 import type { RawPacketStatsSessionState } from '../utils/rawPacketStats';
 import type { Channel, Contact, RawPacket } from '../types';
+
+const TEXT_MESSAGE_PACKET = '09046F17C47ED00A13E16AB5B94B1CC2D1A5059C6E5A6253C60D';
+const ADVERT_PACKET_HEX =
+  '1106538B1CD273868576DC7F679B493F9AB5AC316173E1A56D3388BC3BA75F583F63AB0D1BA2A8ABD0BC6669DBF719E67E4C8517BA4E0D6F8C96A323E9D13A77F2630DED965A5C17C3EC6ED1601EEFE857749DA24E9F39CBEACD722C3708F433DB5FA9BAF0BAF9BC5B1241069290FEEB029A839EF843616E204F204D657368203220F09FA5AB';
+const ADVERT_PUBLIC_KEY = '8576DC7F679B493F9AB5AC316173E1A56D3388BC3BA75F583F63AB0D1BA2A8AB';
+
+vi.mock('../utils/visualizerFocusHandoff', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/visualizerFocusHandoff')>();
+  return {
+    ...actual,
+    setVisualizerFocusHandoff: vi.fn(actual.setVisualizerFocusHandoff),
+  };
+});
 
 const GROUP_TEXT_PACKET_HEX =
   '1500E69C7A89DD0AF6A2D69F5823B88F9720731E4B887C56932BF889255D8D926D99195927144323A42DD8A158F878B518B8304DF55E80501C7D02A9FFD578D3518283156BBA257BF8413E80A237393B2E4149BBBC864371140A9BBC4E23EB9BF203EF0D029214B3E3AAC3C0295690ACDB89A28619E7E5F22C83E16073AD679D25FA904D07E5ACF1DB5A7C77D7E1719FB9AE5BF55541EE0D7F59ED890E12CF0FEED6700818';
@@ -105,19 +137,43 @@ function renderView({
   contacts = [],
   channels = [],
   rawPacketStatsSession = createSession(),
+  onOpenContactInfo,
+  onSelectConversation,
 }: {
   packets?: RawPacket[];
   contacts?: Contact[];
   channels?: Channel[];
   rawPacketStatsSession?: RawPacketStatsSessionState;
+  onOpenContactInfo?: (publicKey: string) => void;
+  onSelectConversation?: (conversation: { type: string; id: string; name: string }) => void;
 } = {}) {
   seedRawPacketStore({ packets, statsSession: rawPacketStatsSession });
-  return render(<RawPacketFeedView contacts={contacts} channels={channels} />);
+  return render(
+    <RawPacketFeedView
+      contacts={contacts}
+      channels={channels}
+      onOpenContactInfo={onOpenContactInfo}
+      onSelectConversation={onSelectConversation}
+    />
+  );
+}
+
+function flattenKeys(obj: unknown, prefix = ''): string[] {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    return prefix ? [prefix] : [];
+  }
+  return Object.entries(obj as Record<string, unknown>).flatMap(([key, value]) =>
+    flattenKeys(value, prefix ? `${prefix}.${key}` : key)
+  );
 }
 
 describe('RawPacketFeedView', () => {
   beforeEach(() => {
     resetRawPacketStore();
+    resetRawPacketReplayStore();
+    clearRawPacketDerivedCache();
+    localStorage.removeItem('meshloom-raw-display-cap');
+    vi.mocked(setVisualizerFocusHandoff).mockClear();
   });
 
   afterEach(() => {
@@ -457,6 +513,136 @@ describe('RawPacketFeedView', () => {
     });
   });
 
+  it('labels new payload types instead of collapsing them to Unknown', () => {
+    renderView();
+
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.groupData'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.anonRequest'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.multipart'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.rawCustom'))).toBeInTheDocument();
+    expect(screen.queryByLabelText('Unknown')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.unknown'))).toBeInTheDocument();
+  });
+
+  it('filters the feed by route and text', () => {
+    const floodAck = '0D00AABBCCDD';
+    const directAck = '0E00AABBCCDD';
+    renderView({
+      packets: [
+        {
+          id: 1,
+          observation_id: 1,
+          timestamp: 1_700_000_001,
+          data: floodAck,
+          decrypted: false,
+          payload_type: 'Ack',
+          rssi: null,
+          snr: null,
+          decrypted_info: {
+            channel_name: '#alpha',
+            sender: 'Alpha',
+            channel_key: 'aa',
+            contact_key: null,
+            sender_timestamp: null,
+            message: null,
+            group_data: null,
+          },
+        },
+        {
+          id: 2,
+          observation_id: 2,
+          timestamp: 1_700_000_002,
+          data: directAck,
+          decrypted: true,
+          payload_type: 'Ack',
+          rssi: null,
+          snr: null,
+          decrypted_info: {
+            channel_name: '#beta',
+            sender: 'Beta',
+            channel_key: 'bb',
+            contact_key: null,
+            sender_timestamp: null,
+            message: 'hello',
+            group_data: null,
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText(floodAck)).toBeInTheDocument();
+    expect(screen.getByText(directAck)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.route.flood')));
+    expect(screen.queryByText(floodAck)).not.toBeInTheDocument();
+    expect(screen.getByText(directAck)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.route.flood')));
+    fireEvent.change(screen.getByLabelText(i18n.t('rawPacket.textAria')), {
+      target: { value: 'alpha' },
+    });
+    expect(screen.getByText(floodAck)).toBeInTheDocument();
+    expect(screen.queryByText(directAck)).not.toBeInTheDocument();
+  });
+
+  it('filters crypto state using GroupText and GroupData, not cleartext Acks', () => {
+    const groupDataPacket = '19006ed356e5b542d4bceab6dc9bc995d8225492b0';
+    renderView({
+      packets: [
+        {
+          id: 1,
+          observation_id: 1,
+          timestamp: 1_700_000_001,
+          data: GROUP_TEXT_PACKET_HEX,
+          decrypted: false,
+          payload_type: 'GroupText',
+          rssi: null,
+          snr: null,
+          decrypted_info: null,
+        },
+        {
+          id: 2,
+          observation_id: 2,
+          timestamp: 1_700_000_002,
+          data: groupDataPacket,
+          decrypted: false,
+          payload_type: 'GroupData',
+          rssi: null,
+          snr: null,
+          decrypted_info: {
+            channel_name: '#gd',
+            sender: null,
+            channel_key: 'aabbccddeeff00112233445566778899',
+            contact_key: null,
+            sender_timestamp: null,
+            message: null,
+            group_data: {
+              data_type: 0x00ab,
+              data_len: 9,
+              data_hex: '73656e736f722d6f6b',
+              data_text: 'sensor-ok',
+            },
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText(GROUP_TEXT_PACKET_HEX.toUpperCase())).toBeInTheDocument();
+    expect(screen.getByText(groupDataPacket.toUpperCase())).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('rawPacket.cryptoAria')), {
+      target: { value: 'decrypted' },
+    });
+    expect(screen.queryByText(GROUP_TEXT_PACKET_HEX.toUpperCase())).not.toBeInTheDocument();
+    expect(screen.getByText(groupDataPacket.toUpperCase())).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('rawPacket.cryptoAria')), {
+      target: { value: 'encrypted' },
+    });
+    expect(screen.getByText(GROUP_TEXT_PACKET_HEX.toUpperCase())).toBeInTheDocument();
+    expect(screen.queryByText(groupDataPacket.toUpperCase())).not.toBeInTheDocument();
+  });
+
   it('opens a packet detail modal from the raw feed and decrypts channel messages when a key is loaded', () => {
     renderView({
       packets: [
@@ -528,5 +714,473 @@ describe('RawPacketFeedView', () => {
     expect(screen.getByText(i18n.t('rawPacket.channelHash', { hash: 'E6' }))).toBeInTheDocument();
     expect(screen.queryByText('#six77')).not.toBeInTheDocument();
     expect(screen.queryByText('#collision')).not.toBeInTheDocument();
+  });
+
+  describe('local pause and display cap', () => {
+    function makePacket(id: number, data: string, overrides: Partial<RawPacket> = {}): RawPacket {
+      return {
+        id,
+        observation_id: id,
+        timestamp: 1_700_000_000 + id,
+        data,
+        decrypted: false,
+        payload_type: 'Unknown',
+        rssi: null,
+        snr: null,
+        decrypted_info: null,
+        ...overrides,
+      };
+    }
+
+    it('keeps a snapshot while paused and lets the global store keep growing', () => {
+      renderView({ packets: [makePacket(1, 'aa11')] });
+      expect(screen.getByText('AA11')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.pauseAria')));
+      act(() => recordRawPacket(makePacket(2, 'bb22')));
+
+      expect(screen.getByText('AA11')).toBeInTheDocument();
+      expect(screen.queryByText('BB22')).not.toBeInTheDocument();
+      expect(getRawPackets()).toHaveLength(2);
+      expect(screen.getByLabelText(i18n.t('rawPacket.heldAria', { count: 1 }))).toBeInTheDocument();
+    });
+
+    it('toasts when resume would drop held packets past the display cap', () => {
+      const warning = vi.spyOn(toast, 'warning');
+      renderView({ packets: [makePacket(1, 'aa11')] });
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.displayCapAria')));
+      fireEvent.click(screen.getByText(i18n.t('rawPacket.displayCapOption', { count: 200 })));
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.pauseAria')));
+
+      act(() => {
+        for (let i = 2; i <= 202; i += 1) {
+          recordRawPacket(makePacket(i, i.toString(16).padStart(4, '0')));
+        }
+      });
+
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.resumeAria')));
+      expect(warning).toHaveBeenCalledWith(
+        i18n.t('rawPacket.pauseOverflow', { count: 201, cap: 200 })
+      );
+    });
+
+    it('trims the visible list to the display cap without shrinking the store', () => {
+      const packets = Array.from({ length: 250 }, (_, index) =>
+        makePacket(index + 1, (index + 1).toString(16).padStart(4, '0'))
+      );
+      renderView({ packets });
+
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.displayCapAria')));
+      fireEvent.click(screen.getByText(i18n.t('rawPacket.displayCapOption', { count: 200 })));
+
+      expect(getRawPackets()).toHaveLength(250);
+      expect(screen.queryByText('0001')).not.toBeInTheDocument();
+      expect(screen.getByText('00FA')).toBeInTheDocument();
+      expect(localStorage.getItem('meshloom-raw-display-cap')).toBe('200');
+    });
+  });
+
+  describe('navigation and export', () => {
+    it('opens a unique dest hash contact', () => {
+      const onOpenContactInfo = vi.fn();
+      renderView({
+        packets: [
+          {
+            id: 1,
+            observation_id: 11,
+            timestamp: 1_700_000_000,
+            data: TEXT_MESSAGE_PACKET,
+            decrypted: false,
+            payload_type: 'TextMessage',
+            rssi: null,
+            snr: null,
+            decrypted_info: null,
+          },
+        ],
+        contacts: [createContact({ public_key: 'd0' + 'ab'.repeat(31), name: 'DestOne' })],
+        onOpenContactInfo,
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+      );
+      expect(onOpenContactInfo).toHaveBeenCalledWith('d0' + 'ab'.repeat(31));
+    });
+
+    it('shows a picker when several contacts share a dest hash', () => {
+      const onOpenContactInfo = vi.fn();
+      renderView({
+        packets: [
+          {
+            id: 1,
+            observation_id: 11,
+            timestamp: 1_700_000_000,
+            data: TEXT_MESSAGE_PACKET,
+            decrypted: false,
+            payload_type: 'TextMessage',
+            rssi: null,
+            snr: null,
+            decrypted_info: null,
+          },
+        ],
+        contacts: [
+          createContact({ public_key: 'd0' + 'ab'.repeat(31), name: 'DestOne' }),
+          createContact({ public_key: 'd0' + 'cd'.repeat(31), name: 'DestTwo' }),
+        ],
+        onOpenContactInfo,
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+      );
+      expect(screen.getByText(i18n.t('rawPacket.hashPicker'))).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'DestTwo' }));
+      expect(onOpenContactInfo).toHaveBeenCalledWith('d0' + 'cd'.repeat(31));
+    });
+
+    it('toasts and copies when no contact matches the dest hash', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+      const info = vi.spyOn(toast, 'info');
+
+      renderView({
+        packets: [
+          {
+            id: 1,
+            observation_id: 11,
+            timestamp: 1_700_000_000,
+            data: TEXT_MESSAGE_PACKET,
+            decrypted: false,
+            payload_type: 'TextMessage',
+            rssi: null,
+            snr: null,
+            decrypted_info: null,
+          },
+        ],
+      });
+
+      fireEvent.click(
+        screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+      );
+      await vi.waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith('D0');
+        expect(info).toHaveBeenCalledWith(i18n.t('rawPacket.hashCopied', { hash: 'D0' }));
+      });
+    });
+
+    it('hands the observation key to the visualizer setter', () => {
+      const onSelectConversation = vi.fn();
+      renderView({
+        packets: [
+          {
+            id: 9,
+            observation_id: 21,
+            timestamp: 1_700_000_000,
+            data: TEXT_MESSAGE_PACKET,
+            decrypted: false,
+            payload_type: 'TextMessage',
+            rssi: null,
+            snr: null,
+            packet_hash: 'deadbeefdeadbeef',
+            decrypted_info: null,
+          },
+        ],
+        onSelectConversation,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.openVisualizer') }));
+      expect(setVisualizerFocusHandoff).toHaveBeenCalledWith({
+        observationKey: 'obs-21',
+        packetHash: 'deadbeefdeadbeef',
+      });
+      expect(onSelectConversation).toHaveBeenCalledWith({
+        type: 'visualizer',
+        id: 'visualizer',
+        name: 'visualizer',
+      });
+    });
+
+    it('opens a known advert contact and offers a map pin when GPS is present', () => {
+      const onOpenContactInfo = vi.fn();
+      const onSelectConversation = vi.fn();
+      const storedKey = ADVERT_PUBLIC_KEY.toLowerCase();
+      renderView({
+        packets: [
+          {
+            id: 3,
+            observation_id: 3,
+            timestamp: 1_700_000_000,
+            data: ADVERT_PACKET_HEX,
+            decrypted: false,
+            payload_type: 'Advert',
+            rssi: null,
+            snr: null,
+            decrypted_info: null,
+          },
+        ],
+        contacts: [createContact({ public_key: storedKey, name: 'CanO' })],
+        onOpenContactInfo,
+        onSelectConversation,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.openContact') }));
+      expect(onOpenContactInfo).toHaveBeenCalledWith(storedKey);
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.pinOnMap') }));
+      const selected = onSelectConversation.mock.calls[0][0];
+      expect(selected).toEqual({
+        type: 'map',
+        id: 'map',
+        name: 'map',
+        mapFocusKey: storedKey,
+      });
+      updateUrlHash(selected);
+      expect(window.location.hash).toBe(`#map/focus/${storedKey}`);
+      updateUrlHash(selected);
+      expect(window.location.hash).toBe(`#map/focus/${storedKey}`);
+    });
+
+    it('copies redacted JSON by default', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+
+      renderView({
+        packets: [
+          {
+            id: 4,
+            observation_id: 4,
+            timestamp: 1_700_000_000,
+            data: GROUP_TEXT_PACKET_HEX,
+            decrypted: true,
+            payload_type: 'GroupText',
+            rssi: -70,
+            snr: 6,
+            decrypted_info: {
+              channel_name: '#six77',
+              sender: 'Flightless🥝',
+              channel_key: TEST_CHANNEL.key,
+              contact_key: null,
+              sender_timestamp: null,
+              message: 'secret hello',
+              group_data: null,
+            },
+          },
+        ],
+        channels: [TEST_CHANNEL],
+      });
+
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.copyMenuAria')));
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.copyJson') }));
+
+      await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+      const copied = JSON.parse(writeText.mock.calls[0][0] as string) as Record<string, unknown>;
+      expect(copied).toMatchObject({
+        id: 4,
+        observation_id: 4,
+        data: GROUP_TEXT_PACKET_HEX,
+      });
+      expect(copied).not.toHaveProperty('decrypted_info');
+      expect(JSON.stringify(copied)).not.toContain('secret hello');
+    });
+
+    it('exports the visible buffer without plaintext', async () => {
+      const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:export');
+      const revoke = vi.fn();
+      vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: revoke });
+      const click = vi.fn();
+      const originalCreate = document.createElement.bind(document);
+      vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+        const el = originalCreate(tag);
+        if (tag === 'a') {
+          Object.defineProperty(el, 'click', { value: click });
+        }
+        return el;
+      });
+
+      renderView({
+        packets: [
+          {
+            id: 5,
+            observation_id: 5,
+            timestamp: 1_700_000_111,
+            data: 'aabb',
+            decrypted: true,
+            payload_type: 'Ack',
+            rssi: -60,
+            snr: 8,
+            packet_hash: 'feedface',
+            decrypted_info: {
+              channel_name: null,
+              sender: 'hidden',
+              channel_key: null,
+              contact_key: null,
+              sender_timestamp: null,
+              message: 'do-not-export',
+              group_data: null,
+            },
+          },
+        ],
+      });
+
+      fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.exportAria')));
+      expect(createObjectURL).toHaveBeenCalled();
+      const blob = createObjectURL.mock.calls[0][0];
+      expect(blob).toBeInstanceOf(Blob);
+      const exported = await blob.text();
+      expect(exported).toContain('aabb');
+      expect(exported).toContain('feedface');
+      expect(exported).not.toContain('do-not-export');
+      expect(exported).not.toContain('hidden');
+      expect(exported).not.toContain('decrypted_info');
+    });
+  });
+
+  describe('history replay modal', () => {
+    function canonicalUnknown(value: string): boolean {
+      return value.replace(/[_-\s]/g, '').toLowerCase() === 'unknown';
+    }
+
+    function makePacket(id: number, data: string, overrides: Partial<RawPacket> = {}): RawPacket {
+      return {
+        id,
+        observation_id: id,
+        timestamp: 1_700_000_000 + id,
+        data,
+        decrypted: false,
+        payload_type: 'Unknown',
+        rssi: -60,
+        snr: 5,
+        decrypted_info: null,
+        ...overrides,
+      };
+    }
+
+    function mockHistory(total: number, items: RawPacket[]) {
+      return vi.spyOn(api, 'getPacketsHistory').mockResolvedValue({
+        items,
+        total,
+        truncated: false,
+        scanned: items.length || 1,
+      });
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('loads replay without mixing into the live store, then exit restores live', async () => {
+      const live = makePacket(1, 'aa11');
+      const historic = makePacket(88, 'bb22', { observation_id: undefined, rssi: null, snr: null });
+      const history = mockHistory(1, [historic]);
+      renderView({ packets: [live] });
+
+      expect(screen.getByText('AA11')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(i18n.t('rawPacket.historyTitle'))).toBeInTheDocument();
+      expect(within(dialog).getByText(i18n.t('rawPacket.historyPruneNote'))).toBeInTheDocument();
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() }));
+
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') })
+      );
+
+      expect(await screen.findByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
+      expect(screen.getByText('BB22')).toBeInTheDocument();
+      expect(screen.queryByText('AA11')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openVisualizer') })).toBeNull();
+
+      expect(getRawPackets()).toHaveLength(1);
+      expect(getRawPackets()[0].data).toBe('aa11');
+      expect(getReplayPackets()).toHaveLength(1);
+      expect(getReplayPacketKeys()).toEqual(['hist-88']);
+      expect(getReplayPackets()[0].rssi).toBeNull();
+      expect(getReplayPackets()[0].observation_id).toBeUndefined();
+      expect(history.mock.calls.every((call) => !('q' in (call[0] ?? {})))).toBe(true);
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyExitAria') }));
+      expect(screen.queryByText(i18n.t('rawPacket.historyBanner'))).not.toBeInTheDocument();
+      expect(screen.getByText('AA11')).toBeInTheDocument();
+      expect(screen.queryByText('BB22')).not.toBeInTheDocument();
+      expect(isReplayActive()).toBe(false);
+    });
+
+    it('does not drop replay when the live store is cleared on reconnect', async () => {
+      const historic = makePacket(9, 'cc33', { observation_id: undefined });
+      mockHistory(1, [historic]);
+      renderView({ packets: [makePacket(1, 'aa11')] });
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      const dialog = await screen.findByRole('dialog');
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() }));
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') })
+      );
+      expect(await screen.findByText('CC33')).toBeInTheDocument();
+
+      act(() => clearRawPackets());
+
+      expect(getRawPackets()).toEqual([]);
+      expect(screen.getByText('CC33')).toBeInTheDocument();
+      expect(screen.getByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
+      expect(getReplayPacketKeys()).toEqual(['hist-9']);
+    });
+
+    it('does not send payload_type=Unknown when Unknown stays selected after unchecking another type', async () => {
+      const history = vi.spyOn(api, 'getPacketsHistory').mockImplementation(async (query) => {
+        if (query?.payload_type && canonicalUnknown(query.payload_type)) {
+          throw new Error('422 payload_type=Unknown');
+        }
+        return {
+          items: [makePacket(3, 'dd44', { observation_id: undefined, payload_type: 'Ack' })],
+          total: 8,
+          truncated: false,
+          scanned: 1,
+        };
+      });
+      renderView();
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      const dialog = await screen.findByRole('dialog');
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (8).toLocaleString() }));
+
+      fireEvent.click(within(dialog).getByLabelText(i18n.t('rawPacket.type.advert')));
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') })
+      );
+
+      expect(await screen.findByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
+      expect(
+        history.mock.calls.every((call) => {
+          const payloadType = call[0]?.payload_type;
+          return payloadType === undefined || !canonicalUnknown(payloadType);
+        })
+      ).toBe(true);
+      expect(history.mock.calls.some((call) => call[0]?.payload_type === 'Unknown')).toBe(false);
+    });
+
+    it('warns when the time-window total exceeds the display cap', async () => {
+      mockHistory(1200, []);
+      renderView();
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      expect(
+        await screen.findByText(
+          i18n.t('rawPacket.historyCapWarning', {
+            count: (1200).toLocaleString(),
+            cap: 500,
+          })
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('keeps English and French rawPacket e-slice keys in parity', () => {
+      const enKeys = flattenKeys(eEn.rawPacket).sort();
+      const frKeys = flattenKeys(eFr.rawPacket).sort();
+      expect(enKeys).toEqual(frKeys);
+      expect(enKeys.filter((key) => key.startsWith('history'))).toEqual(
+        frKeys.filter((key) => key.startsWith('history'))
+      );
+    });
   });
 });

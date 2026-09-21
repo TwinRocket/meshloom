@@ -491,6 +491,15 @@ class ResendChannelMessageResponse(BaseModel):
     message: Message | None = None
 
 
+class RawPacketGroupData(BaseModel):
+    """Decrypted GroupData blob attached to a raw packet (no messages row)."""
+
+    data_type: int
+    data_len: int
+    data_hex: str
+    data_text: str | None = None
+
+
 class RawPacketDecryptedInfo(BaseModel):
     """Decryption info for a raw packet (when successfully decrypted)."""
 
@@ -500,6 +509,7 @@ class RawPacketDecryptedInfo(BaseModel):
     contact_key: str | None = None
     sender_timestamp: int | None = None
     message: str | None = None
+    group_data: RawPacketGroupData | None = None
 
 
 class RawPacketBroadcast(BaseModel):
@@ -557,6 +567,19 @@ class RawPacketDetail(BaseModel):
         default=None,
         description="Resolved region name for the transport code, if it matched a known region",
     )
+
+
+class RawPacketHistoryResponse(BaseModel):
+    """Bounded newest-first raw-packet history page."""
+
+    items: list[RawPacketDetail]
+    total: int = Field(
+        description="Rows in the since/until/after_id window (idx_raw_packets_timestamp)"
+    )
+    truncated: bool = Field(
+        description="True when the bounded header scan stopped at max_scan with more rows left"
+    )
+    scanned: int = Field(description="Rows walked while building this page")
 
 
 class UndecryptedGroupTextSample(BaseModel):

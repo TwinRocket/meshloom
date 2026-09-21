@@ -68,6 +68,18 @@ class TestTopicBuilders:
         topic = _build_raw_packet_topic("meshcore", data)
         assert topic == "meshcore/raw/dm:c1"
 
+    def test_raw_packet_group_data_topic(self):
+        data = {
+            "payload_type": "GROUP_DATA",
+            "decrypted_info": {
+                "channel_key": "chan456",
+                "contact_key": None,
+                "message": None,
+            },
+        }
+        topic = _build_raw_packet_topic("meshcore", data)
+        assert topic == "meshcore/raw/gm:chan456"
+
 
 class TestMqttPublisher:
     def test_initial_state(self):

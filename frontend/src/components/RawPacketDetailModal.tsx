@@ -6,10 +6,18 @@ import i18n from '../i18n';
 import type { Channel, RawPacket } from '../types';
 import { cn } from '@/lib/utils';
 import {
+  collectGroupDataKeys,
   createDecoderOptions,
   inspectRawPacketWithOptions,
+  isPacketOpen,
   type PacketByteField,
 } from '../utils/rawPacketInspector';
+import {
+  labelField,
+  labelHeaderField,
+  labelPayloadType,
+  labelRoute,
+} from '../utils/rawPacketLabels';
 import { toast } from './ui/sonner';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -225,8 +233,9 @@ function packetShowsDecryptedState(
   packet: RawPacket,
   inspection: ReturnType<typeof inspectRawPacketWithOptions>
 ): boolean {
-  const payload = inspection.decoded?.payload.decoded as { decrypted?: unknown } | null | undefined;
-  return packet.decrypted || Boolean(packet.decrypted_info) || Boolean(payload?.decrypted);
+  const payloadType =
+    inspection.summary.payloadType || inspection.payloadTypeName || packet.payload_type;
+  return isPacketOpen(payloadType, packet, inspection.summary.clientDecoded);
 }
 
 function getPacketContext(
@@ -236,6 +245,16 @@ function getPacketContext(
 ) {
   const fallbackSender = packet.decrypted_info?.sender ?? null;
   const fallbackChannel = packet.decrypted_info?.channel_name ?? null;
+  const groupData = inspection.groupData;
+
+  if (inspection.decoded?.payloadType === PayloadType.GroupData || groupData) {
+    const typeHex = groupData ? `0x${groupData.data_type.toString(16).padStart(4, '0')}` : null;
+    return {
+      title: i18n.t('rawPacket.channel'),
+      primary: fallbackChannel ?? i18n.t('rawPacket.type.groupData'),
+      secondary: typeHex ? i18n.t('rawPacket.dataType', { type: typeHex }) : null,
+    };
+  }
 
   if (!inspection.decoded?.payload.decoded) {
     if (!fallbackSender && !fallbackChannel) {
@@ -472,7 +491,9 @@ function FieldBox({
     >
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between">
         <div className="min-w-0">
-          <div className="text-base font-semibold leading-tight text-foreground">{field.name}</div>
+          <div className="text-base font-semibold leading-tight text-foreground">
+            {labelField(field.name)}
+          </div>
           <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
             {formatByteRange(field)}
           </div>
@@ -515,7 +536,7 @@ function FieldBox({
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="text-sm font-medium leading-tight text-foreground">
-                    {part.field}
+                    {labelHeaderField(part.field)}
                   </div>
                   <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
                     {i18n.t('rawPacket.bits', { bits: part.bits })}
@@ -604,13 +625,20 @@ export function RawPacketInspectionPanel({
   signalOverride,
 }: RawPacketInspectionPanelProps) {
   const decoderOptions = useMemo(() => createDecoderOptions(channels), [channels]);
+  const inspectExtras = useMemo(
+    () => ({
+      channelKeys: collectGroupDataKeys(channels, []),
+      extraSecrets: [] as string[],
+    }),
+    [channels]
+  );
   const groupTextCandidates = useMemo(
     () => buildGroupTextResolutionCandidates(channels),
     [channels]
   );
   const inspection = useMemo(
-    () => inspectRawPacketWithOptions(packet, decoderOptions),
-    [decoderOptions, packet]
+    () => inspectRawPacketWithOptions(packet, decoderOptions, inspectExtras),
+    [decoderOptions, inspectExtras, packet]
   );
   const [hoveredFieldId, setHoveredFieldId] = useState<string | null>(null);
 
@@ -690,7 +718,7 @@ export function RawPacketInspectionPanel({
           />
           <CompactMetaCard
             label={i18n.t('rawPacket.transport')}
-            primary={`${inspection.routeTypeName} · ${inspection.payloadTypeName}`}
+            primary={`${labelRoute(inspection.routeTypeName)} · ${labelPayloadType(inspection.payloadTypeName)}`}
             secondary={`${inspection.payloadVersionName} · ${formatPathMode(inspection.decoded?.pathHashSize, inspection.pathTokens.length)}`}
           />
           {inspection.decoded?.transportCodes ? (

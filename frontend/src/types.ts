@@ -473,6 +473,7 @@ type ConversationType =
   | 'contact'
   | 'channel'
   | 'raw'
+  | 'control'
   | 'map'
   | 'live'
   | 'visualizer'
@@ -718,6 +719,12 @@ export interface RawPacket {
     contact_key: string | null;
     sender_timestamp: number | null;
     message: string | null;
+    group_data: null | {
+      data_type: number;
+      data_len: number;
+      data_hex: string;
+      data_text: string | null;
+    };
   } | null;
   /** Region scope transport code (uint16) for TransportFlood/TransportDirect packets. */
   transport_code?: number | null;
@@ -725,6 +732,22 @@ export interface RawPacket {
   region?: string | null;
   /** Firmware packet hash (16 hex). First 8 lowercase chars are #live hash8. */
   packet_hash?: string | null;
+}
+
+export interface RawPacketHistoryQuery {
+  payload_type?: string;
+  since?: number;
+  until?: number;
+  limit?: number;
+  after_id?: number;
+  max_scan?: number;
+}
+
+export interface RawPacketHistoryResponse {
+  items: RawPacket[];
+  total: number;
+  truncated: boolean;
+  scanned: number;
 }
 
 export interface GroupTextSample {

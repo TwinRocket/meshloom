@@ -5,6 +5,11 @@ import { PayloadType } from '@michaelhart/meshcore-decoder';
 import type { Contact, ContactAdvertPathSummary, RadioConfig, RawPacket } from '../types';
 import { CONTACT_TYPE_REPEATER } from '../types';
 import { buildLinkKey } from '../utils/visualizerUtils';
+import {
+  resetVisualizerFocusHandoff,
+  setVisualizerFocusHandoff,
+  type VisualizerFocusHandoff,
+} from '../utils/visualizerFocusHandoff';
 
 const { packetFixtures, resolveDirectoryHops } = vi.hoisted(() => ({
   packetFixtures: new Map<string, unknown>(),
@@ -96,6 +101,7 @@ function renderVisualizerData({
   repeaterAdvertPaths = [],
   useAdvertPathHints = false,
   directoryEnabled = false,
+  focusHandoff = null,
 }: {
   packets: RawPacket[];
   contacts: Contact[];
@@ -106,6 +112,7 @@ function renderVisualizerData({
   repeaterAdvertPaths?: ContactAdvertPathSummary[];
   useAdvertPathHints?: boolean;
   directoryEnabled?: boolean;
+  focusHandoff?: VisualizerFocusHandoff | null;
 }) {
   return renderHook(() =>
     useVisualizerData3D({
@@ -125,6 +132,7 @@ function renderVisualizerData({
       pruneStaleNodes: false,
       pruneStaleMinutes: 5,
       directoryEnabled,
+      focusHandoff,
     })
   );
 }
@@ -132,6 +140,8 @@ function renderVisualizerData({
 afterEach(() => {
   packetFixtures.clear();
   resolveDirectoryHops.mockReset();
+  resetVisualizerFocusHandoff();
+  sessionStorage.clear();
 });
 
 describe('useVisualizerData3D', () => {
@@ -578,5 +588,74 @@ describe('useVisualizerData3D', () => {
     await waitFor(() => expect(resolveDirectoryHops).toHaveBeenCalled(), { timeout: 800 });
     expect(resolveDirectoryHops).toHaveBeenCalledWith(['F5E6']);
     await waitFor(() => expect(result.current.communityNames.get('?f5e6')).toBe('RemoteHill'));
+  });
+
+  it('highlights a handed-off observation that is still in the live store', async () => {
+    const selfKey = 'ffffffffffff0000000000000000000000000000000000000000000000000000';
+    const aliceKey = 'aaaaaaaaaaaa0000000000000000000000000000000000000000000000000000';
+    packetFixtures.set('dm-focus-live', {
+      payloadType: PayloadType.TextMessage,
+      messageHash: 'dm-focus-live',
+      pathBytes: ['32'],
+      srcHash: 'aaaaaaaaaaaa',
+      dstHash: 'ffffffffffff',
+      advertPubkey: null,
+      groupTextSender: null,
+      anonRequestPubkey: null,
+    });
+
+    const { result } = renderVisualizerData({
+      packets: [createPacket('dm-focus-live', { id: 7, observationId: 21 })],
+      contacts: [createContact(aliceKey, 'Alice')],
+      config: createConfig(selfKey),
+      focusHandoff: { observationKey: 'obs-21', packetHash: 'aabbccddeeff0011' },
+    });
+
+    await waitFor(() => expect(result.current.focusedObservationKey).toBe('obs-21'));
+    expect(result.current.focusedNodeIds.size).toBeGreaterThan(0);
+    expect(result.current.focusedLinkKeys.size).toBeGreaterThan(0);
+    expect(result.current.stats.processed).toBe(1);
+  });
+
+  it('does not peek sessionStorage when the parent did not pass a handoff', async () => {
+    const selfKey = 'ffffffffffff0000000000000000000000000000000000000000000000000000';
+    const aliceKey = 'aaaaaaaaaaaa0000000000000000000000000000000000000000000000000000';
+    packetFixtures.set('dm-focus-no-peek', {
+      payloadType: PayloadType.TextMessage,
+      messageHash: 'dm-focus-no-peek',
+      pathBytes: ['32'],
+      srcHash: 'aaaaaaaaaaaa',
+      dstHash: 'ffffffffffff',
+      advertPubkey: null,
+      groupTextSender: null,
+      anonRequestPubkey: null,
+    });
+    setVisualizerFocusHandoff({ observationKey: 'obs-21' });
+
+    const { result } = renderVisualizerData({
+      packets: [createPacket('dm-focus-no-peek', { id: 7, observationId: 21 })],
+      contacts: [createContact(aliceKey, 'Alice')],
+      config: createConfig(selfKey),
+    });
+
+    await waitFor(() => expect(result.current.stats.processed).toBe(1));
+    expect(result.current.focusedObservationKey).toBeNull();
+    expect(result.current.focusedNodeIds.size).toBe(0);
+  });
+
+  it('does not crash when the handed-off observation is missing from the live store', async () => {
+    const selfKey = 'ffffffffffff0000000000000000000000000000000000000000000000000000';
+
+    const { result } = renderVisualizerData({
+      packets: [],
+      contacts: [],
+      config: createConfig(selfKey),
+      focusHandoff: { observationKey: 'obs-404' },
+    });
+
+    await waitFor(() => expect(result.current.nodes.get('self')).toBeDefined());
+    expect(result.current.focusedObservationKey).toBeNull();
+    expect(result.current.focusedNodeIds.size).toBe(0);
+    expect(result.current.stats.processed).toBe(0);
   });
 });

@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import './eSlices';
 import { ConversationPane } from '../components/ConversationPane';
 import i18n from '../i18n';
 import sliceEn from '../i18n/locales/slices/b.en.json';
@@ -684,5 +685,44 @@ describe('ConversationPane', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('discovered.refuse') }));
     expect(onAdoptChannel).toHaveBeenCalledWith(channel.key);
     expect(onRefuseChannel).toHaveBeenCalledWith(channel.key);
+  });
+
+  it('passes optional nav callbacks into the raw feed without subscribing to packets', () => {
+    const onOpenContactInfo = vi.fn();
+    const onSelectConversation = vi.fn();
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: { type: 'raw', id: 'raw', name: 'Raw Packet Feed' },
+          onOpenContactInfo,
+          onSelectConversation,
+        })}
+      />
+    );
+
+    expect(screen.getByText(i18n.t('rawPacket.title'))).toBeInTheDocument();
+    expect(screen.getByTestId('raw-packet-list')).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.pauseAria'))).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+  });
+
+  it('renders ControlJournalView without a pane-level packet subscription', () => {
+    const onOpenContactInfo = vi.fn();
+    const onSelectConversation = vi.fn();
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: { type: 'control', id: 'control', name: 'Control journal' },
+          onOpenContactInfo,
+          onSelectConversation,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('controlJournal.title'))).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('raw-packet-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
   });
 });

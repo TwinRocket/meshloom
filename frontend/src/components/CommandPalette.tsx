@@ -8,6 +8,7 @@ import {
   Network,
   Radio,
   Route,
+  ScrollText,
   Search,
   Star,
   User,
@@ -62,7 +63,16 @@ interface ToolItem extends Searchable {
   id: string;
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  type: 'raw' | 'map' | 'live' | 'visualizer' | 'search' | 'trace' | 'locate' | 'discovered';
+  type:
+    | 'raw'
+    | 'control'
+    | 'map'
+    | 'live'
+    | 'visualizer'
+    | 'search'
+    | 'trace'
+    | 'locate'
+    | 'discovered';
 }
 
 interface SettingItem extends Searchable {
@@ -73,6 +83,7 @@ interface SettingItem extends Searchable {
 
 const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'raw', icon: Radio, type: 'raw' },
+  { id: 'control', icon: ScrollText, type: 'control' },
   { id: 'map', icon: Map, type: 'map' },
   { id: 'live', icon: Radio, type: 'live' },
   { id: 'visualizer', icon: Network, type: 'visualizer' },
@@ -84,6 +95,7 @@ const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
 
 const TOOL_NAME_KEYS: Record<string, string> = {
   raw: 'commandPalette.rawPacketFeed',
+  control: 'sidebar.controlJournal',
   map: 'commandPalette.mapView',
   live: 'commandPalette.liveRain',
   visualizer: 'commandPalette.networkVisualizer',

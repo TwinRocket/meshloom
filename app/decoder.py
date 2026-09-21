@@ -155,6 +155,38 @@ def parse_packet(raw_packet: bytes) -> PacketInfo | None:
         return None
 
 
+def decrypt_channel_blob(payload: bytes, channel_key: bytes) -> bytes | None:
+    """Verify MAC and AES-128-ECB decrypt a channel envelope.
+
+    Envelope (same for GroupText and GroupData):
+    - channel_hash (1 byte): first byte of SHA256(channel key)
+    - cipher_mac (2 bytes): HMAC-SHA256(channel_key + 16 zero bytes, ciphertext)[:2]
+    - ciphertext (rest): AES-128 ECB, 16-byte blocks
+
+    Returns the decrypted plaintext including AES padding, or None on failure.
+    """
+    if len(payload) < 3:
+        return None
+
+    cipher_mac = payload[1:3]
+    ciphertext = payload[3:]
+
+    if len(ciphertext) == 0 or len(ciphertext) % 16 != 0:
+        return None
+
+    channel_secret = channel_key + bytes(16)
+    calculated_mac = hmac.new(channel_secret, ciphertext, hashlib.sha256).digest()
+    if calculated_mac[:2] != cipher_mac:
+        return None
+
+    try:
+        cipher = AES.new(channel_key, AES.MODE_ECB)
+        return cipher.decrypt(ciphertext)
+    except Exception as e:
+        logger.debug("AES decryption failed: %s", e)
+        return None
+
+
 def decrypt_group_text(payload: bytes, channel_key: bytes) -> DecryptedGroupText | None:
     """
     Decrypt a GroupText payload using the channel key.
@@ -169,32 +201,11 @@ def decrypt_group_text(payload: bytes, channel_key: bytes) -> DecryptedGroupText
     - flags (1 byte)
     - message text (null-terminated string, format: "sender: message")
     """
-    if len(payload) < 3:
+    decrypted = decrypt_channel_blob(payload, channel_key)
+    if decrypted is None:
         return None
 
     channel_hash = format(payload[0], "02x")
-    cipher_mac = payload[1:3]
-    ciphertext = payload[3:]
-
-    if len(ciphertext) == 0 or len(ciphertext) % 16 != 0:
-        # AES requires 16-byte blocks
-        return None
-
-    # Create the 32-byte channel secret (key + 16 zero bytes)
-    channel_secret = channel_key + bytes(16)
-
-    # Verify MAC: HMAC-SHA256 of ciphertext using full 32-byte secret
-    calculated_mac = hmac.new(channel_secret, ciphertext, hashlib.sha256).digest()
-    if calculated_mac[:2] != cipher_mac:
-        return None
-
-    # Decrypt using AES-128 ECB with the 16-byte key
-    try:
-        cipher = AES.new(channel_key, AES.MODE_ECB)
-        decrypted = cipher.decrypt(ciphertext)
-    except Exception as e:
-        logger.debug("AES decryption failed: %s", e)
-        return None
 
     if len(decrypted) < 5:
         return None
@@ -232,6 +243,58 @@ def decrypt_group_text(payload: bytes, channel_key: bytes) -> DecryptedGroupText
         message=content,
         channel_hash=channel_hash,
     )
+
+
+@dataclass
+class ParsedGroupData:
+    """Plaintext of a GroupData datagram after MAC+AES (data_len honored)."""
+
+    data_type: int
+    data_len: int
+    data: bytes
+
+
+def parse_group_data(plaintext: bytes) -> ParsedGroupData | None:
+    """Parse GroupData plaintext: data_type u16 LE + data_len u8 + blob.
+
+    Honors ``data_len`` and ignores AES padding. Returns None if the header is
+    truncated or ``data_len`` exceeds the remaining plaintext.
+    """
+    if len(plaintext) < 3:
+        return None
+    data_type = int.from_bytes(plaintext[0:2], "little")
+    data_len = plaintext[2]
+    if len(plaintext) < 3 + data_len:
+        return None
+    return ParsedGroupData(
+        data_type=data_type,
+        data_len=data_len,
+        data=plaintext[3 : 3 + data_len],
+    )
+
+
+def try_decrypt_group_data(raw_packet: bytes, channel_key: bytes) -> ParsedGroupData | None:
+    """Decrypt a GROUP_DATA v0 packet with one channel key.
+
+    Skips packets whose payload_version is not 0. Returns None on type/version
+    mismatch, short payload, hash mismatch, MAC failure, or invalid plaintext.
+    """
+    packet_info = parse_packet(raw_packet)
+    if packet_info is None or packet_info.payload_type != PayloadType.GROUP_DATA:
+        return None
+    if packet_info.payload_version != 0:
+        return None
+    if len(packet_info.payload) < 1:
+        return None
+
+    expected_hash = hashlib.sha256(channel_key).digest()[0]
+    if packet_info.payload[0] != expected_hash:
+        return None
+
+    plaintext = decrypt_channel_blob(packet_info.payload, channel_key)
+    if plaintext is None:
+        return None
+    return parse_group_data(plaintext)
 
 
 GROUP_TEXT_MAX_UTF8 = 160

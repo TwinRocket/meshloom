@@ -1,3 +1,4 @@
+import i18n from '../i18n';
 import type { Conversation } from '../types';
 import { parseHashConversation } from './urlHash';
 
@@ -8,6 +9,7 @@ const SUPPORTED_TYPES: Conversation['type'][] = [
   'contact',
   'channel',
   'raw',
+  'control',
   'map',
   'live',
   'visualizer',
@@ -98,6 +100,14 @@ export function captureLastViewedConversationFromHash(): void {
 
   if (hashConversation.type === 'raw') {
     saveLastViewedConversation({ type: 'raw', id: 'raw', name: 'Raw Packet Feed' });
+    return;
+  }
+  if (hashConversation.type === 'control') {
+    saveLastViewedConversation({
+      type: 'control',
+      id: 'control',
+      name: i18n.t('sidebar.controlJournal'),
+    });
     return;
   }
   if (hashConversation.type === 'map') {

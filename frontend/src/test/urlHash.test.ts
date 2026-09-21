@@ -15,6 +15,7 @@ import {
   getConversationHash,
   resolveChannelFromHashToken,
   resolveContactFromHashToken,
+  updateUrlHash,
 } from '../utils/urlHash';
 import type { Channel, Contact } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
@@ -56,6 +57,14 @@ describe('parseHashConversation', () => {
     const result = parseHashConversation();
 
     expect(result).toEqual({ type: 'raw', name: 'raw' });
+  });
+
+  it('parses #control as control type', () => {
+    window.location.hash = '#control';
+
+    const result = parseHashConversation();
+
+    expect(result).toEqual({ type: 'control', name: 'control' });
   });
 
   it('parses #map as map type', () => {
@@ -403,6 +412,12 @@ describe('getConversationHash', () => {
     expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
   });
 
+  it('encodes control conversations', () => {
+    expect(getConversationHash({ type: 'control', id: 'control', name: 'Control journal' })).toBe(
+      '#control'
+    );
+  });
+
   it('encodes discovered conversations', () => {
     expect(
       getConversationHash({ type: 'discovered', id: 'discovered', name: 'Discovered channels' })
@@ -421,6 +436,23 @@ describe('getConversationHash', () => {
         locateKey: 'abcd',
       })
     ).toBe('#locate/abcd');
+  });
+
+  it('encodes map focus so a later hash sync cannot wipe #map/focus/x', () => {
+    const focused = {
+      type: 'map' as const,
+      id: 'map',
+      name: 'map',
+      mapFocusKey: 'AbCd1234',
+    };
+    expect(getConversationHash({ type: 'map', id: 'map', name: 'map' })).toBe('#map');
+    expect(getConversationHash(focused)).toBe('#map/focus/AbCd1234');
+
+    window.location.hash = '#raw';
+    updateUrlHash(focused);
+    expect(window.location.hash).toBe('#map/focus/AbCd1234');
+    updateUrlHash(focused);
+    expect(window.location.hash).toBe('#map/focus/AbCd1234');
   });
 });
 

@@ -13,14 +13,17 @@ from app.decoder import (
     DecryptedDirectMessage,
     PayloadType,
     RouteType,
+    decrypt_channel_blob,
     decrypt_direct_message,
     decrypt_group_text,
     decrypt_path_payload,
     derive_public_key,
     derive_shared_secret,
     extract_payload,
+    parse_group_data,
     parse_packet,
     try_decrypt_dm,
+    try_decrypt_group_data,
     try_decrypt_packet_with_channel_key,
     try_decrypt_path,
 )
@@ -286,6 +289,90 @@ class TestGroupTextDecryption:
         result = decrypt_group_text(corrupted, channel_key)
 
         assert result is None
+
+
+def _encrypt_channel_blob(channel_key: bytes, plaintext: bytes) -> bytes:
+    """Inverse of decrypt_channel_blob: PKCS-style zero-pad to 16, AES-128 ECB, HMAC."""
+    pad_len = (16 - len(plaintext) % 16) % 16
+    if pad_len == 0:
+        pad_len = 16
+    padded = plaintext + bytes(pad_len)
+    ciphertext = AES.new(channel_key, AES.MODE_ECB).encrypt(padded)
+    mac = hmac.new(channel_key + bytes(16), ciphertext, hashlib.sha256).digest()[:2]
+    channel_hash = hashlib.sha256(channel_key).digest()[:1]
+    return channel_hash + mac + ciphertext
+
+
+def _build_group_data_packet(
+    channel_key: bytes, data_type: int, data: bytes, *, version: int = 0
+) -> bytes:
+    """FLOOD + GROUP_DATA packet. Header for v0: (0<<6)|(6<<2)|1 = 0x19."""
+    plaintext = data_type.to_bytes(2, "little") + bytes([len(data)]) + data
+    payload = _encrypt_channel_blob(channel_key, plaintext)
+    header = (version << 6) | (PayloadType.GROUP_DATA << 2) | 1
+    return bytes([header, 0x00]) + payload
+
+
+class TestChannelBlobAndGroupData:
+    """Shared MAC+AES blob helper and GroupData plaintext parse."""
+
+    def test_decrypt_channel_blob_shared_by_group_text_and_group_data(self):
+        channel_key = hashlib.sha256(b"#sharedblob").digest()[:16]
+        gt_payload = self._gt_payload(channel_key)
+        gd_plain = (0x1234).to_bytes(2, "little") + bytes([5]) + b"hello"
+        gd_payload = _encrypt_channel_blob(channel_key, gd_plain)
+
+        gt_blob = decrypt_channel_blob(gt_payload, channel_key)
+        gd_blob = decrypt_channel_blob(gd_payload, channel_key)
+
+        assert gt_blob is not None
+        assert decrypt_group_text(gt_payload, channel_key) is not None
+        assert gd_blob is not None
+        assert gd_blob.startswith(gd_plain)
+        parsed = parse_group_data(gd_blob)
+        assert parsed is not None
+        assert parsed.data == b"hello"
+
+    def test_parse_group_data_honors_data_len_not_aes_padding(self):
+        data = b"hi"
+        plaintext = (7).to_bytes(2, "little") + bytes([len(data)]) + data + b"\x00" * 11
+        parsed = parse_group_data(plaintext)
+
+        assert parsed is not None
+        assert parsed.data_type == 7
+        assert parsed.data_len == 2
+        assert parsed.data == b"hi"
+
+    def test_decrypt_channel_blob_mac_fail(self):
+        channel_key = hashlib.sha256(b"#macfail").digest()[:16]
+        payload = _encrypt_channel_blob(channel_key, b"\x01\x00\x01x")
+        corrupted = payload[:1] + bytes([payload[1] ^ 0xFF, payload[2] ^ 0xFF]) + payload[3:]
+
+        assert decrypt_channel_blob(corrupted, channel_key) is None
+        assert try_decrypt_group_data(bytes([0x19, 0x00]) + corrupted, channel_key) is None
+
+    def test_try_decrypt_group_data_skips_nonzero_version(self):
+        channel_key = hashlib.sha256(b"#version").digest()[:16]
+        packet = _build_group_data_packet(channel_key, 1, b"abc", version=1)
+
+        info = parse_packet(packet)
+        assert info is not None
+        assert info.payload_version == 1
+        assert try_decrypt_group_data(packet, channel_key) is None
+
+    def test_short_packet_fails(self):
+        channel_key = hashlib.sha256(b"#short").digest()[:16]
+
+        assert decrypt_channel_blob(b"\x01\x02", channel_key) is None
+        assert parse_group_data(b"\x01\x00") is None
+        assert try_decrypt_group_data(bytes([0x19, 0x00]), channel_key) is None
+
+    @staticmethod
+    def _gt_payload(channel_key: bytes) -> bytes:
+        timestamp = 1700000000
+        message = "BlobUser: shared"
+        plaintext = timestamp.to_bytes(4, "little") + b"\x00" + message.encode("utf-8") + b"\x00"
+        return _encrypt_channel_blob(channel_key, plaintext)
 
 
 class TestPathDecryption:

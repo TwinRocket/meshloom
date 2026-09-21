@@ -4,6 +4,7 @@ import {
   LayoutGrid,
   Settings,
   List,
+  ScrollText,
   Radio,
   Waypoints,
   Spline,
@@ -38,7 +39,15 @@ export const NAV_ITEMS: { target: BottomNavTarget; labelKey: string; Icon: Lucid
 export const UNREAD_BADGE_MAX = 99;
 
 export type RailItemId =
-  BottomNavTarget | 'raw' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered';
+  | BottomNavTarget
+  | 'raw'
+  | 'control'
+  | 'live'
+  | 'visualizer'
+  | 'trace'
+  | 'locate'
+  | 'search'
+  | 'discovered';
 
 export interface RailItem {
   id: RailItemId;
@@ -95,6 +104,7 @@ export const RAIL_ITEMS: RailItem[] = [
     })
   ),
   tool('raw', 'sidebar.packetFeed', List),
+  tool('control', 'sidebar.controlJournal', ScrollText),
   tool('live', 'sidebar.live', Radio),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),
   tool('trace', 'sidebar.trace', Spline),

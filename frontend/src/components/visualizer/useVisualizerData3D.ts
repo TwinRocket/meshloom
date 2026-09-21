@@ -33,6 +33,10 @@ import {
 } from '../../types';
 import { getRawPacketObservationKey } from '../../utils/rawPacketIdentity';
 import {
+  packetMatchesVisualizerFocus,
+  type VisualizerFocusHandoff,
+} from '../../utils/visualizerFocusHandoff';
+import {
   applyDirectoryName,
   buildCommunityNames,
   chunkDirectoryPrefixes,
@@ -68,6 +72,7 @@ export interface UseVisualizerData3DOptions {
   pruneStaleNodes: boolean;
   pruneStaleMinutes: number;
   directoryEnabled?: boolean;
+  focusHandoff?: VisualizerFocusHandoff | null;
 }
 
 export interface VisualizerData3D {
@@ -79,6 +84,9 @@ export interface VisualizerData3D {
   communityNames: Map<string, string>;
   particles: Particle[];
   stats: { processed: number; animated: number; nodes: number; links: number };
+  focusedObservationKey: string | null;
+  focusedNodeIds: Set<string>;
+  focusedLinkKeys: Set<string>;
   expandContract: () => void;
   clearAndReset: () => void;
 }
@@ -139,6 +147,7 @@ export function useVisualizerData3D({
   pruneStaleNodes,
   pruneStaleMinutes,
   directoryEnabled = false,
+  focusHandoff = null,
 }: UseVisualizerData3DOptions): VisualizerData3D {
   const networkStateRef = useRef(createPacketNetworkState(config?.name || 'Me'));
   const nodesRef = useRef<Map<string, GraphNode>>(new Map());
@@ -160,6 +169,12 @@ export function useVisualizerData3D({
   const [communityNames, setCommunityNames] = useState<Map<string, string>>(() => new Map());
   const [stats, setStats] = useState({ processed: 0, animated: 0, nodes: 0, links: 0 });
   const [, setProjectionVersion] = useState(0);
+  const [focusHighlight, setFocusHighlight] = useState<{
+    observationKey: string | null;
+    nodeIds: string[];
+    linkKeys: string[];
+  }>({ observationKey: null, nodeIds: [], linkKeys: [] });
+  const observationPathsRef = useRef<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     directoryEnabledRef.current = directoryEnabled;
@@ -421,6 +436,7 @@ export function useVisualizerData3D({
 
   useEffect(() => {
     processedRef.current.clear();
+    observationPathsRef.current.clear();
     clearPacketNetworkState(networkStateRef.current, { selfName: config?.name || 'Me' });
     nodesRef.current.clear();
     linksRef.current.clear();
@@ -435,6 +451,7 @@ export function useVisualizerData3D({
     }
 
     setStats({ processed: 0, animated: 0, nodes: selfNode ? 1 : 0, links: 0 });
+    setFocusHighlight({ observationKey: null, nodeIds: [], linkKeys: [] });
     syncSimulation();
   }, [config?.name, splitAmbiguousByTraffic, syncSimulation, upsertRenderNode, useAdvertPathHints]);
 
@@ -473,10 +490,30 @@ export function useVisualizerData3D({
     let newProcessed = 0;
     let newAnimated = 0;
     let needsProjectionRebuild = false;
+    const handoff = focusHandoff;
+    let focusedObservationKey: string | null = null;
+    let focusedNodeIds: string[] = [];
+    let focusedLinkKeys: string[] = [];
 
     for (const packet of packets) {
       const observationKey = getRawPacketObservationKey(packet);
-      if (processedRef.current.has(observationKey)) continue;
+      const isFocus = packetMatchesVisualizerFocus(packet, handoff);
+      if (processedRef.current.has(observationKey)) {
+        if (isFocus) {
+          const storedPath = observationPathsRef.current.get(observationKey);
+          if (storedPath && storedPath.length >= 2) {
+            focusedObservationKey = observationKey;
+            focusedNodeIds = [...storedPath];
+            focusedLinkKeys = [];
+            for (let i = 0; i < storedPath.length - 1; i++) {
+              if (storedPath[i] !== storedPath[i + 1]) {
+                focusedLinkKeys.push(buildLinkKey(storedPath[i], storedPath[i + 1]));
+              }
+            }
+          }
+        }
+        continue;
+      }
       processedRef.current.add(observationKey);
       newProcessed++;
 
@@ -498,6 +535,7 @@ export function useVisualizerData3D({
         collapseLikelyKnownSiblingRepeaters,
       });
       if (projectedPath.nodes.length < 2) continue;
+      observationPathsRef.current.set(observationKey, [...projectedPath.nodes]);
 
       const packetKey = generatePacketKey(ingested.parsed, packet);
       const now = Date.now();
@@ -522,10 +560,24 @@ export function useVisualizerData3D({
           firstSeen: now,
           expiresAt: now + windowMs,
         });
-        timersRef.current.set(
-          packetKey,
-          setTimeout(() => publishPacket(packetKey), windowMs)
-        );
+        if (!isFocus) {
+          timersRef.current.set(
+            packetKey,
+            setTimeout(() => publishPacket(packetKey), windowMs)
+          );
+        }
+      }
+
+      if (isFocus) {
+        focusedObservationKey = getRawPacketObservationKey(packet);
+        focusedNodeIds = [...projectedPath.nodes];
+        focusedLinkKeys = [];
+        for (let i = 0; i < projectedPath.nodes.length - 1; i++) {
+          if (projectedPath.nodes[i] !== projectedPath.nodes[i + 1]) {
+            focusedLinkKeys.push(buildLinkKey(projectedPath.nodes[i], projectedPath.nodes[i + 1]));
+          }
+        }
+        publishPacket(packetKey);
       }
 
       if (pendingRef.current.size > 100) {
@@ -543,6 +595,25 @@ export function useVisualizerData3D({
       }
 
       newAnimated++;
+    }
+
+    if (handoff && focusedObservationKey) {
+      setFocusHighlight((prev) => {
+        if (
+          prev.observationKey === focusedObservationKey &&
+          prev.nodeIds.length === focusedNodeIds.length &&
+          prev.nodeIds.every((id, index) => id === focusedNodeIds[index]) &&
+          prev.linkKeys.length === focusedLinkKeys.length &&
+          prev.linkKeys.every((key, index) => key === focusedLinkKeys[index])
+        ) {
+          return prev;
+        }
+        return {
+          observationKey: focusedObservationKey,
+          nodeIds: focusedNodeIds,
+          linkKeys: focusedLinkKeys,
+        };
+      });
     }
 
     if (needsProjectionRebuild) {
@@ -563,6 +634,7 @@ export function useVisualizerData3D({
     rebuildRenderProjection,
     showAmbiguousNodes,
     showAmbiguousPaths,
+    focusHandoff,
   ]);
 
   const expandContract = useCallback(() => {
@@ -652,6 +724,7 @@ export function useVisualizerData3D({
     timersRef.current.clear();
     pendingRef.current.clear();
     processedRef.current.clear();
+    observationPathsRef.current.clear();
     particlesRef.current.length = 0;
     clearPacketNetworkState(networkStateRef.current, { selfName: config?.name || 'Me' });
 
@@ -671,6 +744,7 @@ export function useVisualizerData3D({
     }
 
     setStats({ processed: 0, animated: 0, nodes: selfNode ? 1 : 0, links: 0 });
+    setFocusHighlight({ observationKey: null, nodeIds: [], linkKeys: [] });
   }, [config?.name, upsertRenderNode]);
 
   useEffect(() => {
@@ -718,6 +792,9 @@ export function useVisualizerData3D({
     communityNames,
     particles: particlesRef.current,
     stats,
+    focusedObservationKey: focusHighlight.observationKey,
+    focusedNodeIds: new Set(focusHighlight.nodeIds),
+    focusedLinkKeys: new Set(focusHighlight.linkKeys),
     expandContract,
     clearAndReset,
   };

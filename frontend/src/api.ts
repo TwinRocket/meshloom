@@ -29,6 +29,8 @@ import type {
   FanoutConfig,
   GroupTextSamplesResponse,
   HealthStatus,
+  RawPacketHistoryQuery,
+  RawPacketHistoryResponse,
   MaintenanceResult,
   Message,
   MessagesAroundResponse,
@@ -432,6 +434,17 @@ export const api = {
     fetchJson<{ status: string }>(`/messages/${messageId}`, { method: 'DELETE' }),
 
   // Packets
+  getPacketsHistory: (query: RawPacketHistoryQuery = {}, signal?: AbortSignal) => {
+    const params = new URLSearchParams();
+    if (query.payload_type) params.set('payload_type', query.payload_type);
+    if (query.since !== undefined) params.set('since', String(query.since));
+    if (query.until !== undefined) params.set('until', String(query.until));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.after_id !== undefined) params.set('after_id', String(query.after_id));
+    if (query.max_scan !== undefined) params.set('max_scan', String(query.max_scan));
+    const qs = params.toString();
+    return fetchJson<RawPacketHistoryResponse>(`/packets/history${qs ? `?${qs}` : ''}`, { signal });
+  },
   getPacket: (packetId: number) => fetchJson<RawPacket>(`/packets/${packetId}`),
   getUndecryptedPacketCount: () => fetchJson<{ count: number }>('/packets/undecrypted/count'),
   getGroupTextSamples: (receivedSinceDays = 30) => {

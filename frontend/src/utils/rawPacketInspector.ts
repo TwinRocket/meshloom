@@ -2,18 +2,40 @@ import {
   MeshCoreDecoder,
   PayloadType,
   Utils,
+  type AnonRequestPayload,
+  type ControlPayload,
   type DecodedPacket,
   type DecryptionOptions,
   type HeaderBreakdown,
   type PacketStructure,
+  type PathPayload,
+  type RequestPayload,
 } from '@michaelhart/meshcore-decoder';
 
 import i18n from '../i18n';
 import type { Channel, RawPacket } from '../types';
+import { parseGroupData, type GroupDataPlaintext } from './parseGroupData';
+import { labelPayloadType, labelRole } from './rawPacketLabels';
+
+export const CLEARTEXT_PAYLOAD_TYPES = new Set(['advert', 'ack', 'control', 'trace']);
+
+function foldPayloadTypeName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+}
+
+export interface PacketInspectExtras {
+  extraSecrets?: string[];
+  channelKeys?: string[];
+}
 
 export interface RawPacketSummary {
   summary: string;
   routeType: string;
+  payloadType: string;
+  clientDecoded: boolean;
   details?: string;
 }
 
@@ -39,6 +61,7 @@ export interface RawPacketInspection {
   payloadVersionName: string;
   pathTokens: string[];
   summary: RawPacketSummary;
+  groupData: GroupDataPlaintext | null;
   validationErrors: string[];
   packetFields: PacketByteField[];
   payloadFields: PacketByteField[];
@@ -67,6 +90,8 @@ export function describeCiphertextStructure(
   switch (payloadType) {
     case PayloadType.GroupText:
       return i18n.t('rawPacket.ciphertextGroup', { bytes: byteLength });
+    case PayloadType.GroupData:
+      return i18n.t('rawPacket.ciphertextGroupData', { bytes: byteLength });
     case PayloadType.TextMessage:
       return i18n.t('rawPacket.ciphertextDm', { bytes: byteLength });
     case PayloadType.Response:
@@ -117,6 +142,7 @@ function createPacketField(
   };
 }
 
+/** Channel secrets for npm GroupText decryption only. GroupData uses parseGroupData. */
 export function createDecoderOptions(
   channels: Channel[] | null | undefined
 ): DecryptionOptions | undefined {
@@ -135,6 +161,96 @@ export function createDecoderOptions(
   };
 }
 
+export function collectGroupDataKeys(
+  channels?: Channel[] | null,
+  extraSecrets?: string[]
+): string[] {
+  const keys: string[] = [];
+  for (const channel of channels ?? []) {
+    const key = channel.key?.trim();
+    if (key) keys.push(key);
+  }
+  for (const secret of extraSecrets ?? []) {
+    const key = secret.trim();
+    if (key) keys.push(key);
+  }
+  return keys;
+}
+
+export function collectGroupDataKeysFromExtras(extras?: PacketInspectExtras): string[] {
+  const keys: string[] = [];
+  for (const key of extras?.channelKeys ?? []) {
+    if (key.trim()) keys.push(key);
+  }
+  for (const key of extras?.extraSecrets ?? []) {
+    if (key.trim()) keys.push(key);
+  }
+  return keys;
+}
+
+function truncateText(text: string, maxLen = 40): string {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 1)}…`;
+}
+
+function isGroupDataType(packet: RawPacket, payloadType: PayloadType | null): boolean {
+  if (payloadType === PayloadType.GroupData) {
+    return true;
+  }
+  const folded = foldPayloadTypeName(packet.payload_type);
+  return folded === 'groupdata' || folded === 'grpdata';
+}
+
+export function resolveGroupData(
+  packet: RawPacket,
+  payloadType: PayloadType | null,
+  keys: string[]
+): GroupDataPlaintext | null {
+  if (packet.decrypted_info?.group_data) {
+    return packet.decrypted_info.group_data;
+  }
+  if (!isGroupDataType(packet, payloadType)) {
+    return null;
+  }
+  if (keys.length === 0) {
+    return null;
+  }
+  return parseGroupData(packet.data, keys);
+}
+
+function npmGroupTextDecrypted(decoded: DecodedPacket | null): boolean {
+  if (!decoded?.isValid || decoded.payloadType !== PayloadType.GroupText) {
+    return false;
+  }
+  const payload = decoded.payload.decoded as { decrypted?: { message?: string } } | null;
+  return Boolean(payload?.decrypted?.message);
+}
+
+export function isCleartextPayloadType(payloadTypeName: string): boolean {
+  return CLEARTEXT_PAYLOAD_TYPES.has(foldPayloadTypeName(payloadTypeName));
+}
+
+export function isPacketOpen(
+  payloadType: string,
+  packet: Pick<RawPacket, 'decrypted'>,
+  clientDecoded: boolean
+): boolean {
+  return isCleartextPayloadType(payloadType) || packet.decrypted || clientDecoded;
+}
+
+export function isPacketClientDecoded(
+  packet: RawPacket,
+  decoded: DecodedPacket | null,
+  groupData: GroupDataPlaintext | null
+): boolean {
+  return (
+    Boolean(packet.decrypted_info?.group_data) ||
+    groupData !== null ||
+    npmGroupTextDecrypted(decoded)
+  );
+}
+
 function safeValidate(hexData: string): string[] {
   try {
     const validation = MeshCoreDecoder.validate(hexData);
@@ -146,13 +262,20 @@ function safeValidate(hexData: string): string[] {
 
 export function decodePacketSummary(
   packet: RawPacket,
-  decoderOptions?: DecryptionOptions
+  decoderOptions?: DecryptionOptions,
+  extras?: PacketInspectExtras
 ): RawPacketSummary {
+  const keys = collectGroupDataKeysFromExtras(extras);
   try {
     const decoded = MeshCoreDecoder.decode(packet.data, decoderOptions);
 
     if (!decoded.isValid) {
-      return { summary: i18n.t('rawPacket.invalidPacket'), routeType: 'Unknown' };
+      return {
+        summary: i18n.t('rawPacket.invalidPacket'),
+        routeType: 'Unknown',
+        payloadType: packet.payload_type,
+        clientDecoded: isPacketClientDecoded(packet, null, resolveGroupData(packet, null, keys)),
+      };
     }
 
     const routeType = Utils.getRouteTypeName(decoded.routeType);
@@ -160,8 +283,10 @@ export function decodePacketSummary(
     const pathTokens = getPathTokens(decoded);
     const pathStr =
       pathTokens.length > 0 ? i18n.t('rawPacket.viaPath', { path: pathTokens.join(', ') }) : '';
+    const groupData = resolveGroupData(packet, decoded.payloadType, keys);
+    const clientDecoded = isPacketClientDecoded(packet, decoded, groupData);
 
-    let summary = payloadTypeName;
+    let summary = labelPayloadType(payloadTypeName);
     let details: string | undefined;
 
     switch (decoded.payloadType) {
@@ -213,19 +338,37 @@ export function decodePacketSummary(
         }
         break;
       }
+      case PayloadType.GroupData: {
+        if (groupData) {
+          const typeHex = `0x${groupData.data_type.toString(16).padStart(4, '0')}`;
+          const text = groupData.data_text
+            ? i18n.t('rawPacket.gdText', { text: truncateText(groupData.data_text) })
+            : '';
+          const channel = packet.decrypted_info?.channel_name;
+          summary = channel
+            ? i18n.t('rawPacket.gdIn', { channel, type: typeHex, text, path: pathStr })
+            : i18n.t('rawPacket.gdType', { type: typeHex, text, path: pathStr });
+        } else {
+          summary = i18n.t('rawPacket.typePath', {
+            type: labelPayloadType(payloadTypeName),
+            path: pathStr,
+          });
+        }
+        break;
+      }
       case PayloadType.Advert: {
         const payload = decoded.payload.decoded as {
           publicKey?: string;
           appData?: { name?: string; deviceRole?: number };
         } | null;
         if (payload?.appData?.name) {
-          const role =
+          const roleName =
             payload.appData.deviceRole !== undefined
-              ? Utils.getDeviceRoleName(payload.appData.deviceRole)
+              ? labelRole(Utils.getDeviceRoleName(payload.appData.deviceRole))
               : '';
           summary = i18n.t('rawPacket.advertNamed', {
             name: payload.appData.name,
-            role: role ? ` (${role})` : '',
+            role: roleName ? ` (${roleName})` : '',
             path: pathStr,
           });
         } else if (payload?.publicKey) {
@@ -241,26 +384,83 @@ export function decodePacketSummary(
       case PayloadType.Ack:
         summary = i18n.t('rawPacket.ackPath', { path: pathStr });
         break;
-      case PayloadType.Request:
-        summary = i18n.t('rawPacket.requestPath', { path: pathStr });
+      case PayloadType.Request: {
+        const payload = decoded.payload.decoded as RequestPayload | null;
+        if (payload && payload.requestType != null) {
+          summary = i18n.t('rawPacket.requestSubtype', {
+            subtype: Utils.getRequestTypeName(payload.requestType),
+            path: pathStr,
+          });
+        } else {
+          summary = i18n.t('rawPacket.requestPath', { path: pathStr });
+        }
         break;
+      }
+      case PayloadType.AnonRequest: {
+        const payload = decoded.payload.decoded as AnonRequestPayload | null;
+        if (payload?.destinationHash) {
+          summary = i18n.t('rawPacket.anonRequestTo', {
+            dest: payload.destinationHash,
+            path: pathStr,
+          });
+        } else {
+          summary = i18n.t('rawPacket.typePath', {
+            type: labelPayloadType(payloadTypeName),
+            path: pathStr,
+          });
+        }
+        break;
+      }
+      case PayloadType.Control: {
+        const payload = decoded.payload.decoded as ControlPayload | null;
+        if (payload && payload.subType != null) {
+          summary = i18n.t('rawPacket.controlSubtype', {
+            subtype: Utils.getControlSubTypeName(payload.subType),
+            path: pathStr,
+          });
+        } else {
+          summary = i18n.t('rawPacket.typePath', {
+            type: labelPayloadType(payloadTypeName),
+            path: pathStr,
+          });
+        }
+        break;
+      }
       case PayloadType.Response:
         summary = i18n.t('rawPacket.responsePath', { path: pathStr });
         break;
       case PayloadType.Trace:
         summary = i18n.t('rawPacket.tracePath', { path: pathStr });
         break;
-      case PayloadType.Path:
-        summary = i18n.t('rawPacket.pathOnly', { path: pathStr });
+      case PayloadType.Path: {
+        const payload = decoded.payload.decoded as PathPayload | null;
+        if (payload && typeof payload.extraType === 'number') {
+          const extraName = Utils.getPayloadTypeName(payload.extraType);
+          summary = i18n.t('rawPacket.pathPlus', {
+            extra: labelPayloadType(extraName),
+            path: pathStr,
+          });
+        } else {
+          summary = i18n.t('rawPacket.pathOnly', { path: pathStr });
+        }
         break;
+      }
       default:
-        summary = i18n.t('rawPacket.typePath', { type: payloadTypeName, path: pathStr });
+        summary = i18n.t('rawPacket.typePath', {
+          type: labelPayloadType(payloadTypeName),
+          path: pathStr,
+        });
         break;
     }
 
-    return { summary, routeType, details };
+    return { summary, routeType, payloadType: payloadTypeName, clientDecoded, details };
   } catch {
-    return { summary: i18n.t('rawPacket.decodeError'), routeType: 'Unknown' };
+    return {
+      summary: i18n.t('rawPacket.decodeError'),
+      routeType: 'Unknown',
+      payloadType: packet.payload_type,
+      clientDecoded: isPacketClientDecoded(packet, null, resolveGroupData(packet, null, keys)),
+    };
   }
 }
 
@@ -270,9 +470,10 @@ export function inspectRawPacket(packet: RawPacket): RawPacketInspection {
 
 export function inspectRawPacketWithOptions(
   packet: RawPacket,
-  decoderOptions?: DecryptionOptions
+  decoderOptions?: DecryptionOptions,
+  extras?: PacketInspectExtras
 ): RawPacketInspection {
-  const summary = decodePacketSummary(packet, decoderOptions);
+  const summary = decodePacketSummary(packet, decoderOptions, extras);
   const validationErrors = safeValidate(packet.data);
 
   let decoded: DecodedPacket | null = null;
@@ -340,8 +541,17 @@ export function inspectRawPacketWithOptions(
           createPacketField('payload', `payload-${index}`, segment, structure.payload.startByte)
         );
 
+  const groupDataKeys = collectGroupDataKeysFromExtras(extras);
+  const groupData = decoded?.isValid
+    ? resolveGroupData(packet, decoded.payloadType, groupDataKeys)
+    : resolveGroupData(packet, null, groupDataKeys);
+
   const enrichedPayloadFields = payloadFields.map((field) => {
-    if (!decoded?.isValid || field.name !== 'Ciphertext') {
+    const isGroupDataBlob =
+      decoded?.isValid &&
+      decoded.payloadType === PayloadType.GroupData &&
+      (field.name === 'Ciphertext' || field.name === 'GroupData Payload');
+    if (!decoded?.isValid || (field.name !== 'Ciphertext' && !isGroupDataBlob)) {
       return field;
     }
 
@@ -381,6 +591,23 @@ export function inspectRawPacketWithOptions(
       return { ...withStructure, decryptedMessage: detailLines.join('\n') };
     }
 
+    // GroupData: server group_data or client parseGroupData. Never write into message.
+    if (decoded.payloadType === PayloadType.GroupData && groupData) {
+      const detailLines = [
+        packet.decrypted_info?.channel_name
+          ? i18n.t('rawPacket.channelName', { name: packet.decrypted_info.channel_name })
+          : null,
+        i18n.t('rawPacket.dataType', {
+          type: `0x${groupData.data_type.toString(16).padStart(4, '0')}`,
+        }),
+        i18n.t('rawPacket.dataLen', { len: groupData.data_len }),
+        groupData.data_text
+          ? i18n.t('rawPacket.dataText', { text: groupData.data_text })
+          : i18n.t('rawPacket.dataHex', { hex: groupData.data_hex }),
+      ].filter((line): line is string => line !== null);
+      return { ...withStructure, decryptedMessage: detailLines.join('\n') };
+    }
+
     // TextMessage (DM): server-side decryption via decrypted_info
     if (decoded.payloadType === PayloadType.TextMessage && packet.decrypted_info?.message) {
       const info = packet.decrypted_info;
@@ -407,6 +634,7 @@ export function inspectRawPacketWithOptions(
     payloadVersionName,
     pathTokens,
     summary,
+    groupData,
     validationErrors:
       validationErrors.length > 0
         ? validationErrors
