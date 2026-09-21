@@ -1079,11 +1079,11 @@ describe('RawPacketFeedView', () => {
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByText(i18n.t('rawPacket.historyTitle'))).toBeInTheDocument();
       expect(within(dialog).getByText(i18n.t('rawPacket.historyPruneNote'))).toBeInTheDocument();
-      await screen.findByText(
-        i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() })
-      );
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() }));
 
-      fireEvent.click(within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') }));
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') })
+      );
 
       expect(await screen.findByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
       expect(screen.getByText('BB22')).toBeInTheDocument();
@@ -1112,10 +1112,10 @@ describe('RawPacketFeedView', () => {
 
       fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
       const dialog = await screen.findByRole('dialog');
-      await screen.findByText(
-        i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() })
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() }));
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') })
       );
-      fireEvent.click(within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') }));
       expect(await screen.findByText('CC33')).toBeInTheDocument();
 
       act(() => clearRawPackets());
@@ -1128,7 +1128,7 @@ describe('RawPacketFeedView', () => {
 
     it('does not send payload_type=Unknown when Unknown stays selected after unchecking another type', async () => {
       const history = vi.spyOn(api, 'getPacketsHistory').mockImplementation(async (query) => {
-        if (query.payload_type && canonicalUnknown(query.payload_type)) {
+        if (query?.payload_type && canonicalUnknown(query.payload_type)) {
           throw new Error('422 payload_type=Unknown');
         }
         return {
@@ -1142,12 +1142,12 @@ describe('RawPacketFeedView', () => {
 
       fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
       const dialog = await screen.findByRole('dialog');
-      await screen.findByText(
-        i18n.t('rawPacket.historyPreview', { count: (8).toLocaleString() })
-      );
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (8).toLocaleString() }));
 
       fireEvent.click(within(dialog).getByLabelText(i18n.t('rawPacket.type.advert')));
-      fireEvent.click(within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') }));
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') })
+      );
 
       expect(await screen.findByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
       expect(
