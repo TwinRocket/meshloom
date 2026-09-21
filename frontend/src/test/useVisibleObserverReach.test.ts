@@ -234,7 +234,7 @@ describe('useVisibleObserverReach', () => {
     expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
   });
 
-  it('does not increment live ticks after a REST poll already owns the hash', async () => {
+  it('keeps ticking live after a REST poll so the badge counts up between refreshes', async () => {
     const receivedAt = Math.floor(Date.now() / 1000) - 5;
     const { result } = renderHook(() =>
       useVisibleObserverReach({
@@ -257,7 +257,7 @@ describe('useVisibleObserverReach', () => {
         ear_id: 'ear-after-poll',
       });
     });
-    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 3 });
   });
 
   it('does not re-render the consumer on unrelated live rain', () => {

@@ -27,7 +27,6 @@ type CountCacheEntry = {
 const countCache = new Map<string, CountCacheEntry>();
 const lastFetchAt = new Map<string, number>();
 const liveSeenEars = new Set<string>();
-const pollOwned = new Set<string>();
 
 export type ObserverReachLiveEvent =
   { kind: 'hash16'; hash: string; earId: string } | { kind: 'hash8'; hash8: string; earId: string };
@@ -52,7 +51,6 @@ export function resetObserverReachCountCache(): void {
   countCache.clear();
   lastFetchAt.clear();
   liveSeenEars.clear();
-  pollOwned.clear();
 }
 
 function noteSeenEar(hashUpper: string, earId: string): boolean {
@@ -159,9 +157,6 @@ export function useVisibleObserverReach(options: {
       }
       if (!target || messageAgeMs(target, now) >= YOUNG_REACH_MS) return;
       const hash = target.packet_hash!.toUpperCase();
-      // A successful REST count already owns this hash. Live ear_id is HMAC,
-      // so later rain would re-count observers already inside N.
-      if (pollOwned.has(cacheKey(startedFor, hash))) return;
       if (!noteSeenEar(hash, event.earId)) return;
       const state = bumpVisibleCount(startedFor, hash);
       setCounts((prev) => ({ ...prev, [hash]: state }));
@@ -298,7 +293,6 @@ export function useVisibleObserverReach(options: {
               failures: final ? 0 : (prev?.failures ?? 0) + 1,
             });
             lastFetchAt.set(key, fetchedAt);
-            if (state.status === 'ok') pollOwned.add(key);
             fetched[hash] = state;
           }
           setCounts((prev) => ({ ...prev, ...fetched }));
