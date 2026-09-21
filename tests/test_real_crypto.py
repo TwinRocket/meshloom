@@ -323,15 +323,12 @@ class TestHistoricalDMDecryptionPipeline:
         assert msg_broadcasts[0]["data"]["outgoing"] is False
 
     @pytest.mark.asyncio
-    async def test_historical_decrypt_skips_outgoing_by_design(self, test_db, captured_broadcasts):
-        """Historical decryption skips outgoing DMs (they're stored by the send endpoint).
-
-        run_historical_dm_decryption passes our_public_key=None, which disables
-        the outbound hash check. When our first byte differs from the contact's
-        (255/256 cases), outgoing packets fail the inbound src_hash check and
-        are skipped — this is correct behavior.
-        """
+    async def test_historical_decrypt_recovers_outgoing_echo_hash(
+        self, test_db, captured_broadcasts
+    ):
+        """Historical decryption as the sender attaches the firmware hash."""
         from app.packet_processor import run_historical_dm_decryption
+        from app.path_utils import calculate_packet_hash
 
         await RawPacketRepository.create(DM_PACKET, 1700000000)
 
@@ -346,8 +343,6 @@ class TestHistoricalDMDecryptionPipeline:
         broadcasts, mock_broadcast = captured_broadcasts
 
         with patch("app.packet_processor.broadcast_event", mock_broadcast):
-            # Decrypt as client1 (the sender) — first bytes differ (a1 != fa)
-            # so historical decryption correctly skips this outgoing packet
             await run_historical_dm_decryption(
                 private_key_bytes=CLIENT1_PRIVATE,
                 contact_public_key_bytes=CLIENT2_PUBLIC,
@@ -355,11 +350,15 @@ class TestHistoricalDMDecryptionPipeline:
                 display_name="Client2",
             )
 
-        # No messages stored — outgoing DMs are handled by the send endpoint
         messages = await MessageRepository.get_all(
             msg_type="PRIV", conversation_key=CLIENT2_PUBLIC_HEX.lower(), limit=10
         )
-        assert len(messages) == 0
+        assert len(messages) == 1
+        msg = messages[0]
+        assert msg.text == DM_PLAINTEXT
+        assert msg.outgoing is True
+        assert msg.packet_hash == calculate_packet_hash(DM_PACKET)
+        assert msg.observer_reach_eligible is True
 
     @pytest.mark.asyncio
     async def test_historical_decrypt_broadcasts_success(self, test_db, captured_broadcasts):
@@ -461,6 +460,106 @@ class TestLiveDMDecryptionPipeline:
         assert len(msg_broadcasts) == 1
         assert msg_broadcasts[0]["data"]["text"] == DM_PLAINTEXT
         assert msg_broadcasts[0]["data"]["outgoing"] is False
+
+    @pytest.mark.asyncio
+    async def test_outgoing_echo_attaches_hash_without_second_row(
+        self, test_db, captured_broadcasts
+    ):
+        """As the sender, the RF echo decrypts and stores one outgoing row with hash."""
+        from app.keystore import set_private_key
+        from app.path_utils import calculate_packet_hash
+        from app.services.messages import create_outgoing_direct_message
+
+        set_private_key(CLIENT1_PRIVATE)
+        await ContactRepository.upsert(
+            {
+                "public_key": CLIENT2_PUBLIC_HEX,
+                "name": "Client2",
+                "type": 1,
+            }
+        )
+        decrypted = try_decrypt_dm(
+            DM_PACKET,
+            our_private_key=CLIENT1_PRIVATE,
+            their_public_key=CLIENT2_PUBLIC,
+            our_public_key=CLIENT1_PUBLIC,
+        )
+        assert decrypted is not None
+
+        broadcasts, mock_broadcast = captured_broadcasts
+        with patch("app.packet_processor.broadcast_event", mock_broadcast):
+            from app.packet_processor import process_raw_packet
+
+            result = await process_raw_packet(raw_bytes=DM_PACKET)
+        assert result is not None
+        assert result["decrypted"] is True
+
+        echo_row = await MessageRepository.get_by_id(result["message_id"])
+        assert echo_row is not None
+        assert echo_row.outgoing is True
+        assert echo_row.packet_hash == calculate_packet_hash(DM_PACKET)
+        assert echo_row.observer_reach_eligible is True
+
+        reused = await create_outgoing_direct_message(
+            conversation_key=CLIENT2_PUBLIC_HEX.lower(),
+            text=DM_PLAINTEXT,
+            sender_timestamp=decrypted.timestamp,
+            received_at=decrypted.timestamp,
+            broadcast_fn=mock_broadcast,
+        )
+        assert reused is not None
+        assert reused.id == echo_row.id
+        messages = await MessageRepository.get_all(
+            msg_type="PRIV", conversation_key=CLIENT2_PUBLIC_HEX.lower(), limit=10
+        )
+        assert len(messages) == 1
+
+    @pytest.mark.asyncio
+    async def test_send_first_then_echo_reuses_row(self, test_db, captured_broadcasts):
+        """Send INSERT then RF echo attaches hash to the same outgoing row."""
+        from app.keystore import set_private_key
+        from app.path_utils import calculate_packet_hash
+        from app.services.messages import create_outgoing_direct_message
+
+        set_private_key(CLIENT1_PRIVATE)
+        await ContactRepository.upsert(
+            {
+                "public_key": CLIENT2_PUBLIC_HEX,
+                "name": "Client2",
+                "type": 1,
+            }
+        )
+        decrypted = try_decrypt_dm(
+            DM_PACKET,
+            our_private_key=CLIENT1_PRIVATE,
+            their_public_key=CLIENT2_PUBLIC,
+            our_public_key=CLIENT1_PUBLIC,
+        )
+        assert decrypted is not None
+        broadcasts, mock_broadcast = captured_broadcasts
+        sent = await create_outgoing_direct_message(
+            conversation_key=CLIENT2_PUBLIC_HEX.lower(),
+            text=DM_PLAINTEXT,
+            sender_timestamp=decrypted.timestamp,
+            received_at=decrypted.timestamp,
+            broadcast_fn=mock_broadcast,
+        )
+        assert sent is not None
+        assert sent.packet_hash is None
+
+        with patch("app.packet_processor.broadcast_event", mock_broadcast):
+            from app.packet_processor import process_raw_packet
+
+            result = await process_raw_packet(raw_bytes=DM_PACKET)
+        assert result is not None
+        stored = await MessageRepository.get_by_id(sent.id)
+        assert stored is not None
+        assert stored.packet_hash == calculate_packet_hash(DM_PACKET)
+        assert stored.observer_reach_eligible is True
+        messages = await MessageRepository.get_all(
+            msg_type="PRIV", conversation_key=CLIENT2_PUBLIC_HEX.lower(), limit=10
+        )
+        assert len(messages) == 1
 
     @pytest.mark.asyncio
     async def test_dm_from_unknown_contact_not_decrypted(self, test_db, captured_broadcasts):

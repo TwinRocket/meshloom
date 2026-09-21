@@ -14,6 +14,7 @@ import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
+import { applyCommunityPacketObserverTick } from './useVisibleObserverReach';
 import { emitStatusDotPulse } from '../utils/statusDotPulse';
 import type {
   Channel,
@@ -297,6 +298,7 @@ export function useRealtimeAppState({
       },
       onCommunityPacket: (packet: CommunityPacket) => {
         recordCommunityPacket(packet);
+        applyCommunityPacketObserverTick(packet);
       },
       onCommunityLive: (status: CommunityLiveStatus) => {
         applyLiveStatus(status);

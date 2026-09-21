@@ -565,9 +565,9 @@ The MeshCore radio protocol encodes `sender_timestamp` as a 4-byte little-endian
 
 **Consequence:** Message dedup still operates at 1-second granularity because the radio protocol only provides second-resolution `sender_timestamp`. Do not attempt to fix this by switching to millisecond timestamps — it will break echo dedup (the echo's 4-byte timestamp won't match the stored value) and overflow `to_bytes(4, "little")`. Incoming DMs now share the same second-resolution content identity tradeoff as channel echoes: same-contact same-text same-second observations collapse onto one stored row.
 
-### Outgoing DM echoes remain undecrypted
+### Outgoing DM echoes are decrypted to attach the firmware hash
 
-When our own outgoing DM is heard back via `RX_LOG_DATA` (self-echo, loopback), `_process_direct_message` passes `our_public_key=None` for the outgoing direction, disabling the outbound hash check in the decoder. The decoder's inbound check (`src_hash == their_first_byte`) fails because the source is us, not the contact — so decryption returns `None`. This is by design: outgoing DMs are stored directly by the send endpoint, so no message is lost.
+When our own outgoing DM is heard back via `RX_LOG_DATA` (self-echo), `_process_direct_message` passes `our_public_key` so `try_decrypt_dm` can recognize `is_outbound` (`src == us`, `dest == them`). The send endpoint stores the plaintext row without a hash; the echo attaches `packet_hash` via content dedup (`text` + `sender_timestamp`). Echo-first (RF processed before the send INSERT) reuses that row instead of creating a second outgoing message.
 
 ### Infinite setup retry on connection monitor
 

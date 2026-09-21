@@ -120,6 +120,7 @@ async def create_dm_message_from_decrypted(
     transport_code: int | None = None,
     region: str | None = None,
     observer_reach_eligible: bool | None = None,
+    hash_is_flood: bool | None = None,
 ) -> int | None:
     """Store a decrypted direct message via the shared message service."""
     return await _create_dm_message_from_decrypted(
@@ -139,6 +140,7 @@ async def create_dm_message_from_decrypted(
         transport_code=transport_code,
         region=region,
         observer_reach_eligible=observer_reach_eligible,
+        hash_is_flood=hash_is_flood,
     )
 
 
@@ -165,41 +167,46 @@ async def run_historical_dm_decryption(
         packet_timestamp,
     ) in RawPacketRepository.stream_undecrypted_text_messages():
         total += 1
-        # Note: passing our_public_key=None disables the outbound hash check in
-        # try_decrypt_dm (only the inbound check src_hash == their_first_byte runs).
-        # For the 255/256 case where our first byte differs from the contact's,
-        # outgoing packets fail the inbound check and are skipped — which is correct
-        # since outgoing DMs are stored directly by the send endpoint.
-        # For the 1/256 case where bytes match, an outgoing packet may decrypt
-        # successfully, but the dual-hash direction check below correctly identifies
-        # it and the DB dedup constraint prevents a duplicate insert.
         result = try_decrypt_dm(
             packet_data,
             private_key_bytes,
             contact_public_key_bytes,
-            our_public_key=None,
+            our_public_key=our_public_key_bytes,
         )
 
         if result is not None:
-            # Determine direction using both hashes (mirrors _process_direct_message
-            # logic at lines 806-818) to handle the 1/256 case where our first
-            # public key byte matches the contact's.
+            # Determine direction using both hashes (mirrors _process_direct_message)
+            # to handle the 1/256 case where our first public key byte matches
+            # the contact's.
             src_hash = result.src_hash.lower()
             dest_hash = result.dest_hash.lower()
             our_first_byte = format(our_public_key_bytes[0], "02x").lower()
 
             if src_hash == our_first_byte and dest_hash != our_first_byte:
+                # Recover a missing send row (echo stored in raw_packets only)
+                # so historical decrypt can attach packet_hash.
                 outgoing = True
             else:
-                # Incoming, ambiguous (both match), or neither matches.
-                # Default to incoming — outgoing DMs are stored by the send
-                # endpoint, so historical decryption only recovers incoming.
                 outgoing = False
+                if dest_hash == our_first_byte and src_hash == our_first_byte:
+                    existing_outgoing = await MessageRepository.get_by_content(
+                        msg_type="PRIV",
+                        conversation_key=contact_public_key_hex.lower(),
+                        text=result.message,
+                        sender_timestamp=result.timestamp,
+                        outgoing=True,
+                    )
+                    if existing_outgoing is not None:
+                        outgoing = True
 
             # Extract path from the raw packet for storage
             packet_info = parse_packet(packet_data)
             path_hex = packet_info.path.hex() if packet_info else None
             path_len = packet_info.path_length if packet_info else None
+            packet_hash = calculate_packet_hash(packet_data)
+            hash_is_flood = is_flood_route_type(
+                int(packet_info.route_type) if packet_info is not None else None
+            )
 
             msg_id = await create_dm_message_from_decrypted(
                 packet_id=packet_id,
@@ -211,10 +218,9 @@ async def run_historical_dm_decryption(
                 path_len=path_len,
                 outgoing=outgoing,
                 realtime=False,  # Historical decryption should not trigger fanout
-                packet_hash=calculate_packet_hash(packet_data),
-                observer_reach_eligible=is_flood_route_type(
-                    int(packet_info.route_type) if packet_info is not None else None
-                ),
+                packet_hash=packet_hash,
+                observer_reach_eligible=True if packet_hash else None,
+                hash_is_flood=hash_is_flood,
             )
 
             if msg_id is not None:
@@ -772,13 +778,11 @@ async def _process_direct_message(
         except ValueError:
             continue
 
-        # For incoming messages, pass our_public_key to enable the dest_hash filter
-        # For outgoing messages, skip the filter (dest_hash is the recipient, not us)
         result = try_decrypt_dm(
             raw_bytes,
             private_key,
             contact_public_key,
-            our_public_key=our_public_key if not is_outgoing else None,
+            our_public_key=our_public_key,
         )
 
         if result is not None:
@@ -825,7 +829,8 @@ async def _process_direct_message(
                 packet_hash=packet_hash,
                 transport_code=transport_code,
                 region=region,
-                observer_reach_eligible=is_flood_route_type(
+                observer_reach_eligible=True if packet_hash else None,
+                hash_is_flood=is_flood_route_type(
                     int(packet_info.route_type) if packet_info is not None else None
                 ),
             )

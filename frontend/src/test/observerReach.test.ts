@@ -36,7 +36,7 @@ describe('isObserverReachEligible', () => {
     expect(isObserverReachEligible(message({ type: 'CHAN' }))).toBe(true);
   });
 
-  it('rejects direct messages that were not flood', () => {
+  it('rejects PRIV when eligible is explicitly false', () => {
     expect(
       isObserverReachEligible(
         message({
@@ -45,6 +45,9 @@ describe('isObserverReachEligible', () => {
         })
       )
     ).toBe(false);
+  });
+
+  it('allows PRIV with a hash when eligible is null or true', () => {
     expect(
       isObserverReachEligible(
         message({
@@ -52,7 +55,15 @@ describe('isObserverReachEligible', () => {
           observer_reach_eligible: null,
         })
       )
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      isObserverReachEligible(
+        message({
+          type: 'PRIV',
+          observer_reach_eligible: true,
+        })
+      )
+    ).toBe(true);
   });
 
   it('allows flood DMs with a hash', () => {

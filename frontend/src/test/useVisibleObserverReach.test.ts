@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  applyCommunityPacketObserverTick,
   resetObserverReachCountCache,
   useVisibleObserverReach,
 } from '../hooks/useVisibleObserverReach';
@@ -192,5 +193,324 @@ describe('useVisibleObserverReach', () => {
     });
     expect(getCounts).toHaveBeenCalledTimes(1);
     expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
+  });
+
+  it('ticks a young visible hash16 and does not double the same ear', async () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-1',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 1 });
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-1',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 1 });
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-2',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
+  });
+
+  it('does not increment live ticks after a REST poll already owns the hash', async () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-after-poll',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
+  });
+
+  it('does not re-render the consumer on unrelated live rain', () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    let renders = 0;
+    renderHook(() => {
+      renders += 1;
+      return useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      });
+    });
+    const afterMount = renders;
+
+    act(() => {
+      for (let i = 0; i < 40; i += 1) {
+        applyCommunityPacketObserverTick({
+          packet_hash: 'ffffffff00000000',
+          hash8: 'ffffffff',
+          ear_id: `ear-rain-${i}`,
+        });
+      }
+    });
+    expect(renders).toBe(afterMount);
+  });
+
+  it('still ticks live after directory-off poll that does not own the hash', async () => {
+    getCounts.mockResolvedValueOnce({
+      directory_enabled: false,
+      counts: {},
+      sealed: {},
+    });
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'error' });
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-after-directory-off',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 1 });
+  });
+
+  it('still ticks live after a failed poll that does not own the hash', async () => {
+    getCounts.mockRejectedValueOnce(new Error('down'));
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'error' });
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-after-error',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 1 });
+  });
+
+  it('lets a REST poll overwrite a live tick count', async () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'aabbccddeeff0011',
+        hash8: 'aabbccdd',
+        ear_id: 'ear-1',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 1 });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 2 });
+  });
+
+  it('uses hash8 only when exactly one visible message matches the prefix', () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const first = channelMessage(receivedAt);
+    const second: Message = {
+      ...channelMessage(receivedAt),
+      id: 2,
+      packet_hash: 'AABBCCDDFFFFFFFF',
+    };
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [first, second],
+        visibleIndexes: [0, 1],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        hash8: 'aabbccdd',
+        ear_id: 'ear-ambig',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toBeUndefined();
+    expect(result.current.counts.AABBCCDDFFFFFFFF).toBeUndefined();
+  });
+
+  it('does not tick hash8 when a visible older message shares the prefix', () => {
+    const youngAt = Math.floor(Date.now() / 1000) - 5;
+    const oldAt = Math.floor(Date.now() / 1000) - 180;
+    const young = channelMessage(youngAt);
+    const older: Message = {
+      ...channelMessage(oldAt),
+      id: 2,
+      packet_hash: 'AABBCCDDFFFFFFFF',
+    };
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [young, older],
+        visibleIndexes: [0, 1],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        hash8: 'aabbccdd',
+        ear_id: 'ear-old-prefix',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toBeUndefined();
+    expect(result.current.counts.AABBCCDDFFFFFFFF).toBeUndefined();
+  });
+
+  it('does not tick hash8 when the only matching message is old', () => {
+    const oldAt = Math.floor(Date.now() / 1000) - 180;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(oldAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        hash8: 'aabbccdd',
+        ear_id: 'ear-only-old',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toBeUndefined();
+  });
+
+  it('does not tick hash8 when an off-window loaded message shares the prefix', () => {
+    const youngAt = Math.floor(Date.now() / 1000) - 5;
+    const oldAt = Math.floor(Date.now() / 1000) - 180;
+    const young = channelMessage(youngAt);
+    const older: Message = {
+      ...channelMessage(oldAt),
+      id: 2,
+      packet_hash: 'AABBCCDDFFFFFFFF',
+    };
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [young, older],
+        visibleIndexes: [0],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        hash8: 'aabbccdd',
+        ear_id: 'ear-off-window',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toBeUndefined();
+  });
+
+  it('ignores live ticks for hashes that are not visible', () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        packet_hash: 'ffffffff00000000',
+        hash8: 'ffffffff',
+        ear_id: 'ear-other',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toBeUndefined();
+    expect(result.current.counts.FFFFFFFF00000000).toBeUndefined();
+  });
+
+  it('ticks hash8 when a single visible young message matches', () => {
+    const receivedAt = Math.floor(Date.now() / 1000) - 5;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+
+    act(() => {
+      applyCommunityPacketObserverTick({
+        hash8: 'aabbccdd',
+        ear_id: 'ear-old-stats',
+      });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 1 });
   });
 });

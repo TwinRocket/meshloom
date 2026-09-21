@@ -1855,9 +1855,11 @@ class TestProcessDirectMessageDispatch:
 
         assert result is not None
         assert result["decrypted"] is True
-        # Outgoing: our_public_key should be None (skip dest_hash filter)
         call_kwargs = mock_try.call_args
-        assert call_kwargs[1].get("our_public_key") is None or call_kwargs[0][3] is None
+        assert (
+            call_kwargs[1].get("our_public_key") == self.OUR_PUB
+            or call_kwargs[0][3] == self.OUR_PUB
+        )
 
     @pytest.mark.asyncio
     async def test_ambiguous_both_hashes_match_defaults_incoming(

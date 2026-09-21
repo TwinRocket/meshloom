@@ -259,6 +259,75 @@ class TestObserverReachPersistence:
         assert stored.packet_hash == "AABBCCDDEEFF0011"
         assert stored.packet_id is None
 
+    @pytest.mark.asyncio
+    async def test_flood_hash_survives_later_direct_echo(self, test_db):
+        msg_id = await MessageRepository.create(
+            msg_type="PRIV",
+            text="hello",
+            conversation_key="ab" * 32,
+            sender_timestamp=1_700_000_000,
+            received_at=1_700_000_000,
+            outgoing=True,
+            packet_hash="AAAAAAAAAAAAAAA1",
+            observer_reach_eligible=True,
+        )
+        assert msg_id is not None
+        stored_hash, stored_eligible = await MessageRepository.apply_observer_reach(
+            msg_id,
+            packet_hash="BBBBBBBBBBBBBBB2",
+            observer_reach_eligible=True,
+            hash_is_flood=False,
+        )
+        assert stored_hash == "AAAAAAAAAAAAAAA1"
+        assert stored_eligible is True
+
+    @pytest.mark.asyncio
+    async def test_direct_then_flood_prefers_flood_hash(self, test_db):
+        msg_id = await MessageRepository.create(
+            msg_type="PRIV",
+            text="hello",
+            conversation_key="ab" * 32,
+            sender_timestamp=1_700_000_000,
+            received_at=1_700_000_000,
+            outgoing=True,
+        )
+        assert msg_id is not None
+        stored_hash, stored_eligible = await MessageRepository.apply_observer_reach(
+            msg_id,
+            packet_hash="BBBBBBBBBBBBBBB2",
+            observer_reach_eligible=True,
+            hash_is_flood=False,
+        )
+        assert stored_hash == "BBBBBBBBBBBBBBB2"
+        assert stored_eligible is True
+        stored_hash, stored_eligible = await MessageRepository.apply_observer_reach(
+            msg_id,
+            packet_hash="AAAAAAAAAAAAAAA1",
+            observer_reach_eligible=True,
+            hash_is_flood=True,
+        )
+        assert stored_hash == "AAAAAAAAAAAAAAA1"
+        assert stored_eligible is True
+
+    @pytest.mark.asyncio
+    async def test_eligible_stays_true_when_later_echo_passes_false(self, test_db):
+        msg_id = await MessageRepository.create(
+            msg_type="PRIV",
+            text="hello",
+            conversation_key="ab" * 32,
+            sender_timestamp=1_700_000_000,
+            received_at=1_700_000_000,
+            outgoing=True,
+            observer_reach_eligible=True,
+        )
+        assert msg_id is not None
+        _, stored_eligible = await MessageRepository.apply_observer_reach(
+            msg_id,
+            observer_reach_eligible=False,
+            hash_is_flood=False,
+        )
+        assert stored_eligible is True
+
 
 class TestObserverReachGate:
     @pytest.mark.asyncio
@@ -274,6 +343,12 @@ class TestObserverReachGate:
         assert detail.directory_enabled is False
         assert detail.observer_count == 0
         directory_data.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_eight_hex_hash_is_400(self, test_db):
+        with pytest.raises(HTTPException) as exc:
+            await get_packet_observer_reach("deadbeef")
+        assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_detail_includes_hop_path_and_origin(self, test_db):

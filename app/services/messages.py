@@ -196,6 +196,7 @@ async def reconcile_duplicate_message(
     broadcast_fn: BroadcastFn,
     packet_hash: str | None = None,
     observer_reach_eligible: bool | None = None,
+    hash_is_flood: bool | None = None,
     message_repository=MessageRepository,
 ) -> None:
     logger.debug(
@@ -228,7 +229,7 @@ async def reconcile_duplicate_message(
             existing_msg.id,
             packet_hash=packet_hash,
             observer_reach_eligible=observer_reach_eligible,
-            overwrite_hash=True,
+            hash_is_flood=True if existing_msg.type == "CHAN" else hash_is_flood,
         )
 
     if existing_msg.outgoing or path is not None:
@@ -262,6 +263,7 @@ async def handle_duplicate_message(
     broadcast_fn: BroadcastFn,
     packet_hash: str | None = None,
     observer_reach_eligible: bool | None = None,
+    hash_is_flood: bool | None = None,
 ) -> None:
     """Handle a duplicate message by updating paths/acks on the existing record."""
     existing_msg = await MessageRepository.get_by_content(
@@ -291,6 +293,7 @@ async def handle_duplicate_message(
         broadcast_fn=broadcast_fn,
         packet_hash=packet_hash,
         observer_reach_eligible=observer_reach_eligible,
+        hash_is_flood=True if msg_type == "CHAN" else hash_is_flood,
     )
 
 
@@ -359,6 +362,7 @@ async def create_message_from_decrypted(
             broadcast_fn=broadcast_fn,
             packet_hash=packet_hash,
             observer_reach_eligible=observer_reach_eligible,
+            hash_is_flood=True,
         )
         return None
 
@@ -448,6 +452,7 @@ async def create_dm_message_from_decrypted(
     transport_code: int | None = None,
     region: str | None = None,
     observer_reach_eligible: bool | None = None,
+    hash_is_flood: bool | None = None,
 ) -> int | None:
     """Store and broadcast a decrypted direct message."""
     from app.services.dm_ingest import ingest_decrypted_direct_message
@@ -468,6 +473,7 @@ async def create_dm_message_from_decrypted(
         transport_code=transport_code,
         region=region,
         observer_reach_eligible=observer_reach_eligible,
+        hash_is_flood=hash_is_flood,
     )
     return message.id if message is not None else None
 
@@ -549,30 +555,47 @@ async def create_outgoing_direct_message(
     broadcast_fn: BroadcastFn,
     message_repository=MessageRepository,
 ) -> Message | None:
-    """Store and broadcast an outgoing direct message."""
-    msg_id = await message_repository.create(
-        msg_type="PRIV",
-        text=text,
-        conversation_key=conversation_key,
-        sender_timestamp=sender_timestamp,
-        received_at=received_at,
-        outgoing=True,
-    )
-    if msg_id is None:
-        return None
+    """Store and broadcast an outgoing direct message.
 
-    message = build_message_model(
-        message_id=msg_id,
-        msg_type="PRIV",
-        conversation_key=conversation_key,
-        text=text,
-        sender_timestamp=sender_timestamp,
-        received_at=received_at,
-        outgoing=True,
-        acked=0,
-    )
-    broadcast_message(message=message, broadcast_fn=broadcast_fn)
-    return message
+    If an RF echo already created the outgoing row (echo-first race), reuse it
+    instead of inserting a second hash-less send row.
+    """
+    from app.services.dm_ingest import decrypted_dm_store_lock
+
+    async with decrypted_dm_store_lock:
+        existing = await message_repository.get_by_content(
+            msg_type="PRIV",
+            conversation_key=conversation_key,
+            text=text,
+            sender_timestamp=sender_timestamp,
+            outgoing=True,
+        )
+        if existing is not None:
+            return existing
+
+        msg_id = await message_repository.create(
+            msg_type="PRIV",
+            text=text,
+            conversation_key=conversation_key,
+            sender_timestamp=sender_timestamp,
+            received_at=received_at,
+            outgoing=True,
+        )
+        if msg_id is None:
+            return None
+
+        message = build_message_model(
+            message_id=msg_id,
+            msg_type="PRIV",
+            conversation_key=conversation_key,
+            text=text,
+            sender_timestamp=sender_timestamp,
+            received_at=received_at,
+            outgoing=True,
+            acked=0,
+        )
+        broadcast_message(message=message, broadcast_fn=broadcast_fn)
+        return message
 
 
 async def create_outgoing_channel_message(

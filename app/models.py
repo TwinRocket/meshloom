@@ -472,8 +472,9 @@ class Message(BaseModel):
     observer_reach_eligible: bool | None = Field(
         default=None,
         description=(
-            "True when this message can have MQTT observers: all CHAN, and PRIV "
-            "that arrived as TRANSPORT_FLOOD/FLOOD. Persisted so eligibility survives raw-packet purge."
+            "True when this message can have Community observers: all CHAN, and "
+            "PRIV once a firmware packet_hash is known (flood or directed). "
+            "Persisted so eligibility survives raw-packet purge. Sticky true."
         ),
     )
 

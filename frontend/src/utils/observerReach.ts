@@ -8,8 +8,7 @@ export const MID_POLL_MS = 60_000;
 
 export function isObserverReachEligible(msg: Message): boolean {
   if (!msg.packet_hash) return false;
-  if (msg.type === 'CHAN') return msg.observer_reach_eligible !== false;
-  return msg.observer_reach_eligible === true;
+  return msg.observer_reach_eligible !== false;
 }
 
 export function isOutgoingReachReady(msg: Message, nowMs: number = Date.now()): boolean {

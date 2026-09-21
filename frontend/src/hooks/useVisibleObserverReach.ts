@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../api';
 import type { Message, ObserverReachCountState } from '../types';
+import { normalizePacketHash16 } from '../utils/livePackets';
 import {
   isObserverReachEligible,
   isOutgoingReachReady,
   messageAgeMs,
   observerReachPollIntervalMs,
   OUTGOING_REACH_DELAY_MS,
+  YOUNG_REACH_MS,
 } from '../utils/observerReach';
 
 const DEBOUNCE_MS = 250;
@@ -24,6 +26,14 @@ type CountCacheEntry = {
 
 const countCache = new Map<string, CountCacheEntry>();
 const lastFetchAt = new Map<string, number>();
+const liveSeenEars = new Set<string>();
+const pollOwned = new Set<string>();
+
+export type ObserverReachLiveEvent =
+  { kind: 'hash16'; hash: string; earId: string } | { kind: 'hash8'; hash8: string; earId: string };
+
+const liveListeners = new Set<(event: ObserverReachLiveEvent) => void>();
+const HASH8_RE = /^[0-9a-f]{8}$/;
 
 function retryBackoffMs(failures: number): number {
   const exp = Math.max(failures - 1, 0);
@@ -41,6 +51,53 @@ function cacheKey(originConversation: string, hash: string): string {
 export function resetObserverReachCountCache(): void {
   countCache.clear();
   lastFetchAt.clear();
+  liveSeenEars.clear();
+  pollOwned.clear();
+}
+
+function noteSeenEar(hashUpper: string, earId: string): boolean {
+  const key = `${hashUpper}:${earId}`;
+  if (liveSeenEars.has(key)) return false;
+  liveSeenEars.add(key);
+  return true;
+}
+
+function bumpVisibleCount(originConversation: string, hashUpper: string): ObserverReachCountState {
+  const key = cacheKey(originConversation, hashUpper);
+  const prev = countCache.get(key);
+  const nextCount = prev?.state.status === 'ok' ? prev.state.count + 1 : 1;
+  const state: ObserverReachCountState = { status: 'ok', count: nextCount };
+  countCache.set(key, {
+    at: Date.now(),
+    state,
+    sealed: prev?.sealed ?? false,
+    failures: prev?.failures ?? 0,
+  });
+  return state;
+}
+
+/** Fan-out a Community rain drop to mounted ear hooks. No React subscription. */
+export function applyCommunityPacketObserverTick(packet: {
+  packet_hash?: string;
+  hash8?: string;
+  ear_id?: string;
+}): void {
+  const earId = typeof packet.ear_id === 'string' ? packet.ear_id : '';
+  if (!earId) return;
+  const hash16 = normalizePacketHash16(packet.packet_hash);
+  if (hash16) {
+    const event: ObserverReachLiveEvent = {
+      kind: 'hash16',
+      hash: hash16.toUpperCase(),
+      earId,
+    };
+    for (const listener of liveListeners) listener(event);
+    return;
+  }
+  const hash8 = packet.hash8?.trim().toLowerCase() ?? '';
+  if (!HASH8_RE.test(hash8)) return;
+  const event: ObserverReachLiveEvent = { kind: 'hash8', hash8, earId };
+  for (const listener of liveListeners) listener(event);
 }
 
 function readyVisibleHashes(messages: Message[], visibleIndexes: number[], now: number): string[] {
@@ -74,6 +131,46 @@ export function useVisibleObserverReach(options: {
   messagesRef.current = messages;
   const indexesRef = useRef(visibleIndexes);
   indexesRef.current = visibleIndexes;
+
+  useEffect(() => {
+    if (!directoryEnabled || !conversationKey) return;
+    const startedFor = conversationKey;
+    const onEvent = (event: ObserverReachLiveEvent) => {
+      if (conversationRef.current !== startedFor) return;
+      const now = Date.now();
+      const visibleIndexes = new Set(indexesRef.current);
+      const loadedEligible: Message[] = [];
+      const visibleEligible: Message[] = [];
+      messagesRef.current.forEach((msg, index) => {
+        if (!msg || !isObserverReachEligible(msg)) return;
+        loadedEligible.push(msg);
+        if (visibleIndexes.has(index)) visibleEligible.push(msg);
+      });
+      let target: Message | undefined;
+      if (event.kind === 'hash16') {
+        target = visibleEligible.find((msg) => msg.packet_hash?.toUpperCase() === event.hash);
+      } else {
+        const matches = loadedEligible.filter(
+          (msg) => msg.packet_hash?.toLowerCase().slice(0, 8) === event.hash8
+        );
+        if (matches.length !== 1) return;
+        target = matches[0];
+        if (!visibleEligible.includes(target)) return;
+      }
+      if (!target || messageAgeMs(target, now) >= YOUNG_REACH_MS) return;
+      const hash = target.packet_hash!.toUpperCase();
+      // A successful REST count already owns this hash. Live ear_id is HMAC,
+      // so later rain would re-count observers already inside N.
+      if (pollOwned.has(cacheKey(startedFor, hash))) return;
+      if (!noteSeenEar(hash, event.earId)) return;
+      const state = bumpVisibleCount(startedFor, hash);
+      setCounts((prev) => ({ ...prev, [hash]: state }));
+    };
+    liveListeners.add(onEvent);
+    return () => {
+      liveListeners.delete(onEvent);
+    };
+  }, [directoryEnabled, conversationKey]);
 
   const hashSignature = useMemo(() => {
     if (!directoryEnabled || !conversationKey) return '';
@@ -201,6 +298,7 @@ export function useVisibleObserverReach(options: {
               failures: final ? 0 : (prev?.failures ?? 0) + 1,
             });
             lastFetchAt.set(key, fetchedAt);
+            if (state.status === 'ok') pollOwned.add(key);
             fetched[hash] = state;
           }
           setCounts((prev) => ({ ...prev, ...fetched }));

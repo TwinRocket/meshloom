@@ -686,9 +686,13 @@ class MessageRepository:
         *,
         packet_hash: str | None = None,
         observer_reach_eligible: bool | None = None,
-        overwrite_hash: bool = True,
+        hash_is_flood: bool | None = None,
     ) -> tuple[str | None, bool | None]:
-        """Persist observer-reach fields. RF echo overwrites a computed outgoing hash."""
+        """Persist observer-reach fields.
+
+        Eligible is sticky-true. Hash fills if empty; a flood echo may replace
+        a directed hash, but a directed echo never replaces a flood hash.
+        """
         from app.path_utils import canonical_packet_hash
 
         stored = canonical_packet_hash(packet_hash)
@@ -697,7 +701,7 @@ class MessageRepository:
         )
         async with db.tx() as conn:
             if stored is not None:
-                if overwrite_hash:
+                if hash_is_flood:
                     await conn.execute(
                         "UPDATE messages SET packet_hash = ? WHERE id = ?",
                         (stored, message_id),
@@ -707,10 +711,19 @@ class MessageRepository:
                         "UPDATE messages SET packet_hash = COALESCE(packet_hash, ?) WHERE id = ?",
                         (stored, message_id),
                     )
-            if eligible_int is not None:
+            if eligible_int == 1:
                 await conn.execute(
-                    "UPDATE messages SET observer_reach_eligible = ? WHERE id = ?",
-                    (eligible_int, message_id),
+                    "UPDATE messages SET observer_reach_eligible = 1 WHERE id = ?",
+                    (message_id,),
+                )
+            elif eligible_int == 0:
+                await conn.execute(
+                    """
+                    UPDATE messages
+                    SET observer_reach_eligible = COALESCE(observer_reach_eligible, 0)
+                    WHERE id = ?
+                    """,
+                    (message_id,),
                 )
             async with conn.execute(
                 "SELECT packet_hash, observer_reach_eligible FROM messages WHERE id = ?",

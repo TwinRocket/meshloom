@@ -27,7 +27,8 @@ if TYPE_CHECKING:
     from app.decoder import DecryptedDirectMessage
 
 logger = logging.getLogger(__name__)
-_decrypted_dm_store_lock = LoopBoundLock()
+decrypted_dm_store_lock = LoopBoundLock()
+_decrypted_dm_store_lock = decrypted_dm_store_lock
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,7 @@ async def _store_direct_message(
     transport_code: int | None = None,
     region: str | None = None,
     observer_reach_eligible: bool | None = None,
+    hash_is_flood: bool | None = None,
     message_repository=MessageRepository,
     contact_repository=ContactRepository,
     raw_packet_repository=RawPacketRepository,
@@ -179,6 +181,7 @@ async def _store_direct_message(
                         broadcast_fn=broadcast_fn,
                         packet_hash=packet_hash,
                         observer_reach_eligible=observer_reach_eligible,
+                        hash_is_flood=hash_is_flood,
                     )
                     return None
 
@@ -202,6 +205,7 @@ async def _store_direct_message(
                     broadcast_fn=broadcast_fn,
                     packet_hash=packet_hash,
                     observer_reach_eligible=observer_reach_eligible,
+                    hash_is_flood=hash_is_flood,
                 )
                 return None
 
@@ -241,6 +245,7 @@ async def _store_direct_message(
                 broadcast_fn=broadcast_fn,
                 packet_hash=packet_hash,
                 observer_reach_eligible=observer_reach_eligible,
+                hash_is_flood=hash_is_flood,
             )
             return None
 
@@ -303,6 +308,7 @@ async def ingest_decrypted_direct_message(
     transport_code: int | None = None,
     region: str | None = None,
     observer_reach_eligible: bool | None = None,
+    hash_is_flood: bool | None = None,
     contact_repository=ContactRepository,
 ) -> Message | None:
     conversation_key = their_public_key.lower()
@@ -366,6 +372,7 @@ async def ingest_decrypted_direct_message(
         transport_code=transport_code,
         region=region,
         observer_reach_eligible=observer_reach_eligible,
+        hash_is_flood=hash_is_flood,
     )
     if message is None:
         return None

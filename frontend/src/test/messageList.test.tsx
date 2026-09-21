@@ -1071,7 +1071,7 @@ describe('MessageList Open reactions and replies', () => {
     expect(apiMocks.getPacketObserverReach).toHaveBeenCalledWith('AABBCCDDEEFF0011');
   });
 
-  it('does not show the ear on direct routed DMs', () => {
+  it('does not show the ear when observer_reach_eligible is explicitly false', () => {
     render(
       <MessageList
         messages={[
@@ -1091,6 +1091,62 @@ describe('MessageList Open reactions and replies', () => {
     );
 
     expect(screen.queryByTestId('observer-reach-badge')).not.toBeInTheDocument();
+  });
+
+  it('shows the ear on a directed DM when Community returns a count', async () => {
+    apiMocks.getPacketObserverReachCounts.mockResolvedValue({
+      directory_enabled: true,
+      counts: { AABBCCDDEEFF0011: 3 },
+    });
+    render(
+      <MessageList
+        messages={[
+          createMessage({
+            type: 'PRIV',
+            conversation_key: 'ab'.repeat(32),
+            packet_hash: 'AABBCCDDEEFF0011',
+            observer_reach_eligible: true,
+            sender_name: 'Alice',
+            received_at: Math.floor(Date.now() / 1000) - 60,
+          }),
+        ]}
+        contacts={[]}
+        loading={false}
+        directoryEnabled
+        conversationKey={'ab'.repeat(32)}
+      />
+    );
+
+    const badge = await screen.findByTestId('observer-reach-badge');
+    expect(badge).toHaveTextContent('3');
+  });
+
+  it('shows the ear on a PRIV with a hash when eligible is null', async () => {
+    apiMocks.getPacketObserverReachCounts.mockResolvedValue({
+      directory_enabled: true,
+      counts: { CCCCDDDDEEEE0011: 2 },
+    });
+    render(
+      <MessageList
+        messages={[
+          createMessage({
+            type: 'PRIV',
+            conversation_key: 'ab'.repeat(32),
+            packet_hash: 'CCCCDDDDEEEE0011',
+            observer_reach_eligible: null,
+            sender_name: 'Alice',
+            received_at: Math.floor(Date.now() / 1000) - 60,
+          }),
+        ]}
+        contacts={[]}
+        loading={false}
+        directoryEnabled
+        conversationKey={'ab'.repeat(32)}
+      />
+    );
+
+    const badge = await screen.findByTestId('observer-reach-badge');
+    expect(badge).toHaveTextContent('2');
   });
 
   it('makes no observer network call when the directory is off', async () => {
