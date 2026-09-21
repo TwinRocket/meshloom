@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from app.database import db
 from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
 from app.models import (
-    RawPacketDecryptedInfo,
     RawPacketDetail,
     UndecryptedGroupTextSample,
     UndecryptedGroupTextSamplesResponse,
@@ -20,10 +19,10 @@ from app.region_resolver import resolve_region
 from app.repository import (
     AppSettingsRepository,
     ChannelRepository,
-    MessageRepository,
     RawPacketRepository,
 )
 from app.services.messages import backfill_message_regions
+from app.services.raw_packet_decrypt import attach_raw_packet_decrypted_info
 from app.websocket import broadcast_success
 
 logger = logging.getLogger(__name__)
@@ -217,34 +216,14 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
             settings.known_regions,
         )
 
-    decrypted_info: RawPacketDecryptedInfo | None = None
-    if message_id is not None:
-        message = await MessageRepository.get_by_id(message_id)
-        if message is not None:
-            if message.type == "CHAN":
-                channel = await ChannelRepository.get_by_key(message.conversation_key)
-                decrypted_info = RawPacketDecryptedInfo(
-                    channel_name=channel.name if channel else None,
-                    sender=message.sender_name,
-                    channel_key=message.conversation_key,
-                    contact_key=message.sender_key,
-                    sender_timestamp=message.sender_timestamp,
-                    message=message.text,
-                )
-            else:
-                decrypted_info = RawPacketDecryptedInfo(
-                    sender=message.sender_name,
-                    contact_key=message.conversation_key,
-                    sender_timestamp=message.sender_timestamp,
-                    message=message.text,
-                )
+    _, decrypted_info = await attach_raw_packet_decrypted_info(packet_data, message_id)
 
     return RawPacketDetail(
         id=stored_packet_id,
         timestamp=packet_timestamp,
         data=packet_data.hex(),
         payload_type=payload_type_name,
-        decrypted=message_id is not None,
+        decrypted=decrypted_info is not None,
         decrypted_info=decrypted_info,
         transport_code=transport_code,
         region=region,

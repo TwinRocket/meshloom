@@ -491,6 +491,15 @@ class ResendChannelMessageResponse(BaseModel):
     message: Message | None = None
 
 
+class RawPacketGroupData(BaseModel):
+    """Decrypted GroupData blob attached to a raw packet (no messages row)."""
+
+    data_type: int
+    data_len: int
+    data_hex: str
+    data_text: str | None = None
+
+
 class RawPacketDecryptedInfo(BaseModel):
     """Decryption info for a raw packet (when successfully decrypted)."""
 
@@ -500,6 +509,7 @@ class RawPacketDecryptedInfo(BaseModel):
     contact_key: str | None = None
     sender_timestamp: int | None = None
     message: str | None = None
+    group_data: RawPacketGroupData | None = None
 
 
 class RawPacketBroadcast(BaseModel):

@@ -34,7 +34,6 @@ from app.models import (
     Contact,
     ContactUpsert,
     RawPacketBroadcast,
-    RawPacketDecryptedInfo,
 )
 from app.path_utils import calculate_packet_hash, is_flood_route_type
 from app.region_resolver import resolve_region
@@ -57,6 +56,7 @@ from app.services.messages import (
 from app.services.messages import (
     create_message_from_decrypted as _create_message_from_decrypted,
 )
+from app.services.raw_packet_decrypt import attach_raw_packet_decrypted_info
 from app.websocket import broadcast_error, broadcast_event
 
 logger = logging.getLogger(__name__)
@@ -451,8 +451,19 @@ async def process_raw_packet(
             else:
                 logger.debug("Buffered/ignored standalone ACK %s from raw packet", ack_code)
 
+    elif payload_type == PayloadType.GROUP_DATA:
+        # GroupData is attached to the raw-packet contract only (WS + GET /{id}).
+        # Do not create a messages row or call mark_decrypted.
+        logger.debug("GroupData packet %d stored without a messages row", packet_id)
+
     # Always broadcast raw packet for the packet feed UI (even duplicates)
     # This enables the frontend cracker to see all incoming packets in real-time
+    linked_message_id = result.get("message_id")
+    if result["decrypted"] and linked_message_id is None:
+        linked_message_id = await RawPacketRepository.get_linked_message_id(packet_id)
+    _decrypted, decrypted_info = await attach_raw_packet_decrypted_info(
+        raw_bytes, linked_message_id
+    )
     broadcast_payload = RawPacketBroadcast(
         id=packet_id,
         observation_id=observation_id,
@@ -461,17 +472,8 @@ async def process_raw_packet(
         payload_type=payload_type_name,
         snr=snr,
         rssi=rssi,
-        decrypted=result["decrypted"],
-        decrypted_info=RawPacketDecryptedInfo(
-            channel_name=result["channel_name"],
-            sender=result["sender"],
-            channel_key=result.get("channel_key"),
-            contact_key=result.get("contact_key"),
-            sender_timestamp=result.get("sender_timestamp"),
-            message=result.get("message"),
-        )
-        if result["decrypted"]
-        else None,
+        decrypted=_decrypted,
+        decrypted_info=decrypted_info,
         transport_code=transport_code,
         region=region,
         packet_hash=pkt_hash,
