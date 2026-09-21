@@ -403,6 +403,8 @@ export function ConversationPane({
         contacts={contacts}
         channels={channels}
         radioOffline={!health?.radio_connected}
+        onOpenContactInfo={onOpenContactInfo}
+        onSelectConversation={onSelectConversation}
       />
     );
   }

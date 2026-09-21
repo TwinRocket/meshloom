@@ -15,6 +15,7 @@ import {
   getConversationHash,
   resolveChannelFromHashToken,
   resolveContactFromHashToken,
+  updateUrlHash,
 } from '../utils/urlHash';
 import type { Channel, Contact } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
@@ -421,6 +422,23 @@ describe('getConversationHash', () => {
         locateKey: 'abcd',
       })
     ).toBe('#locate/abcd');
+  });
+
+  it('encodes map focus so a later hash sync cannot wipe #map/focus/x', () => {
+    const focused = {
+      type: 'map' as const,
+      id: 'map',
+      name: 'map',
+      mapFocusKey: 'AbCd1234',
+    };
+    expect(getConversationHash({ type: 'map', id: 'map', name: 'map' })).toBe('#map');
+    expect(getConversationHash(focused)).toBe('#map/focus/AbCd1234');
+
+    window.location.hash = '#raw';
+    updateUrlHash(focused);
+    expect(window.location.hash).toBe('#map/focus/AbCd1234');
+    updateUrlHash(focused);
+    expect(window.location.hash).toBe('#map/focus/AbCd1234');
   });
 });
 

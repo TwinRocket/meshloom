@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
 import i18n from '../i18n';
 import { RawPacketList } from '../components/RawPacketList';
+import { clearRawPacketDerivedCache } from '../utils/rawPacketDerivedCache';
 import type { Channel, RawPacket } from '../types';
 
 const CHANNEL_KEY = 'aabbccddeeff00112233445566778899';
@@ -42,6 +43,10 @@ function createGroupDataPacket(overrides: Partial<RawPacket> = {}): RawPacket {
 }
 
 describe('RawPacketList', () => {
+  beforeEach(() => {
+    clearRawPacketDerivedCache();
+  });
+
   it('renders TF badge for transport-flood packets', () => {
     render(<RawPacketList packets={[createPacket()]} />);
 
@@ -183,5 +188,75 @@ describe('RawPacketList', () => {
     fireEvent.click(badges[0]);
     expect(onRepeatFilter).toHaveBeenCalledWith('deadbeef');
     expect(onPacketClick).not.toHaveBeenCalled();
+  });
+
+  it('rings every card that shares packet_hash on hover', () => {
+    const { container } = render(
+      <RawPacketList
+        packets={[
+          createPacket({ id: 1, observation_id: 1, packet_hash: 'deadbeef', data: 'aa' }),
+          createPacket({ id: 1, observation_id: 2, packet_hash: 'deadbeef', data: 'bb' }),
+          createPacket({ id: 3, observation_id: 3, packet_hash: 'cafebabe', data: 'cc' }),
+        ]}
+      />
+    );
+
+    const rows = container.querySelectorAll('[data-repeat-key="deadbeef"]');
+    expect(rows).toHaveLength(2);
+    fireEvent.mouseEnter(rows[0]);
+    expect(rows[0].querySelector('.ring-primary')).toBeTruthy();
+    expect(rows[1].querySelector('.ring-primary')).toBeTruthy();
+    expect(container.querySelector('[data-repeat-key="cafebabe"] .ring-primary')).toBeNull();
+  });
+
+  it('hides nav actions when no handlers are provided', () => {
+    render(
+      <RawPacketList
+        packets={[
+          createPacket({
+            id: 4,
+            observation_id: 4,
+            data: '09046F17C47ED00A13E16AB5B94B1CC2D1A5059C6E5A6253C60D',
+            payload_type: 'TextMessage',
+          }),
+        ]}
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openVisualizer') })).toBeNull();
+    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openContact') })).toBeNull();
+    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.pinOnMap') })).toBeNull();
+    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openChannel') })).toBeNull();
+    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })).toBeNull();
+    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.srcHash', { hash: '0A' }) })).toBeNull();
+    expect(screen.queryByLabelText(i18n.t('rawPacket.copyMenuAria'))).toBeNull();
+  });
+
+  it('copies redacted JSON from the discrete menu by default', () => {
+    const onCopyJson = vi.fn();
+    render(
+      <RawPacketList
+        packets={[
+          createPacket({
+            id: 8,
+            observation_id: 8,
+            decrypted_info: {
+              channel_name: '#x',
+              sender: 'Ada',
+              channel_key: CHANNEL_KEY,
+              contact_key: null,
+              sender_timestamp: null,
+              message: 'plaintext-secret',
+              group_data: null,
+            },
+          }),
+        ]}
+        onCopyJson={onCopyJson}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.copyMenuAria')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.copyJson') }));
+    expect(onCopyJson).toHaveBeenCalledWith(expect.objectContaining({ id: 8 }), false);
   });
 });

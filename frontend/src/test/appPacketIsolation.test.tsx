@@ -12,8 +12,11 @@
  * `ConversationPane` on its own cannot see it: the offending subscription lives above.
  */
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import './eSlices';
+import i18n from '../i18n';
 
 const mocks = vi.hoisted(() => ({
   messageList: vi.fn(() => <div data-testid="message-list" />),
@@ -122,7 +125,11 @@ vi.mock('../components/ui/sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../utils/urlHash', () => ({
-  parseHashConversation: () => null,
+  parseHashConversation: () => {
+    const hash = window.location.hash.slice(1);
+    if (hash === 'raw') return { type: 'raw', name: 'raw' };
+    return null;
+  },
   parseHashSettingsSection: () => null,
   updateUrlHash: vi.fn(),
   pushUrlHash: vi.fn(),
@@ -168,6 +175,7 @@ const publicChannel = {
 
 describe('overheard packets and the chat render path', () => {
   beforeEach(() => {
+    window.location.hash = '';
     vi.clearAllMocks();
     resetRawPacketStore();
     mocks.api.getRadioConfig.mockResolvedValue({
@@ -265,5 +273,49 @@ describe('overheard packets and the chat render path', () => {
     });
 
     expect(mocks.messageList.mock.calls.length).toBeGreaterThan(rendersBefore);
+  });
+
+  it('does not stop live/visualizer/cracker store subscribers when #raw is paused', async () => {
+    window.location.hash = '#raw';
+
+    function OtherConsumers() {
+      const packets = useRawPackets();
+      return (
+        <div>
+          <div data-testid="live-consumer">{packets.length}</div>
+          <div data-testid="visualizer-consumer">{packets.length}</div>
+          <div data-testid="cracker-consumer">{packets.length}</div>
+        </div>
+      );
+    }
+
+    function Harness() {
+      return (
+        <>
+          <OtherConsumers />
+          <App />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await waitFor(() => {
+      expect(screen.getByText(i18n.t('rawPacket.title'))).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.pauseAria')));
+
+    act(() => {
+      for (let i = 1; i <= 4; i += 1) {
+        recordRawPacket(createPacket({ id: i, observation_id: i, data: `aa${i}` }));
+      }
+    });
+
+    expect(getRawPackets()).toHaveLength(4);
+    expect(screen.getByTestId('live-consumer').textContent).toBe('4');
+    expect(screen.getByTestId('visualizer-consumer').textContent).toBe('4');
+    expect(screen.getByTestId('cracker-consumer').textContent).toBe('4');
+    expect(screen.queryByText('AA1')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.heldAria', { count: 4 }))).toBeInTheDocument();
   });
 });

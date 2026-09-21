@@ -183,7 +183,9 @@ export function getLocateHash(query?: string): string {
 export function getConversationHash(conv: Conversation | null): string {
   if (!conv) return '';
   if (conv.type === 'raw') return '#raw';
-  if (conv.type === 'map') return '#map';
+  if (conv.type === 'map') {
+    return conv.mapFocusKey ? getMapFocusHash(conv.mapFocusKey) : '#map';
+  }
   if (conv.type === 'live') return '#live';
   if (conv.type === 'visualizer') return '#visualizer';
   if (conv.type === 'search') return '#search';

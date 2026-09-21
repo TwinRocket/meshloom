@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { MeshCoreDecoder } from '@michaelhart/meshcore-decoder';
 import {
   BarChart,
   Bar,
@@ -15,32 +16,124 @@ import {
 import { RawPacketList } from './RawPacketList';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { Button } from './ui/button';
-import type { Channel, Contact, RawPacket } from '../types';
+import { toast } from './ui/sonner';
+import type { Channel, Contact, Conversation, RawPacket } from '../types';
 import {
   KNOWN_PAYLOAD_TYPES,
   PAYLOAD_TYPE_COLORS,
   RAW_PACKET_STATS_WINDOWS,
   buildPayloadTypeColorMap,
   buildRawPacketStatsSnapshot,
-  getPacketTypeName,
   type NeighborStat,
   type PacketTimelineBin,
   type RankedPacketStat,
   type RawPacketStatsSessionState,
   type RawPacketStatsWindow,
 } from '../utils/rawPacketStats';
-import {
-  collectGroupDataKeys,
-  createDecoderOptions,
-  decodePacketSummary,
-  isPacketOpen,
-} from '../utils/rawPacketInspector';
+import { useRawPacketDerivedCache } from '../utils/rawPacketDerivedCache';
+import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
 import { labelPayloadType, labelRoute } from '../utils/rawPacketLabels';
 import { useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
+import { setVisualizerFocusHandoff } from '../utils/visualizerFocusHandoff';
 import { getContactDisplayName } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
 import { ToolPaneHeader } from './ToolPaneHeader';
 import i18n from '../i18n';
+
+const DISPLAY_CAPS = [200, 500, 2000, 5000] as const;
+type DisplayCap = (typeof DISPLAY_CAPS)[number];
+const DISPLAY_CAP_STORAGE_KEY = 'meshloom-raw-display-cap';
+const DEFAULT_DISPLAY_CAP: DisplayCap = 500;
+
+type RssiFilter = 'all' | 'strong' | 'okay';
+
+function readStoredDisplayCap(): DisplayCap {
+  try {
+    const raw = window.localStorage.getItem(DISPLAY_CAP_STORAGE_KEY);
+    const parsed = Number(raw);
+    return DISPLAY_CAPS.includes(parsed as DisplayCap) ? (parsed as DisplayCap) : DEFAULT_DISPLAY_CAP;
+  } catch {
+    return DEFAULT_DISPLAY_CAP;
+  }
+}
+
+function writeStoredDisplayCap(cap: DisplayCap): void {
+  try {
+    window.localStorage.setItem(DISPLAY_CAP_STORAGE_KEY, String(cap));
+  } catch {
+    // Persistence is optional when storage is unavailable.
+  }
+}
+
+function downloadTextFile(filename: string, contents: string, mime: string): void {
+  const blob = new Blob([contents], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+interface ExportPacketRow {
+  hex: string;
+  ts: number;
+  rssi: number | null;
+  snr: number | null;
+  type: string;
+  route: string;
+  hash: string | null;
+}
+
+function toExportRow(
+  packet: RawPacket,
+  derived: { payloadType: string; routeType: string }
+): ExportPacketRow {
+  return {
+    hex: packet.data,
+    ts: packet.timestamp,
+    rssi: packet.rssi,
+    snr: packet.snr,
+    type: derived.payloadType,
+    route: derived.routeType,
+    hash: packet.packet_hash ?? null,
+  };
+}
+
+function isZeroHopPacket(packet: RawPacket): boolean {
+  try {
+    const decoded = MeshCoreDecoder.decode(packet.data);
+    if (!decoded.isValid) return false;
+    const path = decoded.path ?? [];
+    return (decoded.pathLength ?? path.length) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function toCopyJson(
+  packet: RawPacket,
+  derived: { payloadType: string; routeType: string },
+  includeCleartext: boolean
+): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {
+    id: packet.id,
+    observation_id: packet.observation_id ?? null,
+    ts: packet.timestamp,
+    type: derived.payloadType,
+    route: derived.routeType,
+    rssi: packet.rssi,
+    snr: packet.snr,
+    data: packet.data,
+  };
+  if (!includeCleartext) {
+    return redacted;
+  }
+  return {
+    ...redacted,
+    decrypted_info: packet.decrypted_info,
+  };
+}
 
 const ROUTE_FILTER_TYPES = ['Flood', 'Direct', 'TransportFlood', 'TransportDirect'] as const;
 type RouteFilterType = (typeof ROUTE_FILTER_TYPES)[number];
@@ -93,6 +186,17 @@ interface FeedFilterControlsProps {
   onCryptoFilterChange: (value: CryptoFilter) => void;
   autoScroll: boolean;
   onAutoScrollChange: (checked: boolean) => void;
+  paused: boolean;
+  onPausedChange: (checked: boolean) => void;
+  heldCount: number;
+  displayCap: DisplayCap;
+  onDisplayCapChange: (cap: DisplayCap) => void;
+  rssiFilter: RssiFilter;
+  onRssiFilterChange: (value: RssiFilter) => void;
+  zeroHopOnly: boolean;
+  onZeroHopOnlyChange: (checked: boolean) => void;
+  onExportJson: () => void;
+  onExportJsonl: () => void;
   hexFilter: string;
   onHexFilterChange: (value: string) => void;
   hexInvalid: boolean;
@@ -122,6 +226,17 @@ function FeedFilterControls({
   onCryptoFilterChange,
   autoScroll,
   onAutoScrollChange,
+  paused,
+  onPausedChange,
+  heldCount,
+  displayCap,
+  onDisplayCapChange,
+  rssiFilter,
+  onRssiFilterChange,
+  zeroHopOnly,
+  onZeroHopOnlyChange,
+  onExportJson,
+  onExportJsonl,
   hexFilter,
   onHexFilterChange,
   hexInvalid,
@@ -251,6 +366,120 @@ function FeedFilterControls({
         />
         {t('rawPacket.autoscroll')}
       </label>
+      <label className="flex items-center gap-1 text-xs text-foreground cursor-pointer">
+        <input
+          type="checkbox"
+          checked={paused}
+          onChange={(event) => onPausedChange(event.target.checked)}
+          aria-label={paused ? t('rawPacket.resumeAria') : t('rawPacket.pauseAria')}
+          className="rounded"
+        />
+        {t('rawPacket.pause')}
+        {heldCount > 0 ? (
+          <span
+            className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[0.625rem] tabular-nums text-primary"
+            aria-label={t('rawPacket.heldAria', { count: heldCount })}
+          >
+            {t('rawPacket.heldBadge', { count: heldCount })}
+          </span>
+        ) : null}
+      </label>
+      <DisplayCapPill value={displayCap} onChange={onDisplayCapChange} />
+      <label className="flex items-center gap-1 text-xs text-foreground">
+        <span className="text-muted-foreground">{t('rawPacket.rssiFilter')}</span>
+        <select
+          value={rssiFilter}
+          onChange={(event) => onRssiFilterChange(event.target.value as RssiFilter)}
+          aria-label={t('rawPacket.rssiAria')}
+          className="rounded border border-input bg-background px-1.5 py-0.5 text-xs"
+        >
+          <option value="all">{t('rawPacket.rssiAll')}</option>
+          <option value="strong">{t('rawPacket.rssiStrong')}</option>
+          <option value="okay">{t('rawPacket.rssiOkay')}</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1 text-xs text-foreground cursor-pointer">
+        <input
+          type="checkbox"
+          checked={zeroHopOnly}
+          onChange={(event) => onZeroHopOnlyChange(event.target.checked)}
+          aria-label={t('rawPacket.zeroHopAria')}
+          className="rounded"
+        />
+        {t('rawPacket.zeroHop')}
+      </label>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground"
+          aria-label={t('rawPacket.exportAria')}
+          onClick={onExportJson}
+        >
+          {t('rawPacket.exportJson')}
+        </button>
+        <span className="text-muted-foreground">·</span>
+        <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onExportJsonl}>
+          {t('rawPacket.exportJsonl')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DisplayCapPill({
+  value,
+  onChange,
+}: {
+  value: DisplayCap;
+  onChange: (cap: DisplayCap) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs tabular-nums text-foreground"
+        aria-label={t('rawPacket.displayCapAria')}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {t('rawPacket.displayCap', { count: value })}
+        <ChevronDown className="h-3 w-3" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="absolute right-0 z-20 mt-1 min-w-[8rem] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          {DISPLAY_CAPS.map((cap) => (
+            <button
+              key={cap}
+              type="button"
+              className={cn(
+                'block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent',
+                cap === value && 'bg-accent'
+              )}
+              onClick={() => {
+                onChange(cap);
+                setOpen(false);
+              }}
+            >
+              {t('rawPacket.displayCapOption', { count: cap })}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -261,6 +490,8 @@ interface RawPacketFeedViewProps {
   contacts: Contact[];
   channels: Channel[];
   radioOffline?: boolean;
+  onOpenContactInfo?: (publicKey: string) => void;
+  onSelectConversation?: (conversation: Conversation) => void;
 }
 
 const TOOLTIP_STYLE = {
@@ -671,9 +902,11 @@ export function RawPacketFeedView({
   contacts,
   channels,
   radioOffline = false,
+  onOpenContactInfo,
+  onSelectConversation,
 }: RawPacketFeedViewProps) {
   const { t } = useTranslation();
-  const packets = useRawPackets();
+  const livePackets = useRawPackets();
   const rawPacketStatsSession = useRawPacketStatsSession();
   const [statsOpen, setStatsOpen] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -692,33 +925,36 @@ export function RawPacketFeedView({
   const [cryptoFilter, setCryptoFilter] = useState<CryptoFilter>('all');
   // Autoscroll defaults on; intentionally not persisted across refreshes.
   const [autoScroll, setAutoScroll] = useState(true);
+  // Pause is local to #raw. The global store keeps recording.
+  const [paused, setPaused] = useState(false);
+  const [snapshotPackets, setSnapshotPackets] = useState<RawPacket[] | null>(null);
+  const [heldPackets, setHeldPackets] = useState<RawPacket[]>([]);
+  const [displayCap, setDisplayCap] = useState<DisplayCap>(readStoredDisplayCap);
+  const [rssiFilter, setRssiFilter] = useState<RssiFilter>('all');
+  const [zeroHopOnly, setZeroHopOnly] = useState(false);
+  const [capMenuHint, setCapMenuHint] = useState(false);
   // Raw-hex substring filter over the in-memory feed buffer (session-only).
   const [hexFilter, setHexFilter] = useState('');
   const [textFilter, setTextFilter] = useState('');
 
-  const decoderOptions = useMemo(() => createDecoderOptions(channels), [channels]);
-  const inspectExtras = useMemo(
-    () => ({
-      channelKeys: collectGroupDataKeys(channels, []),
-      extraSecrets: [] as string[],
-    }),
-    [channels]
-  );
+  const displaySource = paused && snapshotPackets ? snapshotPackets : livePackets;
 
-  const packetsWithTypes = useMemo(
-    () =>
-      packets.map((packet) => {
-        const decoded = decodePacketSummary(packet, decoderOptions, inspectExtras);
-        return {
-          packet,
-          payloadType: getPacketTypeName(packet, decoderOptions),
-          routeType: decoded.routeType,
-          summary: decoded.summary,
-          clientDecoded: decoded.clientDecoded,
-        };
-      }),
-    [packets, decoderOptions, inspectExtras]
-  );
+  useEffect(() => {
+    if (!paused || !snapshotPackets) {
+      setHeldPackets([]);
+      return;
+    }
+    const snapshotKeys = new Set(snapshotPackets.map((packet) => getRawPacketObservationKey(packet)));
+    setHeldPackets(
+      livePackets.filter((packet) => !snapshotKeys.has(getRawPacketObservationKey(packet)))
+    );
+  }, [livePackets, paused, snapshotPackets]);
+
+  const derivedEntries = useRawPacketDerivedCache(displaySource, {
+    channels,
+    communityNames: [],
+    scope: 'live',
+  });
 
   const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
   const allRoutesEnabled = enabledRoutes.size === ROUTE_FILTER_TYPES.length;
@@ -729,54 +965,77 @@ export function RawPacketFeedView({
   );
   const textQuery = textFilter.trim().toLowerCase();
 
-  const filteredPackets = useMemo(() => {
-    // A non-hex query matches nothing; the input surfaces a hint instead.
+  const filteredEntries = useMemo(() => {
     if (hexInvalid) return [];
     const noTypeFilter = allTypesEnabled;
     const noRouteFilter = allRoutesEnabled;
     const noCryptoFilter = cryptoFilter === 'all';
     const noHexFilter = hexQuery === '';
     const noTextFilter = textQuery === '';
-    if (noTypeFilter && noRouteFilter && noCryptoFilter && noHexFilter && noTextFilter) {
-      return packets;
-    }
-    return packetsWithTypes
-      .filter(({ packet, payloadType, routeType, summary, clientDecoded }) => {
-        if (!noTypeFilter && !enabledTypes.has(payloadType)) return false;
-        if (!noRouteFilter && !enabledRoutes.has(routeType)) return false;
-        const isOpen = isPacketOpen(payloadType, packet, clientDecoded);
-        if (cryptoFilter === 'decrypted' && !isOpen) return false;
-        if (cryptoFilter === 'encrypted' && isOpen) return false;
-        if (!noHexFilter && !packet.data.toLowerCase().includes(hexQuery)) return false;
-        if (!noTextFilter) {
-          const haystacks = [
-            summary,
-            packet.decrypted_info?.sender,
-            packet.decrypted_info?.channel_name,
-            packet.decrypted_info?.channel_key,
-            packet.decrypted_info?.contact_key,
-            packet.packet_hash,
-          ];
-          const matchesText = haystacks.some(
-            (value) => value != null && value.toLowerCase().includes(textQuery)
-          );
-          if (!matchesText) return false;
-        }
-        return true;
-      })
-      .map(({ packet }) => packet);
+    const noRssiFilter = rssiFilter === 'all';
+    const noHopFilter = !zeroHopOnly;
+    return derivedEntries.filter(({ packet, payloadType, routeType, summary, isOpen }) => {
+      if (!noTypeFilter && !enabledTypes.has(payloadType)) return false;
+      if (!noRouteFilter && !enabledRoutes.has(routeType)) return false;
+      if (cryptoFilter === 'decrypted' && !isOpen) return false;
+      if (cryptoFilter === 'encrypted' && isOpen) return false;
+      if (!noHexFilter && !packet.data.toLowerCase().includes(hexQuery)) return false;
+      if (!noTextFilter) {
+        const haystacks = [
+          summary,
+          packet.decrypted_info?.sender,
+          packet.decrypted_info?.channel_name,
+          packet.decrypted_info?.channel_key,
+          packet.decrypted_info?.contact_key,
+          packet.packet_hash,
+        ];
+        const matchesText = haystacks.some(
+          (value) => value != null && value.toLowerCase().includes(textQuery)
+        );
+        if (!matchesText) return false;
+      }
+      if (!noRssiFilter) {
+        if (packet.rssi == null) return false;
+        if (rssiFilter === 'strong' && packet.rssi <= -70) return false;
+        if (rssiFilter === 'okay' && packet.rssi <= -85) return false;
+      }
+      if (!noHopFilter && !isZeroHopPacket(packet)) return false;
+      return true;
+    });
   }, [
-    packetsWithTypes,
+    derivedEntries,
     enabledTypes,
     enabledRoutes,
-    packets,
     allTypesEnabled,
     allRoutesEnabled,
     cryptoFilter,
     hexQuery,
     hexInvalid,
     textQuery,
+    rssiFilter,
+    zeroHopOnly,
   ]);
+
+  const visibleEntries = useMemo(
+    () =>
+      filteredEntries.length > displayCap
+        ? filteredEntries.slice(-displayCap)
+        : filteredEntries,
+    [displayCap, filteredEntries]
+  );
+
+  const visiblePackets = useMemo(
+    () => visibleEntries.map((entry) => entry.packet),
+    [visibleEntries]
+  );
+
+  const derivedByObservation = useMemo(() => {
+    const map = new Map<string, (typeof derivedEntries)[number]>();
+    for (const entry of derivedEntries) {
+      map.set(entry.cacheKey, entry);
+    }
+    return map;
+  }, [derivedEntries]);
 
   const handleToggleAll = () => {
     setEnabledTypes(allTypesEnabled ? new Set() : new Set(KNOWN_PAYLOAD_TYPES));
@@ -814,6 +1073,96 @@ export function RawPacketFeedView({
     setTextFilter(hash);
   };
 
+  const handlePausedChange = (nextPaused: boolean) => {
+    if (nextPaused) {
+      setSnapshotPackets([...livePackets]);
+      setHeldPackets([]);
+      setPaused(true);
+      return;
+    }
+    if (heldPackets.length > displayCap) {
+      toast.warning(
+        t('rawPacket.pauseOverflow', { count: heldPackets.length, cap: displayCap })
+      );
+    }
+    setPaused(false);
+    setSnapshotPackets(null);
+    setHeldPackets([]);
+  };
+
+  const handleDisplayCapChange = (cap: DisplayCap) => {
+    setDisplayCap(cap);
+    writeStoredDisplayCap(cap);
+    setCapMenuHint(cap > 500);
+  };
+
+  const handleOpenVisualizer = (packet: RawPacket) => {
+    const observationKey = getRawPacketObservationKey(packet);
+    setVisualizerFocusHandoff({
+      observationKey,
+      ...(packet.packet_hash ? { packetHash: packet.packet_hash } : {}),
+    });
+    const visualizer: Conversation = {
+      type: 'visualizer',
+      id: 'visualizer',
+      name: 'visualizer',
+    };
+    onSelectConversation?.(visualizer);
+  };
+
+  const handlePinAdvert = (publicKey: string) => {
+    onSelectConversation?.({
+      type: 'map',
+      id: 'map',
+      name: 'map',
+      mapFocusKey: publicKey,
+    });
+  };
+
+  const handleUnknownAdvert = () => {
+    toast.info(t('rawPacket.openContactUnknown'));
+  };
+
+  const handleUnresolvedHash = async (hash: string) => {
+    try {
+      await navigator.clipboard.writeText(hash);
+      toast.info(t('rawPacket.hashCopied', { hash }));
+    } catch {
+      toast.info(t('rawPacket.hashUnresolved', { hash }));
+    }
+  };
+
+  const lookupDerived = (packet: RawPacket) =>
+    derivedByObservation.get(getRawPacketObservationKey(packet)) ?? {
+      payloadType: packet.payload_type,
+      routeType: 'Unknown',
+    };
+
+  const handleCopyHex = async (packet: RawPacket) => {
+    await navigator.clipboard.writeText(packet.data);
+    toast.success(t('rawPacket.copiedHex'));
+  };
+
+  const handleCopyJson = async (packet: RawPacket, includeCleartext: boolean) => {
+    const payload = toCopyJson(packet, lookupDerived(packet), includeCleartext);
+    await navigator.clipboard.writeText(JSON.stringify(payload));
+    toast.success(t('rawPacket.copiedJson'));
+    if (includeCleartext) {
+      toast.warning(t('rawPacket.copyJsonCleartextWarning'));
+    }
+  };
+
+  const handleExport = (format: 'json' | 'jsonl') => {
+    const rows = visibleEntries.map((entry) => toExportRow(entry.packet, entry));
+    const contents =
+      format === 'jsonl' ? rows.map((row) => JSON.stringify(row)).join('\n') : JSON.stringify(rows);
+    downloadTextFile(
+      `meshloom-raw-packets.${format}`,
+      contents,
+      format === 'jsonl' ? 'application/x-ndjson' : 'application/json'
+    );
+  };
+
   useEffect(() => {
     const interval = window.setInterval(() => {
       setNowSec(Math.floor(Date.now() / 1000));
@@ -823,7 +1172,7 @@ export function RawPacketFeedView({
 
   useEffect(() => {
     setNowSec(Math.floor(Date.now() / 1000));
-  }, [packets, rawPacketStatsSession]);
+  }, [livePackets, rawPacketStatsSession]);
 
   const stats = useMemo(
     () => buildRawPacketStatsSnapshot(rawPacketStatsSession, selectedWindow, nowSec),
@@ -933,13 +1282,24 @@ export function RawPacketFeedView({
             onCryptoFilterChange={setCryptoFilter}
             autoScroll={autoScroll}
             onAutoScrollChange={setAutoScroll}
+            paused={paused}
+            onPausedChange={handlePausedChange}
+            heldCount={heldPackets.length}
+            displayCap={displayCap}
+            onDisplayCapChange={handleDisplayCapChange}
+            rssiFilter={rssiFilter}
+            onRssiFilterChange={setRssiFilter}
+            zeroHopOnly={zeroHopOnly}
+            onZeroHopOnlyChange={setZeroHopOnly}
+            onExportJson={() => handleExport('json')}
+            onExportJsonl={() => handleExport('jsonl')}
             hexFilter={hexFilter}
             onHexFilterChange={setHexFilter}
             hexInvalid={hexInvalid}
             textFilter={textFilter}
             onTextFilterChange={setTextFilter}
-            matchCount={filteredPackets.length}
-            totalCount={packets.length}
+            matchCount={visiblePackets.length}
+            totalCount={displaySource.length}
           />
         )}
 
@@ -956,26 +1316,57 @@ export function RawPacketFeedView({
           onCryptoFilterChange={setCryptoFilter}
           autoScroll={autoScroll}
           onAutoScrollChange={setAutoScroll}
+          paused={paused}
+          onPausedChange={handlePausedChange}
+          heldCount={heldPackets.length}
+          displayCap={displayCap}
+          onDisplayCapChange={handleDisplayCapChange}
+          rssiFilter={rssiFilter}
+          onRssiFilterChange={setRssiFilter}
+          zeroHopOnly={zeroHopOnly}
+          onZeroHopOnlyChange={setZeroHopOnly}
+          onExportJson={() => handleExport('json')}
+          onExportJsonl={() => handleExport('jsonl')}
           hexFilter={hexFilter}
           onHexFilterChange={setHexFilter}
           hexInvalid={hexInvalid}
           textFilter={textFilter}
           onTextFilterChange={setTextFilter}
-          matchCount={filteredPackets.length}
-          totalCount={packets.length}
+          matchCount={visiblePackets.length}
+          totalCount={displaySource.length}
         />
+        {displayCap > 500 || capMenuHint ? (
+          <p className="mt-1 text-[0.6875rem] text-warning">{t('rawPacket.displayCapPerf')}</p>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className={cn('min-h-0 min-w-0 flex-1', statsOpen && 'md:border-r md:border-border')}>
           <RawPacketList
-            packets={filteredPackets}
+            packets={visiblePackets}
             channels={channels}
+            contacts={contacts}
             extraSecrets={[]}
             onPacketClick={setSelectedPacket}
             onRepeatFilter={handleRepeatFilter}
             autoScroll={autoScroll}
             radioOffline={radioOffline}
+            virtualize={displayCap > 500}
+            onOpenContactInfo={onOpenContactInfo}
+            onSelectConversation={onSelectConversation}
+            onOpenVisualizer={handleOpenVisualizer}
+            onUnknownAdvert={handleUnknownAdvert}
+            onUnresolvedHash={(hash) => {
+              void handleUnresolvedHash(hash);
+            }}
+            onPinAdvert={handlePinAdvert}
+            onCopyHex={(packet) => {
+              void handleCopyHex(packet);
+            }}
+            onCopyJson={(packet, includeCleartext) => {
+              void handleCopyJson(packet, includeCleartext);
+            }}
+            showVisualizerAction
           />
         </div>
 
