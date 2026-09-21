@@ -1,9 +1,9 @@
 import type { Message } from '../types';
 
-export const OUTGOING_REACH_DELAY_MS = 20_000;
+export const OUTGOING_REACH_DELAY_MS = 0;
 export const YOUNG_REACH_MS = 60_000;
 export const MID_REACH_MS = 10 * 60_000;
-export const YOUNG_POLL_MS = 8_000;
+export const YOUNG_POLL_MS = 2_000;
 export const MID_POLL_MS = 60_000;
 
 export function isObserverReachEligible(msg: Message): boolean {

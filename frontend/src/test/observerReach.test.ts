@@ -83,7 +83,7 @@ describe('isObserverReachEligible', () => {
 });
 
 describe('observerReachPollIntervalMs', () => {
-  it('polls every 8s under one minute', () => {
+  it('polls every 2s under one minute', () => {
     expect(observerReachPollIntervalMs(30_000)).toBe(YOUNG_POLL_MS);
     expect(observerReachPollIntervalMs(YOUNG_REACH_MS - 1)).toBe(YOUNG_POLL_MS);
   });

@@ -127,9 +127,10 @@ async def build_stored_outgoing_channel_message(
     channel_name: str | None,
     message_repository=MessageRepository,
     packet_hash: str | None = None,
-    observer_reach_eligible: bool | None = True,
+    observer_reach_eligible: bool | None = None,
 ) -> Message:
     """Build the current payload for a stored outgoing channel message."""
+    stored = await message_repository.get_by_id(message_id)
     acked_count, paths = await message_repository.get_ack_and_paths(message_id)
     return build_message_model(
         message_id=message_id,
@@ -144,8 +145,14 @@ async def build_stored_outgoing_channel_message(
         sender_name=sender_name,
         sender_key=sender_key,
         channel_name=channel_name,
-        packet_hash=packet_hash,
-        observer_reach_eligible=observer_reach_eligible,
+        packet_hash=(
+            packet_hash if packet_hash is not None else (stored.packet_hash if stored else None)
+        ),
+        observer_reach_eligible=(
+            observer_reach_eligible
+            if observer_reach_eligible is not None
+            else (stored.observer_reach_eligible if stored is not None else True)
+        ),
     )
 
 

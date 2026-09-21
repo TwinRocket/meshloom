@@ -494,6 +494,11 @@ class TestOutgoingChannelBroadcast:
         assert data["conversation_key"] == chan_key.upper()
         assert data["sender_name"] == "MyNode"
         assert data["channel_name"] == "#general"
+        assert data["observer_reach_eligible"] is True
+        packet_hash = data["packet_hash"]
+        assert isinstance(packet_hash, str)
+        assert len(packet_hash) == 16
+        assert packet_hash == packet_hash.upper()
 
     @pytest.mark.asyncio
     async def test_send_channel_same_second_duplicate_bumps_timestamp(self, test_db):
@@ -550,6 +555,9 @@ class TestOutgoingChannelBroadcast:
         assert message.id is not None
         assert message.acked == 0
         assert message.channel_name == "#acked"
+        assert message.packet_hash is not None
+        assert len(message.packet_hash) == 16
+        assert message.observer_reach_eligible is True
 
     @pytest.mark.asyncio
     async def test_send_channel_msg_includes_sender_key(self, test_db):

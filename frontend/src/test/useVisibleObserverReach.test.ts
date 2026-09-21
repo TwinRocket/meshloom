@@ -69,12 +69,29 @@ describe('useVisibleObserverReach', () => {
     expect(getCounts).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(8_050);
+      await vi.advanceTimersByTimeAsync(2_050);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(getCounts).toHaveBeenCalledTimes(2);
+  });
+
+  it('polls an outgoing message immediately', async () => {
+    const receivedAt = Math.floor(Date.now() / 1000);
+    renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [{ ...channelMessage(receivedAt), outgoing: true }],
+        visibleIndexes: [0],
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(getCounts).toHaveBeenCalledTimes(1);
   });
 
   it('does not loop-refetch a sealed 15-minute-old message', async () => {
