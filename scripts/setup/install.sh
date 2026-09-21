@@ -44,6 +44,11 @@ DOCKER_KIND="" # none | linux-rootful | linux-rootless | desktop
 INSTALL_MODE=""
 TRANSPORT=""
 SERIAL_PORT=""
+SERIAL_COMPOSE_HOST_PATH=""
+DBUS_SOCKET=""
+SERIAL_FOUND_HOST_PATHS=()
+SERIAL_FOUND_LABELS=()
+SERIAL_FOUND_DISPLAYS=()
 TCP_HOST=""
 TCP_PORT="5000"
 BLE_ADDRESS=""
@@ -122,8 +127,8 @@ t() {
         fr:note_radio_elsewhere) echo "Pour une radio USB ou Bluetooth, installez Meshloom sur une machine Linux (Raspberry Pi, NAS…) et branchez-y la radio." ;;
         en:step_radio) echo "Radio connection" ;;
         fr:step_radio) echo "Connexion radio" ;;
-        en:q_radio) echo "Should Docker map a USB radio, or will you configure a network radio in the web interface?" ;;
-        fr:q_radio) echo "Docker doit-il mapper une radio USB, ou configurerez-vous une radio réseau dans l'interface ?" ;;
+        en:q_radio) echo "Several serial devices were found. Which one should Docker map?" ;;
+        fr:q_radio) echo "Plusieurs ports série ont été trouvés. Lequel Docker doit-il mapper ?" ;;
         en:opt_serial_auto) echo "USB cable, detected automatically" ;;
         fr:opt_serial_auto) echo "Câble USB, détection automatique" ;;
         en:opt_serial_auto_desc) echo "The radio is plugged into this machine and is the only serial device." ;;
@@ -132,10 +137,10 @@ t() {
         fr:opt_serial) echo "Câble USB, choix manuel" ;;
         en:opt_serial_desc) echo "Use this when several serial devices are plugged in." ;;
         fr:opt_serial_desc) echo "À utiliser si plusieurs ports série sont branchés." ;;
-        en:opt_tcp) echo "On the network (TCP)" ;;
-        fr:opt_tcp) echo "Sur le réseau (TCP)" ;;
-        en:opt_tcp_desc) echo "No USB mapping. Choose TCP in the web interface after install." ;;
-        fr:opt_tcp_desc) echo "Pas de mapping USB. Choisissez TCP dans l'interface après l'installation." ;;
+        en:opt_no_map) echo "No USB mapping" ;;
+        fr:opt_no_map) echo "Pas de mapping USB" ;;
+        en:opt_no_map_desc) echo "The container will not receive a serial device. Configure the radio in the web interface after install." ;;
+        fr:opt_no_map_desc) echo "Le conteneur n'aura pas de port série. Configurez la radio dans l'interface après l'installation." ;;
         en:opt_ble) echo "Bluetooth (BLE)" ;;
         fr:opt_ble) echo "Bluetooth (BLE)" ;;
         en:opt_ble_desc) echo "Pairs with the radio over Bluetooth. Needs its address and PIN." ;;
@@ -168,6 +173,14 @@ t() {
         fr:recap_radio) echo "Radio" ;;
         en:recap_radio_ui) echo "Configured in the web interface" ;;
         fr:recap_radio_ui) echo "À configurer dans l'interface web" ;;
+        en:recap_usb) echo "USB $1" ;;
+        fr:recap_usb) echo "USB $1" ;;
+        en:recap_dbus) echo "Bluetooth" ;;
+        fr:recap_dbus) echo "Bluetooth" ;;
+        en:recap_dbus_mapped) echo "Host D-Bus socket mapped" ;;
+        fr:recap_dbus_mapped) echo "Socket D-Bus hôte mappé" ;;
+        en:serial_path_unusable) echo "That serial path cannot be written into Docker Compose (it contains ':'). No USB device will be mapped." ;;
+        fr:serial_path_unusable) echo "Ce port série ne peut pas être écrit dans Docker Compose (il contient ':'). Aucun périphérique USB ne sera mappé." ;;
         en:q_confirm) echo "Start the installation?" ;;
         fr:q_confirm) echo "Lancer l'installation ?" ;;
         en:q_confirm_upgrade) echo "Upgrade from $1 to $2?" ;;
@@ -208,8 +221,8 @@ t() {
         fr:wrote_config) echo "Configuration écrite dans" ;;
         en:q_start_now) echo "Start Meshloom now?" ;;
         fr:q_start_now) echo "Démarrer Meshloom maintenant ?" ;;
-        en:docker_usb_needs_root) echo "Sharing a USB radio needs Docker running as root on Linux. Choose the network option, or install Meshloom as a service." ;;
-        fr:docker_usb_needs_root) echo "Le partage d'une radio USB nécessite Docker en mode root sur Linux. Choisissez l'option réseau, ou installez Meshloom comme service." ;;
+        en:docker_usb_needs_root) echo "Sharing a USB radio needs Docker running as root on Linux. The compose file will not map a serial device." ;;
+        fr:docker_usb_needs_root) echo "Le partage d'une radio USB nécessite Docker en mode root sur Linux. Le fichier Compose ne mappera pas de port série." ;;
         en:working) echo "This can take a few minutes." ;;
         fr:working) echo "Cela peut prendre quelques minutes." ;;
         en:failed) echo "The installation stopped on an error. Last lines of the log:" ;;
@@ -987,36 +1000,141 @@ docker_allows_usb() {
     [ "$DOCKER_KIND" = "linux-rootful" ]
 }
 
-choose_transport() {
-    # Docker only: USB vs network, solely to emit compose devices: mapping.
-    # systemd installs configure transport in the web UI (app_settings).
-    local allow_usb="n" n=1 choice
-    local idx_auto="" idx_serial="" idx_tcp=""
-    if docker_allows_usb; then
-        allow_usb="y"
+detect_dbus_socket() {
+    # Only the socket, never a directory: a missing path must not be created.
+    local candidate
+    local candidates=("$@")
+    if [ "${#candidates[@]}" -eq 0 ]; then
+        candidates=(/run/dbus/system_bus_socket /var/run/dbus/system_bus_socket)
+    fi
+    DBUS_SOCKET=""
+    for candidate in "${candidates[@]}"; do
+        if [ -S "$candidate" ]; then
+            DBUS_SOCKET="$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_serial_devices() {
+    local path
+    local resolved
+    local label
+    local existing
+
+    SERIAL_FOUND_HOST_PATHS=()
+    SERIAL_FOUND_LABELS=()
+    SERIAL_FOUND_DISPLAYS=()
+
+    if [ -d /dev/serial/by-id ]; then
+        while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            resolved="$(readlink -f "$path" 2>/dev/null || true)"
+            [ -n "$resolved" ] || resolved="$path"
+            label="$(basename "$path")"
+            SERIAL_FOUND_HOST_PATHS+=("$path")
+            SERIAL_FOUND_LABELS+=("$label")
+            SERIAL_FOUND_DISPLAYS+=("$path -> $resolved")
+        done < <(find /dev/serial/by-id -maxdepth 1 -type l | sort)
     fi
 
+    for path in /dev/ttyACM* /dev/ttyUSB* /dev/cu.usbmodem* /dev/cu.usbserial*; do
+        [ -e "$path" ] || continue
+        resolved="$(readlink -f "$path" 2>/dev/null || true)"
+        [ -n "$resolved" ] || resolved="$path"
+
+        if ((${#SERIAL_FOUND_HOST_PATHS[@]} > 0)); then
+            for existing in "${SERIAL_FOUND_DISPLAYS[@]}"; do
+                if [[ "$existing" = *"-> $resolved" ]]; then
+                    resolved=""
+                    break
+                fi
+            done
+            [ -n "$resolved" ] || continue
+        fi
+
+        SERIAL_FOUND_HOST_PATHS+=("$path")
+        SERIAL_FOUND_LABELS+=("$(basename "$path")")
+        SERIAL_FOUND_DISPLAYS+=("$path")
+    done
+}
+
+set_serial_mapping() {
+    local selected="$1"
+    local resolved=""
+
+    SERIAL_PORT="$selected"
+    TRANSPORT="serial"
+    if [[ "$selected" != *:* ]]; then
+        SERIAL_COMPOSE_HOST_PATH="$selected"
+        return 0
+    fi
+
+    resolved="$(readlink -f "$selected" 2>/dev/null || true)"
+    if [ -n "$resolved" ] && [[ "$resolved" != *:* ]]; then
+        SERIAL_COMPOSE_HOST_PATH="$resolved"
+        return 0
+    fi
+
+    TRANSPORT="ui"
+    SERIAL_PORT=""
+    SERIAL_COMPOSE_HOST_PATH=""
+    return 1
+}
+
+choose_serial_among_found() {
+    local n=1 choice i idx_none=""
     ui_screen "$(t step_radio)" 2
     printf '  %s\n\n' "$(t q_radio)"
-    if [ "$allow_usb" = "y" ]; then
-        ui_option "$n" "$(t opt_serial_auto)" "$(t opt_serial_auto_desc)"
-        idx_auto="$n"
+    for i in "${!SERIAL_FOUND_HOST_PATHS[@]}"; do
+        ui_option "$n" "${SERIAL_FOUND_LABELS[$i]}" "${SERIAL_FOUND_DISPLAYS[$i]}"
         n=$((n + 1))
-        ui_option "$n" "$(t opt_serial)" "$(t opt_serial_desc)"
-        idx_serial="$n"
-        n=$((n + 1))
+    done
+    ui_option "$n" "$(t opt_no_map)" "$(t opt_no_map_desc)"
+    idx_none="$n"
+    choice="$(ui_menu "$n" 1)"
+    if [ "$choice" = "$idx_none" ]; then
+        TRANSPORT="ui"
+        SERIAL_PORT=""
+        SERIAL_COMPOSE_HOST_PATH=""
+        return 0
     fi
-    ui_option "$n" "$(t opt_tcp)" "$(t opt_tcp_desc)"
-    idx_tcp="$n"
-    choice="$(ui_menu $((n - 1)) 1)"
-    if [ -n "$idx_auto" ] && [ "$choice" = "$idx_auto" ]; then
-        TRANSPORT="serial-auto"
-    elif [ -n "$idx_serial" ] && [ "$choice" = "$idx_serial" ]; then
-        TRANSPORT="serial"
-        SERIAL_PORT="$(ui_ask_required "$(t prompt_serial)" "$(t hint_serial)")"
-    elif [ "$choice" = "$idx_tcp" ]; then
-        TRANSPORT="tcp"
+    if ! set_serial_mapping "${SERIAL_FOUND_HOST_PATHS[$((choice - 1))]}"; then
+        ui_warn "$(t serial_path_unusable)"
     fi
+}
+
+prepare_docker_mappings() {
+    # Rootful Linux Docker only: USB devices: and the host D-Bus socket.
+    # 0 serial devices → no USB map. 1 → map it. 2+ → ask.
+    # TCP and radio settings stay in the web UI.
+    TRANSPORT="ui"
+    SERIAL_PORT=""
+    SERIAL_COMPOSE_HOST_PATH=""
+    DBUS_SOCKET=""
+    STEP_TOTAL=2
+    INSTALL_STEP=2
+
+    if ! docker_allows_usb; then
+        return 0
+    fi
+
+    detect_dbus_socket || true
+    find_serial_devices
+    local count="${#SERIAL_FOUND_HOST_PATHS[@]}"
+    if [ "$count" -eq 0 ]; then
+        return 0
+    fi
+    if [ "$count" -eq 1 ]; then
+        if ! set_serial_mapping "${SERIAL_FOUND_HOST_PATHS[0]}"; then
+            ui_warn "$(t serial_path_unusable)"
+        fi
+        return 0
+    fi
+    STEP_TOTAL=3
+    INSTALL_STEP=3
+    choose_serial_among_found
 }
 
 recap_mode_label() {
@@ -1028,13 +1146,11 @@ recap_mode_label() {
 }
 
 recap_radio_label() {
-    case "$TRANSPORT" in
-        serial-auto) t opt_serial_auto ;;
-        serial) t opt_serial ;;
-        tcp) t opt_tcp ;;
-        ui) t recap_radio_ui ;;
-        *) echo "$TRANSPORT" ;;
-    esac
+    if [ -n "$SERIAL_COMPOSE_HOST_PATH" ]; then
+        t recap_usb "$SERIAL_COMPOSE_HOST_PATH"
+        return 0
+    fi
+    t recap_radio_ui
 }
 
 confirm_question() {
@@ -1063,6 +1179,9 @@ confirm_install() {
     printf '  %s\n' "$(ui_b "$(t recap)")"
     printf '    %s    %s\n' "$(t recap_mode)" "$(recap_mode_label)"
     printf '    %s    %s\n' "$(t recap_radio)" "$(recap_radio_label)"
+    if [ "$INSTALL_MODE" = "docker" ] && [ -n "$DBUS_SOCKET" ]; then
+        printf '    %s    %s\n' "$(t recap_dbus)" "$(t recap_dbus_mapped)"
+    fi
     if [ -n "$INSTALLED_VERSION" ] && [ -n "$TARGET_VERSION" ]; then
         printf '    %s    %s → %s\n' "$(t recap_version)" "$INSTALLED_VERSION" "$TARGET_VERSION"
     elif [ -n "$INSTALLED_VERSION" ]; then
@@ -1587,17 +1706,13 @@ write_docker_compose() {
         echo "      - \"8000:8000\""
         echo "    volumes:"
         echo "      - ./data:/app/data"
-        if [ "$TRANSPORT" = "serial" ] || [ "$TRANSPORT" = "serial-auto" ]; then
-            local host_dev="${SERIAL_PORT:-/dev/ttyACM0}"
-            if [ "$TRANSPORT" = "serial-auto" ]; then
-                if [ -e /dev/ttyACM0 ]; then
-                    host_dev="/dev/ttyACM0"
-                elif [ -e /dev/ttyUSB0 ]; then
-                    host_dev="/dev/ttyUSB0"
-                fi
-            fi
+        if [ -n "$DBUS_SOCKET" ]; then
+            echo "      # Host D-Bus socket (BlueZ). Extra caps such as NET_ADMIN may still be needed for BLE."
+            echo "      - ${DBUS_SOCKET}:/run/dbus/system_bus_socket:ro"
+        fi
+        if [ -n "$SERIAL_COMPOSE_HOST_PATH" ]; then
             echo "    devices:"
-            echo "      - ${host_dev}:/dev/meshcore-radio"
+            echo "      - ${SERIAL_COMPOSE_HOST_PATH}:/dev/meshcore-radio"
         fi
         echo "    environment:"
         echo "      MESHCORE_DATABASE_PATH: $(yaml_quote "data/meshcore.db")"
@@ -1614,10 +1729,13 @@ write_docker_compose() {
 install_docker_stack() {
     ensure_docker
     detect_docker
-    while [ "$TRANSPORT" != "tcp" ] && ! docker_allows_usb; do
+    prepare_docker_mappings
+    if [ -n "$SERIAL_COMPOSE_HOST_PATH" ] && ! docker_allows_usb; then
         ui_err "$(t docker_usb_needs_root)"
-        choose_transport
-    done
+        TRANSPORT="ui"
+        SERIAL_PORT=""
+        SERIAL_COMPOSE_HOST_PATH=""
+    fi
     local default="${IN_CHECKOUT:-${HOME}/meshloom}" dc
     INSTALL_DIR="$(ui_ask "$(t prompt_dir)" "$default")"
     INSTALL_DIR="${INSTALL_DIR:-$default}"
@@ -1670,17 +1788,10 @@ if [ "$INSTALL_MODE" = "browser" ]; then
     exit 0
 fi
 
-if [ "$INSTALL_MODE" = "docker" ]; then
-    STEP_TOTAL=3
-    INSTALL_STEP=3
-    choose_transport
-else
+if [ "$INSTALL_MODE" = "service" ]; then
     STEP_TOTAL=2
     INSTALL_STEP=2
     TRANSPORT="ui"
-fi
-
-if [ "$INSTALL_MODE" = "service" ]; then
     install_native_service
 else
     install_docker_stack
