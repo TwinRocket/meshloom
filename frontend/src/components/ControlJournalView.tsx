@@ -496,7 +496,6 @@ export function ControlJournalView({
 
   return (
     <div data-testid="control-journal" className="flex min-h-0 flex-1 flex-col bg-background">
-      <span data-testid="control-journal-placeholder" className="sr-only" />
       <ToolPaneHeader title={t('controlJournal.title')} onBack={onBackToTools} />
       {entries.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">

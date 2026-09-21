@@ -252,7 +252,7 @@ describe('App startup hash resolution', () => {
         expect(node.textContent).toMatch(/^control:control:/);
       }
     });
-    expect(screen.getByTestId('control-journal-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
   });
 
   it('reopens the last viewed control journal even when channels are unavailable', async () => {
@@ -275,7 +275,7 @@ describe('App startup hash resolution', () => {
         expect(node).toHaveTextContent('control:control:Control journal');
       }
     });
-    expect(screen.getByTestId('control-journal-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
   });
 
   it('restores the trace tool from the URL hash', async () => {

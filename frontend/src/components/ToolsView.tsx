@@ -24,14 +24,7 @@ import { cn } from '../lib/utils';
  */
 
 type ToolId =
-  | 'raw'
-  | 'control'
-  | 'live'
-  | 'visualizer'
-  | 'trace'
-  | 'locate'
-  | 'search'
-  | 'discovered';
+  'raw' | 'control' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
