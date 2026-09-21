@@ -227,8 +227,12 @@ describe('RawPacketList', () => {
     expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openContact') })).toBeNull();
     expect(screen.queryByRole('button', { name: i18n.t('rawPacket.pinOnMap') })).toBeNull();
     expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openChannel') })).toBeNull();
-    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })).toBeNull();
-    expect(screen.queryByRole('button', { name: i18n.t('rawPacket.srcHash', { hash: '0A' }) })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: i18n.t('rawPacket.srcHash', { hash: '0A' }) })
+    ).toBeNull();
     expect(screen.queryByLabelText(i18n.t('rawPacket.copyMenuAria'))).toBeNull();
   });
 

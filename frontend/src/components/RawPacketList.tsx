@@ -5,7 +5,10 @@ import { MeshCoreDecoder, PayloadType } from '@michaelhart/meshcore-decoder';
 import { Lock, LockOpen } from 'lucide-react';
 import type { Channel, Contact, Conversation, RawPacket } from '../types';
 import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
-import { useRawPacketDerivedCache, type RawPacketDerivedEntry } from '../utils/rawPacketDerivedCache';
+import {
+  useRawPacketDerivedCache,
+  type RawPacketDerivedEntry,
+} from '../utils/rawPacketDerivedCache';
 import { createDecoderOptions, isCleartextPayloadType } from '../utils/rawPacketInspector';
 import { PAYLOAD_TYPE_COLORS, type KnownPayloadType } from '../utils/rawPacketStats';
 import { labelPayloadType } from '../utils/rawPacketLabels';
@@ -98,9 +101,9 @@ export function extractPacketNavHints(
         hints.advertKnown = contact != null;
         hints.advertHasGps = Boolean(
           payload.appData?.hasLocation &&
-            payload.appData.location &&
-            Number.isFinite(payload.appData.location.latitude) &&
-            Number.isFinite(payload.appData.location.longitude)
+          payload.appData.location &&
+          Number.isFinite(payload.appData.location.latitude) &&
+          Number.isFinite(payload.appData.location.longitude)
         );
       }
       if (payload.destinationHash) {
@@ -125,8 +128,7 @@ export function extractPacketNavHints(
     if (infoKey) {
       const match = channels.find((channel) => channel.key.toLowerCase() === infoKey.toLowerCase());
       hints.groupTextChannelKey = match?.key ?? infoKey;
-      hints.groupTextChannelName =
-        match?.name ?? packet.decrypted_info?.channel_name ?? infoKey;
+      hints.groupTextChannelName = match?.name ?? packet.decrypted_info?.channel_name ?? infoKey;
     } else if (channels.length === 1) {
       hints.groupTextChannelKey = channels[0].key;
       hints.groupTextChannelName = channels[0].name;
@@ -350,8 +352,7 @@ export function RawPacketList({
     const actionRow = (
       <>
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          {hints.advertPublicKey &&
-          (hints.advertKnown ? onOpenContactInfo : onUnknownAdvert) ? (
+          {hints.advertPublicKey && (hints.advertKnown ? onOpenContactInfo : onUnknownAdvert) ? (
             <button
               type="button"
               className="text-[0.625rem] rounded px-1.5 py-0.5 bg-muted text-muted-foreground hover:text-foreground"
@@ -436,9 +437,7 @@ export function RawPacketList({
                 aria-expanded={openCopyKey === observationKey}
                 onClick={(event) => {
                   event.stopPropagation();
-                  setOpenCopyKey((current) =>
-                    current === observationKey ? null : observationKey
-                  );
+                  setOpenCopyKey((current) => (current === observationKey ? null : observationKey));
                 }}
               >
                 {t('rawPacket.copyMenu')}
@@ -593,10 +592,7 @@ export function RawPacketList({
       ref={listRef}
     >
       {virtualize ? (
-        <div
-          className="relative w-full"
-          style={{ height: `${virtualizer.getTotalSize()}px` }}
-        >
+        <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
           {virtualizer.getVirtualItems().map((item) => (
             <div
               key={item.key}
