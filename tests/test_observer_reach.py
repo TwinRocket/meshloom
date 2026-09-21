@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from unittest.mock import AsyncMock, patch
 
@@ -611,7 +612,7 @@ class TestCommunityObserverReach:
         assert not any("/packets/aabbccddeeff0011" in item.lower() for item in calls)
 
     @pytest.mark.asyncio
-    async def test_unsealed_empty_uses_live_ttl(self, test_db):
+    async def test_unsealed_empty_is_not_cached(self, test_db):
         reset_observer_reach_cache()
         from app.services import observer_reach
         from app.services.meshloom_community import update_community
@@ -641,7 +642,62 @@ class TestCommunityObserverReach:
         assert first.sealed["AABBCCDDEEFF0011"] is False
         assert second.counts["AABBCCDDEEFF0011"] == 0
         assert third.counts["AABBCCDDEEFF0011"] == 0
-        assert sum(1 for path in calls if path.endswith("/observations")) == 2
+        assert sum(1 for path in calls if path.endswith("/observations")) == 3
+
+    @pytest.mark.asyncio
+    async def test_concurrent_empty_counts_share_one_stats_call(self, test_db):
+        reset_observer_reach_cache()
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        calls: list[str] = []
+
+        async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
+            calls.append(path)
+            if path.endswith("/observations"):
+                await asyncio.sleep(0.05)
+                return {"results": {"AABBCCDDEEFF0011": []}}
+            return {}
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
+            results = await asyncio.gather(
+                get_packet_observer_reach_counts(["AABBCCDDEEFF0011"]),
+                get_packet_observer_reach_counts(["AABBCCDDEEFF0011"]),
+            )
+        assert all(item.counts["AABBCCDDEEFF0011"] == 0 for item in results)
+        assert sum(1 for path in calls if path.endswith("/observations")) == 1
+
+    @pytest.mark.asyncio
+    async def test_cancelled_fetch_does_not_wedge_inflight(self, test_db):
+        reset_observer_reach_cache()
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
+            if path.endswith("/observations"):
+                started.set()
+                await release.wait()
+                return {"results": {"AABBCCDDEEFF0011": []}}
+            return {}
+
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
+            first = asyncio.create_task(get_packet_observer_reach_counts(["AABBCCDDEEFF0011"]))
+            await started.wait()
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            release.set()
+            second = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
+        assert second.counts["AABBCCDDEEFF0011"] == 0
 
     @pytest.mark.asyncio
     async def test_per_hash_sealed_is_surfaced(self, test_db):

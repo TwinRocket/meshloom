@@ -40,7 +40,11 @@ function RollingCount({ value }: { value: number }) {
   const toPad = to.padStart(width, ' ');
 
   return (
-    <span className="inline-flex tabular-nums" data-testid="observer-reach-count" aria-hidden="true">
+    <span
+      className="inline-flex tabular-nums"
+      data-testid="observer-reach-count"
+      aria-hidden="true"
+    >
       {toPad.split('').map((ch, index) => {
         const fromCh = fromPad[index] ?? ' ';
         const key = width - index;

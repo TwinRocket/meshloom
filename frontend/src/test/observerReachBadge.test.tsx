@@ -10,7 +10,9 @@ describe('ObserverReachBadge', () => {
     );
     expect(screen.queryByTestId('observer-reach-badge')).not.toBeInTheDocument();
 
-    rerender(<ObserverReachBadge state={{ status: 'ok', count: 0 }} variant="inline" onOpen={() => {}} />);
+    rerender(
+      <ObserverReachBadge state={{ status: 'ok', count: 0 }} variant="inline" onOpen={() => {}} />
+    );
     expect(screen.queryByTestId('observer-reach-badge')).not.toBeInTheDocument();
   });
 

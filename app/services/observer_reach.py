@@ -36,8 +36,9 @@ logger = logging.getLogger(__name__)
 # One hour bounds that staleness. It costs one Stats request per viewed message
 # per hour, served from its Postgres.
 SEALED_REACH_TTL_SECONDS = 3600.0
-# Unsealed sets still change; 8s matches the live poll cadence.
-LIVE_REACH_TTL_SECONDS = 8.0
+# Unsealed non-empty sets still climb; 2s matches YOUNG_POLL_MS. Empty unsealed
+# is never stored — that freeze is what made the badge sit at 0 then jump.
+LIVE_REACH_TTL_SECONDS = 2.0
 COMMUNITY_OBSERVERS_LIVE_TTL_SECONDS = 8.0
 BATCH_FALLBACK_CONCURRENCY = 4
 MESHLOOM_BATCH_MAX = 20
@@ -47,6 +48,8 @@ OBSERVERS_CACHE_MAX = 16
 
 _reach_cache: TtlLruCache[tuple[str, str], ParsedReach] = TtlLruCache(REACH_CACHE_MAX)
 _observers_cache: TtlLruCache[str, dict[str, ObserverGeo]] = TtlLruCache(OBSERVERS_CACHE_MAX)
+_reach_inflight: dict[str, asyncio.Future[ParsedReach]] = {}
+_reach_inflight_lock = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,11 @@ class ParsedReach:
 def reset_observer_reach_cache() -> None:
     _reach_cache.clear()
     _observers_cache.clear()
+    pending = list(_reach_inflight.items())
+    _reach_inflight.clear()
+    for _hash_lower, future in pending:
+        if not future.done():
+            future.set_exception(RuntimeError("observer reach cache reset"))
 
 
 def validate_packet_hash_param(raw: str) -> str:
@@ -444,7 +452,14 @@ def _community_reach_ttl(sealed: bool) -> float:
     return SEALED_REACH_TTL_SECONDS if sealed else LIVE_REACH_TTL_SECONDS
 
 
+def _should_cache_community_reach(reach: ParsedReach) -> bool:
+    """Sealed (even empty) is final. Unsealed empty must be refetched next poll."""
+    return reach.sealed or bool(reach.observations)
+
+
 def _cache_community_reach(hash_lower: str, reach: ParsedReach, now: float) -> None:
+    if not _should_cache_community_reach(reach):
+        return
     _reach_cache.set(
         _community_reach_key(hash_lower),
         reach,
@@ -455,6 +470,40 @@ def _cache_community_reach(hash_lower: str, reach: ParsedReach, now: float) -> N
 
 def _cached_community_reach(hash_lower: str, now: float) -> ParsedReach | None:
     return _reach_cache.get(_community_reach_key(hash_lower), now)
+
+
+async def _claim_reach_inflight(
+    hashes_lower: list[str],
+) -> tuple[list[str], list[tuple[str, asyncio.Future[ParsedReach]]]]:
+    """One Stats fetch per hash; overlapping callers wait on the same future."""
+    to_fetch: list[str] = []
+    waiting: list[tuple[str, asyncio.Future[ParsedReach]]] = []
+    async with _reach_inflight_lock:
+        loop = asyncio.get_running_loop()
+        for hash_lower in hashes_lower:
+            existing = _reach_inflight.get(hash_lower)
+            if existing is not None:
+                waiting.append((hash_lower, existing))
+                continue
+            future: asyncio.Future[ParsedReach] = loop.create_future()
+            _reach_inflight[hash_lower] = future
+            to_fetch.append(hash_lower)
+    return to_fetch, waiting
+
+
+async def _finish_reach_inflight(
+    hash_lower: str,
+    reach: ParsedReach | None,
+    error: BaseException | None,
+) -> None:
+    async with _reach_inflight_lock:
+        future = _reach_inflight.pop(hash_lower, None)
+    if future is None or future.done():
+        return
+    if error is not None:
+        future.set_exception(error)
+    else:
+        future.set_result(reach if reach is not None else ParsedReach(observations=[]))
 
 
 async def _community_packet_observations(hash_lower: str) -> ParsedReach:
@@ -483,7 +532,7 @@ async def _community_observers() -> dict[str, ObserverGeo]:
     return geos
 
 
-async def _community_batch_or_fallback(
+async def _load_uncached_community_reaches(
     hashes_lower: list[str],
 ) -> dict[str, ParsedReach]:
     """Stats batch query, then per-hash GET for whatever the batch did not answer."""
@@ -491,22 +540,12 @@ async def _community_batch_or_fallback(
 
     now = time.time()
     result: dict[str, ParsedReach] = {}
-    missing: list[str] = []
-    for hash_lower in hashes_lower:
-        cached = _cached_community_reach(hash_lower, now)
-        if cached is not None:
-            result[hash_lower] = cached
-        else:
-            missing.append(hash_lower)
-    if not missing:
-        return result
-
     parsed: dict[str, ParsedReach] | None = None
     try:
         payload = await _community_directory_data(
             "/v1/directory/packets/observations",
             method="POST",
-            body={"hashes": missing},
+            body={"hashes": hashes_lower},
         )
         parsed = parse_batch_reach(payload) if payload is not None else None
     except HTTPException as exc:
@@ -515,7 +554,7 @@ async def _community_batch_or_fallback(
         parsed = None
 
     still_missing: list[str] = []
-    for hash_lower in missing:
+    for hash_lower in hashes_lower:
         stored = canonical_packet_hash(hash_lower) or hash_lower.upper()
         reach = (parsed or {}).get(stored)
         if reach is None or not _usable_observations(reach.observations):
@@ -550,6 +589,43 @@ async def _community_batch_or_fallback(
         raise errors[0]
     for hash_lower in still_missing:
         result.setdefault(hash_lower, ParsedReach(observations=[]))
+    return result
+
+
+async def _community_batch_or_fallback(
+    hashes_lower: list[str],
+) -> dict[str, ParsedReach]:
+    """Serve cache, coalesce in-flight hashes, then hit Stats once per miss."""
+    now = time.time()
+    result: dict[str, ParsedReach] = {}
+    missing: list[str] = []
+    for hash_lower in hashes_lower:
+        cached = _cached_community_reach(hash_lower, now)
+        if cached is not None:
+            result[hash_lower] = cached
+        else:
+            missing.append(hash_lower)
+    if not missing:
+        return result
+
+    to_fetch, waiting = await _claim_reach_inflight(missing)
+    fetched: dict[str, ParsedReach] = {}
+    pending = set(to_fetch)
+    try:
+        if to_fetch:
+            fetched = await _load_uncached_community_reaches(to_fetch)
+        for hash_lower in to_fetch:
+            reach = fetched.get(hash_lower, ParsedReach(observations=[]))
+            _cache_community_reach(hash_lower, reach, time.time())
+            await _finish_reach_inflight(hash_lower, reach, None)
+            pending.discard(hash_lower)
+            result[hash_lower] = reach
+    except BaseException as exc:
+        for hash_lower in list(pending):
+            await _finish_reach_inflight(hash_lower, None, exc)
+        raise
+    for hash_lower, future in waiting:
+        result[hash_lower] = await future
     return result
 
 
