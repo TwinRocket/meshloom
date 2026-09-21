@@ -1,4 +1,4 @@
-import { MeshCoreDecoder, PayloadType, Utils } from '@michaelhart/meshcore-decoder';
+import { MeshCoreDecoder, PayloadType, Utils, type DecryptionOptions } from '@michaelhart/meshcore-decoder';
 
 import type { RawPacket } from '../types';
 import { getRawPacketObservationKey } from './rawPacketIdentity';
@@ -25,8 +25,64 @@ export const KNOWN_PAYLOAD_TYPES = [
   'Trace',
   'Path',
   'Control',
+  'GroupData',
+  'AnonRequest',
+  'Multipart',
+  'RawCustom',
   'Unknown',
 ] as const;
+
+export type KnownPayloadType = (typeof KNOWN_PAYLOAD_TYPES)[number];
+
+const KNOWN_PAYLOAD_TYPE_SET = new Set<string>(KNOWN_PAYLOAD_TYPES);
+
+/**
+ * Stable hex colors (Tailwind 500s) for charts/chips. One unique color per
+ * known payload type so types no longer share a 5-color cycle.
+ */
+export const PAYLOAD_TYPE_COLORS: Record<KnownPayloadType, string> = {
+  Advert: '#f59e0b', // amber-500
+  GroupText: '#06b6d4', // cyan-500
+  TextMessage: '#8b5cf6', // violet-500
+  Ack: '#22c55e', // green-500
+  Request: '#ec4899', // pink-500
+  Response: '#14b8a6', // teal-500
+  Trace: '#f97316', // orange-500
+  Path: '#0ea5e9', // sky-500
+  Control: '#6366f1', // indigo-500
+  GroupData: '#10b981', // emerald-500
+  AnonRequest: '#a855f7', // purple-500
+  Multipart: '#eab308', // yellow-500
+  RawCustom: '#f43f5e', // rose-500
+  Unknown: '#6b7280', // gray-500
+};
+
+export function buildPayloadTypeColorMap(
+  names: readonly string[] = KNOWN_PAYLOAD_TYPES
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const name of names) {
+    map.set(
+      name,
+      PAYLOAD_TYPE_COLORS[name as KnownPayloadType] ?? PAYLOAD_TYPE_COLORS.Unknown
+    );
+  }
+  return map;
+}
+
+export function getPacketTypeName(
+  packet: RawPacket,
+  decoderOptions?: DecryptionOptions
+): string {
+  try {
+    const decoded = MeshCoreDecoder.decode(packet.data, decoderOptions);
+    if (!decoded.isValid) return 'Unknown';
+    const name = Utils.getPayloadTypeName(decoded.payloadType);
+    return KNOWN_PAYLOAD_TYPE_SET.has(name) ? name : 'Unknown';
+  } catch {
+    return 'Unknown';
+  }
+}
 
 const KNOWN_ROUTE_TYPES = [
   'Flood',

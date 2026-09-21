@@ -18,6 +18,7 @@ import {
   useRealtimeAppState,
   useFaviconBadge,
   useUnreadTitle,
+  useCommunityHashtagNames,
 } from './hooks';
 import { toast } from './components/ui/sonner';
 import { AppShell } from './components/AppShell';
@@ -579,31 +580,20 @@ export function App() {
     [fetchUndecryptedCount, setChannels, t]
   );
 
-  const [communityHashtagNames, setCommunityHashtagNames] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (!showCracker) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const community = await api.getCommunity();
-        if (!community.enabled) return;
-        const { hashtags } = await api.getCommunityHashtags();
-        if (cancelled) return;
-        setCommunityHashtagNames(hashtags.map((item) => item.name));
-      } catch {
-        // Community off or Stats unreachable — the finder still works offline.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [showCracker]);
+  const [discoveredHashtagNames, setDiscoveredHashtagNames] = useState<string[]>([]);
+  const [communityEnabled, setCommunityEnabled] = useState(false);
+  const handleCommunityStatusChange = useCallback((status: { enabled: boolean }) => {
+    setCommunityEnabled(status.enabled);
+  }, []);
+  const communityHashtagNames = useCommunityHashtagNames(
+    communityEnabled,
+    discoveredHashtagNames
+  );
 
   const handleHashtagDiscovered = useCallback((name: string) => {
     // Local finder wordlist only. Backend owns Community publish
     // (create / bulk / radio_sync / catalogue resolve).
-    setCommunityHashtagNames((previous) =>
+    setDiscoveredHashtagNames((previous) =>
       previous.includes(name) ? previous : [...previous, name]
     );
   }, []);
@@ -1043,6 +1033,7 @@ export function App() {
             conversationListCollapsed={desktopSidebarCollapsed}
             onToggleConversationList={handleToggleDesktopSidebar}
             onExpandConversationList={handleExpandDesktopSidebar}
+            onCommunityStatusChange={handleCommunityStatusChange}
           />
         </PathHopWidthProvider>
       </RichPayloadProvider>
