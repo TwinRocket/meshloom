@@ -1,3 +1,37 @@
+## [4.15.0] - 2026-09-21
+
+Meshloom shows more clearly what the radio is hearing. The traffic screen is easier to follow, the network has a notebook for its backstage, and after you send a message you can see how many stations heard it. The radio battery is back on screen.
+
+### What's new
+
+- **The traffic screen finally reads in plain words.** Tools → Packet feed: each line has a name you understand, not Unknown everywhere. You can search, filter, and pause the list. Tap a line to open the person, the map, or the network picture. You can look back at older traffic while live traffic keeps arriving.
+- **A notebook for what the network does behind the scenes.** Tools → Control journal: logins, status checks, the small exchanges the network makes outside chat. It is laid out like conversations, not a dump of lines. Other people's private details stay hidden—you only see that something happened.
+- **The "heard by" ear on what you send, too.** A small ear shows how many Community stations say they heard the message. It was already on incoming channel messages. It now appears on private messages and on what you send, and the number goes up as more stations hear it.
+- **The radio battery visible again.** After a redesign, the charge had vanished from the screen. It is back next to the radio status; on a computer there is enough room to read it.
+
+### Fixed
+
+- **Docker install with the radio plugged in.** If the radio is on USB or Bluetooth, the installer finds it by itself. Several devices: it asks which one. A radio already on the network needs nothing extra.
+
+---
+
+### Français
+
+Meshloom montre mieux ce que la radio entend. On s’y retrouve dans le trafic, on lit un carnet des coulisses du réseau, et après un message on voit combien de postes l’ont entendu. La batterie de la radio est revenue à l’écran.
+
+#### Quoi de neuf
+
+- **L’écran du trafic se lit enfin.** Outils → Flux de paquets : chaque ligne porte un nom qu’on comprend, au lieu de « Inconnu » partout. On peut chercher, filtrer, mettre la liste en pause. Un clic ouvre la personne, la carte ou le schéma du réseau. On peut remonter l’ancien trafic pendant que le direct continue d’arriver.
+- **Un carnet pour les coulisses du réseau.** Outils → Journal de contrôle : connexions, demandes d’état, les petits échanges que le réseau se fait hors des discussions. C’est rangé comme des conversations, pas comme une pluie de lignes. Ce qui est privé chez les autres reste invisible ; on voit seulement qu’il s’est passé quelque chose.
+- **L’oreille « qui a entendu », aussi sur ce qu’on envoie.** Une petite oreille indique combien de postes Community disent avoir entendu le message. Elle était déjà là sur les messages de salon reçus. Elle apparaît maintenant sur les messages privés et sur ceux qu’on envoie, et le chiffre monte quand d’autres l’entendent.
+- **La batterie de la radio, de nouveau visible.** Après une refonte, le pourcentage avait disparu de l’écran. Il est revenu à côté de l’état de la radio ; sur ordinateur, il a assez de place pour se lire.
+
+#### Corrections
+
+- **Installer Docker avec la radio branchée.** Si la radio est en USB ou en Bluetooth, l’installateur la trouve tout seul. Plusieurs appareils : il demande lequel. Radio déjà sur le réseau : rien de plus à faire.
+
+---
+
 ## [4.14.2] - 2026-09-20
 
 A thumbs-up in the conversation list used to show up as coded text. A conversation you watched would slip down as others spoke. And the locate map could empty itself while Community was still thinking.
