@@ -336,7 +336,7 @@ describe('overheard packets and the chat render path', () => {
       </>
     );
     await waitFor(() => {
-      expect(screen.getByTestId('control-journal-placeholder')).toBeInTheDocument();
+      expect(screen.getByTestId('control-journal')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
 
@@ -348,5 +348,21 @@ describe('overheard packets and the chat render path', () => {
 
     expect(getRawPackets()).toHaveLength(4);
     expect(screen.getByTestId('control-sibling-consumer').textContent).toBe('4');
+    expect(screen.getByText(i18n.t('controlJournal.empty'))).toBeInTheDocument();
+
+    act(() => {
+      recordRawPacket(
+        createPacket({
+          id: 5,
+          observation_id: 5,
+          payload_type: 'Request',
+          data: `0100bbaaabb${'11'.repeat(16)}`,
+        })
+      );
+    });
+
+    expect(getRawPackets()).toHaveLength(5);
+    expect(screen.queryByText(i18n.t('controlJournal.empty'))).not.toBeInTheDocument();
+    expect(screen.getByTestId('control-journal-card-Request')).toBeInTheDocument();
   });
 });

@@ -706,7 +706,7 @@ describe('ConversationPane', () => {
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
   });
 
-  it('renders the control journal placeholder without subscribing to packets', () => {
+  it('renders ControlJournalView without a pane-level packet subscription', () => {
     const onOpenContactInfo = vi.fn();
     const onSelectConversation = vi.fn();
     render(
@@ -719,8 +719,10 @@ describe('ConversationPane', () => {
       />
     );
 
-    expect(screen.getByTestId('control-journal-placeholder')).toBeInTheDocument();
+    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('controlJournal.title'))).toBeInTheDocument();
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
     expect(screen.queryByTestId('raw-packet-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
   });
 });

@@ -32,6 +32,7 @@ import type {
 } from '../types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
 import { isPendingChannel } from '../utils/channelMembership';
+import { ControlJournalView } from './ControlJournalView';
 import { DiscoveredChannelsView } from './DiscoveredChannelsView';
 import {
   getContactDisplayName,
@@ -131,23 +132,6 @@ function LoadingPane({ label }: { label: string }) {
   return (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">{label}</div>
   );
-}
-
-/** J replaces this with ControlJournalView, keeping the same props. */
-function ControlJournalPlaceholder({
-  contacts: _contacts,
-  channels: _channels,
-  onOpenContactInfo: _onOpenContactInfo,
-  onSelectConversation: _onSelectConversation,
-  publicKey: _publicKey,
-}: {
-  contacts: Contact[];
-  channels: Channel[];
-  onOpenContactInfo: ConversationPaneProps['onOpenContactInfo'];
-  onSelectConversation: ConversationPaneProps['onSelectConversation'];
-  publicKey?: string;
-}) {
-  return <div data-testid="control-journal-placeholder" />;
 }
 
 function ContactResolutionBanner({ variant }: { variant: 'unknown-full-key' | 'prefix-only' }) {
@@ -428,12 +412,13 @@ export function ConversationPane({
 
   if (activeConversation.type === 'control') {
     return (
-      <ControlJournalPlaceholder
+      <ControlJournalView
         contacts={contacts}
         channels={channels}
         onOpenContactInfo={onOpenContactInfo}
         onSelectConversation={onSelectConversation}
         publicKey={config?.public_key}
+        onBackToTools={onBackToTools}
       />
     );
   }
