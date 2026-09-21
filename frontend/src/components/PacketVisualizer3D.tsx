@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { api } from '../api';
 import type { Contact, ContactAdvertPathSummary, RadioConfig, RawPacket } from '../types';
+import type { VisualizerFocusHandoff } from '../utils/visualizerFocusHandoff';
 import { getVisualizerSettings, saveVisualizerSettings } from '../utils/visualizerSettings';
 import { VisualizerControls } from './visualizer/VisualizerControls';
 import { VisualizerTooltip } from './visualizer/VisualizerTooltip';
@@ -17,6 +18,7 @@ interface PacketVisualizer3DProps {
   onFullScreenChange?: (fullScreen: boolean) => void;
   radioOffline?: boolean;
   directoryEnabled?: boolean;
+  focusHandoff?: VisualizerFocusHandoff | null;
 }
 
 export function PacketVisualizer3D({
@@ -27,6 +29,7 @@ export function PacketVisualizer3D({
   onFullScreenChange,
   radioOffline = false,
   directoryEnabled = false,
+  focusHandoff = null,
 }: PacketVisualizer3DProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,7 @@ export function PacketVisualizer3D({
     pruneStaleNodes,
     pruneStaleMinutes,
     directoryEnabled,
+    focusHandoff,
   });
 
   const { hoveredNodeId, pinnedNodeId } = useVisualizer3DScene({
@@ -199,6 +203,9 @@ export function PacketVisualizer3D({
         className="relative min-h-0 flex-1"
         role="img"
         aria-label={t('visualizer.ariaLabel')}
+        data-focused-observation={data.focusedObservationKey ?? ''}
+        data-focused-node-count={data.focusedNodeIds.size}
+        data-focused-link-count={data.focusedLinkKeys.size}
       >
         <VisualizerTooltip
           activeNodeId={tooltipNodeId}

@@ -8,6 +8,10 @@ import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { ToolPaneHeader } from './ToolPaneHeader';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { cn } from '@/lib/utils';
+import {
+  consumeVisualizerFocusHandoff,
+  findVisualizerFocusPacket,
+} from '../utils/visualizerFocusHandoff';
 import { getVisualizerSettings, saveVisualizerSettings } from '../utils/visualizerSettings';
 import { useRawPackets } from '../stores/rawPacketStore';
 
@@ -31,11 +35,29 @@ export function VisualizerView({
 }: VisualizerViewProps) {
   const { t } = useTranslation();
   const packets = useRawPackets();
+  const [focusHandoff] = useState(() => consumeVisualizerFocusHandoff());
+  const initialFocusPacket = findVisualizerFocusPacket(packets, focusHandoff);
   const [fullScreen, setFullScreen] = useState(() => getVisualizerSettings().hidePacketFeed);
   const [paneFullScreen, setPaneFullScreen] = useState(false);
   const [mobileTab, setMobileTab] = useState('visualizer');
-  const [selectedPacket, setSelectedPacket] = useState<RawPacket | null>(null);
+  const [selectedPacket, setSelectedPacket] = useState<RawPacket | null>(initialFocusPacket);
+  const [handoffInspectorApplied, setHandoffInspectorApplied] = useState(
+    initialFocusPacket !== null
+  );
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // One-shot: apply the first live match, then never reopen from later store ticks.
+  useEffect(() => {
+    if (!focusHandoff || handoffInspectorApplied) {
+      return;
+    }
+    const match = findVisualizerFocusPacket(packets, focusHandoff);
+    if (!match) {
+      return;
+    }
+    setSelectedPacket(match);
+    setHandoffInspectorApplied(true);
+  }, [focusHandoff, handoffInspectorApplied, packets]);
 
   // Persist packet feed visibility to localStorage
   useEffect(() => {
@@ -117,6 +139,7 @@ export function VisualizerView({
               onFullScreenChange={setFullScreen}
               radioOffline={radioOffline}
               directoryEnabled={directoryEnabled}
+              focusHandoff={focusHandoff}
             />
           </div>
 
