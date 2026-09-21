@@ -4,13 +4,14 @@ from hashlib import sha256
 from sqlite3 import OperationalError
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.database import db
-from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
+from app.decoder import PayloadType, parse_packet, try_decrypt_packet_with_channel_key
 from app.models import (
     RawPacketDetail,
+    RawPacketHistoryResponse,
     UndecryptedGroupTextSample,
     UndecryptedGroupTextSamplesResponse,
 )
@@ -188,6 +189,102 @@ async def backfill_regions() -> dict:
     """
     known_regions = (await AppSettingsRepository.get()).known_regions
     return await backfill_message_regions(known_regions)
+
+
+HISTORY_ITEM_LIMIT = 5000
+HISTORY_SCAN_LIMIT = 20_000
+
+
+def _payload_type_filter(value: str | None) -> PayloadType | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    compact = stripped.upper().replace("-", "_").replace(" ", "_")
+    try:
+        return PayloadType[compact]
+    except KeyError:
+        compact_nosep = compact.replace("_", "")
+        for member in PayloadType:
+            if member.name.replace("_", "") == compact_nosep:
+                return member
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid payload_type: {value}",
+        ) from None
+
+
+async def _history_item_detail(
+    packet_id: int,
+    packet_data: bytes,
+    packet_timestamp: int,
+    message_id: int | None,
+    known_regions: list[str],
+) -> RawPacketDetail:
+    packet_info = parse_packet(packet_data)
+    payload_type_name = packet_info.payload_type.name if packet_info else "Unknown"
+    transport_code: int | None = None
+    region: str | None = None
+    if packet_info is not None and packet_info.transport_codes is not None:
+        transport_code = packet_info.transport_codes[0]
+        region = resolve_region(
+            int(packet_info.payload_type),
+            packet_info.payload,
+            transport_code,
+            known_regions,
+        )
+    _, decrypted_info = await attach_raw_packet_decrypted_info(packet_data, message_id)
+    return RawPacketDetail(
+        id=packet_id,
+        timestamp=packet_timestamp,
+        data=packet_data.hex(),
+        payload_type=payload_type_name,
+        decrypted=decrypted_info is not None,
+        decrypted_info=decrypted_info,
+        transport_code=transport_code,
+        region=region,
+    )
+
+
+@router.get("/history", response_model=RawPacketHistoryResponse)
+async def get_raw_packet_history(
+    payload_type: str | None = Query(default=None),
+    since: int | None = Query(default=None),
+    until: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=HISTORY_ITEM_LIMIT),
+    after_id: int | None = Query(default=None, ge=1),
+    max_scan: int = Query(default=HISTORY_SCAN_LIMIT, ge=1, le=HISTORY_SCAN_LIMIT),
+) -> RawPacketHistoryResponse:
+    """Return a bounded newest-first page of stored raw packets."""
+    if since is not None and until is not None and since > until:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="since must be less than or equal to until",
+        )
+
+    type_filter = _payload_type_filter(payload_type)
+    rows, total, truncated, scanned = await RawPacketRepository.list_history(
+        since=since,
+        until=until,
+        after_id=after_id,
+        limit=limit,
+        max_scan=max_scan,
+        payload_type=type_filter,
+    )
+    known_regions = (await AppSettingsRepository.get()).known_regions
+    items = [
+        await _history_item_detail(
+            packet_id, packet_data, packet_timestamp, message_id, known_regions
+        )
+        for packet_id, packet_data, packet_timestamp, message_id in rows
+    ]
+    return RawPacketHistoryResponse(
+        items=items,
+        total=total,
+        truncated=truncated,
+        scanned=scanned,
+    )
 
 
 @router.get("/{packet_id}", response_model=RawPacketDetail)

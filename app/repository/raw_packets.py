@@ -258,6 +258,138 @@ class RawPacketRepository:
         return (row["id"], bytes(row["data"]), row["timestamp"], row["message_id"])
 
     @staticmethod
+    def _history_window_sql(
+        since: int | None,
+        until: int | None,
+        cursor_ts: int | None,
+        cursor_id: int | None,
+        id_before: int | None,
+    ) -> tuple[str, list[int]]:
+        """Build a timestamp-index window for newest-first history paging."""
+        clauses: list[str] = []
+        params: list[int] = []
+        if since is not None:
+            clauses.append("timestamp >= ?")
+            params.append(since)
+        if until is not None:
+            clauses.append("timestamp <= ?")
+            params.append(until)
+        if cursor_ts is not None and cursor_id is not None:
+            clauses.append("(timestamp < ? OR (timestamp = ? AND id < ?))")
+            params.extend([cursor_ts, cursor_ts, cursor_id])
+        elif id_before is not None:
+            clauses.append("id < ?")
+            params.append(id_before)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return where, params
+
+    @staticmethod
+    async def list_history(
+        *,
+        since: int | None = None,
+        until: int | None = None,
+        after_id: int | None = None,
+        limit: int,
+        max_scan: int,
+        payload_type: PayloadType | None = None,
+        batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
+    ) -> tuple[list[tuple[int, bytes, int, int | None]], int, bool, int]:
+        """Bounded newest-first history using ``idx_raw_packets_timestamp``.
+
+        ``payload_type`` is applied by parsing each header during the scan
+        (there is no stored payload_type column). Returns
+        ``(rows, total, truncated, scanned)`` where ``total`` is the SQL COUNT
+        of the time/id window, ``scanned`` is rows walked, and ``truncated``
+        is true when the scan stopped at ``max_scan`` with more window rows
+        left.
+        """
+        cursor_ts: int | None = None
+        cursor_id: int | None = None
+        id_before: int | None = None
+        if after_id is not None:
+            cursor_row = await RawPacketRepository.get_by_id(after_id)
+            if cursor_row is not None:
+                cursor_id = cursor_row[0]
+                cursor_ts = cursor_row[2]
+            else:
+                id_before = after_id
+
+        where, params = RawPacketRepository._history_window_sql(
+            since, until, cursor_ts, cursor_id, id_before
+        )
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"SELECT COUNT(*) as count FROM raw_packets {where}",
+                params,
+            ) as cursor:
+                count_row = await cursor.fetchone()
+        total = count_row["count"] if count_row else 0
+
+        rows: list[tuple[int, bytes, int, int | None]] = []
+        scanned = 0
+        last_ts = cursor_ts
+        last_id = cursor_id
+        last_id_before = id_before
+
+        while scanned < max_scan and len(rows) < limit:
+            remaining_scan = max_scan - scanned
+            batch_limit = min(batch_size, remaining_scan)
+            if payload_type is None:
+                batch_limit = min(batch_limit, limit - len(rows))
+            if batch_limit <= 0:
+                break
+
+            batch_where, batch_params = RawPacketRepository._history_window_sql(
+                since, until, last_ts, last_id, last_id_before if last_id is None else None
+            )
+            async with db.readonly() as conn:
+                async with conn.execute(
+                    "SELECT id, data, timestamp, message_id FROM raw_packets "
+                    f"{batch_where} ORDER BY timestamp DESC, id DESC LIMIT ?",
+                    [*batch_params, batch_limit],
+                ) as cursor:
+                    batch = await cursor.fetchall()
+            if not batch:
+                break
+
+            last_id_before = None
+            for row in batch:
+                scanned += 1
+                last_ts = row["timestamp"]
+                last_id = row["id"]
+                data = bytes(row["data"])
+                if payload_type is None or get_packet_payload_type(data) == payload_type:
+                    rows.append((row["id"], data, row["timestamp"], row["message_id"]))
+                    if len(rows) >= limit:
+                        break
+                if scanned >= max_scan:
+                    break
+
+        truncated = False
+        if scanned >= max_scan and last_id is not None:
+            more_where, more_params = RawPacketRepository._history_window_sql(
+                since, until, last_ts, last_id, None
+            )
+            async with db.readonly() as conn:
+                async with conn.execute(
+                    f"SELECT 1 FROM raw_packets {more_where} LIMIT 1",
+                    more_params,
+                ) as cursor:
+                    truncated = await cursor.fetchone() is not None
+        elif scanned >= max_scan and last_id_before is not None:
+            more_where, more_params = RawPacketRepository._history_window_sql(
+                since, until, None, None, last_id_before
+            )
+            async with db.readonly() as conn:
+                async with conn.execute(
+                    f"SELECT 1 FROM raw_packets {more_where} LIMIT 1",
+                    more_params,
+                ) as cursor:
+                    truncated = await cursor.fetchone() is not None
+
+        return rows, total, truncated, scanned
+
+    @staticmethod
     async def prune_old_undecrypted(max_age_days: int) -> int:
         """Delete undecrypted packets older than max_age_days. Returns count deleted."""
         cutoff = int(time.time()) - (max_age_days * 86400)

@@ -569,6 +569,19 @@ class RawPacketDetail(BaseModel):
     )
 
 
+class RawPacketHistoryResponse(BaseModel):
+    """Bounded newest-first raw-packet history page."""
+
+    items: list[RawPacketDetail]
+    total: int = Field(
+        description="Rows in the since/until/after_id window (idx_raw_packets_timestamp)"
+    )
+    truncated: bool = Field(
+        description="True when the bounded header scan stopped at max_scan with more rows left"
+    )
+    scanned: int = Field(description="Rows walked while building this page")
+
+
 class UndecryptedGroupTextSample(BaseModel):
     """One distinct encrypted GROUP_TEXT sample."""
 
