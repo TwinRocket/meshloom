@@ -46,7 +46,7 @@ const ROUTE_FILTER_TYPES = ['Flood', 'Direct', 'TransportFlood', 'TransportDirec
 type RouteFilterType = (typeof ROUTE_FILTER_TYPES)[number];
 type CryptoFilter = 'all' | 'decrypted' | 'encrypted';
 
-function colorForIndex(index: number, colorMap?: Map<string, string>, name?: string): string {
+function colorForType(colorMap?: Map<string, string>, name?: string): string {
   if (colorMap && name && colorMap.has(name)) {
     return colorMap.get(name)!;
   }
@@ -513,7 +513,7 @@ function RankedBars({
               />
               <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={16}>
                 {data.map((entry, i) => (
-                  <Cell key={i} fill={colorForIndex(i, colorMap, entry.name)} />
+                  <Cell key={i} fill={colorForType(colorMap, entry.name)} />
                 ))}
               </Bar>
             </BarChart>

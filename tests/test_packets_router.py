@@ -243,9 +243,7 @@ class TestGetRawPacket:
         loser_key, winner_key = _channel_keys_sharing_hash_byte()
         assert hashlib.sha256(loser_key).digest()[0] == hashlib.sha256(winner_key).digest()[0]
 
-        await ChannelRepository.upsert(
-            key=loser_key.hex().upper(), name="#loser", is_hashtag=False
-        )
+        await ChannelRepository.upsert(key=loser_key.hex().upper(), name="#loser", is_hashtag=False)
         await ChannelRepository.upsert(
             key=winner_key.hex().upper(), name="#winner", is_hashtag=False
         )

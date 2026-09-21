@@ -20,7 +20,10 @@ import { labelPayloadType, labelRole } from './rawPacketLabels';
 export const CLEARTEXT_PAYLOAD_TYPES = new Set(['advert', 'ack', 'control', 'trace']);
 
 function foldPayloadTypeName(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
 }
 
 export interface PacketInspectExtras {

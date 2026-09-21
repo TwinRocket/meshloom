@@ -1,4 +1,9 @@
-import { MeshCoreDecoder, PayloadType, Utils, type DecryptionOptions } from '@michaelhart/meshcore-decoder';
+import {
+  MeshCoreDecoder,
+  PayloadType,
+  Utils,
+  type DecryptionOptions,
+} from '@michaelhart/meshcore-decoder';
 
 import type { RawPacket } from '../types';
 import { getRawPacketObservationKey } from './rawPacketIdentity';
@@ -62,18 +67,12 @@ export function buildPayloadTypeColorMap(
 ): Map<string, string> {
   const map = new Map<string, string>();
   for (const name of names) {
-    map.set(
-      name,
-      PAYLOAD_TYPE_COLORS[name as KnownPayloadType] ?? PAYLOAD_TYPE_COLORS.Unknown
-    );
+    map.set(name, PAYLOAD_TYPE_COLORS[name as KnownPayloadType] ?? PAYLOAD_TYPE_COLORS.Unknown);
   }
   return map;
 }
 
-export function getPacketTypeName(
-  packet: RawPacket,
-  decoderOptions?: DecryptionOptions
-): string {
+export function getPacketTypeName(packet: RawPacket, decoderOptions?: DecryptionOptions): string {
   try {
     const decoded = MeshCoreDecoder.decode(packet.data, decoderOptions);
     if (!decoded.isValid) return 'Unknown';

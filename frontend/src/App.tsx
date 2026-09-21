@@ -585,10 +585,7 @@ export function App() {
   const handleCommunityStatusChange = useCallback((status: { enabled: boolean }) => {
     setCommunityEnabled(status.enabled);
   }, []);
-  const communityHashtagNames = useCommunityHashtagNames(
-    communityEnabled,
-    discoveredHashtagNames
-  );
+  const communityHashtagNames = useCommunityHashtagNames(communityEnabled, discoveredHashtagNames);
 
   const handleHashtagDiscovered = useCallback((name: string) => {
     // Local finder wordlist only. Backend owns Community publish

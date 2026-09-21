@@ -45,7 +45,10 @@ const ROLE_KEYS: Record<string, string> = {
 };
 
 function foldLookupKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
 }
 
 function lookupMappedKey(name: string, map: Record<string, string>): string | undefined {

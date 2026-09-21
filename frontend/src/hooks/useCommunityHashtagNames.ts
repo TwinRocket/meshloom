@@ -45,8 +45,5 @@ export function useCommunityHashtagNames(
     };
   }, [enabled]);
 
-  return useMemo(
-    () => mergeUniqueNames(communityNames, extraNames),
-    [communityNames, extraNames]
-  );
+  return useMemo(() => mergeUniqueNames(communityNames, extraNames), [communityNames, extraNames]);
 }
