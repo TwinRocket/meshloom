@@ -51,7 +51,9 @@ function readStoredDisplayCap(): DisplayCap {
   try {
     const raw = window.localStorage.getItem(DISPLAY_CAP_STORAGE_KEY);
     const parsed = Number(raw);
-    return DISPLAY_CAPS.includes(parsed as DisplayCap) ? (parsed as DisplayCap) : DEFAULT_DISPLAY_CAP;
+    return DISPLAY_CAPS.includes(parsed as DisplayCap)
+      ? (parsed as DisplayCap)
+      : DEFAULT_DISPLAY_CAP;
   } catch {
     return DEFAULT_DISPLAY_CAP;
   }
@@ -418,7 +420,11 @@ function FeedFilterControls({
           {t('rawPacket.exportJson')}
         </button>
         <span className="text-muted-foreground">·</span>
-        <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={onExportJsonl}>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground"
+          onClick={onExportJsonl}
+        >
           {t('rawPacket.exportJsonl')}
         </button>
       </div>
@@ -944,7 +950,9 @@ export function RawPacketFeedView({
       setHeldPackets([]);
       return;
     }
-    const snapshotKeys = new Set(snapshotPackets.map((packet) => getRawPacketObservationKey(packet)));
+    const snapshotKeys = new Set(
+      snapshotPackets.map((packet) => getRawPacketObservationKey(packet))
+    );
     setHeldPackets(
       livePackets.filter((packet) => !snapshotKeys.has(getRawPacketObservationKey(packet)))
     );
@@ -969,7 +977,6 @@ export function RawPacketFeedView({
     if (hexInvalid) return [];
     const noTypeFilter = allTypesEnabled;
     const noRouteFilter = allRoutesEnabled;
-    const noCryptoFilter = cryptoFilter === 'all';
     const noHexFilter = hexQuery === '';
     const noTextFilter = textQuery === '';
     const noRssiFilter = rssiFilter === 'all';
@@ -1018,9 +1025,7 @@ export function RawPacketFeedView({
 
   const visibleEntries = useMemo(
     () =>
-      filteredEntries.length > displayCap
-        ? filteredEntries.slice(-displayCap)
-        : filteredEntries,
+      filteredEntries.length > displayCap ? filteredEntries.slice(-displayCap) : filteredEntries,
     [displayCap, filteredEntries]
   );
 
@@ -1081,9 +1086,7 @@ export function RawPacketFeedView({
       return;
     }
     if (heldPackets.length > displayCap) {
-      toast.warning(
-        t('rawPacket.pauseOverflow', { count: heldPackets.length, cap: displayCap })
-      );
+      toast.warning(t('rawPacket.pauseOverflow', { count: heldPackets.length, cap: displayCap }));
     }
     setPaused(false);
     setSnapshotPackets(null);

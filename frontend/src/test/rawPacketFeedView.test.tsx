@@ -17,8 +17,7 @@ import { updateUrlHash } from '../utils/urlHash';
 import type { RawPacketStatsSessionState } from '../utils/rawPacketStats';
 import type { Channel, Contact, RawPacket } from '../types';
 
-const TEXT_MESSAGE_PACKET =
-  '09046F17C47ED00A13E16AB5B94B1CC2D1A5059C6E5A6253C60D';
+const TEXT_MESSAGE_PACKET = '09046F17C47ED00A13E16AB5B94B1CC2D1A5059C6E5A6253C60D';
 const ADVERT_PACKET_HEX =
   '1106538B1CD273868576DC7F679B493F9AB5AC316173E1A56D3388BC3BA75F583F63AB0D1BA2A8ABD0BC6669DBF719E67E4C8517BA4E0D6F8C96A323E9D13A77F2630DED965A5C17C3EC6ED1601EEFE857749DA24E9F39CBEACD722C3708F433DB5FA9BAF0BAF9BC5B1241069290FEEB029A839EF843616E204F204D657368203220F09FA5AB';
 const ADVERT_PUBLIC_KEY = '8576DC7F679B493F9AB5AC316173E1A56D3388BC3BA75F583F63AB0D1BA2A8AB';
@@ -782,7 +781,9 @@ describe('RawPacketFeedView', () => {
         onOpenContactInfo,
       });
 
-      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) }));
+      fireEvent.click(
+        screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+      );
       expect(onOpenContactInfo).toHaveBeenCalledWith('d0' + 'ab'.repeat(31));
     });
 
@@ -809,7 +810,9 @@ describe('RawPacketFeedView', () => {
         onOpenContactInfo,
       });
 
-      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) }));
+      fireEvent.click(
+        screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+      );
       expect(screen.getByText(i18n.t('rawPacket.hashPicker'))).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'DestTwo' }));
       expect(onOpenContactInfo).toHaveBeenCalledWith('d0' + 'cd'.repeat(31));
@@ -836,7 +839,9 @@ describe('RawPacketFeedView', () => {
         ],
       });
 
-      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) }));
+      fireEvent.click(
+        screen.getByRole('button', { name: i18n.t('rawPacket.destHash', { hash: 'D0' }) })
+      );
       await vi.waitFor(() => {
         expect(writeText).toHaveBeenCalledWith('D0');
         expect(info).toHaveBeenCalledWith(i18n.t('rawPacket.hashCopied', { hash: 'D0' }));
@@ -958,7 +963,7 @@ describe('RawPacketFeedView', () => {
     });
 
     it('exports the visible buffer without plaintext', async () => {
-      const createObjectURL = vi.fn(() => 'blob:export');
+      const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:export');
       const revoke = vi.fn();
       vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: revoke });
       const click = vi.fn();
@@ -998,7 +1003,7 @@ describe('RawPacketFeedView', () => {
 
       fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.exportAria')));
       expect(createObjectURL).toHaveBeenCalled();
-      const blob = createObjectURL.mock.calls[0][0] as Blob;
+      const blob = createObjectURL.mock.calls[0][0];
       expect(blob).toBeInstanceOf(Blob);
       const exported = await blob.text();
       expect(exported).toContain('aabb');
