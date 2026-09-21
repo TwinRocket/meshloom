@@ -11,6 +11,7 @@ interface ParsedHashConversation {
     | 'channel'
     | 'contact'
     | 'raw'
+    | 'control'
     | 'map'
     | 'live'
     | 'visualizer'
@@ -38,6 +39,10 @@ export function parseHashConversation(): ParsedHashConversation | null {
 
   if (hash === 'raw') {
     return { type: 'raw', name: 'raw' };
+  }
+
+  if (hash === 'control') {
+    return { type: 'control', name: 'control' };
   }
 
   if (hash === 'map') {
@@ -183,6 +188,7 @@ export function getLocateHash(query?: string): string {
 export function getConversationHash(conv: Conversation | null): string {
   if (!conv) return '';
   if (conv.type === 'raw') return '#raw';
+  if (conv.type === 'control') return '#control';
   if (conv.type === 'map') {
     return conv.mapFocusKey ? getMapFocusHash(conv.mapFocusKey) : '#map';
   }

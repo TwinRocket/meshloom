@@ -133,6 +133,23 @@ function LoadingPane({ label }: { label: string }) {
   );
 }
 
+/** J replaces this with ControlJournalView, keeping the same props. */
+function ControlJournalPlaceholder({
+  contacts: _contacts,
+  channels: _channels,
+  onOpenContactInfo: _onOpenContactInfo,
+  onSelectConversation: _onSelectConversation,
+  publicKey: _publicKey,
+}: {
+  contacts: Contact[];
+  channels: Channel[];
+  onOpenContactInfo: ConversationPaneProps['onOpenContactInfo'];
+  onSelectConversation: ConversationPaneProps['onSelectConversation'];
+  publicKey?: string;
+}) {
+  return <div data-testid="control-journal-placeholder" />;
+}
+
 function ContactResolutionBanner({ variant }: { variant: 'unknown-full-key' | 'prefix-only' }) {
   const { t } = useTranslation();
   if (variant === 'prefix-only') {
@@ -405,6 +422,18 @@ export function ConversationPane({
         radioOffline={!health?.radio_connected}
         onOpenContactInfo={onOpenContactInfo}
         onSelectConversation={onSelectConversation}
+      />
+    );
+  }
+
+  if (activeConversation.type === 'control') {
+    return (
+      <ControlJournalPlaceholder
+        contacts={contacts}
+        channels={channels}
+        onOpenContactInfo={onOpenContactInfo}
+        onSelectConversation={onSelectConversation}
+        publicKey={config?.public_key}
       />
     );
   }

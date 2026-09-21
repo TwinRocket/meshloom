@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Hash, Radio } from 'lucide-react';
+import { Hash, Radio, ScrollText } from 'lucide-react';
 
 import { RAIL_ITEMS } from '../components/navDestinations';
 
@@ -12,6 +12,14 @@ describe('navDestinations live chrome', () => {
   it('uses Radio for the live rail entry, not CloudRain', () => {
     const live = RAIL_ITEMS.find((item) => item.id === 'live');
     expect(live?.Icon).toBe(Radio);
+  });
+
+  it('places the control journal next to the packet feed', () => {
+    const rawIndex = RAIL_ITEMS.findIndex((item) => item.id === 'raw');
+    const control = RAIL_ITEMS[rawIndex + 1];
+    expect(control?.id).toBe('control');
+    expect(control?.Icon).toBe(ScrollText);
+    expect(control?.conversation).toEqual({ type: 'control', id: 'control', name: 'control' });
   });
 
   it('uses Hash for the discovered-channels tool', () => {

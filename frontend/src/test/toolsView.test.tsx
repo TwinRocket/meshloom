@@ -26,6 +26,7 @@ describe('ToolsView', () => {
     renderTools();
     for (const key of [
       'sidebar.packetFeed',
+      'sidebar.controlJournal',
       'sidebar.live',
       'sidebar.meshVisualizer',
       'sidebar.trace',
@@ -45,10 +46,23 @@ describe('ToolsView', () => {
     );
   });
 
+  it('opens the control journal next to the packet feed', () => {
+    const { onSelectConversation } = renderTools();
+    fireEvent.click(screen.getByText(i18n.t('sidebar.controlJournal')));
+    expect(onSelectConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'control',
+        id: 'control',
+        name: i18n.t('sidebar.controlJournal'),
+      })
+    );
+  });
+
   it('says what each tool is for, since the names alone do not', () => {
     renderTools();
     expect(screen.getByText(i18n.t('toolsView.liveDescription'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('toolsView.packetFeedDescription'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('toolsView.controlDescription'))).toBeInTheDocument();
   });
 
   it('reports mark-all-read to the shell', () => {

@@ -473,6 +473,7 @@ type ConversationType =
   | 'contact'
   | 'channel'
   | 'raw'
+  | 'control'
   | 'map'
   | 'live'
   | 'visualizer'

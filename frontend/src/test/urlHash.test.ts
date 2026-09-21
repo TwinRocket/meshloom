@@ -59,6 +59,14 @@ describe('parseHashConversation', () => {
     expect(result).toEqual({ type: 'raw', name: 'raw' });
   });
 
+  it('parses #control as control type', () => {
+    window.location.hash = '#control';
+
+    const result = parseHashConversation();
+
+    expect(result).toEqual({ type: 'control', name: 'control' });
+  });
+
   it('parses #map as map type', () => {
     window.location.hash = '#map';
 
@@ -402,6 +410,12 @@ describe('getLocateHash', () => {
 describe('getConversationHash', () => {
   it('encodes live conversations', () => {
     expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
+  });
+
+  it('encodes control conversations', () => {
+    expect(getConversationHash({ type: 'control', id: 'control', name: 'Control journal' })).toBe(
+      '#control'
+    );
   });
 
   it('encodes discovered conversations', () => {

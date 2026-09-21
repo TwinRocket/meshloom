@@ -705,4 +705,22 @@ describe('ConversationPane', () => {
     expect(screen.getByLabelText(i18n.t('rawPacket.pauseAria'))).toBeInTheDocument();
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
   });
+
+  it('renders the control journal placeholder without subscribing to packets', () => {
+    const onOpenContactInfo = vi.fn();
+    const onSelectConversation = vi.fn();
+    render(
+      <ConversationPane
+        {...createProps({
+          activeConversation: { type: 'control', id: 'control', name: 'Control journal' },
+          onOpenContactInfo,
+          onSelectConversation,
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('control-journal-placeholder')).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('raw-packet-list')).not.toBeInTheDocument();
+  });
 });

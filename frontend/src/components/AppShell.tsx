@@ -249,7 +249,16 @@ export function AppShell({
   const showBottomNav = showSettings || !inConversation;
   // Which of the bar's destinations is on screen. A tool opened from the Tools screen
   // keeps Tools lit, because that is where the reader came from and where Back goes.
-  const TOOL_TYPES = ['raw', 'live', 'visualizer', 'trace', 'locate', 'search', 'discovered'];
+  const TOOL_TYPES = [
+    'raw',
+    'control',
+    'live',
+    'visualizer',
+    'trace',
+    'locate',
+    'search',
+    'discovered',
+  ];
   const bottomNavTarget: BottomNavTarget | null = showSettings
     ? 'settings'
     : activeType === 'map'

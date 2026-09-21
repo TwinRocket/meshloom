@@ -120,6 +120,7 @@
     "noMatches": "No matches found",
     "markAllRead": "Mark all as read",
     "packetFeed": "Packet Feed",
+    "controlJournal": "Control journal",
     "rawPacketFeed": "Raw Packet Feed",
     "nodeMap": "Node Map",
     "meshVisualizer": "Mesh Visualizer",
@@ -162,6 +163,7 @@
     "loadingChannelFinder": "Loading channel finder..."
   },
   "toolsView": {
+    "controlDescription": "Decoded control packets, shown as a conversation",
     "discoveredDescription": "Hashtag rooms opened automatically, waiting to be kept or refused"
   },
   "discovered": {
