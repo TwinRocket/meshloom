@@ -586,7 +586,7 @@ export function RawPacketList({
             <p className="mt-1 text-xs">{t('rawPacket.emptyRadioOfflineHint')}</p>
           </>
         ) : (
-          emptyMessage ?? t('rawPacket.empty')
+          (emptyMessage ?? t('rawPacket.empty'))
         )}
       </div>
     );

@@ -623,9 +623,7 @@ async function loadHistoryPackets(
       { since: bounds.since, until: bounds.until, limit: capped },
       signal
     );
-    return page.items
-      .filter((packet) => packetMatchesHistoryTypes(packet, types))
-      .slice(0, capped);
+    return page.items.filter((packet) => packetMatchesHistoryTypes(packet, types)).slice(0, capped);
   }
 
   const pages = await Promise.all(
@@ -661,9 +659,7 @@ interface HistoryReplayModalProps {
 
 function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: HistoryReplayModalProps) {
   const { t } = useTranslation();
-  const [enabledTypes, setEnabledTypes] = useState<Set<string>>(
-    () => new Set(KNOWN_PAYLOAD_TYPES)
-  );
+  const [enabledTypes, setEnabledTypes] = useState<Set<string>>(() => new Set(KNOWN_PAYLOAD_TYPES));
   const [period, setPeriod] = useState<HistoryPeriod>('24h');
   const [customSince, setCustomSince] = useState('');
   const [customUntil, setCustomUntil] = useState('');
@@ -877,7 +873,9 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
             </span>
           </label>
 
-          <p className="text-[0.6875rem] text-muted-foreground">{t('rawPacket.historyPruneNote')}</p>
+          <p className="text-[0.6875rem] text-muted-foreground">
+            {t('rawPacket.historyPruneNote')}
+          </p>
 
           <div className="rounded-md border border-border/70 bg-card/70 p-3 text-xs">
             {previewLoading ? (
