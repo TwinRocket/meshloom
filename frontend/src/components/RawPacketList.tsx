@@ -1,8 +1,21 @@
 import { useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Lock, LockOpen } from 'lucide-react';
 import type { Channel, RawPacket } from '../types';
 import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
-import { createDecoderOptions, decodePacketSummary } from '../utils/rawPacketInspector';
+import {
+  collectGroupDataKeys,
+  createDecoderOptions,
+  decodePacketSummary,
+  isCleartextPayloadType,
+  isPacketOpen,
+} from '../utils/rawPacketInspector';
+import {
+  getPacketTypeName,
+  PAYLOAD_TYPE_COLORS,
+  type KnownPayloadType,
+} from '../utils/rawPacketStats';
+import { labelPayloadType } from '../utils/rawPacketLabels';
 import { cn } from '@/lib/utils';
 
 interface RawPacketListProps {
@@ -10,7 +23,9 @@ interface RawPacketListProps {
   /** When the radio is down, an empty feed is expected rather than a wait. */
   radioOffline?: boolean;
   channels?: Channel[];
+  extraSecrets?: string[];
   onPacketClick?: (packet: RawPacket) => void;
+  onRepeatFilter?: (hash: string) => void;
   /** When true (default), the feed sticks to the newest packet. */
   autoScroll?: boolean;
 }
@@ -29,6 +44,10 @@ function formatSignalInfo(packet: RawPacket): string {
     parts.push(`RSSI: ${packet.rssi} dBm`);
   }
   return parts.join(' | ');
+}
+
+function packetRepeatKey(packet: RawPacket): string {
+  return packet.packet_hash || String(packet.id);
 }
 
 // Get route type badge color
@@ -63,24 +82,54 @@ function getRouteTypeLabel(routeType: string): string {
   }
 }
 
+function payloadTypeColor(payloadType: string): string {
+  return PAYLOAD_TYPE_COLORS[payloadType as KnownPayloadType] ?? PAYLOAD_TYPE_COLORS.Unknown;
+}
+
 export function RawPacketList({
   packets,
   channels,
+  extraSecrets,
   onPacketClick,
+  onRepeatFilter,
   autoScroll = true,
   radioOffline = false,
 }: RawPacketListProps) {
   const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
   const decoderOptions = useMemo(() => createDecoderOptions(channels), [channels]);
+  const inspectExtras = useMemo(
+    () => ({
+      channelKeys: collectGroupDataKeys(channels, extraSecrets),
+      extraSecrets,
+    }),
+    [channels, extraSecrets]
+  );
 
   // Decode all packets (memoized to avoid re-decoding on every render)
   const decodedPackets = useMemo(() => {
-    return packets.map((packet) => ({
-      packet,
-      decoded: decodePacketSummary(packet, decoderOptions),
-    }));
-  }, [decoderOptions, packets]);
+    return packets.map((packet) => {
+      const decoded = decodePacketSummary(packet, decoderOptions, inspectExtras);
+      const payloadType = decoded.payloadType || getPacketTypeName(packet, decoderOptions);
+      const clientDecoded = decoded.clientDecoded;
+      const isOpen = isPacketOpen(payloadType, packet, clientDecoded);
+      return {
+        packet,
+        decoded,
+        payloadType,
+        isOpen,
+      };
+    });
+  }, [decoderOptions, inspectExtras, packets]);
+
+  const repeatCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const { packet } of decodedPackets) {
+      const key = packetRepeatKey(packet);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [decodedPackets]);
 
   // Sort packets by timestamp ascending (oldest first)
   const sortedPackets = useMemo(
@@ -118,7 +167,11 @@ export function RawPacketList({
       className="h-full overflow-y-auto p-4 flex flex-col gap-2 [contain:layout_paint]"
       ref={listRef}
     >
-      {sortedPackets.map(({ packet, decoded }) => {
+      {sortedPackets.map(({ packet, decoded, payloadType, isOpen }) => {
+        const repeatKey = packetRepeatKey(packet);
+        const repeatCount = repeatCounts.get(repeatKey) ?? 1;
+        const typeColor = payloadTypeColor(payloadType);
+        const showLock = !isCleartextPayloadType(payloadType);
         const cardContent = (
           <>
             <div className="flex items-center gap-2">
@@ -130,21 +183,32 @@ export function RawPacketList({
                 {getRouteTypeLabel(decoded.routeType)}
               </span>
 
-              {/* Encryption status */}
-              {!packet.decrypted && (
-                <>
-                  <span aria-hidden="true">🔒</span>
-                  <span className="sr-only">{t('rawPacket.encrypted')}</span>
-                </>
-              )}
+              {/* Payload type badge */}
+              <span
+                className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded"
+                style={{ backgroundColor: `${typeColor}33`, color: typeColor }}
+                title={payloadType}
+              >
+                {labelPayloadType(payloadType)}
+              </span>
+
+              {/* Encryption status — computed locally; never write packet.decrypted */}
+              {showLock ? (
+                isOpen ? (
+                  <>
+                    <LockOpen className="h-3 w-3 text-success" aria-hidden="true" />
+                    <span className="sr-only">{t('rawPacket.decryptedOpen')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                    <span className="sr-only">{t('rawPacket.encrypted')}</span>
+                  </>
+                )
+              ) : null}
 
               {/* Summary */}
-              <span
-                className={cn(
-                  'text-[0.8125rem]',
-                  packet.decrypted ? 'text-primary' : 'text-foreground'
-                )}
-              >
+              <span className={cn('text-[0.8125rem]', isOpen ? 'text-primary' : 'text-foreground')}>
                 {decoded.summary}
               </span>
 
@@ -169,27 +233,50 @@ export function RawPacketList({
         );
 
         const className = cn(
-          'rounded-md border border-border/50 bg-card px-3 py-2 text-left',
+          'min-w-0 flex-1 rounded-md border border-border/50 bg-card px-3 py-2 text-left',
           onPacketClick &&
             'cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
         );
 
-        if (onPacketClick) {
-          return (
-            <button
-              key={getRawPacketObservationKey(packet)}
-              type="button"
-              onClick={() => onPacketClick(packet)}
-              className={className}
-            >
-              {cardContent}
-            </button>
-          );
-        }
+        const repeatBadge =
+          repeatCount > 1 ? (
+            onRepeatFilter ? (
+              <button
+                type="button"
+                className="mt-2 shrink-0 self-start text-[0.625rem] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground"
+                onClick={() => onRepeatFilter(repeatKey)}
+                aria-label={t('rawPacket.repeatFilterAria', { count: repeatCount })}
+              >
+                {t('rawPacket.repeatCount', { count: repeatCount })}
+              </button>
+            ) : (
+              <span className="mt-2 shrink-0 self-start text-[0.625rem] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                {t('rawPacket.repeatCount', { count: repeatCount })}
+              </span>
+            )
+          ) : null;
 
         return (
-          <div key={getRawPacketObservationKey(packet)} className={className}>
-            {cardContent}
+          <div key={getRawPacketObservationKey(packet)} className="flex items-start gap-1">
+            {onPacketClick ? (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onPacketClick(packet)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onPacketClick(packet);
+                  }
+                }}
+                className={className}
+              >
+                {cardContent}
+              </div>
+            ) : (
+              <div className={className}>{cardContent}</div>
+            )}
+            {repeatBadge}
           </div>
         );
       })}

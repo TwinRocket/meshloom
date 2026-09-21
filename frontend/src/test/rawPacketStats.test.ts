@@ -119,6 +119,7 @@ describe('buildRawPacketStatsSnapshot', () => {
         contact_key: '0a'.repeat(32),
         sender_timestamp: null,
         message: null,
+        group_data: null,
       },
     };
 

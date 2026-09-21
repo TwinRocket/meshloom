@@ -457,6 +457,136 @@ describe('RawPacketFeedView', () => {
     });
   });
 
+  it('labels new payload types instead of collapsing them to Unknown', () => {
+    renderView();
+
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.groupData'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.anonRequest'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.multipart'))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.rawCustom'))).toBeInTheDocument();
+    expect(screen.queryByLabelText('Unknown')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('rawPacket.type.unknown'))).toBeInTheDocument();
+  });
+
+  it('filters the feed by route and text', () => {
+    const floodAck = '0D00AABBCCDD';
+    const directAck = '0E00AABBCCDD';
+    renderView({
+      packets: [
+        {
+          id: 1,
+          observation_id: 1,
+          timestamp: 1_700_000_001,
+          data: floodAck,
+          decrypted: false,
+          payload_type: 'Ack',
+          rssi: null,
+          snr: null,
+          decrypted_info: {
+            channel_name: '#alpha',
+            sender: 'Alpha',
+            channel_key: 'aa',
+            contact_key: null,
+            sender_timestamp: null,
+            message: null,
+            group_data: null,
+          },
+        },
+        {
+          id: 2,
+          observation_id: 2,
+          timestamp: 1_700_000_002,
+          data: directAck,
+          decrypted: true,
+          payload_type: 'Ack',
+          rssi: null,
+          snr: null,
+          decrypted_info: {
+            channel_name: '#beta',
+            sender: 'Beta',
+            channel_key: 'bb',
+            contact_key: null,
+            sender_timestamp: null,
+            message: 'hello',
+            group_data: null,
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText(floodAck)).toBeInTheDocument();
+    expect(screen.getByText(directAck)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.route.flood')));
+    expect(screen.queryByText(floodAck)).not.toBeInTheDocument();
+    expect(screen.getByText(directAck)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(i18n.t('rawPacket.route.flood')));
+    fireEvent.change(screen.getByLabelText(i18n.t('rawPacket.textAria')), {
+      target: { value: 'alpha' },
+    });
+    expect(screen.getByText(floodAck)).toBeInTheDocument();
+    expect(screen.queryByText(directAck)).not.toBeInTheDocument();
+  });
+
+  it('filters crypto state using GroupText and GroupData, not cleartext Acks', () => {
+    const groupDataPacket = '19006ed356e5b542d4bceab6dc9bc995d8225492b0';
+    renderView({
+      packets: [
+        {
+          id: 1,
+          observation_id: 1,
+          timestamp: 1_700_000_001,
+          data: GROUP_TEXT_PACKET_HEX,
+          decrypted: false,
+          payload_type: 'GroupText',
+          rssi: null,
+          snr: null,
+          decrypted_info: null,
+        },
+        {
+          id: 2,
+          observation_id: 2,
+          timestamp: 1_700_000_002,
+          data: groupDataPacket,
+          decrypted: false,
+          payload_type: 'GroupData',
+          rssi: null,
+          snr: null,
+          decrypted_info: {
+            channel_name: '#gd',
+            sender: null,
+            channel_key: 'aabbccddeeff00112233445566778899',
+            contact_key: null,
+            sender_timestamp: null,
+            message: null,
+            group_data: {
+              data_type: 0x00ab,
+              data_len: 9,
+              data_hex: '73656e736f722d6f6b',
+              data_text: 'sensor-ok',
+            },
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText(GROUP_TEXT_PACKET_HEX.toUpperCase())).toBeInTheDocument();
+    expect(screen.getByText(groupDataPacket.toUpperCase())).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('rawPacket.cryptoAria')), {
+      target: { value: 'decrypted' },
+    });
+    expect(screen.queryByText(GROUP_TEXT_PACKET_HEX.toUpperCase())).not.toBeInTheDocument();
+    expect(screen.getByText(groupDataPacket.toUpperCase())).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('rawPacket.cryptoAria')), {
+      target: { value: 'encrypted' },
+    });
+    expect(screen.getByText(GROUP_TEXT_PACKET_HEX.toUpperCase())).toBeInTheDocument();
+    expect(screen.queryByText(groupDataPacket.toUpperCase())).not.toBeInTheDocument();
+  });
+
   it('opens a packet detail modal from the raw feed and decrypts channel messages when a key is loaded', () => {
     renderView({
       packets: [

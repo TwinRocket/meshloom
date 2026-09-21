@@ -12,65 +12,55 @@ import {
   Cell,
 } from 'recharts';
 
-import { MeshCoreDecoder, Utils } from '@michaelhart/meshcore-decoder';
-
 import { RawPacketList } from './RawPacketList';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { Button } from './ui/button';
 import type { Channel, Contact, RawPacket } from '../types';
 import {
   KNOWN_PAYLOAD_TYPES,
+  PAYLOAD_TYPE_COLORS,
   RAW_PACKET_STATS_WINDOWS,
+  buildPayloadTypeColorMap,
   buildRawPacketStatsSnapshot,
+  getPacketTypeName,
   type NeighborStat,
   type PacketTimelineBin,
   type RankedPacketStat,
   type RawPacketStatsSessionState,
   type RawPacketStatsWindow,
 } from '../utils/rawPacketStats';
-import { createDecoderOptions } from '../utils/rawPacketInspector';
+import {
+  collectGroupDataKeys,
+  createDecoderOptions,
+  decodePacketSummary,
+  isPacketOpen,
+} from '../utils/rawPacketInspector';
+import { labelPayloadType, labelRoute } from '../utils/rawPacketLabels';
 import { useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
 import { getContactDisplayName } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
 import { ToolPaneHeader } from './ToolPaneHeader';
 import i18n from '../i18n';
 
-const TIMELINE_FILL_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6'];
-
-/**
- * Build a stable name→color mapping so the same type always gets the same
- * color regardless of sort order or appearance order.
- */
-function buildColorMap(names: readonly string[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (let i = 0; i < names.length; i++) {
-    map.set(names[i], TIMELINE_FILL_COLORS[i % TIMELINE_FILL_COLORS.length]);
-  }
-  return map;
-}
+const ROUTE_FILTER_TYPES = ['Flood', 'Direct', 'TransportFlood', 'TransportDirect'] as const;
+type RouteFilterType = (typeof ROUTE_FILTER_TYPES)[number];
+type CryptoFilter = 'all' | 'decrypted' | 'encrypted';
 
 function colorForIndex(index: number, colorMap?: Map<string, string>, name?: string): string {
   if (colorMap && name && colorMap.has(name)) {
     return colorMap.get(name)!;
   }
-  return TIMELINE_FILL_COLORS[index % TIMELINE_FILL_COLORS.length];
+  return PAYLOAD_TYPE_COLORS.Unknown;
 }
 
-const KNOWN_PAYLOAD_TYPE_SET = new Set<string>(KNOWN_PAYLOAD_TYPES);
-const PAYLOAD_TYPE_COLOR_MAP = buildColorMap(KNOWN_PAYLOAD_TYPES);
+const PAYLOAD_TYPE_COLOR_MAP = buildPayloadTypeColorMap();
 
-function getPacketTypeName(
-  packet: RawPacket,
-  decoderOptions?: ReturnType<typeof createDecoderOptions>
-): string {
-  try {
-    const decoded = MeshCoreDecoder.decode(packet.data, decoderOptions);
-    if (!decoded.isValid) return 'Unknown';
-    const name = Utils.getPayloadTypeName(decoded.payloadType);
-    return KNOWN_PAYLOAD_TYPE_SET.has(name) ? name : 'Unknown';
-  } catch {
-    return 'Unknown';
+function labeledPayloadColorMap(): Map<string, string> {
+  const map = new Map(PAYLOAD_TYPE_COLOR_MAP);
+  for (const [name, color] of PAYLOAD_TYPE_COLOR_MAP) {
+    map.set(labelPayloadType(name), color);
   }
+  return map;
 }
 
 /**
@@ -97,20 +87,26 @@ interface FeedFilterControlsProps {
   onToggleAll: () => void;
   onToggleType: (type: string) => void;
   onOnly: (type: string) => void;
+  enabledRoutes: Set<string>;
+  onToggleRoute: (route: RouteFilterType) => void;
+  cryptoFilter: CryptoFilter;
+  onCryptoFilterChange: (value: CryptoFilter) => void;
   autoScroll: boolean;
   onAutoScrollChange: (checked: boolean) => void;
   hexFilter: string;
   onHexFilterChange: (value: string) => void;
   hexInvalid: boolean;
+  textFilter: string;
+  onTextFilterChange: (value: string) => void;
   matchCount: number;
   totalCount: number;
 }
 
 /**
- * The feed filter bar: hex substring filter, payload-type checkboxes, and the
- * autoscroll toggle. Rendered twice (mobile + desktop) with only the display
- * classes differing, so the control set lives here to stay in sync. Display is
- * driven entirely by `className` (no base `flex`) to avoid a Tailwind
+ * The feed filter bar: hex/text/route/crypto filters, payload-type checkboxes,
+ * and the autoscroll toggle. Rendered twice (mobile + desktop) with only the
+ * display classes differing, so the control set lives here to stay in sync.
+ * Display is driven entirely by `className` (no base `flex`) to avoid a Tailwind
  * `flex`/`hidden` conflict.
  */
 function FeedFilterControls({
@@ -120,11 +116,17 @@ function FeedFilterControls({
   onToggleAll,
   onToggleType,
   onOnly,
+  enabledRoutes,
+  onToggleRoute,
+  cryptoFilter,
+  onCryptoFilterChange,
   autoScroll,
   onAutoScrollChange,
   hexFilter,
   onHexFilterChange,
   hexInvalid,
+  textFilter,
+  onTextFilterChange,
   matchCount,
   totalCount,
 }: FeedFilterControlsProps) {
@@ -151,14 +153,66 @@ function FeedFilterControls({
           </button>
         )}
       </div>
-      {hexFilter.trim() !== '' &&
-        (hexInvalid ? (
-          <span className="text-[0.6875rem] text-warning">{t('rawPacket.hexOnly')}</span>
-        ) : (
-          <span className="text-[0.6875rem] text-muted-foreground tabular-nums">
-            {matchCount.toLocaleString()} / {totalCount.toLocaleString()}
-          </span>
-        ))}
+      <div className="relative">
+        <input
+          type="text"
+          value={textFilter}
+          onChange={(event) => onTextFilterChange(event.target.value)}
+          placeholder={t('rawPacket.textPlaceholder')}
+          aria-label={t('rawPacket.textAria')}
+          className="w-52 rounded border border-input bg-background px-2 py-0.5 pr-6 text-xs"
+        />
+        {textFilter !== '' && (
+          <button
+            type="button"
+            onClick={() => onTextFilterChange('')}
+            aria-label={t('rawPacket.clearText')}
+            className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      {hexInvalid ? (
+        <span className="text-[0.6875rem] text-warning">{t('rawPacket.hexOnly')}</span>
+      ) : (
+        <span className="text-[0.6875rem] text-muted-foreground tabular-nums">
+          {t('rawPacket.filterMatch', {
+            match: matchCount.toLocaleString(),
+            total: totalCount.toLocaleString(),
+          })}
+        </span>
+      )}
+      <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">
+        {t('rawPacket.filterRoute')}
+      </span>
+      {ROUTE_FILTER_TYPES.map((route) => (
+        <label
+          key={route}
+          className="flex items-center gap-1 text-xs text-foreground cursor-pointer"
+        >
+          <input
+            type="checkbox"
+            checked={enabledRoutes.has(route)}
+            onChange={() => onToggleRoute(route)}
+            className="rounded"
+          />
+          {labelRoute(route)}
+        </label>
+      ))}
+      <label className="flex items-center gap-1 text-xs text-foreground">
+        <span className="text-muted-foreground">{t('rawPacket.filterCrypto')}</span>
+        <select
+          value={cryptoFilter}
+          onChange={(event) => onCryptoFilterChange(event.target.value as CryptoFilter)}
+          aria-label={t('rawPacket.cryptoAria')}
+          className="rounded border border-input bg-background px-1.5 py-0.5 text-xs"
+        >
+          <option value="all">{t('rawPacket.cryptoAll')}</option>
+          <option value="decrypted">{t('rawPacket.cryptoDecrypted')}</option>
+          <option value="encrypted">{t('rawPacket.cryptoEncrypted')}</option>
+        </select>
+      </label>
       <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer">
         <input
           type="checkbox"
@@ -177,7 +231,7 @@ function FeedFilterControls({
               onChange={() => onToggleType(type)}
               className="rounded"
             />
-            {type}
+            {labelPayloadType(type)}
           </label>
           <button
             type="button"
@@ -550,10 +604,7 @@ function TimelineChart({
   bins: PacketTimelineBin[];
   colorMap: Map<string, string>;
 }) {
-  const typeOrder = Array.from(new Set(bins.flatMap((bin) => Object.keys(bin.countsByType)))).slice(
-    0,
-    TIMELINE_FILL_COLORS.length
-  );
+  const typeOrder = Array.from(new Set(bins.flatMap((bin) => Object.keys(bin.countsByType))));
 
   const data = bins.map((bin) => {
     const entry: Record<string, string | number> = { label: bin.label };
@@ -572,9 +623,9 @@ function TimelineChart({
             <span key={type} className="inline-flex items-center gap-1">
               <span
                 className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: colorMap.get(type) ?? TIMELINE_FILL_COLORS[0] }}
+                style={{ backgroundColor: colorMap.get(type) ?? PAYLOAD_TYPE_COLORS.Unknown }}
               />
-              <span>{type}</span>
+              <span>{labelPayloadType(type)}</span>
             </span>
           ))}
         </div>
@@ -604,7 +655,7 @@ function TimelineChart({
                 key={type}
                 dataKey={type}
                 stackId="packets"
-                fill={colorMap.get(type) ?? TIMELINE_FILL_COLORS[0]}
+                fill={colorMap.get(type) ?? PAYLOAD_TYPE_COLORS.Unknown}
                 radius={i === typeOrder.length - 1 ? [2, 2, 0, 0] : undefined}
               />
             ))}
@@ -635,42 +686,97 @@ export function RawPacketFeedView({
   const [analyzeModalOpen, setAnalyzeModalOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [enabledTypes, setEnabledTypes] = useState<Set<string>>(() => new Set(KNOWN_PAYLOAD_TYPES));
+  const [enabledRoutes, setEnabledRoutes] = useState<Set<string>>(
+    () => new Set(ROUTE_FILTER_TYPES)
+  );
+  const [cryptoFilter, setCryptoFilter] = useState<CryptoFilter>('all');
   // Autoscroll defaults on; intentionally not persisted across refreshes.
   const [autoScroll, setAutoScroll] = useState(true);
   // Raw-hex substring filter over the in-memory feed buffer (session-only).
   const [hexFilter, setHexFilter] = useState('');
+  const [textFilter, setTextFilter] = useState('');
 
   const decoderOptions = useMemo(() => createDecoderOptions(channels), [channels]);
+  const inspectExtras = useMemo(
+    () => ({
+      channelKeys: collectGroupDataKeys(channels, []),
+      extraSecrets: [] as string[],
+    }),
+    [channels]
+  );
 
   const packetsWithTypes = useMemo(
     () =>
-      packets.map((packet) => ({
-        packet,
-        payloadType: getPacketTypeName(packet, decoderOptions),
-      })),
-    [packets, decoderOptions]
+      packets.map((packet) => {
+        const decoded = decodePacketSummary(packet, decoderOptions, inspectExtras);
+        return {
+          packet,
+          payloadType: getPacketTypeName(packet, decoderOptions),
+          routeType: decoded.routeType,
+          summary: decoded.summary,
+          clientDecoded: decoded.clientDecoded,
+        };
+      }),
+    [packets, decoderOptions, inspectExtras]
   );
 
   const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
+  const allRoutesEnabled = enabledRoutes.size === ROUTE_FILTER_TYPES.length;
 
   const { query: hexQuery, invalid: hexInvalid } = useMemo(
     () => normalizeHexQuery(hexFilter),
     [hexFilter]
   );
+  const textQuery = textFilter.trim().toLowerCase();
 
   const filteredPackets = useMemo(() => {
     // A non-hex query matches nothing; the input surfaces a hint instead.
     if (hexInvalid) return [];
-    // Fast path: no filters active.
-    if (allTypesEnabled && hexQuery === '') return packets;
+    const noTypeFilter = allTypesEnabled;
+    const noRouteFilter = allRoutesEnabled;
+    const noCryptoFilter = cryptoFilter === 'all';
+    const noHexFilter = hexQuery === '';
+    const noTextFilter = textQuery === '';
+    if (noTypeFilter && noRouteFilter && noCryptoFilter && noHexFilter && noTextFilter) {
+      return packets;
+    }
     return packetsWithTypes
-      .filter(
-        ({ packet, payloadType }) =>
-          (allTypesEnabled || enabledTypes.has(payloadType)) &&
-          (hexQuery === '' || packet.data.toLowerCase().includes(hexQuery))
-      )
+      .filter(({ packet, payloadType, routeType, summary, clientDecoded }) => {
+        if (!noTypeFilter && !enabledTypes.has(payloadType)) return false;
+        if (!noRouteFilter && !enabledRoutes.has(routeType)) return false;
+        const isOpen = isPacketOpen(payloadType, packet, clientDecoded);
+        if (cryptoFilter === 'decrypted' && !isOpen) return false;
+        if (cryptoFilter === 'encrypted' && isOpen) return false;
+        if (!noHexFilter && !packet.data.toLowerCase().includes(hexQuery)) return false;
+        if (!noTextFilter) {
+          const haystacks = [
+            summary,
+            packet.decrypted_info?.sender,
+            packet.decrypted_info?.channel_name,
+            packet.decrypted_info?.channel_key,
+            packet.decrypted_info?.contact_key,
+            packet.packet_hash,
+          ];
+          const matchesText = haystacks.some(
+            (value) => value != null && value.toLowerCase().includes(textQuery)
+          );
+          if (!matchesText) return false;
+        }
+        return true;
+      })
       .map(({ packet }) => packet);
-  }, [packetsWithTypes, enabledTypes, packets, allTypesEnabled, hexQuery, hexInvalid]);
+  }, [
+    packetsWithTypes,
+    enabledTypes,
+    enabledRoutes,
+    packets,
+    allTypesEnabled,
+    allRoutesEnabled,
+    cryptoFilter,
+    hexQuery,
+    hexInvalid,
+    textQuery,
+  ]);
 
   const handleToggleAll = () => {
     setEnabledTypes(allTypesEnabled ? new Set() : new Set(KNOWN_PAYLOAD_TYPES));
@@ -690,6 +796,22 @@ export function RawPacketFeedView({
 
   const handleOnly = (type: string) => {
     setEnabledTypes(new Set([type]));
+  };
+
+  const handleToggleRoute = (route: RouteFilterType) => {
+    setEnabledRoutes((prev) => {
+      const next = new Set(prev);
+      if (next.has(route)) {
+        next.delete(route);
+      } else {
+        next.add(route);
+      }
+      return next;
+    });
+  };
+
+  const handleRepeatFilter = (hash: string) => {
+    setTextFilter(hash);
   };
 
   useEffect(() => {
@@ -805,11 +927,17 @@ export function RawPacketFeedView({
             onToggleAll={handleToggleAll}
             onToggleType={handleToggleType}
             onOnly={handleOnly}
+            enabledRoutes={enabledRoutes}
+            onToggleRoute={handleToggleRoute}
+            cryptoFilter={cryptoFilter}
+            onCryptoFilterChange={setCryptoFilter}
             autoScroll={autoScroll}
             onAutoScrollChange={setAutoScroll}
             hexFilter={hexFilter}
             onHexFilterChange={setHexFilter}
             hexInvalid={hexInvalid}
+            textFilter={textFilter}
+            onTextFilterChange={setTextFilter}
             matchCount={filteredPackets.length}
             totalCount={packets.length}
           />
@@ -822,11 +950,17 @@ export function RawPacketFeedView({
           onToggleAll={handleToggleAll}
           onToggleType={handleToggleType}
           onOnly={handleOnly}
+          enabledRoutes={enabledRoutes}
+          onToggleRoute={handleToggleRoute}
+          cryptoFilter={cryptoFilter}
+          onCryptoFilterChange={setCryptoFilter}
           autoScroll={autoScroll}
           onAutoScrollChange={setAutoScroll}
           hexFilter={hexFilter}
           onHexFilterChange={setHexFilter}
           hexInvalid={hexInvalid}
+          textFilter={textFilter}
+          onTextFilterChange={setTextFilter}
           matchCount={filteredPackets.length}
           totalCount={packets.length}
         />
@@ -837,7 +971,9 @@ export function RawPacketFeedView({
           <RawPacketList
             packets={filteredPackets}
             channels={channels}
+            extraSecrets={[]}
             onPacketClick={setSelectedPacket}
+            onRepeatFilter={handleRepeatFilter}
             autoScroll={autoScroll}
             radioOffline={radioOffline}
           />
@@ -948,14 +1084,20 @@ export function RawPacketFeedView({
               <div className="md:columns-2 md:gap-4">
                 <RankedBars
                   title={t('rawPacket.packetTypes')}
-                  items={stats.payloadBreakdown}
+                  items={stats.payloadBreakdown.map((item) => ({
+                    ...item,
+                    label: labelPayloadType(item.label),
+                  }))}
                   emptyLabel={t('rawPacket.emptyPackets')}
-                  colorMap={PAYLOAD_TYPE_COLOR_MAP}
+                  colorMap={labeledPayloadColorMap()}
                 />
 
                 <RankedBars
                   title={t('rawPacket.routeMix')}
-                  items={stats.routeBreakdown}
+                  items={stats.routeBreakdown.map((item) => ({
+                    ...item,
+                    label: labelRoute(item.label),
+                  }))}
                   emptyLabel={t('rawPacket.emptyPackets')}
                 />
 

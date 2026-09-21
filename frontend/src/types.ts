@@ -718,6 +718,12 @@ export interface RawPacket {
     contact_key: string | null;
     sender_timestamp: number | null;
     message: string | null;
+    group_data: null | {
+      data_type: number;
+      data_len: number;
+      data_hex: string;
+      data_text: string | null;
+    };
   } | null;
   /** Region scope transport code (uint16) for TransportFlood/TransportDirect packets. */
   transport_code?: number | null;
