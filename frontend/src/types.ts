@@ -733,6 +733,22 @@ export interface RawPacket {
   packet_hash?: string | null;
 }
 
+export interface RawPacketHistoryQuery {
+  payload_type?: string;
+  since?: number;
+  until?: number;
+  limit?: number;
+  after_id?: number;
+  max_scan?: number;
+}
+
+export interface RawPacketHistoryResponse {
+  items: RawPacket[];
+  total: number;
+  truncated: boolean;
+  scanned: number;
+}
+
 export interface GroupTextSample {
   channel_hash: string;
   packet_id: number;

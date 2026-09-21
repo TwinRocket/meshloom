@@ -4,10 +4,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { MeshCoreDecoder, PayloadType } from '@michaelhart/meshcore-decoder';
 import { Lock, LockOpen } from 'lucide-react';
 import type { Channel, Contact, Conversation, RawPacket } from '../types';
-import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
 import {
   useRawPacketDerivedCache,
   type RawPacketDerivedEntry,
+  type RawPacketDerivedScope,
 } from '../utils/rawPacketDerivedCache';
 import { createDecoderOptions, isCleartextPayloadType } from '../utils/rawPacketInspector';
 import { PAYLOAD_TYPE_COLORS, type KnownPayloadType } from '../utils/rawPacketStats';
@@ -48,6 +48,10 @@ interface RawPacketListProps {
   onCopyJson?: (packet: RawPacket, includeCleartext: boolean) => void;
   /** Live-only visualizer handoff. Hidden when replay lands. */
   showVisualizerAction?: boolean;
+  /** Live uses `obs-*` / `db-*`. Replay uses `hist-{id}`. */
+  derivedScope?: RawPacketDerivedScope;
+  /** Overrides the default empty-feed copy (replay has its own). */
+  emptyMessage?: string;
 }
 
 export function packetRepeatKey(packet: RawPacket): string {
@@ -218,6 +222,8 @@ export function RawPacketList({
   onCopyHex,
   onCopyJson,
   showVisualizerAction = true,
+  derivedScope = 'live',
+  emptyMessage,
 }: RawPacketListProps) {
   const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
@@ -233,7 +239,7 @@ export function RawPacketList({
   const derivedPackets = useRawPacketDerivedCache(packets, {
     channels,
     extraSecrets,
-    scope: 'live',
+    scope: derivedScope,
   });
 
   const repeatCounts = useMemo(() => {
@@ -255,7 +261,7 @@ export function RawPacketList({
     getScrollElement: () => listRef.current,
     estimateSize: () => 148,
     overscan: 8,
-    getItemKey: (index) => getRawPacketObservationKey(sortedPackets[index].packet),
+    getItemKey: (index) => sortedPackets[index].cacheKey,
   });
 
   useEffect(() => {
@@ -290,7 +296,7 @@ export function RawPacketList({
   const renderCard = (entry: RawPacketDerivedEntry) => {
     const { packet, payloadType, routeType, summary, isOpen } = entry;
     const repeatKey = packetRepeatKey(packet);
-    const observationKey = getRawPacketObservationKey(packet);
+    const observationKey = entry.cacheKey;
     const repeatCount = repeatCounts.get(repeatKey) ?? 1;
     const typeColor = payloadTypeColor(payloadType);
     const showLock = !isCleartextPayloadType(payloadType);
@@ -580,7 +586,7 @@ export function RawPacketList({
             <p className="mt-1 text-xs">{t('rawPacket.emptyRadioOfflineHint')}</p>
           </>
         ) : (
-          t('rawPacket.empty')
+          emptyMessage ?? t('rawPacket.empty')
         )}
       </div>
     );

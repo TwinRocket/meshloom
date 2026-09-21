@@ -1,11 +1,21 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
+import eEn from '../i18n/locales/slices/e.en.json';
+import eFr from '../i18n/locales/slices/e.fr.json';
 import { RawPacketFeedView } from '../components/RawPacketFeedView';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
+import { api } from '../api';
 import {
+  getReplayPacketKeys,
+  getReplayPackets,
+  isReplayActive,
+  resetRawPacketReplayStore,
+} from '../stores/rawPacketReplayStore';
+import {
+  clearRawPackets,
   getRawPackets,
   recordRawPacket,
   resetRawPacketStore,
@@ -148,9 +158,19 @@ function renderView({
   );
 }
 
+function flattenKeys(obj: unknown, prefix = ''): string[] {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    return prefix ? [prefix] : [];
+  }
+  return Object.entries(obj as Record<string, unknown>).flatMap(([key, value]) =>
+    flattenKeys(value, prefix ? `${prefix}.${key}` : key)
+  );
+}
+
 describe('RawPacketFeedView', () => {
   beforeEach(() => {
     resetRawPacketStore();
+    resetRawPacketReplayStore();
     clearRawPacketDerivedCache();
     localStorage.removeItem('meshloom-raw-display-cap');
     vi.mocked(setVisualizerFocusHandoff).mockClear();
@@ -1011,6 +1031,156 @@ describe('RawPacketFeedView', () => {
       expect(exported).not.toContain('do-not-export');
       expect(exported).not.toContain('hidden');
       expect(exported).not.toContain('decrypted_info');
+    });
+  });
+
+  describe('history replay modal', () => {
+    function canonicalUnknown(value: string): boolean {
+      return value.replace(/[_-\s]/g, '').toLowerCase() === 'unknown';
+    }
+
+    function makePacket(id: number, data: string, overrides: Partial<RawPacket> = {}): RawPacket {
+      return {
+        id,
+        observation_id: id,
+        timestamp: 1_700_000_000 + id,
+        data,
+        decrypted: false,
+        payload_type: 'Unknown',
+        rssi: -60,
+        snr: 5,
+        decrypted_info: null,
+        ...overrides,
+      };
+    }
+
+    function mockHistory(total: number, items: RawPacket[]) {
+      return vi.spyOn(api, 'getPacketsHistory').mockResolvedValue({
+        items,
+        total,
+        truncated: false,
+        scanned: items.length || 1,
+      });
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('loads replay without mixing into the live store, then exit restores live', async () => {
+      const live = makePacket(1, 'aa11');
+      const historic = makePacket(88, 'bb22', { observation_id: undefined, rssi: null, snr: null });
+      const history = mockHistory(1, [historic]);
+      renderView({ packets: [live] });
+
+      expect(screen.getByText('AA11')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(i18n.t('rawPacket.historyTitle'))).toBeInTheDocument();
+      expect(within(dialog).getByText(i18n.t('rawPacket.historyPruneNote'))).toBeInTheDocument();
+      await screen.findByText(
+        i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() })
+      );
+
+      fireEvent.click(within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') }));
+
+      expect(await screen.findByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
+      expect(screen.getByText('BB22')).toBeInTheDocument();
+      expect(screen.queryByText('AA11')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: i18n.t('rawPacket.openVisualizer') })).toBeNull();
+
+      expect(getRawPackets()).toHaveLength(1);
+      expect(getRawPackets()[0].data).toBe('aa11');
+      expect(getReplayPackets()).toHaveLength(1);
+      expect(getReplayPacketKeys()).toEqual(['hist-88']);
+      expect(getReplayPackets()[0].rssi).toBeNull();
+      expect(getReplayPackets()[0].observation_id).toBeUndefined();
+      expect(history.mock.calls.every((call) => !('q' in (call[0] ?? {})))).toBe(true);
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyExitAria') }));
+      expect(screen.queryByText(i18n.t('rawPacket.historyBanner'))).not.toBeInTheDocument();
+      expect(screen.getByText('AA11')).toBeInTheDocument();
+      expect(screen.queryByText('BB22')).not.toBeInTheDocument();
+      expect(isReplayActive()).toBe(false);
+    });
+
+    it('does not drop replay when the live store is cleared on reconnect', async () => {
+      const historic = makePacket(9, 'cc33', { observation_id: undefined });
+      mockHistory(1, [historic]);
+      renderView({ packets: [makePacket(1, 'aa11')] });
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      const dialog = await screen.findByRole('dialog');
+      await screen.findByText(
+        i18n.t('rawPacket.historyPreview', { count: (1).toLocaleString() })
+      );
+      fireEvent.click(within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') }));
+      expect(await screen.findByText('CC33')).toBeInTheDocument();
+
+      act(() => clearRawPackets());
+
+      expect(getRawPackets()).toEqual([]);
+      expect(screen.getByText('CC33')).toBeInTheDocument();
+      expect(screen.getByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
+      expect(getReplayPacketKeys()).toEqual(['hist-9']);
+    });
+
+    it('does not send payload_type=Unknown when Unknown stays selected after unchecking another type', async () => {
+      const history = vi.spyOn(api, 'getPacketsHistory').mockImplementation(async (query) => {
+        if (query.payload_type && canonicalUnknown(query.payload_type)) {
+          throw new Error('422 payload_type=Unknown');
+        }
+        return {
+          items: [makePacket(3, 'dd44', { observation_id: undefined, payload_type: 'Ack' })],
+          total: 8,
+          truncated: false,
+          scanned: 1,
+        };
+      });
+      renderView();
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      const dialog = await screen.findByRole('dialog');
+      await screen.findByText(
+        i18n.t('rawPacket.historyPreview', { count: (8).toLocaleString() })
+      );
+
+      fireEvent.click(within(dialog).getByLabelText(i18n.t('rawPacket.type.advert')));
+      fireEvent.click(within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyConfirm') }));
+
+      expect(await screen.findByText(i18n.t('rawPacket.historyBanner'))).toBeInTheDocument();
+      expect(
+        history.mock.calls.every((call) => {
+          const payloadType = call[0]?.payload_type;
+          return payloadType === undefined || !canonicalUnknown(payloadType);
+        })
+      ).toBe(true);
+      expect(history.mock.calls.some((call) => call[0]?.payload_type === 'Unknown')).toBe(false);
+    });
+
+    it('warns when the time-window total exceeds the display cap', async () => {
+      mockHistory(1200, []);
+      renderView();
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      expect(
+        await screen.findByText(
+          i18n.t('rawPacket.historyCapWarning', {
+            count: (1200).toLocaleString(),
+            cap: 500,
+          })
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('keeps English and French rawPacket e-slice keys in parity', () => {
+      const enKeys = flattenKeys(eEn.rawPacket).sort();
+      const frKeys = flattenKeys(eFr.rawPacket).sort();
+      expect(enKeys).toEqual(frKeys);
+      expect(enKeys.filter((key) => key.startsWith('history'))).toEqual(
+        frKeys.filter((key) => key.startsWith('history'))
+      );
     });
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, History, Search, X } from 'lucide-react';
 import { MeshCoreDecoder } from '@michaelhart/meshcore-decoder';
 import {
   BarChart,
@@ -16,8 +16,24 @@ import {
 import { RawPacketList } from './RawPacketList';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { Button } from './ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 import { toast } from './ui/sonner';
-import type { Channel, Contact, Conversation, RawPacket } from '../types';
+import { api, isAbortError } from '../api';
+import type {
+  Channel,
+  Contact,
+  Conversation,
+  RawPacket,
+  RawPacketHistoryQuery,
+  RawPacketHistoryResponse,
+} from '../types';
 import {
   KNOWN_PAYLOAD_TYPES,
   PAYLOAD_TYPE_COLORS,
@@ -30,9 +46,18 @@ import {
   type RawPacketStatsSessionState,
   type RawPacketStatsWindow,
 } from '../utils/rawPacketStats';
-import { useRawPacketDerivedCache } from '../utils/rawPacketDerivedCache';
+import {
+  getRawPacketDerivedCacheKey,
+  useRawPacketDerivedCache,
+} from '../utils/rawPacketDerivedCache';
 import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
 import { labelPayloadType, labelRoute } from '../utils/rawPacketLabels';
+import {
+  clearReplayPackets,
+  loadReplayPackets,
+  useReplayActive,
+  useReplayPackets,
+} from '../stores/rawPacketReplayStore';
 import { useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
 import { setVisualizerFocusHandoff } from '../utils/visualizerFocusHandoff';
 import { getContactDisplayName } from '../utils/pubkey';
@@ -490,6 +515,421 @@ function DisplayCapPill({
   );
 }
 
+const HISTORY_PREVIEW_LIMIT = 1;
+const HISTORY_API_MAX_LIMIT = 5000;
+const HISTORY_PERIODS = ['1h', '24h', '7d', 'custom'] as const;
+type HistoryPeriod = (typeof HISTORY_PERIODS)[number];
+const HISTORY_PERIOD_SECONDS: Record<Exclude<HistoryPeriod, 'custom'>, number> = {
+  '1h': 3600,
+  '24h': 86_400,
+  '7d': 7 * 86_400,
+};
+
+function toUnixSeconds(localValue: string): number | undefined {
+  if (!localValue) return undefined;
+  const ms = new Date(localValue).getTime();
+  if (Number.isNaN(ms)) return undefined;
+  return Math.floor(ms / 1000);
+}
+
+function resolveHistoryBounds(
+  period: HistoryPeriod,
+  customSince: string,
+  customUntil: string
+): { since?: number; until?: number; invalid: boolean } {
+  if (period === 'custom') {
+    const since = toUnixSeconds(customSince);
+    const until = toUnixSeconds(customUntil);
+    return {
+      since,
+      until,
+      invalid: since !== undefined && until !== undefined && since > until,
+    };
+  }
+  const now = Math.floor(Date.now() / 1000);
+  return { since: now - HISTORY_PERIOD_SECONDS[period], until: now, invalid: false };
+}
+
+function matchesHistorySourceFilter(packet: RawPacket, raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed === '') return true;
+  const { query: hexQuery, invalid: hexInvalid } = normalizeHexQuery(trimmed);
+  if (!hexInvalid && hexQuery !== '' && packet.data.toLowerCase().includes(hexQuery)) {
+    return true;
+  }
+  const textQuery = trimmed.toLowerCase();
+  const haystacks = [
+    packet.decrypted_info?.sender,
+    packet.decrypted_info?.channel_name,
+    packet.decrypted_info?.channel_key,
+    packet.decrypted_info?.contact_key,
+    packet.packet_hash,
+  ];
+  return haystacks.some((value) => value != null && value.toLowerCase().includes(textQuery));
+}
+
+async function fetchHistoryPage(
+  query: RawPacketHistoryQuery,
+  signal?: AbortSignal
+): Promise<RawPacketHistoryResponse> {
+  return api.getPacketsHistory(query, signal);
+}
+
+/** Server PayloadType has no Unknown — never send payload_type=Unknown (422). */
+const HISTORY_API_PAYLOAD_TYPES = KNOWN_PAYLOAD_TYPES.filter((type) => type !== 'Unknown');
+const HISTORY_API_PAYLOAD_TYPE_SET = new Set<string>(HISTORY_API_PAYLOAD_TYPES);
+
+function canonicalHistoryPayloadType(name: string): string {
+  const compact = name.replace(/[_-\s]/g, '').toLowerCase();
+  for (const known of KNOWN_PAYLOAD_TYPES) {
+    if (known.replace(/[_-\s]/g, '').toLowerCase() === compact) {
+      return known;
+    }
+  }
+  return 'Unknown';
+}
+
+function packetMatchesHistoryTypes(packet: RawPacket, types: Set<string>): boolean {
+  return types.has(canonicalHistoryPayloadType(packet.payload_type));
+}
+
+function historyApiTypes(types: Set<string>): string[] {
+  return [...types].filter((type) => HISTORY_API_PAYLOAD_TYPE_SET.has(type));
+}
+
+async function loadHistoryPackets(
+  types: Set<string>,
+  bounds: { since?: number; until?: number },
+  limit: number,
+  signal?: AbortSignal
+): Promise<RawPacket[]> {
+  const capped = Math.min(Math.max(limit, 1), HISTORY_API_MAX_LIMIT);
+  const allTypes = types.size === KNOWN_PAYLOAD_TYPES.length;
+  const apiTypes = historyApiTypes(types);
+  const wantsUnknown = types.has('Unknown');
+
+  if (allTypes || types.size === 0) {
+    const page = await fetchHistoryPage(
+      { since: bounds.since, until: bounds.until, limit: capped },
+      signal
+    );
+    return page.items;
+  }
+
+  // Unknown is not a server enum. Scan the time window, then keep selected types
+  // (including unparseable / Unknown rows) on the client.
+  if (wantsUnknown) {
+    const page = await fetchHistoryPage(
+      { since: bounds.since, until: bounds.until, limit: capped },
+      signal
+    );
+    return page.items
+      .filter((packet) => packetMatchesHistoryTypes(packet, types))
+      .slice(0, capped);
+  }
+
+  const pages = await Promise.all(
+    apiTypes.map((payloadType) =>
+      fetchHistoryPage(
+        {
+          payload_type: payloadType,
+          since: bounds.since,
+          until: bounds.until,
+          limit: capped,
+        },
+        signal
+      )
+    )
+  );
+  const byId = new Map<number, RawPacket>();
+  for (const page of pages) {
+    for (const item of page.items) {
+      byId.set(item.id, item);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.timestamp - a.timestamp || b.id - a.id)
+    .slice(0, capped);
+}
+
+interface HistoryReplayModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  displayCap: DisplayCap;
+  onLoaded: () => void;
+}
+
+function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: HistoryReplayModalProps) {
+  const { t } = useTranslation();
+  const [enabledTypes, setEnabledTypes] = useState<Set<string>>(
+    () => new Set(KNOWN_PAYLOAD_TYPES)
+  );
+  const [period, setPeriod] = useState<HistoryPeriod>('24h');
+  const [customSince, setCustomSince] = useState('');
+  const [customUntil, setCustomUntil] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [preview, setPreview] = useState<RawPacketHistoryResponse | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const loadAbortRef = useRef<AbortController | null>(null);
+
+  const bounds = useMemo(
+    () => resolveHistoryBounds(period, customSince, customUntil),
+    [customSince, customUntil, period]
+  );
+  const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
+
+  useEffect(() => {
+    if (!open || bounds.invalid) {
+      return;
+    }
+    const controller = new AbortController();
+    setPreviewLoading(true);
+    setPreviewError(false);
+    void fetchHistoryPage(
+      {
+        since: bounds.since,
+        until: bounds.until,
+        limit: HISTORY_PREVIEW_LIMIT,
+      },
+      controller.signal
+    )
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        setPreview(page);
+        setPreviewLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        if (error instanceof Error && error.name === 'AbortError') return;
+        setPreview(null);
+        setPreviewError(true);
+        setPreviewLoading(false);
+      });
+    return () => controller.abort();
+  }, [bounds.invalid, bounds.since, bounds.until, open]);
+
+  const handleToggleAll = () => {
+    setEnabledTypes(allTypesEnabled ? new Set() : new Set(KNOWN_PAYLOAD_TYPES));
+  };
+
+  const handleToggleType = (type: string) => {
+    setEnabledTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      loadAbortRef.current?.abort();
+      loadAbortRef.current = null;
+    }
+    onOpenChange(next);
+  };
+
+  const handleConfirm = async () => {
+    if (bounds.invalid || enabledTypes.size === 0 || loading) {
+      return;
+    }
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    setLoading(true);
+    try {
+      const items = await loadHistoryPackets(enabledTypes, bounds, displayCap, controller.signal);
+      if (controller.signal.aborted) {
+        return;
+      }
+      const filtered = items.filter((packet) => matchesHistorySourceFilter(packet, sourceFilter));
+      loadReplayPackets(filtered);
+      onLoaded();
+      handleOpenChange(false);
+    } catch (error) {
+      if (controller.signal.aborted || isAbortError(error)) {
+        return;
+      }
+      toast.error(t('rawPacket.historyLoadError'));
+    } finally {
+      if (loadAbortRef.current === controller) {
+        loadAbortRef.current = null;
+      }
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{t('rawPacket.historyTitle')}</DialogTitle>
+          <DialogDescription>{t('rawPacket.historyDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          <fieldset className="space-y-2">
+            <legend className="text-[0.625rem] uppercase tracking-wider font-medium text-muted-foreground">
+              {t('rawPacket.historyTypes')}
+            </legend>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <label className="flex items-center gap-1 text-xs text-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allTypesEnabled}
+                  onChange={handleToggleAll}
+                  className="rounded"
+                />
+                {t('rawPacket.all')}
+              </label>
+              {KNOWN_PAYLOAD_TYPES.map((type) => (
+                <label
+                  key={type}
+                  className="flex items-center gap-1 text-xs text-foreground cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={enabledTypes.has(type)}
+                    onChange={() => handleToggleType(type)}
+                    className="rounded"
+                  />
+                  {labelPayloadType(type)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset className="space-y-2">
+            <legend className="text-[0.625rem] uppercase tracking-wider font-medium text-muted-foreground">
+              {t('rawPacket.historyPeriod')}
+            </legend>
+            <div className="flex flex-wrap gap-3">
+              {HISTORY_PERIODS.map((option) => (
+                <label
+                  key={option}
+                  className="flex items-center gap-1 text-xs text-foreground cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name="raw-history-period"
+                    checked={period === option}
+                    onChange={() => setPeriod(option)}
+                  />
+                  {t(
+                    option === '1h'
+                      ? 'rawPacket.historyPeriod1h'
+                      : option === '24h'
+                        ? 'rawPacket.historyPeriod24h'
+                        : option === '7d'
+                          ? 'rawPacket.historyPeriod7d'
+                          : 'rawPacket.historyPeriodCustom'
+                  )}
+                </label>
+              ))}
+            </div>
+            {period === 'custom' ? (
+              <div className="flex flex-wrap gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  <span>{t('rawPacket.historySince')}</span>
+                  <input
+                    type="datetime-local"
+                    value={customSince}
+                    onChange={(event) => setCustomSince(event.target.value)}
+                    className="block h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                  />
+                </label>
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  <span>{t('rawPacket.historyUntil')}</span>
+                  <input
+                    type="datetime-local"
+                    value={customUntil}
+                    onChange={(event) => setCustomUntil(event.target.value)}
+                    className="block h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                  />
+                </label>
+              </div>
+            ) : null}
+            {bounds.invalid ? (
+              <p className="text-xs text-warning">{t('rawPacket.historyInvalidRange')}</p>
+            ) : null}
+          </fieldset>
+
+          <label className="block space-y-1">
+            <span className="text-[0.625rem] uppercase tracking-wider font-medium text-muted-foreground">
+              {t('rawPacket.historySource')}
+            </span>
+            <input
+              type="text"
+              value={sourceFilter}
+              onChange={(event) => setSourceFilter(event.target.value)}
+              placeholder={t('rawPacket.historySourcePlaceholder')}
+              aria-label={t('rawPacket.historySourceAria')}
+              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            />
+            <span className="block text-[0.6875rem] text-muted-foreground">
+              {t('rawPacket.historySourceHint')}
+            </span>
+          </label>
+
+          <p className="text-[0.6875rem] text-muted-foreground">{t('rawPacket.historyPruneNote')}</p>
+
+          <div className="rounded-md border border-border/70 bg-card/70 p-3 text-xs">
+            {previewLoading ? (
+              <p className="text-muted-foreground">{t('rawPacket.historyPreviewLoading')}</p>
+            ) : previewError ? (
+              <p className="text-warning">{t('rawPacket.historyPreviewError')}</p>
+            ) : preview ? (
+              <>
+                <p>
+                  {t('rawPacket.historyPreview', {
+                    count: preview.total.toLocaleString(),
+                  })}
+                </p>
+                {preview.truncated ? (
+                  <p className="mt-1 text-warning">
+                    {t('rawPacket.historyPreviewTruncated', {
+                      scanned: preview.scanned.toLocaleString(),
+                    })}
+                  </p>
+                ) : null}
+                {preview.total > displayCap ? (
+                  <p className="mt-1 text-warning">
+                    {t('rawPacket.historyCapWarning', {
+                      count: preview.total.toLocaleString(),
+                      cap: displayCap,
+                    })}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            {t('rawPacket.historyCancel')}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              void handleConfirm();
+            }}
+            disabled={loading || bounds.invalid || enabledTypes.size === 0}
+          >
+            {t('rawPacket.historyConfirm')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface RawPacketFeedViewProps {
   /** Leaves this sub-screen for the Tools screen. Phones only. */
   onBackToTools?: () => void;
@@ -913,7 +1353,10 @@ export function RawPacketFeedView({
 }: RawPacketFeedViewProps) {
   const { t } = useTranslation();
   const livePackets = useRawPackets();
+  const replayActive = useReplayActive();
+  const replayPackets = useReplayPackets();
   const rawPacketStatsSession = useRawPacketStatsSession();
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
       ? window.matchMedia('(min-width: 768px)').matches
@@ -943,7 +1386,8 @@ export function RawPacketFeedView({
   const [hexFilter, setHexFilter] = useState('');
   const [textFilter, setTextFilter] = useState('');
 
-  const displaySource = paused && snapshotPackets ? snapshotPackets : livePackets;
+  const liveDisplaySource = paused && snapshotPackets ? snapshotPackets : livePackets;
+  const displaySource = replayActive ? replayPackets : liveDisplaySource;
 
   useEffect(() => {
     if (!paused || !snapshotPackets) {
@@ -958,10 +1402,11 @@ export function RawPacketFeedView({
     );
   }, [livePackets, paused, snapshotPackets]);
 
+  const derivedScope = replayActive ? 'replay' : 'live';
   const derivedEntries = useRawPacketDerivedCache(displaySource, {
     channels,
     communityNames: [],
-    scope: 'live',
+    scope: derivedScope,
   });
 
   const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
@@ -1136,7 +1581,7 @@ export function RawPacketFeedView({
   };
 
   const lookupDerived = (packet: RawPacket) =>
-    derivedByObservation.get(getRawPacketObservationKey(packet)) ?? {
+    derivedByObservation.get(getRawPacketDerivedCacheKey(packet, derivedScope)) ?? {
       payloadType: packet.payload_type,
       routeType: 'Unknown',
     };
@@ -1219,6 +1664,18 @@ export function RawPacketFeedView({
            labels come back as soon as the header has room for them. */
         actions={
           <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setHistoryModalOpen(true)}
+              aria-label={t('rawPacket.historyAria')}
+            >
+              <History className="h-4 w-4 sm:hidden" aria-hidden="true" />
+              <span className="hidden sm:inline" aria-hidden="true">
+                {t('rawPacket.history')}
+              </span>
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -1341,6 +1798,23 @@ export function RawPacketFeedView({
         {displayCap > 500 || capMenuHint ? (
           <p className="mt-1 text-[0.6875rem] text-warning">{t('rawPacket.displayCapPerf')}</p>
         ) : null}
+        {replayActive ? (
+          <div
+            role="status"
+            className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-foreground"
+          >
+            <span>{t('rawPacket.historyBanner')}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => clearReplayPackets()}
+              aria-label={t('rawPacket.historyExitAria')}
+            >
+              {t('rawPacket.historyExit')}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -1353,11 +1827,11 @@ export function RawPacketFeedView({
             onPacketClick={setSelectedPacket}
             onRepeatFilter={handleRepeatFilter}
             autoScroll={autoScroll}
-            radioOffline={radioOffline}
+            radioOffline={radioOffline && !replayActive}
             virtualize={displayCap > 500}
             onOpenContactInfo={onOpenContactInfo}
             onSelectConversation={onSelectConversation}
-            onOpenVisualizer={handleOpenVisualizer}
+            onOpenVisualizer={replayActive ? undefined : handleOpenVisualizer}
             onUnknownAdvert={handleUnknownAdvert}
             onUnresolvedHash={(hash) => {
               void handleUnresolvedHash(hash);
@@ -1369,7 +1843,9 @@ export function RawPacketFeedView({
             onCopyJson={(packet, includeCleartext) => {
               void handleCopyJson(packet, includeCleartext);
             }}
-            showVisualizerAction
+            showVisualizerAction={!replayActive}
+            derivedScope={derivedScope}
+            emptyMessage={replayActive ? t('rawPacket.historyEmpty') : undefined}
           />
         </div>
 
@@ -1562,6 +2038,13 @@ export function RawPacketFeedView({
         source={{ kind: 'paste' }}
         title={t('rawPacket.analyze')}
         description={t('rawPacket.analyzeDescription')}
+      />
+
+      <HistoryReplayModal
+        open={historyModalOpen}
+        onOpenChange={setHistoryModalOpen}
+        displayCap={displayCap}
+        onLoaded={() => setSelectedPacket(null)}
       />
     </>
   );
