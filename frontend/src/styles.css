@@ -251,6 +251,25 @@ body {
   display: none !important;
 }
 
+.rolling-count-reel {
+  animation: rolling-count-up 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes rolling-count-up {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rolling-count-reel {
+    animation: none;
+  }
+}
+
 /* Dark basemap. Only the tile pane is inverted: markers, paths and popups live in
    sibling panes and must keep the colours they encode meaning with. hue-rotate
    undoes the hue flip invert() causes, so water stays blue rather than orange. */
