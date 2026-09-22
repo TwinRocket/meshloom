@@ -1495,9 +1495,27 @@ class DirectoryReachNode(BaseModel):
     lon: float | None = None
 
 
+class DirectoryReachFirstHop(BaseModel):
+    """Flood repeater that heard the advertiser. No SNR: that sample is the last hop."""
+
+    hop_prefix: str
+    public_key: str
+    name: str
+    lat: float
+    lon: float
+    count: int = 0
+
+
+class DirectoryReachUnresolvedHop(BaseModel):
+    prefix: str
+    reason: Literal["ambiguous", "no_gps", "unmatched", "one_byte"]
+
+
 class DirectoryReachResponse(BaseModel):
     node: DirectoryReachNode | None = None
     observers: list[DirectoryReachObserver] = Field(default_factory=list)
+    first_hops: list[DirectoryReachFirstHop] = Field(default_factory=list)
+    unresolved_first_hops: list[DirectoryReachUnresolvedHop] = Field(default_factory=list)
     directory_enabled: bool = False
 
 

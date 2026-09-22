@@ -43,6 +43,15 @@ function sourceBadge(anchors: LocateAnchor[]): LocateSource | null {
   return 'mixte';
 }
 
+function directEarKeys(anchors: LocateAnchor[], extra: LocateAnchor[]): Set<string> {
+  const keys = new Set<string>();
+  for (const anchor of [...anchors, ...extra]) {
+    if (anchor.kind !== 'local_0hop' && anchor.kind !== 'corescope_0hop') continue;
+    if (anchor.public_key) keys.add(anchor.public_key.toLowerCase());
+  }
+  return keys;
+}
+
 export function mergeReachOverlay(
   result: LocateResponse,
   reach: DirectoryReachResponse | null
@@ -63,6 +72,32 @@ export function mergeReachOverlay(
       heard_count: observer.count || null,
       calibratable: false,
     });
+  }
+  const ears = directEarKeys(result.anchors, extra);
+  for (const hop of reach.first_hops ?? []) {
+    if (!isValidLocation(hop.lat, hop.lon)) continue;
+    const key = hop.public_key?.toLowerCase() || null;
+    if (key && ears.has(key)) continue;
+    extra.push({
+      kind: 'first_hop',
+      source: 'corescope',
+      name: hop.name || key?.slice(0, 12) || hop.hop_prefix,
+      public_key: key,
+      hop_prefix: hop.hop_prefix.toLowerCase(),
+      lat: hop.lat,
+      lon: hop.lon,
+      radius_km: result.default_radius_km,
+      heard_count: hop.count || null,
+      calibratable: Boolean(key),
+    });
+  }
+  const seenUnresolved = new Set(result.unresolved_hops.map((hop) => hop.prefix.toLowerCase()));
+  const unresolved = [...result.unresolved_hops];
+  for (const hop of reach.unresolved_first_hops ?? []) {
+    const prefix = hop.prefix.toLowerCase();
+    if (seenUnresolved.has(prefix)) continue;
+    seenUnresolved.add(prefix);
+    unresolved.push({ prefix, reason: hop.reason, candidates: [] });
   }
   let declaredGps: LocateDeclaredGps | null = result.declared_gps;
   if (declaredGps == null && reach.node && isValidLocation(reach.node.lat, reach.node.lon)) {
@@ -87,6 +122,7 @@ export function mergeReachOverlay(
     ...result,
     identity,
     anchors,
+    unresolved_hops: unresolved,
     declared_gps: declaredGps,
     source: sourceBadge(anchors),
     empty_reason: emptyReason,

@@ -554,6 +554,20 @@ export interface LocateResponse {
   empty_reason: LocateEmptyReason | null;
 }
 
+export interface DirectoryReachFirstHop {
+  hop_prefix: string;
+  public_key: string;
+  name: string;
+  lat: number;
+  lon: number;
+  count: number;
+}
+
+export interface DirectoryReachUnresolvedHop {
+  prefix: string;
+  reason: 'ambiguous' | 'no_gps' | 'unmatched' | 'one_byte';
+}
+
 export interface DirectoryReachResponse {
   node: {
     public_key: string;
@@ -570,6 +584,8 @@ export interface DirectoryReachResponse {
     lat?: number | null;
     lon?: number | null;
   }>;
+  first_hops?: DirectoryReachFirstHop[];
+  unresolved_first_hops?: DirectoryReachUnresolvedHop[];
   directory_enabled: boolean;
 }
 

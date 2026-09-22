@@ -566,6 +566,50 @@ class TestDirectoryReach:
         assert [obs.public_key for obs in parsed.observers] == ["bb" * 32]
         assert parsed.observers[0].avg_snr == 4.5
 
+    def test_parse_keeps_unique_first_hops_and_reasons(self):
+        parsed = parse_directory_reach(
+            {
+                "node": {"pubkey": "aa" * 32, "name": "Ghost"},
+                "direct_observers": [],
+                "first_hops": [
+                    {
+                        "hop_prefix": "ab12",
+                        "public_key": "ab12" + "11" * 30,
+                        "name": "Near",
+                        "lat": 45.1,
+                        "lon": 5.2,
+                        "count": 3,
+                    },
+                    {
+                        "prefix": "00",
+                        "public_key": "00" * 32,
+                        "name": "Zero",
+                        "lat": 0,
+                        "lon": 0,
+                        "count": 1,
+                    },
+                ],
+                "unresolved_first_hops": [
+                    {"prefix": "cd34", "reason": "ambiguous"},
+                    {"prefix": "aa", "reason": "one_byte"},
+                    {"prefix": "ee56", "reason": "no_gps"},
+                    {"prefix": "f00d", "reason": "unmatched"},
+                    {"prefix": "abcd", "reason": "mystery"},
+                ],
+            },
+            "aa" * 32,
+        )
+        assert [hop.hop_prefix for hop in parsed.first_hops] == ["ab12"]
+        assert parsed.first_hops[0].count == 3
+        assert parsed.first_hops[0].name == "Near"
+        reasons = {hop.prefix: hop.reason for hop in parsed.unresolved_first_hops}
+        assert reasons == {
+            "cd34": "ambiguous",
+            "aa": "one_byte",
+            "ee56": "no_gps",
+            "f00d": "unmatched",
+        }
+
     @pytest.mark.asyncio
     async def test_reach_community_off_is_empty_not_500(self, test_db):
         reset_directory_nodes_cache()

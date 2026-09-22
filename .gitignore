@@ -22,6 +22,8 @@ frontend/.eslintcache
 
 # Release artifacts
 meshloom-prebuilt-frontend-v*.zip
+*.img.xz
+*.deb
 
 # reference libraries
 references/

@@ -26,9 +26,11 @@ from app.models import (
     DirectoryNeighborsResponse,
     DirectoryNodeSearchHit,
     DirectoryNodeSearchResponse,
+    DirectoryReachFirstHop,
     DirectoryReachNode,
     DirectoryReachObserver,
     DirectoryReachResponse,
+    DirectoryReachUnresolvedHop,
     DirectoryResolveHopsResponse,
 )
 from app.repository import ContactRepository
@@ -594,8 +596,72 @@ def validate_directory_pubkey(pubkey: str) -> str:
     return key
 
 
+_UNRESOLVED_REASONS = frozenset({"ambiguous", "no_gps", "unmatched", "one_byte"})
+
+
+def _reach_first_hops(payload: dict[str, object]) -> list[DirectoryReachFirstHop]:
+    raw = payload.get("first_hops")
+    if not isinstance(raw, list):
+        return []
+    hops: list[DirectoryReachFirstHop] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = _normalize_pubkey(item.get("public_key") or item.get("pubkey"))
+        if not key or key in seen:
+            continue
+        lat = _as_float(item.get("lat"))
+        lon = _as_float(item.get("lon"))
+        if lat is None or lon is None or not _is_valid_map_location(lat, lon):
+            continue
+        prefix_raw = item.get("hop_prefix") or item.get("prefix")
+        prefix = (
+            prefix_raw.strip().lower()
+            if isinstance(prefix_raw, str) and _HEX_RE.fullmatch(prefix_raw.strip())
+            else ""
+        )
+        if len(prefix) not in ALLOWED_HOP_HEX_LENS:
+            continue
+        name = item.get("name")
+        count = item.get("count")
+        seen.add(key)
+        hops.append(
+            DirectoryReachFirstHop(
+                hop_prefix=prefix,
+                public_key=key,
+                name=name.strip() if isinstance(name, str) and name.strip() else key[:12],
+                lat=lat,
+                lon=lon,
+                count=count if isinstance(count, int) and count >= 0 else 0,
+            )
+        )
+    return hops
+
+
+def _reach_unresolved(payload: dict[str, object]) -> list[DirectoryReachUnresolvedHop]:
+    raw = payload.get("unresolved_first_hops")
+    if not isinstance(raw, list):
+        return []
+    out: list[DirectoryReachUnresolvedHop] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        prefix_raw = item.get("prefix") or item.get("hop_prefix")
+        if not isinstance(prefix_raw, str) or not _HEX_RE.fullmatch(prefix_raw.strip()):
+            continue
+        prefix = prefix_raw.strip().lower()
+        reason = item.get("reason")
+        if prefix in seen or reason not in _UNRESOLVED_REASONS:
+            continue
+        seen.add(prefix)
+        out.append(DirectoryReachUnresolvedHop(prefix=prefix, reason=reason))
+    return out
+
+
 def parse_directory_reach(payload: object, pubkey: str) -> DirectoryReachResponse:
-    """Keep documented reach fields: node GPS + 0-hop direct_observers."""
+    """Keep documented reach fields: node GPS, 0-hop ears, flood first hops."""
     if not isinstance(payload, dict):
         return DirectoryReachResponse(directory_enabled=True)
     node_payload = payload.get("node")
@@ -644,7 +710,13 @@ def parse_directory_reach(payload: object, pubkey: str) -> DirectoryReachRespons
                     lon=lon,
                 )
             )
-    return DirectoryReachResponse(node=node, observers=observers, directory_enabled=True)
+    return DirectoryReachResponse(
+        node=node,
+        observers=observers,
+        first_hops=_reach_first_hops(payload),
+        unresolved_first_hops=_reach_unresolved(payload),
+        directory_enabled=True,
+    )
 
 
 def parse_directory_neighbors(payload: object) -> DirectoryNeighborsResponse:
