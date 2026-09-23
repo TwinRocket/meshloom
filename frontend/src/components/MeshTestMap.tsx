@@ -6,19 +6,15 @@ import {
   Marker,
   Polyline,
   Popup,
-  TileLayer,
   Tooltip,
   useMap,
 } from 'react-leaflet';
 import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import {
-  OSM_RASTER_REFERRER_POLICY,
-  OSM_RASTER_TILE_ATTRIBUTION,
-  OSM_RASTER_TILE_URL,
-} from '../utils/mapTiles';
 import { nodeRoleStyle } from './live/liveRender';
+import { MAP_MAX_ZOOM, MAP_MIN_ZOOM, MapBasemapLayers, useMapBasemap } from './mapBasemap';
+import { cn } from '../lib/utils';
 import { meshTestPathPoints, type MeshTestObserver } from '../utils/meshTest';
 
 /**
@@ -33,8 +29,11 @@ import { meshTestPathPoints, type MeshTestObserver } from '../utils/meshTest';
 
 const ORIGIN_COLOR = '#3b82f6';
 const HOP_COLOR = '#f97316';
-const FAINT_PATH = { color: '#94a3b8', weight: 1.5, opacity: 0.28 };
-const SELECTED_PATH = { color: '#8b5cf6', weight: 3, opacity: 0.95 };
+const BACKING = '#000';
+const FAINT_PATH = { color: '#94a3b8', weight: 2, opacity: 0.55 };
+const SELECTED_PATH = { color: '#8b5cf6', weight: 3.5, opacity: 0.95 };
+const EAR_RADIUS = 9;
+const BACKING_PAD = 4;
 
 export interface MeshTestMapProps {
   origin: { lat: number; lon: number } | null;
@@ -81,20 +80,26 @@ function FitBounds({ points }: { points: [number, number][] }) {
   return null;
 }
 
-const MLC_ICON_SIZE = 18;
+const MLC_ICON_SIZE = 36;
 
 function mlcIcon(selected: boolean) {
-  const size = selected ? MLC_ICON_SIZE + 6 : MLC_ICON_SIZE;
+  const size = selected ? MLC_ICON_SIZE + 8 : MLC_ICON_SIZE;
+  const logo = size - 10;
   return divIcon({
     className: 'mesh-test-mlc-marker',
-    html: `<img src="./meshloom-mark.svg" alt="" style="width:${size}px;height:${size}px" />`,
+    html: `<img src="./meshloom-mark.svg" alt="" width="${logo}" height="${logo}" />`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
 }
 
+function backingOptions() {
+  return { color: BACKING, fillColor: BACKING, fillOpacity: 1, weight: 0 };
+}
+
 export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTestMapProps) {
   const { t } = useTranslation();
+  const basemap = useMapBasemap();
 
   const paths = useMemo(
     () =>
@@ -127,15 +132,17 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
       <MapContainer
         center={points[0]}
         zoom={6}
-        className="h-full w-full"
-        style={{ background: '#1a1a2e' }}
+        minZoom={MAP_MIN_ZOOM}
+        maxZoom={MAP_MAX_ZOOM}
+        className={cn('h-full w-full', basemap.inverted && 'basemap-inverted')}
+        style={{ background: basemap.activeLayer.background }}
       >
         <InvalidateOnResize />
         <FitBounds points={points} />
-        <TileLayer
-          attribution={OSM_RASTER_TILE_ATTRIBUTION}
-          url={OSM_RASTER_TILE_URL}
-          referrerPolicy={OSM_RASTER_REFERRER_POLICY}
+        <MapBasemapLayers
+          selectedLayerId={basemap.selectedLayerId}
+          onLayerChange={basemap.handleLayerChange}
+          layerName={basemap.layerName}
         />
 
         {paths.map(({ observer, points: pathPoints }) =>
@@ -151,8 +158,16 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
         {origin && (
           <CircleMarker
             center={[origin.lat, origin.lon]}
+            radius={12}
+            pathOptions={backingOptions()}
+            interactive={false}
+          />
+        )}
+        {origin && (
+          <CircleMarker
+            center={[origin.lat, origin.lon]}
             radius={8}
-            pathOptions={{ color: '#fff', fillColor: ORIGIN_COLOR, fillOpacity: 0.95, weight: 2 }}
+            pathOptions={{ color: '#fff', fillColor: ORIGIN_COLOR, fillOpacity: 1, weight: 2 }}
           >
             <Popup>
               <span className="text-sm">{t('meshTest.origin')}</span>
@@ -160,16 +175,25 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
           </CircleMarker>
         )}
 
-        {/* Numbered hops belong to the path being read, not to all of them at once:
-            eight overlapping "1"s say less than none. */}
+        {selectedPath?.points
+          .filter((point) => point.hopIndex !== null)
+          .map((point) => (
+            <CircleMarker
+              key={`hop-back-${selectedPath.observer.key}-${point.hopIndex}`}
+              center={[point.lat, point.lon]}
+              radius={11}
+              pathOptions={backingOptions()}
+              interactive={false}
+            />
+          ))}
         {selectedPath?.points
           .filter((point) => point.hopIndex !== null)
           .map((point) => (
             <CircleMarker
               key={`hop-${selectedPath.observer.key}-${point.hopIndex}`}
               center={[point.lat, point.lon]}
-              radius={7}
-              pathOptions={{ color: '#fff', fillColor: HOP_COLOR, fillOpacity: 0.92, weight: 1 }}
+              radius={8}
+              pathOptions={{ color: '#fff', fillColor: HOP_COLOR, fillOpacity: 1, weight: 2 }}
             >
               <Tooltip permanent direction="center" className="observer-reach-hop-label">
                 {String((point.hopIndex ?? 0) + 1)}
@@ -182,6 +206,20 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
               </Popup>
             </CircleMarker>
           ))}
+
+        {observers.map((observer) => {
+          if (observer.lat == null || observer.lon == null || observer.isMLC) return null;
+          const selected = observer.key === selectedKey;
+          return (
+            <CircleMarker
+              key={`back-${observer.key}`}
+              center={[observer.lat, observer.lon]}
+              radius={(selected ? EAR_RADIUS + 3 : EAR_RADIUS) + BACKING_PAD}
+              pathOptions={backingOptions()}
+              interactive={false}
+            />
+          );
+        })}
 
         {observers.map((observer) => {
           if (observer.lat == null || observer.lon == null) return null;
@@ -209,12 +247,12 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
             <CircleMarker
               key={observer.key}
               center={center}
-              radius={selected ? 9 : 6}
+              radius={selected ? EAR_RADIUS + 3 : EAR_RADIUS}
               pathOptions={{
-                color: selected ? '#fff' : '#000',
+                color: '#fff',
                 fillColor: style.color,
-                fillOpacity: 0.9,
-                weight: selected ? 2 : 1,
+                fillOpacity: 1,
+                weight: 2,
               }}
               eventHandlers={{ click: () => onSelect(observer.key) }}
             >

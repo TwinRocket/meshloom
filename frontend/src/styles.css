@@ -283,6 +283,17 @@ body {
   border: none;
 }
 
+/* The Meshloom mark is a light fibre on a transparent field. On the map it
+   disappears unless it sits on a solid black disc. */
+.leaflet-div-icon.mesh-test-mlc-marker {
+  background: #000;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* `#live` uses the same OSM raster as `#map`. Invert only MapLibre's own
    canvas so deck.gl lasers and role icons keep their encoded colours. */
 .live-map-osm .maplibregl-canvas-container > .maplibregl-canvas {
