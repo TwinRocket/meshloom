@@ -113,7 +113,7 @@ describe('MeshTestView', () => {
     };
     apiMocks.resolveDirectoryHops.mockResolvedValue({
       resolved: {
-        AA11: { name: 'Directory', source: 'corescope', lat: 43.7, lon: 7.26 },
+        AA11: { name: 'Directory', source: 'corescope', hash_width: 2, lat: 43.7, lon: 7.26 },
       },
     });
     apiMocks.getPacketObserverReach.mockResolvedValue({
