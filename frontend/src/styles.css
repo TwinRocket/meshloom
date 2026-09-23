@@ -283,15 +283,23 @@ body {
   border: none;
 }
 
-/* The Meshloom mark is a light fibre on a transparent field. On the map it
-   disappears unless it sits on a solid black disc. */
+/* The Meshloom mark is a light fibre. Only that marker gets a black disc;
+   role dots stay their own colour. */
 .leaflet-div-icon.mesh-test-mlc-marker {
-  background: #000;
-  border: 2px solid #fff;
-  border-radius: 50%;
+  background: transparent;
+  border: none;
+}
+
+.mesh-test-mlc-disc {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #000;
+  border: 2px solid #fff;
 }
 
 /* `#live` uses the same OSM raster as `#map`. Invert only MapLibre's own

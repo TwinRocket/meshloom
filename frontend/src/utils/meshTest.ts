@@ -139,14 +139,16 @@ export function meshTestDistanceKm(
 
 /** Reach GPS first, then the local advert for the same public key. */
 export function placedObserverCoordinates(
-  entry: Pick<ObserverReachEntry, 'lat' | 'lon' | 'public_key'>,
-  contacts: Pick<Contact, 'public_key' | 'lat' | 'lon'>[]
+  entry: Pick<ObserverReachEntry, 'lat' | 'lon' | 'public_key'> & { name?: string | null },
+  contacts: Array<Pick<Contact, 'public_key' | 'lat' | 'lon'> & { name?: string | null }>
 ): { lat: number | null; lon: number | null } {
   if (isValidLocation(entry.lat ?? null, entry.lon ?? null)) {
     return { lat: entry.lat ?? null, lon: entry.lon ?? null };
   }
   const local = contactCoordinates(entry.public_key, contacts);
-  return { lat: local?.lat ?? null, lon: local?.lon ?? null };
+  if (local) return { lat: local.lat, lon: local.lon };
+  const named = contactCoordinatesByName(entry.name, contacts);
+  return { lat: named?.lat ?? null, lon: named?.lon ?? null };
 }
 
 /** Local advert GPS when the reach row itself has none. */
@@ -159,6 +161,20 @@ export function contactCoordinates(
   const contact = contacts.find((item) => item.public_key.toLowerCase() === key);
   if (!contact || !isValidLocation(contact.lat, contact.lon)) return null;
   return { lat: contact.lat!, lon: contact.lon! };
+}
+
+/** One local advert with this exact name and a real position. */
+export function contactCoordinatesByName(
+  name: string | null | undefined,
+  contacts: Array<Pick<Contact, 'lat' | 'lon'> & { name?: string | null }>
+): { lat: number; lon: number } | null {
+  const label = name?.trim();
+  if (!label) return null;
+  const matches = contacts.filter(
+    (item) => item.name === label && isValidLocation(item.lat, item.lon)
+  );
+  if (matches.length !== 1) return null;
+  return { lat: matches[0].lat!, lon: matches[0].lon! };
 }
 
 /**

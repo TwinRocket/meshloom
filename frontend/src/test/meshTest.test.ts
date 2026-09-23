@@ -110,6 +110,27 @@ describe('placedObserverCoordinates', () => {
     ).toEqual({ lat: 43.7, lon: 7.26 });
   });
 
+  it('uses a uniquely named local advert when the reach row has no key', () => {
+    expect(
+      placedObserverCoordinates(
+        {
+          lat: null,
+          lon: null,
+          public_key: null,
+          name: 'FR06-EF06-Meshloom Heltec v3',
+        },
+        [
+          {
+            public_key: 'cd'.repeat(32),
+            name: 'FR06-EF06-Meshloom Heltec v3',
+            lat: 43.66,
+            lon: 7.15,
+          },
+        ]
+      )
+    ).toEqual({ lat: 43.66, lon: 7.15 });
+  });
+
   it('stays unplaced when neither source has a position', () => {
     expect(
       placedObserverCoordinates({ lat: null, lon: null, public_key: 'cd'.repeat(32) }, contacts)

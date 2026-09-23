@@ -27,6 +27,7 @@ import {
   meshTestSummary,
   observerRowKey,
   placedObserverCoordinates,
+  contactCoordinatesByName,
   readMeshTestRun,
   saveMeshTestRun,
   sortMeshTestObservers,
@@ -199,11 +200,12 @@ export function MeshTestView({
           path: (entry.path ?? []).map((prefix, hopIndex) => {
             const hop = toPathHop(prefix, contacts);
             const hit = directoryHits[hop.prefix];
-            const location = hopMapLocation(hop, hit);
+            const name = hopDisplayName(hop, hit);
+            const location = hopMapLocation(hop, hit) ?? contactCoordinatesByName(name, contacts);
             return {
               prefix: hop.prefix,
               hopIndex,
-              name: hopDisplayName(hop, hit),
+              name,
               lat: location?.lat ?? null,
               lon: location?.lon ?? null,
             };

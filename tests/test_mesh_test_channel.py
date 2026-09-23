@@ -442,6 +442,50 @@ class TestObserverRoleAndRssi:
         assert entries[0].lat == 43.7
         assert entries[0].lon == 7.26
 
+    @pytest.mark.asyncio
+    async def test_a_local_advert_places_an_ear_community_only_named(self, test_db):
+        from app.models import ContactUpsert, ObserverReachEntry
+        from app.repository import ContactRepository
+        from app.services.observer_reach import _fill_local_contact_coordinates
+
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key="cd" * 32,
+                name="FR06-EF06-Meshloom Heltec v3",
+                type=1,
+                lat=43.66,
+                lon=7.15,
+            )
+        )
+        filled = await _fill_local_contact_coordinates(
+            [ObserverReachEntry(name="FR06-EF06-Meshloom Heltec v3")]
+        )
+
+        assert filled[0].lat == 43.66
+        assert filled[0].lon == 7.15
+        assert filled[0].public_key == "cd" * 32
+
+    @pytest.mark.asyncio
+    async def test_two_adverts_with_the_same_name_are_not_guessed(self, test_db):
+        from app.models import ContactUpsert, ObserverReachEntry
+        from app.repository import ContactRepository
+        from app.services.observer_reach import _fill_local_contact_coordinates
+
+        for key, lat in (("aa", 43.1), ("bb", 43.2)):
+            await ContactRepository.upsert(
+                ContactUpsert(
+                    public_key=key * 32,
+                    name="Shared",
+                    type=1,
+                    lat=lat,
+                    lon=7.0,
+                )
+            )
+        filled = await _fill_local_contact_coordinates([ObserverReachEntry(name="Shared")])
+
+        assert filled[0].lat is None
+        assert filled[0].lon is None
+
 
 class TestRadioSyncIgnoresTestChannel:
     @pytest.mark.asyncio

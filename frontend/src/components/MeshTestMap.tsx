@@ -21,19 +21,16 @@ import { meshTestPathPoints, type MeshTestObserver } from '../utils/meshTest';
  * The reach of one test flood, drawn.
  *
  * Separate from MapView because it answers a different question: not where the
- * mesh is, but which of it heard one packet and by what route. Every line here
- * belongs to a path, and a path is only ever drawn between points that reported a
- * position — a hop that reported none leaves a longer straight segment rather than
- * a plausible-looking detour through somewhere it may never have been.
+ * mesh is, but which of it heard one packet. Hop lines stay hidden until one ear
+ * is chosen; then the others leave the map and only that route is drawn, between
+ * points that reported a position. A hop that reported none leaves a longer
+ * straight segment rather than a detour through somewhere it may never have been.
  */
 
 const ORIGIN_COLOR = '#3b82f6';
 const HOP_COLOR = '#f97316';
-const BACKING = '#000';
-const FAINT_PATH = { color: '#94a3b8', weight: 2, opacity: 0.55 };
 const SELECTED_PATH = { color: '#8b5cf6', weight: 3.5, opacity: 0.95 };
 const EAR_RADIUS = 9;
-const BACKING_PAD = 4;
 
 export interface MeshTestMapProps {
   origin: { lat: number; lon: number } | null;
@@ -84,17 +81,15 @@ const MLC_ICON_SIZE = 36;
 
 function mlcIcon(selected: boolean) {
   const size = selected ? MLC_ICON_SIZE + 8 : MLC_ICON_SIZE;
-  const logo = size - 10;
+  const logo = size - 12;
+  // The mark is a light fibre. Leaflet replaces the default div-icon class, so
+  // the black disc has to live in the HTML or the logo sits on the tiles.
   return divIcon({
-    className: 'mesh-test-mlc-marker',
-    html: `<img src="./meshloom-mark.svg" alt="" width="${logo}" height="${logo}" />`,
+    className: 'leaflet-div-icon mesh-test-mlc-marker',
+    html: `<span class="mesh-test-mlc-disc"><img src="./meshloom-mark.svg" alt="" width="${logo}" height="${logo}" /></span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
-
-function backingOptions() {
-  return { color: BACKING, fillColor: BACKING, fillOpacity: 1, weight: 0 };
 }
 
 export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTestMapProps) {
@@ -110,11 +105,16 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
     [observers, origin]
   );
 
+  const selectedPath = paths.find(({ observer }) => observer.key === selectedKey);
+  const visibleObservers = selectedPath ? [selectedPath.observer] : observers;
+
   const points: [number, number][] = [];
-  if (origin) points.push([origin.lat, origin.lon]);
-  for (const path of paths) {
-    for (const point of path.points) {
-      points.push([point.lat, point.lon]);
+  if (selectedPath) {
+    for (const point of selectedPath.points) points.push([point.lat, point.lon]);
+  } else {
+    if (origin) points.push([origin.lat, origin.lon]);
+    for (const observer of observers) {
+      if (observer.lat != null && observer.lon != null) points.push([observer.lat, observer.lon]);
     }
   }
   if (points.length === 0) {
@@ -124,8 +124,6 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
       </div>
     );
   }
-
-  const selectedPath = paths.find(({ observer }) => observer.key === selectedKey);
 
   return (
     <div className="h-full w-full" role="img" aria-label={t('meshTest.mapAria')}>
@@ -145,24 +143,15 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
           layerName={basemap.layerName}
         />
 
-        {paths.map(({ observer, points: pathPoints }) =>
-          pathPoints.length >= 2 ? (
-            <Polyline
-              key={`path-${observer.key}`}
-              positions={pathPoints.map((point) => [point.lat, point.lon] as [number, number])}
-              pathOptions={observer.key === selectedKey ? SELECTED_PATH : FAINT_PATH}
-            />
-          ) : null
-        )}
-
-        {origin && (
-          <CircleMarker
-            center={[origin.lat, origin.lon]}
-            radius={12}
-            pathOptions={backingOptions()}
-            interactive={false}
+        {selectedPath && selectedPath.points.length >= 2 ? (
+          <Polyline
+            positions={selectedPath.points.map(
+              (point) => [point.lat, point.lon] as [number, number]
+            )}
+            pathOptions={SELECTED_PATH}
           />
-        )}
+        ) : null}
+
         {origin && (
           <CircleMarker
             center={[origin.lat, origin.lon]}
@@ -175,17 +164,8 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
           </CircleMarker>
         )}
 
-        {selectedPath?.points
-          .filter((point) => point.hopIndex !== null)
-          .map((point) => (
-            <CircleMarker
-              key={`hop-back-${selectedPath.observer.key}-${point.hopIndex}`}
-              center={[point.lat, point.lon]}
-              radius={11}
-              pathOptions={backingOptions()}
-              interactive={false}
-            />
-          ))}
+        {/* Numbered hops belong to the path being read, not to all of them at once:
+            eight overlapping "1"s say less than none. */}
         {selectedPath?.points
           .filter((point) => point.hopIndex !== null)
           .map((point) => (
@@ -207,21 +187,7 @@ export function MeshTestMap({ origin, observers, selectedKey, onSelect }: MeshTe
             </CircleMarker>
           ))}
 
-        {observers.map((observer) => {
-          if (observer.lat == null || observer.lon == null || observer.isMLC) return null;
-          const selected = observer.key === selectedKey;
-          return (
-            <CircleMarker
-              key={`back-${observer.key}`}
-              center={[observer.lat, observer.lon]}
-              radius={(selected ? EAR_RADIUS + 3 : EAR_RADIUS) + BACKING_PAD}
-              pathOptions={backingOptions()}
-              interactive={false}
-            />
-          );
-        })}
-
-        {observers.map((observer) => {
+        {visibleObservers.map((observer) => {
           if (observer.lat == null || observer.lon == null) return null;
           const selected = observer.key === selectedKey;
           const center: [number, number] = [observer.lat, observer.lon];

@@ -702,6 +702,64 @@ async def get_packet_observer_reach(raw_hash: str) -> PacketObserverReachRespons
     )
 
 
+def _contact_coords(contact: object) -> tuple[float, float] | None:
+    lat = getattr(contact, "lat", None)
+    lon = getattr(contact, "lon", None)
+    if lat is None or lon is None:
+        return None
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return None
+    if not _is_valid_map_location(lat_f, lon_f):
+        return None
+    return lat_f, lon_f
+
+
+async def _fill_local_contact_coordinates(
+    entries: list[ObserverReachEntry],
+) -> list[ObserverReachEntry]:
+    """Use a local advert when Community named the ear but did not place it.
+
+    An observer often publishes only its name. The radio that heard that
+    advert already stored the GPS, under the same public key or the same name.
+    """
+    filled: list[ObserverReachEntry] = []
+    for entry in entries:
+        if (
+            entry.lat is not None
+            and entry.lon is not None
+            and _is_valid_map_location(entry.lat, entry.lon)
+        ):
+            filled.append(entry)
+            continue
+        contact = None
+        if entry.public_key:
+            contact = await ContactRepository.get_by_key(entry.public_key)
+        if _contact_coords(contact) is None and entry.name.strip():
+            named = [
+                item
+                for item in await ContactRepository.get_by_name(entry.name)
+                if _contact_coords(item) is not None
+            ]
+            contact = named[0] if len(named) == 1 else None
+        coords = _contact_coords(contact)
+        if coords is None or contact is None:
+            filled.append(entry)
+            continue
+        filled.append(
+            entry.model_copy(
+                update={
+                    "lat": coords[0],
+                    "lon": coords[1],
+                    "public_key": entry.public_key or contact.public_key,
+                }
+            )
+        )
+    return filled
+
+
 async def _finish_observer_reach(
     hash_lower: str,
     entries: list[ObserverReachEntry],
@@ -709,7 +767,7 @@ async def _finish_observer_reach(
     directory_enabled: bool,
     sealed: bool = False,
 ) -> PacketObserverReachResponse:
-    entries = drop_local_observer(entries)
+    entries = await _fill_local_contact_coordinates(drop_local_observer(entries))
     message = await MessageRepository.get_by_packet_hash(hash_lower)
     origin_coords = await resolve_origin_coords(message)
     max_hops = None

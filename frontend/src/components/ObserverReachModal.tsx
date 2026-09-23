@@ -12,6 +12,7 @@ import type {
   PacketObserverReachResponse,
 } from '../types';
 import { formatDistance, type DirectoryHopHit } from '../utils/pathUtils';
+import { contactCoordinatesByName } from '../utils/meshTest';
 import {
   hopDisplayName,
   hopMapLocation,
@@ -156,14 +157,16 @@ export function ObserverReachModal({
     const hops: ObserverReachMapHop[] = [];
     for (const [hopIndex, prefix] of observerPath(selected).entries()) {
       const hop = toPathHop(prefix, contacts);
-      const location = hopMapLocation(hop, directoryHits[hop.prefix]);
+      const hit = directoryHits[hop.prefix];
+      const name = hopDisplayName(hop, hit);
+      const location = hopMapLocation(hop, hit) ?? contactCoordinatesByName(name, contacts);
       if (!location) continue;
       hops.push({
         prefix: hop.prefix,
         hopIndex,
         lat: location.lat,
         lon: location.lon,
-        name: hopDisplayName(hop, directoryHits[hop.prefix]),
+        name,
       });
     }
     return hops;

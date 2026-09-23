@@ -46,7 +46,7 @@ vi.mock('react-leaflet', () => {
     ),
     Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     Tooltip: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Polyline: () => null,
+    Polyline: () => <div data-testid="hop-path" />,
     LayersControl: LayersControlMock,
     useMap: () => ({
       setView: vi.fn(),
@@ -108,7 +108,7 @@ describe('MeshTestMap', () => {
     expect(urls.some((url) => url?.includes('arcgisonline'))).toBe(true);
   });
 
-  it('draws a black disc behind a role dot and behind the Meshloom mark', () => {
+  it('puts the Meshloom mark on a black disc and leaves role dots their own colour', () => {
     render(
       <MeshTestMap
         origin={null}
@@ -120,9 +120,45 @@ describe('MeshTestMap', () => {
     const fills = [...document.querySelectorAll('[data-fill-color]')].map((el) =>
       el.getAttribute('data-fill-color')
     );
-    expect(fills).toContain('#000');
+    expect(fills).not.toContain('#000');
     const mark = screen.getByTestId('mlc-marker');
-    expect(mark.getAttribute('data-class')).toBe('mesh-test-mlc-marker');
+    expect(mark.getAttribute('data-class')).toContain('mesh-test-mlc-marker');
+    expect(mark.getAttribute('data-html')).toContain('mesh-test-mlc-disc');
     expect(mark.getAttribute('data-html')).toContain('meshloom-mark.svg');
+  });
+
+  it('draws a hop path only for the selected ear and hides the others', () => {
+    const lyon = observer({
+      key: 'lyon',
+      name: 'Lyon',
+      path: [{ prefix: 'AA11', hopIndex: 0, name: 'Relay', lat: 44.2, lon: 5.8 }],
+    });
+    const nice = observer({ key: 'nice', name: 'Nice', lat: 43.7, lon: 7.26 });
+    const origin = { lat: 43.55, lon: 7.02 };
+    const { rerender } = render(
+      <MeshTestMap
+        origin={origin}
+        observers={[lyon, nice]}
+        selectedKey={null}
+        onSelect={() => undefined}
+      />
+    );
+
+    expect(screen.getByText('Lyon')).toBeInTheDocument();
+    expect(screen.getByText('Nice')).toBeInTheDocument();
+    expect(screen.queryByTestId('hop-path')).not.toBeInTheDocument();
+
+    rerender(
+      <MeshTestMap
+        origin={origin}
+        observers={[lyon, nice]}
+        selectedKey="lyon"
+        onSelect={() => undefined}
+      />
+    );
+
+    expect(screen.getByText('Lyon')).toBeInTheDocument();
+    expect(screen.queryByText('Nice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hop-path')).toBeInTheDocument();
   });
 });
