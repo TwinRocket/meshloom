@@ -11,8 +11,13 @@ import { MeshTestRunDialog } from './MeshTestRunDialog';
 import { useDistanceUnit } from '../contexts/DistanceUnitContext';
 import { nodeRoleStyle, normalizeDirectoryRole } from './live/liveRender';
 import type { Contact, PacketObserverReachResponse } from '../types';
-import { formatDistance, resolveLocalHopDisplay, type DirectoryHopHit } from '../utils/pathUtils';
-import { hopDisplayName, hopMapLocation, toPathHop } from '../utils/observerHops';
+import { formatDistance, type DirectoryHopHit } from '../utils/pathUtils';
+import {
+  hopDisplayName,
+  hopMapLocation,
+  hopNeedsDirectoryGps,
+  toPathHop,
+} from '../utils/observerHops';
 import { observerReachPollIntervalMs } from '../utils/observerReach';
 import {
   clearMeshTestRun,
@@ -21,6 +26,7 @@ import {
   meshTestOrigin,
   meshTestSummary,
   observerRowKey,
+  placedObserverCoordinates,
   readMeshTestRun,
   saveMeshTestRun,
   sortMeshTestObservers,
@@ -151,7 +157,7 @@ export function MeshTestView({
     for (const observer of detail.observers) {
       for (const raw of observer.path ?? []) {
         const hop = toPathHop(raw, contacts);
-        if (resolveLocalHopDisplay(hop).kind === 'unknown') {
+        if (hopNeedsDirectoryGps(hop)) {
           prefixes.add(hop.prefix);
         }
       }
@@ -177,30 +183,33 @@ export function MeshTestView({
   const observers = useMemo<MeshTestObserver[]>(() => {
     const entries = detail?.observers ?? [];
     return sortMeshTestObservers(
-      entries.map((entry, index) => ({
-        key: observerRowKey(entry, index),
-        name: entry.name,
-        isMLC: entry.isMLC === true,
-        role: entry.role ?? null,
-        hops: entry.hops ?? null,
-        snr: entry.snr ?? null,
-        rssi: entry.rssi ?? null,
-        lat: entry.lat ?? null,
-        lon: entry.lon ?? null,
-        distanceKm: meshTestDistanceKm(origin, entry.lat, entry.lon),
-        path: (entry.path ?? []).map((prefix, hopIndex) => {
-          const hop = toPathHop(prefix, contacts);
-          const hit = directoryHits[hop.prefix];
-          const location = hopMapLocation(hop, hit);
-          return {
-            prefix: hop.prefix,
-            hopIndex,
-            name: hopDisplayName(hop, hit),
-            lat: location?.lat ?? null,
-            lon: location?.lon ?? null,
-          };
-        }),
-      }))
+      entries.map((entry, index) => {
+        const placed = placedObserverCoordinates(entry, contacts);
+        return {
+          key: observerRowKey(entry, index),
+          name: entry.name,
+          isMLC: entry.isMLC === true,
+          role: entry.role ?? null,
+          hops: entry.hops ?? null,
+          snr: entry.snr ?? null,
+          rssi: entry.rssi ?? null,
+          lat: placed.lat,
+          lon: placed.lon,
+          distanceKm: meshTestDistanceKm(origin, placed.lat, placed.lon),
+          path: (entry.path ?? []).map((prefix, hopIndex) => {
+            const hop = toPathHop(prefix, contacts);
+            const hit = directoryHits[hop.prefix];
+            const location = hopMapLocation(hop, hit);
+            return {
+              prefix: hop.prefix,
+              hopIndex,
+              name: hopDisplayName(hop, hit),
+              lat: location?.lat ?? null,
+              lon: location?.lon ?? null,
+            };
+          }),
+        };
+      })
     );
   }, [detail, contacts, directoryHits, origin]);
 

@@ -1,4 +1,4 @@
-import type { ObserverReachEntry } from '../types';
+import type { Contact, ObserverReachEntry } from '../types';
 import { stripRegionScopePrefix } from './regionScope';
 import { calculateDistance, isValidLocation } from './pathUtils';
 import { observerReachPollIntervalMs } from './observerReach';
@@ -135,6 +135,30 @@ export function meshTestDistanceKm(
 ): number | null {
   if (!origin || !isValidLocation(lat ?? null, lon ?? null)) return null;
   return calculateDistance(origin.lat, origin.lon, lat ?? null, lon ?? null);
+}
+
+/** Reach GPS first, then the local advert for the same public key. */
+export function placedObserverCoordinates(
+  entry: Pick<ObserverReachEntry, 'lat' | 'lon' | 'public_key'>,
+  contacts: Pick<Contact, 'public_key' | 'lat' | 'lon'>[]
+): { lat: number | null; lon: number | null } {
+  if (isValidLocation(entry.lat ?? null, entry.lon ?? null)) {
+    return { lat: entry.lat ?? null, lon: entry.lon ?? null };
+  }
+  const local = contactCoordinates(entry.public_key, contacts);
+  return { lat: local?.lat ?? null, lon: local?.lon ?? null };
+}
+
+/** Local advert GPS when the reach row itself has none. */
+export function contactCoordinates(
+  publicKey: string | null | undefined,
+  contacts: Pick<Contact, 'public_key' | 'lat' | 'lon'>[]
+): { lat: number; lon: number } | null {
+  if (!publicKey) return null;
+  const key = publicKey.toLowerCase();
+  const contact = contacts.find((item) => item.public_key.toLowerCase() === key);
+  if (!contact || !isValidLocation(contact.lat, contact.lon)) return null;
+  return { lat: contact.lat!, lon: contact.lon! };
 }
 
 /**

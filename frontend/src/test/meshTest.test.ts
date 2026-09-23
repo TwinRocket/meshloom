@@ -8,6 +8,7 @@ import {
 import {
   meshTestListenState,
   meshTestPathPoints,
+  placedObserverCoordinates,
   preselectedFloodScope,
   sortMeshTestObservers,
   type MeshTestObserver,
@@ -91,6 +92,33 @@ describe('preselectedFloodScope', () => {
   });
 });
 
+describe('placedObserverCoordinates', () => {
+  const contacts = [{ public_key: 'ab'.repeat(32), lat: 43.7, lon: 7.26 }];
+
+  it('keeps the reach coordinates', () => {
+    expect(
+      placedObserverCoordinates(
+        { lat: 45.75, lon: 4.85, public_key: contacts[0].public_key },
+        contacts
+      )
+    ).toEqual({ lat: 45.75, lon: 4.85 });
+  });
+
+  it('uses the local advert when the reach row has no GPS', () => {
+    expect(
+      placedObserverCoordinates({ lat: null, lon: null, public_key: 'AB'.repeat(32) }, contacts)
+    ).toEqual({ lat: 43.7, lon: 7.26 });
+  });
+
+  it('stays unplaced when neither source has a position', () => {
+    expect(
+      placedObserverCoordinates({ lat: null, lon: null, public_key: 'cd'.repeat(32) }, contacts)
+    ).toEqual({
+      lat: null,
+      lon: null,
+    });
+  });
+});
 describe('last viewed radio test', () => {
   it('does not restore a saved radio-test conversation', () => {
     saveLastViewedConversation({ type: 'test', id: 'test', name: 'Radio test' });

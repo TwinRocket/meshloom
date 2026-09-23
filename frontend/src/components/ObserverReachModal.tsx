@@ -11,8 +11,13 @@ import type {
   ObserverReachMapHop,
   PacketObserverReachResponse,
 } from '../types';
-import { formatDistance, resolveLocalHopDisplay, type DirectoryHopHit } from '../utils/pathUtils';
-import { hopDisplayName, hopMapLocation, toPathHop } from '../utils/observerHops';
+import { formatDistance, type DirectoryHopHit } from '../utils/pathUtils';
+import {
+  hopDisplayName,
+  hopMapLocation,
+  hopNeedsDirectoryGps,
+  toPathHop,
+} from '../utils/observerHops';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -111,7 +116,7 @@ export function ObserverReachModal({
     for (const observer of detail.observers) {
       for (const raw of observerPath(observer)) {
         const hop = toPathHop(raw, contacts);
-        if (resolveLocalHopDisplay(hop).kind === 'unknown') {
+        if (hopNeedsDirectoryGps(hop)) {
           prefixes.add(hop.prefix);
         }
       }

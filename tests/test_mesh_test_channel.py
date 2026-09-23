@@ -24,7 +24,11 @@ from app.routers.packets import get_undecrypted_group_text_samples
 from app.routers.tools import MESH_TEST_RADIO_SLOT, MeshTestRequest, send_mesh_test
 from app.services.hashtag_catalogue import _apply_matched_name, _unknown_samples
 from app.services.meshloom_community import update_community
-from app.services.observer_reach import _dedup_entries, parse_packet_observations
+from app.services.observer_reach import (
+    _dedup_entries,
+    parse_directory_observers,
+    parse_packet_observations,
+)
 from app.services.test_channel import (
     TEST_CHANNEL_HASH_BYTE,
     TEST_CHANNEL_KEY,
@@ -372,6 +376,71 @@ class TestObserverRoleAndRssi:
 
         assert entries[0].role is None
         assert entries[0].rssi is None
+
+    def test_observation_coordinates_are_kept_when_the_catalogue_misses_the_id(self):
+        observations = parse_packet_observations(
+            {
+                "observations": [
+                    {
+                        "observer_id": "cs:nice",
+                        "name": "Nice",
+                        "public_key": "ab" * 32,
+                        "lat": 43.7,
+                        "lon": 7.26,
+                        "role": "repeater",
+                    }
+                ]
+            }
+        )
+
+        entries = _dedup_entries(observations, {})
+
+        assert entries[0].lat == 43.7
+        assert entries[0].lon == 7.26
+
+    def test_catalogue_gps_matches_by_public_key_when_ids_differ(self):
+        observations = parse_packet_observations(
+            {"observations": [{"observer_id": "cs:nice", "public_key": "ab" * 32, "name": "Nice"}]}
+        )
+        geos = parse_directory_observers(
+            {
+                "observers": [
+                    {
+                        "id": "other-id",
+                        "public_key": "AB" * 32,
+                        "lat": 43.7,
+                        "lon": 7.26,
+                    }
+                ]
+            }
+        )
+
+        entries = _dedup_entries(observations, geos)
+
+        assert entries[0].lat == 43.7
+        assert entries[0].lon == 7.26
+
+    def test_null_island_on_the_observation_does_not_block_catalogue_gps(self):
+        observations = parse_packet_observations(
+            {
+                "observations": [
+                    {
+                        "observer_id": "obs-1",
+                        "lat": 0,
+                        "lon": 0,
+                        "public_key": "ab" * 32,
+                    }
+                ]
+            }
+        )
+        geos = parse_directory_observers(
+            {"observers": [{"id": "obs-1", "lat": 43.7, "lon": 7.26, "public_key": "ab" * 32}]}
+        )
+
+        entries = _dedup_entries(observations, geos)
+
+        assert entries[0].lat == 43.7
+        assert entries[0].lon == 7.26
 
 
 class TestRadioSyncIgnoresTestChannel:

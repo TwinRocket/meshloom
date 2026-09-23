@@ -73,6 +73,8 @@ class ParsedObservation:
     snr: float | None
     rssi: float | None = None
     role: str | None = None
+    lat: float | None = None
+    lon: float | None = None
     path: tuple[str, ...] = ()
     is_mlc: bool = False
 
@@ -312,6 +314,10 @@ def _parse_one_observation(item: dict[str, object]) -> ParsedObservation:
         hops = len(path)
     role_raw = item.get("role")
     role = role_raw.strip() if isinstance(role_raw, str) and role_raw.strip() else None
+    lat = _as_float(item.get("lat"))
+    lon = _as_float(item.get("lon"))
+    if lat is None or lon is None or not _is_valid_map_location(lat, lon):
+        lat, lon = None, None
     return ParsedObservation(
         observer_id=observer_id,
         observer_name=name,
@@ -320,6 +326,8 @@ def _parse_one_observation(item: dict[str, object]) -> ParsedObservation:
         snr=_as_float(item.get("snr")),
         rssi=_as_float(item.get("rssi")),
         role=role,
+        lat=lat,
+        lon=lon,
         path=path,
         is_mlc=item.get("isMLC") is True,
     )
@@ -395,13 +403,51 @@ async def resolve_origin_coords(message: Message | None) -> tuple[float, float] 
     return None
 
 
+def _geos_by_pubkey(geos: dict[str, ObserverGeo]) -> dict[str, ObserverGeo]:
+    by_pubkey: dict[str, ObserverGeo] = {}
+    for geo in geos.values():
+        if geo.public_key:
+            by_pubkey.setdefault(geo.public_key, geo)
+    return by_pubkey
+
+
+def _observation_geo(
+    obs: ParsedObservation,
+    geos: dict[str, ObserverGeo],
+    by_pubkey: dict[str, ObserverGeo],
+) -> ObserverGeo | None:
+    geo = geos.get(obs.observer_id)
+    if geo is None and obs.public_key:
+        geo = by_pubkey.get(obs.public_key)
+    return geo
+
+
+def _observation_coords(
+    obs: ParsedObservation, geo: ObserverGeo | None
+) -> tuple[float | None, float | None]:
+    """Prefer the GPS carried on the observation itself.
+
+    Stats attaches the mesh node's coordinates to each ear. The observers
+    catalogue is only a fallback, and its id often does not match
+    ``observer_id``, which used to drop a position that was already on the row.
+    """
+    if obs.lat is not None and obs.lon is not None and _is_valid_map_location(obs.lat, obs.lon):
+        return obs.lat, obs.lon
+    if geo is None or geo.lat is None or geo.lon is None:
+        return None, None
+    if not _is_valid_map_location(geo.lat, geo.lon):
+        return None, None
+    return geo.lat, geo.lon
+
+
 def _dedup_entries(
     observations: list[ParsedObservation],
     geos: dict[str, ObserverGeo],
 ) -> list[ObserverReachEntry]:
     by_key: dict[str, ObserverReachEntry] = {}
+    by_pubkey = _geos_by_pubkey(geos)
     for obs in observations:
-        geo = geos.get(obs.observer_id)
+        geo = _observation_geo(obs, geos, by_pubkey)
         public_key = obs.public_key or (geo.public_key if geo else None)
         dedup_key = public_key or obs.observer_id or obs.observer_name or ""
         if not dedup_key:
@@ -412,8 +458,7 @@ def _dedup_entries(
             or (public_key[:12] if public_key else obs.observer_id)
             or "observer"
         )
-        lat = geo.lat if geo else None
-        lon = geo.lon if geo else None
+        lat, lon = _observation_coords(obs, geo)
         existing = by_key.get(dedup_key)
         if existing is None:
             by_key[dedup_key] = ObserverReachEntry(

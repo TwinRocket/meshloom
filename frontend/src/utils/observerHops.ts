@@ -1,6 +1,5 @@
 import type { Contact } from '../types';
 import {
-  directoryHopLocation,
   findContactsByPrefix,
   isValidLocation,
   resolveHopDisplay,
@@ -26,6 +25,13 @@ export function toPathHop(prefix: string, contacts: Contact[]): PathHop {
   };
 }
 
+/** A hop still needs the directory when the radio has no usable coordinates for it. */
+export function hopNeedsDirectoryGps(hop: PathHop): boolean {
+  const local = resolveLocalHopDisplay(hop);
+  if (local.kind === 'unknown') return true;
+  return local.kind === 'known' && !isValidLocation(local.contact.lat, local.contact.lon);
+}
+
 export function hopMapLocation(
   hop: PathHop,
   directory?: DirectoryHopHit | null
@@ -38,7 +44,17 @@ export function hopMapLocation(
       name: local.contact.name || hop.prefix,
     };
   }
-  return directoryHopLocation(hop, directory);
+  // A named local repeater with no advert GPS must not hide a directory fix.
+  // 1-byte prefixes and ambiguous matches stay unplaced: there is nothing honest to draw.
+  if (local.kind === 'hex-only' || local.kind === 'ambiguous') {
+    return null;
+  }
+  if (!directory || !isValidLocation(directory.lat ?? null, directory.lon ?? null)) {
+    return null;
+  }
+  const name =
+    local.kind === 'known' ? local.contact.name || hop.prefix : directory.name || hop.prefix;
+  return { lat: directory.lat!, lon: directory.lon!, name };
 }
 
 export function hopDisplayName(hop: PathHop, directory?: DirectoryHopHit | null): string | null {
