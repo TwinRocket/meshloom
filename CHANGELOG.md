@@ -1,3 +1,25 @@
+## [4.16.0] - 2026-09-23
+
+Meshloom can run a radio test through Community and read the result on a map. Locate can show a coverage disk when Community knows a first repeater.
+
+### What's new
+
+- **A radio test with a map.** Tools → Test radio sends one flood, then shows who heard it and how the signal travelled. Meshloom ears wear the logo; other stations are coloured by role, as on the live map, and the margin lists them.
+- **Coverage on Locate.** When Community knows a first repeater, Locate adds a coverage disk.
+
+---
+
+### Français
+
+Meshloom peut lancer un test radio via Community et lire le résultat sur une carte. La localisation affiche aussi un disque de couverture quand Community connaît un premier répéteur.
+
+#### Quoi de neuf
+
+- **Un test radio avec carte.** Outils → Test radio : un flood, puis une carte de qui l’a entendu et du chemin du signal. Les oreilles Meshloom portent le logo ; les autres sont colorés selon leur rôle, comme sur Live. On les retrouve dans la marge.
+- **Couverture à la localisation.** Quand Community connaît un premier répéteur, Localiser ajoute un disque de couverture.
+
+---
+
 ## [4.15.0] - 2026-09-21
 
 Meshloom shows more clearly what the radio is hearing. The traffic screen is easier to follow, the network has a notebook for its backstage, and after you send a message you can see how many stations heard it. The radio battery is back on screen.
