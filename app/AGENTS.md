@@ -318,7 +318,7 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 
 ### Packets
 - `GET /packets/undecrypted/count`
-- `GET /packets/undecrypted/group-text-samples` — bounded newest-first sample of stored undecrypted GroupText for the channel finder
+- `GET /packets/undecrypted/group-text-samples` — bounded newest-first sample of stored undecrypted GroupText for the channel finder (MAC-verified `#meshloom-testing` packets are filtered out)
 - `POST /packets/region-backfill` — re-resolve region scope for stored channel messages that still have a retained raw packet (region is otherwise only tagged at ingest); returns `{scanned, scoped, named}`
 - `GET /packets/{packet_id}` — fetch one stored raw packet by row ID for on-demand inspection
 - `POST /packets/decrypt/historical`
@@ -354,6 +354,9 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 
 ### Statistics
 - `GET /statistics` — aggregated mesh network stats (entity counts, message/packet splits, activity windows, busiest channels, `region_scope_24h` regional adoption)
+
+### Tools
+- `POST /tools/mesh-test` — send one region-scoped GroupText on the built-in `#meshloom-testing` channel and return `{packet_hash, sent_at, flood_scope, origin_lat, origin_lon}` for observer-reach lookup. 404 when Community is off, 400 when `flood_scope` is not in `known_regions`. Writes no Channel row, no Message row, and no send-slot cache entry; the borrowed radio slot is rewritten empty after the send
 
 ### Locate
 - `GET /locate?q=` — unique identity then conservative 0-hop coverage disks (`local` / `corescope` / `mixte`). 409 if ambiguous. Never writes inferred lat/lon.

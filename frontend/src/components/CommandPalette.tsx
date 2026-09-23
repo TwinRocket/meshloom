@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Network,
   Radio,
+  RadioTower,
   Route,
   ScrollText,
   Search,
@@ -43,6 +44,8 @@ interface CommandPaletteProps {
   onSelectConversation: (conv: Conversation) => void;
   onOpenSettings: (section: SettingsSection) => void;
   onRepeaterAutoLogin: (publicKey: string, displayName: string) => void;
+  /** Community off: the tools that need its directory are not offered here either. */
+  directoryEnabled?: boolean;
 }
 
 interface Searchable {
@@ -72,7 +75,8 @@ interface ToolItem extends Searchable {
     | 'search'
     | 'trace'
     | 'locate'
-    | 'discovered';
+    | 'discovered'
+    | 'test';
 }
 
 interface SettingItem extends Searchable {
@@ -91,7 +95,11 @@ const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'trace', icon: Route, type: 'trace' },
   { id: 'locate', icon: Crosshair, type: 'locate' },
   { id: 'discovered', icon: Hash, type: 'discovered' },
+  { id: 'test', icon: RadioTower, type: 'test' },
 ];
+
+/** Entries the palette drops when Community is off, since the page is not there. */
+const DIRECTORY_ONLY_TOOLS: readonly string[] = ['test'];
 
 const TOOL_NAME_KEYS: Record<string, string> = {
   raw: 'commandPalette.rawPacketFeed',
@@ -103,10 +111,12 @@ const TOOL_NAME_KEYS: Record<string, string> = {
   trace: 'commandPalette.routeTrace',
   locate: 'locate.title',
   discovered: 'sidebar.discoveredChannels',
+  test: 'sidebar.meshTest',
 };
 
 const TOOL_SEARCH_EXTRA: Record<string, string> = {
   locate: 'rf locate zone community',
+  test: 'test radio flood reach portee',
 };
 
 function fuzzyMatch(text: string, query: string): boolean {
@@ -137,6 +147,7 @@ export function CommandPalette({
   onSelectConversation,
   onOpenSettings,
   onRepeaterAutoLogin,
+  directoryEnabled = false,
 }: CommandPaletteProps) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -144,18 +155,20 @@ export function CommandPalette({
 
   const toolItems = useMemo<ToolItem[]>(
     () =>
-      TOOL_DEFS.map((tool) => {
-        const nameKey = TOOL_NAME_KEYS[tool.id];
-        const name = t(nameKey);
-        const extra = TOOL_SEARCH_EXTRA[tool.id] ?? '';
-        return {
-          ...tool,
-          name,
-          searchText:
-            `${name} ${i18n.t(nameKey, { lng: 'en' })} ${i18n.t(nameKey, { lng: 'fr' })} ${extra}`.toLowerCase(),
-        };
-      }),
-    [t, i18n]
+      TOOL_DEFS.filter((tool) => directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(tool.id)).map(
+        (tool) => {
+          const nameKey = TOOL_NAME_KEYS[tool.id];
+          const name = t(nameKey);
+          const extra = TOOL_SEARCH_EXTRA[tool.id] ?? '';
+          return {
+            ...tool,
+            name,
+            searchText:
+              `${name} ${i18n.t(nameKey, { lng: 'en' })} ${i18n.t(nameKey, { lng: 'fr' })} ${extra}`.toLowerCase(),
+          };
+        }
+      ),
+    [t, i18n, directoryEnabled]
   );
 
   const settingItems = useMemo<SettingItem[]>(

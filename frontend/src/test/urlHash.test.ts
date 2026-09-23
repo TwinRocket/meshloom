@@ -51,6 +51,12 @@ describe('parseHashConversation', () => {
     expect(parseHashConversation()).toEqual({ type: 'discovered', name: 'discovered' });
   });
 
+  it('parses #test as the radio test', () => {
+    window.location.hash = '#test';
+
+    expect(parseHashConversation()).toEqual({ type: 'test', name: 'test' });
+  });
+
   it('parses #raw as raw type', () => {
     window.location.hash = '#raw';
 
@@ -422,6 +428,10 @@ describe('getConversationHash', () => {
     expect(
       getConversationHash({ type: 'discovered', id: 'discovered', name: 'Discovered channels' })
     ).toBe('#discovered');
+  });
+
+  it('encodes the radio test', () => {
+    expect(getConversationHash({ type: 'test', id: 'test', name: 'Radio test' })).toBe('#test');
   });
 
   it('encodes locate conversations', () => {

@@ -32,6 +32,7 @@ import type {
   RawPacketHistoryQuery,
   RawPacketHistoryResponse,
   MaintenanceResult,
+  MeshTestResponse,
   Message,
   MessagesAroundResponse,
   RawPacket,
@@ -562,6 +563,11 @@ export const api = {
     fetchJson<PacketObserverReachResponse>(
       `/directory/packets/${encodeURIComponent(packetHash)}/reach`
     ),
+  runMeshTest: (floodScope: string) =>
+    fetchJson<MeshTestResponse>('/tools/mesh-test', {
+      method: 'POST',
+      body: JSON.stringify({ flood_scope: floodScope }),
+    }),
   getPacketObserverReachCounts: (hashes: string[]) =>
     fetchJson<PacketObserverReachCountsResponse>('/directory/packets/reach-counts', {
       method: 'POST',

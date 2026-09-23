@@ -480,7 +480,8 @@ type ConversationType =
   | 'search'
   | 'trace'
   | 'locate'
-  | 'discovered';
+  | 'discovered'
+  | 'test';
 
 export interface Conversation {
   type: ConversationType;
@@ -1332,6 +1333,9 @@ export interface ObserverReachEntry {
   lon?: number | null;
   hops?: number | null;
   snr?: number | null;
+  /** Often absent. Null or empty means the role is unknown, not that there is none. */
+  role?: string | null;
+  rssi?: number | null;
   path?: string[];
   isMLC?: boolean;
 }
@@ -1355,6 +1359,22 @@ export interface PacketObserverReachResponse {
   origin_lat?: number | null;
   origin_lon?: number | null;
   sealed?: boolean;
+}
+
+/**
+ * A radio test flood the node just sent, so its reach can be listened for.
+ *
+ * The sent text is the server's business — this only carries what is needed to
+ * follow the packet afterwards. `origin_*` is the node's own position at send
+ * time; the reach endpoint has no Message row for this packet and so returns
+ * neither an origin nor a distance of its own.
+ */
+export interface MeshTestResponse {
+  packet_hash: string;
+  sent_at: number;
+  flood_scope: string;
+  origin_lat: number | null;
+  origin_lon: number | null;
 }
 
 export interface PacketObserverReachCountsResponse {

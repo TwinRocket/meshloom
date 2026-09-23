@@ -258,7 +258,11 @@ export function AppShell({
     'locate',
     'search',
     'discovered',
+    'test',
   ];
+  // Community's directory is what the radio test listens through, so the entries
+  // that lead to it are only navigation while it is configured.
+  const directoryEnabled = conversationPaneProps.directoryEnabled === true;
   const bottomNavTarget: BottomNavTarget | null = showSettings
     ? 'settings'
     : activeType === 'map'
@@ -365,6 +369,7 @@ export function AppShell({
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
       updateAvailable={updateAvailable}
       activeConversation={conversationPaneProps.activeConversation}
+      directoryEnabled={directoryEnabled}
     />
   ) : (
     <ConversationListView
@@ -442,6 +447,7 @@ export function AppShell({
           // Settings render over whatever was open, so the pane underneath must not
           // keep the rail lit: two places cannot both be where you are.
           activeToolId={showSettings ? null : (activeType ?? null)}
+          directoryEnabled={directoryEnabled}
           onOpenRadioStatus={() => setRadioStatusOpen(true)}
           onSelectTool={(id) => {
             const item = RAIL_ITEMS.find((candidate) => candidate.id === id);
@@ -502,6 +508,7 @@ export function AppShell({
               communityEnabled={communityStatus?.enabled ?? true}
               communityIata={communityStatus?.iata}
               onOpenCommunitySettings={() => handleOpenSettings('community')}
+              onOpenRadioSettings={() => handleOpenSettings('radio')}
               onBack={
                 pendingOpen
                   ? () =>
@@ -683,6 +690,7 @@ export function AppShell({
         onSelectConversation={sidebarProps.onSelectConversation}
         onOpenSettings={handleOpenSettings}
         onRepeaterAutoLogin={onRepeaterAutoLogin}
+        directoryEnabled={directoryEnabled}
       />
       <EdgeSessionExpiredDialog />
       <SecurityWarningModal health={statusProps.health} />

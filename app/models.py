@@ -1559,6 +1559,8 @@ class ObserverReachEntry(BaseModel):
     lon: float | None = None
     hops: int | None = None
     snr: float | None = None
+    rssi: float | None = None
+    role: str | None = None
     path: list[str] = Field(default_factory=list)
     isMLC: bool = False
 

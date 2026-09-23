@@ -82,6 +82,7 @@ from app.routers import (
     rooms,
     settings,
     statistics,
+    tools,
     updates,
     ws,
 )
@@ -311,6 +312,7 @@ app.include_router(packets.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")
+app.include_router(tools.router, prefix="/api")
 app.include_router(updates.router, prefix="/api")
 app.include_router(push.router, prefix="/api")
 app.include_router(ws.router, prefix="/api")

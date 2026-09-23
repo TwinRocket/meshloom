@@ -71,6 +71,8 @@ class ParsedObservation:
     public_key: str | None
     hops: int | None
     snr: float | None
+    rssi: float | None = None
+    role: str | None = None
     path: tuple[str, ...] = ()
     is_mlc: bool = False
 
@@ -308,12 +310,16 @@ def _parse_one_observation(item: dict[str, object]) -> ParsedObservation:
     path = tuple(path_tokens) if path_tokens is not None else ()
     if hops is None and path:
         hops = len(path)
+    role_raw = item.get("role")
+    role = role_raw.strip() if isinstance(role_raw, str) and role_raw.strip() else None
     return ParsedObservation(
         observer_id=observer_id,
         observer_name=name,
         public_key=public_key,
         hops=hops,
         snr=_as_float(item.get("snr")),
+        rssi=_as_float(item.get("rssi")),
+        role=role,
         path=path,
         is_mlc=item.get("isMLC") is True,
     )
@@ -417,6 +423,8 @@ def _dedup_entries(
                 lon=lon,
                 hops=obs.hops,
                 snr=obs.snr,
+                rssi=obs.rssi,
+                role=obs.role,
                 path=list(obs.path),
                 isMLC=obs.is_mlc,
             )
@@ -433,6 +441,8 @@ def _dedup_entries(
                 "hops": next_hops,
                 "path": next_path,
                 "snr": obs.snr if existing.snr is None else existing.snr,
+                "rssi": obs.rssi if existing.rssi is None else existing.rssi,
+                "role": obs.role if existing.role is None else existing.role,
                 "lat": existing.lat if existing.lat is not None else lat,
                 "lon": existing.lon if existing.lon is not None else lon,
                 "isMLC": existing.isMLC or obs.is_mlc,

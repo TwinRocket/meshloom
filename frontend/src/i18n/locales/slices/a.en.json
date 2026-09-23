@@ -150,7 +150,8 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "collapseSection": "Collapse {{title}}",
-    "expandSection": "Expand {{title}}"
+    "expandSection": "Expand {{title}}",
+    "meshTest": "Radio test"
   },
   "shell": {
     "backToConversations": "Back to conversations",
@@ -164,7 +165,8 @@
   },
   "toolsView": {
     "controlDescription": "Decoded control packets, shown as a conversation",
-    "discoveredDescription": "Hashtag rooms opened automatically, waiting to be kept or refused"
+    "discoveredDescription": "Hashtag rooms opened automatically, waiting to be kept or refused",
+    "meshTestDescription": "Send one test flood and watch who hears it"
   },
   "discovered": {
     "title": "Discovered channels",
@@ -181,5 +183,40 @@
     "rejectedLoadFailed": "Could not load refused channels",
     "toast": "Discovered {{name}}",
     "toastAction": "Open"
+  },
+  "meshTest": {
+    "title": "Radio test",
+    "loading": "Loading radio test...",
+    "run": "Run the test",
+    "runHelp": "Send one flood and watch who hears it",
+    "sending": "Sending…",
+    "idle": "Run a test to see which observers hear it.",
+    "observers": "Observers",
+    "withGps": "On the map",
+    "maxHops": "Max hops",
+    "maxDistance": "Max distance",
+    "scope": "Scope",
+    "age": "Age",
+    "listening": "Listening",
+    "listenDone": "Listening finished",
+    "final": "Final",
+    "resumeListening": "Listen again",
+    "forget": "Clear",
+    "waiting": "Waiting for observers…",
+    "noObservers": "No observer heard this packet.",
+    "hopsLabel": "Hops",
+    "distanceLabel": "Distance",
+    "noPosition": "No position",
+    "sent": "Test sent",
+    "sendFailed": "Could not send the test",
+    "dialogTitle": "Choose a region",
+    "dialogDescription": "The flood is scoped to one of the regions saved on this radio.",
+    "noRegions": "No region is saved yet. Add one in radio settings before running a test.",
+    "region": "Region",
+    "openRadioSettings": "Open radio settings",
+    "confirmRun": "Run the test",
+    "mapEmpty": "No position to show yet.",
+    "mapAria": "Map of observers that heard the test",
+    "origin": "This radio"
   }
 }

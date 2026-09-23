@@ -417,6 +417,7 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | DELETE | `/api/fanout/{id}` | Delete fanout config (stops module) |
 | POST | `/api/fanout/bots/disable-until-restart` | Stop bot fanout modules and keep bots disabled until the process restarts |
 | GET | `/api/statistics` | Aggregated mesh network statistics, including `region_scope_24h` regional flood-scope adoption |
+| POST | `/api/tools/mesh-test` | Send one region-scoped test packet on the built-in `#meshloom-testing` channel; stores nothing locally and returns the packet hash for observer reach |
 | GET | `/api/locate?q=` | RF locate zone for one uniquely resolved node (0-hop disks). 409 if the query is ambiguous |
 | GET | `/api/directory/nodes` | Community map nodes (all roles, paginated; empty/unknown role → `unknown`) |
 | GET | `/api/directory/nodes/{pubkey}/reach` | Community 0-hop observers. HTTP 500 is a failure, not empty data |

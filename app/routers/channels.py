@@ -28,10 +28,16 @@ from app.repository import (
 )
 from app.services.channel_membership import adopt_channel_record
 from app.services.meshloom_community import schedule_hashtag_names_publish
+from app.services.test_channel import is_test_channel_key, is_test_channel_name
 from app.websocket import broadcast_event, broadcast_success
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channels", tags=["channels"])
+
+
+def _is_test_channel(channel: Channel) -> bool:
+    """A manually added test channel still shows in chat, but is never published."""
+    return is_test_channel_key(channel.key) or is_test_channel_name(channel.name)
 
 
 def _broadcast_channel_update(channel: Channel) -> None:
@@ -273,7 +279,8 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
             status_code=500, detail="Channel was created but could not be reloaded"
         ) from exc
 
-    await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
+    if not _is_test_channel(stored):
+        await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
     _broadcast_channel_update(stored)
     return stored
 
@@ -320,7 +327,9 @@ async def bulk_create_hashtag_channels(
         decrypt_targets.append((bytes.fromhex(stored.key), stored.key, stored.name))
         _broadcast_channel_update(stored)
 
-    await schedule_hashtag_names_publish([channel.name for channel in created_channels])
+    await schedule_hashtag_names_publish(
+        [channel.name for channel in created_channels if not _is_test_channel(channel)]
+    )
 
     if request.try_historical and decrypt_targets:
         decrypt_total_packets = await RawPacketRepository.get_undecrypted_count()
@@ -458,7 +467,8 @@ async def adopt_channel(key: str) -> Channel:
 
         await _run_historical_channel_decryption(bytes.fromhex(stored.key), stored.key, stored.name)
 
-    await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
+    if not _is_test_channel(stored):
+        await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
     _broadcast_channel_update(stored)
     return stored
 

@@ -156,6 +156,7 @@ async def send_channel_message_with_effective_scope(
     temp_radio_slot: int,
     error_broadcast_fn: BroadcastFn,
     flood_scope_override: str | _ScopeUnset = SCOPE_UNSET,
+    register_slot: bool = True,
     app_settings_repository=AppSettingsRepository,
 ) -> Any:
     """Send a channel message, temporarily overriding flood scope and/or path hash mode.
@@ -164,6 +165,12 @@ async def send_channel_message_with_effective_scope(
     ``flood_scope_override``: pass a region name to scope this send, an empty
     string to force unscoped/plain flood, or leave it ``SCOPE_UNSET`` to fall
     back to the channel's persisted override.
+
+    ``register_slot=False`` sends from ``temp_radio_slot`` without touching the
+    send-slot cache. It is for channels that have no database row: the cache
+    audit resolves each cached key against ``channels``, so registering one
+    would be reported as a radio inconsistency. The caller owns the slot and is
+    responsible for clearing it afterwards.
     """
     if isinstance(flood_scope_override, _ScopeUnset):
         # Fall back to the channel's persisted override, which is tri-state:
@@ -258,10 +265,15 @@ async def send_channel_message_with_effective_scope(
                     ),
                 )
 
-        channel_slot, needs_configure, evicted_channel_key = radio_manager.plan_channel_send_slot(
-            channel_key,
-            preferred_slot=temp_radio_slot,
-        )
+        if register_slot:
+            channel_slot, needs_configure, evicted_channel_key = (
+                radio_manager.plan_channel_send_slot(
+                    channel_key,
+                    preferred_slot=temp_radio_slot,
+                )
+            )
+        else:
+            channel_slot, needs_configure, evicted_channel_key = temp_radio_slot, True, None
         if needs_configure:
             logger.debug(
                 "Loading channel %s into radio slot %d before %s%s",
@@ -297,7 +309,8 @@ async def send_channel_message_with_effective_scope(
                     status_code=422,
                     detail=f"Failed to configure channel on radio before {action_label}",
                 )
-            radio_manager.note_channel_slot_loaded(channel_key, channel_slot)
+            if register_slot:
+                radio_manager.note_channel_slot_loaded(channel_key, channel_slot)
         else:
             logger.debug(
                 "Reusing cached radio slot %d for channel %s before %s",
@@ -325,7 +338,8 @@ async def send_channel_message_with_effective_scope(
                 channel.name,
                 send_result.payload,
             )
-            radio_manager.invalidate_cached_channel_slot(channel_key)
+            if register_slot:
+                radio_manager.invalidate_cached_channel_slot(channel_key)
         else:
             logger.debug(
                 "Radio send result for %s (%s): %r",
@@ -333,7 +347,8 @@ async def send_channel_message_with_effective_scope(
                 action_label,
                 send_result.payload,
             )
-            radio_manager.note_channel_slot_used(channel_key)
+            if register_slot:
+                radio_manager.note_channel_slot_used(channel_key)
         return send_result
     finally:
         if apply_scope:

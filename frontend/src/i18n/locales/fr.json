@@ -167,7 +167,8 @@
     "sortLabelAlpha": "A-Z",
     "sortLabelRecent": "⏱",
     "sortLabelTypeRecent": "Par type ⏱",
-    "sortLabelTypeAlpha": "Par type A-Z"
+    "sortLabelTypeAlpha": "Par type A-Z",
+    "meshTest": "Test radio"
   },
   "shell": {
     "backToConversations": "Retour aux conversations",
@@ -2635,7 +2636,8 @@
     "liveDescription": "Les paquets sur la carte au moment où ils sont entendus",
     "crackerQueued_one": "{{count}} clé encore à essayer",
     "crackerQueued_other": "{{count}} clés encore à essayer",
-    "discoveredDescription": "Salons hashtag ouverts automatiquement, à garder ou à refuser"
+    "discoveredDescription": "Salons hashtag ouverts automatiquement, à garder ou à refuser",
+    "meshTestDescription": "Envoyer un flood de test et voir qui l’entend"
   },
   "discovered": {
     "title": "Canaux découverts",
@@ -2652,6 +2654,41 @@
     "rejectedLoadFailed": "Impossible de charger les canaux refusés",
     "toast": "{{name}} a été découvert",
     "toastAction": "Ouvrir"
+  },
+  "meshTest": {
+    "title": "Test radio",
+    "loading": "Chargement du test radio...",
+    "run": "Lancer le test",
+    "runHelp": "Envoyer un flood et voir qui l’entend",
+    "sending": "Envoi…",
+    "idle": "Lancez un test pour voir quelles oreilles l’entendent.",
+    "observers": "Oreilles",
+    "withGps": "Sur la carte",
+    "maxHops": "Hops max",
+    "maxDistance": "Distance max",
+    "scope": "Portée",
+    "age": "Âge",
+    "listening": "Écoute en cours",
+    "listenDone": "Écoute terminée",
+    "final": "Définitif",
+    "resumeListening": "Relancer l’écoute",
+    "forget": "Effacer",
+    "waiting": "En attente des oreilles…",
+    "noObservers": "Aucune oreille n’a entendu ce paquet.",
+    "hopsLabel": "Hops",
+    "distanceLabel": "Distance",
+    "noPosition": "Sans position",
+    "sent": "Test envoyé",
+    "sendFailed": "Impossible d’envoyer le test",
+    "dialogTitle": "Choisir une région",
+    "dialogDescription": "Le flood est limité à une des régions enregistrées sur cette radio.",
+    "noRegions": "Aucune région n’est enregistrée. Ajoutez-en une dans les réglages radio avant de lancer un test.",
+    "region": "Région",
+    "openRadioSettings": "Ouvrir les réglages radio",
+    "confirmRun": "Lancer le test",
+    "mapEmpty": "Aucune position à afficher pour l’instant.",
+    "mapAria": "Carte des oreilles qui ont entendu le test",
+    "origin": "Cette radio"
   },
   "settingsIndex": {
     "title": "Réglages",

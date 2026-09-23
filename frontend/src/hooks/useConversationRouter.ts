@@ -25,9 +25,14 @@ function resolvePublicFromChannels(channels: Channel[]): Conversation | null {
     : null;
 }
 
+function testConversation(): Conversation {
+  return { type: 'test', id: 'test', name: i18n.t('meshTest.title') };
+}
+
 function resolveConversationFromHash(
   channels: Channel[],
-  contacts: Contact[]
+  contacts: Contact[],
+  directoryEnabled: boolean
 ): Conversation | null {
   const hashConv = parseHashConversation();
   if (!hashConv) return null;
@@ -56,6 +61,9 @@ function resolveConversationFromHash(
       };
     case 'discovered':
       return { type: 'discovered', id: 'discovered', name: i18n.t('discovered.title') };
+    case 'test':
+      // The page does not exist without Community, so neither does the hash.
+      return directoryEnabled ? testConversation() : null;
     case 'channel': {
       const channel = resolveChannelFromHashToken(hashConv.name, channels);
       return channel ? { type: 'channel', id: channel.key, name: channel.name } : null;
@@ -83,6 +91,10 @@ interface UseConversationRouterArgs {
   setSidebarOpen: (open: boolean) => void;
   pendingDeleteFallbackRef: MutableRefObject<boolean>;
   hasSetDefaultConversation: MutableRefObject<boolean>;
+  /** False until app settings have answered — not "the answer was no". */
+  settingsLoaded: boolean;
+  /** Community is configured, so the pages that need the directory exist. */
+  directoryEnabled: boolean;
 }
 
 /**
@@ -102,6 +114,8 @@ export function useConversationRouter({
   setSidebarOpen,
   pendingDeleteFallbackRef,
   hasSetDefaultConversation,
+  settingsLoaded,
+  directoryEnabled,
 }: UseConversationRouterArgs) {
   const [activeConversation, setActiveConversationState] = useState<Conversation | null>(null);
   const activeConversationRef = useRef<Conversation | null>(null);
@@ -114,6 +128,7 @@ export function useConversationRouter({
   const isHandlingPopstateRef = useRef(false);
   const channelsRef = useRef(channels);
   const contactsRef = useRef(contacts);
+  const directoryEnabledRef = useRef(directoryEnabled);
 
   useEffect(() => {
     channelsRef.current = channels;
@@ -121,6 +136,9 @@ export function useConversationRouter({
   useEffect(() => {
     contactsRef.current = contacts;
   }, [contacts]);
+  useEffect(() => {
+    directoryEnabledRef.current = directoryEnabled;
+  }, [directoryEnabled]);
 
   const setActiveConversation = useCallback((conv: Conversation | null) => {
     hashSyncEnabledRef.current = true;
@@ -204,6 +222,22 @@ export function useConversationRouter({
       hasSetDefaultConversation.current = true;
       return;
     }
+    // The radio test only exists with Community on, and this effect runs before
+    // settings have answered. Deciding now would answer from the default rather
+    // than from the instance: a reload on #test would fall through to Public and
+    // the hash would be rewritten, so the link would work once and never again.
+    // Leaving hasSetDefaultConversation alone is what lets the effect return here
+    // and be run again with the answer.
+    if (hashConv?.type === 'test') {
+      if (!settingsLoaded) return;
+      if (directoryEnabled) {
+        setActiveConversationState(testConversation());
+        hasSetDefaultConversation.current = true;
+        return;
+      }
+      // Community is off: the page is not there to open, so this is an
+      // unresolvable hash and falls through to Public with the others below.
+    }
 
     // No hash: optionally restore last-viewed non-data conversation if enabled on this device.
     if (!hashConv && getReopenLastConversationEnabled()) {
@@ -280,7 +314,26 @@ export function useConversationRouter({
       setActiveConversationState(publicConversation);
       hasSetDefaultConversation.current = true;
     }
-  }, [channels, activeConversation, getPublicChannelConversation, hasSetDefaultConversation]);
+  }, [
+    channels,
+    activeConversation,
+    getPublicChannelConversation,
+    hasSetDefaultConversation,
+    settingsLoaded,
+    directoryEnabled,
+  ]);
+
+  // Community switched off while the radio test was open. The page is gone, so
+  // staying on it would leave a pane that cannot load anything; Public is where
+  // the app recovers to everywhere else.
+  useEffect(() => {
+    if (!settingsLoaded || directoryEnabled) return;
+    if (activeConversation?.type !== 'test') return;
+    const publicConversation = getPublicChannelConversation();
+    if (!publicConversation) return;
+    hashSyncEnabledRef.current = true;
+    setActiveConversationState(publicConversation);
+  }, [settingsLoaded, directoryEnabled, activeConversation, getPublicChannelConversation]);
 
   // Phase 2: Resolve contact hash (only if phase 1 didn't set a conversation)
   useEffect(() => {
@@ -374,7 +427,11 @@ export function useConversationRouter({
       // Settings hash transitions are handled by useAppShell
       if (parseHashSettingsSection() !== null) return;
 
-      const fromHash = resolveConversationFromHash(channelsRef.current, contactsRef.current);
+      const fromHash = resolveConversationFromHash(
+        channelsRef.current,
+        contactsRef.current,
+        directoryEnabledRef.current
+      );
 
       // Going back to the bare URL means leaving whatever was open. On a phone
       // that lands on the conversation list, which is a screen of its own — so

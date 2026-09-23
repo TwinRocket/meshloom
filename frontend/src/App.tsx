@@ -188,6 +188,10 @@ export function App() {
     handleToggleTrackedTelemetryContact,
   } = useAppSettings();
 
+  // Community's directory is what the reach lookups and the radio test run on.
+  // Read once here so the router, the navigation surfaces and the panes all agree.
+  const directoryEnabled = appSettings?.directory_available ?? false;
+
   // Keep user's name in ref for mention detection in WebSocket callback
   const myNameRef = useRef<string | null>(null);
   useEffect(() => {
@@ -313,6 +317,8 @@ export function App() {
     setSidebarOpen,
     pendingDeleteFallbackRef,
     hasSetDefaultConversation,
+    settingsLoaded: appSettings !== null,
+    directoryEnabled,
   });
 
   // Wire up the ref bridge so useContactsAndChannels handlers reach the real setter
@@ -834,7 +840,9 @@ export function App() {
     onClearRepeaterAutoLogin: () => setRepeaterAutoLoginKey(null),
     blockedKeys: appSettings?.blocked_keys,
     blockedNames: appSettings?.blocked_names,
-    directoryEnabled: appSettings?.directory_available ?? false,
+    directoryEnabled,
+    knownRegions: appSettings?.known_regions ?? [],
+    floodScope: appSettings?.flood_scope,
     onOpenDirectorySettings: () => {
       setSettingsSection('community');
       if (!showSettings) handleToggleSettingsView();

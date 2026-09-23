@@ -36,6 +36,15 @@ describe('ToolsView', () => {
     ]) {
       expect(screen.getByText(i18n.t(key))).toBeInTheDocument();
     }
+    expect(screen.queryByText(i18n.t('sidebar.meshTest'))).not.toBeInTheDocument();
+  });
+
+  it('offers the radio test only when Community is on', () => {
+    const { onSelectConversation } = renderTools({ directoryEnabled: true });
+    fireEvent.click(screen.getByText(i18n.t('sidebar.meshTest')));
+    expect(onSelectConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'test', id: 'test' })
+    );
   });
 
   it('opens the live map as its own conversation', () => {

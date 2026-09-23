@@ -48,6 +48,9 @@ const LiveView = lazy(() => import('./LiveView').then((m) => ({ default: m.LiveV
 const VisualizerView = lazy(() =>
   import('./VisualizerView').then((m) => ({ default: m.VisualizerView }))
 );
+const MeshTestView = lazy(() =>
+  import('./MeshTestView').then((m) => ({ default: m.MeshTestView }))
+);
 
 interface ConversationPaneProps {
   activeConversation: Conversation | null;
@@ -113,10 +116,15 @@ interface ConversationPaneProps {
   blockedKeys?: string[];
   blockedNames?: string[];
   directoryEnabled?: boolean;
+  /** Regions the radio knows, for the radio test's scope choice. */
+  knownRegions?: string[];
+  /** The node's global flood scope, preselected by the radio test. */
+  floodScope?: string;
   communityEnabled?: boolean;
   communityIata?: string;
   onOpenDirectorySettings?: () => void;
   onOpenCommunitySettings?: () => void;
+  onOpenRadioSettings?: () => void;
   onAdvertise?: (mode: RadioAdvertMode) => Promise<void>;
   unreadCounts?: Record<string, number>;
   lastMessageTimes?: Record<string, number>;
@@ -207,10 +215,13 @@ export function ConversationPane({
   blockedKeys,
   blockedNames,
   directoryEnabled,
+  knownRegions = [],
+  floodScope,
   communityEnabled = true,
   communityIata,
   onOpenDirectorySettings,
   onOpenCommunitySettings,
+  onOpenRadioSettings,
   onAdvertise,
   unreadCounts = {},
   lastMessageTimes = {},
@@ -443,6 +454,21 @@ export function ConversationPane({
           void onAdoptChannel?.(key);
         }}
       />
+    );
+  }
+
+  if (activeConversation.type === 'test') {
+    return (
+      <Suspense fallback={<LoadingPane label={t('meshTest.loading')} />}>
+        <MeshTestView
+          onBackToTools={onBackToTools}
+          contacts={contacts}
+          knownRegions={knownRegions}
+          floodScope={floodScope}
+          radioConnected={health?.radio_connected === true}
+          onOpenRadioSettings={onOpenRadioSettings}
+        />
+      </Suspense>
     );
   }
 

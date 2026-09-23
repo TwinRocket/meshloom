@@ -163,6 +163,13 @@ async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> st
 
     from app.services.channel_membership import adopt_channel_record
     from app.services.meshloom_community import schedule_hashtag_names_publish
+    from app.services.test_channel import is_test_channel_key, is_test_channel_name
+
+    # The radio test borrows a slot and wipes it afterwards. If that wipe fails,
+    # the next sync must not adopt the built-in channel or publish its name.
+    if is_test_channel_name(name) or is_test_channel_key(key_hex):
+        logger.info("Skipping radio sync of the built-in mesh test channel")
+        return None
 
     await adopt_channel_record(
         key=key_hex,

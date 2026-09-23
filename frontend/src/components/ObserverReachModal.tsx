@@ -11,16 +11,8 @@ import type {
   ObserverReachMapHop,
   PacketObserverReachResponse,
 } from '../types';
-import {
-  directoryHopLocation,
-  findContactsByPrefix,
-  formatDistance,
-  isValidLocation,
-  resolveHopDisplay,
-  resolveLocalHopDisplay,
-  type DirectoryHopHit,
-  type PathHop,
-} from '../utils/pathUtils';
+import { formatDistance, resolveLocalHopDisplay, type DirectoryHopHit } from '../utils/pathUtils';
+import { hopDisplayName, hopMapLocation, toPathHop } from '../utils/observerHops';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -61,41 +53,6 @@ function ObserverName({ observer }: { observer: ObserverReachEntry }) {
 
 function observerPath(observer: ObserverReachEntry): string[] {
   return observer.path ?? [];
-}
-
-function toPathHop(prefix: string, contacts: Contact[]): PathHop {
-  const normalized = prefix.toUpperCase();
-  return {
-    prefix: normalized,
-    matches: findContactsByPrefix(normalized, contacts, true),
-    distanceFromPrev: null,
-  };
-}
-
-function hopMapLocation(
-  hop: PathHop,
-  directory?: DirectoryHopHit | null
-): { lat: number; lon: number; name: string } | null {
-  const local = resolveLocalHopDisplay(hop);
-  if (local.kind === 'known' && isValidLocation(local.contact.lat, local.contact.lon)) {
-    return {
-      lat: local.contact.lat!,
-      lon: local.contact.lon!,
-      name: local.contact.name || hop.prefix,
-    };
-  }
-  return directoryHopLocation(hop, directory);
-}
-
-function hopDisplayName(hop: PathHop, directory?: DirectoryHopHit | null): string | null {
-  const display = resolveHopDisplay(hop, directory);
-  if (display.kind === 'known') {
-    return display.contact.name || hop.prefix;
-  }
-  if (display.kind === 'directory') {
-    return display.name;
-  }
-  return null;
 }
 
 interface ObserverReachModalProps {

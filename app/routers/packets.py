@@ -24,6 +24,7 @@ from app.repository import (
 )
 from app.services.messages import backfill_message_regions
 from app.services.raw_packet_decrypt import attach_raw_packet_decrypted_info
+from app.services.test_channel import drop_test_channel_samples
 from app.websocket import broadcast_success
 
 logger = logging.getLogger(__name__)
@@ -168,7 +169,9 @@ async def get_undecrypted_group_text_samples(
             timestamp=timestamp,
             cipher_mac=cipher_mac,
         )
-        for channel_hash, packet_id, data, timestamp, cipher_mac in rows
+        # Our own test packets are undecryptable by design; the cracker would
+        # burn GPU time on a key the app already knows.
+        for channel_hash, packet_id, data, timestamp, cipher_mac in drop_test_channel_samples(rows)
     ]
     return UndecryptedGroupTextSamplesResponse(
         hash_count=len({sample.channel_hash for sample in samples}),

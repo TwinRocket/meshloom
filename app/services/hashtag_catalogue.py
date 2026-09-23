@@ -29,6 +29,7 @@ from app.services.meshloom_community import (
     schedule_hashtag_names_publish,
     upload_hashtag_sample,
 )
+from app.services.test_channel import drop_test_channel_samples, is_test_channel_key
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,9 @@ async def _unknown_samples() -> dict[str, list[bytes]]:
         received_since=received_since,
     )
     by_hash: dict[str, list[bytes]] = {}
-    for channel_hash, _packet_id, data, _timestamp, _mac in rows:
+    # The built-in test channel is never opened, so its packets would be offered
+    # to Stats forever. A hash_byte left without packets disappears with them.
+    for channel_hash, _packet_id, data, _timestamp, _mac in drop_test_channel_samples(rows):
         hb = channel_hash.lower()
         if not _HASH_BYTE_RE.fullmatch(hb):
             continue
@@ -132,6 +135,10 @@ async def _apply_matched_name(name: str, packets: list[bytes]) -> bool:
         return False
     key = _mac_matches(publish, packets)
     if key is None:
+        return False
+    if is_test_channel_key(key.hex()):
+        # Last resort: a resolved name must never open the built-in test channel
+        # or publish it back to Stats.
         return False
 
     key_hex = key.hex().upper()

@@ -8,6 +8,7 @@ import {
   Crosshair,
   Search,
   Hash,
+  RadioTower,
   CheckCheck,
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
@@ -24,7 +25,7 @@ import { cn } from '../lib/utils';
  */
 
 type ToolId =
-  'raw' | 'control' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered';
+  'raw' | 'control' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered' | 'test';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
@@ -37,6 +38,8 @@ interface Props {
   onOpenRadioStatus?: () => void;
   /** Pulse the header pip when a newer Meshloom release is published. */
   updateAvailable?: boolean;
+  /** Community off: the tools that need its directory are not offered at all. */
+  directoryEnabled?: boolean;
 }
 
 const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeof List }[] = [
@@ -88,7 +91,16 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     descriptionKey: 'toolsView.discoveredDescription',
     Icon: Hash,
   },
+  {
+    id: 'test',
+    labelKey: 'sidebar.meshTest',
+    descriptionKey: 'toolsView.meshTestDescription',
+    Icon: RadioTower,
+  },
 ];
+
+/** Tools whose whole point is the Community directory answering back. */
+const DIRECTORY_ONLY_TOOLS: readonly ToolId[] = ['test'];
 
 const ROW_CLASS =
   'flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
@@ -101,8 +113,10 @@ export function ToolsView({
   health,
   onOpenRadioStatus,
   updateAvailable,
+  directoryEnabled = false,
 }: Props) {
   const { t } = useTranslation();
+  const tools = TOOLS.filter(({ id }) => directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(id));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -120,7 +134,7 @@ export function ToolsView({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ul>
-          {TOOLS.map(({ id, labelKey, descriptionKey, Icon }) => (
+          {tools.map(({ id, labelKey, descriptionKey, Icon }) => (
             <li key={id}>
               <button
                 type="button"

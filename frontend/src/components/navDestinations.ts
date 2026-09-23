@@ -11,6 +11,7 @@ import {
   Crosshair,
   Search,
   Hash,
+  RadioTower,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation } from '../types';
@@ -47,7 +48,17 @@ export type RailItemId =
   | 'trace'
   | 'locate'
   | 'search'
-  | 'discovered';
+  | 'discovered'
+  | 'test';
+
+/**
+ * Entries that are only places when Community is configured.
+ *
+ * A rail is a set of destinations, and an entry that leads to a pane the instance
+ * does not have is not one. They stay in the registry so a stored order keeps its
+ * position for them; it is the drawing that leaves them out.
+ */
+export const DIRECTORY_ONLY_RAIL_IDS: readonly RailItemId[] = ['test'];
 
 export interface RailItem {
   id: RailItemId;
@@ -111,6 +122,7 @@ export const RAIL_ITEMS: RailItem[] = [
   tool('locate', 'locate.title', Crosshair),
   tool('search', 'sidebar.messageSearch', Search),
   tool('discovered', 'sidebar.discoveredChannels', Hash),
+  tool('test', 'sidebar.meshTest', RadioTower),
 ];
 
 const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));

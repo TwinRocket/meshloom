@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import {
   ANCHORED_RAIL_ITEMS,
+  DIRECTORY_ONLY_RAIL_IDS,
   type BottomNavTarget,
   type RailItemId,
   resolveRail,
@@ -42,6 +43,8 @@ interface Props {
   onSelectTool: (id: RailItemId) => void;
   updateAvailable?: boolean;
   onOpenUpdate?: () => void;
+  /** Community off: the entries that need its directory are not drawn. */
+  directoryEnabled?: boolean;
 }
 
 /** The bottom group's controls: same size as a destination, never marked current. */
@@ -61,8 +64,12 @@ export function DesktopRail({
   onSelectTool,
   updateAvailable = false,
   onOpenUpdate,
+  directoryEnabled = false,
 }: Props) {
   const { t } = useTranslation();
+  const railItems = resolveRail(order).filter(
+    ({ id }) => directoryEnabled || !DIRECTORY_ONLY_RAIL_IDS.includes(id)
+  );
 
   return (
     <nav
@@ -86,7 +93,7 @@ export function DesktopRail({
           className="h-7 w-7 object-contain [filter:drop-shadow(0_0_6px_rgba(34,211,238,0.28))]"
         />
       </a>
-      {resolveRail(order).map(({ id, labelKey, Icon, permanent, overlay }) => {
+      {railItems.map(({ id, labelKey, Icon, permanent, overlay }) => {
         const target = id as BottomNavTarget;
         const current = overlay
           ? Boolean(overlayPressed?.[id])
