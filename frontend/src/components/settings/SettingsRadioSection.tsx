@@ -40,6 +40,7 @@ import {
   type RadioDiscoveryResponse,
   type RadioDiscoveryTarget,
   type RadioRegionDiscoveryResponse,
+  type RadioRegionVerifyResponse,
   type RadioStatsSnapshot,
   type RadioTransportConfig,
   type RadioTransportKind,
@@ -967,6 +968,36 @@ export function SettingsRadioSection({
     }
   };
 
+  const [regionCheck, setRegionCheck] = useState<RadioRegionVerifyResponse | null>(null);
+  const [regionCheckLoading, setRegionCheckLoading] = useState(false);
+
+  // Asks nothing of the radio: the transport code on a stored packet can be
+  // recomputed for a candidate name, so this answers even with the radio off,
+  // and answers about regions no repeater would have told us about.
+  const runRegionCheck = async (names?: string[]) => {
+    setRegionCheckLoading(true);
+    try {
+      setRegionCheck(await api.verifyRegions(names));
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+    } finally {
+      setRegionCheckLoading(false);
+    }
+  };
+
+  const handleAddRegion = (name: string) => {
+    const existing = knownRegions
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (existing.some((line) => line.toLowerCase() === name.toLowerCase())) {
+      toast.info(t('settings.radio.regionsAlreadyListed'));
+      return;
+    }
+    setKnownRegions([...existing, name].join('\n'));
+    toast.success(t('settings.radio.regionsAdded', { count: 1 }));
+  };
+
   const handleDiscoverRegions = async () => {
     // Prefer repeaters from the most recent mesh-discovery sweep (they just
     // answered, so they're likely in range for the direct-routed regions
@@ -1890,6 +1921,82 @@ export function SettingsRadioSection({
                   <div className="space-y-2 rounded-md border border-input bg-muted/20 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
+                        {t('settings.radio.checkRegionsTitle')}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runRegionCheck()}
+                        disabled={regionCheckLoading}
+                      >
+                        {regionCheckLoading
+                          ? t('settings.radio.checkingRegions')
+                          : t('settings.radio.checkRegions')}
+                      </Button>
+                    </div>
+                    <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+                      {t('settings.radio.checkRegionsHelp')}
+                    </p>
+                    {regionCheck && (
+                      <div className="space-y-2">
+                        {regionCheck.regional_packets === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            {t('settings.radio.checkNoRegionalTraffic', {
+                              hours: regionCheck.window_hours,
+                            })}
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-sm font-medium">
+                              {t('settings.radio.checkExamined', {
+                                count: regionCheck.regional_packets,
+                                hours: regionCheck.window_hours,
+                              })}
+                            </p>
+                            {regionCheck.matches.filter((match) => match.packets > 0).length ===
+                            0 ? (
+                              <p className="text-sm text-muted-foreground">
+                                {t('settings.radio.checkNoMatch')}
+                              </p>
+                            ) : (
+                              <ul className="space-y-1">
+                                {regionCheck.matches
+                                  .filter((match) => match.packets > 0)
+                                  .map((match) => (
+                                    <li
+                                      key={match.name}
+                                      className="flex flex-wrap items-center gap-2 text-sm"
+                                    >
+                                      <span className="rounded bg-success/10 px-1.5 py-0.5 font-mono text-[0.6875rem] uppercase tracking-wider text-success">
+                                        {match.name}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        {t('settings.radio.checkMatchCount', {
+                                          count: match.packets,
+                                        })}
+                                      </span>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleAddRegion(match.name)}
+                                      >
+                                        {t('settings.radio.addToKnown')}
+                                      </Button>
+                                    </li>
+                                  ))}
+                              </ul>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 rounded-md border border-input bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
                         {t('settings.radio.discoverRegionsTitle')}
                       </span>
                       <Button
@@ -1924,6 +2031,27 @@ export function SettingsRadioSection({
                               })
                             : ''}
                         </p>
+                        {/* Why each silent repeater was silent. A count on its own
+                            told an operator something went wrong and nothing about
+                            what to do next. */}
+                        {regionDiscovery.results.some((r) => !r.answered) && (
+                          <ul className="space-y-0.5">
+                            {regionDiscovery.results
+                              .filter((repeater) => !repeater.answered)
+                              .map((repeater) => (
+                                <li
+                                  key={repeater.public_key}
+                                  className="text-[0.8125rem] text-muted-foreground"
+                                >
+                                  <span className="font-medium">
+                                    {repeater.name || repeater.public_key.slice(0, 12)}
+                                  </span>{' '}
+                                  {t(`settings.radio.regionOutcome.${repeater.outcome}`)}
+                                  {repeater.detail ? ` (${repeater.detail})` : ''}
+                                </li>
+                              ))}
+                          </ul>
+                        )}
                         {regionDiscovery.regions.length > 0 ? (
                           <>
                             <div className="flex flex-wrap gap-1.5">
