@@ -47,6 +47,7 @@ import type {
   RadioTransportUpdate,
   RadioDiscoveryResponse,
   RadioRegionDiscoveryResponse,
+  RadioRegionVerifyResponse,
   RadioTraceHopRequest,
   RadioTraceResponse,
   RadioDiscoveryTarget,
@@ -233,6 +234,15 @@ export const api = {
     fetchJson<RadioDiscoveryResponse>('/radio/discover', {
       method: 'POST',
       body: JSON.stringify({ target }),
+    }),
+  /** Checks candidate names against stored packets. Works with the radio off. */
+  verifyRegions: (names?: string[], hours?: number) =>
+    fetchJson<RadioRegionVerifyResponse>('/radio/regions/verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(names && names.length > 0 ? { names } : {}),
+        ...(hours ? { hours } : {}),
+      }),
     }),
   discoverRegions: (publicKeys?: string[]) =>
     fetchJson<RadioRegionDiscoveryResponse>('/radio/discover-regions', {

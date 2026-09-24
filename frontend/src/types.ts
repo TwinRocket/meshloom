@@ -158,11 +158,33 @@ export interface RadioDiscoveryResponse {
   results: RadioDiscoveryResult[];
 }
 
+/** Why a repeater said nothing, when it said nothing. */
+export type RadioRegionOutcome = 'answered' | 'no_reply' | 'contact_add_failed' | 'error';
+
 export interface RadioRegionDiscoveryRepeater {
   public_key: string;
   name: string | null;
   answered: boolean;
+  outcome: RadioRegionOutcome;
+  detail: string | null;
+  attempts: number;
   regions: string[];
+}
+
+/** One candidate name and how much stored traffic it explains. */
+export interface RadioRegionMatch {
+  name: string;
+  packets: number;
+}
+
+export interface RadioRegionVerifyResponse {
+  window_hours: number;
+  packets_read: number;
+  /** Of those, the ones carrying a transport code. Zero means nothing to check against. */
+  regional_packets: number;
+  /** True when the server chose the candidates rather than the operator. */
+  proposed: boolean;
+  matches: RadioRegionMatch[];
 }
 
 export interface RadioRegionDiscoveryResponse {

@@ -697,7 +697,23 @@
       "channelsCount_other": "{{count}} canaux",
       "deviceFallback": "Radio",
       "deviceRunning": "{{model}} exécute {{firmware}}",
-      "deviceMax": " (max : {{capacity}})"
+      "deviceMax": " (max : {{capacity}})",
+      "checkRegionsTitle": "Vérifier depuis le trafic déjà reçu",
+      "checkRegions": "Proposer des régions",
+      "checkingRegions": "Vérification...",
+      "checkRegionsHelp": "Confronte des noms candidats aux paquets déjà stockés par ce nœud. N’utilise pas la radio et n’émet rien. On ne peut pas demander à un paquet de quelle région il vient, mais on peut confirmer un nom proposé.",
+      "checkExamined_one": "{{count}} paquet régional sur les {{hours}} dernières heures.",
+      "checkExamined_other": "{{count}} paquets régionaux sur les {{hours}} dernières heures.",
+      "checkNoRegionalTraffic": "Aucun paquet à portée régionale sur les {{hours}} dernières heures : rien ne permet de confirmer quoi que ce soit. Réessayez quand le mesh aura été actif, ou interrogez les répéteurs ci-dessous.",
+      "checkNoMatch": "Aucun des noms essayés n’explique ce trafic. La région porte un nom que personne ici n’a mentionné : interrogez les répéteurs ci-dessous, ou un opérateur local.",
+      "checkMatchCount_one": "{{count}} paquet",
+      "checkMatchCount_other": "{{count}} paquets",
+      "regionOutcome": {
+        "no_reply": "n’a pas répondu",
+        "contact_add_failed": "n’a pas pu être ajouté à la radio, en général parce que son carnet de contacts est plein",
+        "error": "a échoué",
+        "answered": "a répondu"
+      }
     },
     "radioApp": {
       "loading": "Chargement des réglages…",

@@ -18,8 +18,10 @@ for a match. The candidate region names come from the server-side
 
 import hashlib
 import hmac
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
-from app.region_scope import normalize_region_scope
+from app.region_scope import is_unscoped, normalize_region_scope
 
 # SHA256("#name")[:16] is deterministic and cheap, but region lists are tiny and
 # packets are frequent, so cache the derived 16-byte keys by normalized name.
@@ -77,3 +79,45 @@ def resolve_region(
         if compute_transport_code(name, payload_type, payload) == transport_code:
             return name
     return None
+
+
+@dataclass(frozen=True)
+class RegionSample:
+    """One regionally routed packet, kept as the matcher needs it.
+
+    The transport code is a MAC over the payload, so naming a region means
+    recomputing that MAC for a candidate and comparing. Both halves are therefore
+    required; a code on its own proves nothing.
+    """
+
+    payload_type: int
+    payload: bytes
+    transport_code: int
+    timestamp: int
+
+
+def count_region_matches(names: Iterable[str], samples: Sequence[RegionSample]) -> dict[str, int]:
+    """How many of ``samples`` each candidate name would explain.
+
+    This is the only direction the maths allows. A packet cannot be asked which
+    region it belongs to, because the code is keyed by the payload and there is
+    no reverse lookup; but a proposed name can be checked against traffic already
+    on disk, without the radio and without waiting for a repeater to answer.
+
+    A name that matches nothing is not disproved: it may simply be a region this
+    node has never heard. The caller says so rather than reporting it as wrong.
+    """
+    counts: dict[str, int] = {}
+    for raw_name in names:
+        name = (raw_name or "").strip()
+        if not name or is_unscoped(name):
+            continue
+        if name in counts:
+            continue
+        counts[name] = sum(
+            1
+            for sample in samples
+            if compute_transport_code(name, sample.payload_type, sample.payload)
+            == sample.transport_code
+        )
+    return counts
