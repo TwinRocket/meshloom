@@ -80,7 +80,7 @@ class TestProposingNames:
         assert "Coursegoules-Relay" in candidates
 
     def test_leaves_out_words_that_describe_the_box(self) -> None:
-        """"Relay" matching anything would be an accident, and it costs a MAC per packet."""
+        """A word like Relay could only ever match by accident, and costs a MAC per packet."""
         candidates = build_candidates(
             known_regions=[],
             flood_scope=None,

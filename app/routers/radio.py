@@ -680,7 +680,9 @@ async def verify_regions(request: RadioRegionVerifyRequest) -> RadioRegionVerify
         if channel.flood_scope_override
     ]
     repeater_names = [
-        contact.name for contact in await ContactRepository.get_repeaters_by_recent(limit=40)
+        contact.name
+        for contact in await ContactRepository.get_repeaters_by_recent(limit=40)
+        if contact.name
     ]
     candidates = build_candidates(
         known_regions=settings.known_regions,
