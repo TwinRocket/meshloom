@@ -697,7 +697,23 @@
       "channelsCount_other": "{{count}} channels",
       "deviceFallback": "Radio",
       "deviceRunning": "{{model}} running {{firmware}}",
-      "deviceMax": " (max: {{capacity}})"
+      "deviceMax": " (max: {{capacity}})",
+      "checkRegionsTitle": "Check against traffic already heard",
+      "checkRegions": "Propose regions",
+      "checkingRegions": "Checking...",
+      "checkRegionsHelp": "Tests candidate names against packets this node has already stored. Needs no radio and sends nothing. A packet cannot be asked which region it belongs to, but a proposed name can be confirmed against one.",
+      "checkExamined_one": "{{count}} regional packet in the last {{hours}} h.",
+      "checkExamined_other": "{{count}} regional packets in the last {{hours}} h.",
+      "checkNoRegionalTraffic": "No regionally routed packet in the last {{hours}} h, so nothing can be confirmed either way. Try again once the mesh has been busy, or ask the repeaters below.",
+      "checkNoMatch": "None of the names tried explains that traffic. The region is one nobody here has mentioned; ask the repeaters below, or a local operator.",
+      "checkMatchCount_one": "{{count}} packet",
+      "checkMatchCount_other": "{{count}} packets",
+      "regionOutcome": {
+        "no_reply": "did not answer",
+        "contact_add_failed": "could not be added to the radio, which usually means its contact list is full",
+        "error": "failed",
+        "answered": "answered"
+      }
     },
     "radioApp": {
       "loading": "Loading app settings...",

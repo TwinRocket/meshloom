@@ -45,6 +45,7 @@ from app.routers.radio import (
     trace_path,
     update_radio_config,
 )
+from app.routers.repeaters import AnonRegionResult
 from app.services.radio_runtime import RadioRuntime
 
 _CONFIGURED_TRANSPORT = RadioTransportSnapshot(transport="serial", serial_port="/dev/ttyUSB0")
@@ -1246,6 +1247,14 @@ class TestDedupeRegionNames:
         assert _dedupe_region_names([]) == []
 
 
+def _answered(names: list[str]) -> AnonRegionResult:
+    return AnonRegionResult(names=names, outcome="answered")
+
+
+def _silent() -> AnonRegionResult:
+    return AnonRegionResult(names=None, outcome="no_reply", attempts=2)
+
+
 class TestDiscoverRegions:
     @pytest.mark.asyncio
     async def test_sweeps_explicit_repeaters_and_aggregates_union(self):
@@ -1255,7 +1264,7 @@ class TestDiscoverRegions:
         region_map = {key_a: ["us", "ca"], key_b: ["ca", "de"]}
 
         async def _anon(_mc, contact):
-            return region_map[contact.public_key]
+            return _answered(region_map[contact.public_key])
 
         with (
             patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
@@ -1265,7 +1274,7 @@ class TestDiscoverRegions:
                 new_callable=AsyncMock,
                 side_effect=lambda key: contacts.get(key),
             ),
-            patch("app.routers.radio.request_anon_region_names", side_effect=_anon),
+            patch("app.routers.radio.request_anon_region_names_detailed", side_effect=_anon),
         ):
             response = await discover_regions(
                 RadioRegionDiscoveryRequest(public_keys=[key_a, key_b])
@@ -1289,7 +1298,7 @@ class TestDiscoverRegions:
         contacts = {key_a: _repeater(key_a), key_b: _repeater(key_b)}
 
         async def _anon(_mc, contact):
-            return ["us"] if contact.public_key == key_a else None
+            return _answered(["us"]) if contact.public_key == key_a else _silent()
 
         with (
             patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
@@ -1299,7 +1308,7 @@ class TestDiscoverRegions:
                 new_callable=AsyncMock,
                 side_effect=lambda key: contacts.get(key),
             ),
-            patch("app.routers.radio.request_anon_region_names", side_effect=_anon),
+            patch("app.routers.radio.request_anon_region_names_detailed", side_effect=_anon),
         ):
             response = await discover_regions(
                 RadioRegionDiscoveryRequest(public_keys=[key_a, key_b])
@@ -1325,8 +1334,8 @@ class TestDiscoverRegions:
                 return_value=_repeater(key_a),
             ),
             patch(
-                "app.routers.radio.request_anon_region_names",
-                new=AsyncMock(return_value=["*", "US", "us", "ca"]),
+                "app.routers.radio.request_anon_region_names_detailed",
+                new=AsyncMock(return_value=_answered(["*", "US", "us", "ca"])),
             ),
         ):
             response = await discover_regions(RadioRegionDiscoveryRequest(public_keys=[key_a]))
@@ -1345,8 +1354,8 @@ class TestDiscoverRegions:
             patch.object(radio_manager, "_meshcore", mc),
             patch("app.routers.radio.ContactRepository.get_repeaters_by_recent", new=recent),
             patch(
-                "app.routers.radio.request_anon_region_names",
-                new=AsyncMock(return_value=["eu"]),
+                "app.routers.radio.request_anon_region_names_detailed",
+                new=AsyncMock(return_value=_answered(["eu"])),
             ),
         ):
             response = await discover_regions(RadioRegionDiscoveryRequest(max_repeaters=5))
@@ -1358,7 +1367,7 @@ class TestDiscoverRegions:
     @pytest.mark.asyncio
     async def test_no_targets_returns_empty_without_touching_radio(self):
         mc = _mock_meshcore_with_info()
-        anon = AsyncMock(return_value=["us"])
+        anon = AsyncMock(return_value=_answered(["us"]))
 
         with (
             patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
@@ -1367,7 +1376,7 @@ class TestDiscoverRegions:
                 "app.routers.radio.ContactRepository.get_repeaters_by_recent",
                 new=AsyncMock(return_value=[]),
             ),
-            patch("app.routers.radio.request_anon_region_names", new=anon),
+            patch("app.routers.radio.request_anon_region_names_detailed", new=anon),
         ):
             response = await discover_regions(RadioRegionDiscoveryRequest())
 
@@ -1394,7 +1403,7 @@ class TestDiscoverRegions:
                 return_value=client,
             ),
             patch(
-                "app.routers.radio.request_anon_region_names",
+                "app.routers.radio.request_anon_region_names_detailed",
                 new=AsyncMock(return_value=["us"]),
             ),
         ):
@@ -1408,7 +1417,7 @@ class TestDiscoverRegions:
         mc = _mock_meshcore_with_info()
         keys = ["aa" * 32, "bb" * 32, "cc" * 32]
         contacts = {k: _repeater(k) for k in keys}
-        anon = AsyncMock(return_value=["us"])
+        anon = AsyncMock(return_value=_answered(["us"]))
 
         with (
             patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
@@ -1418,7 +1427,7 @@ class TestDiscoverRegions:
                 new_callable=AsyncMock,
                 side_effect=lambda key: contacts.get(key),
             ),
-            patch("app.routers.radio.request_anon_region_names", new=anon),
+            patch("app.routers.radio.request_anon_region_names_detailed", new=anon),
         ):
             response = await discover_regions(
                 RadioRegionDiscoveryRequest(public_keys=keys, max_repeaters=2)

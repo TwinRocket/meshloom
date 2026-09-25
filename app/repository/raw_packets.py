@@ -129,6 +129,24 @@ class RawPacketRepository:
                 yield (row["id"], bytes(row["data"]), row["timestamp"])
 
     @staticmethod
+    async def recent_data(limit: int, since: int | None = None) -> list[tuple[bytes, int]]:
+        """The newest stored packets, as bytes and reception time.
+
+        Kept deliberately dumb: whether a packet is regionally routed is a
+        question for the decoder, not for SQL, and the column that would answer
+        it does not exist. The caller parses and discards what it does not need.
+        """
+        clause = "WHERE timestamp >= ?" if since is not None else ""
+        params: tuple[int, ...] = (since, limit) if since is not None else (limit,)
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"SELECT data, timestamp FROM raw_packets {clause} ORDER BY id DESC LIMIT ?",
+                params,
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [(bytes(row["data"]), row["timestamp"]) for row in rows]
+
+    @staticmethod
     async def get_undecrypted_group_text_samples(
         *,
         max_hashes: int,

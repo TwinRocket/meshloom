@@ -996,12 +996,73 @@ class RadioRegionDiscoveryRequest(BaseModel):
     )
 
 
+class RadioRegionVerifyRequest(BaseModel):
+    """Check candidate region names against traffic this node has already heard.
+
+    Needs no radio and sends nothing: a region name can be confirmed offline
+    because the transport code is recomputable from a stored packet. Only the
+    other direction is impossible.
+    """
+
+    names: list[str] | None = Field(
+        default=None,
+        description="Names to test; None asks the server to propose some from what it knows",
+    )
+    hours: int = Field(
+        default=24,
+        ge=1,
+        le=24 * 30,
+        description="How far back to look for regionally routed packets",
+    )
+    max_packets: int = Field(
+        default=600,
+        ge=50,
+        le=5000,
+        description="Cap on packets read, newest first",
+    )
+
+
+class RadioRegionMatch(BaseModel):
+    """One candidate and how much of the stored traffic it explains."""
+
+    name: str
+    packets: int = Field(description="Regional packets in the window this name decodes")
+
+
+class RadioRegionVerifyResponse(BaseModel):
+    """What the stored traffic says about a set of candidate names."""
+
+    window_hours: int
+    packets_read: int = Field(description="Stored packets examined, newest first")
+    regional_packets: int = Field(
+        description=(
+            "Of those, the ones carrying a transport code. Zero means nothing "
+            "regional has been heard, so no name can be confirmed either way."
+        )
+    )
+    proposed: bool = Field(description="True when the server chose the candidates")
+    matches: list[RadioRegionMatch]
+
+
 class RadioRegionDiscoveryRepeater(BaseModel):
     """One repeater's result from a region discovery sweep."""
 
     public_key: str = Field(description="Repeater public key")
     name: str | None = Field(default=None, description="Known contact name, if any")
     answered: bool = Field(description="True if the repeater answered the anon regions request")
+    outcome: Literal["answered", "no_reply", "contact_add_failed", "error"] = Field(
+        default="no_reply",
+        description=(
+            "Why nothing came back, when nothing did. Every failure used to read "
+            "as silence, which left an operator with a count and no next step: a "
+            "radio whose contact list is full fails every repeater at once and is "
+            "worth saying out loud."
+        ),
+    )
+    detail: str | None = Field(
+        default=None, description="What the radio reported, when it reported anything"
+    )
+    attempts: int = Field(default=1, description="Requests sent to this repeater")
     regions: list[str] = Field(
         default_factory=list,
         description="Flood-allowed region names reported by this repeater (wildcard excluded)",

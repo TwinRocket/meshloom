@@ -25,6 +25,9 @@ from app.models import (
     RadioRegionDiscoveryRepeater,
     RadioRegionDiscoveryRequest,
     RadioRegionDiscoveryResponse,
+    RadioRegionMatch,
+    RadioRegionVerifyRequest,
+    RadioRegionVerifyResponse,
     RadioTraceHopRequest,
     RadioTraceNode,
     RadioTraceRequest,
@@ -35,14 +38,19 @@ from app.models import (
 from app.radio import RadioOperationBusyError
 from app.radio_sync import send_advertisement as do_send_advertisement
 from app.radio_sync import sync_radio_time
-from app.repository import AppSettingsRepository, ContactRepository
+from app.repository import (
+    AppSettingsRepository,
+    ChannelRepository,
+    ContactRepository,
+    RawPacketRepository,
+)
 from app.repository.radio_transport import (
     RadioTransportRepository,
     apply_saved_transport,
     snapshot_restore_dict,
     validate_transport_update,
 )
-from app.routers.repeaters import request_anon_region_names
+from app.routers.repeaters import request_anon_region_names_detailed
 from app.routers.server_control import _monotonic
 from app.services.contact_reconciliation import (
     promote_prefix_contacts_for_contact,
@@ -60,6 +68,11 @@ from app.services.radio_transport import (
     build_transport_response,
     get_transport,
     scan_ble_devices,
+)
+from app.services.region_candidates import (
+    build_candidates,
+    match_candidates,
+    samples_from_packets,
 )
 from app.websocket import broadcast_event, broadcast_health
 
@@ -646,6 +659,58 @@ async def _resolve_region_discovery_targets(request: RadioRegionDiscoveryRequest
     return await ContactRepository.get_repeaters_by_recent(limit=request.max_repeaters)
 
 
+@router.post("/regions/verify", response_model=RadioRegionVerifyResponse)
+async def verify_regions(request: RadioRegionVerifyRequest) -> RadioRegionVerifyResponse:
+    """Check candidate region names against packets already stored.
+
+    Deliberately does not require the radio. Discovery has to reach a repeater and
+    wait for it; this reads what has already been heard, so it answers while the
+    radio is disconnected, paused, or simply out of range of everything.
+
+    When no names are given the server proposes some, from the scopes it is
+    already configured with and the names of the repeaters it has heard. It cannot
+    invent a name nobody has mentioned: the code on a packet is a MAC over the
+    payload, so names can be confirmed but never read off the air.
+    """
+    settings = await AppSettingsRepository.get()
+
+    channel_scopes = [
+        channel.flood_scope_override
+        for channel in await ChannelRepository.get_all()
+        if channel.flood_scope_override
+    ]
+    repeater_names = [
+        contact.name
+        for contact in await ContactRepository.get_repeaters_by_recent(limit=40)
+        if contact.name
+    ]
+    candidates = build_candidates(
+        known_regions=settings.known_regions,
+        flood_scope=settings.flood_scope,
+        channel_scopes=channel_scopes,
+        repeater_names=repeater_names,
+        extra=request.names or [],
+    )
+    if request.names:
+        # What the operator typed is the question; nothing else is added to it.
+        candidates = [name for name in candidates if name in set(request.names)]
+
+    since = int(time.time()) - request.hours * 3600
+    packets = await RawPacketRepository.recent_data(limit=request.max_packets, since=since)
+    samples = samples_from_packets(packets)
+
+    return RadioRegionVerifyResponse(
+        window_hours=request.hours,
+        packets_read=len(packets),
+        regional_packets=len(samples),
+        proposed=not request.names,
+        matches=[
+            RadioRegionMatch(name=name, packets=count)
+            for name, count in match_candidates(candidates, samples)
+        ],
+    )
+
+
 @router.post("/discover-regions", response_model=RadioRegionDiscoveryResponse)
 async def discover_regions(
     request: RadioRegionDiscoveryRequest,
@@ -674,13 +739,16 @@ async def discover_regions(
         "discover_regions", pause_polling=True, suspend_auto_fetch=True
     ) as mc:
         for contact in targets:
-            names = await request_anon_region_names(mc, contact)
+            result = await request_anon_region_names_detailed(mc, contact)
             results.append(
                 RadioRegionDiscoveryRepeater(
                     public_key=contact.public_key,
                     name=contact.name,
-                    answered=names is not None,
-                    regions=_dedupe_region_names(names or []),
+                    answered=result.outcome == "answered",
+                    outcome=result.outcome,
+                    detail=result.detail,
+                    attempts=result.attempts,
+                    regions=_dedupe_region_names(result.names or []),
                 )
             )
 

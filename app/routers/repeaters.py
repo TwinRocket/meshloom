@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -534,26 +536,95 @@ def _parse_anon_region_names(names: str) -> list[RepeaterRegionEntry]:
     return entries
 
 
-async def request_anon_region_names(mc, contact: Contact) -> list[str] | None:
-    """Send the guest anon regions request over an already-open radio session.
+# One extra try, because a lost packet and an unreachable repeater are the same
+# silence and only one of them is worth waiting out twice.
+ANON_REGION_ATTEMPTS = 2
 
-    Ensures the contact is on the radio, settles, then requests its
-    flood-allowed region names. Returns the parsed names (wildcard ``*``
-    included), or ``None`` if the repeater did not answer (older firmware, out
-    of range, add failure). The caller must already hold ``radio_operation``.
-    This is the shared per-repeater primitive behind both the single-repeater
-    guest fallback and the radio-wide region discovery sweep.
+# The request travels to the repeater and the answer travels back, so a distant
+# repeater needs longer than a neighbour. The floor is what a direct neighbour
+# needs; the ceiling stops one unreachable node from holding a sweep open.
+_ANON_REGION_TIMEOUT_BASE = 10
+_ANON_REGION_TIMEOUT_PER_HOP = 6
+_ANON_REGION_TIMEOUT_MAX = 40
+
+
+def _anon_region_timeout(contact: Contact) -> int:
+    """Seconds to wait for this particular repeater."""
+    hops = contact.direct_path_len if contact.direct_path_len > 0 else 0
+    return min(
+        _ANON_REGION_TIMEOUT_MAX,
+        _ANON_REGION_TIMEOUT_BASE + hops * _ANON_REGION_TIMEOUT_PER_HOP,
+    )
+
+
+@dataclass(frozen=True)
+class AnonRegionResult:
+    """What came back from one repeater, and why when nothing did.
+
+    The previous version collapsed every failure into ``None``. A repeater out of
+    range, a radio whose contact list is full, and a firmware that does not know
+    the request all read as "did not answer", which leaves an operator staring at
+    "0/8 answered" with nothing to act on. These are the distinctions the code can
+    actually make; it does not invent the ones it cannot.
+    """
+
+    names: list[str] | None
+    outcome: Literal["answered", "no_reply", "contact_add_failed", "error"]
+    detail: str | None = None
+    attempts: int = 1
+
+
+async def request_anon_region_names_detailed(
+    mc, contact: Contact, attempts: int = ANON_REGION_ATTEMPTS
+) -> AnonRegionResult:
+    """Ask one repeater for its flood-allowed region names, and say how it went.
+
+    Ensures the contact is on the radio, settles, then requests the names. The
+    caller must already hold ``radio_operation``. Retries only silence: an error
+    the radio reported once will report itself again.
     """
     try:
         await ensure_on_radio(mc, contact)
-        await asyncio.sleep(1.0)  # settle after add_contact
-        names = await mc.commands.req_regions_sync(contact.public_key, timeout=10, min_timeout=5)
+    except HTTPException as exc:
+        # Most often a full radio contact list, which fails every repeater in the
+        # sweep for a reason that has nothing to do with any of them.
+        return AnonRegionResult(
+            names=None, outcome="contact_add_failed", detail=str(exc.detail), attempts=0
+        )
     except Exception as exc:
-        logger.debug("anon regions request failed for %s: %s", contact.public_key[:12], exc)
-        return None
-    if not names:
-        return None
-    return [entry.name for entry in _parse_anon_region_names(names)]
+        return AnonRegionResult(names=None, outcome="error", detail=str(exc), attempts=0)
+
+    await asyncio.sleep(1.0)  # settle after add_contact
+    timeout = _anon_region_timeout(contact)
+    last_detail: str | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            names = await mc.commands.req_regions_sync(
+                contact.public_key, timeout=timeout, min_timeout=min(5, timeout)
+            )
+        except Exception as exc:
+            last_detail = str(exc)
+            logger.debug(
+                "anon regions request failed for %s (attempt %d): %s",
+                contact.public_key[:12],
+                attempt,
+                exc,
+            )
+            continue
+        if names:
+            return AnonRegionResult(
+                names=[entry.name for entry in _parse_anon_region_names(names)],
+                outcome="answered",
+                attempts=attempt,
+            )
+    return AnonRegionResult(
+        names=None, outcome="no_reply", detail=last_detail, attempts=max(1, attempts)
+    )
+
+
+async def request_anon_region_names(mc, contact: Contact) -> list[str] | None:
+    """The names only, for callers that have nothing to do with the reason."""
+    return (await request_anon_region_names_detailed(mc, contact)).names
 
 
 async def _fetch_anon_flood_allowed_regions(contact: Contact) -> list[RepeaterRegionEntry] | None:
