@@ -1,3 +1,33 @@
+## [4.16.1] - 2026-09-25
+
+Naming your region no longer depends on a repeater answering.
+
+### Fixed
+
+- **Region discovery says what went wrong.** Every failure looked the same: a repeater out of range, a radio whose contact list is full and an unexpected error all reported "did not answer", which left a count and no next step. Each repeater now says which of those happened, and a full contact list, which fails every repeater at once for a reason none of them caused, is named as such.
+- **Discovery gives a repeater a fair chance.** A single request was sent, though a lost packet over the air is ordinary, and every repeater got the same ten seconds whether it was next door or four hops away. A second request now goes out when nothing comes back, and the wait follows the distance, with a ceiling so one unreachable node cannot hold the sweep open.
+
+### What's new
+
+- **Propose regions from traffic you have already heard.** Asking repeaters is not the only way to name a region, and it is the one that depends on the radio reaching them. A packet cannot be asked which region it belongs to, but a proposed name can be checked against packets already stored, which needs no radio and answers in a second. Settings, Radio now offers this next to the discovery sweep: it proposes candidates from the scopes you are configured with and the places your repeaters are named after, says how much of your traffic each one explains, and adds the right one to the list in a click.
+
+---
+
+### Français
+
+Nommer sa région ne dépend plus de la réponse d'un répéteur.
+
+#### Corrections
+
+- **La découverte des régions dit ce qui a échoué.** Toutes les erreurs se ressemblaient : un répéteur hors de portée, une radio dont le carnet de contacts est plein et une erreur inattendue affichaient toutes « n'a pas répondu », ce qui laissait un compteur et aucune marche à suivre. Chaque répéteur indique désormais laquelle s'est produite, et le carnet plein, qui fait échouer tous les répéteurs d'un coup pour une raison qu'aucun d'eux n'a causée, est nommé comme tel.
+- **La découverte laisse sa chance à un répéteur.** Une seule requête partait, alors qu'un paquet perdu sur les ondes est banal, et chaque répéteur recevait les mêmes dix secondes qu'il soit voisin ou à quatre sauts. Une seconde requête part maintenant quand rien ne revient, et l'attente suit la distance, avec un plafond pour qu'un nœud injoignable ne retienne pas le balayage.
+
+#### Quoi de neuf
+
+- **Proposer des régions depuis le trafic déjà reçu.** Interroger les répéteurs n'est pas la seule façon de nommer une région, et c'est celle qui dépend de la radio pour les atteindre. On ne peut pas demander à un paquet de quelle région il vient, mais on peut confronter un nom proposé aux paquets déjà stockés, ce qui n'utilise pas la radio et répond en une seconde. Réglages, Radio propose désormais cela à côté du balayage : des candidats tirés de vos portées configurées et des lieux d'après lesquels vos répéteurs sont nommés, le nombre de paquets que chacun explique, et un clic pour ajouter le bon à la liste.
+
+---
+
 ## [4.16.0] - 2026-09-23
 
 Meshloom can run a radio test through Community and read the result on a map. Locate can show a coverage disk when Community knows a first repeater.
