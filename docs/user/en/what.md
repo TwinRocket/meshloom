@@ -37,7 +37,7 @@ Two practical consequences:
 - **It keeps listening when the tab is closed.** The server stays connected to the radio and writes every message and packet it hears to a database. Open the page tomorrow and the history is still there.
 - **It keeps more than the radio can.** Contacts and rooms that do not fit in the radio remain on the server, along with raw packets. Add a room key next week and last week’s traffic can be decrypted, as long as those packets are still stored.
 
-Meshloom also adds what a radio alone cannot: a map of heard nodes, a visualizer of the paths packets actually took, a raw packet feed, and outputs to MQTT, Home Assistant, a webhook, Apprise, or an SQS queue.
+Meshloom also adds what a radio alone cannot: a map of heard nodes, a visualizer of the paths packets actually took, a raw packet feed, and outputs to MQTT, Home Assistant, a webhook, Apprise, or an SQS queue. Meshloom Community adds the shared directory — names for nodes you have not heard yet, radios that heard the same packet, a transmission test — and decryption of public channels you do not know yet, which then show up in Discovered channels. Repeaters can be polled at a regular interval, with an alert when a reading leaves the limits you set.
 
 ## What Meshloom is not
 

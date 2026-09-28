@@ -9,11 +9,11 @@ A radio hears much more than what is addressed to you. Adverts, echoes, messages
 
 None of this is needed to send a message. It is observation. You can skip it entirely.
 
-The entries are in the **Tools** section of the left column.
+On a phone, open them from **Tools**. On a large screen, they sit on the icon rail. The node map is its own destination, next to conversations.
 
 ## The node map
 
-An advert can include coordinates. When it does, Meshloom places the node on a map. One heard advert, one more point.
+The map opens from **Map**, in the bottom bar or on the rail. An advert can include coordinates. When it does, Meshloom places the node on a map. One heard advert, one more point.
 
 Two limits matter. Not every node broadcasts its position: nodes that keep it private do not appear on the map, even if they are active. And a position is from the last advert received, not live tracking — a mobile node appears where it was the last time it spoke.
 
@@ -45,6 +45,26 @@ Packets that could not be decrypted are not necessarily lost. They are what make
 - **Message search** searches the entire stored history, across direct messages and channels. Clicking a result opens the conversation at that exact point, with surrounding context.
 - **Statistics**, in Settings, aggregate what the node has seen: volumes, activity by period, and the busiest channels.
 - **Channel finder** tries hashtag names against undecrypted GroupText — packets heard in this session and a sample of stored ones. Community names and a bundled MeshCore list are tried when available. It still works with Community off.
+
+## The live feed
+
+**Live** places packets on a map as the radio hears them. It shows activity around you, not only nodes already placed by an advert. Meshloom Community and an IATA code are required to open it.
+
+## The control journal
+
+The **control journal** gathers traffic that is not a conversation: requests, responses, anonymous requests, and group data. When the payload stays encrypted, you see the envelope, not the contents.
+
+## RF locate
+
+**RF locate** draws a zero-hop coverage area from radios that heard the node nearby. It is not a GPS point, and nothing is written onto the contact.
+
+## Discovered channels
+
+A hashtag channel that was heard, or decrypted from a public channel name the community already knows, does not enter your conversations on its own. It appears in **Discovered channels**. You keep it or dismiss it.
+
+## Radio test
+
+**Radio test** sends a message across the network and lists the community radios that heard it. It is available only when Meshloom Community is on.
 
 ## It takes space
 

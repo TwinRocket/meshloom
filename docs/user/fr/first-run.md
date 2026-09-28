@@ -55,15 +55,21 @@ L’inverse fonctionne pareil. Les contacts n’ont pas à être saisis à la ma
 
 ## Le tour de l’écran
 
-La colonne de gauche regroupe les conversations, triées par sections : **Favoris**, **Canaux**, **Contacts**, **Répéteurs**, **Serveurs de salon**. Un salon nommé **Public** existe dès le départ ; c’est le salon par défaut de MeshCore, ouvert à tout le monde.
+Sur un téléphone, la barre du bas propose quatre destinations : **Conversations**, **Carte**, **Outils** et **Réglages**. Sur un grand écran, un rail d’icônes à gauche reprend **Conversations** et la **Carte**, puis les outils ; **Réglages** reste en bas du rail.
 
-Sous les conversations, une section **Outils** :
+La liste des conversations est rangée par sections : **Favoris**, **Canaux**, **Contacts**, **Répéteurs**, **Serveurs de salon**. Un salon nommé **Public** existe dès le départ ; c’est le salon par défaut de MeshCore, ouvert à tout le monde.
 
-- **Flux de paquets bruts** — tout ce que la radio entend, déchiffrable ou non.
-- **Carte des nœuds** — les nœuds dont une annonce a donné des coordonnées.
+Les outils s’ouvrent depuis l’écran **Outils**, ou depuis une icône du rail :
+
+- **Flux de paquets** — tout ce que la radio entend, déchiffrable ou non.
+- **Journal de contrôle** — requêtes, réponses et données de groupe, à part des conversations.
+- **Live** — les paquets posés sur une carte au moment où ils sont entendus.
 - **Visualiseur mesh** — les chemins réellement empruntés par les paquets.
-- **Trace de route** — un test de route vers un nœud précis.
+- **Trace** — un test de route vers un nœud précis.
+- **Localisation RF** — une zone de couverture estimée, pas un point GPS.
 - **Recherche de messages** — recherche plein texte dans tout l’historique.
+- **Canaux découverts** — les salons hashtag entendus, à garder ou à refuser.
+- **Test radio** — envoie un message de test et montre qui l’a entendu. Il n’est proposé que lorsque Meshloom Community est actif.
 
 Le bouton **Ajouter canal/contact** ouvre la création d’une conversation : un contact par sa clé publique, un salon par sa clé, ou un salon hashtag par son nom.
 

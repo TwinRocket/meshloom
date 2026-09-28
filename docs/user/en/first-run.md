@@ -55,15 +55,21 @@ The reverse works too. Contacts do not have to be entered by hand: every advert 
 
 ## Look around
 
-The left column groups conversations into sections: **Favorites**, **Channels**, **Contacts**, **Repeaters**, and **Room servers**. A **Public** channel exists from the start; it is MeshCore’s default channel, open to everyone.
+On a phone, the bottom bar offers four destinations: **Conversations**, **Map**, **Tools**, and **Settings**. On a large screen, an icon rail on the left offers **Conversations** and the **Map**, then the tools; **Settings** stays at the bottom of the rail.
 
-Below the conversations is a **Tools** section:
+The conversation list is grouped into sections: **Favorites**, **Channels**, **Contacts**, **Repeaters**, and **Room servers**. A **Public** channel exists from the start; it is MeshCore’s default channel, open to everyone.
 
-- **Raw packet feed** — everything the radio hears, whether it can be decrypted or not.
-- **Node map** — nodes whose adverts included coordinates.
+Tools open from the **Tools** screen, or from an icon on the rail:
+
+- **Packet feed** — everything the radio hears, whether it can be decrypted or not.
+- **Control journal** — requests, responses, and group data, kept apart from conversations.
+- **Live** — packets placed on a map as they are heard.
 - **Mesh visualizer** — the paths packets actually took.
-- **Route trace** — a route test to one node.
+- **Trace** — a route test to one node.
+- **RF locate** — an estimated coverage area, not a GPS point.
 - **Message search** — full-text search across the history.
+- **Discovered channels** — hashtag channels that were heard, to keep or dismiss.
+- **Radio test** — sends a test message and shows who heard it. It is offered only when Meshloom Community is on.
 
 The **Add channel/contact** button opens conversation creation: a contact by public key, a channel by key, or a hashtag channel by name.
 

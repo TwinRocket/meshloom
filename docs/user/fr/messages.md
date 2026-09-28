@@ -11,7 +11,7 @@ Deux manières d’écrire sur le mesh, et elles ne se ressemblent pas beaucoup.
 
 Un message direct va à un seul contact. Il est chiffré pour lui : les nœuds qui le relaient au passage le transportent sans pouvoir le lire.
 
-Pour écrire à quelqu’un, il faut sa **clé publique** — une suite de caractères hexadécimaux qui l’identifie sur le réseau. Le plus souvent, on n’a rien à saisir : une annonce entendue crée le contact toute seule et il apparaît dans la colonne de gauche. Sinon, **Ajouter canal/contact** permet de coller une clé publique à la main.
+Pour écrire à quelqu’un, il faut sa **clé publique** — une suite de caractères hexadécimaux qui l’identifie sur le réseau. Le plus souvent, on n’a rien à saisir : une annonce entendue crée le contact toute seule et il apparaît dans la liste des conversations. Sinon, **Ajouter canal/contact** permet de coller une clé publique à la main.
 
 Après l’envoi, le message porte des indications de suivi :
 

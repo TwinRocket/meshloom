@@ -11,7 +11,7 @@ There are two ways to write on the mesh, and they behave quite differently.
 
 A direct message goes to one contact. It is encrypted for that person: the nodes relaying it can carry it but cannot read it.
 
-You need the contact’s **public key** — a hexadecimal string that identifies them on the network. Usually there is nothing to enter: a heard advert creates the contact automatically and it appears in the left column. Otherwise, **Add channel/contact** lets you paste a public key by hand.
+You need the contact’s **public key** — a hexadecimal string that identifies them on the network. Usually there is nothing to enter: a heard advert creates the contact automatically and it appears in the conversation list. Otherwise, **Add channel/contact** lets you paste a public key by hand.
 
 After sending, the message shows delivery details:
 

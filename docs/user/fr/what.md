@@ -37,7 +37,7 @@ Deux conséquences pratiques :
 - **Il continue d’écouter quand l’onglet est fermé.** Le serveur reste connecté à la radio et écrit chaque message et chaque paquet entendu dans une base de données. On rouvre la page le lendemain, l’historique est là.
 - **Il garde plus que ce que la radio retient.** Les contacts et les salons qui ne tiennent pas dans la mémoire de la radio restent côté serveur, avec les paquets bruts. Une clé de salon ajoutée la semaine prochaine déchiffre le trafic de la semaine dernière, tant que les paquets sont encore stockés.
 
-Meshloom ajoute aussi ce qu’une radio seule ne peut pas faire : une carte des nœuds entendus, un visualiseur des chemins réellement empruntés par les paquets, un flux des paquets bruts, et des sorties vers MQTT, Home Assistant, un webhook, Apprise ou une file SQS.
+Meshloom ajoute aussi ce qu’une radio seule ne peut pas faire : une carte des nœuds entendus, un visualiseur des chemins réellement empruntés par les paquets, un flux des paquets bruts, et des sorties vers MQTT, Home Assistant, un webhook, Apprise ou une file SQS. Meshloom Community ajoute l’annuaire partagé — noms de nœuds pas encore entendus, radios qui ont entendu le même paquet, test d’émission — et le déchiffrement des salons publics pas encore connus, qui arrivent alors dans Canaux découverts. Les répéteurs peuvent être relevés à intervalle régulier, avec une alerte si une mesure sort des bornes.
 
 ## Ce que Meshloom n’est pas
 

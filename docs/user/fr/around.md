@@ -9,11 +9,11 @@ Une radio entend beaucoup plus que ce qui vous est adressé. Annonces, échos, p
 
 Rien de ce qui suit n’est nécessaire pour envoyer un message. C’est de l’observation. On peut s’en passer entièrement.
 
-Les entrées sont dans la section **Outils** de la colonne de gauche.
+Sur un téléphone, on les ouvre depuis **Outils**. Sur un grand écran, elles sont sur le rail d’icônes. La carte des nœuds est une destination à part, à côté des conversations.
 
 ## La carte des nœuds
 
-Chaque annonce peut transporter des coordonnées. Quand elle en contient, Meshloom pose le nœud sur une carte. Une annonce entendue, un point de plus.
+La carte s’ouvre par **Carte**, dans la barre du bas ou sur le rail. Chaque annonce peut transporter des coordonnées. Quand elle en contient, Meshloom pose le nœud sur une carte. Une annonce entendue, un point de plus.
 
 Deux limites à garder en tête. Les nœuds ne diffusent pas tous leur position : ceux qui la gardent pour eux ne sont nulle part sur la carte, même s’ils sont très actifs. Et une position est celle de la dernière annonce reçue, pas une position en direct — un nœud mobile est affiché là où il se trouvait la dernière fois qu’il a parlé.
 
@@ -45,6 +45,26 @@ Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant, et 
 - **Recherche de messages** cherche dans tout l’historique stocké, messages directs et salons confondus. Un résultat cliqué ouvre la conversation à cet endroit précis, avec le contexte autour.
 - Les **Statistiques**, dans les réglages, agrègent ce que le nœud a vu : volumes, activité par période, salons les plus actifs.
 - Le **chercheur de salons** essaie des noms hashtag sur les GroupText non déchiffrés — ceux de la session et un échantillon déjà stocké. Les noms Community et une liste MeshCore embarquée sont essayés quand ils sont disponibles. Il fonctionne aussi avec Community coupé.
+
+## Le flux live
+
+**Live** pose les paquets sur une carte au moment où la radio les entend. On y voit l’activité autour de soi, pas seulement les nœuds déjà placés par une annonce. Meshloom Community et un code IATA sont nécessaires pour l’ouvrir.
+
+## Le journal de contrôle
+
+Le **journal de contrôle** rassemble le trafic qui n’est pas une conversation : requêtes, réponses, requêtes anonymes et données de groupe. Quand la charge reste chiffrée, on voit l’enveloppe, pas le contenu.
+
+## La localisation RF
+
+**Localisation RF** trace une zone de couverture à zéro saut, à partir des radios qui ont entendu le nœud tout près. Ce n’est pas un point GPS, et rien n’est écrit sur le contact.
+
+## Les canaux découverts
+
+Un salon hashtag entendu, ou déchiffré grâce à un nom de salon public connu de la communauté, n’entre pas tout seul dans les discussions. Il apparaît dans **Canaux découverts**. On le garde ou on le refuse.
+
+## Le test radio
+
+**Test radio** envoie un message qui se propage sur le réseau et liste les radios de la communauté qui l’ont entendu. Il n’est disponible que lorsque Meshloom Community est actif.
 
 ## Ça prend de la place
 
