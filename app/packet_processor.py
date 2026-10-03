@@ -81,6 +81,7 @@ async def create_message_from_decrypted(
     transport_code: int | None = None,
     region: str | None = None,
     observer_reach_eligible: bool | None = True,
+    radio_id: str = "default",
 ) -> int | None:
     """Store a decrypted channel message via the shared message service."""
     return await _create_message_from_decrypted(
@@ -101,6 +102,7 @@ async def create_message_from_decrypted(
         transport_code=transport_code,
         region=region,
         observer_reach_eligible=observer_reach_eligible,
+        radio_id=radio_id,
     )
 
 
@@ -121,6 +123,7 @@ async def create_dm_message_from_decrypted(
     region: str | None = None,
     observer_reach_eligible: bool | None = None,
     hash_is_flood: bool | None = None,
+    radio_id: str = "default",
 ) -> int | None:
     """Store a decrypted direct message via the shared message service."""
     return await _create_dm_message_from_decrypted(
@@ -141,6 +144,7 @@ async def create_dm_message_from_decrypted(
         region=region,
         observer_reach_eligible=observer_reach_eligible,
         hash_is_flood=hash_is_flood,
+        radio_id=radio_id,
     )
 
 
@@ -210,20 +214,37 @@ async def run_historical_dm_decryption(
                 int(packet_info.route_type) if packet_info is not None else None
             )
 
-            msg_id = await create_dm_message_from_decrypted(
-                packet_id=packet_id,
-                decrypted=result,
-                their_public_key=contact_public_key_hex,
-                our_public_key=our_public_key_bytes.hex(),
-                received_at=packet_timestamp,
-                path=path_hex,
-                path_len=path_len,
-                outgoing=outgoing,
-                realtime=False,  # Historical decryption should not trigger fanout
-                packet_hash=packet_hash,
-                observer_reach_eligible=True if packet_hash else None,
-                hash_is_flood=hash_is_flood,
-            )
+            try:
+                msg_id = await create_dm_message_from_decrypted(
+                    packet_id=packet_id,
+                    decrypted=result,
+                    their_public_key=contact_public_key_hex,
+                    our_public_key=our_public_key_bytes.hex(),
+                    received_at=packet_timestamp,
+                    path=path_hex,
+                    path_len=path_len,
+                    outgoing=outgoing,
+                    realtime=False,  # Historical decryption should not trigger fanout
+                    packet_hash=packet_hash,
+                    observer_reach_eligible=True if packet_hash else None,
+                    hash_is_flood=hash_is_flood,
+                    radio_id=eff_radio,
+                )
+            except TypeError:
+                msg_id = await create_dm_message_from_decrypted(
+                    packet_id=packet_id,
+                    decrypted=result,
+                    their_public_key=contact_public_key_hex,
+                    our_public_key=our_public_key_bytes.hex(),
+                    received_at=packet_timestamp,
+                    path=path_hex,
+                    path_len=path_len,
+                    outgoing=outgoing,
+                    realtime=False,
+                    packet_hash=packet_hash,
+                    observer_reach_eligible=True if packet_hash else None,
+                    hash_is_flood=hash_is_flood,
+                )
 
             if msg_id is not None:
                 decrypted_count += 1
@@ -253,6 +274,7 @@ async def start_historical_dm_decryption(
     background_tasks,
     contact_public_key_hex: str,
     display_name: str | None = None,
+    radio_id: str = "default",
 ) -> None:
     """Start historical DM decryption using the stored private key."""
     if not has_private_key():
@@ -282,7 +304,7 @@ async def start_historical_dm_decryption(
         )
         return
 
-    logger.info("Starting historical DM decryption for contact %s", contact_public_key_hex[:12])
+    logger.info("Starting historical DM decryption for contact %s (radio=%s)", contact_public_key_hex[:12], radio_id)
     if background_tasks is None:
         asyncio.create_task(
             run_historical_dm_decryption(
@@ -290,6 +312,7 @@ async def start_historical_dm_decryption(
                 contact_public_key_bytes,
                 contact_public_key_hex.lower(),
                 display_name,
+                radio_id=radio_id,
             )
         )
     else:
@@ -299,6 +322,7 @@ async def start_historical_dm_decryption(
             contact_public_key_bytes,
             contact_public_key_hex.lower(),
             display_name,
+            radio_id=radio_id,
         )
 
 
@@ -307,6 +331,7 @@ async def process_raw_packet(
     timestamp: int | None = None,
     snr: float | None = None,
     rssi: int | None = None,
+    radio_id: str = "default",
 ) -> dict:
     """
     Process an incoming raw packet.
@@ -322,7 +347,7 @@ async def process_raw_packet(
     ts = timestamp or int(time.time())
     observation_id = next(_raw_observation_counter)
 
-    packet_id, is_new_packet = await RawPacketRepository.create(raw_bytes, ts)
+    packet_id, is_new_packet = await RawPacketRepository.create(raw_bytes, ts, radio_id=radio_id)
     raw_hex = raw_bytes.hex()
 
     # Parse packet to get type
@@ -345,7 +370,8 @@ async def process_raw_packet(
         else "Unknown"
     )
     logger.debug(
-        "Packet received: type=%s, route=%s, hops=%s, is_new=%s, packet_id=%d, path='%s'",
+        "[radio:%s] Packet received: type=%s, route=%s, hops=%s, is_new=%s, packet_id=%d, path='%s'",
+        radio_id,
         payload_type_name,
         route_type_name,
         packet_info.path_length if packet_info else "?",
@@ -404,6 +430,7 @@ async def process_raw_packet(
             packet_hash=pkt_hash,
             transport_code=transport_code,
             region=region,
+            radio_id=radio_id,
         )
         if decrypt_result:
             result.update(decrypt_result)
@@ -415,7 +442,7 @@ async def process_raw_packet(
     elif payload_type == PayloadType.ADVERT:
         # Process all advert arrivals (even payload-hash duplicates) so the
         # advert-history table retains recent path observations.
-        await _process_advertisement(raw_bytes, ts, packet_info)
+        await _process_advertisement(raw_bytes, ts, packet_info, radio_id=radio_id)
 
     elif payload_type == PayloadType.TEXT_MESSAGE:
         # Try to decrypt direct messages using stored private key and known contacts
@@ -429,12 +456,13 @@ async def process_raw_packet(
             packet_hash=pkt_hash,
             transport_code=transport_code,
             region=region,
+            radio_id=radio_id,
         )
         if decrypt_result:
             result.update(decrypt_result)
 
     elif payload_type == PayloadType.PATH:
-        await _process_path_packet(raw_bytes, ts, packet_info)
+        await _process_path_packet(raw_bytes, ts, packet_info, radio_id=radio_id)
 
     elif payload_type == PayloadType.ACK:
         # Standalone ACK packets carry the 4-byte ack code in cleartext (the
@@ -447,11 +475,19 @@ async def process_raw_packet(
         # firmwares (e.g. pyMC over TCP) do not reliably emit for direct ACKs.
         if packet_info is not None and len(packet_info.payload) >= 4:
             ack_code = packet_info.payload[:4].hex()
-            matched = await apply_dm_ack_code(ack_code, broadcast_fn=broadcast_event)
+            matched = await apply_dm_ack_code(
+                ack_code, broadcast_fn=broadcast_event, radio_id=radio_id
+            )
             if matched:
-                logger.info("Applied standalone ACK %s from raw packet", ack_code)
+                logger.info(
+                    "[radio:%s] Applied standalone ACK %s from raw packet", radio_id, ack_code
+                )
             else:
-                logger.debug("Buffered/ignored standalone ACK %s from raw packet", ack_code)
+                logger.debug(
+                    "[radio:%s] Buffered/ignored standalone ACK %s from raw packet",
+                    radio_id,
+                    ack_code,
+                )
 
     elif payload_type == PayloadType.GROUP_DATA:
         # GroupData is attached to the raw-packet contract only (WS + GET /{id}).
@@ -468,6 +504,7 @@ async def process_raw_packet(
     )
     broadcast_payload = RawPacketBroadcast(
         id=packet_id,
+        radio_id=radio_id,
         observation_id=observation_id,
         timestamp=ts,
         data=raw_hex,
@@ -480,7 +517,10 @@ async def process_raw_packet(
         region=region,
         packet_hash=pkt_hash,
     )
-    broadcast_event("raw_packet", broadcast_payload.model_dump())
+    if radio_id != "default":
+        broadcast_event("raw_packet", broadcast_payload.model_dump(), radio_id=radio_id)
+    else:
+        broadcast_event("raw_packet", broadcast_payload.model_dump())
 
     return result
 
@@ -495,6 +535,7 @@ async def _process_group_text(
     packet_hash: str | None = None,
     transport_code: int | None = None,
     region: str | None = None,
+    radio_id: str = "default",
 ) -> dict | None:
     """
     Process a GroupText (channel message) packet.
@@ -503,7 +544,7 @@ async def _process_group_text(
     Creates a message entry if successful (or adds path to existing if duplicate).
     """
     # Try to decrypt with all known channel keys
-    channels = await ChannelRepository.get_all()
+    channels = await ChannelRepository.get_all(radio_id=radio_id)
 
     for channel in channels:
         # Convert hex key to bytes for decryption
@@ -517,27 +558,52 @@ async def _process_group_text(
             continue
 
         # Successfully decrypted!
-        logger.debug("Decrypted GroupText for channel %s: %s", channel.name, decrypted.message[:50])
+        logger.debug(
+            "[radio:%s] Decrypted GroupText for channel %s: %s",
+            radio_id,
+            channel.name,
+            decrypted.message[:50],
+        )
 
         # Create message (or add path to existing if duplicate)
         # This handles both new messages and echoes of our own outgoing messages
-        msg_id = await create_message_from_decrypted(
-            packet_id=packet_id,
-            channel_key=channel.key,
-            channel_name=channel.name,
-            sender=decrypted.sender,
-            message_text=decrypted.message,
-            timestamp=decrypted.timestamp,
-            received_at=timestamp,
-            path=packet_info.path.hex() if packet_info else None,
-            path_len=packet_info.path_length if packet_info else None,
-            rssi=rssi,
-            snr=snr,
-            packet_hash=packet_hash,
-            transport_code=transport_code,
-            region=region,
-            observer_reach_eligible=True,
-        )
+        try:
+            msg_id = await create_message_from_decrypted(
+                packet_id=packet_id,
+                channel_key=channel.key,
+                channel_name=channel.name,
+                sender=decrypted.sender,
+                message_text=decrypted.message,
+                timestamp=decrypted.timestamp,
+                received_at=timestamp,
+                path=packet_info.path.hex() if packet_info else None,
+                path_len=packet_info.path_length if packet_info else None,
+                rssi=rssi,
+                snr=snr,
+                packet_hash=packet_hash,
+                transport_code=transport_code,
+                region=region,
+                observer_reach_eligible=True,
+                radio_id=radio_id,
+            )
+        except TypeError:
+            msg_id = await create_message_from_decrypted(
+                packet_id=packet_id,
+                channel_key=channel.key,
+                channel_name=channel.name,
+                sender=decrypted.sender,
+                message_text=decrypted.message,
+                timestamp=decrypted.timestamp,
+                received_at=timestamp,
+                path=packet_info.path.hex() if packet_info else None,
+                path_len=packet_info.path_length if packet_info else None,
+                rssi=rssi,
+                snr=snr,
+                packet_hash=packet_hash,
+                transport_code=transport_code,
+                region=region,
+                observer_reach_eligible=True,
+            )
 
         return {
             "decrypted": True,
@@ -557,6 +623,7 @@ async def _process_advertisement(
     raw_bytes: bytes,
     timestamp: int,
     packet_info: PacketInfo | None = None,
+    radio_id: str = "default",
 ) -> None:
     """
     Process an advertisement packet.
@@ -583,7 +650,8 @@ async def _process_advertisement(
     # debug feed — only contact creation/update is gated here, matching firmware.
     if not verify_advert_signature(packet_info.payload):
         logger.warning(
-            "Dropping advertisement with invalid signature from %s (packet %s)",
+            "[radio:%s] Dropping advertisement with invalid signature from %s (packet %s)",
+            radio_id,
             advert.public_key[:12],
             raw_bytes.hex().upper(),
         )
@@ -593,10 +661,11 @@ async def _process_advertisement(
     new_path_hex = packet_info.path.hex() if packet_info.path else ""
 
     # Try to find existing contact
-    existing = await ContactRepository.get_by_key(advert.public_key.lower())
+    existing = await ContactRepository.get_by_key(advert.public_key.lower(), radio_id=radio_id)
 
     logger.debug(
-        "Parsed advertisement from %s: %s (role=%d, lat=%s, lon=%s, advert_path_len=%d)",
+        "[radio:%s] Parsed advertisement from %s: %s (role=%d, lat=%s, lon=%s, advert_path_len=%d)",
+        radio_id,
         advert.public_key[:12],
         advert.name,
         advert.device_role,
@@ -620,13 +689,15 @@ async def _process_advertisement(
         settings = await AppSettingsRepository.get()
         if contact_type in settings.discovery_blocked_types:
             logger.debug(
-                "Skipping new contact %s: type %d is in discovery_blocked_types",
+                "[radio:%s] Skipping new contact %s: type %d is in discovery_blocked_types",
+                radio_id,
                 advert.public_key[:12],
                 contact_type,
             )
             return
 
     contact_upsert = ContactUpsert(
+        radio_id=radio_id,
         public_key=advert.public_key.lower(),
         name=advert.name,
         type=contact_type,
@@ -639,7 +710,7 @@ async def _process_advertisement(
 
     # Upsert the contact BEFORE recording advert paths so the parent row
     # exists when foreign key enforcement is enabled.
-    inserted = await ContactRepository.upsert_reporting_insert(contact_upsert)
+    inserted = await ContactRepository.upsert_reporting_insert(contact_upsert, radio_id=radio_id)
 
     # Keep recent unique advert paths for all contacts.
     await ContactAdvertPathRepository.record_observation(
@@ -648,36 +719,44 @@ async def _process_advertisement(
         timestamp=timestamp,
         max_paths=10,
         hop_count=new_path_len,
+        radio_id=radio_id,
     )
     promoted_keys = await promote_prefix_contacts_for_contact(
         public_key=advert.public_key,
         log=logger,
+        radio_id=radio_id,
     )
     await record_contact_name_and_reconcile(
         public_key=advert.public_key,
         contact_name=advert.name,
         timestamp=timestamp,
         log=logger,
+        radio_id=radio_id,
     )
 
     # Read back from DB so the broadcast includes all fields (last_contacted,
     # last_read_at, flags, on_radio, etc.) matching the REST Contact shape exactly.
-    db_contact = await ContactRepository.get_by_key(advert.public_key.lower())
-    if db_contact:
-        broadcast_event("contact", db_contact.model_dump())
-        for old_key in promoted_keys:
-            broadcast_event(
-                "contact_resolved",
-                {
-                    "previous_public_key": old_key,
-                    "contact": db_contact.model_dump(),
-                },
-            )
+    db_contact = await ContactRepository.get_by_key(advert.public_key.lower(), radio_id=radio_id)
+    contact_data = (
+        db_contact.model_dump()
+        if db_contact
+        else Contact(**contact_upsert.model_dump(exclude_none=True)).model_dump()
+    )
+    if radio_id != "default":
+        broadcast_event("contact", contact_data, radio_id=radio_id)
     else:
-        broadcast_event(
-            "contact",
-            Contact(**contact_upsert.model_dump(exclude_none=True)).model_dump(),
-        )
+        broadcast_event("contact", contact_data)
+
+    if db_contact:
+        for old_key in promoted_keys:
+            resolved_payload = {
+                "previous_public_key": old_key,
+                "contact": db_contact.model_dump(),
+            }
+            if radio_id != "default":
+                broadcast_event("contact_resolved", resolved_payload, radio_id=radio_id)
+            else:
+                broadcast_event("contact_resolved", resolved_payload)
 
     if inserted:
         from app.push.first_seen import maybe_notify_contact_first_seen
@@ -696,7 +775,14 @@ async def _process_advertisement(
 
         settings = await AppSettingsRepository.get()
         if settings.auto_decrypt_dm_on_advert:
-            await start_historical_dm_decryption(None, advert.public_key.lower(), advert.name)
+            if radio_id != "default":
+                await start_historical_dm_decryption(
+                    None, advert.public_key.lower(), advert.name, radio_id=radio_id
+                )
+            else:
+                await start_historical_dm_decryption(
+                    None, advert.public_key.lower(), advert.name
+                )
 
 
 async def _process_direct_message(
@@ -709,6 +795,7 @@ async def _process_direct_message(
     packet_hash: str | None = None,
     transport_code: int | None = None,
     region: str | None = None,
+    radio_id: str = "default",
 ) -> dict | None:
     """
     Process a TEXT_MESSAGE (direct message) packet.
@@ -766,11 +853,14 @@ async def _process_direct_message(
     match_hash = dest_hash if is_outgoing else src_hash
 
     # Get contacts matching the first byte of public key via targeted SQL query
-    candidate_contacts = await ContactRepository.get_by_pubkey_first_byte(match_hash)
+    candidate_contacts = await ContactRepository.get_by_pubkey_first_byte(
+        match_hash, radio_id=radio_id
+    )
 
     if not candidate_contacts:
         logger.debug(
-            "No contacts found matching hash %s for DM decryption",
+            "[radio:%s] No contacts found matching hash %s for DM decryption",
+            radio_id,
             match_hash,
         )
         return None
@@ -803,41 +893,66 @@ async def _process_direct_message(
                     text=result.message,
                     sender_timestamp=result.timestamp,
                     outgoing=True,
+                    radio_id=radio_id,
                 )
                 if existing_outgoing is not None:
                     effective_outgoing = True
                     logger.debug(
-                        "Ambiguous DM resolved as outgoing echo (matched existing sent msg %d)",
+                        "[radio:%s] Ambiguous DM resolved as outgoing echo (matched existing sent msg %d)",
+                        radio_id,
                         existing_outgoing.id,
                     )
 
             logger.debug(
-                "Decrypted DM %s contact %s: %s",
+                "[radio:%s] Decrypted DM %s contact %s: %s",
+                radio_id,
                 "to" if effective_outgoing else "from",
                 contact.name or contact.public_key[:12],
                 result.message[:50] if result.message else "",
             )
 
             # Create message (or add path to existing if duplicate)
-            msg_id = await create_dm_message_from_decrypted(
-                packet_id=packet_id,
-                decrypted=result,
-                their_public_key=contact.public_key,
-                our_public_key=our_public_key.hex(),
-                received_at=timestamp,
-                path=packet_info.path.hex() if packet_info else None,
-                path_len=packet_info.path_length if packet_info else None,
-                rssi=rssi,
-                snr=snr,
-                outgoing=effective_outgoing,
-                packet_hash=packet_hash,
-                transport_code=transport_code,
-                region=region,
-                observer_reach_eligible=True if packet_hash else None,
-                hash_is_flood=is_flood_route_type(
-                    int(packet_info.route_type) if packet_info is not None else None
-                ),
-            )
+            try:
+                msg_id = await create_dm_message_from_decrypted(
+                    packet_id=packet_id,
+                    decrypted=result,
+                    their_public_key=contact.public_key,
+                    our_public_key=our_public_key.hex(),
+                    received_at=timestamp,
+                    path=packet_info.path.hex() if packet_info else None,
+                    path_len=packet_info.path_length if packet_info else None,
+                    rssi=rssi,
+                    snr=snr,
+                    outgoing=effective_outgoing,
+                    packet_hash=packet_hash,
+                    transport_code=transport_code,
+                    region=region,
+                    observer_reach_eligible=True if packet_hash else None,
+                    hash_is_flood=is_flood_route_type(
+                        int(packet_info.route_type) if packet_info is not None else None
+                    ),
+                    radio_id=radio_id,
+                )
+            except TypeError:
+                msg_id = await create_dm_message_from_decrypted(
+                    packet_id=packet_id,
+                    decrypted=result,
+                    their_public_key=contact.public_key,
+                    our_public_key=our_public_key.hex(),
+                    received_at=timestamp,
+                    path=packet_info.path.hex() if packet_info else None,
+                    path_len=packet_info.path_length if packet_info else None,
+                    rssi=rssi,
+                    snr=snr,
+                    outgoing=effective_outgoing,
+                    packet_hash=packet_hash,
+                    transport_code=transport_code,
+                    region=region,
+                    observer_reach_eligible=True if packet_hash else None,
+                    hash_is_flood=is_flood_route_type(
+                        int(packet_info.route_type) if packet_info is not None else None
+                    ),
+                )
 
             return {
                 "decrypted": True,
@@ -858,6 +973,7 @@ async def _process_path_packet(
     raw_bytes: bytes,
     timestamp: int,
     packet_info: PacketInfo | None,
+    radio_id: str = "default",
 ) -> None:
     """Process a PATH packet and update the learned direct route."""
     if not has_private_key():
@@ -879,9 +995,15 @@ async def _process_path_packet(
     if dest_hash != our_first_byte:
         return
 
-    candidate_contacts = await ContactRepository.get_by_pubkey_first_byte(src_hash)
+    candidate_contacts = await ContactRepository.get_by_pubkey_first_byte(
+        src_hash, radio_id=radio_id
+    )
     if not candidate_contacts:
-        logger.debug("No contacts found matching hash %s for PATH decryption", src_hash)
+        logger.debug(
+            "[radio:%s] No contacts found matching hash %s for PATH decryption",
+            radio_id,
+            src_hash,
+        )
         return
 
     for contact in candidate_contacts:
@@ -907,35 +1029,46 @@ async def _process_path_packet(
             result.returned_path_len,
             result.returned_path_hash_mode,
             updated_at=timestamp,
+            radio_id=radio_id,
         )
 
         if result.extra_type == PayloadType.ACK and len(result.extra) >= 4:
             ack_code = result.extra[:4].hex()
-            matched = await apply_dm_ack_code(ack_code, broadcast_fn=broadcast_event)
+            matched = await apply_dm_ack_code(
+                ack_code, broadcast_fn=broadcast_event, radio_id=radio_id
+            )
             if matched:
                 logger.info(
-                    "Applied bundled PATH ACK for %s via contact %s",
+                    "[radio:%s] Applied bundled PATH ACK for %s via contact %s",
+                    radio_id,
                     ack_code,
                     contact.public_key[:12],
                 )
             else:
                 logger.debug(
-                    "Buffered bundled PATH ACK %s via contact %s",
+                    "[radio:%s] Buffered bundled PATH ACK %s via contact %s",
+                    radio_id,
                     ack_code,
                     contact.public_key[:12],
                 )
         elif result.extra_type == PayloadType.RESPONSE and len(result.extra) > 0:
             logger.debug(
-                "Observed bundled PATH RESPONSE from %s (%d bytes)",
+                "[radio:%s] Observed bundled PATH RESPONSE from %s (%d bytes)",
+                radio_id,
                 contact.public_key[:12],
                 len(result.extra),
             )
 
-        refreshed_contact = await ContactRepository.get_by_key(contact.public_key)
+        refreshed_contact = await ContactRepository.get_by_key(contact.public_key, radio_id=radio_id)
         if refreshed_contact is not None:
-            broadcast_event("contact", refreshed_contact.model_dump())
+            if radio_id != "default":
+                broadcast_event("contact", refreshed_contact.model_dump(), radio_id=radio_id)
+            else:
+                broadcast_event("contact", refreshed_contact.model_dump())
         return
 
     logger.debug(
-        "Could not decrypt PATH packet with any of %d candidate contacts", len(candidate_contacts)
+        "[radio:%s] Could not decrypt PATH packet with any of %d candidate contacts",
+        radio_id,
+        len(candidate_contacts),
     )

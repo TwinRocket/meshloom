@@ -55,7 +55,11 @@ class ContactUpsert(BaseModel):
 
     @classmethod
     def from_radio_dict(
-        cls, public_key: str, radio_data: dict, on_radio: bool = False
+        cls,
+        public_key: str,
+        radio_data: dict,
+        on_radio: bool = False,
+        radio_id: str = "default",
     ) -> ContactUpsert:
         """Convert radio contact data to the contact-row write shape."""
         direct_path, direct_path_len, direct_path_hash_mode = normalize_contact_route(
@@ -81,6 +85,7 @@ class ContactUpsert(BaseModel):
             lon = None
 
         return cls(
+            radio_id=radio_id,
             public_key=public_key,
             name=radio_data.get("adv_name"),
             type=contact_type,

@@ -80,11 +80,13 @@ class BotModule(FanoutModule):
         if not code or not code.strip():
             return
 
+        radio_id = data.get("radio_id", "default")
         msg_type = data.get("type", "")
         is_dm = msg_type == "PRIV"
         conversation_key = data.get("conversation_key", "")
         logger.debug(
-            "Bot '%s' starting for type=%s conversation=%s outgoing=%s",
+            "[radio:%s] Bot '%s' starting for type=%s conversation=%s outgoing=%s",
+            radio_id,
             self.name,
             msg_type or "unknown",
             conversation_key[:12] if conversation_key else "(none)",
@@ -107,7 +109,7 @@ class BotModule(FanoutModule):
                 if sender_name is None:
                     from app.repository import ContactRepository
 
-                    contact = await ContactRepository.get_by_key(conversation_key)
+                    contact = await ContactRepository.get_by_key(conversation_key, radio_id=radio_id)
                     sender_name = contact.name if contact else None
         else:
             sender_key = None
@@ -119,7 +121,7 @@ class BotModule(FanoutModule):
             if channel_name is None:
                 from app.repository import ChannelRepository
 
-                channel = await ChannelRepository.get_by_key(conversation_key)
+                channel = await ChannelRepository.get_by_key(conversation_key, radio_id=radio_id)
                 channel_name = channel.name if channel else None
 
             # Strip "sender: " prefix from channel message text
@@ -171,6 +173,7 @@ class BotModule(FanoutModule):
                         packet_hash,
                         region,
                         scoped,
+                        radio_id,
                     ),
                     timeout=BOT_EXECUTION_TIMEOUT,
                 )
@@ -182,7 +185,9 @@ class BotModule(FanoutModule):
                 return
 
         if response and self._active:
-            await process_bot_response(response, is_dm, sender_key or "", channel_key)
+            await process_bot_response(
+                response, is_dm, sender_key or "", channel_key, radio_id=radio_id
+            )
 
     @property
     def status(self) -> str:

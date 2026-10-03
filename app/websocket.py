@@ -123,10 +123,13 @@ def broadcast_event(
         elif hasattr(data, "radio_id"):
             eff_radio = getattr(data, "radio_id", None)
 
-    if eff_radio is not None:
-        asyncio.create_task(ws_manager.broadcast(event_type, data, radio_id=str(eff_radio)))
-    else:
-        asyncio.create_task(ws_manager.broadcast(event_type, data))
+    if eff_radio is None:
+        eff_radio = "default"
+
+    if isinstance(data, dict) and "radio_id" not in data:
+        data["radio_id"] = eff_radio
+
+    asyncio.create_task(ws_manager.broadcast(event_type, data, radio_id=str(eff_radio)))
 
 
     if realtime:

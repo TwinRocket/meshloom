@@ -33,9 +33,30 @@ logger = logging.getLogger(__name__)
 _active_subscriptions: list["Subscription"] = []
 
 
-def track_pending_ack(expected_ack: str, message_id: int, timeout_ms: int) -> bool:
+def _is_ingest_allowed(radio_id: str = "default") -> bool:
+    """Check ingest gate for the specified radio."""
+    if radio_id == "default":
+        return ingest_allowed()
+    try:
+        from app.services.radio_registry import radio_registry
+
+        if radio_registry.has(radio_id):
+            return radio_registry.get(radio_id).ingest_allowed()
+    except Exception:
+        pass
+    return ingest_allowed()
+
+
+def track_pending_ack(
+    expected_ack: str,
+    message_id: int,
+    timeout_ms: int,
+    radio_id: str = "default",
+) -> bool:
     """Compatibility wrapper for pending DM ACK tracking."""
-    return dm_ack_tracker.track_pending_ack(expected_ack, message_id, timeout_ms)
+    return dm_ack_tracker.track_pending_ack(
+        expected_ack, message_id, timeout_ms, radio_id=radio_id
+    )
 
 
 def cleanup_expired_acks() -> None:
@@ -43,7 +64,7 @@ def cleanup_expired_acks() -> None:
     dm_ack_tracker.cleanup_expired_acks()
 
 
-async def on_contact_message(event: "Event") -> None:
+async def on_contact_message(event: "Event", radio_id: str = "default") -> None:
     """Handle incoming direct messages from MeshCore library.
 
     NOTE: DMs are primarily handled by the packet processor via RX_LOG_DATA,
@@ -56,7 +77,7 @@ async def on_contact_message(event: "Event") -> None:
     This handler adapts CONTACT_MSG_RECV payloads into the shared DM ingest
     workflow, which reconciles duplicates against the packet pipeline when possible.
     """
-    if not ingest_allowed():
+    if not _is_ingest_allowed(radio_id):
         logger.debug("Skipping CONTACT_MSG_RECV because radio ingest is closed")
         return
     payload = event.payload
@@ -77,6 +98,7 @@ async def on_contact_message(event: "Event") -> None:
         broadcast_fn=broadcast_event,
         contact_repository=ContactRepository,
         log=logger,
+        radio_id=radio_id,
     )
     if context.skip_storage:
         logger.debug(
@@ -106,6 +128,7 @@ async def on_contact_message(event: "Event") -> None:
             broadcast_fn=broadcast_event,
             contact_repository=ContactRepository,
             log=logger,
+            radio_id=radio_id,
         )
     message = await ingest_fallback_direct_message(
         conversation_key=context.conversation_key,
@@ -120,6 +143,7 @@ async def on_contact_message(event: "Event") -> None:
         sender_key=sender_key,
         broadcast_fn=broadcast_event,
         update_last_contacted_key=context.contact.public_key.lower() if context.contact else None,
+        radio_id=radio_id,
     )
 
     if message is None:
@@ -136,13 +160,13 @@ async def on_contact_message(event: "Event") -> None:
     )
 
 
-async def on_rx_log_data(event: "Event") -> None:
+async def on_rx_log_data(event: "Event", radio_id: str = "default") -> None:
     """Store raw RF packet data and process via centralized packet processor.
 
     This is the unified entry point for all RF packets. The packet processor
     handles channel messages (GROUP_TEXT) and advertisements (ADVERT).
     """
-    if not ingest_allowed():
+    if not _is_ingest_allowed(radio_id):
         logger.debug("Skipping RX_LOG_DATA because radio ingest is closed")
         return
     payload = event.payload
@@ -159,12 +183,13 @@ async def on_rx_log_data(event: "Event") -> None:
         raw_bytes=raw_bytes,
         snr=payload.get("snr"),
         rssi=payload.get("rssi"),
+        radio_id=radio_id,
     )
 
 
-async def on_path_update(event: "Event") -> None:
+async def on_path_update(event: "Event", radio_id: str = "default") -> None:
     """Handle path update events."""
-    if not ingest_allowed():
+    if not _is_ingest_allowed(radio_id):
         logger.debug("Skipping PATH_UPDATE because radio ingest is closed")
         return
     payload = event.payload
@@ -174,11 +199,11 @@ async def on_path_update(event: "Event") -> None:
     contact: Contact | None = None
     if public_key:
         logger.debug("Path update for %s", public_key[:12])
-        contact = await ContactRepository.get_by_key(public_key)
+        contact = await ContactRepository.get_by_key(public_key, radio_id=radio_id)
     elif pubkey_prefix:
         # Legacy compatibility: older payloads may only include a prefix.
         logger.debug("Path update for prefix %s", pubkey_prefix)
-        contact = await ContactRepository.get_by_key_prefix(pubkey_prefix)
+        contact = await ContactRepository.get_by_key_prefix(pubkey_prefix, radio_id=radio_id)
     else:
         logger.debug("PATH_UPDATE missing public_key/pubkey_prefix, skipping")
         return
@@ -228,16 +253,17 @@ async def on_path_update(event: "Event") -> None:
         normalized_path_len,
         normalized_path_hash_mode,
         updated_at=int(time.time()),
+        radio_id=radio_id,
     )
 
 
-async def on_new_contact(event: "Event") -> None:
+async def on_new_contact(event: "Event", radio_id: str = "default") -> None:
     """Handle new contact from radio's internal contact database.
 
     This is different from RF advertisements - these are contacts synced
     from the radio's stored contact list.
     """
-    if not ingest_allowed():
+    if not _is_ingest_allowed(radio_id):
         logger.debug("Skipping NEW_CONTACT because radio ingest is closed")
         return
     payload = event.payload
@@ -249,12 +275,14 @@ async def on_new_contact(event: "Event") -> None:
 
     logger.debug("New contact: %s", public_key[:12])
 
-    contact_upsert = ContactUpsert.from_radio_dict(public_key.lower(), payload, on_radio=False)
+    contact_upsert = ContactUpsert.from_radio_dict(
+        public_key.lower(), payload, on_radio=False, radio_id=radio_id
+    )
 
     # Block new contacts whose type is in discovery_blocked_types, matching
     # the same guard in _process_advertisement.  Existing contacts (already
     # in the DB) are always updated.
-    existing = await ContactRepository.get_by_key(public_key.lower())
+    existing = await ContactRepository.get_by_key(public_key.lower(), radio_id=radio_id)
     contact_type = contact_upsert.type or 0
     if existing is None and contact_type > 0:
         from app.repository import AppSettingsRepository
@@ -275,10 +303,11 @@ async def on_new_contact(event: "Event") -> None:
     # the air (adverts, messages, path updates). Contacts synced from the
     # radio's internal DB without any RF activity stay NULL until a real
     # RF observation fills them in.
-    inserted = await ContactRepository.upsert_reporting_insert(contact_upsert)
+    inserted = await ContactRepository.upsert_reporting_insert(contact_upsert, radio_id=radio_id)
     promoted_keys = await promote_prefix_contacts_for_contact(
         public_key=public_key,
         log=logger,
+        radio_id=radio_id,
     )
 
     adv_name = payload.get("adv_name")
@@ -287,28 +316,31 @@ async def on_new_contact(event: "Event") -> None:
         contact_name=adv_name,
         timestamp=int(time.time()),
         log=logger,
+        radio_id=radio_id,
     )
 
     # Read back from DB so the broadcast includes all fields (last_contacted,
     # last_read_at, etc.) matching the REST Contact shape exactly.
-    db_contact = await ContactRepository.get_by_key(public_key)
-    broadcast_event(
-        "contact",
-        (
-            db_contact.model_dump()
-            if db_contact
-            else Contact(**contact_upsert.model_dump(exclude_none=True)).model_dump()
-        ),
+    db_contact = await ContactRepository.get_by_key(public_key, radio_id=radio_id)
+    contact_payload = (
+        db_contact.model_dump()
+        if db_contact
+        else Contact(**contact_upsert.model_dump(exclude_none=True)).model_dump()
     )
+    if radio_id != "default":
+        broadcast_event("contact", contact_payload, radio_id=radio_id)
+    else:
+        broadcast_event("contact", contact_payload)
     if db_contact:
         for old_key in promoted_keys:
-            broadcast_event(
-                "contact_resolved",
-                {
-                    "previous_public_key": old_key,
-                    "contact": db_contact.model_dump(),
-                },
-            )
+            resolved_payload = {
+                "previous_public_key": old_key,
+                "contact": db_contact.model_dump(),
+            }
+            if radio_id != "default":
+                broadcast_event("contact_resolved", resolved_payload, radio_id=radio_id)
+            else:
+                broadcast_event("contact_resolved", resolved_payload)
 
     if inserted:
         from app.push.first_seen import maybe_notify_contact_first_seen
@@ -321,9 +353,9 @@ async def on_new_contact(event: "Event") -> None:
         )
 
 
-async def on_ack(event: "Event") -> None:
+async def on_ack(event: "Event", radio_id: str = "default") -> None:
     """Handle ACK events for direct messages."""
-    if not ingest_allowed():
+    if not _is_ingest_allowed(radio_id):
         logger.debug("Skipping ACK because radio ingest is closed")
         return
     payload = event.payload
@@ -333,12 +365,12 @@ async def on_ack(event: "Event") -> None:
         logger.debug("Received ACK with no code")
         return
 
-    logger.debug("Received ACK with code %s", ack_code)
-    matched = await apply_dm_ack_code(ack_code, broadcast_fn=broadcast_event)
+    logger.debug("Received ACK with code %s (radio_id=%s)", ack_code, radio_id)
+    matched = await apply_dm_ack_code(ack_code, broadcast_fn=broadcast_event, radio_id=radio_id)
     if matched:
-        logger.info("ACK received for code %s", ack_code)
+        logger.info("ACK received for code %s (radio_id=%s)", ack_code, radio_id)
     else:
-        logger.debug("ACK code %s does not match any pending messages", ack_code)
+        logger.debug("ACK code %s does not match any pending messages (radio_id=%s)", ack_code, radio_id)
 
 
 async def on_library_connected(event: "Event") -> None:
@@ -420,12 +452,31 @@ def register_event_handlers(meshcore: Any, radio_instance: Any = None) -> None:
     # Unsubscribe existing handlers for this radio (or globally) to prevent duplication
     unregister_event_handlers(radio_instance)
 
+    radio_id = "default"
+    if radio_instance is not None:
+        radio_id = getattr(radio_instance, "radio_id", "default")
+
+    async def _handle_contact_message(event: "Event") -> None:
+        await on_contact_message(event, radio_id=radio_id)
+
+    async def _handle_rx_log_data(event: "Event") -> None:
+        await on_rx_log_data(event, radio_id=radio_id)
+
+    async def _handle_path_update(event: "Event") -> None:
+        await on_path_update(event, radio_id=radio_id)
+
+    async def _handle_new_contact(event: "Event") -> None:
+        await on_new_contact(event, radio_id=radio_id)
+
+    async def _handle_ack(event: "Event") -> None:
+        await on_ack(event, radio_id=radio_id)
+
     new_subs = [
-        meshcore.subscribe(EventType.CONTACT_MSG_RECV, on_contact_message),
-        meshcore.subscribe(EventType.RX_LOG_DATA, on_rx_log_data),
-        meshcore.subscribe(EventType.PATH_UPDATE, on_path_update),
-        meshcore.subscribe(EventType.NEW_CONTACT, on_new_contact),
-        meshcore.subscribe(EventType.ACK, on_ack),
+        meshcore.subscribe(EventType.CONTACT_MSG_RECV, _handle_contact_message),
+        meshcore.subscribe(EventType.RX_LOG_DATA, _handle_rx_log_data),
+        meshcore.subscribe(EventType.PATH_UPDATE, _handle_path_update),
+        meshcore.subscribe(EventType.NEW_CONTACT, _handle_new_contact),
+        meshcore.subscribe(EventType.ACK, _handle_ack),
     ]
     if hasattr(EventType, "CONNECTED"):
         new_subs.append(meshcore.subscribe(EventType.CONNECTED, on_library_connected))
@@ -443,4 +494,4 @@ def register_event_handlers(meshcore: Any, radio_instance: Any = None) -> None:
     else:
         _active_subscriptions.extend(new_subs)
 
-    logger.info("Event handlers registered")
+    logger.info("Event handlers registered for radio_id=%s", radio_id)

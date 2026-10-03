@@ -61,11 +61,12 @@ async def resolve_fallback_direct_message_context(
     broadcast_fn: BroadcastFn,
     contact_repository=ContactRepository,
     log: logging.Logger | None = None,
+    radio_id: str = "default",
 ) -> FallbackDirectMessageContext:
     normalized_sender = sender_public_key.lower()
 
     try:
-        contact = await contact_repository.get_by_key_or_prefix(normalized_sender)
+        contact = await contact_repository.get_by_key_or_prefix(normalized_sender, radio_id=radio_id)
     except AmbiguousPublicKeyPrefixError:
         (log or logger).warning(
             "DM sender prefix '%s' is ambiguous; storing under prefix until full key is known",
@@ -91,9 +92,10 @@ async def resolve_fallback_direct_message_context(
             last_contacted=received_at,
             first_seen=received_at,
             on_radio=False,
+            radio_id=radio_id,
         )
-        await contact_repository.upsert(placeholder_upsert)
-        contact = await contact_repository.get_by_key(normalized_sender)
+        await contact_repository.upsert(placeholder_upsert, radio_id=radio_id)
+        contact = await contact_repository.get_by_key(normalized_sender, radio_id=radio_id)
         if contact is not None:
             broadcast_fn("contact", contact.model_dump())
 
@@ -112,12 +114,13 @@ async def resolve_direct_message_sender_metadata(
     broadcast_fn: BroadcastFn,
     contact_repository=ContactRepository,
     log: logging.Logger | None = None,
+    radio_id: str = "default",
 ) -> tuple[str | None, str | None]:
     """Resolve sender attribution for direct-message variants such as room-server posts."""
     normalized_sender = sender_public_key.lower()
 
     try:
-        contact = await contact_repository.get_by_key_or_prefix(normalized_sender)
+        contact = await contact_repository.get_by_key_or_prefix(normalized_sender, radio_id=radio_id)
     except AmbiguousPublicKeyPrefixError:
         (log or logger).warning(
             "Sender prefix '%s' is ambiguous; preserving prefix-only attribution",
@@ -163,6 +166,7 @@ async def _store_direct_message(
     message_repository=MessageRepository,
     contact_repository=ContactRepository,
     raw_packet_repository=RawPacketRepository,
+    radio_id: str = "default",
 ) -> Message | None:
     async def store() -> Message | None:
         if linked_packet_dedup and packet_id is not None:
@@ -192,6 +196,7 @@ async def _store_direct_message(
                 text=text,
                 sender_timestamp=sender_timestamp,
                 outgoing=outgoing,
+                radio_id=radio_id,
             )
             if existing_msg is not None:
                 await reconcile_duplicate_message(
@@ -228,6 +233,7 @@ async def _store_direct_message(
             region=region,
             packet_hash=packet_hash,
             observer_reach_eligible=observer_reach_eligible,
+            radio_id=radio_id,
         )
         if msg_id is None:
             await handle_duplicate_message(
@@ -254,6 +260,7 @@ async def _store_direct_message(
 
         message = build_message_model(
             message_id=msg_id,
+            radio_id=radio_id,
             msg_type="PRIV",
             conversation_key=conversation_key,
             text=text,
@@ -272,16 +279,24 @@ async def _store_direct_message(
             observer_reach_eligible=observer_reach_eligible,
         )
         broadcast_message(
-            message=message, broadcast_fn=broadcast_fn, realtime=realtime, packet_hash=packet_hash
+            message=message,
+            broadcast_fn=broadcast_fn,
+            realtime=realtime,
+            packet_hash=packet_hash,
+            radio_id=radio_id,
         )
 
         if update_last_contacted_key:
-            await contact_repository.update_last_contacted(update_last_contacted_key, received_at)
+            await contact_repository.update_last_contacted(
+                update_last_contacted_key, received_at, radio_id=radio_id
+            )
             # Incoming DMs are direct RF evidence that this contact transmitted;
             # outgoing DMs are our own send and must not bump the contact's
             # last_seen.
             if not outgoing:
-                await contact_repository.touch_last_seen(update_last_contacted_key, received_at)
+                await contact_repository.touch_last_seen(
+                    update_last_contacted_key, received_at, radio_id=radio_id
+                )
 
         return message
 
@@ -310,6 +325,7 @@ async def ingest_decrypted_direct_message(
     observer_reach_eligible: bool | None = None,
     hash_is_flood: bool | None = None,
     contact_repository=ContactRepository,
+    radio_id: str = "default",
 ) -> Message | None:
     conversation_key = their_public_key.lower()
 
@@ -321,7 +337,7 @@ async def ingest_decrypted_direct_message(
         )
         return None
 
-    contact = await contact_repository.get_by_key(conversation_key)
+    contact = await contact_repository.get_by_key(conversation_key, radio_id=radio_id)
     sender_name: str | None = None
     sender_key: str | None = conversation_key if not outgoing else None
     signature: str | None = None
@@ -373,6 +389,7 @@ async def ingest_decrypted_direct_message(
         region=region,
         observer_reach_eligible=observer_reach_eligible,
         hash_is_flood=hash_is_flood,
+        radio_id=radio_id,
     )
     if message is None:
         return None
@@ -402,6 +419,7 @@ async def ingest_fallback_direct_message(
     sender_key: str | None,
     broadcast_fn: BroadcastFn,
     update_last_contacted_key: str | None = None,
+    radio_id: str = "default",
 ) -> Message | None:
     return await _store_direct_message(
         packet_id=None,
@@ -421,4 +439,5 @@ async def ingest_fallback_direct_message(
         update_last_contacted_key=update_last_contacted_key,
         best_effort_content_dedup=True,
         linked_packet_dedup=False,
+        radio_id=radio_id,
     )

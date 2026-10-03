@@ -55,6 +55,7 @@ def build_message_paths(
 def build_message_model(
     *,
     message_id: int,
+    radio_id: str = "default",
     msg_type: str,
     conversation_key: str,
     text: str,
@@ -77,6 +78,7 @@ def build_message_model(
     """Build a Message model with the canonical backend payload shape."""
     return Message(
         id=message_id,
+        radio_id=radio_id,
         type=msg_type,
         conversation_key=conversation_key,
         text=text,
@@ -104,15 +106,33 @@ def broadcast_message(
     broadcast_fn: BroadcastFn,
     realtime: bool | None = None,
     packet_hash: str | None = None,
+    radio_id: str | None = None,
 ) -> None:
     """Broadcast a message payload, preserving the caller's broadcast signature."""
     payload = message.model_dump()
+    eff_radio = radio_id or getattr(message, "radio_id", None)
+    if eff_radio is not None:
+        payload["radio_id"] = eff_radio
     if packet_hash is not None:
         payload["packet_hash"] = packet_hash
-    if realtime is None:
-        broadcast_fn("message", payload)
-    else:
-        broadcast_fn("message", payload, realtime=realtime)
+
+    kwargs: dict[str, Any] = {}
+    if realtime is not None:
+        kwargs["realtime"] = realtime
+    if eff_radio is not None:
+        kwargs["radio_id"] = eff_radio
+
+    try:
+        broadcast_fn("message", payload, **kwargs)
+    except TypeError:
+        if "radio_id" in kwargs:
+            kwargs.pop("radio_id")
+            try:
+                broadcast_fn("message", payload, **kwargs)
+            except TypeError:
+                broadcast_fn("message", payload)
+        else:
+            broadcast_fn("message", payload)
 
 
 async def build_stored_outgoing_channel_message(
@@ -128,12 +148,15 @@ async def build_stored_outgoing_channel_message(
     message_repository=MessageRepository,
     packet_hash: str | None = None,
     observer_reach_eligible: bool | None = None,
+    radio_id: str = "default",
 ) -> Message:
     """Build the current payload for a stored outgoing channel message."""
     stored = await message_repository.get_by_id(message_id)
     acked_count, paths = await message_repository.get_ack_and_paths(message_id)
+    eff_radio = getattr(stored, "radio_id", None) or radio_id
     return build_message_model(
         message_id=message_id,
+        radio_id=eff_radio,
         msg_type="CHAN",
         conversation_key=conversation_key,
         text=text,
@@ -184,10 +207,18 @@ async def increment_ack_and_broadcast(
     *,
     message_id: int,
     broadcast_fn: BroadcastFn,
+    radio_id: str | None = None,
 ) -> int:
     """Increment a message's ACK count and broadcast the update."""
     ack_count = await MessageRepository.increment_ack_count(message_id)
-    broadcast_fn("message_acked", {"message_id": message_id, "ack_count": ack_count})
+    payload: dict[str, Any] = {"message_id": message_id, "ack_count": ack_count}
+    if radio_id is not None and radio_id != "default":
+        try:
+            broadcast_fn("message_acked", payload, radio_id=radio_id)
+        except TypeError:
+            broadcast_fn("message_acked", payload)
+    else:
+        broadcast_fn("message_acked", payload)
     return ack_count
 
 
@@ -323,6 +354,7 @@ async def create_message_from_decrypted(
     transport_code: int | None = None,
     region: str | None = None,
     observer_reach_eligible: bool | None = True,
+    radio_id: str = "default",
 ) -> int | None:
     """Store and broadcast a decrypted channel message."""
     received = received_at or int(time.time())
@@ -331,7 +363,7 @@ async def create_message_from_decrypted(
 
     resolved_sender_key: str | None = None
     if sender:
-        candidates = await ContactRepository.get_by_name(sender)
+        candidates = await ContactRepository.get_by_name(sender, radio_id=radio_id)
         if len(candidates) == 1:
             resolved_sender_key = candidates[0].public_key
 
@@ -351,6 +383,7 @@ async def create_message_from_decrypted(
         region=region,
         packet_hash=packet_hash,
         observer_reach_eligible=observer_reach_eligible,
+        radio_id=radio_id,
     )
 
     if msg_id is None:
@@ -385,6 +418,7 @@ async def create_message_from_decrypted(
     broadcast_message(
         message=build_message_model(
             message_id=msg_id,
+            radio_id=radio_id,
             msg_type="CHAN",
             conversation_key=channel_key_normalized,
             text=text,
@@ -403,6 +437,7 @@ async def create_message_from_decrypted(
         broadcast_fn=broadcast_fn,
         realtime=realtime,
         packet_hash=packet_hash,
+        radio_id=radio_id,
     )
 
     return msg_id
@@ -460,6 +495,7 @@ async def create_dm_message_from_decrypted(
     region: str | None = None,
     observer_reach_eligible: bool | None = None,
     hash_is_flood: bool | None = None,
+    radio_id: str = "default",
 ) -> int | None:
     """Store and broadcast a decrypted direct message."""
     from app.services.dm_ingest import ingest_decrypted_direct_message
@@ -481,6 +517,7 @@ async def create_dm_message_from_decrypted(
         region=region,
         observer_reach_eligible=observer_reach_eligible,
         hash_is_flood=hash_is_flood,
+        radio_id=radio_id,
     )
     return message.id if message is not None else None
 
@@ -498,6 +535,7 @@ async def create_fallback_channel_message(
     channel_name: str | None,
     broadcast_fn: BroadcastFn,
     message_repository=MessageRepository,
+    radio_id: str = "default",
 ) -> Message | None:
     """Store and broadcast a CHANNEL_MSG_RECV fallback channel message."""
     conversation_key_normalized = conversation_key.upper()
@@ -505,7 +543,7 @@ async def create_fallback_channel_message(
 
     resolved_sender_key: str | None = None
     if sender_name:
-        candidates = await ContactRepository.get_by_name(sender_name)
+        candidates = await ContactRepository.get_by_name(sender_name, radio_id=radio_id)
         if len(candidates) == 1:
             resolved_sender_key = candidates[0].public_key
 
@@ -520,6 +558,7 @@ async def create_fallback_channel_message(
         txt_type=txt_type,
         sender_name=sender_name,
         sender_key=resolved_sender_key,
+        radio_id=radio_id,
     )
     if msg_id is None:
         await handle_duplicate_message(
@@ -538,6 +577,7 @@ async def create_fallback_channel_message(
 
     message = build_message_model(
         message_id=msg_id,
+        radio_id=radio_id,
         msg_type="CHAN",
         conversation_key=conversation_key_normalized,
         text=text,
@@ -549,7 +589,7 @@ async def create_fallback_channel_message(
         sender_key=resolved_sender_key,
         channel_name=channel_name,
     )
-    broadcast_message(message=message, broadcast_fn=broadcast_fn)
+    broadcast_message(message=message, broadcast_fn=broadcast_fn, radio_id=radio_id)
     return message
 
 
@@ -561,6 +601,7 @@ async def create_outgoing_direct_message(
     received_at: int,
     broadcast_fn: BroadcastFn,
     message_repository=MessageRepository,
+    radio_id: str = "default",
 ) -> Message | None:
     """Store and broadcast an outgoing direct message.
 
@@ -576,6 +617,7 @@ async def create_outgoing_direct_message(
             text=text,
             sender_timestamp=sender_timestamp,
             outgoing=True,
+            radio_id=radio_id,
         )
         if existing is not None:
             return existing
@@ -587,12 +629,14 @@ async def create_outgoing_direct_message(
             sender_timestamp=sender_timestamp,
             received_at=received_at,
             outgoing=True,
+            radio_id=radio_id,
         )
         if msg_id is None:
             return None
 
         message = build_message_model(
             message_id=msg_id,
+            radio_id=radio_id,
             msg_type="PRIV",
             conversation_key=conversation_key,
             text=text,
@@ -601,7 +645,7 @@ async def create_outgoing_direct_message(
             outgoing=True,
             acked=0,
         )
-        broadcast_message(message=message, broadcast_fn=broadcast_fn)
+        broadcast_message(message=message, broadcast_fn=broadcast_fn, radio_id=radio_id)
         return message
 
 
@@ -617,6 +661,7 @@ async def create_outgoing_channel_message(
     broadcast_fn: BroadcastFn,
     broadcast: bool = True,
     message_repository=MessageRepository,
+    radio_id: str = "default",
 ) -> Message | None:
     """Store and broadcast an outgoing channel message."""
     from app.decoder import outgoing_group_text_packet_hash
@@ -633,6 +678,7 @@ async def create_outgoing_channel_message(
         sender_key=sender_key,
         packet_hash=packet_hash,
         observer_reach_eligible=True,
+        radio_id=radio_id,
     )
     if msg_id is None:
         return None
@@ -650,7 +696,8 @@ async def create_outgoing_channel_message(
         message_repository=message_repository,
         packet_hash=stored.packet_hash if stored is not None else packet_hash,
         observer_reach_eligible=(stored.observer_reach_eligible if stored is not None else True),
+        radio_id=radio_id,
     )
     if broadcast:
-        broadcast_message(message=message, broadcast_fn=broadcast_fn)
+        broadcast_message(message=message, broadcast_fn=broadcast_fn, radio_id=radio_id)
     return message
