@@ -483,9 +483,13 @@ class MessageRepository:
             "LEFT JOIN channels ON messages.radio_id = channels.radio_id "
             "AND messages.type = 'CHAN' "
             "AND messages.conversation_key = channels.key "
-            "WHERE messages.radio_id = ?"
         )
-        params: list[Any] = [eff_radio]
+        if eff_radio == "all":
+            query += "WHERE 1=1"
+            params: list[Any] = []
+        else:
+            query += "WHERE messages.radio_id = ?"
+            params = [eff_radio]
 
         blocked_clause, blocked_params = MessageRepository._build_blocked_incoming_clause(
             "messages", blocked_keys, blocked_names
@@ -567,8 +571,11 @@ class MessageRepository:
         # Build common WHERE clause for optional conversation/type filtering.
         # If the target message doesn't match filters, return an empty result.
         eff_radio = radio_id or "default"
-        where_parts: list[str] = ["radio_id = ?"]
-        base_params: list[Any] = [eff_radio]
+        where_parts: list[str] = []
+        base_params: list[Any] = []
+        if eff_radio != "all":
+            where_parts.append("radio_id = ?")
+            base_params.append(eff_radio)
         if msg_type:
             where_parts.append("type = ?")
             base_params.append(msg_type)

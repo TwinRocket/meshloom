@@ -818,7 +818,48 @@ class RadioInstance:
         self._last_connected = True
         self._setup_complete = False
         self._reset_reconnect_backoff()
+        self._tune_tcp_socket(mc)
         logger.debug("[radio:%s] TCP connection established", self.radio_id)
+
+    def _tune_tcp_socket(self, mc: Any) -> None:
+        """Enable and tune TCP keepalive to detect half-open sockets on flaky cellular/VPN links."""
+        try:
+            import socket
+
+            connection_mgr = getattr(mc, "connection_manager", None)
+            connection_obj = (
+                getattr(connection_mgr, "connection", None) if connection_mgr else None
+            )
+            sock = None
+            if hasattr(connection_obj, "get_extra_info"):
+                sock = connection_obj.get_extra_info("socket")
+            elif hasattr(connection_obj, "_transport") and hasattr(
+                connection_obj._transport, "get_extra_info"
+            ):
+                sock = connection_obj._transport.get_extra_info("socket")
+            elif hasattr(connection_obj, "_writer") and hasattr(
+                connection_obj._writer, "get_extra_info"
+            ):
+                sock = connection_obj._writer.get_extra_info("socket")
+            elif hasattr(connection_obj, "socket"):
+                sock = connection_obj.socket
+
+            if sock is not None:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                if hasattr(socket, "TCP_KEEPIDLE"):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 15)
+                if hasattr(socket, "TCP_KEEPINTVL"):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+                if hasattr(socket, "TCP_KEEPCNT"):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                if hasattr(socket, "SIO_KEEPALIVE_VALS"):
+                    sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 15000, 5000))
+                logger.debug(
+                    "[radio:%s] TCP keepalive configured (15s idle, 5s interval, 3 probes)",
+                    self.radio_id,
+                )
+        except Exception as e:
+            logger.debug("[radio:%s] Could not tune TCP keepalive: %s", self.radio_id, e)
 
     async def _connect_ble(self) -> None:
         """Connect to the radio over BLE."""

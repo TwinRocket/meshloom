@@ -63,11 +63,14 @@ class RawPacketRepository:
     async def get_undecrypted_count(radio_id: str = "default") -> int:
         """Get count of undecrypted packets (those without a linked message)."""
         eff_radio = radio_id or "default"
+        query = (
+            "SELECT COUNT(*) as count FROM raw_packets WHERE message_id IS NULL"
+            if eff_radio == "all"
+            else "SELECT COUNT(*) as count FROM raw_packets WHERE radio_id = ? AND message_id IS NULL"
+        )
+        params = () if eff_radio == "all" else (eff_radio,)
         async with db.readonly() as conn:
-            async with conn.execute(
-                "SELECT COUNT(*) as count FROM raw_packets WHERE radio_id = ? AND message_id IS NULL",
-                (eff_radio,),
-            ) as cursor:
+            async with conn.execute(query, params) as cursor:
                 row = await cursor.fetchone()
         return row["count"] if row else 0
 
@@ -75,11 +78,14 @@ class RawPacketRepository:
     async def get_oldest_undecrypted(radio_id: str = "default") -> int | None:
         """Get timestamp of oldest undecrypted packet, or None if none exist."""
         eff_radio = radio_id or "default"
+        query = (
+            "SELECT MIN(timestamp) as oldest FROM raw_packets WHERE message_id IS NULL"
+            if eff_radio == "all"
+            else "SELECT MIN(timestamp) as oldest FROM raw_packets WHERE radio_id = ? AND message_id IS NULL"
+        )
+        params = () if eff_radio == "all" else (eff_radio,)
         async with db.readonly() as conn:
-            async with conn.execute(
-                "SELECT MIN(timestamp) as oldest FROM raw_packets WHERE radio_id = ? AND message_id IS NULL",
-                (eff_radio,),
-            ) as cursor:
+            async with conn.execute(query, params) as cursor:
                 row = await cursor.fetchone()
         return row["oldest"] if row and row["oldest"] is not None else None
 
@@ -152,12 +158,15 @@ class RawPacketRepository:
         it does not exist. The caller parses and discards what it does not need.
         """
         eff_radio = radio_id or "default"
-        clauses = ["radio_id = ?"]
-        params: list[Any] = [eff_radio]
+        clauses = []
+        params: list[Any] = []
+        if eff_radio != "all":
+            clauses.append("radio_id = ?")
+            params.append(eff_radio)
         if since is not None:
             clauses.append("timestamp >= ?")
             params.append(since)
-        where = f"WHERE {' AND '.join(clauses)}"
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.append(limit)
         async with db.readonly() as conn:
             async with conn.execute(
@@ -314,8 +323,11 @@ class RawPacketRepository:
     ) -> tuple[str, list[Any]]:
         """Build a timestamp-index window for newest-first history paging."""
         eff_radio = radio_id or "default"
-        clauses: list[str] = ["radio_id = ?"]
-        params: list[Any] = [eff_radio]
+        clauses: list[str] = []
+        params: list[Any] = []
+        if eff_radio != "all":
+            clauses.append("radio_id = ?")
+            params.append(eff_radio)
         if since is not None:
             clauses.append("timestamp >= ?")
             params.append(since)
@@ -328,7 +340,7 @@ class RawPacketRepository:
         elif id_before is not None:
             clauses.append("id < ?")
             params.append(id_before)
-        where = f"WHERE {' AND '.join(clauses)}"
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         return where, params
 
     @staticmethod
