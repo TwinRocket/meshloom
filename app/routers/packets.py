@@ -23,6 +23,7 @@ from app.repository import (
     RawPacketRepository,
 )
 from app.services.messages import backfill_message_regions
+from app.services.radio_registry import resolve_radio_id
 from app.services.raw_packet_decrypt import attach_raw_packet_decrypted_info
 from app.services.test_channel import drop_test_channel_samples
 from app.websocket import broadcast_success
@@ -60,17 +61,21 @@ def _bad_request(detail: str) -> HTTPException:
 
 
 async def _run_historical_channel_decryption(
-    channel_key_bytes: bytes, channel_key_hex: str, display_name: str | None = None
+    channel_key_bytes: bytes,
+    channel_key_hex: str,
+    display_name: str | None = None,
+    radio_id: str = "default",
 ) -> None:
     """Background task to decrypt historical packets with a channel key."""
-    total = await RawPacketRepository.get_undecrypted_count()
+    eff_radio = resolve_radio_id(radio_id)
+    total = await RawPacketRepository.get_undecrypted_count(radio_id=eff_radio)
     decrypted_count = 0
 
     if total == 0:
         logger.info("No undecrypted packets to process")
         return
 
-    logger.info("Starting historical channel decryption of %d packets", total)
+    logger.info("Starting historical channel decryption of %d packets (radio=%s)", total, eff_radio)
 
     known_regions = (await AppSettingsRepository.get()).known_regions
 
@@ -78,7 +83,7 @@ async def _run_historical_channel_decryption(
         packet_id,
         packet_data,
         packet_timestamp,
-    ) in RawPacketRepository.stream_all_undecrypted():
+    ) in RawPacketRepository.stream_all_undecrypted(radio_id=eff_radio):
         result = try_decrypt_packet_with_channel_key(packet_data, channel_key_bytes)
 
         if result is not None:
@@ -132,9 +137,10 @@ async def _run_historical_channel_decryption(
 
 
 @router.get("/undecrypted/count")
-async def get_undecrypted_count() -> dict:
+async def get_undecrypted_count(radio_id: str | None = Query(default=None)) -> dict:
     """Get the count of undecrypted packets."""
-    count = await RawPacketRepository.get_undecrypted_count()
+    eff_radio = resolve_radio_id(radio_id)
+    count = await RawPacketRepository.get_undecrypted_count(radio_id=eff_radio)
     return {"count": count}
 
 
@@ -147,8 +153,10 @@ async def get_undecrypted_group_text_samples(
     max_per_hash: int = 4,
     max_scan: int = 8000,
     received_since_days: int = 30,
+    radio_id: str | None = Query(default=None),
 ) -> UndecryptedGroupTextSamplesResponse:
     """Return a bounded newest-first sample of recent undecrypted GROUP_TEXT packets."""
+    eff_radio = resolve_radio_id(radio_id)
     max_hashes = min(max(max_hashes, 1), 200)
     max_per_hash = min(max(max_per_hash, 1), 16)
     max_scan = min(max(max_scan, 1), 50000)
@@ -160,6 +168,7 @@ async def get_undecrypted_group_text_samples(
         max_per_hash=max_per_hash,
         max_scan=max_scan,
         received_since=received_since,
+        radio_id=eff_radio,
     )
     samples = [
         UndecryptedGroupTextSample(
@@ -258,8 +267,10 @@ async def get_raw_packet_history(
     limit: int = Query(default=100, ge=1, le=HISTORY_ITEM_LIMIT),
     after_id: int | None = Query(default=None, ge=1),
     max_scan: int = Query(default=HISTORY_SCAN_LIMIT, ge=1, le=HISTORY_SCAN_LIMIT),
+    radio_id: str | None = Query(default=None),
 ) -> RawPacketHistoryResponse:
     """Return a bounded newest-first page of stored raw packets."""
+    eff_radio = resolve_radio_id(radio_id)
     if since is not None and until is not None and since > until:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -274,6 +285,7 @@ async def get_raw_packet_history(
         limit=limit,
         max_scan=max_scan,
         payload_type=type_filter,
+        radio_id=eff_radio,
     )
     known_regions = (await AppSettingsRepository.get()).known_regions
     items = [
@@ -332,12 +344,16 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
 
 @router.post("/decrypt/historical", response_model=DecryptResult)
 async def decrypt_historical_packets(
-    request: DecryptRequest, background_tasks: BackgroundTasks, response: Response
+    request: DecryptRequest,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    radio_id: str | None = Query(default=None),
 ) -> DecryptResult:
     """
     Attempt to decrypt historical packets with the provided key.
     Runs in the background. Multiple decrypt jobs can run concurrently.
     """
+    eff_radio = resolve_radio_id(radio_id)
     if request.key_type == "channel":
         # Channel decryption
         if request.channel_key:
@@ -355,18 +371,22 @@ async def decrypt_historical_packets(
             raise _bad_request("Must provide channel_key or channel_name")
 
         # Get count and lookup channel name for display
-        count = await RawPacketRepository.get_undecrypted_count()
+        count = await RawPacketRepository.get_undecrypted_count(radio_id=eff_radio)
         if count == 0:
             return DecryptResult(
                 started=False, total_packets=0, message="No undecrypted packets to process"
             )
 
         # Try to find channel name for display
-        channel = await ChannelRepository.get_by_key(channel_key_hex)
+        channel = await ChannelRepository.get_by_key(channel_key_hex, radio_id=eff_radio)
         display_name = channel.name if channel else request.channel_name
 
         background_tasks.add_task(
-            _run_historical_channel_decryption, channel_key_bytes, channel_key_hex, display_name
+            _run_historical_channel_decryption,
+            channel_key_bytes,
+            channel_key_hex,
+            display_name,
+            eff_radio,
         )
         response.status_code = status.HTTP_202_ACCEPTED
 
@@ -398,7 +418,7 @@ async def decrypt_historical_packets(
         except ValueError:
             raise _bad_request("Invalid hex string for contact public key") from None
 
-        count = await RawPacketRepository.count_undecrypted_text_messages()
+        count = await RawPacketRepository.count_undecrypted_text_messages(radio_id=eff_radio)
         if count == 0:
             return DecryptResult(
                 started=False,
@@ -409,7 +429,7 @@ async def decrypt_historical_packets(
         # Try to find contact name for display
         from app.repository import ContactRepository
 
-        contact = await ContactRepository.get_by_key(contact_public_key_hex)
+        contact = await ContactRepository.get_by_key(contact_public_key_hex, radio_id=eff_radio)
         display_name = contact.name if contact else None
 
         background_tasks.add_task(
@@ -418,6 +438,7 @@ async def decrypt_historical_packets(
             contact_public_key_bytes,
             contact_public_key_hex,
             display_name,
+            eff_radio,
         )
         response.status_code = status.HTTP_202_ACCEPTED
 
@@ -446,7 +467,10 @@ class MaintenanceResult(BaseModel):
 
 
 @router.post("/maintenance", response_model=MaintenanceResult)
-async def run_maintenance(request: MaintenanceRequest) -> MaintenanceResult:
+async def run_maintenance(
+    request: MaintenanceRequest,
+    radio_id: str | None = Query(default=None),
+) -> MaintenanceResult:
     """
     Run packet maintenance tasks and reclaim disk space.
 
@@ -454,22 +478,28 @@ async def run_maintenance(request: MaintenanceRequest) -> MaintenanceResult:
     - Optionally deletes raw packets already linked to stored messages
     - Runs VACUUM to reclaim disk space
     """
+    eff_radio = resolve_radio_id(radio_id)
     deleted = 0
 
     if request.prune_undecrypted_days is not None:
         logger.info(
-            "Running maintenance: pruning undecrypted packets older than %d days",
+            "Running maintenance: pruning undecrypted packets older than %d days (radio=%s)",
             request.prune_undecrypted_days,
+            eff_radio,
         )
         pruned_undecrypted = await RawPacketRepository.prune_old_undecrypted(
-            request.prune_undecrypted_days
+            request.prune_undecrypted_days,
+            radio_id=eff_radio,
         )
         deleted += pruned_undecrypted
         logger.info("Deleted %d old undecrypted packets", pruned_undecrypted)
 
     if request.purge_linked_raw_packets:
-        logger.info("Running maintenance: purging raw packets linked to stored messages")
-        purged_linked = await RawPacketRepository.purge_linked_to_messages()
+        logger.info(
+            "Running maintenance: purging raw packets linked to stored messages (radio=%s)",
+            eff_radio,
+        )
+        purged_linked = await RawPacketRepository.purge_linked_to_messages(radio_id=eff_radio)
         deleted += purged_linked
         logger.info("Deleted %d linked raw packets", purged_linked)
 

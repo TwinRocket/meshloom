@@ -77,6 +77,7 @@ from app.routers import (
     packets,
     push,
     radio,
+    radios_mgmt,
     read_state,
     repeaters,
     rooms,
@@ -92,6 +93,7 @@ from app.services.hashtag_catalogue import (
     stop_hashtag_catalogue_polling,
 )
 from app.services.oss_updates import start_oss_update_polling, stop_oss_update_polling
+from app.services.radio_registry import RadioNotFoundError
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import start_radio_stats_sampling, stop_radio_stats_sampling
 from app.services.stale_contacts import start_stale_contact_purge, stop_stale_contact_purge
@@ -174,8 +176,10 @@ async def lifespan(app: FastAPI):
     start_hashtag_catalogue_polling()
     start_stale_contact_purge()
 
-    # Always start connection monitor (even if initial connection failed)
-    await radio_manager.start_connection_monitor()
+    # Always start connection monitors for all radios (even if initial connection failed)
+    from app.services.radio_registry import radio_registry
+
+    await radio_registry.start_all()
 
     # Start fanout modules (MQTT, etc.) from database configs
     from app.fanout.manager import fanout_manager
@@ -209,7 +213,7 @@ async def lifespan(app: FastAPI):
     await shutdown_community_live()
     await fanout_manager.stop_all()
     await radio_proxy_manager.stop()
-    await radio_manager.stop_connection_monitor()
+    await radio_registry.stop_all()
     await stop_background_contact_reconciliation()
     await stop_message_polling()
     await stop_radio_stats_sampling()
@@ -219,9 +223,6 @@ async def lifespan(app: FastAPI):
     await stop_periodic_sync()
     await stop_telemetry_collect()
     await stop_stale_contact_purge()
-    if radio_manager.meshcore:
-        await radio_manager.meshcore.stop_auto_message_fetching()
-    await radio_manager.disconnect()
     await db.disconnect()
 
 
@@ -252,6 +253,15 @@ async def radio_disconnected_handler(request: Request, exc: RadioDisconnectedErr
     return JSONResponse(
         status_code=423,
         content={"detail": {"code": "radio_not_connected", "message": "Radio not connected"}},
+    )
+
+
+@app.exception_handler(RadioNotFoundError)
+async def radio_not_found_handler(request: Request, exc: RadioNotFoundError):
+    """Return 404 when a requested radio instance does not exist in registry."""
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
     )
 
 
@@ -300,6 +310,7 @@ app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
 app.include_router(radio.router, prefix="/api")
+app.include_router(radios_mgmt.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(contact_groups.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")

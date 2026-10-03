@@ -13,6 +13,7 @@ interface UseConversationActionsArgs {
   setChannels: React.Dispatch<React.SetStateAction<Channel[]>>;
   observeMessage: (msg: Message) => { added: boolean; activeConversation: boolean };
   messageInputRef: RefObject<MessageInputHandle | null>;
+  activeRadioId?: string;
 }
 
 interface UseConversationActionsResult {
@@ -38,6 +39,7 @@ export function useConversationActions({
   setChannels,
   observeMessage,
   messageInputRef,
+  activeRadioId,
 }: UseConversationActionsArgs): UseConversationActionsResult {
   const mergeChannelIntoList = useCallback(
     (updated: Channel) => {
@@ -61,14 +63,18 @@ export function useConversationActions({
       const conversationId = activeConversation.id;
       const sent =
         activeConversation.type === 'channel'
-          ? await api.sendChannelMessage(activeConversation.id, text)
-          : await api.sendDirectMessage(activeConversation.id, text);
+          ? activeRadioId
+            ? await api.sendChannelMessage(activeConversation.id, text, activeRadioId)
+            : await api.sendChannelMessage(activeConversation.id, text)
+          : activeRadioId
+            ? await api.sendDirectMessage(activeConversation.id, text, activeRadioId)
+            : await api.sendDirectMessage(activeConversation.id, text);
 
       if (activeConversationRef.current?.id === conversationId) {
         observeMessage(sent);
       }
     },
-    [activeConversation, activeConversationRef, observeMessage]
+    [activeConversation, activeConversationRef, observeMessage, activeRadioId]
   );
 
   const handleResendChannelMessage = useCallback(

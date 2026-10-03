@@ -39,6 +39,7 @@ async def test_db():
         push_subscriptions,
         radio_proxy,
         radio_transport,
+        radios,
         raw_packets,
         repeater_pane_cache,
         repeater_telemetry,
@@ -58,6 +59,7 @@ async def test_db():
         messages,
         radio_proxy,
         radio_transport,
+        radios,
         raw_packets,
         settings,
         fanout_repo,
@@ -115,12 +117,19 @@ def _reset_radio_ingest_gate():
     """Keep the process-wide ingest gate open between tests."""
     from app.radio import radio_manager
     from app.services.radio_ingest_gate import allow_ingest
+    from app.services.radio_registry import radio_registry
 
-    allow_ingest()
-    radio_manager.connection_desired = True
+    def reset() -> None:
+        allow_ingest()
+        if radio_registry.has("default"):
+            default_radio = radio_registry.get_default()
+            default_radio.allow_ingest()
+            default_radio.connection_desired = True
+        radio_manager.connection_desired = True
+
+    reset()
     yield
-    allow_ingest()
-    radio_manager.connection_desired = True
+    reset()
 
 
 @pytest.fixture(autouse=True)
@@ -133,11 +142,20 @@ def _reset_radio_channel_slots():
     never chose. Which tests share a worker decides whether that happens.
     """
     from app.radio import radio_manager
+    from app.services.radio_registry import radio_registry
 
     def clear() -> None:
+        for rid in [k for k in list(radio_registry._instances.keys()) if k != "default"]:
+            radio_registry.unregister(rid)
         radio_manager._channel_slot_by_key.clear()
         radio_manager._channel_key_by_slot.clear()
         radio_manager._pending_message_channel_key_by_slot.clear()
+        if radio_registry.has("default"):
+            default_radio = radio_registry.get_default()
+            if default_radio is not radio_manager:
+                default_radio._channel_slot_by_key.clear()
+                default_radio._channel_key_by_slot.clear()
+                default_radio._pending_message_channel_key_by_slot.clear()
 
     clear()
     yield
@@ -158,10 +176,27 @@ def _reset_radio_operation_lock():
     loop that is actually running.
     """
     from app.radio import radio_manager
+    from app.services.radio_registry import radio_registry
 
-    radio_manager._operation_lock = None
+    def clear() -> None:
+        for rid in [k for k in list(radio_registry._instances.keys()) if k != "default"]:
+            radio_registry.unregister(rid)
+        radio_manager._operation_lock = None
+        radio_manager._reconnect_lock = None
+        radio_manager._setup_lock = None
+        radio_manager._lifecycle_lock = None
+        if not radio_registry.has("default"):
+            radio_registry.register(radio_manager)
+        elif radio_registry.get_default() is not radio_manager:
+            default_radio = radio_registry.get_default()
+            default_radio._operation_lock = None
+            default_radio._reconnect_lock = None
+            default_radio._setup_lock = None
+            default_radio._lifecycle_lock = None
+
+    clear()
     yield
-    radio_manager._operation_lock = None
+    clear()
 
 
 @pytest.fixture(autouse=True)

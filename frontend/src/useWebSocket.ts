@@ -7,6 +7,7 @@ import type {
   Contact,
   Message,
   MessagePath,
+  RadioRecord,
   RawPacket,
 } from './types';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
@@ -44,6 +45,9 @@ export interface UseWebSocketOptions {
     extras?: { packet_hash?: string | null; observer_reach_eligible?: boolean | null }
   ) => void;
   onMessageDeleted?: (messageId: number) => void;
+  onRadioCreated?: (radio: RadioRecord) => void;
+  onRadioUpdated?: (radio: RadioRecord) => void;
+  onRadioDeleted?: (radioId: string) => void;
   onError?: (error: ErrorEvent) => void;
   onSuccess?: (success: SuccessEvent) => void;
   onReconnect?: () => void;
@@ -192,6 +196,15 @@ export function useWebSocket(options: UseWebSocketOptions) {
           }
           case 'message_deleted':
             handlers.onMessageDeleted?.((msg.data as { message_id: number }).message_id);
+            break;
+          case 'radio_created':
+            handlers.onRadioCreated?.(msg.data as RadioRecord);
+            break;
+          case 'radio_updated':
+            handlers.onRadioUpdated?.(msg.data as RadioRecord);
+            break;
+          case 'radio_deleted':
+            handlers.onRadioDeleted?.((msg.data as { radio_id: string }).radio_id);
             break;
           case 'error':
             handlers.onError?.(msg.data as ErrorEvent);

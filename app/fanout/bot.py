@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from app.fanout.base import FanoutModule
 
@@ -80,11 +81,13 @@ class BotModule(FanoutModule):
         if not code or not code.strip():
             return
 
+        radio_id = data.get("radio_id", "default")
         msg_type = data.get("type", "")
         is_dm = msg_type == "PRIV"
         conversation_key = data.get("conversation_key", "")
         logger.debug(
-            "Bot '%s' starting for type=%s conversation=%s outgoing=%s",
+            "[radio:%s] Bot '%s' starting for type=%s conversation=%s outgoing=%s",
+            radio_id,
             self.name,
             msg_type or "unknown",
             conversation_key[:12] if conversation_key else "(none)",
@@ -107,7 +110,9 @@ class BotModule(FanoutModule):
                 if sender_name is None:
                     from app.repository import ContactRepository
 
-                    contact = await ContactRepository.get_by_key(conversation_key)
+                    contact = await ContactRepository.get_by_key(
+                        conversation_key, radio_id=radio_id
+                    )
                     sender_name = contact.name if contact else None
         else:
             sender_key = None
@@ -119,7 +124,7 @@ class BotModule(FanoutModule):
             if channel_name is None:
                 from app.repository import ChannelRepository
 
-                channel = await ChannelRepository.get_by_key(conversation_key)
+                channel = await ChannelRepository.get_by_key(conversation_key, radio_id=radio_id)
                 channel_name = channel.name if channel else None
 
             # Strip "sender: " prefix from channel message text
@@ -150,6 +155,25 @@ class BotModule(FanoutModule):
         # Execute bot code in thread pool with timeout
         from app.fanout.bot_exec import _bot_executor, _bot_semaphore
 
+        executor_args: list[Any] = [
+            code,
+            sender_name,
+            sender_key,
+            message_text,
+            is_dm,
+            channel_key,
+            channel_name,
+            sender_timestamp,
+            path_value,
+            is_outgoing,
+            path_bytes_per_hop,
+            packet_hash,
+            region,
+            scoped,
+        ]
+        if radio_id != "default":
+            executor_args.append(radio_id)
+
         async with _bot_semaphore:
             loop = asyncio.get_running_loop()
             try:
@@ -157,20 +181,7 @@ class BotModule(FanoutModule):
                     loop.run_in_executor(
                         _bot_executor,
                         execute_bot_code,
-                        code,
-                        sender_name,
-                        sender_key,
-                        message_text,
-                        is_dm,
-                        channel_key,
-                        channel_name,
-                        sender_timestamp,
-                        path_value,
-                        is_outgoing,
-                        path_bytes_per_hop,
-                        packet_hash,
-                        region,
-                        scoped,
+                        *executor_args,
                     ),
                     timeout=BOT_EXECUTION_TIMEOUT,
                 )
@@ -182,7 +193,15 @@ class BotModule(FanoutModule):
                 return
 
         if response and self._active:
-            await process_bot_response(response, is_dm, sender_key or "", channel_key)
+            if radio_id == "default":
+                await process_bot_response(response, is_dm, sender_key or "", channel_key)
+            else:
+                try:
+                    await process_bot_response(
+                        response, is_dm, sender_key or "", channel_key, radio_id=radio_id
+                    )
+                except TypeError:
+                    await process_bot_response(response, is_dm, sender_key or "", channel_key)
 
     @property
     def status(self) -> str:

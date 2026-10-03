@@ -30,34 +30,36 @@ _MAX_AGE_SECONDS = 7 * 86400
 class RepeaterPaneCacheRepository:
     """Last known answer per repeater pane.
 
-    A cache, not a history: one row per (public_key, pane), overwritten on each
+    A cache, not a history: one row per (radio_id, public_key, pane), overwritten on each
     successful fetch. Time series live in `repeater_telemetry_history`.
     """
 
     @staticmethod
-    async def put(public_key: str, pane: str, data: dict | list) -> None:
+    async def put(public_key: str, pane: str, data: dict | list, radio_id: str = "default") -> None:
         if pane not in CACHEABLE_PANES:
             return
+        eff_radio = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
                 """
-                INSERT INTO repeater_pane_cache (public_key, pane, data, fetched_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(public_key, pane) DO UPDATE SET
+                INSERT INTO repeater_pane_cache (radio_id, public_key, pane, data, fetched_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(radio_id, public_key, pane) DO UPDATE SET
                     data = excluded.data,
                     fetched_at = excluded.fetched_at
                 """,
-                (public_key, pane, json.dumps(data), int(time.time())),
+                (eff_radio, public_key, pane, json.dumps(data), int(time.time())),
             ):
                 pass
 
     @staticmethod
-    async def get_all(public_key: str) -> dict[str, dict]:
+    async def get_all(public_key: str, radio_id: str = "default") -> dict[str, dict]:
         """Every cached pane for one repeater, keyed by pane name.
 
         Each entry carries its own `fetched_at` so callers can show how old the
         values are instead of passing them off as current.
         """
+        eff_radio = radio_id or "default"
         cutoff = int(time.time()) - _MAX_AGE_SECONDS
         out: dict[str, dict] = {}
         async with db.readonly() as conn:
@@ -65,9 +67,9 @@ class RepeaterPaneCacheRepository:
                 """
                 SELECT pane, data, fetched_at
                 FROM repeater_pane_cache
-                WHERE public_key = ? AND fetched_at >= ?
+                WHERE radio_id = ? AND public_key = ? AND fetched_at >= ?
                 """,
-                (public_key, cutoff),
+                (eff_radio, public_key, cutoff),
             ) as cursor:
                 async for row in cursor:
                     try:
@@ -79,10 +81,11 @@ class RepeaterPaneCacheRepository:
         return out
 
     @staticmethod
-    async def clear(public_key: str) -> None:
+    async def clear(public_key: str, radio_id: str = "default") -> None:
+        eff_radio = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
-                "DELETE FROM repeater_pane_cache WHERE public_key = ?",
-                (public_key,),
+                "DELETE FROM repeater_pane_cache WHERE radio_id = ? AND public_key = ?",
+                (eff_radio, public_key),
             ):
                 pass

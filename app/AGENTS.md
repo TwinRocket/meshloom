@@ -45,6 +45,8 @@ app/
 │   ├── radio_stats.py           # In-memory local radio stats sampling and noise-floor history
 │   ├── radio_runtime.py         # Router/dependency seam over the global RadioManager
 │   ├── radio_transport.py       # UX-owned radio transport snapshot (serial / TCP / BLE)
+│   ├── radio_instance.py        # Domain abstraction for a single physical/virtual MeshCore radio instance
+│   ├── radio_registry.py        # Central registry managing all active RadioInstances and defaults
 │   ├── directory.py             # Community directory (resolve-hops, nodes, reach, neighbors, search)
 │   ├── community_live.py        # Stats live-packet relay (one upstream socket, local fan-out)
 │   └── rf_locate.py             # RF locate identity + 0-hop disk assembly
@@ -74,6 +76,7 @@ app/
     ├── health.py
     ├── debug.py
     ├── radio.py
+    ├── radios_mgmt.py        # /api/radios CRUD, connection testing, and lifecycle actions
     ├── contacts.py
     ├── channels.py
     ├── messages.py

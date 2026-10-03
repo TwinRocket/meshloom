@@ -383,16 +383,27 @@ def _device_payload(
     model: str,
     *,
     via_device_key: str | None = None,
+    radio_id: str = "default",
 ) -> dict[str, Any]:
     """Build an HA device registry fragment."""
+    ident = (
+        f"meshcore_{_node_id(public_key)}"
+        if radio_id == "default"
+        else f"meshcore_{radio_id}_{_node_id(public_key)}"
+    )
     dev: dict[str, Any] = {
-        "identifiers": [f"meshcore_{_node_id(public_key)}"],
+        "identifiers": [ident],
         "name": name or public_key[:12],
         "manufacturer": "MeshCore",
         "model": model,
     }
     if via_device_key:
-        dev["via_device"] = f"meshcore_{_node_id(via_device_key)}"
+        via_ident = (
+            f"meshcore_{_node_id(via_device_key)}"
+            if radio_id == "default"
+            else f"meshcore_{radio_id}_{_node_id(via_device_key)}"
+        )
+        dev["via_device"] = via_ident
     return dev
 
 

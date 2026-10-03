@@ -44,6 +44,18 @@ Import via `PUT /api/radio/private-key` is always available regardless of this s
 
 The Radio Settings config export/import feature uses these endpoints. When export is disabled, config exports will omit the private key and show a notice.
 
+## Multi-Radio Management & Remote Links
+
+Meshloom supports managing multiple MeshCore radios simultaneously from a single instance:
+- **Transport Flexibility:** Connect local USB Serial, Bluetooth LE, and remote TCP radios (e.g. over WireGuard, Tailscale, or public WAN) at the same time.
+- **Data Isolation:** Each radio maintains its own separate SQLite contact roster, channel slots, message history, packets, and unread counts.
+- **Zero-Clutter Backward Compatibility:** When only one radio is configured, the multi-radio UI chrome remains completely hidden, providing the exact single-radio experience.
+- **Remote Link Robustness:** Remote TCP connections feature:
+  - **Socket keepalive tuning:** Kernel-level keepalive probes (15s idle, 5s interval, 3 probes) detect half-open sockets caused by broken cellular or VPN connections within ~30s instead of hanging for hours.
+  - **Exponential backoff with jitter:** Reconnect attempts use backoff with ±20% jitter to prevent reconnect storms on flaky links.
+- **Configuration & Management:** Manage radios via **Settings → Radios** or through the REST API (`/api/radios`). Test candidate connection parameters before saving with the built-in connection tester.
+- **Read-Time Aggregated View:** Pass `radio_id=all` to `GET /api/messages` or `GET /api/packets/history` to view traffic overheard across all configured radios.
+
 ## ModuleNotFoundError: No module named 'meshcore'
 
 This means uvicorn ran against your system Python instead of the project's virtualenv. Fix it from the repo root:

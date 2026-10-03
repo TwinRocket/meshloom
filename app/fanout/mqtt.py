@@ -68,24 +68,28 @@ class MqttPublisher(BaseMqttPublisher):
 
 def _build_message_topic(prefix: str, data: dict[str, Any]) -> str:
     """Build MQTT topic for a decrypted message."""
+    radio_id = data.get("radio_id", "default")
+    base_prefix = prefix if radio_id == "default" else f"{prefix}/{radio_id}"
     msg_type = data.get("type", "")
     conversation_key = data.get("conversation_key", "unknown")
 
     if msg_type == "PRIV":
-        return f"{prefix}/dm:{conversation_key}"
+        return f"{base_prefix}/dm:{conversation_key}"
     elif msg_type == "CHAN":
-        return f"{prefix}/gm:{conversation_key}"
-    return f"{prefix}/message:{conversation_key}"
+        return f"{base_prefix}/gm:{conversation_key}"
+    return f"{base_prefix}/message:{conversation_key}"
 
 
 def _build_raw_packet_topic(prefix: str, data: dict[str, Any]) -> str:
     """Build MQTT topic for a raw packet."""
+    radio_id = data.get("radio_id", "default")
+    base_prefix = prefix if radio_id == "default" else f"{prefix}/{radio_id}"
     info = data.get("decrypted_info")
     if info and isinstance(info, dict):
         contact_key = info.get("contact_key")
         channel_key = info.get("channel_key")
         if contact_key:
-            return f"{prefix}/raw/dm:{contact_key}"
+            return f"{base_prefix}/raw/dm:{contact_key}"
         if channel_key:
-            return f"{prefix}/raw/gm:{channel_key}"
-    return f"{prefix}/raw/unrouted"
+            return f"{base_prefix}/raw/gm:{channel_key}"
+    return f"{base_prefix}/raw/unrouted"

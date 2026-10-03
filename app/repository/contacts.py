@@ -37,14 +37,14 @@ class ContactRepository:
         return ContactUpsert.model_validate(contact)
 
     _UPSERT_SQL = """
-                INSERT INTO contacts (public_key, name, type, flags, direct_path, direct_path_len,
+                INSERT INTO contacts (radio_id, public_key, name, type, flags, direct_path, direct_path_len,
                                       direct_path_hash_mode, direct_path_updated_at,
                                       route_override_path, route_override_len,
                                       route_override_hash_mode,
                                       last_advert, lat, lon, last_seen,
                                       on_radio, last_contacted, first_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(public_key) DO UPDATE SET
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(radio_id, public_key) DO UPDATE SET
                     name = COALESCE(excluded.name, contacts.name),
                     type = CASE WHEN excluded.type = 0 THEN contacts.type ELSE excluded.type END,
                     flags = excluded.flags,
@@ -82,8 +82,10 @@ class ContactRepository:
     @staticmethod
     def _upsert_params(
         contact: ContactUpsert | Contact | Mapping[str, Any],
-    ) -> tuple[str, tuple[Any, ...]]:
+        radio_id: str = "default",
+    ) -> tuple[str, str, tuple[Any, ...]]:
         contact_row = ContactRepository._coerce_contact_upsert(contact)
+        effective_radio_id = radio_id or getattr(contact_row, "radio_id", None) or "default"
         if (
             contact_row.direct_path is None
             and contact_row.direct_path_len is None
@@ -106,47 +108,62 @@ class ContactRepository:
             )
         )
         public_key = contact_row.public_key.lower()
-        return public_key, (
+        return (
+            effective_radio_id,
             public_key,
-            contact_row.name,
-            contact_row.type,
-            contact_row.flags,
-            direct_path,
-            direct_path_len,
-            direct_path_hash_mode,
-            contact_row.direct_path_updated_at,
-            route_override_path,
-            route_override_len,
-            route_override_hash_mode,
-            contact_row.last_advert,
-            contact_row.lat,
-            contact_row.lon,
-            contact_row.last_seen,
-            contact_row.on_radio,
-            contact_row.last_contacted,
-            contact_row.first_seen,
+            (
+                effective_radio_id,
+                public_key,
+                contact_row.name,
+                contact_row.type,
+                contact_row.flags,
+                direct_path,
+                direct_path_len,
+                direct_path_hash_mode,
+                contact_row.direct_path_updated_at,
+                route_override_path,
+                route_override_len,
+                route_override_hash_mode,
+                contact_row.last_advert,
+                contact_row.lat,
+                contact_row.lon,
+                contact_row.last_seen,
+                contact_row.on_radio,
+                contact_row.last_contacted,
+                contact_row.first_seen,
+            ),
         )
 
     @staticmethod
-    async def upsert(contact: ContactUpsert | Contact | Mapping[str, Any]) -> None:
-        _public_key, params = ContactRepository._upsert_params(contact)
+    async def upsert(
+        contact: ContactUpsert | Contact | Mapping[str, Any],
+        radio_id: str = "default",
+    ) -> None:
+        _radio_id, _public_key, params = ContactRepository._upsert_params(
+            contact, radio_id=radio_id
+        )
         async with db.tx() as conn:
             async with conn.execute(ContactRepository._UPSERT_SQL, params):
                 pass
 
     @staticmethod
-    async def upsert_reporting_insert(contact: ContactUpsert | Contact | Mapping[str, Any]) -> bool:
+    async def upsert_reporting_insert(
+        contact: ContactUpsert | Contact | Mapping[str, Any],
+        radio_id: str = "default",
+    ) -> bool:
         """Upsert a contact and report whether the row was newly inserted.
 
         SELECT + INSERT share one ``db.tx()``. Do not call ``get_by_key()``
         here — the DB lock is not re-entrant. Returns True only when the
-        public key did not already exist.
+        public key did not already exist for this radio.
         """
-        public_key, params = ContactRepository._upsert_params(contact)
+        eff_radio_id, public_key, params = ContactRepository._upsert_params(
+            contact, radio_id=radio_id
+        )
         async with db.tx() as conn:
             async with conn.execute(
-                "SELECT 1 FROM contacts WHERE public_key = ?",
-                (public_key,),
+                "SELECT 1 FROM contacts WHERE radio_id = ? AND public_key = ?",
+                (eff_radio_id, public_key),
             ) as cursor:
                 existed = await cursor.fetchone() is not None
             async with conn.execute(ContactRepository._UPSERT_SQL, params):
@@ -181,6 +198,7 @@ class ContactRepository:
             )
         )
         return Contact(
+            radio_id=row["radio_id"] if "radio_id" in available_columns else "default",
             public_key=row["public_key"],
             name=row["name"],
             type=row["type"],
@@ -209,29 +227,35 @@ class ContactRepository:
         )
 
     @staticmethod
-    async def get_by_key(public_key: str) -> Contact | None:
+    async def get_by_key(public_key: str, radio_id: str = "default") -> Contact | None:
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT * FROM contacts WHERE public_key = ?", (public_key.lower(),)
+                "SELECT * FROM contacts WHERE radio_id = ? AND public_key = ?",
+                (eff_radio_id, public_key.lower()),
             ) as cursor:
                 row = await cursor.fetchone()
         return ContactRepository._row_to_contact(row) if row else None
 
+    # Alias for get_by_key
+    get = get_by_key
+
     @staticmethod
-    async def get_by_key_prefix(prefix: str) -> Contact | None:
+    async def get_by_key_prefix(prefix: str, radio_id: str = "default") -> Contact | None:
         """Get a contact by key prefix only if it resolves uniquely.
 
         Returns None when no contacts match OR when multiple contacts match
         the prefix (to avoid silently selecting the wrong contact).
         """
+        eff_radio_id = radio_id or "default"
         normalized_prefix = prefix.lower()
-        exact = await ContactRepository.get_by_key(normalized_prefix)
+        exact = await ContactRepository.get_by_key(normalized_prefix, radio_id=eff_radio_id)
         if exact:
             return exact
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT * FROM contacts WHERE public_key LIKE ? ORDER BY public_key LIMIT 2",
-                (f"{normalized_prefix}%",),
+                "SELECT * FROM contacts WHERE radio_id = ? AND public_key LIKE ? ORDER BY public_key LIMIT 2",
+                (eff_radio_id, f"{normalized_prefix}%"),
             ) as cursor:
                 rows = list(await cursor.fetchall())
         if len(rows) != 1:
@@ -239,27 +263,33 @@ class ContactRepository:
         return ContactRepository._row_to_contact(rows[0])
 
     @staticmethod
-    async def _get_prefix_matches(prefix: str, limit: int = 2) -> list[Contact]:
+    async def _get_prefix_matches(
+        prefix: str, limit: int = 2, radio_id: str = "default"
+    ) -> list[Contact]:
         """Get contacts matching a key prefix, up to limit."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT * FROM contacts WHERE public_key LIKE ? ORDER BY public_key LIMIT ?",
-                (f"{prefix.lower()}%", limit),
+                "SELECT * FROM contacts WHERE radio_id = ? AND public_key LIKE ? ORDER BY public_key LIMIT ?",
+                (eff_radio_id, f"{prefix.lower()}%", limit),
             ) as cursor:
                 rows = list(await cursor.fetchall())
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_by_key_or_prefix(key_or_prefix: str) -> Contact | None:
+    async def get_by_key_or_prefix(key_or_prefix: str, radio_id: str = "default") -> Contact | None:
         """Get a contact by exact key match, falling back to prefix match.
 
         Useful when the input might be a full 64-char public key or a shorter prefix.
         """
-        contact = await ContactRepository.get_by_key(key_or_prefix)
+        eff_radio_id = radio_id or "default"
+        contact = await ContactRepository.get_by_key(key_or_prefix, radio_id=eff_radio_id)
         if contact:
             return contact
 
-        matches = await ContactRepository._get_prefix_matches(key_or_prefix, limit=2)
+        matches = await ContactRepository._get_prefix_matches(
+            key_or_prefix, limit=2, radio_id=eff_radio_id
+        )
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -270,20 +300,28 @@ class ContactRepository:
         return None
 
     @staticmethod
-    async def list_by_key_prefix(prefix: str, limit: int = 20) -> list[Contact]:
+    async def list_by_key_prefix(
+        prefix: str, limit: int = 20, radio_id: str = "default"
+    ) -> list[Contact]:
         """List contacts matching a public-key prefix (not hop prefixes)."""
-        return await ContactRepository._get_prefix_matches(prefix, limit=limit)
+        return await ContactRepository._get_prefix_matches(prefix, limit=limit, radio_id=radio_id)
 
     @staticmethod
-    async def get_by_name(name: str) -> list[Contact]:
+    async def get_by_name(name: str, radio_id: str = "default") -> list[Contact]:
         """Get all contacts with the given exact name."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
-            async with conn.execute("SELECT * FROM contacts WHERE name = ?", (name,)) as cursor:
+            async with conn.execute(
+                "SELECT * FROM contacts WHERE radio_id = ? AND name = ?",
+                (eff_radio_id, name),
+            ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def resolve_prefixes(prefixes: list[str]) -> dict[str, Contact]:
+    async def resolve_prefixes(
+        prefixes: list[str], radio_id: str = "default"
+    ) -> dict[str, Contact]:
         """Resolve multiple key prefixes to contacts in a single query.
 
         Returns a dict mapping each prefix to its Contact, only for prefixes
@@ -292,11 +330,15 @@ class ContactRepository:
         """
         if not prefixes:
             return {}
+        eff_radio_id = radio_id or "default"
         normalized = [p.lower() for p in prefixes]
         conditions = " OR ".join(["public_key LIKE ?"] * len(normalized))
-        params = [f"{p}%" for p in normalized]
+        params = [eff_radio_id] + [f"{p}%" for p in normalized]
         async with db.readonly() as conn:
-            async with conn.execute(f"SELECT * FROM contacts WHERE {conditions}", params) as cursor:
+            async with conn.execute(
+                f"SELECT * FROM contacts WHERE radio_id = ? AND ({conditions})",
+                params,
+            ) as cursor:
                 rows = await cursor.fetchall()
         # Group by which prefix each row matches
         prefix_to_rows: dict[str, list] = {p: [] for p in normalized}
@@ -313,7 +355,7 @@ class ContactRepository:
         return result
 
     @staticmethod
-    async def list_stale_public_keys(cutoff: int) -> list[str]:
+    async def list_stale_public_keys(cutoff: int, radio_id: str = "default") -> list[str]:
         """Public keys matching the bulk-delete last-heard-before filter.
 
         A contact is stale when ``COALESCE(last_seen, 0)`` and ``first_seen``
@@ -321,117 +363,130 @@ class ContactRepository:
         (NEW_CONTACT / radio sync / POST contact leave RF timestamps unset).
         Favorites are never returned — automatic purge must not remove them.
         """
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT public_key FROM contacts
-                WHERE favorite = 0
+                WHERE radio_id = ?
+                  AND favorite = 0
                   AND COALESCE(last_seen, 0) <= ?
                   AND first_seen <= ?
                 """,
-                (cutoff, cutoff),
+                (eff_radio_id, cutoff, cutoff),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [row["public_key"] for row in rows]
 
     @staticmethod
-    async def get_all(limit: int = 100, offset: int = 0) -> list[Contact]:
+    async def get_all(
+        limit: int = 100, offset: int = 0, radio_id: str = "default"
+    ) -> list[Contact]:
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT * FROM contacts ORDER BY COALESCE(name, public_key) LIMIT ? OFFSET ?",
-                (limit, offset),
+                "SELECT * FROM contacts WHERE radio_id = ? ORDER BY COALESCE(name, public_key) LIMIT ? OFFSET ?",
+                (eff_radio_id, limit, offset),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def list_with_map_location() -> list[Contact]:
+    async def list_with_map_location(radio_id: str = "default") -> list[Contact]:
         """Contacts with a usable map pin (non-null, not the 0,0 sentinel)."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT * FROM contacts
-                WHERE lat IS NOT NULL
+                WHERE radio_id = ?
+                  AND lat IS NOT NULL
                   AND lon IS NOT NULL
                   AND NOT (lat = 0 AND lon = 0)
                   AND length(public_key) = 64
-                """
+                """,
+                (eff_radio_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_repeaters_by_recent(limit: int = 8) -> list[Contact]:
-        """Get repeater contacts ordered by most recently seen.
-
-        Used by the region discovery sweep, which prefers recently-heard
-        repeaters since the anon regions request is direct-routed and only
-        in-range repeaters will answer.
-        """
+    async def get_repeaters_by_recent(limit: int = 8, radio_id: str = "default") -> list[Contact]:
+        """Get repeater contacts ordered by most recently seen."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT * FROM contacts
-                WHERE type = 2 AND length(public_key) = 64
+                WHERE radio_id = ? AND type = 2 AND length(public_key) = 64
                 ORDER BY COALESCE(last_seen, 0) DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (eff_radio_id, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_recently_contacted_non_repeaters(limit: int = 200) -> list[Contact]:
+    async def get_recently_contacted_non_repeaters(
+        limit: int = 200, radio_id: str = "default"
+    ) -> list[Contact]:
         """Get recently interacted-with non-repeater contacts."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT * FROM contacts
-                WHERE type != 2 AND last_contacted IS NOT NULL AND length(public_key) = 64
+                WHERE radio_id = ? AND type != 2 AND last_contacted IS NOT NULL AND length(public_key) = 64
                 ORDER BY last_contacted DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (eff_radio_id, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_recently_dm_active_non_repeaters(limit: int = 200) -> list[Contact]:
+    async def get_recently_dm_active_non_repeaters(
+        limit: int = 200, radio_id: str = "default"
+    ) -> list[Contact]:
         """Get non-repeater contacts with the most recent DM activity (sent or received)."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT c.*
                 FROM contacts c
                 INNER JOIN (
-                    SELECT conversation_key, MAX(received_at) AS last_dm
+                    SELECT radio_id, conversation_key, MAX(received_at) AS last_dm
                     FROM messages
-                    WHERE type = 'PRIV'
-                    GROUP BY conversation_key
-                ) m ON c.public_key = m.conversation_key
-                WHERE c.type != 2 AND length(c.public_key) = 64
+                    WHERE radio_id = ? AND type = 'PRIV'
+                    GROUP BY radio_id, conversation_key
+                ) m ON c.radio_id = m.radio_id AND c.public_key = m.conversation_key
+                WHERE c.radio_id = ? AND c.type != 2 AND length(c.public_key) = 64
                 ORDER BY m.last_dm DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (eff_radio_id, eff_radio_id, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_recently_advertised_non_repeaters(limit: int = 200) -> list[Contact]:
+    async def get_recently_advertised_non_repeaters(
+        limit: int = 200, radio_id: str = "default"
+    ) -> list[Contact]:
         """Get recently advert-heard non-repeater contacts."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT * FROM contacts
-                WHERE type != 2 AND last_advert IS NOT NULL AND length(public_key) = 64
+                WHERE radio_id = ? AND type != 2 AND last_advert IS NOT NULL AND length(public_key) = 64
                 ORDER BY last_advert DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (eff_radio_id, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
@@ -443,16 +498,10 @@ class ContactRepository:
         path_len: int,
         path_hash_mode: int | None = None,
         updated_at: int | None = None,
+        radio_id: str = "default",
     ) -> None:
-        """Persist a learned direct route for a contact.
-
-        Both callers (the RF PATH packet processor and the firmware PATH_UPDATE
-        event handler) are RF-backed: firmware ``onContactPathUpdated`` only
-        fires from ``onContactPathRecv`` during RF PATH packet reception. So
-        this method also advances ``last_seen`` monotonically. Never moves
-        ``last_seen`` backwards if an out-of-order arrival lands with an older
-        timestamp.
-        """
+        """Persist a learned direct route for a contact."""
+        eff_radio_id = radio_id or "default"
         normalized_path, normalized_path_len, normalized_hash_mode = normalize_contact_route(
             path,
             path_len,
@@ -469,7 +518,7 @@ class ContactRepository:
                        WHEN ? > last_seen THEN ?
                        ELSE last_seen
                    END
-                   WHERE public_key = ?""",
+                   WHERE radio_id = ? AND public_key = ?""",
                 (
                     normalized_path,
                     normalized_path_len,
@@ -478,6 +527,7 @@ class ContactRepository:
                     ts,
                     ts,
                     ts,
+                    eff_radio_id,
                     public_key.lower(),
                 ),
             ):
@@ -489,7 +539,9 @@ class ContactRepository:
         path: str | None,
         path_len: int | None,
         path_hash_mode: int | None = None,
+        radio_id: str = "default",
     ) -> None:
+        eff_radio_id = radio_id or "default"
         normalized_path, normalized_len, normalized_hash_mode = normalize_route_override(
             path,
             path_len,
@@ -500,19 +552,21 @@ class ContactRepository:
                 """
                 UPDATE contacts
                 SET route_override_path = ?, route_override_len = ?, route_override_hash_mode = ?
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                 """,
                 (
                     normalized_path,
                     normalized_len,
                     normalized_hash_mode,
+                    eff_radio_id,
                     public_key.lower(),
                 ),
             ):
                 pass
 
     @staticmethod
-    async def clear_routing_override(public_key: str) -> None:
+    async def clear_routing_override(public_key: str, radio_id: str = "default") -> None:
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
                 """
@@ -520,96 +574,92 @@ class ContactRepository:
                 SET route_override_path = NULL,
                     route_override_len = NULL,
                     route_override_hash_mode = NULL
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                 """,
-                (public_key.lower(),),
+                (eff_radio_id, public_key.lower()),
             ):
                 pass
 
     @staticmethod
-    async def clear_on_radio_except(keep_keys: list[str]) -> None:
+    async def clear_on_radio_except(keep_keys: list[str], radio_id: str = "default") -> None:
         """Set on_radio=False for all contacts NOT in keep_keys."""
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             if not keep_keys:
-                async with conn.execute("UPDATE contacts SET on_radio = 0 WHERE on_radio = 1"):
+                async with conn.execute(
+                    "UPDATE contacts SET on_radio = 0 WHERE radio_id = ? AND on_radio = 1",
+                    (eff_radio_id,),
+                ):
                     pass
             else:
                 placeholders = ",".join("?" * len(keep_keys))
                 async with conn.execute(
-                    f"UPDATE contacts SET on_radio = 0 WHERE on_radio = 1 AND public_key NOT IN ({placeholders})",
-                    keep_keys,
+                    f"UPDATE contacts SET on_radio = 0 WHERE radio_id = ? AND on_radio = 1 AND public_key NOT IN ({placeholders})",
+                    [eff_radio_id, *keep_keys],
                 ):
                     pass
 
     @staticmethod
-    async def get_favorites() -> list[Contact]:
+    async def get_favorites(radio_id: str = "default") -> list[Contact]:
         """Return all contacts marked as favorite."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT * FROM contacts WHERE favorite = 1 AND LENGTH(public_key) = 64"
+                "SELECT * FROM contacts WHERE radio_id = ? AND favorite = 1 AND LENGTH(public_key) = 64",
+                (eff_radio_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def set_favorite(public_key: str, value: bool) -> None:
+    async def set_favorite(public_key: str, value: bool, radio_id: str = "default") -> None:
         """Set or clear the favorite flag for a contact."""
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE contacts SET favorite = ? WHERE public_key = ?",
-                (1 if value else 0, public_key.lower()),
+                "UPDATE contacts SET favorite = ? WHERE radio_id = ? AND public_key = ?",
+                (1 if value else 0, eff_radio_id, public_key.lower()),
             ):
                 pass
 
     @staticmethod
-    async def set_pinned(public_key: str, value: bool) -> None:
+    async def set_pinned(public_key: str, value: bool, radio_id: str = "default") -> None:
         """Set or clear the pinned flag for a contact."""
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE contacts SET pinned = ? WHERE public_key = ?",
-                (1 if value else 0, public_key.lower()),
+                "UPDATE contacts SET pinned = ? WHERE radio_id = ? AND public_key = ?",
+                (1 if value else 0, eff_radio_id, public_key.lower()),
             ):
                 pass
 
     @staticmethod
-    async def delete(public_key: str) -> None:
+    async def delete(public_key: str, radio_id: str = "default") -> None:
+        eff_radio_id = radio_id or "default"
         normalized = public_key.lower()
-        # contact_name_history and contact_advert_paths cascade via FK.
-        # Messages are intentionally preserved so history re-surfaces
-        # if the contact is re-added later.
         async with db.tx() as conn:
-            async with conn.execute("DELETE FROM contacts WHERE public_key = ?", (normalized,)):
+            async with conn.execute(
+                "DELETE FROM contacts WHERE radio_id = ? AND public_key = ?",
+                (eff_radio_id, normalized),
+            ):
                 pass
 
     @staticmethod
-    async def update_last_contacted(public_key: str, timestamp: int | None = None) -> None:
-        """Update the last_contacted timestamp for a contact.
-
-        ``last_contacted`` tracks the most recent direct-conversation activity
-        with this contact in either direction (incoming or outgoing DM). It is
-        the field that powers "recent conversations" ordering on the frontend.
-
-        It deliberately does not touch ``last_seen``: ``last_seen`` is reserved
-        for actual RF reception from the contact, and outgoing sends are not
-        evidence that we heard from them. RF observations from DM ingest update
-        ``last_seen`` via :meth:`touch_last_seen` on incoming DMs only.
-        """
+    async def update_last_contacted(
+        public_key: str, timestamp: int | None = None, radio_id: str = "default"
+    ) -> None:
+        eff_radio_id = radio_id or "default"
         ts = timestamp if timestamp is not None else int(time.time())
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE contacts SET last_contacted = ? WHERE public_key = ?",
-                (ts, public_key.lower()),
+                "UPDATE contacts SET last_contacted = ? WHERE radio_id = ? AND public_key = ?",
+                (ts, eff_radio_id, public_key.lower()),
             ):
                 pass
 
     @staticmethod
-    async def touch_last_seen(public_key: str, timestamp: int) -> None:
-        """Monotonically bump last_seen for a contact from an RF observation.
-
-        Never moves last_seen backwards; a no-op if the contact row does not
-        exist. Use this from packet-ingest paths that have attributed a packet
-        to a specific contact pubkey (advert, incoming DM, decrypted PATH, etc.).
-        """
+    async def touch_last_seen(public_key: str, timestamp: int, radio_id: str = "default") -> None:
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
                 """
@@ -619,95 +669,86 @@ class ContactRepository:
                     WHEN ? > last_seen THEN ?
                     ELSE last_seen
                 END
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                 """,
-                (timestamp, timestamp, timestamp, public_key.lower()),
+                (timestamp, timestamp, timestamp, eff_radio_id, public_key.lower()),
             ):
                 pass
 
     @staticmethod
-    async def update_last_read_at(public_key: str, timestamp: int | None = None) -> bool:
-        """Update the last_read_at timestamp for a contact.
-
-        Returns True if a row was updated, False if contact not found.
-        """
+    async def update_last_read_at(
+        public_key: str, timestamp: int | None = None, radio_id: str = "default"
+    ) -> bool:
+        eff_radio_id = radio_id or "default"
         ts = timestamp if timestamp is not None else int(time.time())
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE contacts SET last_read_at = ? WHERE public_key = ?",
-                (ts, public_key.lower()),
+                "UPDATE contacts SET last_read_at = ? WHERE radio_id = ? AND public_key = ?",
+                (ts, eff_radio_id, public_key.lower()),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount > 0
 
     @staticmethod
-    async def list_prefix_placeholder_keys(full_key: str) -> list[str]:
-        """Return shorter stored keys that are prefixes of ``full_key``.
-
-        Same identity rule as ``promote_prefix_placeholders``: length < 64
-        and ``full_key`` starts with the stored key.
-        """
+    async def list_prefix_placeholder_keys(full_key: str, radio_id: str = "default") -> list[str]:
+        eff_radio_id = radio_id or "default"
         normalized = full_key.lower()
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT public_key
                 FROM contacts
-                WHERE length(public_key) < 64
+                WHERE radio_id = ?
+                  AND length(public_key) < 64
                   AND ? LIKE public_key || '%'
                 ORDER BY length(public_key) DESC, public_key
                 """,
-                (normalized,),
+                (eff_radio_id, normalized),
             ) as cursor:
                 rows = list(await cursor.fetchall())
         return [row["public_key"] for row in rows]
 
     @staticmethod
-    async def promote_prefix_placeholders(full_key: str) -> list[str]:
-        """Promote prefix-only placeholder contacts to a resolved full key.
-
-        Returns the placeholder public keys that were merged into the full key.
-        All operations for the promotion happen inside one ``db.tx()`` so
-        partial promotions never leak to readers between steps.
-        """
+    async def promote_prefix_placeholders(full_key: str, radio_id: str = "default") -> list[str]:
+        eff_radio_id = radio_id or "default"
 
         async def migrate_child_rows(conn, old_key: str, new_key: str) -> None:
             async with conn.execute(
                 """
-                INSERT INTO contact_name_history (public_key, name, first_seen, last_seen)
-                SELECT ?, name, first_seen, last_seen
+                INSERT INTO contact_name_history (radio_id, public_key, name, first_seen, last_seen)
+                SELECT radio_id, ?, name, first_seen, last_seen
                 FROM contact_name_history
-                WHERE public_key = ?
-                ON CONFLICT(public_key, name) DO UPDATE SET
+                WHERE radio_id = ? AND public_key = ?
+                ON CONFLICT(radio_id, public_key, name) DO UPDATE SET
                     first_seen = MIN(contact_name_history.first_seen, excluded.first_seen),
                     last_seen = MAX(contact_name_history.last_seen, excluded.last_seen)
                 """,
-                (new_key, old_key),
+                (new_key, eff_radio_id, old_key),
             ):
                 pass
             async with conn.execute(
                 """
                 INSERT INTO contact_advert_paths
-                    (public_key, path_hex, path_len, first_seen, last_seen, heard_count)
-                SELECT ?, path_hex, path_len, first_seen, last_seen, heard_count
+                    (radio_id, public_key, path_hex, path_len, first_seen, last_seen, heard_count)
+                SELECT radio_id, ?, path_hex, path_len, first_seen, last_seen, heard_count
                 FROM contact_advert_paths
-                WHERE public_key = ?
-                ON CONFLICT(public_key, path_hex, path_len) DO UPDATE SET
+                WHERE radio_id = ? AND public_key = ?
+                ON CONFLICT(radio_id, public_key, path_hex, path_len) DO UPDATE SET
                     first_seen = MIN(contact_advert_paths.first_seen, excluded.first_seen),
                     last_seen = MAX(contact_advert_paths.last_seen, excluded.last_seen),
                     heard_count = contact_advert_paths.heard_count + excluded.heard_count
                 """,
-                (new_key, old_key),
+                (new_key, eff_radio_id, old_key),
             ):
                 pass
             async with conn.execute(
-                "DELETE FROM contact_name_history WHERE public_key = ?",
-                (old_key,),
+                "DELETE FROM contact_name_history WHERE radio_id = ? AND public_key = ?",
+                (eff_radio_id, old_key),
             ):
                 pass
             async with conn.execute(
-                "DELETE FROM contact_advert_paths WHERE public_key = ?",
-                (old_key,),
+                "DELETE FROM contact_advert_paths WHERE radio_id = ? AND public_key = ?",
+                (eff_radio_id, old_key),
             ):
                 pass
 
@@ -718,11 +759,12 @@ class ContactRepository:
                 """
                 SELECT public_key, last_seen, last_contacted, first_seen, last_read_at
                 FROM contacts
-                WHERE length(public_key) < 64
+                WHERE radio_id = ?
+                  AND length(public_key) < 64
                   AND ? LIKE public_key || '%'
                 ORDER BY length(public_key) DESC, public_key
                 """,
-                (normalized_full_key,),
+                (eff_radio_id, normalized_full_key),
             ) as cursor:
                 rows = list(await cursor.fetchall())
             if not rows:
@@ -737,10 +779,11 @@ class ContactRepository:
                     """
                     SELECT COUNT(*) AS match_count
                     FROM contacts
-                    WHERE length(public_key) = 64
+                    WHERE radio_id = ?
+                      AND length(public_key) = 64
                       AND public_key LIKE ? || '%'
                     """,
-                    (old_key,),
+                    (eff_radio_id, old_key),
                 ) as match_cursor:
                     match_row = await match_cursor.fetchone()
                 match_count = match_row["match_count"] if match_row is not None else 0
@@ -754,9 +797,6 @@ class ContactRepository:
 
                 await migrate_child_rows(conn, old_key, normalized_full_key)
 
-                # Merge timestamp metadata from the old prefix contact into the
-                # full-key contact (which all callers guarantee already exists),
-                # then delete the prefix placeholder.
                 async with conn.execute(
                     """
                     UPDATE contacts
@@ -784,7 +824,7 @@ class ContactRepository:
                             WHEN ? > contacts.last_read_at THEN ?
                             ELSE contacts.last_read_at
                         END
-                    WHERE public_key = ?
+                    WHERE radio_id = ? AND public_key = ?
                     """,
                     (
                         row["last_seen"],
@@ -803,11 +843,15 @@ class ContactRepository:
                         row["last_read_at"],
                         row["last_read_at"],
                         row["last_read_at"],
+                        eff_radio_id,
                         normalized_full_key,
                     ),
                 ):
                     pass
-                async with conn.execute("DELETE FROM contacts WHERE public_key = ?", (old_key,)):
+                async with conn.execute(
+                    "DELETE FROM contacts WHERE radio_id = ? AND public_key = ?",
+                    (eff_radio_id, old_key),
+                ):
                     pass
 
                 promoted_keys.append(old_key)
@@ -815,19 +859,24 @@ class ContactRepository:
         return promoted_keys
 
     @staticmethod
-    async def mark_all_read(timestamp: int) -> None:
+    async def mark_all_read(timestamp: int, radio_id: str = "default") -> None:
         """Mark all contacts as read at the given timestamp."""
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
-            async with conn.execute("UPDATE contacts SET last_read_at = ?", (timestamp,)):
+            async with conn.execute(
+                "UPDATE contacts SET last_read_at = ? WHERE radio_id = ?",
+                (timestamp, eff_radio_id),
+            ):
                 pass
 
     @staticmethod
-    async def get_by_pubkey_first_byte(hex_byte: str) -> list[Contact]:
+    async def get_by_pubkey_first_byte(hex_byte: str, radio_id: str = "default") -> list[Contact]:
         """Get contacts whose public key starts with the given hex byte (2 chars)."""
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT * FROM contacts WHERE substr(public_key, 1, 2) = ?",
-                (hex_byte.lower(),),
+                "SELECT * FROM contacts WHERE radio_id = ? AND substr(public_key, 1, 2) = ?",
+                (eff_radio_id, hex_byte.lower()),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactRepository._row_to_contact(row) for row in rows]
@@ -857,10 +906,10 @@ class ContactAdvertPathRepository:
         timestamp: int,
         max_paths: int = 10,
         hop_count: int | None = None,
+        radio_id: str = "default",
     ) -> None:
-        """
-        Upsert a unique advert path observation for a contact and prune to N most recent.
-        """
+        """Upsert a unique advert path observation for a contact and prune to N most recent."""
+        eff_radio_id = radio_id or "default"
         if max_paths < 1:
             max_paths = 1
 
@@ -872,53 +921,64 @@ class ContactAdvertPathRepository:
             async with conn.execute(
                 """
                 INSERT INTO contact_advert_paths
-                    (public_key, path_hex, path_len, first_seen, last_seen, heard_count)
-                VALUES (?, ?, ?, ?, ?, 1)
-                ON CONFLICT(public_key, path_hex, path_len) DO UPDATE SET
+                    (radio_id, public_key, path_hex, path_len, first_seen, last_seen, heard_count)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+                ON CONFLICT(radio_id, public_key, path_hex, path_len) DO UPDATE SET
                     last_seen = MAX(contact_advert_paths.last_seen, excluded.last_seen),
                     heard_count = contact_advert_paths.heard_count + 1
                 """,
-                (normalized_key, normalized_path, path_len, timestamp, timestamp),
+                (
+                    eff_radio_id,
+                    normalized_key,
+                    normalized_path,
+                    path_len,
+                    timestamp,
+                    timestamp,
+                ),
             ):
                 pass
 
-            # Keep only the N most recent unique paths per contact.
+            # Keep only the N most recent unique paths per contact for this radio.
             async with conn.execute(
                 """
                 DELETE FROM contact_advert_paths
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                   AND id NOT IN (
                       SELECT id
                       FROM contact_advert_paths
-                      WHERE public_key = ?
+                      WHERE radio_id = ? AND public_key = ?
                       ORDER BY last_seen DESC, heard_count DESC, path_len ASC, path_hex ASC
                       LIMIT ?
                   )
                 """,
-                (normalized_key, normalized_key, max_paths),
+                (eff_radio_id, normalized_key, eff_radio_id, normalized_key, max_paths),
             ):
                 pass
 
     @staticmethod
-    async def get_recent_for_contact(public_key: str, limit: int = 10) -> list[ContactAdvertPath]:
+    async def get_recent_for_contact(
+        public_key: str, limit: int = 10, radio_id: str = "default"
+    ) -> list[ContactAdvertPath]:
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT path_hex, path_len, first_seen, last_seen, heard_count
                 FROM contact_advert_paths
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                 ORDER BY last_seen DESC, heard_count DESC, path_len ASC, path_hex ASC
                 LIMIT ?
                 """,
-                (public_key.lower(), limit),
+                (eff_radio_id, public_key.lower(), limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [ContactAdvertPathRepository._row_to_path(row) for row in rows]
 
     @staticmethod
     async def get_recent_for_all_contacts(
-        limit_per_contact: int = 10,
+        limit_per_contact: int = 10, radio_id: str = "default"
     ) -> list[ContactAdvertPathSummary]:
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
@@ -926,15 +986,16 @@ class ContactAdvertPathRepository:
                 FROM (
                     SELECT *,
                            ROW_NUMBER() OVER (
-                               PARTITION BY public_key
+                               PARTITION BY radio_id, public_key
                                ORDER BY last_seen DESC, heard_count DESC, path_len ASC, path_hex ASC
                            ) AS rn
                     FROM contact_advert_paths
+                    WHERE radio_id = ?
                 )
                 WHERE rn <= ?
                 ORDER BY public_key ASC, last_seen DESC, heard_count DESC, path_len ASC, path_hex ASC
                 """,
-                (limit_per_contact,),
+                (eff_radio_id, limit_per_contact),
             ) as cursor:
                 rows = await cursor.fetchall()
 
@@ -956,31 +1017,35 @@ class ContactNameHistoryRepository:
     """Repository for contact name change history."""
 
     @staticmethod
-    async def record_name(public_key: str, name: str, timestamp: int) -> None:
+    async def record_name(
+        public_key: str, name: str, timestamp: int, radio_id: str = "default"
+    ) -> None:
         """Record a name observation. Upserts: updates last_seen if name already known."""
+        eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
                 """
-                INSERT INTO contact_name_history (public_key, name, first_seen, last_seen)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(public_key, name) DO UPDATE SET
+                INSERT INTO contact_name_history (radio_id, public_key, name, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(radio_id, public_key, name) DO UPDATE SET
                     last_seen = MAX(contact_name_history.last_seen, excluded.last_seen)
                 """,
-                (public_key.lower(), name, timestamp, timestamp),
+                (eff_radio_id, public_key.lower(), name, timestamp, timestamp),
             ):
                 pass
 
     @staticmethod
-    async def get_history(public_key: str) -> list[ContactNameHistory]:
+    async def get_history(public_key: str, radio_id: str = "default") -> list[ContactNameHistory]:
+        eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT name, first_seen, last_seen
                 FROM contact_name_history
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                 ORDER BY last_seen DESC
                 """,
-                (public_key.lower(),),
+                (eff_radio_id, public_key.lower()),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [

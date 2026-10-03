@@ -128,7 +128,14 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
     has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in param_values)
     explicit_optional_names = tuple(
         name
-        for name in ("is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped")
+        for name in (
+            "is_outgoing",
+            "path_bytes_per_hop",
+            "packet_hash",
+            "region",
+            "scoped",
+            "radio_id",
+        )
         if name in params
     )
     unsupported_required_kwonly = [
@@ -136,7 +143,8 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
         for p in param_values
         if p.kind == inspect.Parameter.KEYWORD_ONLY
         and p.default is inspect.Parameter.empty
-        and p.name not in {"is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped"}
+        and p.name
+        not in {"is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped", "radio_id"}
     ]
     if unsupported_required_kwonly:
         raise ValueError(
@@ -168,6 +176,8 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
         keyword_args["region"] = None
     if has_kwargs or "scoped" in params:
         keyword_args["scoped"] = False
+    if has_kwargs or "radio_id" in params:
+        keyword_args["radio_id"] = "default"
     candidate_specs.append(("keyword", [], keyword_args))
 
     if not has_kwargs and explicit_optional_names:
@@ -182,6 +192,8 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
             kwargs["region"] = None
         if has_kwargs or "scoped" in params:
             kwargs["scoped"] = False
+        if has_kwargs or "radio_id" in params:
+            kwargs["radio_id"] = "default"
         candidate_specs.append(("mixed_keyword", base_args, kwargs))
 
     if has_varargs or positional_capacity >= 11:
@@ -226,6 +238,7 @@ def execute_bot_code(
     packet_hash: str | None = None,
     region: str | None = None,
     scoped: bool = False,
+    radio_id: str = "default",
 ) -> str | list[str] | BotReply | None:
     """
     Execute user-provided bot code with message context.
@@ -371,6 +384,8 @@ def execute_bot_code(
                 keyword_args["region"] = region
             if "scoped" in call_plan.keyword_args:
                 keyword_args["scoped"] = scoped
+            if "radio_id" in call_plan.keyword_args:
+                keyword_args["radio_id"] = radio_id
             result = bot_func(**keyword_args)
         else:
             result = bot_func(
@@ -410,6 +425,7 @@ async def process_bot_response(
     is_dm: bool,
     sender_key: str,
     channel_key: str | None,
+    radio_id: str = "default",
 ) -> None:
     """
     Send the bot's response message(s) using the existing message sending endpoints.
@@ -426,6 +442,7 @@ async def process_bot_response(
         is_dm: Whether the original message was a DM
         sender_key: Public key of the original sender (for DM replies)
         channel_key: Channel key for channel message replies
+        radio_id: Originating radio identifier
     """
     # Normalize to (messages, flood_scope_override) for uniform processing.
     if isinstance(response, BotReply):
@@ -440,7 +457,7 @@ async def process_bot_response(
 
     for message_text in messages:
         await _send_single_bot_message(
-            message_text, is_dm, sender_key, channel_key, flood_scope_override
+            message_text, is_dm, sender_key, channel_key, flood_scope_override, radio_id=radio_id
         )
 
 
@@ -450,6 +467,7 @@ async def _send_single_bot_message(
     sender_key: str,
     channel_key: str | None,
     flood_scope_override: str | None = None,
+    radio_id: str = "default",
 ) -> None:
     """
     Send a single bot message with rate limiting.
@@ -462,6 +480,7 @@ async def _send_single_bot_message(
         flood_scope_override: Per-send region scope for channel replies (None =
             channel default, "" = unscoped, region name = scope to that region).
             Ignored for DMs, which are not region-scoped.
+        radio_id: Target radio identifier
     """
     global _last_bot_send_time
 
@@ -486,25 +505,33 @@ async def _send_single_bot_message(
                         "Ignoring bot region scope %r on DM reply (DMs are not region-scoped)",
                         flood_scope_override,
                     )
-                logger.info("Bot sending DM reply to %s", sender_key[:12])
+                logger.info("[radio:%s] Bot sending DM reply to %s", radio_id, sender_key[:12])
                 request = SendDirectMessageRequest(destination=sender_key, text=message_text)
-                await send_direct_message(request)
+                try:
+                    await send_direct_message(request, radio_id=radio_id)
+                except TypeError:
+                    await send_direct_message(request)
             elif channel_key:
-                logger.info("Bot sending channel reply to %s", channel_key[:8])
+                logger.info("[radio:%s] Bot sending channel reply to %s", radio_id, channel_key[:8])
                 request = SendChannelMessageRequest(
                     channel_key=channel_key,
                     text=message_text,
                     flood_scope_override=flood_scope_override,
                 )
-                await send_channel_message(request)
+                try:
+                    await send_channel_message(request, radio_id=radio_id)
+                except TypeError:
+                    await send_channel_message(request)
             else:
-                logger.warning("Cannot send bot response: no destination")
+                logger.warning("[radio:%s] Cannot send bot response: no destination", radio_id)
                 return  # Don't update timestamp if we didn't send
         except HTTPException as e:
-            logger.error("Bot failed to send response: %s", e.detail, exc_info=True)
+            logger.error(
+                "[radio:%s] Bot failed to send response: %s", radio_id, e.detail, exc_info=True
+            )
             return  # Don't update timestamp on failure
         except Exception:
-            logger.exception("Bot failed to send response")
+            logger.exception("[radio:%s] Bot failed to send response", radio_id)
             return  # Don't update timestamp on failure
 
         # Update last send time after successful send

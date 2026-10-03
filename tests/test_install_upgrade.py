@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Linux install.sh upgrade tests run via bash and are not supported on Windows",
+)
 
 INSTALL_SH = Path(__file__).resolve().parents[1] / "scripts" / "setup" / "install.sh"
 

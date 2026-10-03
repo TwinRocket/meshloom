@@ -23,6 +23,7 @@ import {
 } from './settings/settingsConstants';
 
 import { SettingsRadioSection } from './settings/SettingsRadioSection';
+import { SettingsRadiosManagement } from './settings/SettingsRadiosManagement';
 import { SettingsProxySection } from './settings/SettingsProxySection';
 import { SettingsLocalSection } from './settings/SettingsLocalSection';
 import { SettingsNotificationsSection } from './settings/SettingsNotificationsSection';
@@ -146,6 +147,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const externalDesktopSidebarMode = externalSidebarNav;
   const [expandedSections, setExpandedSections] = useState<Record<SettingsSection, boolean>>({
     radio: false,
+    radios: false,
     proxy: false,
     local: false,
     notifications: false,
@@ -477,6 +479,15 @@ export function SettingsModal(props: SettingsModalProps) {
                 })
               }
             />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('radios') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('radios')}
+          {isSectionVisible('radios') && (
+            <SettingsRadiosManagement className={sectionContentClass} />
           )}
         </section>
       )}

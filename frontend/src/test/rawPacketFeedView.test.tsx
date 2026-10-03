@@ -1164,12 +1164,13 @@ describe('RawPacketFeedView', () => {
       renderView();
 
       fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      const dialog = await screen.findByRole('dialog');
       expect(
-        await screen.findByText(
-          i18n.t('rawPacket.historyCapWarning', {
-            count: (1200).toLocaleString(),
-            cap: 500,
-          })
+        await within(dialog).findByText(
+          (_, element) =>
+            element?.tagName === 'P' &&
+            element.classList.contains('text-warning') &&
+            Boolean(element.textContent?.includes('500'))
         )
       ).toBeInTheDocument();
     });

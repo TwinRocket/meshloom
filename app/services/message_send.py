@@ -54,9 +54,9 @@ NO_RADIO_RESPONSE_AFTER_SEND_DETAIL = {
     "code": "radio_no_response_after_send",
     "message": NO_RADIO_RESPONSE_AFTER_SEND_MESSAGE,
 }
-TrackAckFn = Callable[[str, int, int], bool]
+TrackAckFn = Callable[..., bool]
 NowFn = Callable[[], float]
-OutgoingReservationKey = tuple[str, str, str]
+OutgoingReservationKey = tuple[str, str, str, str]
 RetryTaskScheduler = Callable[[Any], Any]
 
 # Channel echo watchdog: delay before checking for echoes
@@ -83,9 +83,10 @@ async def allocate_outgoing_sender_timestamp(
     conversation_key: str,
     text: str,
     requested_timestamp: int,
+    radio_id: str = "default",
 ) -> int:
     """Pick a sender timestamp that will not collide with an existing stored message."""
-    reservation_key = (msg_type, conversation_key, text)
+    reservation_key = (radio_id, msg_type, conversation_key, text)
     candidate = requested_timestamp
     while True:
         async with _outgoing_timestamp_reservations_lock:
@@ -101,6 +102,7 @@ async def allocate_outgoing_sender_timestamp(
             conversation_key=conversation_key,
             text=text,
             sender_timestamp=candidate,
+            radio_id=radio_id,
         )
         if existing is not None:
             candidate += 1
@@ -132,8 +134,9 @@ async def release_outgoing_sender_timestamp(
     conversation_key: str,
     text: str,
     sender_timestamp: int,
+    radio_id: str = "default",
 ) -> None:
-    reservation_key = (msg_type, conversation_key, text)
+    reservation_key = (radio_id, msg_type, conversation_key, text)
     async with _outgoing_timestamp_reservations_lock:
         reserved = _pending_outgoing_timestamp_reservations.get(reservation_key)
         if not reserved:
@@ -478,19 +481,29 @@ async def _apply_direct_message_ack_tracking(
     message_id: int,
     track_pending_ack_fn: TrackAckFn,
     broadcast_fn: BroadcastFn,
+    radio_id: str = "default",
 ) -> int:
     ack_code = _extract_expected_ack_code(result)
     if not ack_code:
         return 0
 
     timeout_ms = _get_ack_tracking_timeout_ms(result)
-    matched_immediately = track_pending_ack_fn(ack_code, message_id, timeout_ms) is True
-    logger.debug("Tracking ACK %s for message %d", ack_code, message_id)
+    if radio_id == "default":
+        matched_immediately = track_pending_ack_fn(ack_code, message_id, timeout_ms) is True
+    else:
+        try:
+            matched_immediately = (
+                track_pending_ack_fn(ack_code, message_id, timeout_ms, radio_id=radio_id) is True
+            )
+        except TypeError:
+            matched_immediately = track_pending_ack_fn(ack_code, message_id, timeout_ms) is True
+    logger.debug("[radio:%s] Tracking ACK %s for message %d", radio_id, ack_code, message_id)
     if matched_immediately:
-        dm_ack_tracker.clear_pending_acks_for_message(message_id)
+        dm_ack_tracker.clear_pending_acks_for_message(message_id, radio_id=radio_id)
         return await increment_ack_and_broadcast(
             message_id=message_id,
             broadcast_fn=broadcast_fn,
+            radio_id=radio_id,
         )
     return 0
 
@@ -513,6 +526,7 @@ async def _retry_direct_message_until_acked(
     sleep_fn,
     message_repository,
 ) -> None:
+    radio_id = getattr(radio_manager, "radio_id", "default")
     next_wait_timeout_ms = wait_timeout_ms
     attempt = 1
     while attempt < DM_SEND_MAX_ATTEMPTS:
@@ -618,6 +632,7 @@ async def _retry_direct_message_until_acked(
             message_id=message_id,
             track_pending_ack_fn=track_pending_ack_fn,
             broadcast_fn=broadcast_fn,
+            radio_id=radio_id,
         )
         if ack_count > 0:
             return
@@ -651,6 +666,7 @@ async def send_direct_message_to_contact(
     if retry_sleep_fn is None:
         retry_sleep_fn = asyncio.sleep
 
+    radio_id = getattr(radio_manager, "radio_id", "default")
     contact_data = contact.to_radio_dict()
     sent_at: int | None = None
     sender_timestamp: int | None = None
@@ -675,6 +691,7 @@ async def send_direct_message_to_contact(
                 conversation_key=contact.public_key.lower(),
                 text=text,
                 requested_timestamp=sent_at,
+                radio_id=radio_id,
             )
             result = await mc.commands.send_msg(
                 dst=cached_contact,
@@ -705,6 +722,7 @@ async def send_direct_message_to_contact(
             received_at=sent_at,
             broadcast_fn=broadcast_fn,
             message_repository=message_repository,
+            radio_id=radio_id,
         )
         if message is None:
             raise HTTPException(
@@ -718,12 +736,15 @@ async def send_direct_message_to_contact(
                 conversation_key=contact.public_key.lower(),
                 text=text,
                 sender_timestamp=sender_timestamp,
+                radio_id=radio_id,
             )
 
     if sent_at is None or sender_timestamp is None or message is None or result is None:
         raise HTTPException(status_code=422, detail="Failed to store outgoing message")
 
-    await contact_repository.update_last_contacted(contact.public_key.lower(), sent_at)
+    await contact_repository.update_last_contacted(
+        contact.public_key.lower(), sent_at, radio_id=radio_id
+    )
 
     ack_code = _extract_expected_ack_code(result)
     retry_timeout_ms = _get_direct_message_retry_timeout_ms(result)
@@ -732,6 +753,7 @@ async def send_direct_message_to_contact(
         message_id=message.id,
         track_pending_ack_fn=track_pending_ack_fn,
         broadcast_fn=broadcast_fn,
+        radio_id=radio_id,
     )
     if ack_count > 0:
         message.acked = ack_count
@@ -788,7 +810,8 @@ async def _channel_echo_watchdog(
             )
             return
 
-        channel = await ChannelRepository.get_by_key(msg.conversation_key)
+        radio_id = getattr(radio_manager, "radio_id", "default")
+        channel = await ChannelRepository.get_by_key(msg.conversation_key, radio_id=radio_id)
         if not channel:
             return
 
@@ -863,6 +886,7 @@ async def send_channel_message_to_channel(
             detail="Pending channels cannot be sent to until they are adopted",
         )
 
+    radio_id = getattr(radio_manager, "radio_id", "default")
     sent_at: int | None = None
     sender_timestamp: int | None = None
     radio_name = ""
@@ -884,6 +908,7 @@ async def send_channel_message_to_channel(
                 conversation_key=channel_key_upper,
                 text=text_with_sender,
                 requested_timestamp=sent_at,
+                radio_id=radio_id,
             )
             timestamp_bytes = sender_timestamp.to_bytes(4, "little")
             outgoing_message = await create_outgoing_channel_message(
@@ -897,6 +922,7 @@ async def send_channel_message_to_channel(
                 broadcast_fn=broadcast_fn,
                 broadcast=False,
                 message_repository=message_repository,
+                radio_id=radio_id,
             )
             if outgoing_message is None:
                 raise HTTPException(
@@ -941,6 +967,7 @@ async def send_channel_message_to_channel(
                 conversation_key=channel_key_upper,
                 text=text_with_sender,
                 sender_timestamp=sender_timestamp,
+                radio_id=radio_id,
             )
 
     if sent_at is None or sender_timestamp is None or outgoing_message is None:
@@ -956,8 +983,9 @@ async def send_channel_message_to_channel(
         sender_key=our_public_key,
         channel_name=channel.name,
         message_repository=message_repository,
+        radio_id=radio_id,
     )
-    broadcast_message(message=outgoing_message, broadcast_fn=broadcast_fn)
+    broadcast_message(message=outgoing_message, broadcast_fn=broadcast_fn, radio_id=radio_id)
 
     # Spawn echo watchdog if auto-resend is enabled
     try:

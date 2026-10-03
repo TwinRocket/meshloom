@@ -6,6 +6,7 @@ import type {
   HealthStatus,
   Message,
   MessagePath,
+  RadioRecord,
   RawPacket,
 } from './types';
 
@@ -33,6 +34,10 @@ export interface ChannelDeletedPayload {
   key: string;
 }
 
+export interface RadioDeletedPayload {
+  radio_id: string;
+}
+
 export interface ToastPayload {
   message: string;
   details?: string;
@@ -41,26 +46,30 @@ export interface ToastPayload {
 }
 
 export type KnownWsEvent =
-  | { type: 'health'; data: HealthStatus }
-  | { type: 'message'; data: Message }
-  | { type: 'contact'; data: Contact }
-  | { type: 'contact_resolved'; data: ContactResolvedPayload }
-  | { type: 'channel'; data: Channel }
-  | { type: 'contact_deleted'; data: ContactDeletedPayload }
-  | { type: 'channel_deleted'; data: ChannelDeletedPayload }
-  | { type: 'raw_packet'; data: RawPacket }
-  | { type: 'community_packet'; data: CommunityPacket }
-  | { type: 'community_live'; data: CommunityLiveStatus }
-  | { type: 'message_acked'; data: MessageAckedPayload }
-  | { type: 'message_deleted'; data: MessageDeletedPayload }
-  | { type: 'error'; data: ToastPayload }
-  | { type: 'success'; data: ToastPayload }
-  | { type: 'pong'; data?: null };
+  | { type: 'health'; data: HealthStatus; radio_id?: string }
+  | { type: 'message'; data: Message; radio_id?: string }
+  | { type: 'contact'; data: Contact; radio_id?: string }
+  | { type: 'contact_resolved'; data: ContactResolvedPayload; radio_id?: string }
+  | { type: 'channel'; data: Channel; radio_id?: string }
+  | { type: 'contact_deleted'; data: ContactDeletedPayload; radio_id?: string }
+  | { type: 'channel_deleted'; data: ChannelDeletedPayload; radio_id?: string }
+  | { type: 'raw_packet'; data: RawPacket; radio_id?: string }
+  | { type: 'community_packet'; data: CommunityPacket; radio_id?: string }
+  | { type: 'community_live'; data: CommunityLiveStatus; radio_id?: string }
+  | { type: 'message_acked'; data: MessageAckedPayload; radio_id?: string }
+  | { type: 'message_deleted'; data: MessageDeletedPayload; radio_id?: string }
+  | { type: 'error'; data: ToastPayload; radio_id?: string }
+  | { type: 'success'; data: ToastPayload; radio_id?: string }
+  | { type: 'radio_created'; data: RadioRecord; radio_id?: string }
+  | { type: 'radio_updated'; data: RadioRecord; radio_id?: string }
+  | { type: 'radio_deleted'; data: RadioDeletedPayload; radio_id?: string }
+  | { type: 'pong'; data?: null; radio_id?: string };
 
 export interface UnknownWsEvent {
   type: 'unknown';
   rawType: string;
   data: unknown;
+  radio_id?: string;
 }
 
 export type ParsedWsEvent = KnownWsEvent | UnknownWsEvent;
@@ -68,6 +77,7 @@ export type ParsedWsEvent = KnownWsEvent | UnknownWsEvent;
 interface RawWsEnvelope {
   type?: unknown;
   data?: unknown;
+  radio_id?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,6 +115,11 @@ export function isDispatchableWsEvent(event: ParsedWsEvent): boolean {
     case 'error':
     case 'success':
       return isRecord(data) && typeof data.message === 'string';
+    case 'radio_created':
+    case 'radio_updated':
+      return isRecord(data) && typeof data.id === 'string';
+    case 'radio_deleted':
+      return isRecord(data) && typeof data.radio_id === 'string';
     default:
       return true;
   }
@@ -115,6 +130,8 @@ export function parseWsEvent(raw: string): ParsedWsEvent {
   if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
     throw new Error('Invalid WebSocket event envelope');
   }
+
+  const radioId = typeof parsed.radio_id === 'string' ? parsed.radio_id : undefined;
 
   switch (parsed.type) {
     case 'health':
@@ -131,17 +148,22 @@ export function parseWsEvent(raw: string): ParsedWsEvent {
     case 'message_deleted':
     case 'error':
     case 'success':
+    case 'radio_created':
+    case 'radio_updated':
+    case 'radio_deleted':
       return {
         type: parsed.type,
         data: parsed.data,
+        radio_id: radioId,
       } as KnownWsEvent;
     case 'pong':
-      return { type: 'pong', data: parsed.data as null | undefined };
+      return { type: 'pong', data: parsed.data as null | undefined, radio_id: radioId };
     default:
       return {
         type: 'unknown',
         rawType: parsed.type,
         data: parsed.data,
+        radio_id: radioId,
       };
   }
 }

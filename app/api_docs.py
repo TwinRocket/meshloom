@@ -33,6 +33,10 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
         "description": "Radio configuration, connection lifecycle, discovery, trace, and advert commands.",
     },
     {
+        "name": "radios",
+        "description": "Multi-radio configuration, management, lifecycle, and live connectivity status.",
+    },
+    {
         "name": "contacts",
         "description": "Mesh contacts, analytics, read state, route overrides, and path discovery.",
     },

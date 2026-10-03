@@ -387,3 +387,33 @@ class TestTypedEventSerialization:
             "type": "message_acked",
             "data": {"ack_count": 2},
         }
+
+    def test_dump_ws_event_tags_radio_id_envelope_and_payload(self):
+        from app.events import dump_ws_event
+
+        serialized = dump_ws_event("message_deleted", {"message_id": 42}, radio_id="roof_mesh")
+        parsed = json.loads(serialized)
+        assert parsed["type"] == "message_deleted"
+        assert parsed["radio_id"] == "roof_mesh"
+        assert parsed["data"]["message_id"] == 42
+        assert parsed["data"]["radio_id"] == "roof_mesh"
+
+    def test_dump_ws_event_extracts_radio_id_from_data_dict(self):
+        from app.events import dump_ws_event
+
+        serialized = dump_ws_event("message_deleted", {"message_id": 99, "radio_id": "usb_radio"})
+        parsed = json.loads(serialized)
+        assert parsed["type"] == "message_deleted"
+        assert parsed["radio_id"] == "usb_radio"
+        assert parsed["data"]["message_id"] == 99
+        assert parsed["data"]["radio_id"] == "usb_radio"
+
+    def test_dump_ws_event_serializes_radio_lifecycle_events(self):
+        from app.events import dump_ws_event
+
+        # radio_deleted
+        serialized_del = dump_ws_event("radio_deleted", {"radio_id": "mesh2"}, radio_id="mesh2")
+        parsed_del = json.loads(serialized_del)
+        assert parsed_del["type"] == "radio_deleted"
+        assert parsed_del["radio_id"] == "mesh2"
+        assert parsed_del["data"] == {"radio_id": "mesh2"}

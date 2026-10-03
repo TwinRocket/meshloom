@@ -305,7 +305,10 @@ class FanoutManager:
                 from app.services.channel_membership import is_pending_channel
 
                 try:
-                    channel = await ChannelRepository.get_by_key(conversation_key)
+                    radio_id = str(data.get("radio_id", "default"))
+                    channel = await ChannelRepository.get_by_key(
+                        conversation_key, radio_id=radio_id
+                    )
                 except Exception:
                     logger.debug(
                         "Fanout: failed to load channel %s for pending check",

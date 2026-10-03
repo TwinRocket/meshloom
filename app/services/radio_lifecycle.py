@@ -102,9 +102,9 @@ async def run_post_connect_setup(radio_manager) -> None:
                     return
 
                 # Register event handlers only after the identity is accepted.
-                register_event_handlers(mc)
+                register_event_handlers(mc, radio_instance=radio_manager)
 
-                await export_and_store_private_key(mc)
+                await export_and_store_private_key(mc, radio_instance=radio_manager)
 
                 # Sync radio clock with system time
                 await sync_radio_time(mc)
@@ -317,8 +317,14 @@ async def run_post_connect_setup(radio_manager) -> None:
         finally:
             radio_manager._setup_in_progress = False
 
-    async with radio_manager._setup_lock:
-        await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
+    if hasattr(radio_manager, "setup_lock_context"):
+        async with radio_manager.setup_lock_context():
+            await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
+    else:
+        if radio_manager._setup_lock is None:
+            radio_manager._setup_lock = asyncio.Lock()
+        async with radio_manager._setup_lock:
+            await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
 
     logger.info("Post-connect setup complete")
 
@@ -390,6 +396,7 @@ async def connection_monitor_loop(radio_manager) -> None:
     check_interval_seconds = 5
     unresponsive_threshold = 3
     consecutive_setup_failures = 0
+    radio_id = getattr(radio_manager, "radio_id", "default")
 
     while True:
         try:
@@ -399,27 +406,37 @@ async def connection_monitor_loop(radio_manager) -> None:
             connection_desired = radio_manager.connection_desired
 
             if radio_manager._last_connected and not current_connected:
-                logger.warning("Radio connection lost, broadcasting status change")
+                logger.warning(
+                    "[radio:%s] Radio connection lost, broadcasting status change", radio_id
+                )
                 broadcast_health(False, radio_manager.connection_info)
                 radio_manager._last_connected = False
                 consecutive_setup_failures = 0
 
             if not connection_desired:
                 if current_connected:
-                    logger.info("Radio connection paused by operator; disconnecting transport")
+                    logger.info(
+                        "[radio:%s] Radio connection paused by operator; disconnecting transport",
+                        radio_id,
+                    )
                     await radio_manager.disconnect()
                 consecutive_setup_failures = 0
                 continue
 
             if not current_connected:
-                if not radio_manager.is_reconnecting and await reconnect_and_prepare_radio(
-                    radio_manager,
-                    broadcast_on_success=True,
+                can_reconnect = getattr(radio_manager, "can_attempt_reconnect", lambda: True)()
+                if (
+                    not radio_manager.is_reconnecting
+                    and can_reconnect
+                    and await reconnect_and_prepare_radio(
+                        radio_manager,
+                        broadcast_on_success=True,
+                    )
                 ):
                     consecutive_setup_failures = 0
 
             elif not radio_manager._last_connected and current_connected:
-                logger.info("Radio connection restored")
+                logger.info("[radio:%s] Radio connection restored", radio_id)
                 await prepare_connected_radio(radio_manager, broadcast_on_success=True)
                 consecutive_setup_failures = 0
 
@@ -428,7 +445,7 @@ async def connection_monitor_loop(radio_manager) -> None:
                 and not radio_manager.is_setup_complete
                 and not radio_manager.is_setup_in_progress
             ):
-                logger.info("Retrying post-connect setup...")
+                logger.info("[radio:%s] Retrying post-connect setup...", radio_id)
                 await prepare_connected_radio(radio_manager, broadcast_on_success=True)
                 consecutive_setup_failures = 0
 
@@ -438,14 +455,17 @@ async def connection_monitor_loop(radio_manager) -> None:
             consecutive_setup_failures += 1
             if consecutive_setup_failures == unresponsive_threshold:
                 logger.error(
-                    "Post-connect setup has failed %d times in a row. "
+                    "[radio:%s] Post-connect setup has failed %d times in a row. "
                     "The radio port appears open but the radio is not "
                     "responding to commands. Common causes: another "
                     "process has the serial port open (check for other "
                     "Meshloom instances, serial monitors, etc.), the "
                     "firmware is in repeater mode (not client), or the "
                     "radio needs a power cycle. Will keep retrying.",
+                    radio_id,
                     consecutive_setup_failures,
                 )
             elif consecutive_setup_failures < unresponsive_threshold:
-                logger.exception("Error in connection monitor, continuing: %s", e)
+                logger.exception(
+                    "[radio:%s] Error in connection monitor, continuing: %s", radio_id, e
+                )

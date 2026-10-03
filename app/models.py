@@ -24,6 +24,7 @@ class ContactRoute(BaseModel):
 class ContactUpsert(BaseModel):
     """Typed write contract for contacts persisted to SQLite."""
 
+    radio_id: str = "default"
     public_key: str = Field(description="Public key (64-char hex)")
     name: str | None = None
     type: int = 0
@@ -54,7 +55,11 @@ class ContactUpsert(BaseModel):
 
     @classmethod
     def from_radio_dict(
-        cls, public_key: str, radio_data: dict, on_radio: bool = False
+        cls,
+        public_key: str,
+        radio_data: dict,
+        on_radio: bool = False,
+        radio_id: str = "default",
     ) -> ContactUpsert:
         """Convert radio contact data to the contact-row write shape."""
         direct_path, direct_path_len, direct_path_hash_mode = normalize_contact_route(
@@ -80,6 +85,7 @@ class ContactUpsert(BaseModel):
             lon = None
 
         return cls(
+            radio_id=radio_id,
             public_key=public_key,
             name=radio_data.get("adv_name"),
             type=contact_type,
@@ -95,6 +101,7 @@ class ContactUpsert(BaseModel):
 
 
 class Contact(BaseModel):
+    radio_id: str = "default"
     public_key: str = Field(description="Public key (64-char hex)")
     name: str | None = None
     type: int = 0  # 0=unknown, 1=client, 2=repeater, 3=room, 4=sensor
@@ -338,6 +345,7 @@ class ContactAnalytics(BaseModel):
 
 
 class Channel(BaseModel):
+    radio_id: str = "default"
     key: str = Field(description="Channel key (32-char hex)")
     name: str
     is_hashtag: bool = False
@@ -435,6 +443,7 @@ class MessagePath(BaseModel):
 
 class Message(BaseModel):
     id: int
+    radio_id: str = "default"
     type: str = Field(description="PRIV or CHAN")
     conversation_key: str = Field(description="User pubkey for PRIV, channel key for CHAN")
     text: str
@@ -520,6 +529,7 @@ class RawPacketBroadcast(BaseModel):
     """
 
     id: int
+    radio_id: str = "default"
     observation_id: int = Field(
         description=(
             "Monotonic per-process ID for this RF observation (distinct from the DB packet row ID)"
@@ -1917,6 +1927,114 @@ RadioHealthState = Literal[
     "identity_mismatch",
     "identity_unbound_legacy",
 ]
+
+
+class RadioRecord(BaseModel):
+    id: str
+    name: str
+    transport: RadioTransportKind | None = None
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int | None = 5000
+    ble_address: str = ""
+    ble_pin: str = ""
+    enabled: bool = True
+    auto_connect: bool = True
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    created_at: int
+    updated_at: int
+    last_connected_at: int | None = None
+    sort_order: int = 0
+
+    def to_transport_snapshot(self) -> RadioTransportSnapshot:
+        return RadioTransportSnapshot(
+            transport=self.transport,
+            serial_port=self.serial_port or "",
+            serial_baudrate=self.serial_baudrate or 115200,
+            tcp_host=self.tcp_host or "",
+            tcp_port=self.tcp_port if self.tcp_port is not None else 5000,
+            ble_address=self.ble_address or "",
+            ble_pin=self.ble_pin or "",
+            bound_public_key=self.bound_public_key,
+            identity_state=self.identity_state,  # type: ignore[arg-type]
+        )
+
+
+class RadioStatusResponse(BaseModel):
+    id: str
+    name: str
+    transport: RadioTransportKind | None = None
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int | None = 5000
+    ble_address: str = ""
+    ble_pin_configured: bool = False
+    enabled: bool = True
+    auto_connect: bool = True
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    created_at: int
+    updated_at: int
+    last_connected_at: int | None = None
+    sort_order: int = 0
+    is_connected: bool = False
+    is_reconnecting: bool = False
+    connection_info: str | None = None
+    last_error: str | None = None
+    device_model: str | None = None
+    firmware_version: str | None = None
+
+
+class RadioTestRequest(BaseModel):
+    transport: RadioTransportKind
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int = 5000
+    ble_address: str = ""
+    ble_pin: str = ""
+
+
+class RadioTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class RadioCreate(BaseModel):
+    id: str | None = None
+    name: str
+    transport: RadioTransportKind | None = None
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int | None = 5000
+    ble_address: str = ""
+    ble_pin: str = ""
+    enabled: bool = True
+    auto_connect: bool = True
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    sort_order: int = 0
+
+
+class RadioUpdate(BaseModel):
+    name: str | None = None
+    transport: RadioTransportKind | None = None
+    serial_port: str | None = None
+    serial_baudrate: int | None = None
+    tcp_host: str | None = None
+    tcp_port: int | None = None
+    ble_address: str | None = None
+    ble_pin: str | None = None
+    enabled: bool | None = None
+    auto_connect: bool | None = None
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    last_connected_at: int | None = None
+    sort_order: int | None = None
 
 
 class RadioTransportSnapshot(BaseModel):

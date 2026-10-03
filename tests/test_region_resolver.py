@@ -12,7 +12,7 @@ from app.path_utils import parse_packet_envelope
 from app.region_resolver import compute_transport_code, resolve_region
 
 FIXTURES_PATH = Path(__file__).parent / "fixtures" / "websocket_events.json"
-with open(FIXTURES_PATH) as f:
+with open(FIXTURES_PATH, encoding="utf-8") as f:
     FIXTURES = json.load(f)
 
 

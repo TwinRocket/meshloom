@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import socket
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Linux install.sh Docker mappings not applicable on Windows",
+)
 
 INSTALL_SH = Path(__file__).resolve().parents[1] / "scripts" / "setup" / "install.sh"
 
@@ -66,6 +74,9 @@ def _ok(call: str, extra: str = "") -> str:
     return result.stdout.strip()
 
 
+@pytest.mark.skipif(
+    not hasattr(socket, "AF_UNIX"), reason="AF_UNIX sockets not supported on Windows"
+)
 def test_detect_dbus_socket_accepts_socket_only(tmp_path: Path) -> None:
     socket_path = tmp_path / "system_bus_socket"
     sock = socket.socket(socket.AF_UNIX)

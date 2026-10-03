@@ -1,3 +1,33 @@
+## [4.17.0] - 2026-10-03
+
+Meshloom can now manage multiple MeshCore radios simultaneously, each with its own transport and isolated data.
+
+### What's new
+
+- **First-class multi-radio management.** Connect multiple companion radios over USB serial, remote TCP (over VPN or cellular), or Bluetooth from a single server. Radios connect concurrently without blocking startup or each other.
+- **Complete data isolation per radio.** Each radio maintains its own independent contact directory, channels, message history, raw packets, and unread counts.
+- **Zero-clutter single-radio backward compatibility.** When only one radio is configured, the interface looks and behaves identically to single-radio mode, with no extra selectors or clutter.
+- **Remote link robustness.** Remote TCP connections feature kernel-level keepalive tuning to detect half-open sockets across VPNs/cellular networks within seconds, paired with non-blocking exponential backoff and jitter on reconnection.
+- **Dedicated Radios management panel.** Settings → Radios lets you configure, edit, test, connect, and disconnect radios with ease, plus optionally purge stored radio history upon removal.
+- **Read-time aggregated view.** Query messages and packet history across all configured radios simultaneously using `radio_id=all`.
+
+---
+
+### Français
+
+Meshloom peut désormais gérer plusieurs radios MeshCore simultanément, chacune avec son propre transport et ses données isolées.
+
+#### Quoi de neuf
+
+- **Gestion multi-radio de premier ordre.** Connectez plusieurs radios compagnons en série USB, TCP distant (via VPN ou réseau cellulaire) ou Bluetooth depuis un unique serveur. Les radios se connectent simultanément sans bloquer le démarrage ni interférer entre elles.
+- **Isolation totale des données par radio.** Chaque radio conserve son propre carnet de contacts, ses canaux, son historique de messages, ses paquets bruts et ses compteurs de non-lus.
+- **Rétrocompatibilité mono-radio parfaite.** Lorsqu'une seule radio est configurée, l'interface conserve rigoureusement son apparence et son ergonomie d'origine, sans sélecteur superflu.
+- **Robustesse des liaisons distantes.** Les connexions TCP distantes bénéficient d'un réglage keepalive noyau pour détecter en quelques secondes les sockets orphelins (half-open) sur liaisons cellulaires ou VPN, complété d'un backoff exponentiel avec gigue à la reconnexion.
+- **Panneau de gestion des radios.** Réglages → Radios permet d'ajouter, modifier, tester, connecter et déconnecter des radios simplement, avec l'option d'effacer les données associées lors de la suppression.
+- **Vue agrégée à la lecture.** Consultez les messages et l'historique des paquets de toutes les radios simultanément grâce au paramètre `radio_id=all`.
+
+---
+
 ## [4.16.1] - 2026-09-25
 
 Naming your region no longer depends on a repeater answering.

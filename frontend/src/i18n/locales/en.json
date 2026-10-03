@@ -182,6 +182,35 @@
     "backToTools": "Back to Tools"
   },
   "settings": {
+    "radios": {
+      "managementTitle": "Configured Radios",
+      "managementHelp": "Manage multiple connected or configured radio interfaces. The primary radio cannot be deleted.",
+      "addRadio": "Add Radio",
+      "addRadioHelp": "Configure a new radio interface. You can test connectivity before saving.",
+      "editRadio": "Edit Radio",
+      "editRadioHelp": "Update parameters for this radio interface.",
+      "deleteTitle": "Delete Radio",
+      "deleteConfirm": "Are you sure you want to delete radio \"{{name}}\"? This removes its connection configuration.",
+      "purgeDataLabel": "Purge all historical packets, contacts, and channels associated with this radio",
+      "noRadios": "No radios configured.",
+      "primaryBadge": "Primary",
+      "activeBadge": "Active",
+      "makeActive": "Make Active",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "reconnect": "Reconnect",
+      "enabled": "Enable this radio",
+      "autoConnect": "Auto-connect on startup / reconnection",
+      "testConnection": "Test Connection",
+      "nameRequired": "Radio name is required",
+      "createdSuccess": "Radio created successfully",
+      "updatedSuccess": "Radio updated successfully",
+      "deletedSuccess": "Radio deleted successfully",
+      "cannotDeleteDefault": "Default radio cannot be deleted",
+      "connectedSuccess": "Radio connected",
+      "disconnectedSuccess": "Radio disconnected",
+      "reconnectedSuccess": "Radio reconnected"
+    },
     "staleTitle": "Stale Contact Purge",
     "staleHelp": "Off by default. When set, a background job deletes non-favorite contacts using the same last-heard-before filter as Bulk Delete. 0 disables the job.",
     "staleDays": "Days without being heard",
@@ -1790,10 +1819,17 @@
     "messageSearch": "Message Search",
     "routeTrace": "Route Trace"
   },
+  "radioSelector": {
+    "selectRadio": "Select active radio",
+    "radiosList": "Radios",
+    "title": "Active Radio",
+    "manageRadios": "Manage Radios..."
+  },
   "settingsNav": {
     "title": "Settings",
     "aria": "Settings",
     "radio": "Radio",
+    "radios": "Radios",
     "proxy": "Proxy",
     "local": "Local Configuration",
     "notifications": "Notifications",
