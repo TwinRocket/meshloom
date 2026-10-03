@@ -102,9 +102,9 @@ async def run_post_connect_setup(radio_manager) -> None:
                     return
 
                 # Register event handlers only after the identity is accepted.
-                register_event_handlers(mc)
+                register_event_handlers(mc, radio_instance=radio_manager)
 
-                await export_and_store_private_key(mc)
+                await export_and_store_private_key(mc, radio_instance=radio_manager)
 
                 # Sync radio clock with system time
                 await sync_radio_time(mc)
@@ -317,8 +317,14 @@ async def run_post_connect_setup(radio_manager) -> None:
         finally:
             radio_manager._setup_in_progress = False
 
-    async with radio_manager._setup_lock:
-        await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
+    if hasattr(radio_manager, "setup_lock_context"):
+        async with radio_manager.setup_lock_context():
+            await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
+    else:
+        if radio_manager._setup_lock is None:
+            radio_manager._setup_lock = asyncio.Lock()
+        async with radio_manager._setup_lock:
+            await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
 
     logger.info("Post-connect setup complete")
 

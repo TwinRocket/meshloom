@@ -10,7 +10,7 @@ server-side decryption of direct messages.
 
 import hashlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import nacl.bindings
 from meshcore import EventType
@@ -104,13 +104,14 @@ def has_private_key() -> bool:
     return _private_key is not None
 
 
-async def export_and_store_private_key(mc: "MeshCore") -> bool:
+async def export_and_store_private_key(mc: "MeshCore", radio_instance: Any = None) -> bool:
     """Export private key from the radio and store it in the keystore.
 
     This should be called on startup and after each reconnect.
 
     Args:
         mc: Connected MeshCore instance
+        radio_instance: Optional RadioInstance to store the key into
 
     Returns:
         True if the private key was successfully exported and stored
@@ -121,7 +122,10 @@ async def export_and_store_private_key(mc: "MeshCore") -> bool:
 
         if result.type == EventType.PRIVATE_KEY:
             private_key_bytes = result.payload["private_key"]
-            set_private_key(private_key_bytes)
+            if radio_instance is not None:
+                radio_instance.set_private_key(private_key_bytes)
+            if radio_instance is None or getattr(radio_instance, "radio_id", None) == "default":
+                set_private_key(private_key_bytes)
             return True
         elif result.type == EventType.DISABLED:
             logger.warning(

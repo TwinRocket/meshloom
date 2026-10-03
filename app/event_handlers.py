@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from meshcore import EventType
 
@@ -372,10 +372,32 @@ async def on_library_disconnected(_event: "Event") -> None:
     radio_runtime._setup_complete = False
 
 
-def unregister_event_handlers() -> None:
-    """Drop MeshCore subscriptions without registering replacements."""
+def unregister_event_handlers(radio_instance: Any = None) -> None:
+    """Drop MeshCore subscriptions without registering replacements.
+
+    If radio_instance is provided, unsubscribes its specific subscriptions.
+    Otherwise drops default process-wide active subscriptions.
+    """
     global _active_subscriptions
-    for sub in _active_subscriptions:
+    if radio_instance is not None:
+        subs = getattr(radio_instance, "_subscriptions", None)
+        if subs is not None:
+            for sub in list(subs):
+                try:
+                    sub.unsubscribe()
+                except Exception:
+                    pass
+            subs.clear()
+        if getattr(radio_instance, "radio_id", None) == "default":
+            for sub in list(_active_subscriptions):
+                try:
+                    sub.unsubscribe()
+                except Exception:
+                    pass
+            _active_subscriptions.clear()
+        return
+
+    for sub in list(_active_subscriptions):
         try:
             sub.unsubscribe()
         except Exception:
@@ -383,7 +405,7 @@ def unregister_event_handlers() -> None:
     _active_subscriptions.clear()
 
 
-def register_event_handlers(meshcore) -> None:
+def register_event_handlers(meshcore: Any, radio_instance: Any = None) -> None:
     """Register event handlers with the MeshCore instance.
 
     Note: CHANNEL_MSG_RECV and ADVERTISEMENT events are NOT subscribed.
@@ -395,26 +417,30 @@ def register_event_handlers(meshcore) -> None:
     """
     global _active_subscriptions
 
-    # Unsubscribe existing handlers to prevent duplication after reconnects.
-    # Try/except handles the case where the old dispatcher is in a bad state
-    # (e.g., after reconnect with a new MeshCore instance).
-    for sub in _active_subscriptions:
-        try:
-            sub.unsubscribe()
-        except Exception:
-            pass  # Old dispatcher may be gone, that's fine
-    _active_subscriptions.clear()
+    # Unsubscribe existing handlers for this radio (or globally) to prevent duplication
+    unregister_event_handlers(radio_instance)
 
-    # Register handlers and track subscriptions
-    _active_subscriptions.append(meshcore.subscribe(EventType.CONTACT_MSG_RECV, on_contact_message))
-    _active_subscriptions.append(meshcore.subscribe(EventType.RX_LOG_DATA, on_rx_log_data))
-    _active_subscriptions.append(meshcore.subscribe(EventType.PATH_UPDATE, on_path_update))
-    _active_subscriptions.append(meshcore.subscribe(EventType.NEW_CONTACT, on_new_contact))
-    _active_subscriptions.append(meshcore.subscribe(EventType.ACK, on_ack))
+    new_subs = [
+        meshcore.subscribe(EventType.CONTACT_MSG_RECV, on_contact_message),
+        meshcore.subscribe(EventType.RX_LOG_DATA, on_rx_log_data),
+        meshcore.subscribe(EventType.PATH_UPDATE, on_path_update),
+        meshcore.subscribe(EventType.NEW_CONTACT, on_new_contact),
+        meshcore.subscribe(EventType.ACK, on_ack),
+    ]
     if hasattr(EventType, "CONNECTED"):
-        _active_subscriptions.append(meshcore.subscribe(EventType.CONNECTED, on_library_connected))
+        new_subs.append(meshcore.subscribe(EventType.CONNECTED, on_library_connected))
     if hasattr(EventType, "DISCONNECTED"):
-        _active_subscriptions.append(
+        new_subs.append(
             meshcore.subscribe(EventType.DISCONNECTED, on_library_disconnected)
         )
+
+    if radio_instance is not None:
+        subs = getattr(radio_instance, "_subscriptions", None)
+        if subs is not None:
+            subs.extend(new_subs)
+        if getattr(radio_instance, "radio_id", None) == "default":
+            _active_subscriptions.extend(new_subs)
+    else:
+        _active_subscriptions.extend(new_subs)
+
     logger.info("Event handlers registered")
