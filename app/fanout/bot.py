@@ -193,9 +193,15 @@ class BotModule(FanoutModule):
                 return
 
         if response and self._active:
-            await process_bot_response(
-                response, is_dm, sender_key or "", channel_key, radio_id=radio_id
-            )
+            if radio_id == "default":
+                await process_bot_response(response, is_dm, sender_key or "", channel_key)
+            else:
+                try:
+                    await process_bot_response(
+                        response, is_dm, sender_key or "", channel_key, radio_id=radio_id
+                    )
+                except TypeError:
+                    await process_bot_response(response, is_dm, sender_key or "", channel_key)
 
     @property
     def status(self) -> str:
