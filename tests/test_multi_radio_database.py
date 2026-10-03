@@ -197,7 +197,9 @@ class TestMigration086:
         assert radio["auto_connect"] == 1
 
         # Check contacts table rebuilt with radio_id
-        async with conn.execute("SELECT * FROM contacts WHERE public_key = ?", (contact_key,)) as cursor:
+        async with conn.execute(
+            "SELECT * FROM contacts WHERE public_key = ?", (contact_key,)
+        ) as cursor:
             c = await cursor.fetchone()
         assert c is not None
         assert c["radio_id"] == "default"
@@ -211,7 +213,9 @@ class TestMigration086:
         assert ch["name"] == "#general"
 
         # Check messages table has radio_id
-        async with conn.execute("SELECT * FROM messages WHERE conversation_key = ?", (channel_key,)) as cursor:
+        async with conn.execute(
+            "SELECT * FROM messages WHERE conversation_key = ?", (channel_key,)
+        ) as cursor:
             msg = await cursor.fetchone()
         assert msg is not None
         assert msg["radio_id"] == "default"
@@ -223,7 +227,9 @@ class TestMigration086:
         assert rp["radio_id"] == "default"
 
         # Check child table contact_advert_paths has radio_id
-        async with conn.execute("SELECT * FROM contact_advert_paths WHERE public_key = ?", (contact_key,)) as cursor:
+        async with conn.execute(
+            "SELECT * FROM contact_advert_paths WHERE public_key = ?", (contact_key,)
+        ) as cursor:
             cap = await cursor.fetchone()
         assert cap is not None
         assert cap["radio_id"] == "default"
@@ -503,9 +509,7 @@ class TestMultiRadioIsolation:
             radio_id="radio_sec",
         )
 
-        await ContactTelemetryRepository.record(
-            node_key, now, {"voltage": 3.7}, radio_id="default"
-        )
+        await ContactTelemetryRepository.record(node_key, now, {"voltage": 3.7}, radio_id="default")
         await ContactTelemetryRepository.record(
             node_key, now, {"voltage": 4.1}, radio_id="radio_sec"
         )

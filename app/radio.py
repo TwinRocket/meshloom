@@ -69,6 +69,7 @@ class RadioManager(RadioInstance):
 
     def __init__(self, radio_id: str = "default", name: str = "Primary Radio") -> None:
         super().__init__(radio_id=radio_id, name=name)
+        self._is_app_radio_singleton: bool = False
 
 
 radio_manager = RadioManager()

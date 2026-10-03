@@ -85,9 +85,7 @@ class ContactRepository:
         radio_id: str = "default",
     ) -> tuple[str, str, tuple[Any, ...]]:
         contact_row = ContactRepository._coerce_contact_upsert(contact)
-        effective_radio_id = (
-            radio_id or getattr(contact_row, "radio_id", None) or "default"
-        )
+        effective_radio_id = radio_id or getattr(contact_row, "radio_id", None) or "default"
         if (
             contact_row.direct_path is None
             and contact_row.direct_path_len is None
@@ -279,9 +277,7 @@ class ContactRepository:
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_by_key_or_prefix(
-        key_or_prefix: str, radio_id: str = "default"
-    ) -> Contact | None:
+    async def get_by_key_or_prefix(key_or_prefix: str, radio_id: str = "default") -> Contact | None:
         """Get a contact by exact key match, falling back to prefix match.
 
         Useful when the input might be a full 64-char public key or a shorter prefix.
@@ -308,9 +304,7 @@ class ContactRepository:
         prefix: str, limit: int = 20, radio_id: str = "default"
     ) -> list[Contact]:
         """List contacts matching a public-key prefix (not hop prefixes)."""
-        return await ContactRepository._get_prefix_matches(
-            prefix, limit=limit, radio_id=radio_id
-        )
+        return await ContactRepository._get_prefix_matches(prefix, limit=limit, radio_id=radio_id)
 
     @staticmethod
     async def get_by_name(name: str, radio_id: str = "default") -> list[Contact]:
@@ -417,9 +411,7 @@ class ContactRepository:
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_repeaters_by_recent(
-        limit: int = 8, radio_id: str = "default"
-    ) -> list[Contact]:
+    async def get_repeaters_by_recent(limit: int = 8, radio_id: str = "default") -> list[Contact]:
         """Get repeater contacts ordered by most recently seen."""
         eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
@@ -666,9 +658,7 @@ class ContactRepository:
                 pass
 
     @staticmethod
-    async def touch_last_seen(
-        public_key: str, timestamp: int, radio_id: str = "default"
-    ) -> None:
+    async def touch_last_seen(public_key: str, timestamp: int, radio_id: str = "default") -> None:
         eff_radio_id = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
@@ -700,9 +690,7 @@ class ContactRepository:
         return rowcount > 0
 
     @staticmethod
-    async def list_prefix_placeholder_keys(
-        full_key: str, radio_id: str = "default"
-    ) -> list[str]:
+    async def list_prefix_placeholder_keys(full_key: str, radio_id: str = "default") -> list[str]:
         eff_radio_id = radio_id or "default"
         normalized = full_key.lower()
         async with db.readonly() as conn:
@@ -721,9 +709,7 @@ class ContactRepository:
         return [row["public_key"] for row in rows]
 
     @staticmethod
-    async def promote_prefix_placeholders(
-        full_key: str, radio_id: str = "default"
-    ) -> list[str]:
+    async def promote_prefix_placeholders(full_key: str, radio_id: str = "default") -> list[str]:
         eff_radio_id = radio_id or "default"
 
         async def migrate_child_rows(conn, old_key: str, new_key: str) -> None:
@@ -884,9 +870,7 @@ class ContactRepository:
                 pass
 
     @staticmethod
-    async def get_by_pubkey_first_byte(
-        hex_byte: str, radio_id: str = "default"
-    ) -> list[Contact]:
+    async def get_by_pubkey_first_byte(hex_byte: str, radio_id: str = "default") -> list[Contact]:
         """Get contacts whose public key starts with the given hex byte (2 chars)."""
         eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
@@ -1051,9 +1035,7 @@ class ContactNameHistoryRepository:
                 pass
 
     @staticmethod
-    async def get_history(
-        public_key: str, radio_id: str = "default"
-    ) -> list[ContactNameHistory]:
+    async def get_history(public_key: str, radio_id: str = "default") -> list[ContactNameHistory]:
         eff_radio_id = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(

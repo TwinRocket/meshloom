@@ -1,10 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ACTIVE_RADIO_STORAGE_KEY,
-  RadioProvider,
-  useRadioContext,
-} from '../contexts/RadioContext';
+import { ACTIVE_RADIO_STORAGE_KEY, RadioProvider, useRadioContext } from '../contexts/RadioContext';
 import { api } from '../api';
 import type { RadioRecord } from '../types';
 
@@ -106,9 +102,7 @@ describe('RadioContext and RadioProvider', () => {
   it('updates activeRadioId and persists to localStorage', () => {
     const { result } = renderHook(() => useRadioContext(), {
       wrapper: ({ children }) => (
-        <RadioProvider initialRadios={[radioA, radioB]}>
-          {children}
-        </RadioProvider>
+        <RadioProvider initialRadios={[radioA, radioB]}>{children}</RadioProvider>
       ),
     });
 
@@ -123,20 +117,14 @@ describe('RadioContext and RadioProvider', () => {
 
   it('handles custom window events for live radio lifecycle updates', async () => {
     const { result } = renderHook(() => useRadioContext(), {
-      wrapper: ({ children }) => (
-        <RadioProvider initialRadios={[radioA]}>
-          {children}
-        </RadioProvider>
-      ),
+      wrapper: ({ children }) => <RadioProvider initialRadios={[radioA]}>{children}</RadioProvider>,
     });
 
     expect(result.current.radios).toHaveLength(1);
 
     // Simulate meshloom_ws_radio_created event
     await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent('meshloom_ws_radio_created', { detail: radioB })
-      );
+      window.dispatchEvent(new CustomEvent('meshloom_ws_radio_created', { detail: radioB }));
     });
 
     expect(result.current.radios).toHaveLength(2);
@@ -145,9 +133,7 @@ describe('RadioContext and RadioProvider', () => {
     // Simulate meshloom_ws_radio_updated event
     const updatedB = { ...radioB, name: 'Radio Bravo Updated', is_connected: true };
     await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent('meshloom_ws_radio_updated', { detail: updatedB })
-      );
+      window.dispatchEvent(new CustomEvent('meshloom_ws_radio_updated', { detail: updatedB }));
     });
 
     expect(result.current.radios.find((r) => r.id === 'radio-b')?.name).toBe('Radio Bravo Updated');

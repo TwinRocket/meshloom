@@ -161,12 +161,8 @@ class TestRunPostConnectSetup:
         ):
             await run_post_connect_setup(radio_manager)
 
-        mock_register_handlers.assert_called_once_with(
-            replacement_mc, radio_instance=radio_manager
-        )
-        mock_export_key.assert_awaited_once_with(
-            replacement_mc, radio_instance=radio_manager
-        )
+        mock_register_handlers.assert_called_once_with(replacement_mc, radio_instance=radio_manager)
+        mock_export_key.assert_awaited_once_with(replacement_mc, radio_instance=radio_manager)
         mock_sync_time.assert_awaited_once_with(replacement_mc)
         replacement_mc.start_auto_message_fetching.assert_awaited_once()
         initial_mc.start_auto_message_fetching.assert_not_called()

@@ -38,9 +38,7 @@ class MessageRepository:
         )
 
     @staticmethod
-    def _name_activity_filter(
-        sender_name: str, radio_id: str = "default"
-    ) -> tuple[str, list[Any]]:
+    def _name_activity_filter(sender_name: str, radio_id: str = "default") -> tuple[str, list[Any]]:
         eff_radio = radio_id or "default"
         return "radio_id = ? AND type = 'CHAN' AND sender_name = ?", [eff_radio, sender_name]
 
@@ -244,7 +242,16 @@ class MessageRepository:
                        SELECT 1 FROM contacts
                        WHERE radio_id = ? AND public_key = ? AND name = ?
                    )""",
-                (public_key.lower(), eff_radio, name, eff_radio, name, eff_radio, public_key.lower(), name),
+                (
+                    public_key.lower(),
+                    eff_radio,
+                    name,
+                    eff_radio,
+                    name,
+                    eff_radio,
+                    public_key.lower(),
+                    name,
+                ),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
@@ -694,9 +701,7 @@ class MessageRepository:
         return MessageRepository._row_to_message(row)
 
     @staticmethod
-    async def get_by_packet_hash(
-        packet_hash: str, radio_id: str = "default"
-    ) -> "Message | None":
+    async def get_by_packet_hash(packet_hash: str, radio_id: str = "default") -> "Message | None":
         """Most recent message with this firmware hash. Prefer outgoing (origin GPS)."""
         from app.path_utils import canonical_packet_hash
 
@@ -845,7 +850,14 @@ class MessageRepository:
             WHERE radio_id = ? AND type = ? AND conversation_key = ? AND text = ?
               AND (sender_timestamp = ? OR (sender_timestamp IS NULL AND ? IS NULL))
         """
-        params: list[Any] = [eff_radio, msg_type, conversation_key, text, sender_timestamp, sender_timestamp]
+        params: list[Any] = [
+            eff_radio,
+            msg_type,
+            conversation_key,
+            text,
+            sender_timestamp,
+            sender_timestamp,
+        ]
         if outgoing is not None:
             query += " AND outgoing = ?"
             params.append(1 if outgoing else 0)
@@ -1090,7 +1102,9 @@ class MessageRepository:
         return row["cnt"] if row else 0
 
     @staticmethod
-    async def count_channel_messages_by_sender_name(sender_name: str, radio_id: str = "default") -> int:
+    async def count_channel_messages_by_sender_name(
+        sender_name: str, radio_id: str = "default"
+    ) -> int:
         """Count channel messages attributed to a display name."""
         eff_radio = radio_id or "default"
         async with db.readonly() as conn:
@@ -1102,7 +1116,9 @@ class MessageRepository:
         return row["cnt"] if row else 0
 
     @staticmethod
-    async def get_first_channel_message_by_sender_name(sender_name: str, radio_id: str = "default") -> int | None:
+    async def get_first_channel_message_by_sender_name(
+        sender_name: str, radio_id: str = "default"
+    ) -> int | None:
         """Get the earliest stored channel message timestamp for a display name."""
         eff_radio = radio_id or "default"
         async with db.readonly() as conn:
@@ -1364,7 +1380,9 @@ class MessageRepository:
     ) -> tuple[list[ContactAnalyticsHourlyBucket], list[ContactAnalyticsWeeklyBucket]]:
         """Get combined DM + channel activity series for a keyed contact."""
         ts = now if now is not None else int(time.time())
-        where_sql, params = MessageRepository._contact_activity_filter(public_key, radio_id=radio_id)
+        where_sql, params = MessageRepository._contact_activity_filter(
+            public_key, radio_id=radio_id
+        )
         hour_counts = await MessageRepository._get_activity_hour_buckets(where_sql, params)
         hourly = MessageRepository._build_hourly_activity(hour_counts, ts)
         weekly = await MessageRepository._get_weekly_activity(where_sql, params, ts)

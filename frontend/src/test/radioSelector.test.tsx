@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RadioSelector, getRadioStatusDotClass, getRadioTransportBadge } from '../components/RadioSelector';
+import {
+  RadioSelector,
+  getRadioStatusDotClass,
+  getRadioTransportBadge,
+} from '../components/RadioSelector';
 import { RadioContext, type RadioContextValue } from '../contexts/RadioContext';
 import type { RadioRecord } from '../types';
 
@@ -187,8 +191,12 @@ describe('RadioSelector', () => {
     it('returns correct dot class based on radio state', () => {
       expect(getRadioStatusDotClass(mockRadio1)).toBe('bg-status-connected');
       expect(getRadioStatusDotClass(mockRadio2)).toBe('bg-warning animate-pulse');
-      expect(getRadioStatusDotClass({ ...mockRadio1, enabled: false })).toBe('bg-muted-foreground/40');
-      expect(getRadioStatusDotClass({ ...mockRadio1, is_connected: false, is_reconnecting: false })).toBe('bg-status-disconnected');
+      expect(getRadioStatusDotClass({ ...mockRadio1, enabled: false })).toBe(
+        'bg-muted-foreground/40'
+      );
+      expect(
+        getRadioStatusDotClass({ ...mockRadio1, is_connected: false, is_reconnecting: false })
+      ).toBe('bg-status-disconnected');
       expect(getRadioStatusDotClass(undefined)).toBe('bg-status-disconnected');
     });
 

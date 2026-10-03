@@ -34,9 +34,7 @@ def _resolve_target_radio(eff_radio: str) -> Any:
         try:
             return radio_manager.get(eff_radio)
         except (RadioNotFoundError, KeyError) as exc:
-            raise HTTPException(
-                status_code=404, detail=f"Radio '{eff_radio}' not found"
-            ) from exc
+            raise HTTPException(status_code=404, detail=f"Radio '{eff_radio}' not found") from exc
     return radio_manager
 
 

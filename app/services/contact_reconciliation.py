@@ -21,7 +21,9 @@ async def promote_prefix_contacts_for_contact(
 ) -> list[str]:
     """Promote prefix-only placeholder contacts once a full key is known."""
     normalized_key = public_key.lower()
-    promoted = await contact_repository.promote_prefix_placeholders(normalized_key, radio_id=radio_id)
+    promoted = await contact_repository.promote_prefix_placeholders(
+        normalized_key, radio_id=radio_id
+    )
     if promoted:
         (log or logger).info(
             "Promoted %d prefix contact placeholder(s) for %s",

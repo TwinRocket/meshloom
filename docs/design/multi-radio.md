@@ -329,11 +329,12 @@ For remote radios reached over WireGuard/Tailscale/cellular links:
 ## 11. Minimal Change Set & Phased Execution
 
 To ensure absolute stability, the implementation proceeds in strictly bounded phases:
-- **Phase 1: Registry & Instance Abstraction (Single-Radio Behavior Preserved):** Introduce `RadioInstance` and `RadioRegistry`. Wrap single radio. Ensure 100% test pass.
-- **Phase 2: Concurrent Multi-Radio Engine:** Support connecting multiple `RadioInstance`s simultaneously in background.
-- **Phase 3: Schema Migration & Persistence Isolation:** Migration `_086`, `radio_id` columns, repository updates.
-- **Phase 4: API & WebSocket Radio-Scoping:** Add `/api/radios`, parameterize endpoints by `radio_id`, tag WS events.
-- **Phase 5: Outbound Sending, Bots & Fanout Scoping:** Explicit send targeting, bot isolation, HA topic stability.
-- **Phase 6: Frontend Multi-Radio Experience:** Radio selector, scoped views, Settings radio management.
-- **Phase 7: Remote Link Hardening & Aggregated "All Radios" View:** Backoff, half-open detection, read-time dedup view.
-- **Phase 8: Documentation, Changelog & Packaging:** Multi-language documentation and packaging updates.
+- **Phase 0: Audit & Architecture Note [COMPLETED - commit `c591d4c7`]:** Detailed audit of single-radio assumptions, data model inventory, and invariant definition.
+- **Phase 1: Registry & Instance Abstraction [COMPLETED - commit `12d134c2`]:** Introduced `RadioInstance` and `RadioRegistry`. Encapsulated loop-bound locks, channel caches, and ingest gates. Preserved 100% backward compatibility for `radio_manager` and `radio_runtime`.
+- **Phase 2: Concurrent Multi-Radio Engine [COMPLETED - commit `cf5e30fc`]:** Concurrent non-blocking lifecycle management in `app/main.py` lifespan (`start_all()`, `stop_all()`), exponential backoff with +/- 20% jitter for remote links, and structured `[radio:<radio_id>]` logging.
+- **Phase 3: Schema Migration & Persistence Isolation [COMPLETED - commit `f0bbb573`]:** Migration `_086_multi_radio_support.py` adding `radios` table and `radio_id` composite PKs / scoping across contacts, channels, messages, raw_packets, and telemetry history.
+- **Phase 4: API & WebSocket Radio-Scoping [COMPLETED - commit `b6483518`]:** REST CRUD & lifecycle endpoints under `/api/radios`, query parameter `radio_id` propagation, and WebSocket event envelope tagging.
+- **Phase 5: Outbound Sending, Bots & Fanout Scoping [COMPLETED - commit `12eec4e9`]:** Radio-scoped ACK tracker (`RadioScopedAckDict`), isolated bot triggers and response dispatch, legacy MQTT topic stability for default radio and scoped prefixes for secondary radios.
+- **Phase 6: Frontend Multi-Radio Experience [COMPLETED - commit `54a1a9d4`]:** React `RadioContext`, header `RadioSelector` (hidden when <= 1 radio), full Settings Radios management panel, and complete English/French translations.
+- **Phase 7: Remote Link Hardening & Aggregated "All Radios" View [COMPLETED - commit `69899da9`]:** TCP keepalive tuning for fast half-open cellular/VPN link detection, and read-time `radio_id=all` querying for messages and packets.
+- **Phase 8: Documentation, Changelog & Packaging [COMPLETED]:** Architecture guides (`app/AGENTS.md`, `frontend/AGENTS.md`), user troubleshooting (`README_ADVANCED.md`), and bilingual changelog (`CHANGELOG.md`).

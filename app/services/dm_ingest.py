@@ -66,7 +66,9 @@ async def resolve_fallback_direct_message_context(
     normalized_sender = sender_public_key.lower()
 
     try:
-        contact = await contact_repository.get_by_key_or_prefix(normalized_sender, radio_id=radio_id)
+        contact = await contact_repository.get_by_key_or_prefix(
+            normalized_sender, radio_id=radio_id
+        )
     except AmbiguousPublicKeyPrefixError:
         (log or logger).warning(
             "DM sender prefix '%s' is ambiguous; storing under prefix until full key is known",
@@ -120,7 +122,9 @@ async def resolve_direct_message_sender_metadata(
     normalized_sender = sender_public_key.lower()
 
     try:
-        contact = await contact_repository.get_by_key_or_prefix(normalized_sender, radio_id=radio_id)
+        contact = await contact_repository.get_by_key_or_prefix(
+            normalized_sender, radio_id=radio_id
+        )
     except AmbiguousPublicKeyPrefixError:
         (log or logger).warning(
             "Sender prefix '%s' is ambiguous; preserving prefix-only attribution",

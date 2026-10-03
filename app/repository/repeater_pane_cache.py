@@ -35,9 +35,7 @@ class RepeaterPaneCacheRepository:
     """
 
     @staticmethod
-    async def put(
-        public_key: str, pane: str, data: dict | list, radio_id: str = "default"
-    ) -> None:
+    async def put(public_key: str, pane: str, data: dict | list, radio_id: str = "default") -> None:
         if pane not in CACHEABLE_PANES:
             return
         eff_radio = radio_id or "default"

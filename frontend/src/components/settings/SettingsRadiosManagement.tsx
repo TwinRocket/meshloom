@@ -263,14 +263,24 @@ export function SettingsRadiosManagement({ className }: { className?: string }) 
   const renderTransportSummary = (radio: RadioRecord) => {
     if (!radio.transport) {
       return (
-        <span className="text-muted-foreground">{t('radioStatus.notConfigured', 'Not configured')}</span>
+        <span className="text-muted-foreground">
+          {t('radioStatus.notConfigured', 'Not configured')}
+        </span>
       );
     }
     if (radio.transport === 'tcp') {
-      return <span>TCP · {radio.tcp_host}:{radio.tcp_port ?? 5000}</span>;
+      return (
+        <span>
+          TCP · {radio.tcp_host}:{radio.tcp_port ?? 5000}
+        </span>
+      );
     }
     if (radio.transport === 'serial') {
-      return <span>Serial · {radio.serial_port || 'Auto'} @ {radio.serial_baudrate || 115200}</span>;
+      return (
+        <span>
+          Serial · {radio.serial_port || 'Auto'} @ {radio.serial_baudrate || 115200}
+        </span>
+      );
     }
     if (radio.transport === 'ble') {
       return <span>BLE · {radio.ble_address}</span>;
@@ -303,12 +313,7 @@ export function SettingsRadiosManagement({ className }: { className?: string }) 
             <RefreshCw className="h-3.5 w-3.5" />
             <span>{t('common.refresh', 'Refresh')}</span>
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleOpenAddModal}
-            className="gap-1.5"
-          >
+          <Button type="button" size="sm" onClick={handleOpenAddModal} className="gap-1.5">
             <Plus className="h-3.5 w-3.5" />
             <span>{t('settings.radios.addRadio', 'Add Radio')}</span>
           </Button>
@@ -375,9 +380,7 @@ export function SettingsRadiosManagement({ className }: { className?: string }) 
                   )}
 
                   {radio.last_error && !radio.is_connected && (
-                    <div className="text-[0.6875rem] text-destructive">
-                      {radio.last_error}
-                    </div>
+                    <div className="text-[0.6875rem] text-destructive">{radio.last_error}</div>
                   )}
                 </div>
               </div>

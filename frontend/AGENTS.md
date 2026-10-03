@@ -40,6 +40,7 @@ frontend/src/
 ├── styles.css              # Additional global app styles
 ├── themes.css              # Color theme definitions
 ├── contexts/
+│   ├── RadioContext.tsx        # Multi-radio state, active radio ID (localStorage), and real-time lifecycle events
 │   ├── DistanceUnitContext.tsx # Browser-local distance-unit context/provider
 │   ├── PathHopWidthContext.tsx # Browser-local path hop-width display preference
 │   ├── RichPayloadContext.tsx  # Browser-local rich MeshCore payload rendering preference
@@ -70,6 +71,9 @@ frontend/src/
 │   └── useRememberedServerPassword.ts # Browser-local repeater/room password persistence
 ├── components/
 │   ├── AppShell.tsx            # App-shell layout: status, sidebar, search/settings panes, cracker, modals, security warning
+│   ├── RadioSelector.tsx       # Compact top-bar radio selector dropdown (hidden when <= 1 radio)
+│   ├── settings/
+│   │   └── SettingsRadiosManagement.tsx # Radios management panel (CRUD, connection controls, transport tester)
 │   ├── ConversationPane.tsx    # Active conversation surface selection (map/raw/trace/locate/repeater/room/chat/empty)
 │   ├── LocatePane.tsx          # RF locate: 0-hop coverage zone for one node
 │   ├── visualizer/

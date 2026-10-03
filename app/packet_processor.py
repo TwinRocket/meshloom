@@ -162,7 +162,10 @@ async def run_historical_dm_decryption(
     total = 0
     decrypted_count = 0
 
-    logger.info("Starting historical DM decryption scan for undecrypted TEXT_MESSAGE packets (radio=%s)", eff_radio)
+    logger.info(
+        "Starting historical DM decryption scan for undecrypted TEXT_MESSAGE packets (radio=%s)",
+        eff_radio,
+    )
 
     # Derive our public key from the private key
     our_public_key_bytes = derive_public_key(private_key_bytes)
@@ -304,7 +307,11 @@ async def start_historical_dm_decryption(
         )
         return
 
-    logger.info("Starting historical DM decryption for contact %s (radio=%s)", contact_public_key_hex[:12], radio_id)
+    logger.info(
+        "Starting historical DM decryption for contact %s (radio=%s)",
+        contact_public_key_hex[:12],
+        radio_id,
+    )
     if background_tasks is None:
         asyncio.create_task(
             run_historical_dm_decryption(
@@ -780,9 +787,7 @@ async def _process_advertisement(
                     None, advert.public_key.lower(), advert.name, radio_id=radio_id
                 )
             else:
-                await start_historical_dm_decryption(
-                    None, advert.public_key.lower(), advert.name
-                )
+                await start_historical_dm_decryption(None, advert.public_key.lower(), advert.name)
 
 
 async def _process_direct_message(
@@ -1059,7 +1064,9 @@ async def _process_path_packet(
                 len(result.extra),
             )
 
-        refreshed_contact = await ContactRepository.get_by_key(contact.public_key, radio_id=radio_id)
+        refreshed_contact = await ContactRepository.get_by_key(
+            contact.public_key, radio_id=radio_id
+        )
         if refreshed_contact is not None:
             if radio_id != "default":
                 broadcast_event("contact", refreshed_contact.model_dump(), radio_id=radio_id)

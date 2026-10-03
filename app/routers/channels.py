@@ -238,9 +238,7 @@ async def list_rejected_channels() -> list[RejectedChannel]:
 
 
 @router.get("/{key}/detail", response_model=ChannelDetail)
-async def get_channel_detail(
-    key: str, radio_id: str | None = Query(default=None)
-) -> ChannelDetail:
+async def get_channel_detail(key: str, radio_id: str | None = Query(default=None)) -> ChannelDetail:
     """Get comprehensive channel profile data with message statistics."""
     eff_radio = resolve_radio_id(radio_id)
     channel = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
@@ -273,7 +271,13 @@ async def create_channel(
     requested_name = request.name
     key_hex, channel_name, is_hashtag = _derive_channel_identity(requested_name, request.key)
 
-    logger.info("Creating channel %s: %s (hashtag=%s, radio=%s)", key_hex, channel_name, is_hashtag, eff_radio)
+    logger.info(
+        "Creating channel %s: %s (hashtag=%s, radio=%s)",
+        key_hex,
+        channel_name,
+        is_hashtag,
+        eff_radio,
+    )
 
     # Store in database only - radio sync happens at send time.
     # Manual create always adopts (and un-rejects if the key was refused).

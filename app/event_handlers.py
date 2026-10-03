@@ -54,9 +54,7 @@ def track_pending_ack(
     radio_id: str = "default",
 ) -> bool:
     """Compatibility wrapper for pending DM ACK tracking."""
-    return dm_ack_tracker.track_pending_ack(
-        expected_ack, message_id, timeout_ms, radio_id=radio_id
-    )
+    return dm_ack_tracker.track_pending_ack(expected_ack, message_id, timeout_ms, radio_id=radio_id)
 
 
 def cleanup_expired_acks() -> None:
@@ -179,12 +177,19 @@ async def on_rx_log_data(event: "Event", radio_id: str = "default") -> None:
     raw_hex = payload["payload"]
     raw_bytes = bytes.fromhex(raw_hex)
 
-    await process_raw_packet(
-        raw_bytes=raw_bytes,
-        snr=payload.get("snr"),
-        rssi=payload.get("rssi"),
-        radio_id=radio_id,
-    )
+    if radio_id == "default":
+        await process_raw_packet(
+            raw_bytes=raw_bytes,
+            snr=payload.get("snr"),
+            rssi=payload.get("rssi"),
+        )
+    else:
+        await process_raw_packet(
+            raw_bytes=raw_bytes,
+            snr=payload.get("snr"),
+            rssi=payload.get("rssi"),
+            radio_id=radio_id,
+        )
 
 
 async def on_path_update(event: "Event", radio_id: str = "default") -> None:
@@ -370,7 +375,9 @@ async def on_ack(event: "Event", radio_id: str = "default") -> None:
     if matched:
         logger.info("ACK received for code %s (radio_id=%s)", ack_code, radio_id)
     else:
-        logger.debug("ACK code %s does not match any pending messages (radio_id=%s)", ack_code, radio_id)
+        logger.debug(
+            "ACK code %s does not match any pending messages (radio_id=%s)", ack_code, radio_id
+        )
 
 
 async def on_library_connected(event: "Event") -> None:
@@ -481,9 +488,7 @@ def register_event_handlers(meshcore: Any, radio_instance: Any = None) -> None:
     if hasattr(EventType, "CONNECTED"):
         new_subs.append(meshcore.subscribe(EventType.CONNECTED, on_library_connected))
     if hasattr(EventType, "DISCONNECTED"):
-        new_subs.append(
-            meshcore.subscribe(EventType.DISCONNECTED, on_library_disconnected)
-        )
+        new_subs.append(meshcore.subscribe(EventType.DISCONNECTED, on_library_disconnected))
 
     if radio_instance is not None:
         subs = getattr(radio_instance, "_subscriptions", None)

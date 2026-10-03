@@ -109,7 +109,9 @@ export function RadioProvider({
   }, [radios, activeRadioId, setActiveRadioId]);
 
   const activeRadio = useMemo(() => {
-    return radios.find((r) => r.id === activeRadioId) ?? (radios.length > 0 ? radios[0] : undefined);
+    return (
+      radios.find((r) => r.id === activeRadioId) ?? (radios.length > 0 ? radios[0] : undefined)
+    );
   }, [radios, activeRadioId]);
 
   const handleRadioCreated = useCallback((radio: RadioRecord) => {

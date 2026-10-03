@@ -33,7 +33,9 @@ export function useContactsAndChannels({
         activeRadioId && activeRadioId !== 'default'
           ? await api.getUndecryptedPacketCount(activeRadioId)
           : await takePrefetchOrFetch('undecryptedCount', () =>
-              activeRadioId ? api.getUndecryptedPacketCount(activeRadioId) : api.getUndecryptedPacketCount()
+              activeRadioId
+                ? api.getUndecryptedPacketCount(activeRadioId)
+                : api.getUndecryptedPacketCount()
             );
       setUndecryptedCount(data.count);
     } catch (err) {
@@ -50,7 +52,9 @@ export function useContactsAndChannels({
         targetRadioId && targetRadioId !== 'default'
           ? await api.getContacts(pageSize, 0, targetRadioId)
           : await takePrefetchOrFetch('contacts', () =>
-              targetRadioId ? api.getContacts(pageSize, 0, targetRadioId) : api.getContacts(pageSize, 0)
+              targetRadioId
+                ? api.getContacts(pageSize, 0, targetRadioId)
+                : api.getContacts(pageSize, 0)
             );
       if (first.length < pageSize) return first;
       let all = [...first];
@@ -71,19 +75,8 @@ export function useContactsAndChannels({
   const handleCreateContact = useCallback(
     async (name: string, publicKey: string, tryHistorical: boolean, type?: number) => {
       const created = activeRadioId
-        ? await api.createContact(
-            publicKey,
-            name || undefined,
-            tryHistorical,
-            type,
-            activeRadioId
-          )
-        : await api.createContact(
-            publicKey,
-            name || undefined,
-            tryHistorical,
-            type
-          );
+        ? await api.createContact(publicKey, name || undefined, tryHistorical, type, activeRadioId)
+        : await api.createContact(publicKey, name || undefined, tryHistorical, type);
       const data = await fetchAllContacts();
       setContacts(data);
 
@@ -101,9 +94,7 @@ export function useContactsAndChannels({
       const created = activeRadioId
         ? await api.createChannel(name, key, activeRadioId)
         : await api.createChannel(name, key);
-      const data = activeRadioId
-        ? await api.getChannels(activeRadioId)
-        : await api.getChannels();
+      const data = activeRadioId ? await api.getChannels(activeRadioId) : await api.getChannels();
       setChannels(data);
 
       setActiveConversation({
@@ -130,9 +121,7 @@ export function useContactsAndChannels({
       const created = activeRadioId
         ? await api.createChannel(channelName, undefined, activeRadioId)
         : await api.createChannel(channelName);
-      const data = activeRadioId
-        ? await api.getChannels(activeRadioId)
-        : await api.getChannels();
+      const data = activeRadioId ? await api.getChannels(activeRadioId) : await api.getChannels();
       setChannels(data);
 
       setActiveConversation({
@@ -160,9 +149,7 @@ export function useContactsAndChannels({
       const result = activeRadioId
         ? await api.bulkCreateHashtagChannels(channelNames, tryHistorical, activeRadioId)
         : await api.bulkCreateHashtagChannels(channelNames, tryHistorical);
-      const data = activeRadioId
-        ? await api.getChannels(activeRadioId)
-        : await api.getChannels();
+      const data = activeRadioId ? await api.getChannels(activeRadioId) : await api.getChannels();
       setChannels(data);
 
       if (tryHistorical && result.decrypt_started) {

@@ -131,9 +131,11 @@ export function useUnreadCounts(
   useEffect(() => {
     const fetchFn = () => api.getUnreads(activeRadioId);
     if (activeRadioId && activeRadioId !== 'default') {
-      fetchFn().then(applyUnreads).catch((err) => {
-        console.error('Failed to fetch unreads:', err);
-      });
+      fetchFn()
+        .then(applyUnreads)
+        .catch((err) => {
+          console.error('Failed to fetch unreads:', err);
+        });
     } else {
       takePrefetchOrFetch('unreads', fetchFn)
         .then(applyUnreads)

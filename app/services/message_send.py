@@ -54,7 +54,7 @@ NO_RADIO_RESPONSE_AFTER_SEND_DETAIL = {
     "code": "radio_no_response_after_send",
     "message": NO_RADIO_RESPONSE_AFTER_SEND_MESSAGE,
 }
-TrackAckFn = Callable[[str, int, int], bool]
+TrackAckFn = Callable[..., bool]
 NowFn = Callable[[], float]
 OutgoingReservationKey = tuple[str, str, str, str]
 RetryTaskScheduler = Callable[[Any], Any]
@@ -488,14 +488,15 @@ async def _apply_direct_message_ack_tracking(
         return 0
 
     timeout_ms = _get_ack_tracking_timeout_ms(result)
-    try:
-        matched_immediately = (
-            track_pending_ack_fn(ack_code, message_id, timeout_ms, radio_id=radio_id) is True
-        )
-    except TypeError:
-        matched_immediately = (
-            track_pending_ack_fn(ack_code, message_id, timeout_ms) is True
-        )
+    if radio_id == "default":
+        matched_immediately = track_pending_ack_fn(ack_code, message_id, timeout_ms) is True
+    else:
+        try:
+            matched_immediately = (
+                track_pending_ack_fn(ack_code, message_id, timeout_ms, radio_id=radio_id) is True
+            )
+        except TypeError:
+            matched_immediately = track_pending_ack_fn(ack_code, message_id, timeout_ms) is True
     logger.debug("[radio:%s] Tracking ACK %s for message %d", radio_id, ack_code, message_id)
     if matched_immediately:
         dm_ack_tracker.clear_pending_acks_for_message(message_id, radio_id=radio_id)
@@ -984,9 +985,7 @@ async def send_channel_message_to_channel(
         message_repository=message_repository,
         radio_id=radio_id,
     )
-    broadcast_message(
-        message=outgoing_message, broadcast_fn=broadcast_fn, radio_id=radio_id
-    )
+    broadcast_message(message=outgoing_message, broadcast_fn=broadcast_fn, radio_id=radio_id)
 
     # Spawn echo watchdog if auto-resend is enabled
     try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from app.fanout.base import FanoutModule
 
@@ -109,7 +110,9 @@ class BotModule(FanoutModule):
                 if sender_name is None:
                     from app.repository import ContactRepository
 
-                    contact = await ContactRepository.get_by_key(conversation_key, radio_id=radio_id)
+                    contact = await ContactRepository.get_by_key(
+                        conversation_key, radio_id=radio_id
+                    )
                     sender_name = contact.name if contact else None
         else:
             sender_key = None
@@ -152,6 +155,25 @@ class BotModule(FanoutModule):
         # Execute bot code in thread pool with timeout
         from app.fanout.bot_exec import _bot_executor, _bot_semaphore
 
+        executor_args: list[Any] = [
+            code,
+            sender_name,
+            sender_key,
+            message_text,
+            is_dm,
+            channel_key,
+            channel_name,
+            sender_timestamp,
+            path_value,
+            is_outgoing,
+            path_bytes_per_hop,
+            packet_hash,
+            region,
+            scoped,
+        ]
+        if radio_id != "default":
+            executor_args.append(radio_id)
+
         async with _bot_semaphore:
             loop = asyncio.get_running_loop()
             try:
@@ -159,21 +181,7 @@ class BotModule(FanoutModule):
                     loop.run_in_executor(
                         _bot_executor,
                         execute_bot_code,
-                        code,
-                        sender_name,
-                        sender_key,
-                        message_text,
-                        is_dm,
-                        channel_key,
-                        channel_name,
-                        sender_timestamp,
-                        path_value,
-                        is_outgoing,
-                        path_bytes_per_hop,
-                        packet_hash,
-                        region,
-                        scoped,
-                        radio_id,
+                        *executor_args,
                     ),
                     timeout=BOT_EXECUTION_TIMEOUT,
                 )

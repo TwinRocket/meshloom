@@ -29,11 +29,6 @@ export function RadioSelector({ className, onOpenSettings }: RadioSelectorProps)
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // If only 1 radio (or 0) configured, preserve single-radio simplicity (render nothing)
-  if (radios.length <= 1) {
-    return null;
-  }
-
   // Close dropdown on click outside
   useEffect(() => {
     if (!open) return;
@@ -55,6 +50,11 @@ export function RadioSelector({ className, onOpenSettings }: RadioSelectorProps)
     };
   }, [open]);
 
+  // If only 1 radio (or 0) configured, preserve single-radio simplicity (render nothing)
+  if (radios.length <= 1) {
+    return null;
+  }
+
   const activeName = activeRadio?.name || activeRadioId || 'Primary Radio';
   const activeDotClass = getRadioStatusDotClass(activeRadio);
 
@@ -71,10 +71,7 @@ export function RadioSelector({ className, onOpenSettings }: RadioSelectorProps)
           'hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
         )}
       >
-        <span
-          className={cn('h-2 w-2 shrink-0 rounded-full', activeDotClass)}
-          aria-hidden="true"
-        />
+        <span className={cn('h-2 w-2 shrink-0 rounded-full', activeDotClass)} aria-hidden="true" />
         <span className="max-w-[8rem] truncate font-semibold text-foreground md:max-w-[11rem]">
           {activeName}
         </span>

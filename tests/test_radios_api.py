@@ -147,7 +147,9 @@ class TestCreateRadio:
 
     @pytest.mark.asyncio
     async def test_create_radio_ssrf_loop_prevention(self, test_db, client):
-        with patch("app.radio_proxy.manager.radio_proxy_manager.would_loop_transport", return_value=True):
+        with patch(
+            "app.radio_proxy.manager.radio_proxy_manager.would_loop_transport", return_value=True
+        ):
             resp = await client.post(
                 "/api/radios",
                 json={
@@ -184,7 +186,6 @@ class TestCreateRadio:
         get_data = get_resp.json()
         assert get_data["ble_pin_configured"] is True
         assert "ble_pin" not in get_data
-
 
 
 class TestGetRadio:
@@ -259,7 +260,9 @@ class TestPatchRadio:
                 "enabled": False,
             },
         )
-        with patch("app.radio_proxy.manager.radio_proxy_manager.would_loop_transport", return_value=True):
+        with patch(
+            "app.radio_proxy.manager.radio_proxy_manager.would_loop_transport", return_value=True
+        ):
             resp = await client.patch("/api/radios/patch_loop", json={"tcp_port": 5001})
             assert resp.status_code == 400
             assert "loop detected" in resp.json()["detail"]
@@ -377,7 +380,9 @@ class TestRadioCandidateTestEndpoint:
 
     @pytest.mark.asyncio
     async def test_radio_test_ssrf_prevention(self, test_db, client):
-        with patch("app.radio_proxy.manager.radio_proxy_manager.would_loop_transport", return_value=True):
+        with patch(
+            "app.radio_proxy.manager.radio_proxy_manager.would_loop_transport", return_value=True
+        ):
             resp = await client.post(
                 "/api/radios/test",
                 json={"transport": "tcp", "tcp_host": "127.0.0.1", "tcp_port": 4000},
@@ -645,4 +650,3 @@ class TestScopedExistingEndpoints:
         )
         assert resp.status_code == 404
         assert "Radio 'ghost_radio' not found" in resp.json()["detail"]
-

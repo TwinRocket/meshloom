@@ -872,7 +872,13 @@ export function useConversationMessages(
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversation?.id, activeConversation?.type, targetMessageId, reloadVersion, activeRadioId]);
+  }, [
+    activeConversation?.id,
+    activeConversation?.type,
+    targetMessageId,
+    reloadVersion,
+    activeRadioId,
+  ]);
 
   // Add a message to the active conversation if it is new.
   const appendActiveMessageIfNew = useCallback(

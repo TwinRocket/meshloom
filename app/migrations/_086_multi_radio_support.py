@@ -41,7 +41,8 @@ async def migrate(conn: aiosqlite.Connection) -> None:
 
     # 2. Seed default radio if radios table is empty
     count_cur = await conn.execute("SELECT COUNT(*) FROM radios")
-    radios_count = (await count_cur.fetchone())[0]
+    row = await count_cur.fetchone()
+    radios_count = row[0] if row else 0
     if radios_count == 0:
         transport = None
         serial_port = ""
@@ -188,8 +189,8 @@ async def migrate(conn: aiosqlite.Connection) -> None:
 
             await conn.execute(
                 f"""
-                INSERT INTO contacts_v86 ({', '.join(insert_cols)})
-                SELECT {', '.join(select_exprs)} FROM contacts
+                INSERT INTO contacts_v86 ({", ".join(insert_cols)})
+                SELECT {", ".join(select_exprs)} FROM contacts
                 """
             )
             await conn.execute("DROP TABLE contacts")
@@ -253,8 +254,8 @@ async def migrate(conn: aiosqlite.Connection) -> None:
 
             await conn.execute(
                 f"""
-                INSERT INTO channels_v86 ({', '.join(insert_cols)})
-                SELECT {', '.join(select_exprs)} FROM channels
+                INSERT INTO channels_v86 ({", ".join(insert_cols)})
+                SELECT {", ".join(select_exprs)} FROM channels
                 """
             )
             await conn.execute("DROP TABLE channels")
@@ -399,7 +400,9 @@ async def migrate(conn: aiosqlite.Connection) -> None:
                 """
             )
             await conn.execute("DROP TABLE contact_name_history")
-            await conn.execute("ALTER TABLE contact_name_history_v86 RENAME TO contact_name_history")
+            await conn.execute(
+                "ALTER TABLE contact_name_history_v86 RENAME TO contact_name_history"
+            )
             await conn.execute("DROP INDEX IF EXISTS idx_contact_name_history_key")
             await conn.execute(
                 """

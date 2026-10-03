@@ -116,9 +116,7 @@ class RadioRuntime:
         from app.services.radio_lifecycle import prepare_connected_radio
 
         target = self.get(radio_id) if radio_id is not None else self.manager
-        return await prepare_connected_radio(
-            target, broadcast_on_success=broadcast_on_success
-        )
+        return await prepare_connected_radio(target, broadcast_on_success=broadcast_on_success)
 
     async def reconnect_and_prepare(
         self, *, radio_id: str | None = None, broadcast_on_success: bool = True

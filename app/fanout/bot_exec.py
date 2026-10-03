@@ -128,7 +128,14 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
     has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in param_values)
     explicit_optional_names = tuple(
         name
-        for name in ("is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped", "radio_id")
+        for name in (
+            "is_outgoing",
+            "path_bytes_per_hop",
+            "packet_hash",
+            "region",
+            "scoped",
+            "radio_id",
+        )
         if name in params
     )
     unsupported_required_kwonly = [
@@ -136,7 +143,8 @@ def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
         for p in param_values
         if p.kind == inspect.Parameter.KEYWORD_ONLY
         and p.default is inspect.Parameter.empty
-        and p.name not in {"is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped", "radio_id"}
+        and p.name
+        not in {"is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped", "radio_id"}
     ]
     if unsupported_required_kwonly:
         raise ValueError(
@@ -518,7 +526,9 @@ async def _send_single_bot_message(
                 logger.warning("[radio:%s] Cannot send bot response: no destination", radio_id)
                 return  # Don't update timestamp if we didn't send
         except HTTPException as e:
-            logger.error("[radio:%s] Bot failed to send response: %s", radio_id, e.detail, exc_info=True)
+            logger.error(
+                "[radio:%s] Bot failed to send response: %s", radio_id, e.detail, exc_info=True
+            )
             return  # Don't update timestamp on failure
         except Exception:
             logger.exception("[radio:%s] Bot failed to send response", radio_id)

@@ -241,7 +241,9 @@ class RawPacketRepository:
         radio_id: str = "default",
     ) -> AsyncIterator[tuple[int, bytes, int]]:
         """Yield all undecrypted packets as (id, data, timestamp) in bounded batches."""
-        async for row in RawPacketRepository._stream_undecrypted_rows(batch_size, radio_id=radio_id):
+        async for row in RawPacketRepository._stream_undecrypted_rows(
+            batch_size, radio_id=radio_id
+        ):
             yield row
 
     @staticmethod
@@ -401,7 +403,12 @@ class RawPacketRepository:
                 break
 
             batch_where, batch_params = RawPacketRepository._history_window_sql(
-                since, until, last_ts, last_id, last_id_before if last_id is None else None, radio_id=radio_id
+                since,
+                until,
+                last_ts,
+                last_id,
+                last_id_before if last_id is None else None,
+                radio_id=radio_id,
             )
             async with db.readonly() as conn:
                 async with conn.execute(

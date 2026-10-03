@@ -57,9 +57,7 @@ def _resolve_target_radio(eff_radio: str) -> Any:
         try:
             return radio_manager.get(eff_radio)
         except (RadioNotFoundError, KeyError) as exc:
-            raise HTTPException(
-                status_code=404, detail=f"Radio '{eff_radio}' not found"
-            ) from exc
+            raise HTTPException(status_code=404, detail=f"Radio '{eff_radio}' not found") from exc
     return radio_manager
 
 
@@ -111,7 +109,6 @@ async def _broadcast_contact_resolution(previous_public_keys: list[str], contact
             broadcast_event("contact_resolved", payload)
 
 
-
 def _path_hash_mode_from_hop_width(hop_width: object) -> int:
     if not isinstance(hop_width, int):
         return 0
@@ -122,11 +119,19 @@ async def _build_keyed_contact_analytics(
     contact: Contact, radio_id: str = "default"
 ) -> ContactAnalytics:
     eff_radio = resolve_radio_id(radio_id)
-    name_history = await ContactNameHistoryRepository.get_history(contact.public_key, radio_id=eff_radio)
+    name_history = await ContactNameHistoryRepository.get_history(
+        contact.public_key, radio_id=eff_radio
+    )
     dm_count = await MessageRepository.count_dm_messages(contact.public_key, radio_id=eff_radio)
-    chan_count = await MessageRepository.count_channel_messages_by_sender(contact.public_key, radio_id=eff_radio)
-    active_rooms_raw = await MessageRepository.get_most_active_rooms(contact.public_key, radio_id=eff_radio)
-    advert_paths = await ContactAdvertPathRepository.get_recent_for_contact(contact.public_key, radio_id=eff_radio)
+    chan_count = await MessageRepository.count_channel_messages_by_sender(
+        contact.public_key, radio_id=eff_radio
+    )
+    active_rooms_raw = await MessageRepository.get_most_active_rooms(
+        contact.public_key, radio_id=eff_radio
+    )
+    advert_paths = await ContactAdvertPathRepository.get_recent_for_contact(
+        contact.public_key, radio_id=eff_radio
+    )
     hourly_activity, weekly_activity = await MessageRepository.get_contact_activity_series(
         contact.public_key, radio_id=eff_radio
     )
@@ -378,9 +383,7 @@ async def create_contact(
 
 
 @router.post("/{public_key}/mark-read")
-async def mark_contact_read(
-    public_key: str, radio_id: str | None = Query(default=None)
-) -> dict:
+async def mark_contact_read(public_key: str, radio_id: str | None = Query(default=None)) -> dict:
     """Mark a contact conversation as read (update last_read_at timestamp)."""
     eff_radio = resolve_radio_id(radio_id)
     contact = await resolve_contact_or_404(public_key, radio_id=eff_radio)
@@ -441,9 +444,7 @@ async def bulk_delete_contacts(
 
 
 @router.delete("/{public_key}")
-async def delete_contact(
-    public_key: str, radio_id: str | None = Query(default=None)
-) -> dict:
+async def delete_contact(public_key: str, radio_id: str | None = Query(default=None)) -> dict:
     """Delete a contact from the database (and radio if present)."""
     eff_radio = resolve_radio_id(radio_id)
     target_radio = _resolve_target_radio(eff_radio)
@@ -466,9 +467,7 @@ async def delete_contact(
     from app.websocket import broadcast_event
 
     if eff_radio != "default":
-        broadcast_event(
-            "contact_deleted", {"public_key": contact.public_key}, radio_id=eff_radio
-        )
+        broadcast_event("contact_deleted", {"public_key": contact.public_key}, radio_id=eff_radio)
     else:
         broadcast_event("contact_deleted", {"public_key": contact.public_key})
 
@@ -771,7 +770,9 @@ async def request_contact_telemetry(
 
     # Fetch recent history (30 days)
     since = fetched_at - 30 * 86400
-    rows = await ContactTelemetryRepository.get_history(contact.public_key, since, radio_id=eff_radio)
+    rows = await ContactTelemetryRepository.get_history(
+        contact.public_key, since, radio_id=eff_radio
+    )
     history = [TelemetryHistoryEntry(**row) for row in rows]
 
     return ContactTelemetryResponse(
@@ -791,5 +792,7 @@ async def get_contact_telemetry_history(
     eff_radio = resolve_radio_id(radio_id)
     contact = await resolve_contact_or_404(public_key, radio_id=eff_radio)
     since = int(time.time()) - 30 * 86400
-    rows = await ContactTelemetryRepository.get_history(contact.public_key, since, radio_id=eff_radio)
+    rows = await ContactTelemetryRepository.get_history(
+        contact.public_key, since, radio_id=eff_radio
+    )
     return [TelemetryHistoryEntry(**row) for row in rows]

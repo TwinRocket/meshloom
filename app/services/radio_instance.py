@@ -827,22 +827,22 @@ class RadioInstance:
             import socket
 
             connection_mgr = getattr(mc, "connection_manager", None)
-            connection_obj = (
+            connection_obj: Any = (
                 getattr(connection_mgr, "connection", None) if connection_mgr else None
             )
             sock = None
-            if hasattr(connection_obj, "get_extra_info"):
-                sock = connection_obj.get_extra_info("socket")
-            elif hasattr(connection_obj, "_transport") and hasattr(
-                connection_obj._transport, "get_extra_info"
-            ):
-                sock = connection_obj._transport.get_extra_info("socket")
-            elif hasattr(connection_obj, "_writer") and hasattr(
-                connection_obj._writer, "get_extra_info"
-            ):
-                sock = connection_obj._writer.get_extra_info("socket")
-            elif hasattr(connection_obj, "socket"):
-                sock = connection_obj.socket
+            if connection_obj is not None:
+                if hasattr(connection_obj, "get_extra_info"):
+                    sock = connection_obj.get_extra_info("socket")
+                else:
+                    transport: Any = getattr(connection_obj, "_transport", None)
+                    writer: Any = getattr(connection_obj, "_writer", None)
+                    if transport is not None and hasattr(transport, "get_extra_info"):
+                        sock = transport.get_extra_info("socket")
+                    elif writer is not None and hasattr(writer, "get_extra_info"):
+                        sock = writer.get_extra_info("socket")
+                    elif hasattr(connection_obj, "socket"):
+                        sock = getattr(connection_obj, "socket", None)
 
             if sock is not None:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)

@@ -84,16 +84,22 @@ class TestAggregatedAllRadiosView:
         data_2 = b"\x05\x06\x07\x08"
 
         pkt_1_id, _ = await RawPacketRepository.create(data_1, timestamp=now, radio_id="radio_1")
-        pkt_2_id, _ = await RawPacketRepository.create(data_2, timestamp=now + 1, radio_id="radio_2")
+        pkt_2_id, _ = await RawPacketRepository.create(
+            data_2, timestamp=now + 1, radio_id="radio_2"
+        )
 
         # Query radio_1 history
-        rows_1, total_1, _, _ = await RawPacketRepository.list_history(limit=10, max_scan=50, radio_id="radio_1")
+        rows_1, total_1, _, _ = await RawPacketRepository.list_history(
+            limit=10, max_scan=50, radio_id="radio_1"
+        )
         ids_1 = {r[0] for r in rows_1}
         assert pkt_1_id in ids_1
         assert pkt_2_id not in ids_1
 
         # Query all radios history
-        rows_all, total_all, _, _ = await RawPacketRepository.list_history(limit=10, max_scan=50, radio_id="all")
+        rows_all, total_all, _, _ = await RawPacketRepository.list_history(
+            limit=10, max_scan=50, radio_id="all"
+        )
         ids_all = {r[0] for r in rows_all}
         assert pkt_1_id in ids_all
         assert pkt_2_id in ids_all

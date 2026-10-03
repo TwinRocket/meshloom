@@ -321,9 +321,7 @@ async def patch_radio(radio_id: str, patch: RadioUpdate) -> RadioStatusResponse:
 
 
 @router.delete("/{radio_id}")
-async def delete_radio(
-    radio_id: str, purge_data: bool = Query(default=False)
-) -> dict[str, Any]:
+async def delete_radio(radio_id: str, purge_data: bool = Query(default=False)) -> dict[str, Any]:
     """Delete a radio configuration. Rejects deletion of the default radio."""
     if radio_id == "default":
         raise HTTPException(

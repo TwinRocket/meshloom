@@ -84,12 +84,18 @@ class TestRadioScopedAckTracker:
         )
         assert msg_b_id is not None
 
-        track_pending_ack(message_id=msg_a_id, expected_ack=str(ack_code), timeout_ms=5000, radio_id="radio_a")
-        track_pending_ack(message_id=msg_b_id, expected_ack=str(ack_code), timeout_ms=5000, radio_id="radio_b")
+        track_pending_ack(
+            message_id=msg_a_id, expected_ack=str(ack_code), timeout_ms=5000, radio_id="radio_a"
+        )
+        track_pending_ack(
+            message_id=msg_b_id, expected_ack=str(ack_code), timeout_ms=5000, radio_id="radio_b"
+        )
 
         # Apply ACK on radio_a
         mock_broadcast = MagicMock()
-        matched = await apply_dm_ack_code(str(ack_code), broadcast_fn=mock_broadcast, radio_id="radio_a")
+        matched = await apply_dm_ack_code(
+            str(ack_code), broadcast_fn=mock_broadcast, radio_id="radio_a"
+        )
         assert matched is True
 
         # Check statuses
@@ -100,7 +106,9 @@ class TestRadioScopedAckTracker:
         assert refreshed_b.acked == 0
 
         # Now apply ACK on radio_b
-        matched_b = await apply_dm_ack_code(str(ack_code), broadcast_fn=mock_broadcast, radio_id="radio_b")
+        matched_b = await apply_dm_ack_code(
+            str(ack_code), broadcast_fn=mock_broadcast, radio_id="radio_b"
+        )
         assert matched_b is True
 
         refreshed_b2 = await MessageRepository.get_by_id(msg_b_id)
@@ -113,8 +121,12 @@ class TestMultiRadioBotRouting:
     @pytest.mark.asyncio
     async def test_process_bot_response_propagates_radio_id(self):
         with (
-            patch("app.routers.messages.send_direct_message", new_callable=AsyncMock) as mock_send_dm,
-            patch("app.routers.messages.send_channel_message", new_callable=AsyncMock) as mock_send_chan,
+            patch(
+                "app.routers.messages.send_direct_message", new_callable=AsyncMock
+            ) as mock_send_dm,
+            patch(
+                "app.routers.messages.send_channel_message", new_callable=AsyncMock
+            ) as mock_send_chan,
             patch("app.websocket.broadcast_event"),
         ):
             mock_send_dm.return_value = MagicMock(model_dump=lambda: {})
@@ -167,7 +179,9 @@ class TestMultiRadioBotRouting:
 
         with (
             patch("asyncio.sleep", new_callable=AsyncMock),
-            patch("app.fanout.bot_exec.process_bot_response", new_callable=AsyncMock) as mock_process,
+            patch(
+                "app.fanout.bot_exec.process_bot_response", new_callable=AsyncMock
+            ) as mock_process,
         ):
             await bot._run_for_message(msg)
             mock_process.assert_awaited_once()
@@ -199,7 +213,10 @@ class TestMultiRadioMqttScoping:
         assert _build_raw_packet_topic("meshcore", data_sec) == "meshcore/radio_remote/raw/unrouted"
 
         data_routed = {"radio_id": "radio_remote", "decrypted_info": {"contact_key": "contact_abc"}}
-        assert _build_raw_packet_topic("meshcore", data_routed) == "meshcore/radio_remote/raw/dm:contact_abc"
+        assert (
+            _build_raw_packet_topic("meshcore", data_routed)
+            == "meshcore/radio_remote/raw/dm:contact_abc"
+        )
 
     def test_home_assistant_device_payload_scoping(self):
         payload_default = _device_payload(

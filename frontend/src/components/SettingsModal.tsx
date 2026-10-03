@@ -256,7 +256,6 @@ export function SettingsModal(props: SettingsModalProps) {
         </section>
       )}
 
-
       {shouldRenderSection('proxy') && (
         <section className={sectionWrapperClass}>
           {renderSectionHeader('proxy')}

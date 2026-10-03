@@ -2037,7 +2037,6 @@ class RadioUpdate(BaseModel):
     sort_order: int | None = None
 
 
-
 class RadioTransportSnapshot(BaseModel):
     """Persisted radio transport + identity binding. PIN is internal-only."""
 

@@ -265,7 +265,6 @@ async def radio_not_found_handler(request: Request, exc: RadioNotFoundError):
     )
 
 
-
 @app.middleware("http")
 async def log_server_errors(request: Request, call_next):
     """Capture 5xx errors and unhandled exceptions into the log ring buffer.

@@ -106,8 +106,10 @@ def dump_ws_event(event_type: str, data: Any, radio_id: str | None = None) -> st
     if effective_radio_id is None:
         if isinstance(data, dict) and "radio_id" in data and data["radio_id"]:
             effective_radio_id = str(data["radio_id"])
-        elif hasattr(data, "radio_id") and getattr(data, "radio_id", None):
-            effective_radio_id = str(data.radio_id)
+        elif not isinstance(data, dict) and hasattr(data, "radio_id"):
+            val = getattr(data, "radio_id", None)
+            if val:
+                effective_radio_id = str(val)
 
     adapter = _PAYLOAD_ADAPTERS.get(event_type)  # type: ignore[arg-type]
     if adapter is None:
@@ -123,7 +125,11 @@ def dump_ws_event(event_type: str, data: Any, radio_id: str | None = None) -> st
         payload = adapter.dump_python(
             validated, mode="json", exclude_none=(event_type == "community_packet")
         )
-        if effective_radio_id is not None and isinstance(payload, dict) and "radio_id" not in payload:
+        if (
+            effective_radio_id is not None
+            and isinstance(payload, dict)
+            and "radio_id" not in payload
+        ):
             payload["radio_id"] = effective_radio_id
         envelope = {"type": event_type}
         if effective_radio_id is not None:
@@ -140,5 +146,3 @@ def dump_ws_event(event_type: str, data: Any, radio_id: str | None = None) -> st
             envelope["radio_id"] = effective_radio_id
         envelope["data"] = data
         return json.dumps(envelope)
-
-
