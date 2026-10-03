@@ -846,14 +846,32 @@ class RadioInstance:
 
             if sock is not None:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                if hasattr(socket, "TCP_KEEPIDLE"):
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 15)
-                if hasattr(socket, "TCP_KEEPINTVL"):
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
-                if hasattr(socket, "TCP_KEEPCNT"):
-                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
-                if hasattr(socket, "SIO_KEEPALIVE_VALS"):
-                    sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 15000, 5000))
+                tcp_keepidle = getattr(
+                    socket, "TCP_KEEPIDLE", getattr(socket, "TCP_KEEPALIVE", None)
+                )
+                if tcp_keepidle is not None:
+                    try:
+                        sock.setsockopt(socket.IPPROTO_TCP, tcp_keepidle, 15)
+                    except (OSError, TypeError):
+                        pass
+                tcp_keepintvl = getattr(socket, "TCP_KEEPINTVL", None)
+                if tcp_keepintvl is not None:
+                    try:
+                        sock.setsockopt(socket.IPPROTO_TCP, tcp_keepintvl, 5)
+                    except (OSError, TypeError):
+                        pass
+                tcp_keepcnt = getattr(socket, "TCP_KEEPCNT", None)
+                if tcp_keepcnt is not None:
+                    try:
+                        sock.setsockopt(socket.IPPROTO_TCP, tcp_keepcnt, 3)
+                    except (OSError, TypeError):
+                        pass
+                sio_vals = getattr(socket, "SIO_KEEPALIVE_VALS", None)
+                if sio_vals is not None and hasattr(sock, "ioctl"):
+                    try:
+                        sock.ioctl(sio_vals, (1, 15000, 5000))
+                    except (OSError, TypeError):
+                        pass
                 logger.debug(
                     "[radio:%s] TCP keepalive configured (15s idle, 5s interval, 3 probes)",
                     self.radio_id,

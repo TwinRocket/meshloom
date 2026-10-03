@@ -626,7 +626,7 @@ function AppContent() {
         });
       }
     },
-    [fetchUndecryptedCount, setChannels, t]
+    [activeRadioId, fetchUndecryptedCount, setChannels, t]
   );
 
   const [discoveredHashtagNames, setDiscoveredHashtagNames] = useState<string[]>([]);
