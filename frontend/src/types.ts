@@ -52,6 +52,66 @@ export interface RadioTransportConfig {
   serial_ports: RadioSerialPortInfo[];
 }
 
+export interface RadioRecord {
+  id: string;
+  name: string;
+  transport: RadioTransportKind | null;
+  serial_port: string;
+  serial_baudrate: number;
+  tcp_host: string;
+  tcp_port: number | null;
+  ble_address: string;
+  ble_pin_configured: boolean;
+  enabled: boolean;
+  auto_connect: boolean;
+  bound_public_key: string | null;
+  identity_state: string | null;
+  created_at: number;
+  updated_at: number;
+  last_connected_at: number | null;
+  sort_order: number;
+  is_connected: boolean;
+  is_reconnecting: boolean;
+  connection_info: string | null;
+  last_error: string | null;
+  device_model: string | null;
+  firmware_version: string | null;
+}
+
+export interface RadioCreate {
+  id?: string;
+  name: string;
+  transport?: RadioTransportKind | null;
+  serial_port?: string;
+  serial_baudrate?: number;
+  tcp_host?: string;
+  tcp_port?: number | null;
+  ble_address?: string;
+  ble_pin?: string;
+  enabled?: boolean;
+  auto_connect?: boolean;
+  bound_public_key?: string | null;
+  identity_state?: string | null;
+  sort_order?: number;
+}
+
+export interface RadioUpdate {
+  name?: string | null;
+  transport?: RadioTransportKind | null;
+  serial_port?: string | null;
+  serial_baudrate?: number | null;
+  tcp_host?: string | null;
+  tcp_port?: number | null;
+  ble_address?: string | null;
+  ble_pin?: string | null;
+  enabled?: boolean | null;
+  auto_connect?: boolean | null;
+  bound_public_key?: string | null;
+  identity_state?: string | null;
+  last_connected_at?: number | null;
+  sort_order?: number | null;
+}
+
 export interface RadioProxyStatus {
   /** The host decides the listening port; the field says so rather than accepting
    *  a value that cannot take effect. */
@@ -278,6 +338,7 @@ export interface MaintenanceResult {
 }
 
 export interface Contact {
+  radio_id?: string;
   public_key: string;
   name: string | null;
   type: number;
@@ -375,6 +436,7 @@ export interface ContactAnalytics {
 }
 
 export interface Channel {
+  radio_id?: string;
   key: string;
   name: string;
   is_hashtag: boolean;
@@ -451,6 +513,7 @@ export interface MessagePath {
 }
 
 export interface Message {
+  radio_id?: string;
   id: number;
   type: 'PRIV' | 'CHAN';
   /** For PRIV: sender's PublicKey (or prefix). For CHAN: ChannelKey */
@@ -742,6 +805,7 @@ export interface DirectoryMapNodesQuery {
 }
 
 export interface RawPacket {
+  radio_id?: string;
   id: number;
   /** Per-observation WS identity (unique per RF arrival, may be absent in older payloads) */
   observation_id?: number;
@@ -780,6 +844,7 @@ export interface RawPacketHistoryQuery {
   limit?: number;
   after_id?: number;
   max_scan?: number;
+  radio_id?: string;
 }
 
 export interface RawPacketHistoryResponse {

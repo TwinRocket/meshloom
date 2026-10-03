@@ -6,6 +6,7 @@ import {
   Globe,
   Info,
   MonitorCog,
+  Radio,
   RadioTower,
   RefreshCw,
   Share2,
@@ -17,6 +18,7 @@ import {
 
 export type SettingsSection =
   | 'radio'
+  | 'radios'
   | 'proxy'
   | 'local'
   | 'notifications'
@@ -44,11 +46,13 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'navigation',
   'statistics',
   'about',
+  'radios',
 ];
 
 /** i18n key ids. Translate at render with t(SETTINGS_SECTION_LABELS[section]). */
 export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   radio: 'settingsNav.radio',
+  radios: 'settingsNav.radios',
   proxy: 'settingsNav.proxy',
   local: 'settingsNav.local',
   notifications: 'settingsNav.notifications',
@@ -65,6 +69,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
 
 export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   radio: RadioTower,
+  radios: Radio,
   proxy: Waypoints,
   local: MonitorCog,
   notifications: Bell,

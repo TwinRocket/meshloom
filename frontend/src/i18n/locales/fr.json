@@ -182,6 +182,35 @@
     "backToTools": "Retour aux outils"
   },
   "settings": {
+    "radios": {
+      "managementTitle": "Radios configurées",
+      "managementHelp": "Gérer plusieurs interfaces radio connectées ou configurées. La radio principale ne peut pas être supprimée.",
+      "addRadio": "Ajouter une radio",
+      "addRadioHelp": "Configurer une nouvelle interface radio. Vous pouvez tester la connectivité avant d'enregistrer.",
+      "editRadio": "Modifier la radio",
+      "editRadioHelp": "Mettre à jour les paramètres de cette interface radio.",
+      "deleteTitle": "Supprimer la radio",
+      "deleteConfirm": "Êtes-vous sûr de vouloir supprimer la radio « {{name}} » ? Cela supprime sa configuration de connexion.",
+      "purgeDataLabel": "Purger tous les paquets historiques, contacts et canaux associés à cette radio",
+      "noRadios": "Aucune radio configurée.",
+      "primaryBadge": "Principale",
+      "activeBadge": "Active",
+      "makeActive": "Activer",
+      "connect": "Connecter",
+      "disconnect": "Déconnecter",
+      "reconnect": "Reconnecter",
+      "enabled": "Activer cette radio",
+      "autoConnect": "Connexion automatique au démarrage / reconnexion",
+      "testConnection": "Tester la connexion",
+      "nameRequired": "Le nom de la radio est obligatoire",
+      "createdSuccess": "Radio créée avec succès",
+      "updatedSuccess": "Radio mise à jour avec succès",
+      "deletedSuccess": "Radio supprimée avec succès",
+      "cannotDeleteDefault": "La radio par défaut ne peut pas être supprimée",
+      "connectedSuccess": "Radio connectée",
+      "disconnectedSuccess": "Radio déconnectée",
+      "reconnectedSuccess": "Radio reconnectée"
+    },
     "staleTitle": "Purge des contacts inactifs",
     "staleHelp": "Désactivée par défaut. Quand une valeur est définie, une tâche d’arrière-plan supprime les contacts non favoris avec le même filtre « dernier entendu avant » que la suppression groupée. 0 désactive la tâche.",
     "staleDays": "Jours sans être entendu",
@@ -1790,10 +1819,17 @@
     "messageSearch": "Recherche de messages",
     "routeTrace": "Trace de route"
   },
+  "radioSelector": {
+    "selectRadio": "Sélectionner la radio active",
+    "radiosList": "Radios",
+    "title": "Radio active",
+    "manageRadios": "Gérer les radios..."
+  },
   "settingsNav": {
     "title": "Réglages",
     "aria": "Réglages",
     "radio": "Radio",
+    "radios": "Radios",
     "proxy": "Proxy",
     "local": "Configuration locale",
     "notifications": "Notifications",

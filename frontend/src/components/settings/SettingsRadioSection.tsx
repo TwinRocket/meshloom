@@ -16,6 +16,7 @@ import {
 } from './settingsPrimitives';
 import { toast } from '../ui/sonner';
 import { Checkbox } from '../ui/checkbox';
+import { SettingsRadiosManagement } from './SettingsRadiosManagement';
 import {
   Dialog,
   DialogContent,
@@ -1332,6 +1333,9 @@ export function SettingsRadioSection({
           <TabsTrigger value="connection" className="shrink-0">
             {t('settings.radio.tabConnection')}
           </TabsTrigger>
+          <TabsTrigger value="radios" className="shrink-0">
+            {t('settings.radio.tabRadios', 'Radios')}
+          </TabsTrigger>
           <TabsTrigger value="device" disabled={!config} className="shrink-0">
             {t('settings.radio.tabDevice')}
             {radioConfigDirty && <DirtyDot />}
@@ -1403,6 +1407,10 @@ export function SettingsRadioSection({
               {t('settings.radio.unavailableUntilConnected')}
             </p>
           ) : null}
+        </TabsContent>
+
+        <TabsContent value="radios" className="m-0 space-y-4">
+          <SettingsRadiosManagement />
         </TabsContent>
 
         {config && appSettings ? (

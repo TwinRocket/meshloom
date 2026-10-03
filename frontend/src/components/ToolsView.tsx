@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
 import { RadioStatusChip } from './RadioStatusChip';
+import { RadioSelector } from './RadioSelector';
 import { cn } from '../lib/utils';
 
 /**
@@ -124,6 +125,7 @@ export function ToolsView({
           blurs what reaches into the strip under the status bar. */}
       <div className="flex shrink-0 items-center gap-2 bg-background px-4 pb-2 pt-8 md:pt-5">
         <h1 className="text-2xl font-semibold tracking-tight">{t('toolsView.title')}</h1>
+        <RadioSelector className="ml-1 shrink-0" />
         <RadioStatusChip
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}

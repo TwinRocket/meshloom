@@ -25,6 +25,7 @@ import type {
   CommunityLiveStatus,
   CommunityPacket,
   MessagePath,
+  RadioRecord,
   RawPacket,
 } from '../types';
 
@@ -63,6 +64,10 @@ interface UseRealtimeAppStateArgs {
     extras?: { packet_hash?: string | null; observer_reach_eligible?: boolean | null }
   ) => void;
   removeMessage: (messageId: number) => void;
+  onRadioCreated?: (radio: RadioRecord) => void;
+  onRadioUpdated?: (radio: RadioRecord) => void;
+  onRadioDeleted?: (radioId: string) => void;
+  activeRadioId?: string;
   /** Buffer cap override. Defaults to the store's own cap; tests use it to force eviction. */
   maxRawPackets?: number;
 }
@@ -112,6 +117,10 @@ export function useRealtimeAppState({
   removeConversationMessages,
   receiveMessageAck,
   removeMessage,
+  onRadioCreated,
+  onRadioUpdated,
+  onRadioDeleted,
+  activeRadioId,
   maxRawPackets = MAX_RAW_PACKETS,
 }: UseRealtimeAppStateArgs): UseWebSocketOptions {
   const mergeChannelIntoList = useCallback(
@@ -203,12 +212,16 @@ export function useRealtimeAppState({
         clearRawPackets();
         reconcileOnReconnect();
         refreshUnreads();
-        api.getChannels().then(setChannels).catch(console.error);
+        api.getChannels(activeRadioId).then(setChannels).catch(console.error);
         fetchAllContacts()
           .then((data) => setContacts(data))
           .catch(console.error);
       },
       onMessage: (msg: Message) => {
+        if (msg.radio_id && activeRadioId && msg.radio_id !== activeRadioId) {
+          return;
+        }
+
         if (isMessageBlocked(msg, blockedKeysRef.current, blockedNamesRef.current)) {
           return;
         }
@@ -231,6 +244,9 @@ export function useRealtimeAppState({
         }
       },
       onContact: (contact: Contact) => {
+        if (contact.radio_id && activeRadioId && contact.radio_id !== activeRadioId) {
+          return;
+        }
         setContacts((prev) => mergeContactIntoList(prev, contact));
       },
       onContactResolved: (previousPublicKey: string, contact: Contact) => {
@@ -256,6 +272,9 @@ export function useRealtimeAppState({
         }
       },
       onChannel: (channel: Channel) => {
+        if (channel.radio_id && activeRadioId && channel.radio_id !== activeRadioId) {
+          return;
+        }
         const existed = channelsRef.current.some((item) => item.key === channel.key);
         mergeChannelIntoList(channel);
         if (!existed && channel.membership === 'pending') {
@@ -293,6 +312,9 @@ export function useRealtimeAppState({
         }
       },
       onRawPacket: (packet: RawPacket) => {
+        if (packet.radio_id && activeRadioId && packet.radio_id !== activeRadioId) {
+          return;
+        }
         emitStatusDotPulse(packet.payload_type);
         recordRawPacket(packet, maxRawPackets);
       },
@@ -315,6 +337,20 @@ export function useRealtimeAppState({
       onMessageDeleted: (messageId: number) => {
         removeMessage(messageId);
       },
+      onRadioCreated: (radio: RadioRecord) => {
+        window.dispatchEvent(new CustomEvent('meshloom_ws_radio_created', { detail: radio }));
+        onRadioCreated?.(radio);
+      },
+      onRadioUpdated: (radio: RadioRecord) => {
+        window.dispatchEvent(new CustomEvent('meshloom_ws_radio_updated', { detail: radio }));
+        onRadioUpdated?.(radio);
+      },
+      onRadioDeleted: (radioId: string) => {
+        window.dispatchEvent(
+          new CustomEvent('meshloom_ws_radio_deleted', { detail: { radio_id: radioId } })
+        );
+        onRadioDeleted?.(radioId);
+      },
     }),
     [
       activeConversationRef,
@@ -328,6 +364,9 @@ export function useRealtimeAppState({
       renameConversationMessages,
       maxRawPackets,
       mergeChannelIntoList,
+      onRadioCreated,
+      onRadioUpdated,
+      onRadioDeleted,
       pendingDeleteFallbackRef,
       prevHealthRef,
       recordMessageEvent,
@@ -341,6 +380,7 @@ export function useRealtimeAppState({
       setChannels,
       setContacts,
       setHealth,
+      activeRadioId,
     ]
   );
 }

@@ -27,6 +27,8 @@ import { DistanceUnitProvider } from './contexts/DistanceUnitContext';
 import { PathHopWidthProvider } from './contexts/PathHopWidthContext';
 import { RichPayloadProvider } from './contexts/RichPayloadContext';
 import { usePush } from './contexts/PushSubscriptionContext';
+import { RadioProvider, useRadioContext } from './contexts/RadioContext';
+import { clearRawPackets } from './stores/rawPacketStore';
 import { messageContainsMention } from './utils/messageParser';
 import { getStateKey } from './utils/conversationState';
 import { isPublicChannelKey } from './utils/publicChannel';
@@ -105,6 +107,15 @@ export function resolveUnreadMarkerId(
 }
 
 export function App() {
+  return (
+    <RadioProvider>
+      <AppContent />
+    </RadioProvider>
+  );
+}
+
+function AppContent() {
+  const { activeRadioId } = useRadioContext();
   const { t } = useTranslation();
   const quoteSearchOperatorValue = useCallback((value: string) => {
     return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -237,6 +248,7 @@ export function App() {
     hasSetDefaultConversation,
     removeConversationMessages: (conversationId) =>
       removeConversationMessagesRef.current(conversationId),
+    activeRadioId,
   });
 
   // Keep channels in a ref for WS callback mute filtering
@@ -363,7 +375,7 @@ export function App() {
     removeConversationMessages,
     removeMessage,
     clearConversationMessages,
-  } = useConversationMessages(activeConversation, targetMessageId);
+  } = useConversationMessages(activeConversation, targetMessageId, activeRadioId);
   removeConversationMessagesRef.current = removeConversationMessages;
 
   // Auto-focus the message input on conversation change (desktop only by default)
@@ -409,7 +421,7 @@ export function App() {
     removeConversationState,
     markAllRead,
     refreshUnreads,
-  } = useUnreadCounts(channels, contacts, activeConversation);
+  } = useUnreadCounts(channels, contacts, activeConversation, activeRadioId);
   useFaviconBadge(unreadCounts, mentions, channels);
   useUnreadTitle(unreadCounts, contacts, channels);
 
@@ -497,7 +509,36 @@ export function App() {
     removeConversationMessages,
     receiveMessageAck,
     removeMessage,
+    activeRadioId,
   });
+
+  const prevActiveRadioRef = useRef(activeRadioId);
+  useEffect(() => {
+    if (prevActiveRadioRef.current === activeRadioId) return;
+    prevActiveRadioRef.current = activeRadioId;
+
+    clearRawPackets();
+    clearConversationMessages();
+    reloadCurrentConversation();
+    void api.getChannels(activeRadioId).then(setChannels).catch(console.error);
+    void fetchAllContacts(activeRadioId)
+      .then((data) => {
+        setContacts(data);
+        setContactsLoaded(true);
+      })
+      .catch(console.error);
+    void refreshUnreads();
+  }, [
+    activeRadioId,
+    clearConversationMessages,
+    reloadCurrentConversation,
+    setChannels,
+    fetchAllContacts,
+    setContacts,
+    setContactsLoaded,
+    refreshUnreads,
+  ]);
+
   const handleIdentityAdopted = useCallback(async () => {
     resetClientStateAfterIdentityAdopt();
     setContacts([]);
@@ -508,14 +549,15 @@ export function App() {
     });
     window.history.replaceState(null, '', '#map');
     await Promise.all([
-      api.getChannels().then(setChannels).catch(console.error),
+      api.getChannels(activeRadioId).then(setChannels).catch(console.error),
       fetchAppSettings(),
-      fetchAllContacts().then(setContacts).catch(console.error),
+      fetchAllContacts(activeRadioId).then(setContacts).catch(console.error),
       handleHealthRefresh(),
       fetchConfig(),
       refreshUnreads(),
     ]);
   }, [
+    activeRadioId,
     fetchAllContacts,
     fetchAppSettings,
     fetchConfig,
@@ -563,11 +605,12 @@ export function App() {
     setChannels,
     observeMessage,
     messageInputRef,
+    activeRadioId,
   });
   const handleCreateCrackedChannel = useCallback(
     async (name: string, key: string, tryHistorical: boolean) => {
-      const created = await api.createChannel(name, key);
-      const updatedChannels = await api.getChannels();
+      const created = await api.createChannel(name, key, activeRadioId);
+      const updatedChannels = await api.getChannels(activeRadioId);
       setChannels(updatedChannels);
       try {
         if (tryHistorical) {
@@ -952,17 +995,33 @@ export function App() {
     fetchUndecryptedCount();
 
     // Fetch contacts and channels via REST (parallel, faster than WS serial push)
-    takePrefetchOrFetch('channels', api.getChannels).then(setChannels).catch(console.error);
-    fetchAllContacts()
-      .then((data) => {
-        setContacts(data);
-        setContactsLoaded(true);
-      })
-      .catch((err) => {
-        console.error(err);
-        setContactsLoaded(true);
-      });
+    if (activeRadioId && activeRadioId !== 'default') {
+      api.getChannels(activeRadioId).then(setChannels).catch(console.error);
+      fetchAllContacts(activeRadioId)
+        .then((data) => {
+          setContacts(data);
+          setContactsLoaded(true);
+        })
+        .catch((err) => {
+          console.error(err);
+          setContactsLoaded(true);
+        });
+    } else {
+      takePrefetchOrFetch('channels', () => api.getChannels(activeRadioId))
+        .then(setChannels)
+        .catch(console.error);
+      fetchAllContacts(activeRadioId)
+        .then((data) => {
+          setContacts(data);
+          setContactsLoaded(true);
+        })
+        .catch((err) => {
+          console.error(err);
+          setContactsLoaded(true);
+        });
+    }
   }, [
+    activeRadioId,
     fetchConfig,
     fetchAppSettings,
     fetchUndecryptedCount,

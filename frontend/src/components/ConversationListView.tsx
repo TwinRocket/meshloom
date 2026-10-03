@@ -21,6 +21,7 @@ import type {
 } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
+import { RadioSelector } from './RadioSelector';
 import { ConversationOverflowMenu } from './ConversationOverflowMenu';
 import { ChannelFloodScopeOverrideModal } from './ChannelFloodScopeOverrideModal';
 import { isPublicChannelKey } from '../utils/publicChannel';
@@ -388,6 +389,7 @@ export function ConversationListView({
           <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
             {t('conversationList.title')}
           </h1>
+          <RadioSelector className="ml-1 shrink-0" />
           {/* Phone-only: the desktop rail already carries this status, and a second
               pill here sat between the title and New with nothing to say that the
               rail tile does not. */}

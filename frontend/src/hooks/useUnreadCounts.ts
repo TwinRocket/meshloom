@@ -47,7 +47,8 @@ interface UseUnreadCountsResult {
 export function useUnreadCounts(
   channels: Channel[],
   contacts: Contact[],
-  activeConversation: Conversation | null
+  activeConversation: Conversation | null,
+  activeRadioId?: string
 ): UseUnreadCountsResult {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [mentions, setMentions] = useState<Record<string, boolean>>({});
@@ -106,7 +107,7 @@ export function useUnreadCounts(
   // stays current (otherwise subsequent fetches would re-report the same unreads).
   const fetchUnreads = useCallback(async () => {
     try {
-      applyUnreads(await api.getUnreads());
+      applyUnreads(await api.getUnreads(activeRadioId));
     } catch (err) {
       console.error('Failed to fetch unreads:', err);
     }
@@ -116,7 +117,7 @@ export function useUnreadCounts(
     } else if (ac?.type === 'contact') {
       api.markContactRead(ac.id).catch(() => {});
     }
-  }, [applyUnreads]);
+  }, [applyUnreads, activeRadioId]);
 
   // On mount, consume the prefetched promise (started in index.html before
   // React loaded) or fall back to a fresh fetch.
@@ -128,12 +129,29 @@ export function useUnreadCounts(
   const contactsLen = contacts.length;
   const hasObservedCountsRef = useRef(false);
   useEffect(() => {
-    takePrefetchOrFetch('unreads', api.getUnreads)
-      .then(applyUnreads)
-      .catch((err) => {
+    const fetchFn = () => api.getUnreads(activeRadioId);
+    if (activeRadioId && activeRadioId !== 'default') {
+      fetchFn().then(applyUnreads).catch((err) => {
         console.error('Failed to fetch unreads:', err);
       });
-  }, [applyUnreads]);
+    } else {
+      takePrefetchOrFetch('unreads', fetchFn)
+        .then(applyUnreads)
+        .catch((err) => {
+          console.error('Failed to fetch unreads:', err);
+        });
+    }
+  }, [applyUnreads, activeRadioId]);
+
+  const prevRadioIdRef = useRef<string | undefined>(activeRadioId);
+  useEffect(() => {
+    if (prevRadioIdRef.current !== undefined && prevRadioIdRef.current !== activeRadioId) {
+      setUnreadCounts({});
+      setMentions({});
+      void fetchUnreads();
+    }
+    prevRadioIdRef.current = activeRadioId;
+  }, [activeRadioId, fetchUnreads]);
   useEffect(() => {
     if (!hasObservedCountsRef.current) {
       hasObservedCountsRef.current = true;
@@ -341,10 +359,10 @@ export function useUnreadCounts(
     setFirstUnreadIds({});
 
     // Persist to server with single bulk request
-    api.markAllRead().catch((err) => {
+    api.markAllRead(activeRadioId).catch((err) => {
       console.error('Failed to mark all as read on server:', err);
     });
-  }, []);
+  }, [activeRadioId]);
 
   return {
     unreadCounts,

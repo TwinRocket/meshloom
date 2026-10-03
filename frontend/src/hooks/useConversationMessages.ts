@@ -380,10 +380,12 @@ function appendUniqueMessages(current: Message[], incoming: Message[]): Message[
 
 export function useConversationMessages(
   activeConversation: Conversation | null,
-  targetMessageId?: number | null
+  targetMessageId?: number | null,
+  activeRadioId?: string
 ): UseConversationMessagesResult {
   // Track seen message content for deduplication
   const seenMessageContent = useRef<Set<string>>(new Set());
+  const prevRadioIdRef = useRef<string | undefined>(activeRadioId);
 
   // ACK events can arrive before the corresponding message event/response.
   // Buffer latest ACK state by message_id and apply when the message arrives.
@@ -507,6 +509,7 @@ export function useConversationMessages(
             type: activeConversation.type === 'channel' ? 'CHAN' : 'PRIV',
             conversation_key: activeConversation.id,
             limit: MESSAGE_PAGE_SIZE,
+            radio_id: activeRadioId,
           },
           signal
         );
@@ -537,7 +540,7 @@ export function useConversationMessages(
         }
       }
     },
-    [activeConversation, applyPendingAck, syncSeenContent]
+    [activeConversation, applyPendingAck, syncSeenContent, activeRadioId]
   );
 
   const reconcileFromBackend = useCallback(
@@ -549,6 +552,7 @@ export function useConversationMessages(
             type: conversation.type === 'channel' ? 'CHAN' : 'PRIV',
             conversation_key: conversationId,
             limit: MESSAGE_PAGE_SIZE,
+            radio_id: activeRadioId,
           },
           signal
         )
@@ -569,7 +573,7 @@ export function useConversationMessages(
           console.debug('Background reconciliation failed:', err);
         });
     },
-    [applyPendingAck, syncSeenContent]
+    [applyPendingAck, syncSeenContent, activeRadioId]
   );
 
   const fetchOlderMessages = useCallback(async () => {
@@ -605,6 +609,7 @@ export function useConversationMessages(
           limit: MESSAGE_PAGE_SIZE,
           before: oldestMessage.received_at,
           before_id: oldestMessage.id,
+          radio_id: activeRadioId,
         },
         controller.signal
       );
@@ -643,7 +648,7 @@ export function useConversationMessages(
       loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
-  }, [activeConversation, applyPendingAck, syncSeenContent]);
+  }, [activeConversation, applyPendingAck, syncSeenContent, activeRadioId]);
 
   const fetchNewerMessages = useCallback(async () => {
     if (
@@ -678,6 +683,7 @@ export function useConversationMessages(
           limit: MESSAGE_PAGE_SIZE,
           after: newestMessage.received_at,
           after_id: newestMessage.id,
+          radio_id: activeRadioId,
         },
         controller.signal
       );
@@ -719,7 +725,7 @@ export function useConversationMessages(
       loadingNewerRef.current = false;
       setLoadingNewer(false);
     }
-  }, [activeConversation, applyPendingAck, reconcileFromBackend]);
+  }, [activeConversation, activeRadioId, applyPendingAck, reconcileFromBackend]);
 
   const jumpToBottom = useCallback(() => {
     if (!activeConversation) return;
@@ -801,6 +807,13 @@ export function useConversationMessages(
       });
     }
 
+    if (prevRadioIdRef.current !== undefined && prevRadioIdRef.current !== activeRadioId) {
+      conversationMessageCache.clear();
+      seenMessageContent.current.clear();
+      setMessages([]);
+    }
+    prevRadioIdRef.current = activeRadioId;
+
     if (!isMessageConversation(activeConversation)) {
       setMessages([]);
       setHasOlderMessages(false);
@@ -819,7 +832,8 @@ export function useConversationMessages(
           targetMessageId,
           msgType as 'PRIV' | 'CHAN',
           activeConversation.id,
-          controller.signal
+          controller.signal,
+          activeRadioId
         )
         .then((response) => {
           if (fetchingConversationIdRef.current !== activeConversation.id) return;
@@ -858,7 +872,7 @@ export function useConversationMessages(
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversation?.id, activeConversation?.type, targetMessageId, reloadVersion]);
+  }, [activeConversation?.id, activeConversation?.type, targetMessageId, reloadVersion, activeRadioId]);
 
   // Add a message to the active conversation if it is new.
   const appendActiveMessageIfNew = useCallback(

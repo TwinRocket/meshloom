@@ -12,6 +12,7 @@ interface UseContactsAndChannelsArgs {
   pendingDeleteFallbackRef: MutableRefObject<boolean>;
   hasSetDefaultConversation: MutableRefObject<boolean>;
   removeConversationMessages: (conversationId: string) => void;
+  activeRadioId?: string;
 }
 
 export function useContactsAndChannels({
@@ -19,6 +20,7 @@ export function useContactsAndChannels({
   pendingDeleteFallbackRef,
   hasSetDefaultConversation,
   removeConversationMessages,
+  activeRadioId,
 }: UseContactsAndChannelsArgs) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactsLoaded, setContactsLoaded] = useState(false);
@@ -27,32 +29,61 @@ export function useContactsAndChannels({
 
   const fetchUndecryptedCountInternal = useCallback(async () => {
     try {
-      const data = await takePrefetchOrFetch('undecryptedCount', api.getUndecryptedPacketCount);
+      const data =
+        activeRadioId && activeRadioId !== 'default'
+          ? await api.getUndecryptedPacketCount(activeRadioId)
+          : await takePrefetchOrFetch('undecryptedCount', () =>
+              activeRadioId ? api.getUndecryptedPacketCount(activeRadioId) : api.getUndecryptedPacketCount()
+            );
       setUndecryptedCount(data.count);
     } catch (err) {
       console.error('Failed to fetch undecrypted count:', err);
     }
-  }, []);
+  }, [activeRadioId]);
 
   // Fetch all contacts, paginating if >1000
-  const fetchAllContacts = useCallback(async (): Promise<Contact[]> => {
-    const pageSize = 1000;
-    const first = await takePrefetchOrFetch('contacts', () => api.getContacts(pageSize, 0));
-    if (first.length < pageSize) return first;
-    let all = [...first];
-    let offset = pageSize;
-    while (true) {
-      const page = await api.getContacts(pageSize, offset);
-      all = all.concat(page);
-      if (page.length < pageSize) break;
-      offset += pageSize;
-    }
-    return all;
-  }, []);
+  const fetchAllContacts = useCallback(
+    async (radioId?: string): Promise<Contact[]> => {
+      const targetRadioId = radioId !== undefined ? radioId : activeRadioId;
+      const pageSize = 1000;
+      const first =
+        targetRadioId && targetRadioId !== 'default'
+          ? await api.getContacts(pageSize, 0, targetRadioId)
+          : await takePrefetchOrFetch('contacts', () =>
+              targetRadioId ? api.getContacts(pageSize, 0, targetRadioId) : api.getContacts(pageSize, 0)
+            );
+      if (first.length < pageSize) return first;
+      let all = [...first];
+      let offset = pageSize;
+      while (true) {
+        const page = targetRadioId
+          ? await api.getContacts(pageSize, offset, targetRadioId)
+          : await api.getContacts(pageSize, offset);
+        all = all.concat(page);
+        if (page.length < pageSize) break;
+        offset += pageSize;
+      }
+      return all;
+    },
+    [activeRadioId]
+  );
 
   const handleCreateContact = useCallback(
     async (name: string, publicKey: string, tryHistorical: boolean, type?: number) => {
-      const created = await api.createContact(publicKey, name || undefined, tryHistorical, type);
+      const created = activeRadioId
+        ? await api.createContact(
+            publicKey,
+            name || undefined,
+            tryHistorical,
+            type,
+            activeRadioId
+          )
+        : await api.createContact(
+            publicKey,
+            name || undefined,
+            tryHistorical,
+            type
+          );
       const data = await fetchAllContacts();
       setContacts(data);
 
@@ -62,13 +93,17 @@ export function useContactsAndChannels({
         name: getContactDisplayName(created.name, created.public_key, created.last_advert),
       });
     },
-    [fetchAllContacts, setActiveConversation]
+    [fetchAllContacts, setActiveConversation, activeRadioId]
   );
 
   const handleCreateChannel = useCallback(
     async (name: string, key: string, tryHistorical: boolean) => {
-      const created = await api.createChannel(name, key);
-      const data = await api.getChannels();
+      const created = activeRadioId
+        ? await api.createChannel(name, key, activeRadioId)
+        : await api.createChannel(name, key);
+      const data = activeRadioId
+        ? await api.getChannels(activeRadioId)
+        : await api.getChannels();
       setChannels(data);
 
       setActiveConversation({
@@ -85,15 +120,19 @@ export function useContactsAndChannels({
         fetchUndecryptedCountInternal();
       }
     },
-    [fetchUndecryptedCountInternal, setActiveConversation]
+    [fetchUndecryptedCountInternal, setActiveConversation, activeRadioId]
   );
 
   const handleCreateHashtagChannel = useCallback(
     async (name: string, tryHistorical: boolean) => {
       const channelName = name.startsWith('#') ? name : `#${name}`;
 
-      const created = await api.createChannel(channelName);
-      const data = await api.getChannels();
+      const created = activeRadioId
+        ? await api.createChannel(channelName, undefined, activeRadioId)
+        : await api.createChannel(channelName);
+      const data = activeRadioId
+        ? await api.getChannels(activeRadioId)
+        : await api.getChannels();
       setChannels(data);
 
       setActiveConversation({
@@ -110,7 +149,7 @@ export function useContactsAndChannels({
         fetchUndecryptedCountInternal();
       }
     },
-    [fetchUndecryptedCountInternal, setActiveConversation]
+    [fetchUndecryptedCountInternal, setActiveConversation, activeRadioId]
   );
 
   const handleBulkCreateHashtagChannels = useCallback(
@@ -118,8 +157,12 @@ export function useContactsAndChannels({
       channelNames: string[],
       tryHistorical: boolean
     ): Promise<BulkCreateHashtagChannelsResult> => {
-      const result = await api.bulkCreateHashtagChannels(channelNames, tryHistorical);
-      const data = await api.getChannels();
+      const result = activeRadioId
+        ? await api.bulkCreateHashtagChannels(channelNames, tryHistorical, activeRadioId)
+        : await api.bulkCreateHashtagChannels(channelNames, tryHistorical);
+      const data = activeRadioId
+        ? await api.getChannels(activeRadioId)
+        : await api.getChannels();
       setChannels(data);
 
       if (tryHistorical && result.decrypt_started) {
@@ -128,7 +171,7 @@ export function useContactsAndChannels({
 
       return result;
     },
-    [fetchUndecryptedCountInternal]
+    [fetchUndecryptedCountInternal, activeRadioId]
   );
 
   const handleDeleteChannel = useCallback(
@@ -136,9 +179,15 @@ export function useContactsAndChannels({
       if (!confirm(i18n.t('toast.deleteChannelConfirm'))) return;
       try {
         pendingDeleteFallbackRef.current = true;
-        await api.deleteChannel(key);
+        if (activeRadioId) {
+          await api.deleteChannel(key, activeRadioId);
+        } else {
+          await api.deleteChannel(key);
+        }
         removeConversationMessages(key);
-        const refreshedChannels = await api.getChannels();
+        const refreshedChannels = activeRadioId
+          ? await api.getChannels(activeRadioId)
+          : await api.getChannels();
         setChannels(refreshedChannels);
         const publicChannel = findPublicChannel(refreshedChannels);
         hasSetDefaultConversation.current = true;
@@ -160,6 +209,7 @@ export function useContactsAndChannels({
       pendingDeleteFallbackRef,
       removeConversationMessages,
       setActiveConversation,
+      activeRadioId,
     ]
   );
 
@@ -168,10 +218,16 @@ export function useContactsAndChannels({
       if (!confirm(i18n.t('toast.deleteContactConfirm'))) return;
       try {
         pendingDeleteFallbackRef.current = true;
-        await api.deleteContact(publicKey);
+        if (activeRadioId) {
+          await api.deleteContact(publicKey, activeRadioId);
+        } else {
+          await api.deleteContact(publicKey);
+        }
         removeConversationMessages(publicKey);
         setContacts((prev) => prev.filter((c) => c.public_key !== publicKey));
-        const refreshedChannels = await api.getChannels();
+        const refreshedChannels = activeRadioId
+          ? await api.getChannels(activeRadioId)
+          : await api.getChannels();
         setChannels(refreshedChannels);
         const publicChannel = findPublicChannel(refreshedChannels);
         hasSetDefaultConversation.current = true;
@@ -193,14 +249,19 @@ export function useContactsAndChannels({
       pendingDeleteFallbackRef,
       removeConversationMessages,
       setActiveConversation,
+      activeRadioId,
     ]
   );
 
   const handleAdoptChannel = useCallback(
     async (key: string) => {
       try {
-        const stored = await api.adoptChannel(key);
-        const refreshed = await api.getChannels();
+        const stored = activeRadioId
+          ? await api.adoptChannel(key, activeRadioId)
+          : await api.adoptChannel(key);
+        const refreshed = activeRadioId
+          ? await api.getChannels(activeRadioId)
+          : await api.getChannels();
         setChannels(refreshed);
         setActiveConversation({ type: 'channel', id: stored.key, name: stored.name });
         toast.success(i18n.t('discovered.adopted', { name: stored.name }));
@@ -211,15 +272,21 @@ export function useContactsAndChannels({
         });
       }
     },
-    [setActiveConversation]
+    [setActiveConversation, activeRadioId]
   );
 
   const handleRefuseChannel = useCallback(
     async (key: string) => {
       try {
-        await api.refuseChannel(key);
+        if (activeRadioId) {
+          await api.refuseChannel(key, activeRadioId);
+        } else {
+          await api.refuseChannel(key);
+        }
         removeConversationMessages(key);
-        const refreshed = await api.getChannels();
+        const refreshed = activeRadioId
+          ? await api.getChannels(activeRadioId)
+          : await api.getChannels();
         setChannels(refreshed);
         setActiveConversation({
           type: 'discovered',
@@ -234,7 +301,7 @@ export function useContactsAndChannels({
         });
       }
     },
-    [removeConversationMessages, setActiveConversation]
+    [removeConversationMessages, setActiveConversation, activeRadioId]
   );
 
   return {

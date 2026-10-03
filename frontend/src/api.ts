@@ -40,11 +40,14 @@ import type {
   RadioBleDeviceInfo,
   RadioConfig,
   RadioConfigUpdate,
+  RadioCreate,
   RadioIdentityActionResponse,
   RadioProxyStatus,
   RadioProxyUpdate,
+  RadioRecord,
   RadioTransportConfig,
   RadioTransportUpdate,
+  RadioUpdate,
   RadioDiscoveryResponse,
   RadioRegionDiscoveryResponse,
   RadioRegionVerifyResponse,
@@ -258,16 +261,59 @@ export const api = {
     fetchJson<{ status: string; message: string }>('/radio/reboot', {
       method: 'POST',
     }),
-  disconnectRadio: () =>
-    fetchJson<{ status: string; message: string; connected: boolean; paused: boolean }>(
-      '/radio/disconnect',
-      {
-        method: 'POST',
-      }
-    ),
-  reconnectRadio: () =>
-    fetchJson<{ status: string; message: string; connected: boolean }>('/radio/reconnect', {
+  disconnectRadio: (radioId?: string) =>
+    radioId
+      ? fetchJson<{ status: string }>(`/radios/${encodeURIComponent(radioId)}/disconnect`, {
+          method: 'POST',
+        })
+      : fetchJson<{ status: string; message: string; connected: boolean; paused: boolean }>(
+          '/radio/disconnect',
+          {
+            method: 'POST',
+          }
+        ),
+  reconnectRadio: (radioId?: string) =>
+    radioId
+      ? fetchJson<{ status: string }>(`/radios/${encodeURIComponent(radioId)}/reconnect`, {
+          method: 'POST',
+        })
+      : fetchJson<{ status: string; message: string; connected: boolean }>('/radio/reconnect', {
+          method: 'POST',
+        }),
+  // Radios (multi-radio management)
+  getRadios: () => fetchJson<RadioRecord[]>('/radios'),
+  getRadio: (radioId: string) => fetchJson<RadioRecord>(`/radios/${encodeURIComponent(radioId)}`),
+  createRadio: (data: RadioCreate) =>
+    fetchJson<RadioRecord>('/radios', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateRadio: (radioId: string, patch: RadioUpdate) =>
+    fetchJson<RadioRecord>(`/radios/${encodeURIComponent(radioId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteRadio: async (
+    radioId: string,
+    purgeData?: boolean
+  ): Promise<{ status: string; radio_id: string }> => {
+    const res = await fetchJson<{ status: string; radio_id?: string; message?: string }>(
+      `/radios/${encodeURIComponent(radioId)}${purgeData ? '?purge_data=true' : ''}`,
+      { method: 'DELETE' }
+    );
+    return {
+      status: res.status,
+      radio_id: res.radio_id ?? radioId,
+    };
+  },
+  connectRadio: (radioId: string) =>
+    fetchJson<{ status: string }>(`/radios/${encodeURIComponent(radioId)}/connect`, {
+      method: 'POST',
+    }),
+  testRadioTransport: (data: RadioCreate) =>
+    fetchJson<{ success: boolean; message: string }>('/radios/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
   getRadioTransport: () => fetchJson<RadioTransportConfig>('/radio/transport'),
   updateRadioTransport: (body: RadioTransportUpdate) =>
@@ -296,8 +342,14 @@ export const api = {
     }),
 
   // Contacts
-  getContacts: (limit = 100, offset = 0) =>
-    fetchJson<Contact[]>(`/contacts?limit=${limit}&offset=${offset}`),
+  getContacts: (limit = 100, offset = 0, radioId?: string) => {
+    const searchParams = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (radioId) searchParams.set('radio_id', radioId);
+    return fetchJson<Contact[]>(`/contacts?${searchParams.toString()}`);
+  },
   getRepeaterAdvertPaths: (limitPerRepeater = 10) =>
     fetchJson<ContactAdvertPathSummary[]>(
       `/contacts/repeaters/advert-paths?limit_per_repeater=${limitPerRepeater}`
@@ -310,18 +362,27 @@ export const api = {
       signal,
     });
   },
-  deleteContact: (publicKey: string) =>
-    fetchJson<{ status: string }>(`/contacts/${publicKey}`, {
-      method: 'DELETE',
-    }),
+  deleteContact: (publicKey: string, radioId?: string) =>
+    fetchJson<{ status: string }>(
+      `/contacts/${publicKey}${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      {
+        method: 'DELETE',
+      }
+    ),
   bulkDeleteContacts: (publicKeys: string[]) =>
     fetchJson<{ deleted: number }>('/contacts/bulk-delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ public_keys: publicKeys }),
     }),
-  createContact: (publicKey: string, name?: string, tryHistorical?: boolean, type?: number) =>
-    fetchJson<Contact>('/contacts', {
+  createContact: (
+    publicKey: string,
+    name?: string,
+    tryHistorical?: boolean,
+    type?: number,
+    radioId?: string
+  ) =>
+    fetchJson<Contact>(`/contacts${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`, {
       method: 'POST',
       body: JSON.stringify({ public_key: publicKey, name, type, try_historical: tryHistorical }),
     }),
@@ -349,23 +410,37 @@ export const api = {
     }),
 
   // Channels
-  getChannels: () => fetchJson<Channel[]>('/channels'),
-  createChannel: (name: string, key?: string) =>
-    fetchJson<Channel>('/channels', {
+  getChannels: (radioId?: string) =>
+    fetchJson<Channel[]>(`/channels${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`),
+  createChannel: (name: string, key?: string, radioId?: string) =>
+    fetchJson<Channel>(`/channels${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`, {
       method: 'POST',
       body: JSON.stringify({ name, key }),
     }),
-  bulkCreateHashtagChannels: (channelNames: string[], tryHistorical?: boolean) =>
-    fetchJson<BulkCreateHashtagChannelsResult>('/channels/bulk-hashtag', {
-      method: 'POST',
-      body: JSON.stringify({ channel_names: channelNames, try_historical: tryHistorical }),
-    }),
-  deleteChannel: (key: string) =>
-    fetchJson<{ status: string }>(`/channels/${key}`, { method: 'DELETE' }),
+  bulkCreateHashtagChannels: (channelNames: string[], tryHistorical?: boolean, radioId?: string) =>
+    fetchJson<BulkCreateHashtagChannelsResult>(
+      `/channels/bulk-hashtag${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ channel_names: channelNames, try_historical: tryHistorical }),
+      }
+    ),
+  deleteChannel: (key: string, radioId?: string) =>
+    fetchJson<{ status: string }>(
+      `/channels/${key}${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      { method: 'DELETE' }
+    ),
   getRejectedChannels: () => fetchJson<RejectedChannel[]>('/channels/rejected'),
-  adoptChannel: (key: string) => fetchJson<Channel>(`/channels/${key}/adopt`, { method: 'POST' }),
-  refuseChannel: (key: string) =>
-    fetchJson<{ status: string; key: string }>(`/channels/${key}/refuse`, { method: 'POST' }),
+  adoptChannel: (key: string, radioId?: string) =>
+    fetchJson<Channel>(
+      `/channels/${key}/adopt${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      { method: 'POST' }
+    ),
+  refuseChannel: (key: string, radioId?: string) =>
+    fetchJson<{ status: string; key: string }>(
+      `/channels/${key}/refuse${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      { method: 'POST' }
+    ),
   getChannelDetail: (key: string) => fetchJson<ChannelDetail>(`/channels/${key}/detail`),
   markChannelRead: (key: string) =>
     fetchJson<{ status: string; key: string }>(`/channels/${key}/mark-read`, {
@@ -395,6 +470,8 @@ export const api = {
       after?: number;
       after_id?: number;
       q?: string;
+      radio_id?: string;
+      radioId?: string;
     },
     signal?: AbortSignal
   ) => {
@@ -408,6 +485,8 @@ export const api = {
     if (params?.after !== undefined) searchParams.set('after', params.after.toString());
     if (params?.after_id !== undefined) searchParams.set('after_id', params.after_id.toString());
     if (params?.q) searchParams.set('q', params.q);
+    const effRadio = params?.radioId ?? params?.radio_id;
+    if (effRadio) searchParams.set('radio_id', effRadio);
     const query = searchParams.toString();
     return fetchJson<Message[]>(`/messages${query ? `?${query}` : ''}`, { signal });
   },
@@ -415,27 +494,35 @@ export const api = {
     messageId: number,
     type?: 'PRIV' | 'CHAN',
     conversationKey?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    radioId?: string
   ) => {
     const searchParams = new URLSearchParams();
     if (type) searchParams.set('type', type);
     if (conversationKey) searchParams.set('conversation_key', conversationKey);
+    if (radioId) searchParams.set('radio_id', radioId);
     const query = searchParams.toString();
     return fetchJson<MessagesAroundResponse>(
       `/messages/around/${messageId}${query ? `?${query}` : ''}`,
       { signal }
     );
   },
-  sendDirectMessage: (destination: string, text: string) =>
-    fetchJson<Message>('/messages/direct', {
-      method: 'POST',
-      body: JSON.stringify({ destination, text }),
-    }),
-  sendChannelMessage: (channelKey: string, text: string) =>
-    fetchJson<Message>('/messages/channel', {
-      method: 'POST',
-      body: JSON.stringify({ channel_key: channelKey, text }),
-    }),
+  sendDirectMessage: (destination: string, text: string, radioId?: string) =>
+    fetchJson<Message>(
+      `/messages/direct${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ destination, text }),
+      }
+    ),
+  sendChannelMessage: (channelKey: string, text: string, radioId?: string) =>
+    fetchJson<Message>(
+      `/messages/channel${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ channel_key: channelKey, text }),
+      }
+    ),
   resendChannelMessage: (messageId: number, newTimestamp?: boolean) =>
     fetchJson<ResendChannelMessageResponse>(
       `/messages/channel/${messageId}/resend${newTimestamp ? '?new_timestamp=true' : ''}`,
@@ -453,11 +540,15 @@ export const api = {
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.after_id !== undefined) params.set('after_id', String(query.after_id));
     if (query.max_scan !== undefined) params.set('max_scan', String(query.max_scan));
+    if (query.radio_id) params.set('radio_id', query.radio_id);
     const qs = params.toString();
     return fetchJson<RawPacketHistoryResponse>(`/packets/history${qs ? `?${qs}` : ''}`, { signal });
   },
   getPacket: (packetId: number) => fetchJson<RawPacket>(`/packets/${packetId}`),
-  getUndecryptedPacketCount: () => fetchJson<{ count: number }>('/packets/undecrypted/count'),
+  getUndecryptedPacketCount: (radioId?: string) =>
+    fetchJson<{ count: number }>(
+      `/packets/undecrypted/count${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`
+    ),
   getGroupTextSamples: (receivedSinceDays = 30) => {
     const params = new URLSearchParams({
       max_hashes: '80',
@@ -492,11 +583,17 @@ export const api = {
     }),
 
   // Read State
-  getUnreads: () => fetchJson<UnreadCounts>('/read-state/unreads'),
-  markAllRead: () =>
-    fetchJson<{ status: string; timestamp: number }>('/read-state/mark-all-read', {
-      method: 'POST',
-    }),
+  getUnreads: (radioId?: string) =>
+    fetchJson<UnreadCounts>(
+      `/read-state/unreads${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`
+    ),
+  markAllRead: (radioId?: string) =>
+    fetchJson<{ status: string; timestamp: number }>(
+      `/read-state/mark-all-read${radioId ? `?radio_id=${encodeURIComponent(radioId)}` : ''}`,
+      {
+        method: 'POST',
+      }
+    ),
 
   // App Settings
   getSettings: () => fetchJson<AppSettings>('/settings'),
