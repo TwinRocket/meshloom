@@ -197,6 +197,26 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     failure_count INTEGER DEFAULT 0,
     UNIQUE(endpoint)
 );
+
+CREATE TABLE IF NOT EXISTS radios (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    transport TEXT,
+    serial_port TEXT,
+    serial_baudrate INTEGER DEFAULT 115200,
+    tcp_host TEXT,
+    tcp_port INTEGER,
+    ble_address TEXT,
+    ble_pin TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    auto_connect INTEGER NOT NULL DEFAULT 1,
+    bound_public_key TEXT,
+    identity_state TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_connected_at INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
@@ -205,32 +225,32 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 SCHEMA_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_null_safe
-    ON messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))
+    ON messages(radio_id, type, conversation_key, text, COALESCE(sender_timestamp, 0))
     WHERE type = 'CHAN';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_incoming_priv_dedup
-    ON messages(type, conversation_key, text, COALESCE(sender_timestamp, 0), COALESCE(sender_key, ''))
+    ON messages(radio_id, type, conversation_key, text, COALESCE(sender_timestamp, 0), COALESCE(sender_key, ''))
     WHERE type = 'PRIV' AND outgoing = 0;
 CREATE INDEX IF NOT EXISTS idx_messages_sender_key ON messages(sender_key);
 CREATE INDEX IF NOT EXISTS idx_messages_pagination
-    ON messages(type, conversation_key, received_at DESC, id DESC);
+    ON messages(radio_id, type, conversation_key, received_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_unread_covering
-    ON messages(type, conversation_key, outgoing, received_at);
+    ON messages(radio_id, type, conversation_key, outgoing, received_at);
 CREATE INDEX IF NOT EXISTS idx_messages_packet_hash
     ON messages(packet_hash) WHERE packet_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_raw_packets_message_id ON raw_packets(message_id);
 CREATE INDEX IF NOT EXISTS idx_raw_packets_timestamp ON raw_packets(timestamp);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_packets_payload_hash ON raw_packets(payload_hash);
-CREATE INDEX IF NOT EXISTS idx_contacts_type_last_seen ON contacts(type, last_seen);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_packets_payload_hash ON raw_packets(radio_id, payload_hash);
+CREATE INDEX IF NOT EXISTS idx_contacts_type_last_seen ON contacts(radio_id, type, last_seen);
 CREATE INDEX IF NOT EXISTS idx_messages_type_received_conversation
     ON messages(type, received_at, conversation_key);
 CREATE INDEX IF NOT EXISTS idx_contact_advert_paths_recent
-    ON contact_advert_paths(public_key, last_seen DESC);
+    ON contact_advert_paths(radio_id, public_key, last_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_contact_name_history_key
-    ON contact_name_history(public_key, last_seen DESC);
+    ON contact_name_history(radio_id, public_key, last_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_repeater_telemetry_pk_ts
-    ON repeater_telemetry_history(public_key, timestamp);
+    ON repeater_telemetry_history(radio_id, public_key, timestamp);
 CREATE INDEX IF NOT EXISTS idx_contact_group_members_key
-    ON contact_group_members(public_key);
+    ON contact_group_members(radio_id, public_key);
 """
 
 

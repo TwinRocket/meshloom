@@ -27,16 +27,22 @@ class MessageRepository:
     )
 
     @staticmethod
-    def _contact_activity_filter(public_key: str) -> tuple[str, list[Any]]:
+    def _contact_activity_filter(
+        public_key: str, radio_id: str = "default"
+    ) -> tuple[str, list[Any]]:
         lower_key = public_key.lower()
+        eff_radio = radio_id or "default"
         return (
-            "((type = 'PRIV' AND conversation_key = ?) OR (type = 'CHAN' AND sender_key = ?))",
-            [lower_key, lower_key],
+            "(radio_id = ? AND ((type = 'PRIV' AND conversation_key = ?) OR (type = 'CHAN' AND sender_key = ?)))",
+            [eff_radio, lower_key, lower_key],
         )
 
     @staticmethod
-    def _name_activity_filter(sender_name: str) -> tuple[str, list[Any]]:
-        return "type = 'CHAN' AND sender_name = ?", [sender_name]
+    def _name_activity_filter(
+        sender_name: str, radio_id: str = "default"
+    ) -> tuple[str, list[Any]]:
+        eff_radio = radio_id or "default"
+        return "radio_id = ? AND type = 'CHAN' AND sender_name = ?", [eff_radio, sender_name]
 
     @staticmethod
     def _parse_paths(paths_json: str | None) -> list[MessagePath] | None:
@@ -69,6 +75,7 @@ class MessageRepository:
         region: str | None = None,
         packet_hash: str | None = None,
         observer_reach_eligible: bool | None = None,
+        radio_id: str = "default",
     ) -> int | None:
         """Create a message, returning the ID or None if duplicate.
 
@@ -79,6 +86,7 @@ class MessageRepository:
 
         The path parameter is converted to the paths JSON array format.
         """
+        eff_radio = radio_id or "default"
         # Convert single path to paths array format
         paths_json = None
         if path is not None:
@@ -103,13 +111,14 @@ class MessageRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 """
-                INSERT OR IGNORE INTO messages (type, conversation_key, text, sender_timestamp,
+                INSERT OR IGNORE INTO messages (radio_id, type, conversation_key, text, sender_timestamp,
                                                 received_at, paths, txt_type, signature, outgoing,
                                                 sender_name, sender_key, transport_code, region,
                                                 packet_hash, observer_reach_eligible)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    eff_radio,
                     msg_type,
                     conversation_key,
                     text,
@@ -185,12 +194,13 @@ class MessageRepository:
         return [MessagePath(**p) for p in all_paths]
 
     @staticmethod
-    async def claim_prefix_messages(full_key: str) -> int:
+    async def claim_prefix_messages(full_key: str, radio_id: str = "default") -> int:
         """Promote prefix-stored messages to the full conversation key.
 
         When a full key becomes known for a contact, any messages stored with
         only a prefix as conversation_key are updated to use the full key.
         """
+        eff_radio = radio_id or "default"
         lower_key = full_key.lower()
         async with db.tx() as conn:
             async with conn.execute(
@@ -199,39 +209,42 @@ class MessageRepository:
                            WHEN sender_key IS NOT NULL AND length(sender_key) < 64
                                 AND ? LIKE sender_key || '%'
                            THEN ? ELSE sender_key END
-                   WHERE type = 'PRIV' AND length(conversation_key) < 64
+                   WHERE radio_id = ? AND type = 'PRIV' AND length(conversation_key) < 64
                    AND ? LIKE conversation_key || '%'
                    AND (
                        SELECT COUNT(*) FROM contacts
-                       WHERE length(public_key) = 64
+                       WHERE radio_id = ? AND length(public_key) = 64
                          AND public_key LIKE messages.conversation_key || '%'
                    ) = 1""",
-                (lower_key, lower_key, lower_key, lower_key),
+                (lower_key, lower_key, lower_key, eff_radio, lower_key, eff_radio),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
 
     @staticmethod
-    async def backfill_channel_sender_key(public_key: str, name: str) -> int:
+    async def backfill_channel_sender_key(
+        public_key: str, name: str, radio_id: str = "default"
+    ) -> int:
         """Backfill sender_key on channel messages that match a contact's name.
 
         When a contact becomes known (via advert, sync, or manual creation),
         any channel messages with a matching sender_name but no sender_key
         are updated to associate them with this contact's public key.
         """
+        eff_radio = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
                 """UPDATE messages SET sender_key = ?
-                   WHERE type = 'CHAN' AND sender_name = ? AND sender_key IS NULL
+                   WHERE radio_id = ? AND type = 'CHAN' AND sender_name = ? AND sender_key IS NULL
                    AND (
                        SELECT COUNT(*) FROM contacts
-                       WHERE name = ?
+                       WHERE radio_id = ? AND name = ?
                    ) = 1
                    AND EXISTS (
                        SELECT 1 FROM contacts
-                       WHERE public_key = ? AND name = ?
+                       WHERE radio_id = ? AND public_key = ? AND name = ?
                    )""",
-                (public_key.lower(), name, name, public_key.lower(), name),
+                (public_key.lower(), eff_radio, name, eff_radio, name, eff_radio, public_key.lower(), name),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
@@ -377,8 +390,11 @@ class MessageRepository:
         region = None
         packet_hash = None
         observer_reach_eligible = None
+        radio_id = "default"
         if hasattr(row, "keys"):
             row_keys = row.keys()
+            if "radio_id" in row_keys and row["radio_id"] is not None:
+                radio_id = row["radio_id"]
             if "packet_id" in row_keys:
                 packet_id = row["packet_id"]
             if "transport_code" in row_keys:
@@ -394,6 +410,7 @@ class MessageRepository:
 
         return Message(
             id=row["id"],
+            radio_id=radio_id,
             type=row["type"],
             conversation_key=row["conversation_key"],
             text=row["text"],
@@ -421,9 +438,11 @@ class MessageRepository:
         )
 
     @staticmethod
-    async def list_recent_paths_for_contact(public_key: str, limit: int = 200) -> list[MessagePath]:
+    async def list_recent_paths_for_contact(
+        public_key: str, limit: int = 200, radio_id: str = "default"
+    ) -> list[MessagePath]:
         """Recent stored paths for DMs to/from a contact and channel posts they sent."""
-        clause, params = MessageRepository._contact_activity_filter(public_key)
+        clause, params = MessageRepository._contact_activity_filter(public_key, radio_id=radio_id)
         query = (
             f"SELECT paths FROM messages WHERE {clause} AND paths IS NOT NULL "
             "ORDER BY received_at DESC LIMIT ?"
@@ -452,17 +471,21 @@ class MessageRepository:
         q: str | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        radio_id: str = "default",
     ) -> list[Message]:
+        eff_radio = radio_id or "default"
         search_query = MessageRepository._parse_search_query(q) if q else None
         query = (
             f"SELECT {MessageRepository._message_select('messages')} FROM messages "
-            "LEFT JOIN contacts ON messages.type = 'PRIV' "
+            "LEFT JOIN contacts ON messages.radio_id = contacts.radio_id "
+            "AND messages.type = 'PRIV' "
             "AND messages.conversation_key = contacts.public_key "
-            "LEFT JOIN channels ON messages.type = 'CHAN' "
+            "LEFT JOIN channels ON messages.radio_id = channels.radio_id "
+            "AND messages.type = 'CHAN' "
             "AND messages.conversation_key = channels.key "
-            "WHERE 1=1"
+            "WHERE messages.radio_id = ?"
         )
-        params: list[Any] = []
+        params: list[Any] = [eff_radio]
 
         blocked_clause, blocked_params = MessageRepository._build_blocked_incoming_clause(
             "messages", blocked_keys, blocked_names
@@ -535,6 +558,7 @@ class MessageRepository:
         context_size: int = 100,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        radio_id: str = "default",
     ) -> tuple[list[Message], bool, bool]:
         """Get messages around a target message.
 
@@ -542,8 +566,9 @@ class MessageRepository:
         """
         # Build common WHERE clause for optional conversation/type filtering.
         # If the target message doesn't match filters, return an empty result.
-        where_parts: list[str] = []
-        base_params: list[Any] = []
+        eff_radio = radio_id or "default"
+        where_parts: list[str] = ["radio_id = ?"]
+        base_params: list[Any] = [eff_radio]
         if msg_type:
             where_parts.append("type = ?")
             base_params.append(msg_type)
@@ -559,7 +584,7 @@ class MessageRepository:
             where_parts.append(blocked_clause)
             base_params.extend(blocked_params)
 
-        where_sql = " AND ".join(["1=1", *where_parts])
+        where_sql = " AND ".join(where_parts)
 
         # 1. Get the target message (must satisfy filters if provided)
         async with db.readonly() as conn:
@@ -662,18 +687,21 @@ class MessageRepository:
         return MessageRepository._row_to_message(row)
 
     @staticmethod
-    async def get_by_packet_hash(packet_hash: str) -> "Message | None":
+    async def get_by_packet_hash(
+        packet_hash: str, radio_id: str = "default"
+    ) -> "Message | None":
         """Most recent message with this firmware hash. Prefer outgoing (origin GPS)."""
         from app.path_utils import canonical_packet_hash
 
+        eff_radio = radio_id or "default"
         stored = canonical_packet_hash(packet_hash)
         if stored is None:
             return None
         async with db.readonly() as conn:
             async with conn.execute(
                 f"SELECT {MessageRepository._message_select('messages')} FROM messages "
-                "WHERE packet_hash = ? ORDER BY outgoing DESC, id DESC LIMIT 1",
-                (stored,),
+                "WHERE radio_id = ? AND packet_hash = ? ORDER BY outgoing DESC, id DESC LIMIT 1",
+                (eff_radio, stored),
             ) as cursor:
                 row = await cursor.fetchone()
         if not row:
@@ -749,7 +777,7 @@ class MessageRepository:
 
     @staticmethod
     async def stream_chan_messages_with_raw(
-        batch_size: int = 500,
+        batch_size: int = 500, radio_id: str = "default"
     ) -> "AsyncIterator[tuple[int, bytes]]":
         """Yield (message_id, raw_packet_bytes) for CHAN messages that still have a
         retained raw packet, in ascending id batches.
@@ -757,6 +785,7 @@ class MessageRepository:
         Used by the region backfill: region is a property of the on-air payload, so
         any retained raw packet for the message yields the same transport code.
         """
+        eff_radio = radio_id or "default"
         last_id = 0
         while True:
             async with db.readonly() as conn:
@@ -765,12 +794,12 @@ class MessageRepository:
                     SELECT m.id AS mid, rp.data AS data
                     FROM messages m
                     JOIN raw_packets rp ON rp.message_id = m.id
-                    WHERE m.type = 'CHAN' AND m.id > ?
+                    WHERE m.radio_id = ? AND m.type = 'CHAN' AND m.id > ?
                     GROUP BY m.id
                     ORDER BY m.id ASC
                     LIMIT ?
                     """,
-                    (last_id, batch_size),
+                    (eff_radio, last_id, batch_size),
                 ) as cursor:
                     rows = await cursor.fetchall()
             if not rows:
@@ -798,16 +827,18 @@ class MessageRepository:
         text: str,
         sender_timestamp: int | None,
         outgoing: bool | None = None,
+        radio_id: str = "default",
     ) -> "Message | None":
         """Look up a message by its unique content fields."""
+        eff_radio = radio_id or "default"
         query = """
             SELECT messages.*,
                    (SELECT MIN(id) FROM raw_packets WHERE message_id = messages.id) AS packet_id
             FROM messages
-            WHERE type = ? AND conversation_key = ? AND text = ?
+            WHERE radio_id = ? AND type = ? AND conversation_key = ? AND text = ?
               AND (sender_timestamp = ? OR (sender_timestamp IS NULL AND ? IS NULL))
         """
-        params: list[Any] = [msg_type, conversation_key, text, sender_timestamp, sender_timestamp]
+        params: list[Any] = [eff_radio, msg_type, conversation_key, text, sender_timestamp, sender_timestamp]
         if outgoing is not None:
             query += " AND outgoing = ?"
             params.append(1 if outgoing else 0)
@@ -825,6 +856,7 @@ class MessageRepository:
         name: str | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        radio_id: str = "default",
     ) -> dict:
         """Get unread counts, mention flags, last-message times/previews, and read boundaries.
 
@@ -832,11 +864,13 @@ class MessageRepository:
             name: User's display name for @[name] mention detection. If None, mentions are skipped.
             blocked_keys: Public keys whose messages should be excluded from counts.
             blocked_names: Display names whose messages should be excluded from counts.
+            radio_id: Radio identifier to scope unread counts to.
 
         Returns:
             Dict with 'counts', 'mentions', 'last_message_times',
             'last_message_previews', 'last_read_ats', and 'first_unread_ids' keys.
         """
+        eff_radio = radio_id or "default"
         counts: dict[str, int] = {}
         mention_flags: dict[str, bool] = {}
         last_message_times: dict[str, int] = {}
@@ -858,7 +892,11 @@ class MessageRepository:
         last_time_clause, last_time_params = MessageRepository._build_blocked_incoming_clause(
             blocked_keys=blocked_keys, blocked_names=blocked_names
         )
-        last_time_where_sql = f"WHERE {last_time_clause}" if last_time_clause else ""
+        last_time_where_parts = ["radio_id = ?"]
+        if last_time_clause:
+            last_time_where_parts.append(last_time_clause)
+        last_time_where_sql = f"WHERE {' AND '.join(last_time_where_parts)}"
+        all_last_time_params = [eff_radio, *last_time_params]
 
         # Single readonly acquisition for all 5 queries — they form one logical
         # snapshot, and holding the lock for the batch is cheaper than acquiring
@@ -870,18 +908,18 @@ class MessageRepository:
                 SELECT m.conversation_key,
                        COUNT(*) as unread_count,
                        SUM(CASE
-                               WHEN ? <> '' AND INSTR(LOWER(m.text), LOWER(?)) > 0 THEN 1
-                               ELSE 0
+                                WHEN ? <> '' AND INSTR(LOWER(m.text), LOWER(?)) > 0 THEN 1
+                                ELSE 0
                            END) > 0 as has_mention
                 FROM messages m
-                JOIN channels c ON m.conversation_key = c.key
-                WHERE m.type = 'CHAN' AND m.outgoing = 0
+                JOIN channels c ON m.radio_id = c.radio_id AND m.conversation_key = c.key
+                WHERE m.radio_id = ? AND m.type = 'CHAN' AND m.outgoing = 0
                   AND m.received_at > COALESCE(c.last_read_at, 0)
                   AND COALESCE(c.muted, 0) = 0
                   {blocked_sql}
                 GROUP BY m.conversation_key
                 """,
-                (mention_token or "", mention_token or "", *blocked_params),
+                (mention_token or "", mention_token or "", eff_radio, *blocked_params),
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
@@ -896,17 +934,17 @@ class MessageRepository:
                 SELECT m.conversation_key,
                        COUNT(*) as unread_count,
                        SUM(CASE
-                               WHEN ? <> '' AND INSTR(LOWER(m.text), LOWER(?)) > 0 THEN 1
-                               ELSE 0
+                                WHEN ? <> '' AND INSTR(LOWER(m.text), LOWER(?)) > 0 THEN 1
+                                ELSE 0
                            END) > 0 as has_mention
                 FROM messages m
-                LEFT JOIN contacts ct ON m.conversation_key = ct.public_key
-                WHERE m.type = 'PRIV' AND m.outgoing = 0
+                LEFT JOIN contacts ct ON m.radio_id = ct.radio_id AND m.conversation_key = ct.public_key
+                WHERE m.radio_id = ? AND m.type = 'PRIV' AND m.outgoing = 0
                   AND m.received_at > COALESCE(ct.last_read_at, 0)
                   {blocked_sql}
                 GROUP BY m.conversation_key
                 """,
-                (mention_token or "", mention_token or "", *blocked_params),
+                (mention_token or "", mention_token or "", eff_radio, *blocked_params),
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
@@ -919,7 +957,9 @@ class MessageRepository:
                 """
                 SELECT key, last_read_at
                 FROM channels
-                """
+                WHERE radio_id = ?
+                """,
+                (eff_radio,),
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
@@ -929,7 +969,9 @@ class MessageRepository:
                 """
                 SELECT public_key, last_read_at
                 FROM contacts
-                """
+                WHERE radio_id = ?
+                """,
+                (eff_radio,),
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
@@ -946,13 +988,13 @@ class MessageRepository:
                 WITH ranked AS (
                     SELECT m.type, m.conversation_key, m.id,
                            ROW_NUMBER() OVER (
-                               PARTITION BY m.type, m.conversation_key
-                               ORDER BY m.received_at ASC, m.id ASC
+                                PARTITION BY m.type, m.conversation_key
+                                ORDER BY m.received_at ASC, m.id ASC
                            ) AS rn
                     FROM messages m
-                    LEFT JOIN channels c ON m.type = 'CHAN' AND m.conversation_key = c.key
-                    LEFT JOIN contacts ct ON m.type = 'PRIV' AND m.conversation_key = ct.public_key
-                    WHERE m.outgoing = 0
+                    LEFT JOIN channels c ON m.radio_id = c.radio_id AND m.type = 'CHAN' AND m.conversation_key = c.key
+                    LEFT JOIN contacts ct ON m.radio_id = ct.radio_id AND m.type = 'PRIV' AND m.conversation_key = ct.public_key
+                    WHERE m.radio_id = ? AND m.outgoing = 0
                       AND m.received_at > COALESCE(
                               CASE WHEN m.type = 'CHAN' THEN c.last_read_at ELSE ct.last_read_at END,
                               0
@@ -962,7 +1004,7 @@ class MessageRepository:
                 )
                 SELECT type, conversation_key, id FROM ranked WHERE rn = 1
                 """,
-                blocked_params,
+                [eff_radio, *blocked_params],
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
@@ -979,8 +1021,8 @@ class MessageRepository:
                 WITH ranked AS (
                     SELECT type, conversation_key, received_at, text, outgoing,
                            ROW_NUMBER() OVER (
-                               PARTITION BY type, conversation_key
-                               ORDER BY received_at DESC, id DESC
+                                PARTITION BY type, conversation_key
+                                ORDER BY received_at DESC, id DESC
                            ) AS rn
                     FROM messages
                     {last_time_where_sql}
@@ -991,7 +1033,7 @@ class MessageRepository:
                 FROM ranked
                 WHERE rn = 1
                 """,
-                last_time_params,
+                all_last_time_params,
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
@@ -1017,51 +1059,55 @@ class MessageRepository:
         }
 
     @staticmethod
-    async def count_dm_messages(contact_key: str) -> int:
+    async def count_dm_messages(contact_key: str, radio_id: str = "default") -> int:
         """Count total DM messages for a contact."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT COUNT(*) as cnt FROM messages WHERE type = 'PRIV' AND conversation_key = ?",
-                (contact_key.lower(),),
+                "SELECT COUNT(*) as cnt FROM messages WHERE radio_id = ? AND type = 'PRIV' AND conversation_key = ?",
+                (eff_radio, contact_key.lower()),
             ) as cursor:
                 row = await cursor.fetchone()
         return row["cnt"] if row else 0
 
     @staticmethod
-    async def count_channel_messages_by_sender(sender_key: str) -> int:
+    async def count_channel_messages_by_sender(sender_key: str, radio_id: str = "default") -> int:
         """Count channel messages sent by a specific contact."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT COUNT(*) as cnt FROM messages WHERE type = 'CHAN' AND sender_key = ?",
-                (sender_key.lower(),),
+                "SELECT COUNT(*) as cnt FROM messages WHERE radio_id = ? AND type = 'CHAN' AND sender_key = ?",
+                (eff_radio, sender_key.lower()),
             ) as cursor:
                 row = await cursor.fetchone()
         return row["cnt"] if row else 0
 
     @staticmethod
-    async def count_channel_messages_by_sender_name(sender_name: str) -> int:
+    async def count_channel_messages_by_sender_name(sender_name: str, radio_id: str = "default") -> int:
         """Count channel messages attributed to a display name."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT COUNT(*) as cnt FROM messages WHERE type = 'CHAN' AND sender_name = ?",
-                (sender_name,),
+                "SELECT COUNT(*) as cnt FROM messages WHERE radio_id = ? AND type = 'CHAN' AND sender_name = ?",
+                (eff_radio, sender_name),
             ) as cursor:
                 row = await cursor.fetchone()
         return row["cnt"] if row else 0
 
     @staticmethod
-    async def get_first_channel_message_by_sender_name(sender_name: str) -> int | None:
+    async def get_first_channel_message_by_sender_name(sender_name: str, radio_id: str = "default") -> int | None:
         """Get the earliest stored channel message timestamp for a display name."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT MIN(received_at) AS first_seen FROM messages WHERE type = 'CHAN' AND sender_name = ?",
-                (sender_name,),
+                "SELECT MIN(received_at) AS first_seen FROM messages WHERE radio_id = ? AND type = 'CHAN' AND sender_name = ?",
+                (eff_radio, sender_name),
             ) as cursor:
                 row = await cursor.fetchone()
         return row["first_seen"] if row and row["first_seen"] is not None else None
 
     @staticmethod
-    async def get_channel_stats(conversation_key: str) -> dict:
+    async def get_channel_stats(conversation_key: str, radio_id: str = "default") -> dict:
         """Get channel message statistics: time-windowed counts, first message, unique senders, top senders, path hash widths.
 
         Returns a dict with message_counts, first_message_at, unique_sender_count, top_senders_24h, path_hash_width_24h.
@@ -1070,6 +1116,7 @@ class MessageRepository:
 
         from app.path_utils import bucket_path_hash_widths
 
+        eff_radio = radio_id or "default"
         now = int(_time.time())
         t_1h = now - 3600
         t_24h = now - 86400
@@ -1086,9 +1133,9 @@ class MessageRepository:
                     SUM(CASE WHEN received_at >= ? THEN 1 ELSE 0 END) AS last_7d,
                     MIN(received_at) AS first_message_at,
                     COUNT(DISTINCT sender_key) AS unique_sender_count
-                FROM messages WHERE type = 'CHAN' AND conversation_key = ?
+                FROM messages WHERE radio_id = ? AND type = 'CHAN' AND conversation_key = ?
                 """,
-                (t_1h, t_24h, t_48h, t_7d, conversation_key),
+                (t_1h, t_24h, t_48h, t_7d, eff_radio, conversation_key),
             ) as cursor:
                 row = await cursor.fetchone()
             assert row is not None  # Aggregate query always returns a row
@@ -1106,11 +1153,11 @@ class MessageRepository:
                 SELECT COALESCE(sender_name, sender_key, 'Unknown') AS display_name,
                     sender_key, COUNT(*) AS cnt
                 FROM messages
-                WHERE type = 'CHAN' AND conversation_key = ?
+                WHERE radio_id = ? AND type = 'CHAN' AND conversation_key = ?
                     AND received_at >= ? AND sender_key IS NOT NULL
                 GROUP BY sender_key ORDER BY cnt DESC LIMIT 5
                 """,
-                (conversation_key, t_24h),
+                (eff_radio, conversation_key, t_24h),
             ) as cursor:
                 top_rows = await cursor.fetchall()
             top_senders = [
@@ -1131,10 +1178,10 @@ class MessageRepository:
                 """
                 SELECT rp.data FROM raw_packets rp
                 JOIN messages m ON rp.message_id = m.id
-                WHERE m.type = 'CHAN' AND m.conversation_key = ?
+                WHERE m.radio_id = ? AND m.type = 'CHAN' AND m.conversation_key = ?
                   AND rp.timestamp >= ?
                 """,
-                (conversation_key, t_24h),
+                (eff_radio, conversation_key, t_24h),
             ) as cursor:
                 rows3 = await cursor.fetchall()
             first_message_at = row["first_message_at"]
@@ -1151,60 +1198,66 @@ class MessageRepository:
         }
 
     @staticmethod
-    async def count_channels_with_incoming_messages() -> int:
+    async def count_channels_with_incoming_messages(radio_id: str = "default") -> int:
         """Count distinct channel conversations with at least one incoming message."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT COUNT(DISTINCT conversation_key) AS cnt
                 FROM messages
-                WHERE type = 'CHAN' AND outgoing = 0
-                """
+                WHERE radio_id = ? AND type = 'CHAN' AND outgoing = 0
+                """,
+                (eff_radio,),
             ) as cursor:
                 row = await cursor.fetchone()
         return int(row["cnt"]) if row and row["cnt"] is not None else 0
 
     @staticmethod
-    async def get_most_active_rooms(sender_key: str, limit: int = 5) -> list[tuple[str, str, int]]:
+    async def get_most_active_rooms(
+        sender_key: str, limit: int = 5, radio_id: str = "default"
+    ) -> list[tuple[str, str, int]]:
         """Get channels where a contact has sent the most messages.
 
         Returns list of (channel_key, channel_name, message_count) tuples.
         """
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT m.conversation_key, COALESCE(c.name, m.conversation_key) AS channel_name,
                        COUNT(*) AS cnt
                 FROM messages m
-                LEFT JOIN channels c ON m.conversation_key = c.key
-                WHERE m.type = 'CHAN' AND m.sender_key = ?
+                LEFT JOIN channels c ON m.radio_id = c.radio_id AND m.conversation_key = c.key
+                WHERE m.radio_id = ? AND m.type = 'CHAN' AND m.sender_key = ?
                 GROUP BY m.conversation_key
                 ORDER BY cnt DESC
                 LIMIT ?
                 """,
-                (sender_key.lower(), limit),
+                (eff_radio, sender_key.lower(), limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [(row["conversation_key"], row["channel_name"], row["cnt"]) for row in rows]
 
     @staticmethod
     async def get_most_active_rooms_by_sender_name(
-        sender_name: str, limit: int = 5
+        sender_name: str, limit: int = 5, radio_id: str = "default"
     ) -> list[tuple[str, str, int]]:
         """Get channels where a display name has sent the most messages."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT m.conversation_key, COALESCE(c.name, m.conversation_key) AS channel_name,
                        COUNT(*) AS cnt
                 FROM messages m
-                LEFT JOIN channels c ON m.conversation_key = c.key
-                WHERE m.type = 'CHAN' AND m.sender_name = ?
+                LEFT JOIN channels c ON m.radio_id = c.radio_id AND m.conversation_key = c.key
+                WHERE m.radio_id = ? AND m.type = 'CHAN' AND m.sender_name = ?
                 GROUP BY m.conversation_key
                 ORDER BY cnt DESC
                 LIMIT ?
                 """,
-                (sender_name, limit),
+                (eff_radio, sender_name, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [(row["conversation_key"], row["channel_name"], row["cnt"]) for row in rows]
@@ -1300,10 +1353,11 @@ class MessageRepository:
     async def get_contact_activity_series(
         public_key: str,
         now: int | None = None,
+        radio_id: str = "default",
     ) -> tuple[list[ContactAnalyticsHourlyBucket], list[ContactAnalyticsWeeklyBucket]]:
         """Get combined DM + channel activity series for a keyed contact."""
         ts = now if now is not None else int(time.time())
-        where_sql, params = MessageRepository._contact_activity_filter(public_key)
+        where_sql, params = MessageRepository._contact_activity_filter(public_key, radio_id=radio_id)
         hour_counts = await MessageRepository._get_activity_hour_buckets(where_sql, params)
         hourly = MessageRepository._build_hourly_activity(hour_counts, ts)
         weekly = await MessageRepository._get_weekly_activity(where_sql, params, ts)
@@ -1313,10 +1367,11 @@ class MessageRepository:
     async def get_sender_name_activity_series(
         sender_name: str,
         now: int | None = None,
+        radio_id: str = "default",
     ) -> tuple[list[ContactAnalyticsHourlyBucket], list[ContactAnalyticsWeeklyBucket]]:
         """Get channel-only activity series for a sender name."""
         ts = now if now is not None else int(time.time())
-        where_sql, params = MessageRepository._name_activity_filter(sender_name)
+        where_sql, params = MessageRepository._name_activity_filter(sender_name, radio_id=radio_id)
         hour_counts = await MessageRepository._get_activity_hour_buckets(where_sql, params)
         hourly = MessageRepository._build_hourly_activity(hour_counts, ts)
         weekly = await MessageRepository._get_weekly_activity(where_sql, params, ts)

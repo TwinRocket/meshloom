@@ -19,24 +19,26 @@ class ContactTelemetryRepository:
         public_key: str,
         timestamp: int,
         data: dict,
+        radio_id: str = "default",
     ) -> None:
         """Insert a telemetry history row and prune stale entries."""
+        eff_radio = radio_id or "default"
         cutoff = int(time.time()) - _MAX_AGE_SECONDS
         async with db.tx() as conn:
             async with conn.execute(
                 """
                 INSERT INTO contact_telemetry_history
-                    (public_key, timestamp, data)
-                VALUES (?, ?, ?)
+                    (radio_id, public_key, timestamp, data)
+                VALUES (?, ?, ?, ?)
                 """,
-                (public_key, timestamp, json.dumps(data)),
+                (eff_radio, public_key, timestamp, json.dumps(data)),
             ):
                 pass
 
             # Prune entries older than 30 days
             async with conn.execute(
-                "DELETE FROM contact_telemetry_history WHERE public_key = ? AND timestamp < ?",
-                (public_key, cutoff),
+                "DELETE FROM contact_telemetry_history WHERE radio_id = ? AND public_key = ? AND timestamp < ?",
+                (eff_radio, public_key, cutoff),
             ):
                 pass
 
@@ -44,29 +46,32 @@ class ContactTelemetryRepository:
             async with conn.execute(
                 """
                 DELETE FROM contact_telemetry_history
-                WHERE public_key = ? AND id NOT IN (
+                WHERE radio_id = ? AND public_key = ? AND id NOT IN (
                     SELECT id FROM contact_telemetry_history
-                    WHERE public_key = ?
+                    WHERE radio_id = ? AND public_key = ?
                     ORDER BY timestamp DESC
                     LIMIT ?
                 )
                 """,
-                (public_key, public_key, _MAX_ENTRIES_PER_CONTACT),
+                (eff_radio, public_key, eff_radio, public_key, _MAX_ENTRIES_PER_CONTACT),
             ):
                 pass
 
     @staticmethod
-    async def get_history(public_key: str, since_timestamp: int) -> list[dict]:
+    async def get_history(
+        public_key: str, since_timestamp: int, radio_id: str = "default"
+    ) -> list[dict]:
         """Return telemetry rows for a contact since a given timestamp, ordered ASC."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT timestamp, data
                 FROM contact_telemetry_history
-                WHERE public_key = ? AND timestamp >= ?
+                WHERE radio_id = ? AND public_key = ? AND timestamp >= ?
                 ORDER BY timestamp ASC
                 """,
-                (public_key, since_timestamp),
+                (eff_radio, public_key, since_timestamp),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [
@@ -78,18 +83,19 @@ class ContactTelemetryRepository:
         ]
 
     @staticmethod
-    async def get_latest(public_key: str) -> dict | None:
+    async def get_latest(public_key: str, radio_id: str = "default") -> dict | None:
         """Return the most recent telemetry row for a contact, or None."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
                 SELECT timestamp, data
                 FROM contact_telemetry_history
-                WHERE public_key = ?
+                WHERE radio_id = ? AND public_key = ?
                 ORDER BY timestamp DESC
                 LIMIT 1
                 """,
-                (public_key,),
+                (eff_radio, public_key),
             ) as cursor:
                 row = await cursor.fetchone()
         if row is None:

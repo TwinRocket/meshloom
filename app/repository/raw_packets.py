@@ -2,6 +2,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from hashlib import sha256
+from typing import Any
 
 from app.database import db
 from app.decoder import PayloadType, extract_payload, get_packet_payload_type, parse_packet
@@ -13,7 +14,9 @@ UNDECRYPTED_PACKET_BATCH_SIZE = 500
 
 class RawPacketRepository:
     @staticmethod
-    async def create(data: bytes, timestamp: int | None = None) -> tuple[int, bool]:
+    async def create(
+        data: bytes, timestamp: int | None = None, radio_id: str = "default"
+    ) -> tuple[int, bool]:
         """
         Create a raw packet with payload-based deduplication.
 
@@ -24,6 +27,7 @@ class RawPacketRepository:
         Deduplication is based on the SHA-256 hash of the packet payload
         (excluding routing/path information).
         """
+        eff_radio = radio_id or "default"
         ts = timestamp if timestamp is not None else int(time.time())
 
         # Compute payload hash for deduplication
@@ -36,8 +40,8 @@ class RawPacketRepository:
 
         async with db.tx() as conn:
             async with conn.execute(
-                "INSERT OR IGNORE INTO raw_packets (timestamp, data, payload_hash) VALUES (?, ?, ?)",
-                (ts, data, payload_hash),
+                "INSERT OR IGNORE INTO raw_packets (radio_id, timestamp, data, payload_hash) VALUES (?, ?, ?, ?)",
+                (eff_radio, ts, data, payload_hash),
             ) as cursor:
                 rowcount = cursor.rowcount
                 lastrowid = cursor.lastrowid
@@ -48,28 +52,33 @@ class RawPacketRepository:
 
             # Duplicate payload — look up the existing row (same transaction).
             async with conn.execute(
-                "SELECT id FROM raw_packets WHERE payload_hash = ?", (payload_hash,)
+                "SELECT id FROM raw_packets WHERE radio_id = ? AND payload_hash = ?",
+                (eff_radio, payload_hash),
             ) as cursor:
                 existing = await cursor.fetchone()
         assert existing is not None
         return (existing["id"], False)
 
     @staticmethod
-    async def get_undecrypted_count() -> int:
+    async def get_undecrypted_count(radio_id: str = "default") -> int:
         """Get count of undecrypted packets (those without a linked message)."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT COUNT(*) as count FROM raw_packets WHERE message_id IS NULL"
+                "SELECT COUNT(*) as count FROM raw_packets WHERE radio_id = ? AND message_id IS NULL",
+                (eff_radio,),
             ) as cursor:
                 row = await cursor.fetchone()
         return row["count"] if row else 0
 
     @staticmethod
-    async def get_oldest_undecrypted() -> int | None:
+    async def get_oldest_undecrypted(radio_id: str = "default") -> int | None:
         """Get timestamp of oldest undecrypted packet, or None if none exist."""
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT MIN(timestamp) as oldest FROM raw_packets WHERE message_id IS NULL"
+                "SELECT MIN(timestamp) as oldest FROM raw_packets WHERE radio_id = ? AND message_id IS NULL",
+                (eff_radio,),
             ) as cursor:
                 row = await cursor.fetchone()
         return row["oldest"] if row and row["oldest"] is not None else None
@@ -77,6 +86,7 @@ class RawPacketRepository:
     @staticmethod
     async def _stream_undecrypted_rows(
         batch_size: int,
+        radio_id: str = "default",
     ) -> AsyncIterator[tuple[int, bytes, int]]:
         """Internal: keyset-paginated scan of every undecrypted raw packet.
 
@@ -91,13 +101,14 @@ class RawPacketRepository:
         (see ``stream_undecrypted_text_messages``) that drop rows do not
         cause a re-scan of skipped IDs.
         """
+        eff_radio = radio_id or "default"
         last_id = -1
         while True:
             async with db.readonly() as conn:
                 async with conn.execute(
                     "SELECT id, data, timestamp FROM raw_packets "
-                    "WHERE message_id IS NULL AND id > ? ORDER BY id ASC LIMIT ?",
-                    (last_id, batch_size),
+                    "WHERE radio_id = ? AND message_id IS NULL AND id > ? ORDER BY id ASC LIMIT ?",
+                    (eff_radio, last_id, batch_size),
                 ) as cursor:
                     rows = await cursor.fetchall()
             if not rows:
@@ -110,16 +121,18 @@ class RawPacketRepository:
     async def _stream_undecrypted_rows_newest(
         received_since: int,
         batch_size: int,
+        radio_id: str = "default",
     ) -> AsyncIterator[tuple[int, bytes, int]]:
         """Keyset-scan recent undecrypted packets from newest ID to oldest."""
+        eff_radio = radio_id or "default"
         last_id = 2**63 - 1
         while True:
             async with db.readonly() as conn:
                 async with conn.execute(
                     "SELECT id, data, timestamp FROM raw_packets "
-                    "WHERE message_id IS NULL AND timestamp >= ? AND id < ? "
+                    "WHERE radio_id = ? AND message_id IS NULL AND timestamp >= ? AND id < ? "
                     "ORDER BY id DESC LIMIT ?",
-                    (received_since, last_id, batch_size),
+                    (eff_radio, received_since, last_id, batch_size),
                 ) as cursor:
                     rows = await cursor.fetchall()
             if not rows:
@@ -129,18 +142,26 @@ class RawPacketRepository:
                 yield (row["id"], bytes(row["data"]), row["timestamp"])
 
     @staticmethod
-    async def recent_data(limit: int, since: int | None = None) -> list[tuple[bytes, int]]:
+    async def recent_data(
+        limit: int, since: int | None = None, radio_id: str = "default"
+    ) -> list[tuple[bytes, int]]:
         """The newest stored packets, as bytes and reception time.
 
         Kept deliberately dumb: whether a packet is regionally routed is a
         question for the decoder, not for SQL, and the column that would answer
         it does not exist. The caller parses and discards what it does not need.
         """
-        clause = "WHERE timestamp >= ?" if since is not None else ""
-        params: tuple[int, ...] = (since, limit) if since is not None else (limit,)
+        eff_radio = radio_id or "default"
+        clauses = ["radio_id = ?"]
+        params: list[Any] = [eff_radio]
+        if since is not None:
+            clauses.append("timestamp >= ?")
+            params.append(since)
+        where = f"WHERE {' AND '.join(clauses)}"
+        params.append(limit)
         async with db.readonly() as conn:
             async with conn.execute(
-                f"SELECT data, timestamp FROM raw_packets {clause} ORDER BY id DESC LIMIT ?",
+                f"SELECT data, timestamp FROM raw_packets {where} ORDER BY id DESC LIMIT ?",
                 params,
             ) as cursor:
                 rows = await cursor.fetchall()
@@ -154,6 +175,7 @@ class RawPacketRepository:
         max_scan: int,
         received_since: int,
         batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
+        radio_id: str = "default",
     ) -> tuple[int, int, list[tuple[str, int, bytes, int, str]]]:
         """Collect distinct GROUP_TEXT payload samples from recent undecrypted packets.
 
@@ -169,6 +191,7 @@ class RawPacketRepository:
         async for packet_id, data, timestamp in RawPacketRepository._stream_undecrypted_rows_newest(
             received_since,
             min(batch_size, max_scan),
+            radio_id=radio_id,
         ):
             scanned += 1
             if get_packet_payload_type(data) == PayloadType.GROUP_TEXT:
@@ -206,14 +229,16 @@ class RawPacketRepository:
     @staticmethod
     async def stream_all_undecrypted(
         batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
+        radio_id: str = "default",
     ) -> AsyncIterator[tuple[int, bytes, int]]:
         """Yield all undecrypted packets as (id, data, timestamp) in bounded batches."""
-        async for row in RawPacketRepository._stream_undecrypted_rows(batch_size):
+        async for row in RawPacketRepository._stream_undecrypted_rows(batch_size, radio_id=radio_id):
             yield row
 
     @staticmethod
     async def stream_undecrypted_text_messages(
         batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
+        radio_id: str = "default",
     ) -> AsyncIterator[tuple[int, bytes, int]]:
         """Yield undecrypted TEXT_MESSAGE packets in bounded-size batches.
 
@@ -222,7 +247,8 @@ class RawPacketRepository:
         aren't re-fetched on subsequent batches.
         """
         async for packet_id, data, timestamp in RawPacketRepository._stream_undecrypted_rows(
-            batch_size
+            batch_size,
+            radio_id=radio_id,
         ):
             if get_packet_payload_type(data) == PayloadType.TEXT_MESSAGE:
                 yield (packet_id, data, timestamp)
@@ -230,11 +256,13 @@ class RawPacketRepository:
     @staticmethod
     async def count_undecrypted_text_messages(
         batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
+        radio_id: str = "default",
     ) -> int:
         """Count undecrypted TEXT_MESSAGE packets without materializing them all."""
         count = 0
         async for _packet in RawPacketRepository.stream_undecrypted_text_messages(
-            batch_size=batch_size
+            batch_size=batch_size,
+            radio_id=radio_id,
         ):
             count += 1
         return count
@@ -282,10 +310,12 @@ class RawPacketRepository:
         cursor_ts: int | None,
         cursor_id: int | None,
         id_before: int | None,
-    ) -> tuple[str, list[int]]:
+        radio_id: str = "default",
+    ) -> tuple[str, list[Any]]:
         """Build a timestamp-index window for newest-first history paging."""
-        clauses: list[str] = []
-        params: list[int] = []
+        eff_radio = radio_id or "default"
+        clauses: list[str] = ["radio_id = ?"]
+        params: list[Any] = [eff_radio]
         if since is not None:
             clauses.append("timestamp >= ?")
             params.append(since)
@@ -298,7 +328,7 @@ class RawPacketRepository:
         elif id_before is not None:
             clauses.append("id < ?")
             params.append(id_before)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f"WHERE {' AND '.join(clauses)}"
         return where, params
 
     @staticmethod
@@ -311,6 +341,7 @@ class RawPacketRepository:
         max_scan: int,
         payload_type: PayloadType | None = None,
         batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
+        radio_id: str = "default",
     ) -> tuple[list[tuple[int, bytes, int, int | None]], int, bool, int]:
         """Bounded newest-first history using ``idx_raw_packets_timestamp``.
 
@@ -333,7 +364,7 @@ class RawPacketRepository:
                 id_before = after_id
 
         where, params = RawPacketRepository._history_window_sql(
-            since, until, cursor_ts, cursor_id, id_before
+            since, until, cursor_ts, cursor_id, id_before, radio_id=radio_id
         )
         async with db.readonly() as conn:
             async with conn.execute(
@@ -358,7 +389,7 @@ class RawPacketRepository:
                 break
 
             batch_where, batch_params = RawPacketRepository._history_window_sql(
-                since, until, last_ts, last_id, last_id_before if last_id is None else None
+                since, until, last_ts, last_id, last_id_before if last_id is None else None, radio_id=radio_id
             )
             async with db.readonly() as conn:
                 async with conn.execute(
@@ -386,7 +417,7 @@ class RawPacketRepository:
         truncated = False
         if scanned >= max_scan and last_id is not None:
             more_where, more_params = RawPacketRepository._history_window_sql(
-                since, until, last_ts, last_id, None
+                since, until, last_ts, last_id, None, radio_id=radio_id
             )
             async with db.readonly() as conn:
                 async with conn.execute(
@@ -396,7 +427,7 @@ class RawPacketRepository:
                     truncated = await cursor.fetchone() is not None
         elif scanned >= max_scan and last_id_before is not None:
             more_where, more_params = RawPacketRepository._history_window_sql(
-                since, until, None, None, last_id_before
+                since, until, None, None, last_id_before, radio_id=radio_id
             )
             async with db.readonly() as conn:
                 async with conn.execute(
@@ -408,23 +439,26 @@ class RawPacketRepository:
         return rows, total, truncated, scanned
 
     @staticmethod
-    async def prune_old_undecrypted(max_age_days: int) -> int:
+    async def prune_old_undecrypted(max_age_days: int, radio_id: str = "default") -> int:
         """Delete undecrypted packets older than max_age_days. Returns count deleted."""
+        eff_radio = radio_id or "default"
         cutoff = int(time.time()) - (max_age_days * 86400)
         async with db.tx() as conn:
             async with conn.execute(
-                "DELETE FROM raw_packets WHERE message_id IS NULL AND timestamp < ?",
-                (cutoff,),
+                "DELETE FROM raw_packets WHERE radio_id = ? AND message_id IS NULL AND timestamp < ?",
+                (eff_radio, cutoff),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
 
     @staticmethod
-    async def purge_linked_to_messages() -> int:
+    async def purge_linked_to_messages(radio_id: str = "default") -> int:
         """Delete raw packets that are already linked to a stored message."""
+        eff_radio = radio_id or "default"
         async with db.tx() as conn:
             async with conn.execute(
-                "DELETE FROM raw_packets WHERE message_id IS NOT NULL"
+                "DELETE FROM raw_packets WHERE radio_id = ? AND message_id IS NOT NULL",
+                (eff_radio,),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount

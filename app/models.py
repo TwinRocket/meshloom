@@ -24,6 +24,7 @@ class ContactRoute(BaseModel):
 class ContactUpsert(BaseModel):
     """Typed write contract for contacts persisted to SQLite."""
 
+    radio_id: str = "default"
     public_key: str = Field(description="Public key (64-char hex)")
     name: str | None = None
     type: int = 0
@@ -95,6 +96,7 @@ class ContactUpsert(BaseModel):
 
 
 class Contact(BaseModel):
+    radio_id: str = "default"
     public_key: str = Field(description="Public key (64-char hex)")
     name: str | None = None
     type: int = 0  # 0=unknown, 1=client, 2=repeater, 3=room, 4=sensor
@@ -338,6 +340,7 @@ class ContactAnalytics(BaseModel):
 
 
 class Channel(BaseModel):
+    radio_id: str = "default"
     key: str = Field(description="Channel key (32-char hex)")
     name: str
     is_hashtag: bool = False
@@ -435,6 +438,7 @@ class MessagePath(BaseModel):
 
 class Message(BaseModel):
     id: int
+    radio_id: str = "default"
     type: str = Field(description="PRIV or CHAN")
     conversation_key: str = Field(description="User pubkey for PRIV, channel key for CHAN")
     text: str
@@ -1917,6 +1921,60 @@ RadioHealthState = Literal[
     "identity_mismatch",
     "identity_unbound_legacy",
 ]
+
+
+class RadioRecord(BaseModel):
+    id: str
+    name: str
+    transport: RadioTransportKind | None = None
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int | None = 5000
+    ble_address: str = ""
+    ble_pin: str = ""
+    enabled: bool = True
+    auto_connect: bool = True
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    created_at: int
+    updated_at: int
+    last_connected_at: int | None = None
+    sort_order: int = 0
+
+
+class RadioCreate(BaseModel):
+    id: str | None = None
+    name: str
+    transport: RadioTransportKind | None = None
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int | None = 5000
+    ble_address: str = ""
+    ble_pin: str = ""
+    enabled: bool = True
+    auto_connect: bool = True
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    sort_order: int = 0
+
+
+class RadioUpdate(BaseModel):
+    name: str | None = None
+    transport: RadioTransportKind | None = None
+    serial_port: str | None = None
+    serial_baudrate: int | None = None
+    tcp_host: str | None = None
+    tcp_port: int | None = None
+    ble_address: str | None = None
+    ble_pin: str | None = None
+    enabled: bool | None = None
+    auto_connect: bool | None = None
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    last_connected_at: int | None = None
+    sort_order: int | None = None
 
 
 class RadioTransportSnapshot(BaseModel):

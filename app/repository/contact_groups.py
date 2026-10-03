@@ -15,7 +15,8 @@ class ContactGroupRepository:
     """Local-only contact groups. Membership cascades when a contact or group is deleted."""
 
     @staticmethod
-    async def list_all() -> list[ContactGroup]:
+    async def list_all(radio_id: str = "default") -> list[ContactGroup]:
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 """
@@ -26,7 +27,8 @@ class ContactGroupRepository:
             ) as cursor:
                 group_rows = await cursor.fetchall()
             async with conn.execute(
-                "SELECT group_id, public_key FROM contact_group_members"
+                "SELECT group_id, public_key FROM contact_group_members WHERE radio_id = ?",
+                (eff_radio,),
             ) as cursor:
                 member_rows = await cursor.fetchall()
 
@@ -46,7 +48,8 @@ class ContactGroupRepository:
         ]
 
     @staticmethod
-    async def get_by_id(group_id: int) -> ContactGroup | None:
+    async def get_by_id(group_id: int, radio_id: str = "default") -> ContactGroup | None:
+        eff_radio = radio_id or "default"
         async with db.readonly() as conn:
             async with conn.execute(
                 "SELECT id, name, sort_order, created_at FROM contact_groups WHERE id = ?",
@@ -56,8 +59,8 @@ class ContactGroupRepository:
             if not row:
                 return None
             async with conn.execute(
-                "SELECT public_key FROM contact_group_members WHERE group_id = ?",
-                (group_id,),
+                "SELECT public_key FROM contact_group_members WHERE group_id = ? AND radio_id = ?",
+                (group_id, eff_radio),
             ) as cursor:
                 member_rows = await cursor.fetchall()
         return ContactGroup(
@@ -139,8 +142,11 @@ class ContactGroupRepository:
                 return cursor.rowcount > 0
 
     @staticmethod
-    async def set_members(group_id: int, public_keys: list[str]) -> ContactGroup | None:
-        current = await ContactGroupRepository.get_by_id(group_id)
+    async def set_members(
+        group_id: int, public_keys: list[str], radio_id: str = "default"
+    ) -> ContactGroup | None:
+        eff_radio = radio_id or "default"
+        current = await ContactGroupRepository.get_by_id(group_id, radio_id=eff_radio)
         if current is None:
             return None
 
@@ -154,19 +160,22 @@ class ContactGroupRepository:
             normalized.append(key)
 
         async with db.tx() as conn:
-            await conn.execute("DELETE FROM contact_group_members WHERE group_id = ?", (group_id,))
+            await conn.execute(
+                "DELETE FROM contact_group_members WHERE group_id = ? AND radio_id = ?",
+                (group_id, eff_radio),
+            )
             if normalized:
                 placeholders = ",".join("?" * len(normalized))
                 async with conn.execute(
-                    f"SELECT public_key FROM contacts WHERE public_key IN ({placeholders})",
-                    normalized,
+                    f"SELECT public_key FROM contacts WHERE radio_id = ? AND public_key IN ({placeholders})",
+                    (eff_radio, *normalized),
                 ) as cursor:
                     existing = {row["public_key"] for row in await cursor.fetchall()}
                 for key in normalized:
                     if key not in existing:
                         continue
                     await conn.execute(
-                        "INSERT INTO contact_group_members (group_id, public_key) VALUES (?, ?)",
-                        (group_id, key),
+                        "INSERT INTO contact_group_members (group_id, radio_id, public_key) VALUES (?, ?, ?)",
+                        (group_id, eff_radio, key),
                     )
-        return await ContactGroupRepository.get_by_id(group_id)
+        return await ContactGroupRepository.get_by_id(group_id, radio_id=eff_radio)
