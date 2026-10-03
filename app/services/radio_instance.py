@@ -11,6 +11,7 @@ import glob
 import inspect
 import logging
 import platform
+import random
 import re
 import time
 from collections import OrderedDict, deque
@@ -33,6 +34,9 @@ logger = logging.getLogger(__name__)
 MAX_FRONTEND_RECONNECT_ERROR_BROADCASTS = 3
 LIFECYCLE_LOCK_TIMEOUT_SECONDS = 20
 MAX_NOISE_FLOOR_SAMPLES = 1500
+REMOTE_BACKOFF_BASE_SECONDS = 2.0
+REMOTE_BACKOFF_MAX_SECONDS = 60.0
+REMOTE_BACKOFF_JITTER_RATIO = 0.20
 _SERIAL_PORT_ERROR_RE = re.compile(r"could not open port (?P<port>.+?):")
 
 
@@ -276,6 +280,10 @@ class RadioInstance:
         self._contact_reconcile_task: asyncio.Task | None = None
         self._subscriptions: list[Any] = []
 
+        # Connection backoff state for remote transports (TCP/BLE)
+        self._reconnect_failures: int = 0
+        self._next_reconnect_time: float = 0.0
+
         # Sync throttling/state variables
         self._polling_pause_count: int = 0
         self._clock_reboot_attempted: bool = False
@@ -326,19 +334,27 @@ class RadioInstance:
             # another test in the same xdist worker is bound to a dead loop.
             if "different event loop" not in str(exc):
                 raise
-            logger.debug("Rebound radio operation lock to the current event loop (%s)", name)
+            logger.debug(
+                "[radio:%s] Rebound radio operation lock to current event loop (%s)",
+                self.radio_id,
+                name,
+            )
             self._operation_lock = asyncio.Lock()
             await self._operation_lock.acquire()
 
-        logger.debug("Acquired radio operation lock (%s)", name)
+        logger.debug("[radio:%s] Acquired radio operation lock (%s)", self.radio_id, name)
 
     def _release_operation_lock(self, name: str) -> None:
         """Release the shared radio operation lock."""
         if self._operation_lock and self._operation_lock.locked():
             self._operation_lock.release()
-            logger.debug("Released radio operation lock (%s)", name)
+            logger.debug("[radio:%s] Released radio operation lock (%s)", self.radio_id, name)
         else:
-            logger.error("Attempted to release unlocked radio operation lock (%s)", name)
+            logger.error(
+                "[radio:%s] Attempted to release unlocked radio operation lock (%s)",
+                self.radio_id,
+                name,
+            )
 
     def _reset_connected_runtime_state(self) -> None:
         """Clear cached runtime state after a transport teardown completes."""
@@ -398,7 +414,12 @@ class RadioInstance:
                     try:
                         await mc.start_auto_message_fetching()
                     except Exception as e:
-                        logger.warning("Failed to restart auto message fetching (%s): %s", name, e)
+                        logger.warning(
+                            "[radio:%s] Failed to restart auto message fetching (%s): %s",
+                            self.radio_id,
+                            name,
+                            e,
+                        )
             finally:
                 self._release_operation_lock(name)
 
@@ -562,6 +583,63 @@ class RadioInstance:
     def resume_connection(self) -> None:
         """Allow connection monitor and manual reconnects to establish transport again."""
         self._connection_desired = True
+        self._reset_reconnect_backoff()
+
+    @property
+    def is_remote(self) -> bool:
+        """Return True if this radio is configured with a remote transport (TCP or BLE)."""
+        snapshot = self._transport_snapshot
+        if snapshot is not None and snapshot.transport in ("tcp", "ble"):
+            return True
+        return bool(
+            self._connection_info
+            and any(proto in self._connection_info for proto in ("TCP:", "BLE:"))
+        )
+
+    def compute_reconnect_delay(self) -> float:
+        """Compute reconnection delay with exponential backoff and +/- 20% jitter.
+
+        Exponential backoff: base * (2 ** min(failures, 5)), capped at max_seconds.
+        Jitter: uniformly distributed within +/- 20% of the computed backoff.
+        Non-remote (serial) connections return 0.0 (no backoff).
+        """
+        if not self.is_remote:
+            return 0.0
+
+        failures = max(0, self._reconnect_failures)
+        raw_backoff = min(
+            REMOTE_BACKOFF_BASE_SECONDS * (2 ** min(failures, 5)),
+            REMOTE_BACKOFF_MAX_SECONDS,
+        )
+        jitter = random.uniform(-REMOTE_BACKOFF_JITTER_RATIO, REMOTE_BACKOFF_JITTER_RATIO)
+        return max(1.0, raw_backoff * (1.0 + jitter))
+
+    def can_attempt_reconnect(self) -> bool:
+        """Return True if the reconnection backoff cooldown window has elapsed."""
+        if not self._connection_desired:
+            return False
+        if not self.is_remote:
+            return True
+        return time.monotonic() >= self._next_reconnect_time
+
+    def _record_reconnect_failure(self) -> float:
+        """Record a failed reconnection attempt and update the backoff timer."""
+        delay = self.compute_reconnect_delay()
+        self._reconnect_failures += 1
+        self._next_reconnect_time = time.monotonic() + delay
+        if self.is_remote:
+            logger.info(
+                "[radio:%s] Connection backoff: waiting %.1fs before next attempt (failure #%d)",
+                self.radio_id,
+                delay,
+                self._reconnect_failures,
+            )
+        return delay
+
+    def _reset_reconnect_backoff(self) -> None:
+        """Reset the reconnection backoff tracking after a successful connection."""
+        self._reconnect_failures = 0
+        self._next_reconnect_time = 0.0
 
     async def pause_connection(self) -> None:
         """Stop automatic reconnect attempts and tear down any current transport."""
@@ -674,12 +752,14 @@ class RadioInstance:
         baudrate = snapshot.serial_baudrate
 
         if not port:
-            logger.info("No serial port specified, auto-detecting...")
+            logger.info("[radio:%s] No serial port specified, auto-detecting...", self.radio_id)
             port = await self._find_radio_port_fn(baudrate)
             if not port:
                 raise RuntimeError("No MeshCore radio found. Please specify a serial port.")
 
-        logger.debug("Connecting to radio at %s (baud %d)", port, baudrate)
+        logger.debug(
+            "[radio:%s] Connecting to radio at %s (baud %d)", self.radio_id, port, baudrate
+        )
         mc = await self._meshcore_cls.create_serial(
             port=port,
             baudrate=baudrate,
@@ -692,7 +772,8 @@ class RadioInstance:
         self._connection_info = f"Serial: {port}"
         self._last_connected = True
         self._setup_complete = False
-        logger.debug("Serial connection established")
+        self._reset_reconnect_backoff()
+        logger.debug("[radio:%s] Serial connection established", self.radio_id)
 
     async def _connect_tcp(self) -> None:
         """Connect to the radio over TCP."""
@@ -704,7 +785,7 @@ class RadioInstance:
         host = snapshot.tcp_host
         port = snapshot.tcp_port
 
-        logger.debug("Connecting to radio at %s:%d (TCP)", host, port)
+        logger.debug("[radio:%s] Connecting to radio at %s:%d (TCP)", self.radio_id, host, port)
         from app.radio_proxy.manager import radio_proxy_manager
 
         if radio_proxy_manager.would_loop_transport(host, port):
@@ -721,7 +802,8 @@ class RadioInstance:
         self._connection_info = f"TCP: {host}:{port}"
         self._last_connected = True
         self._setup_complete = False
-        logger.debug("TCP connection established")
+        self._reset_reconnect_backoff()
+        logger.debug("[radio:%s] TCP connection established", self.radio_id)
 
     async def _connect_ble(self) -> None:
         """Connect to the radio over BLE."""
@@ -733,7 +815,7 @@ class RadioInstance:
         address = snapshot.ble_address
         pin = snapshot.ble_pin
 
-        logger.debug("Connecting to radio at %s (BLE)", address)
+        logger.debug("[radio:%s] Connecting to radio at %s (BLE)", self.radio_id, address)
         mc = await self._meshcore_cls.create_ble(
             address=address,
             pin=pin,
@@ -746,7 +828,8 @@ class RadioInstance:
         self._connection_info = f"BLE: {address}"
         self._last_connected = True
         self._setup_complete = False
-        logger.debug("BLE connection established")
+        self._reset_reconnect_backoff()
+        logger.debug("[radio:%s] BLE connection established", self.radio_id)
 
     async def disconnect(self) -> None:
         """Disconnect from the radio."""
@@ -768,7 +851,7 @@ class RadioInstance:
             if mc is None:
                 return
 
-            logger.debug("Disconnecting from radio")
+            logger.debug("[radio:%s] Disconnecting from radio", self.radio_id)
             await self._disable_meshcore_auto_reconnect(mc)
             try:
                 disc = mc.disconnect()
@@ -780,17 +863,38 @@ class RadioInstance:
             if self._meshcore is mc:
                 self._meshcore = None
             self._reset_connected_runtime_state()
-            logger.debug("Radio disconnected")
+            logger.debug("[radio:%s] Radio disconnected", self.radio_id)
         finally:
             self._release_operation_lock("disconnect")
 
-    async def reconnect(self, *, broadcast_on_success: bool = True) -> bool:
+    async def reconnect(
+        self,
+        *,
+        broadcast_on_success: bool = True,
+        force: bool = False,
+    ) -> bool:
         """Attempt to reconnect to the radio.
 
         Returns True if reconnection was successful, False otherwise.
         Uses a lock to prevent concurrent reconnection attempts.
         """
         from app.websocket import broadcast_health
+
+        if not self._connection_desired:
+            logger.info(
+                "[radio:%s] Reconnect skipped because connection is paused by operator",
+                self.radio_id,
+            )
+            return False
+
+        if not force and not self.can_attempt_reconnect():
+            remaining = max(0.0, self._next_reconnect_time - time.monotonic())
+            logger.debug(
+                "[radio:%s] Reconnect skipped; in backoff window (%.1fs remaining)",
+                self.radio_id,
+                remaining,
+            )
+            return False
 
         # Lazily initialize lock (can't create in __init__ before event loop exists)
         if self._reconnect_lock is None:
@@ -801,20 +905,27 @@ class RadioInstance:
         except RuntimeError as exc:
             if "different event loop" not in str(exc):
                 raise
-            logger.debug("Rebound reconnect lock to current event loop (%s)", self.radio_id)
+            logger.debug("[radio:%s] Rebound reconnect lock to current event loop", self.radio_id)
             self._reconnect_lock = asyncio.Lock()
             await self._reconnect_lock.acquire()
 
         try:
             if not self._connection_desired:
-                logger.info("Reconnect skipped because connection is paused by operator")
+                logger.info(
+                    "[radio:%s] Reconnect skipped because connection is paused by operator",
+                    self.radio_id,
+                )
                 return False
 
             if self.is_connected:
-                logger.debug("Already connected after acquiring lock, skipping reconnect")
+                logger.debug(
+                    "[radio:%s] Already connected after acquiring lock, skipping reconnect",
+                    self.radio_id,
+                )
+                self._reset_reconnect_backoff()
                 return True
 
-            logger.info("Attempting to reconnect to radio...")
+            logger.info("[radio:%s] Attempting to reconnect to radio...", self.radio_id)
 
             try:
                 if self._meshcore is not None:
@@ -826,27 +937,42 @@ class RadioInstance:
                 await self.connect()
 
                 if not self._connection_desired:
-                    logger.info("Reconnect completed after pause request; disconnecting transport")
+                    logger.info(
+                        "[radio:%s] Reconnect completed after pause request; disconnecting transport",
+                        self.radio_id,
+                    )
                     await self.disconnect()
                     return False
 
                 if self.is_connected:
-                    logger.info("Radio reconnected successfully at %s", self._connection_info)
+                    logger.info(
+                        "[radio:%s] Radio reconnected successfully at %s",
+                        self.radio_id,
+                        self._connection_info,
+                    )
                     self._reset_reconnect_error_broadcasts()
+                    self._reset_reconnect_backoff()
                     if broadcast_on_success:
                         broadcast_health(True, self._connection_info)
                     return True
                 else:
-                    logger.warning("Reconnection failed: not connected after connect()")
+                    logger.warning(
+                        "[radio:%s] Reconnection failed: not connected after connect()",
+                        self.radio_id,
+                    )
+                    self._record_reconnect_failure()
                     return False
 
             except Exception as e:
+                self._record_reconnect_failure()
                 log_message, frontend_detail, include_traceback = _format_reconnect_failure(
                     e,
                     snapshot=self._transport_snapshot,
                     connection_info=self._connection_info,
                 )
-                logger.warning(log_message, exc_info=include_traceback)
+                logger.warning(
+                    "[radio:%s] %s", self.radio_id, log_message, exc_info=include_traceback
+                )
                 self._broadcast_reconnect_error_if_needed(frontend_detail)
                 return False
         finally:
@@ -913,7 +1039,7 @@ class RadioInstance:
             return
 
         self._reconnect_task = asyncio.create_task(connection_monitor_loop(self))
-        logger.info("Radio connection monitor started")
+        logger.info("[radio:%s] Radio connection monitor started", self.radio_id)
 
     async def stop_connection_monitor(self) -> None:
         """Stop the connection monitor task."""
@@ -923,8 +1049,12 @@ class RadioInstance:
                 await self._reconnect_task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                logger.debug(
+                    "[radio:%s] Exception while stopping connection monitor: %s", self.radio_id, e
+                )
             self._reconnect_task = None
-            logger.info("Radio connection monitor stopped")
+            logger.info("[radio:%s] Radio connection monitor stopped", self.radio_id)
 
     def require_connected(self) -> MeshCore:
         """Return MeshCore when available, mirroring existing HTTP semantics."""
@@ -953,7 +1083,7 @@ class RadioInstance:
         self._ingest_allowed = False
         self._session_generation += 1
         logger.debug(
-            "Radio %s ingest closed (session %s)",
+            "[radio:%s] Ingest closed (session %s)",
             self.radio_id,
             self._session_generation,
         )
@@ -970,7 +1100,7 @@ class RadioInstance:
             return
         self._ingest_allowed = True
         logger.debug(
-            "Radio %s ingest allowed (session %s)",
+            "[radio:%s] Ingest allowed (session %s)",
             self.radio_id,
             self._session_generation,
         )
@@ -982,7 +1112,7 @@ class RadioInstance:
     def deny_ingest(self) -> None:
         """Deny ingest for this radio instance."""
         self._ingest_allowed = False
-        logger.debug("Radio %s ingest denied", self.radio_id)
+        logger.debug("[radio:%s] Ingest denied", self.radio_id)
         if self.radio_id == "default":
             import app.services.radio_ingest_gate as gate_mod
 
@@ -1006,7 +1136,7 @@ class RadioInstance:
         self._private_key = key
         self._public_key = derive_public_key(key)
         logger.info(
-            "Private key stored for radio %s (public key: %s...)",
+            "[radio:%s] Private key stored (public key: %s...)",
             self.radio_id,
             self._public_key.hex()[:12],
         )
@@ -1034,7 +1164,7 @@ class RadioInstance:
         self._private_key = None
         self._public_key = None
         if had_key:
-            logger.info("Cleared in-memory keystore for radio %s", self.radio_id)
+            logger.info("[radio:%s] Cleared in-memory keystore", self.radio_id)
         if self.radio_id == "default":
             from app.keystore import clear_keys as ks_clear_keys
 

@@ -1,7 +1,7 @@
 """Tests for RadioInstance, RadioRegistry, and multi-radio runtime dispatch."""
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -475,7 +475,8 @@ class TestMultiRadioIsolationAndConcurrency:
         stale_reconnect_lock.acquire = fake_reconnect_acquire
         stale_reconnect_lock.locked.return_value = False
         radio._reconnect_lock = stale_reconnect_lock
-        radio._connection_desired = False
+        radio._connection_desired = True
+        radio.connect = AsyncMock()
 
         res = await radio.reconnect()
         assert res is False

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from typing import TYPE_CHECKING
 
@@ -69,9 +71,9 @@ class RadioRegistry:
             if radio_module is not None:
                 current = getattr(radio_module, "radio_manager", None)
                 if current is not None:
-                    is_mock = isinstance(current, NonCallableMock) or type(current).__name__.startswith(
-                        ("Mock", "MagicMock", "AsyncMock")
-                    )
+                    is_mock = isinstance(current, NonCallableMock) or type(
+                        current
+                    ).__name__.startswith(("Mock", "MagicMock", "AsyncMock"))
                     registered_default = self._instances.get(self._default_radio_id)
                     is_replaced = (
                         registered_default is not None
@@ -119,9 +121,77 @@ class RadioRegistry:
             import sys
 
             radio_module = sys.modules.get("app.radio")
-            if radio_module is not None and getattr(radio_module, "radio_manager", None) is not None:
+            if (
+                radio_module is not None
+                and getattr(radio_module, "radio_manager", None) is not None
+            ):
                 return True
         return False
+
+    async def start_all(self) -> None:
+        """Start connection monitors concurrently for all registered radio instances.
+
+        Uses asyncio.gather with return_exceptions=True to ensure a failure in one
+        radio does not prevent other radios from starting.
+        """
+        if not self._instances:
+            try:
+                self.get_default()
+            except Exception:
+                pass
+
+        logger.info("Starting connection monitors for %d radio instance(s)", len(self._instances))
+        instances = list(self._instances.values())
+        tasks = [instance.start_connection_monitor() for instance in instances]
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for instance, result in zip(instances, results, strict=True):
+                if isinstance(result, Exception):
+                    logger.error(
+                        "[radio:%s] Failed to start connection monitor: %s",
+                        instance.radio_id,
+                        result,
+                        exc_info=result,
+                    )
+
+    async def stop_all(self) -> None:
+        """Stop connection monitors and disconnect all registered radio instances concurrently.
+
+        Uses asyncio.gather with return_exceptions=True so a failure or slow teardown
+        on one radio does not block other radios from disconnecting.
+        """
+        logger.info("Stopping %d radio instance(s)", len(self._instances))
+
+        async def _stop_instance(instance: RadioInstance) -> None:
+            try:
+                await instance.stop_connection_monitor()
+            except Exception as exc:
+                logger.warning(
+                    "[radio:%s] Error stopping connection monitor: %s", instance.radio_id, exc
+                )
+
+            mc = instance.meshcore
+            if mc is not None:
+                try:
+                    if hasattr(mc, "stop_auto_message_fetching"):
+                        res = mc.stop_auto_message_fetching()
+                        if inspect.isawaitable(res):
+                            await res
+                except Exception as exc:
+                    logger.debug(
+                        "[radio:%s] Error stopping auto message fetching: %s",
+                        instance.radio_id,
+                        exc,
+                    )
+
+            try:
+                await instance.disconnect()
+            except Exception as exc:
+                logger.warning("[radio:%s] Error disconnecting radio: %s", instance.radio_id, exc)
+
+        tasks = [_stop_instance(instance) for instance in list(self._instances.values())]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def clear(self) -> None:
         """Clear all registered instances (primarily for testing)."""

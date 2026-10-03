@@ -174,8 +174,10 @@ async def lifespan(app: FastAPI):
     start_hashtag_catalogue_polling()
     start_stale_contact_purge()
 
-    # Always start connection monitor (even if initial connection failed)
-    await radio_manager.start_connection_monitor()
+    # Always start connection monitors for all radios (even if initial connection failed)
+    from app.services.radio_registry import radio_registry
+
+    await radio_registry.start_all()
 
     # Start fanout modules (MQTT, etc.) from database configs
     from app.fanout.manager import fanout_manager
@@ -209,7 +211,7 @@ async def lifespan(app: FastAPI):
     await shutdown_community_live()
     await fanout_manager.stop_all()
     await radio_proxy_manager.stop()
-    await radio_manager.stop_connection_monitor()
+    await radio_registry.stop_all()
     await stop_background_contact_reconciliation()
     await stop_message_polling()
     await stop_radio_stats_sampling()
@@ -219,9 +221,6 @@ async def lifespan(app: FastAPI):
     await stop_periodic_sync()
     await stop_telemetry_collect()
     await stop_stale_contact_purge()
-    if radio_manager.meshcore:
-        await radio_manager.meshcore.stop_auto_message_fetching()
-    await radio_manager.disconnect()
     await db.disconnect()
 
 
