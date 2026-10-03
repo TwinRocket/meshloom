@@ -524,6 +524,7 @@ class RawPacketBroadcast(BaseModel):
     """
 
     id: int
+    radio_id: str = "default"
     observation_id: int = Field(
         description=(
             "Monotonic per-process ID for this RF observation (distinct from the DB packet row ID)"
@@ -1942,6 +1943,60 @@ class RadioRecord(BaseModel):
     last_connected_at: int | None = None
     sort_order: int = 0
 
+    def to_transport_snapshot(self) -> RadioTransportSnapshot:
+        return RadioTransportSnapshot(
+            transport=self.transport,
+            serial_port=self.serial_port or "",
+            serial_baudrate=self.serial_baudrate or 115200,
+            tcp_host=self.tcp_host or "",
+            tcp_port=self.tcp_port if self.tcp_port is not None else 5000,
+            ble_address=self.ble_address or "",
+            ble_pin=self.ble_pin or "",
+            bound_public_key=self.bound_public_key,
+            identity_state=self.identity_state,  # type: ignore[arg-type]
+        )
+
+
+class RadioStatusResponse(BaseModel):
+    id: str
+    name: str
+    transport: RadioTransportKind | None = None
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int | None = 5000
+    ble_address: str = ""
+    ble_pin_configured: bool = False
+    enabled: bool = True
+    auto_connect: bool = True
+    bound_public_key: str | None = None
+    identity_state: str | None = None
+    created_at: int
+    updated_at: int
+    last_connected_at: int | None = None
+    sort_order: int = 0
+    is_connected: bool = False
+    is_reconnecting: bool = False
+    connection_info: str | None = None
+    last_error: str | None = None
+    device_model: str | None = None
+    firmware_version: str | None = None
+
+
+class RadioTestRequest(BaseModel):
+    transport: RadioTransportKind
+    serial_port: str = ""
+    serial_baudrate: int = 115200
+    tcp_host: str = ""
+    tcp_port: int = 5000
+    ble_address: str = ""
+    ble_pin: str = ""
+
+
+class RadioTestResponse(BaseModel):
+    success: bool
+    message: str
+
 
 class RadioCreate(BaseModel):
     id: str | None = None
@@ -1975,6 +2030,7 @@ class RadioUpdate(BaseModel):
     identity_state: str | None = None
     last_connected_at: int | None = None
     sort_order: int | None = None
+
 
 
 class RadioTransportSnapshot(BaseModel):

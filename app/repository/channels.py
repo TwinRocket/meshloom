@@ -153,14 +153,14 @@ class ChannelRepository:
             async with conn.execute(
                 """
                 INSERT INTO channels (radio_id, key, name, is_hashtag, on_radio, flood_scope_override, membership)
-                VALUES (?, ?, ?, 0, NULL, ?)
+                VALUES (?, ?, ?, ?, 0, NULL, ?)
                 ON CONFLICT(radio_id, key) DO NOTHING
                 """,
                 (
                     eff_radio_id,
                     normalize_channel_key(key),
                     name,
-                    is_hashtag,
+                    1 if is_hashtag else 0,
                     coerce_membership(membership),
                 ),
             ) as cursor:

@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -18,11 +19,25 @@ from app.services.message_send import (
     send_channel_message_to_channel,
     send_direct_message_to_contact,
 )
+from app.services.radio_registry import RadioNotFoundError, resolve_radio_id
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.websocket import broadcast_error, broadcast_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/messages", tags=["messages"])
+
+
+def _resolve_target_radio(eff_radio: str) -> Any:
+    if eff_radio == "default":
+        return radio_manager
+    if hasattr(radio_manager, "get") and callable(radio_manager.get):
+        try:
+            return radio_manager.get(eff_radio)
+        except (RadioNotFoundError, KeyError) as exc:
+            raise HTTPException(
+                status_code=404, detail=f"Radio '{eff_radio}' not found"
+            ) from exc
+    return radio_manager
 
 
 @router.get("/around/{message_id}", response_model=MessagesAroundResponse)
@@ -31,8 +46,10 @@ async def get_messages_around(
     type: str | None = Query(default=None, description="Filter by type: PRIV or CHAN"),
     conversation_key: str | None = Query(default=None, description="Filter by conversation key"),
     context: int = Query(default=100, ge=1, le=500, description="Number of messages before/after"),
+    radio_id: str | None = Query(default=None),
 ) -> MessagesAroundResponse:
     """Get messages around a specific message for jump-to-message navigation."""
+    eff_radio = resolve_radio_id(radio_id)
     settings = await AppSettingsRepository.get()
     blocked_keys = settings.blocked_keys or None
     blocked_names = settings.blocked_names or None
@@ -43,6 +60,7 @@ async def get_messages_around(
         context_size=context,
         blocked_keys=blocked_keys,
         blocked_names=blocked_names,
+        radio_id=eff_radio,
     )
     return MessagesAroundResponse(messages=messages, has_older=has_older, has_newer=has_newer)
 
@@ -66,8 +84,10 @@ async def list_messages(
         default=None, description="Forward cursor: id of last seen message"
     ),
     q: str | None = Query(default=None, description="Full-text search query"),
+    radio_id: str | None = Query(default=None),
 ) -> list[Message]:
     """List messages from the database."""
+    eff_radio = resolve_radio_id(radio_id)
     settings = await AppSettingsRepository.get()
     blocked_keys = settings.blocked_keys or None
     blocked_names = settings.blocked_names or None
@@ -83,19 +103,27 @@ async def list_messages(
         q=q,
         blocked_keys=blocked_keys,
         blocked_names=blocked_names,
+        radio_id=eff_radio,
     )
 
 
 @router.post("/direct", response_model=Message)
-async def send_direct_message(request: SendDirectMessageRequest) -> Message:
+async def send_direct_message(
+    request: SendDirectMessageRequest,
+    radio_id: str | None = Query(default=None),
+) -> Message:
     """Send a direct message to a contact."""
-    radio_manager.require_connected()
+    eff_radio = resolve_radio_id(radio_id)
+    target_radio = _resolve_target_radio(eff_radio)
+    target_radio.require_connected()
 
     # First check our database for the contact
     from app.repository import ContactRepository
 
     try:
-        db_contact = await ContactRepository.get_by_key_or_prefix(request.destination)
+        db_contact = await ContactRepository.get_by_key_or_prefix(
+            request.destination, radio_id=eff_radio
+        )
     except AmbiguousPublicKeyPrefixError as err:
         sample = ", ".join(key[:12] for key in err.matches[:2])
         raise HTTPException(
@@ -118,7 +146,7 @@ async def send_direct_message(request: SendDirectMessageRequest) -> Message:
     result = await send_direct_message_to_contact(
         contact=db_contact,
         text=request.text,
-        radio_manager=radio_manager,
+        radio_manager=target_radio,
         broadcast_fn=broadcast_event,
         track_pending_ack_fn=track_pending_ack,
         now_fn=time.time,
@@ -135,19 +163,24 @@ TEMP_RADIO_SLOT = 0
 
 
 @router.post("/channel", response_model=Message)
-async def send_channel_message(request: SendChannelMessageRequest) -> Message:
+async def send_channel_message(
+    request: SendChannelMessageRequest,
+    radio_id: str | None = Query(default=None),
+) -> Message:
     """Send a message to a channel."""
+    eff_radio = resolve_radio_id(radio_id)
+    target_radio = _resolve_target_radio(eff_radio)
     from app.repository import ChannelRepository
     from app.services.channel_membership import is_pending_channel
 
-    db_channel = await ChannelRepository.get_by_key(request.channel_key)
+    db_channel = await ChannelRepository.get_by_key(request.channel_key, radio_id=eff_radio)
     if is_pending_channel(db_channel):
         raise HTTPException(
             status_code=409,
             detail="Pending channels cannot be sent to until they are adopted",
         )
 
-    radio_manager.require_connected()
+    target_radio.require_connected()
 
     if not db_channel:
         raise HTTPException(
@@ -173,7 +206,7 @@ async def send_channel_message(request: SendChannelMessageRequest) -> Message:
         channel_key_upper=request.channel_key.upper(),
         key_bytes=key_bytes,
         text=request.text,
-        radio_manager=radio_manager,
+        radio_manager=target_radio,
         broadcast_fn=broadcast_event,
         error_broadcast_fn=broadcast_error,
         now_fn=time.time,
@@ -194,6 +227,7 @@ RESEND_WINDOW_SECONDS = 30
 async def resend_channel_message(
     message_id: int,
     new_timestamp: bool = Query(default=False),
+    radio_id: str | None = Query(default=None),
 ) -> ResendChannelMessageResponse:
     """Resend a channel message.
 
@@ -203,7 +237,9 @@ async def resend_channel_message(
     When new_timestamp=True: resend with a fresh timestamp so repeaters treat it as a
     new packet. Creates a new message row in the database. No time window restriction.
     """
-    radio_manager.require_connected()
+    eff_radio = resolve_radio_id(radio_id)
+    target_radio = _resolve_target_radio(eff_radio)
+    target_radio.require_connected()
 
     from app.repository import ChannelRepository
 
@@ -226,7 +262,7 @@ async def resend_channel_message(
         if elapsed > RESEND_WINDOW_SECONDS:
             raise HTTPException(status_code=400, detail="Resend window has expired (30 seconds)")
 
-    db_channel = await ChannelRepository.get_by_key(msg.conversation_key)
+    db_channel = await ChannelRepository.get_by_key(msg.conversation_key, radio_id=eff_radio)
     if not db_channel:
         raise HTTPException(status_code=404, detail=f"Channel {msg.conversation_key} not found")
 
@@ -234,7 +270,7 @@ async def resend_channel_message(
         message=msg,
         channel=db_channel,
         new_timestamp=new_timestamp,
-        radio_manager=radio_manager,
+        radio_manager=target_radio,
         broadcast_fn=broadcast_event,
         error_broadcast_fn=broadcast_error,
         now_fn=time.time,
@@ -244,11 +280,22 @@ async def resend_channel_message(
 
 
 @router.delete("/{message_id}")
-async def delete_message(message_id: int) -> dict[str, str]:
+async def delete_message(
+    message_id: int, radio_id: str | None = Query(default=None)
+) -> dict[str, str]:
     """Remove a stored message from this server. Does not retract it from the mesh."""
+    eff_radio = resolve_radio_id(radio_id)
     existing = await MessageRepository.get_by_id(message_id)
     if existing is None:
         return {"status": "ok"}
     await MessageRepository.delete_by_id(message_id)
-    broadcast_event("message_deleted", {"message_id": message_id})
+    target_rid = existing.radio_id if existing.radio_id else eff_radio
+    if target_rid != "default":
+        broadcast_event(
+            "message_deleted",
+            {"message_id": message_id},
+            radio_id=target_rid,
+        )
+    else:
+        broadcast_event("message_deleted", {"message_id": message_id})
     return {"status": "ok"}

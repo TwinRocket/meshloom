@@ -149,14 +149,16 @@ async def run_historical_dm_decryption(
     contact_public_key_bytes: bytes,
     contact_public_key_hex: str,
     display_name: str | None = None,
+    radio_id: str = "default",
 ) -> None:
     """Background task to decrypt historical DM packets with contact's key."""
     from app.websocket import broadcast_success
 
+    eff_radio = radio_id or "default"
     total = 0
     decrypted_count = 0
 
-    logger.info("Starting historical DM decryption scan for undecrypted TEXT_MESSAGE packets")
+    logger.info("Starting historical DM decryption scan for undecrypted TEXT_MESSAGE packets (radio=%s)", eff_radio)
 
     # Derive our public key from the private key
     our_public_key_bytes = derive_public_key(private_key_bytes)
@@ -165,7 +167,7 @@ async def run_historical_dm_decryption(
         packet_id,
         packet_data,
         packet_timestamp,
-    ) in RawPacketRepository.stream_undecrypted_text_messages():
+    ) in RawPacketRepository.stream_undecrypted_text_messages(radio_id=eff_radio):
         total += 1
         result = try_decrypt_dm(
             packet_data,

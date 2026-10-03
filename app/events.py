@@ -14,6 +14,7 @@ from app.models import (
     Contact,
     Message,
     MessagePath,
+    RadioStatusResponse,
     RawPacketBroadcast,
 )
 from app.routers.health import HealthResponse
@@ -35,6 +36,9 @@ WsEventType = Literal[
     "message_deleted",
     "error",
     "success",
+    "radio_created",
+    "radio_updated",
+    "radio_deleted",
 ]
 
 
@@ -49,6 +53,10 @@ class ContactResolvedPayload(TypedDict):
 
 class ChannelDeletedPayload(TypedDict):
     key: str
+
+
+class RadioDeletedPayload(TypedDict):
+    radio_id: str
 
 
 class MessageAckedPayload(TypedDict):
@@ -86,14 +94,28 @@ _PAYLOAD_ADAPTERS: dict[WsEventType, TypeAdapter[Any]] = {
     "message_deleted": TypeAdapter(MessageDeletedPayload),
     "error": TypeAdapter(ToastPayload),
     "success": TypeAdapter(ToastPayload),
+    "radio_created": TypeAdapter(RadioStatusResponse),
+    "radio_updated": TypeAdapter(RadioStatusResponse),
+    "radio_deleted": TypeAdapter(RadioDeletedPayload),
 }
 
 
-def dump_ws_event(event_type: str, data: Any) -> str:
+def dump_ws_event(event_type: str, data: Any, radio_id: str | None = None) -> str:
     """Serialize a WebSocket event envelope with validation for known event types."""
+    effective_radio_id = radio_id
+    if effective_radio_id is None:
+        if isinstance(data, dict) and "radio_id" in data and data["radio_id"]:
+            effective_radio_id = str(data["radio_id"])
+        elif hasattr(data, "radio_id") and getattr(data, "radio_id", None):
+            effective_radio_id = str(data.radio_id)
+
     adapter = _PAYLOAD_ADAPTERS.get(event_type)  # type: ignore[arg-type]
     if adapter is None:
-        return json.dumps({"type": event_type, "data": data})
+        envelope: dict[str, Any] = {"type": event_type}
+        if effective_radio_id is not None:
+            envelope["radio_id"] = effective_radio_id
+        envelope["data"] = data
+        return json.dumps(envelope)
 
     try:
         validated = adapter.validate_python(data)
@@ -101,10 +123,22 @@ def dump_ws_event(event_type: str, data: Any) -> str:
         payload = adapter.dump_python(
             validated, mode="json", exclude_none=(event_type == "community_packet")
         )
-        return json.dumps({"type": event_type, "data": payload})
+        if effective_radio_id is not None and isinstance(payload, dict) and "radio_id" not in payload:
+            payload["radio_id"] = effective_radio_id
+        envelope = {"type": event_type}
+        if effective_radio_id is not None:
+            envelope["radio_id"] = effective_radio_id
+        envelope["data"] = payload
+        return json.dumps(envelope)
     except Exception:
         logger.exception(
             "Failed to validate WebSocket payload for event %s; falling back to raw JSON envelope",
             event_type,
         )
-        return json.dumps({"type": event_type, "data": data})
+        envelope = {"type": event_type}
+        if effective_radio_id is not None:
+            envelope["radio_id"] = effective_radio_id
+        envelope["data"] = data
+        return json.dumps(envelope)
+
+

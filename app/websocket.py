@@ -40,7 +40,7 @@ class WebSocketManager:
 
             await release_live_on_app_ws_empty()
 
-    async def broadcast(self, event_type: str, data: Any) -> None:
+    async def broadcast(self, event_type: str, data: Any, radio_id: str | None = None) -> None:
         """Broadcast an event to all connected clients.
 
         Uses a copy-then-send pattern to avoid holding the lock during I/O:
@@ -49,7 +49,7 @@ class WebSocketManager:
         3. Send to all clients concurrently with timeout
         4. Re-acquire lock to clean up disconnected clients
         """
-        message = dump_ws_event(event_type, data)
+        message = dump_ws_event(event_type, data, radio_id=radio_id)
 
         # Copy connection list under lock to avoid holding lock during I/O
         async with self._lock:
@@ -83,9 +83,11 @@ class WebSocketManager:
                         self.active_connections.remove(conn)
             logger.debug("Removed %d disconnected WebSocket clients", len(disconnected))
 
-    async def send_personal(self, websocket: WebSocket, event_type: str, data: Any) -> None:
+    async def send_personal(
+        self, websocket: WebSocket, event_type: str, data: Any, radio_id: str | None = None
+    ) -> None:
         """Send an event to a specific client."""
-        message = dump_ws_event(event_type, data)
+        message = dump_ws_event(event_type, data, radio_id=radio_id)
         try:
             await websocket.send_text(message)
         except Exception as e:
@@ -96,7 +98,13 @@ class WebSocketManager:
 ws_manager = WebSocketManager()
 
 
-def broadcast_event(event_type: str, data: dict, *, realtime: bool = True) -> None:
+def broadcast_event(
+    event_type: str,
+    data: Any,
+    radio_id: str | None = None,
+    *,
+    realtime: bool = True,
+) -> None:
     """Schedule a broadcast without blocking.
 
     Convenience function that creates an asyncio task to broadcast
@@ -104,10 +112,22 @@ def broadcast_event(event_type: str, data: dict, *, realtime: bool = True) -> No
 
     Args:
         event_type: Event type string (e.g. "message", "raw_packet")
-        data: Event payload dict
+        data: Event payload dict or object
+        radio_id: Optional radio identifier
         realtime: If False, skip fanout dispatch (used for historical decryption)
     """
-    asyncio.create_task(ws_manager.broadcast(event_type, data))
+    eff_radio = radio_id
+    if eff_radio is None:
+        if isinstance(data, dict):
+            eff_radio = data.get("radio_id")
+        elif hasattr(data, "radio_id"):
+            eff_radio = getattr(data, "radio_id", None)
+
+    if eff_radio is not None:
+        asyncio.create_task(ws_manager.broadcast(event_type, data, radio_id=str(eff_radio)))
+    else:
+        asyncio.create_task(ws_manager.broadcast(event_type, data))
+
 
     if realtime:
         try:
@@ -181,13 +201,17 @@ def broadcast_success(
     asyncio.create_task(ws_manager.broadcast("success", data))
 
 
-def broadcast_health(radio_connected: bool, connection_info: str | None = None) -> None:
+def broadcast_health(
+    radio_connected: bool,
+    connection_info: str | None = None,
+    radio_id: str = "default",
+) -> None:
     """Broadcast health status change to all connected clients."""
 
     async def _broadcast():
         from app.routers.health import build_health_data
 
-        data = await build_health_data(radio_connected, connection_info)
-        await ws_manager.broadcast("health", data)
+        data = await build_health_data(radio_connected, connection_info, radio_id=radio_id)
+        await ws_manager.broadcast("health", data, radio_id=radio_id)
 
     asyncio.create_task(_broadcast())

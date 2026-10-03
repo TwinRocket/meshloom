@@ -11,6 +11,7 @@ Also covers webhook and Apprise modules with real HTTP capture servers.
 import asyncio
 import json
 import struct
+import sys
 
 import pytest
 
@@ -18,6 +19,11 @@ import app.repository.fanout as fanout_mod
 from app.database import Database
 from app.fanout.manager import FanoutManager
 from app.repository.fanout import FanoutConfigRepository
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="aiomqtt relies on loop.add_reader which is not implemented in Windows ProactorEventLoop",
+)
 
 # ---------------------------------------------------------------------------
 # Minimal async MQTT 3.1.1 capture broker

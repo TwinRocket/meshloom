@@ -14,6 +14,14 @@ Dangerous characters by format:
 
 import re
 import subprocess
+import sys
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Bash subprocess escaping tests for Linux installer scripts hang under Windows MSYS2",
+)
 
 SERVICE_SCRIPT = "scripts/setup/install_service.sh"
 DOCKER_SCRIPT = "scripts/setup/install_docker.sh"

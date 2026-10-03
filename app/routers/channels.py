@@ -1,7 +1,7 @@
 import logging
 from hashlib import sha256
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from app.channel_constants import (
@@ -28,6 +28,7 @@ from app.repository import (
 )
 from app.services.channel_membership import adopt_channel_record
 from app.services.meshloom_community import schedule_hashtag_names_publish
+from app.services.radio_registry import resolve_radio_id
 from app.services.test_channel import is_test_channel_key, is_test_channel_name
 from app.websocket import broadcast_event, broadcast_success
 
@@ -41,7 +42,7 @@ def _is_test_channel(channel: Channel) -> bool:
 
 
 def _broadcast_channel_update(channel: Channel) -> None:
-    broadcast_event("channel", channel.model_dump())
+    broadcast_event("channel", channel.model_dump(), radio_id=channel.radio_id)
 
 
 class CreateChannelRequest(BaseModel):
@@ -158,8 +159,10 @@ def _normalize_bulk_hashtag_name(name: str) -> str | None:
 
 async def _run_historical_channel_decryption_for_channels(
     channels: list[tuple[bytes, str, str]],
+    radio_id: str = "default",
 ) -> None:
-    total = await RawPacketRepository.get_undecrypted_count()
+    eff_radio = radio_id or "default"
+    total = await RawPacketRepository.get_undecrypted_count(radio_id=eff_radio)
     decrypted_count = 0
     matched_channel_names: set[str] = set()
 
@@ -177,7 +180,7 @@ async def _run_historical_channel_decryption_for_channels(
         packet_id,
         packet_data,
         packet_timestamp,
-    ) in RawPacketRepository.stream_all_undecrypted():
+    ) in RawPacketRepository.stream_all_undecrypted(radio_id=eff_radio):
         packet_info = parse_packet(packet_data)
         path_hex = packet_info.path.hex() if packet_info else None
         path_len = packet_info.path_length if packet_info else None
@@ -223,9 +226,9 @@ async def _run_historical_channel_decryption_for_channels(
 
 
 @router.get("", response_model=list[Channel])
-async def list_channels() -> list[Channel]:
+async def list_channels(radio_id: str | None = Query(default=None)) -> list[Channel]:
     """List all channels from the database."""
-    return await ChannelRepository.get_all()
+    return await ChannelRepository.get_all(radio_id=resolve_radio_id(radio_id))
 
 
 @router.get("/rejected", response_model=list[RejectedChannel])
@@ -235,13 +238,16 @@ async def list_rejected_channels() -> list[RejectedChannel]:
 
 
 @router.get("/{key}/detail", response_model=ChannelDetail)
-async def get_channel_detail(key: str) -> ChannelDetail:
+async def get_channel_detail(
+    key: str, radio_id: str | None = Query(default=None)
+) -> ChannelDetail:
     """Get comprehensive channel profile data with message statistics."""
-    channel = await ChannelRepository.get_by_key(key)
+    eff_radio = resolve_radio_id(radio_id)
+    channel = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    stats = await MessageRepository.get_channel_stats(channel.key)
+    stats = await MessageRepository.get_channel_stats(channel.key, radio_id=eff_radio)
 
     return ChannelDetail(
         channel=channel,
@@ -254,16 +260,20 @@ async def get_channel_detail(key: str) -> ChannelDetail:
 
 
 @router.post("", response_model=Channel)
-async def create_channel(request: CreateChannelRequest) -> Channel:
+async def create_channel(
+    request: CreateChannelRequest,
+    radio_id: str | None = Query(default=None),
+) -> Channel:
     """Create a channel in the database.
 
     Channels are NOT pushed to radio on creation. They are loaded to the radio
     automatically when sending a message (see messages.py send_channel_message).
     """
+    eff_radio = resolve_radio_id(radio_id)
     requested_name = request.name
     key_hex, channel_name, is_hashtag = _derive_channel_identity(requested_name, request.key)
 
-    logger.info("Creating channel %s: %s (hashtag=%s)", key_hex, channel_name, is_hashtag)
+    logger.info("Creating channel %s: %s (hashtag=%s, radio=%s)", key_hex, channel_name, is_hashtag, eff_radio)
 
     # Store in database only - radio sync happens at send time.
     # Manual create always adopts (and un-rejects if the key was refused).
@@ -273,6 +283,7 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
             name=channel_name,
             is_hashtag=is_hashtag,
             on_radio=False,
+            radio_id=eff_radio,
         )
     except RuntimeError as exc:
         raise HTTPException(
@@ -290,7 +301,9 @@ async def bulk_create_hashtag_channels(
     request: BulkCreateHashtagChannelsRequest,
     background_tasks: BackgroundTasks,
     response: Response,
+    radio_id: str | None = Query(default=None),
 ) -> BulkCreateHashtagChannelsResponse:
+    eff_radio = resolve_radio_id(radio_id)
     created_channels: list[Channel] = []
     existing_count = 0
     invalid_names: list[str] = []
@@ -305,7 +318,7 @@ async def bulk_create_hashtag_channels(
             continue
 
         key_hex, channel_name, is_hashtag = _derive_channel_identity(normalized_name)
-        existing = await ChannelRepository.get_by_key(key_hex)
+        existing = await ChannelRepository.get_by_key(key_hex, radio_id=eff_radio)
         if existing is not None and existing.membership == "adopted":
             existing_count += 1
             continue
@@ -316,6 +329,7 @@ async def bulk_create_hashtag_channels(
                 name=channel_name,
                 is_hashtag=is_hashtag,
                 on_radio=False,
+                radio_id=eff_radio,
             )
         except RuntimeError as exc:
             raise HTTPException(
@@ -332,10 +346,10 @@ async def bulk_create_hashtag_channels(
     )
 
     if request.try_historical and decrypt_targets:
-        decrypt_total_packets = await RawPacketRepository.get_undecrypted_count()
+        decrypt_total_packets = await RawPacketRepository.get_undecrypted_count(radio_id=eff_radio)
         if decrypt_total_packets > 0:
             background_tasks.add_task(
-                _run_historical_channel_decryption_for_channels, decrypt_targets
+                _run_historical_channel_decryption_for_channels, decrypt_targets, eff_radio
             )
             decrypt_started = True
             response.status_code = status.HTTP_202_ACCEPTED
@@ -365,13 +379,14 @@ async def bulk_create_hashtag_channels(
 
 
 @router.post("/{key}/mark-read")
-async def mark_channel_read(key: str) -> dict:
+async def mark_channel_read(key: str, radio_id: str | None = Query(default=None)) -> dict:
     """Mark a channel as read (update last_read_at timestamp)."""
-    channel = await ChannelRepository.get_by_key(key)
+    eff_radio = resolve_radio_id(radio_id)
+    channel = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    updated = await ChannelRepository.update_last_read_at(key)
+    updated = await ChannelRepository.update_last_read_at(key, radio_id=eff_radio)
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update read state")
 
@@ -380,10 +395,13 @@ async def mark_channel_read(key: str) -> dict:
 
 @router.post("/{key}/flood-scope-override", response_model=Channel)
 async def set_channel_flood_scope_override(
-    key: str, request: ChannelFloodScopeOverrideRequest
+    key: str,
+    request: ChannelFloodScopeOverrideRequest,
+    radio_id: str | None = Query(default=None),
 ) -> Channel:
     """Set or clear a per-channel flood-scope override."""
-    channel = await ChannelRepository.get_by_key(key)
+    eff_radio = resolve_radio_id(radio_id)
+    channel = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
@@ -400,45 +418,51 @@ async def set_channel_flood_scope_override(
         override = UNSCOPED_OVERRIDE_MARKER
     else:
         override = normalize_region_scope(raw_override)
-    updated = await ChannelRepository.update_flood_scope_override(channel.key, override)
+    updated = await ChannelRepository.update_flood_scope_override(
+        channel.key, override, radio_id=eff_radio
+    )
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update flood-scope override")
 
-    refreshed = await ChannelRepository.get_by_key(channel.key)
+    refreshed = await ChannelRepository.get_by_key(channel.key, radio_id=eff_radio)
     if refreshed is None:
         raise HTTPException(status_code=500, detail="Channel disappeared after update")
 
-    broadcast_event("channel", refreshed.model_dump())
+    broadcast_event("channel", refreshed.model_dump(), radio_id=eff_radio)
     return refreshed
 
 
 @router.post("/{key}/path-hash-mode-override", response_model=Channel)
 async def set_channel_path_hash_mode_override(
-    key: str, request: ChannelPathHashModeOverrideRequest
+    key: str,
+    request: ChannelPathHashModeOverrideRequest,
+    radio_id: str | None = Query(default=None),
 ) -> Channel:
     """Set or clear a per-channel path hash mode override."""
-    channel = await ChannelRepository.get_by_key(key)
+    eff_radio = resolve_radio_id(radio_id)
+    channel = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
     updated = await ChannelRepository.update_path_hash_mode_override(
-        channel.key, request.path_hash_mode_override
+        channel.key, request.path_hash_mode_override, radio_id=eff_radio
     )
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update path-hash-mode override")
 
-    refreshed = await ChannelRepository.get_by_key(channel.key)
+    refreshed = await ChannelRepository.get_by_key(channel.key, radio_id=eff_radio)
     if refreshed is None:
         raise HTTPException(status_code=500, detail="Channel disappeared after update")
 
-    broadcast_event("channel", refreshed.model_dump())
+    broadcast_event("channel", refreshed.model_dump(), radio_id=eff_radio)
     return refreshed
 
 
 @router.post("/{key}/adopt", response_model=Channel)
-async def adopt_channel(key: str) -> Channel:
+async def adopt_channel(key: str, radio_id: str | None = Query(default=None)) -> Channel:
     """Move a pending or previously refused channel into the classic chat."""
-    existing = await ChannelRepository.get_by_key(key)
+    eff_radio = resolve_radio_id(radio_id)
+    existing = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
     rejected = await AppSettingsRepository.find_rejected_channel(key)
     if existing is not None:
         name = existing.name
@@ -456,6 +480,7 @@ async def adopt_channel(key: str) -> Channel:
             name=name,
             is_hashtag=is_hashtag,
             on_radio=on_radio,
+            radio_id=eff_radio,
         )
     except RuntimeError as exc:
         raise HTTPException(
@@ -465,7 +490,9 @@ async def adopt_channel(key: str) -> Channel:
     if existing is None:
         from app.routers.packets import _run_historical_channel_decryption
 
-        await _run_historical_channel_decryption(bytes.fromhex(stored.key), stored.key, stored.name)
+        await _run_historical_channel_decryption(
+            bytes.fromhex(stored.key), stored.key, stored.name, radio_id=eff_radio
+        )
 
     if not _is_test_channel(stored):
         await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
@@ -474,14 +501,15 @@ async def adopt_channel(key: str) -> Channel:
 
 
 @router.post("/{key}/refuse")
-async def refuse_channel(key: str) -> dict:
+async def refuse_channel(key: str, radio_id: str | None = Query(default=None)) -> dict:
     """Delete a pending channel and remember the key so the catalogue does not reopen it."""
+    eff_radio = resolve_radio_id(radio_id)
     if is_public_channel_key(key):
         raise HTTPException(
             status_code=400, detail="The canonical Public channel cannot be refused"
         )
 
-    channel = await ChannelRepository.get_by_key(key)
+    channel = await ChannelRepository.get_by_key(key, radio_id=eff_radio)
     if channel is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     if channel.membership != "pending":
@@ -491,13 +519,13 @@ async def refuse_channel(key: str) -> dict:
         )
 
     await AppSettingsRepository.add_rejected_channel(channel.key, channel.name)
-    await ChannelRepository.delete(channel.key)
-    broadcast_event("channel_deleted", {"key": channel.key})
+    await ChannelRepository.delete(channel.key, radio_id=eff_radio)
+    broadcast_event("channel_deleted", {"key": channel.key}, radio_id=eff_radio)
     return {"status": "ok", "key": channel.key}
 
 
 @router.delete("/{key}")
-async def delete_channel(key: str) -> dict:
+async def delete_channel(key: str, radio_id: str | None = Query(default=None)) -> dict:
     """Delete a channel from the database by key.
 
     Note: This does not clear the channel from the radio. The radio's channel
@@ -508,9 +536,10 @@ async def delete_channel(key: str) -> dict:
             status_code=400, detail="The canonical Public channel cannot be deleted"
         )
 
-    logger.info("Deleting channel %s from database", key)
-    await ChannelRepository.delete(key)
+    eff_radio = resolve_radio_id(radio_id)
+    logger.info("Deleting channel %s from database (radio=%s)", key, eff_radio)
+    await ChannelRepository.delete(key, radio_id=eff_radio)
 
-    broadcast_event("channel_deleted", {"key": key})
+    broadcast_event("channel_deleted", {"key": key}, radio_id=eff_radio)
 
     return {"status": "ok"}

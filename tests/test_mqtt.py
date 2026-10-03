@@ -353,6 +353,7 @@ class TestConnectionLoop:
             return factory
 
         with (
+            patch("app.fanout.mqtt_base.sys.platform", "linux"),
             patch("app.fanout.mqtt_base.aiomqtt.Client", side_effect=make_client_factory()),
             patch("app.fanout.mqtt_base._broadcast_health"),
             patch("app.websocket.broadcast_success"),
@@ -407,6 +408,7 @@ class TestConnectionLoop:
                 raise asyncio.CancelledError
 
         with (
+            patch("app.fanout.mqtt_base.sys.platform", "linux"),
             patch("app.fanout.mqtt_base.aiomqtt.Client", side_effect=factory),
             patch("app.fanout.mqtt_base._broadcast_health"),
             patch("app.websocket.broadcast_error"),

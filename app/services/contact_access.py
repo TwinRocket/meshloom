@@ -16,10 +16,12 @@ def ambiguous_contact_detail(err: AmbiguousPublicKeyPrefixError) -> str:
 
 
 async def resolve_contact_or_404(
-    public_key: str, not_found_detail: str = "Contact not found"
+    public_key: str,
+    not_found_detail: str = "Contact not found",
+    radio_id: str = "default",
 ) -> Contact:
     try:
-        contact = await ContactRepository.get_by_key_or_prefix(public_key)
+        contact = await ContactRepository.get_by_key_or_prefix(public_key, radio_id=radio_id)
     except AmbiguousPublicKeyPrefixError as err:
         raise HTTPException(status_code=409, detail=ambiguous_contact_detail(err)) from err
     if not contact:

@@ -229,6 +229,8 @@ class RadioInstance:
         self._connection_info: str | None = None
         self._transport_snapshot: RadioTransportSnapshot | None = transport_snapshot
         self._connection_desired: bool = True
+        self.auto_connect: bool = True
+        self._last_error: str | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._last_connected: bool = False
 
@@ -580,6 +582,14 @@ class RadioInstance:
     def connection_desired(self, value: bool) -> None:
         self._connection_desired = bool(value)
 
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @last_error.setter
+    def last_error(self, value: str | None) -> None:
+        self._last_error = value
+
     def resume_connection(self) -> None:
         """Allow connection monitor and manual reconnects to establish transport again."""
         self._connection_desired = True
@@ -729,15 +739,20 @@ class RadioInstance:
 
         snapshot = await self._load_transport()
         if snapshot.transport is None:
-            raise RuntimeError(
-                "Radio transport is not configured. Configure it in Meshloom before connecting."
-            )
-        if snapshot.transport == "tcp":
-            await self._connect_tcp()
-        elif snapshot.transport == "ble":
-            await self._connect_ble()
-        else:
-            await self._connect_serial()
+            err = "Radio transport is not configured. Configure it in Meshloom before connecting."
+            self._last_error = err
+            raise RuntimeError(err)
+        try:
+            if snapshot.transport == "tcp":
+                await self._connect_tcp()
+            elif snapshot.transport == "ble":
+                await self._connect_ble()
+            else:
+                await self._connect_serial()
+            self._last_error = None
+        except Exception as exc:
+            self._last_error = str(exc)
+            raise
         if self._meshcore is not None:
             self._install_library_reconnect_gate(self._meshcore)
 
@@ -952,6 +967,7 @@ class RadioInstance:
                     )
                     self._reset_reconnect_error_broadcasts()
                     self._reset_reconnect_backoff()
+                    self._last_error = None
                     if broadcast_on_success:
                         broadcast_health(True, self._connection_info)
                     return True
@@ -961,6 +977,7 @@ class RadioInstance:
                         self.radio_id,
                     )
                     self._record_reconnect_failure()
+                    self._last_error = "Not connected after connect()"
                     return False
 
             except Exception as e:
@@ -973,6 +990,7 @@ class RadioInstance:
                 logger.warning(
                     "[radio:%s] %s", self.radio_id, log_message, exc_info=include_traceback
                 )
+                self._last_error = frontend_detail
                 self._broadcast_reconnect_error_if_needed(frontend_detail)
                 return False
         finally:

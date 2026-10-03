@@ -388,6 +388,7 @@ class TestContactMessageCLIFiltering:
             "region",
             "packet_hash",
             "observer_reach_eligible",
+            "radio_id",
         }
 
         with patch("app.event_handlers.broadcast_event") as mock_broadcast:

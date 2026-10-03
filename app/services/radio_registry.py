@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.services.radio_instance import RadioInstance
@@ -17,6 +17,13 @@ DEFAULT_RADIO_ID = "default"
 
 class RadioNotFoundError(KeyError):
     """Raised when a requested radio instance does not exist in the registry."""
+
+
+def resolve_radio_id(radio_id: Any = None) -> str:
+    """Normalize an optional radio_id to a valid non-empty string, falling back to 'default'."""
+    if isinstance(radio_id, str) and radio_id.strip():
+        return radio_id.strip()
+    return "default"
 
 
 class RadioRegistry:
@@ -54,13 +61,13 @@ class RadioRegistry:
             logger.debug("Unregistered radio instance '%s'", radio_id)
         return instance
 
-    def get(self, radio_id: str | None = None) -> RadioInstance:
+    def get(self, radio_id: Any = None) -> RadioInstance:
         """Get a RadioInstance by radio_id.
 
         If radio_id is None, returns the default instance.
         Raises RadioNotFoundError (subclass of KeyError) if not found.
         """
-        target_id = radio_id or self._default_radio_id
+        target_id = resolve_radio_id(radio_id)
 
         # If a mock or replacement is patched onto app.radio.radio_manager, honor it
         if target_id == self._default_radio_id:
@@ -128,12 +135,44 @@ class RadioRegistry:
                 return True
         return False
 
+    async def load_from_db(self) -> None:
+        """Load configured radios from the database into the registry."""
+        from app.repository.radios import RadioRepository
+        from app.services.radio_instance import RadioInstance
+
+        try:
+            records = await RadioRepository.list_all()
+        except Exception as exc:
+            logger.warning("Failed to load radios from database: %s", exc)
+            return
+
+        for record in records:
+            if record.id not in self._instances:
+                instance = RadioInstance(
+                    radio_id=record.id,
+                    name=record.name,
+                    transport_snapshot=record.to_transport_snapshot(),
+                )
+                instance.connection_desired = bool(record.enabled)
+                instance.auto_connect = bool(record.auto_connect)
+                self.register(instance, default=(record.id == self._default_radio_id))
+            else:
+                instance = self._instances[record.id]
+                if record.name and instance.name != record.name:
+                    instance.name = record.name
+                if instance._transport_snapshot is None and record.transport is not None:
+                    instance._transport_snapshot = record.to_transport_snapshot()
+                instance.connection_desired = bool(record.enabled)
+                instance.auto_connect = bool(record.auto_connect)
+
     async def start_all(self) -> None:
         """Start connection monitors concurrently for all registered radio instances.
 
         Uses asyncio.gather with return_exceptions=True to ensure a failure in one
         radio does not prevent other radios from starting.
         """
+        await self.load_from_db()
+
         if not self._instances:
             try:
                 self.get_default()

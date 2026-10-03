@@ -77,6 +77,7 @@ from app.routers import (
     packets,
     push,
     radio,
+    radios_mgmt,
     read_state,
     repeaters,
     rooms,
@@ -92,6 +93,7 @@ from app.services.hashtag_catalogue import (
     stop_hashtag_catalogue_polling,
 )
 from app.services.oss_updates import start_oss_update_polling, stop_oss_update_polling
+from app.services.radio_registry import RadioNotFoundError
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import start_radio_stats_sampling, stop_radio_stats_sampling
 from app.services.stale_contacts import start_stale_contact_purge, stop_stale_contact_purge
@@ -254,6 +256,16 @@ async def radio_disconnected_handler(request: Request, exc: RadioDisconnectedErr
     )
 
 
+@app.exception_handler(RadioNotFoundError)
+async def radio_not_found_handler(request: Request, exc: RadioNotFoundError):
+    """Return 404 when a requested radio instance does not exist in registry."""
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
+    )
+
+
+
 @app.middleware("http")
 async def log_server_errors(request: Request, call_next):
     """Capture 5xx errors and unhandled exceptions into the log ring buffer.
@@ -299,6 +311,7 @@ app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
 app.include_router(radio.router, prefix="/api")
+app.include_router(radios_mgmt.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(contact_groups.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")

@@ -66,11 +66,13 @@ async def adopt_channel_record(
     name: str,
     is_hashtag: bool = False,
     on_radio: bool = False,
+    radio_id: str = "default",
 ) -> Channel:
     """Force a channel adopted and drop it from the refused denylist."""
     from app.repository.channels import ChannelRepository
     from app.repository.settings import AppSettingsRepository
 
+    eff_radio_id = radio_id or "default"
     key_hex = normalize_channel_key(key)
     if on_radio:
         await ChannelRepository.upsert(
@@ -79,6 +81,7 @@ async def adopt_channel_record(
             is_hashtag=is_hashtag,
             on_radio=True,
             membership=MEMBERSHIP_ADOPTED,
+            radio_id=eff_radio_id,
         )
     else:
         await ChannelRepository.upsert_name(
@@ -86,9 +89,10 @@ async def adopt_channel_record(
             name=name,
             is_hashtag=is_hashtag,
             membership=MEMBERSHIP_ADOPTED,
+            radio_id=eff_radio_id,
         )
     await AppSettingsRepository.remove_rejected_channel(key_hex)
-    stored = await ChannelRepository.get_by_key(key_hex)
+    stored = await ChannelRepository.get_by_key(key_hex, radio_id=eff_radio_id)
     if stored is None:
         raise RuntimeError(f"Channel {key_hex} was adopted but could not be reloaded")
     return stored

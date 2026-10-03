@@ -60,6 +60,7 @@ class RadioStatsSnapshot(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    radio_id: str = "default"
     radio_connected: bool
     radio_initializing: bool = False
     radio_state: RadioHealthState = "disconnected"
@@ -99,7 +100,9 @@ def _read_optional_bool_setting(name: str) -> bool:
     return value if isinstance(value, bool) else False
 
 
-async def build_health_data(radio_connected: bool, connection_info: str | None) -> dict:
+async def build_health_data(
+    radio_connected: bool, connection_info: str | None, radio_id: str = "default"
+) -> dict:
     """Build the health status payload used by REST endpoint and WebSocket broadcasts."""
     app_build_info = get_app_build_info()
     db_size_mb = 0.0
@@ -201,6 +204,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
 
     return {
         "status": "ok" if radio_connected and not radio_initializing else "degraded",
+        "radio_id": radio_id,
         "radio_connected": radio_connected,
         "radio_initializing": radio_initializing,
         "radio_state": radio_state,
@@ -226,5 +230,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
 @router.get("/health", response_model=HealthResponse)
 async def healthcheck() -> HealthResponse:
     """Check if the API is running and if the radio is connected."""
-    data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
+    data = await build_health_data(
+        radio_manager.is_connected, radio_manager.connection_info, radio_id="default"
+    )
     return HealthResponse(**data)
