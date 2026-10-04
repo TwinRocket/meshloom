@@ -20,3 +20,6 @@ services:
     networks:
       - ${MESHLOOM_NETWORK:-meshloom-network}
     restart: unless-stopped
+
+networks:
+  ${MESHLOOM_NETWORK:-meshloom-network}:
