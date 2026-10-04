@@ -18,8 +18,9 @@ services:
       # New empty data volumes join Community. Set 0 to seed opted out.
       # MESHLOOM_COMMUNITY: "0"
     networks:
-      - ${MESHLOOM_NETWORK:-meshloom-network}
+      - meshloom-net
     restart: unless-stopped
 
 networks:
-  ${MESHLOOM_NETWORK:-meshloom-network}
+  meshloom-net:
+    name: ${MESHLOOM_NETWORK:-meshloom-network}
