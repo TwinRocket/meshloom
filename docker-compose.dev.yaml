@@ -17,4 +17,6 @@ services:
       MESHCORE_VAPID_SUBJECT: "${MESHCORE_VAPID_SUBJECT:-https://meshloom.local}"
       # New empty data volumes join Community. Set 0 to seed opted out.
       # MESHLOOM_COMMUNITY: "0"
+    networks:
+      - ${MESHLOOM_NETWORK:-meshloom-network}
     restart: unless-stopped
