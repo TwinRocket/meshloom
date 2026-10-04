@@ -22,4 +22,4 @@ services:
     restart: unless-stopped
 
 networks:
-  ${MESHLOOM_NETWORK:-meshloom-network}:
+  ${MESHLOOM_NETWORK:-meshloom-network}
