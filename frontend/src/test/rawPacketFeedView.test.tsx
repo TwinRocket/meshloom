@@ -1164,14 +1164,18 @@ describe('RawPacketFeedView', () => {
       renderView();
 
       fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
-      expect(
-        await screen.findByText(
-          i18n.t('rawPacket.historyCapWarning', {
-            count: (1200).toLocaleString(),
-            cap: 500,
-          })
-        )
-      ).toBeInTheDocument();
+      const dialog = await screen.findByRole('dialog');
+      // Wait for the preview first — under a full suite the history fetch can
+      // land after the first paint. Avoid exact toLocaleString() matching: fr-FR
+      // uses a narrow no-break space that Testing Library does not always equate.
+      await within(dialog).findByText(/paquets dans cette fenêtre|packets in this time window/);
+
+      const warning = await within(dialog).findByText(
+        /correspondent à cette fenêtre|packets match this window/
+      );
+      // Strip grouping separators so en-US "1,200" and fr-FR narrow-NBSP forms match.
+      expect(warning.textContent?.replace(/[\s\u00a0\u202f,.]/g, '')).toContain('1200');
+      expect(warning.textContent).toContain('500');
     });
 
     it('keeps English and French rawPacket e-slice keys in parity', () => {

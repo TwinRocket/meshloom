@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import subprocess
+import tempfile
 from pathlib import Path
 
 INSTALL_SH = Path(__file__).resolve().parents[1] / "scripts" / "setup" / "install.sh"
@@ -66,16 +67,19 @@ def _ok(call: str, extra: str = "") -> str:
     return result.stdout.strip()
 
 
-def test_detect_dbus_socket_accepts_socket_only(tmp_path: Path) -> None:
-    socket_path = tmp_path / "system_bus_socket"
-    sock = socket.socket(socket.AF_UNIX)
-    sock.bind(str(socket_path))
-    try:
-        assert _ok(f'detect_dbus_socket "{socket_path}"; printf %s "$DBUS_SOCKET"') == str(
-            socket_path
-        )
-    finally:
-        sock.close()
+def test_detect_dbus_socket_accepts_socket_only() -> None:
+    # pytest's tmp_path under /var/folders/... often exceeds Darwin's ~104-byte
+    # AF_UNIX sun_path when binding a real socket.
+    with tempfile.TemporaryDirectory(prefix="ml-dbus-") as short_dir:
+        socket_path = Path(short_dir) / "system_bus_socket"
+        sock = socket.socket(socket.AF_UNIX)
+        sock.bind(str(socket_path))
+        try:
+            assert _ok(f'detect_dbus_socket "{socket_path}"; printf %s "$DBUS_SOCKET"') == str(
+                socket_path
+            )
+        finally:
+            sock.close()
 
 
 def test_detect_dbus_socket_ignores_directory_and_missing(tmp_path: Path) -> None:
