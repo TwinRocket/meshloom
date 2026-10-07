@@ -109,6 +109,24 @@ describe('ConversationListView', () => {
     expect(filtered).not.toContain('#beta');
   });
 
+  it('offers to mark everything read while something is unread', () => {
+    const onMarkAllRead = vi.fn();
+    renderList({ onMarkAllRead });
+    const button = screen.getByRole('button', { name: i18n.t('sidebar.markAllRead') });
+    expect(button).toHaveTextContent(i18n.t('conversationList.markAllRead'));
+    expect(button).not.toHaveAttribute('aria-pressed');
+
+    fireEvent.click(button);
+    expect(onMarkAllRead).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the mark-all-read control when nothing is unread', () => {
+    renderList({ unreadCounts: {}, onMarkAllRead: vi.fn() });
+    expect(
+      screen.queryByRole('button', { name: i18n.t('sidebar.markAllRead') })
+    ).not.toBeInTheDocument();
+  });
+
   it('separates channels from direct conversations only when asked', () => {
     renderList();
     fireEvent.click(

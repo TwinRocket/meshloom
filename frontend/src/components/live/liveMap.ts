@@ -8,7 +8,7 @@ import type {
   DirectoryNodeRole,
   RadioConfig,
 } from '../../types';
-import { osmDarkRasterStyle } from '../../utils/mapTiles';
+import { osmDarkRasterStyle, osmRasterTransformRequest } from '../../utils/mapTiles';
 import { isValidLocation } from '../../utils/pathUtils';
 import {
   LASER_GLOW_ALPHA,
@@ -291,6 +291,7 @@ export class LiveMapController {
       },
       fadeDuration: 0,
       maxPitch: 55,
+      transformRequest: osmRasterTransformRequest,
     });
     this.map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
     this.overlay = new MapboxOverlay({

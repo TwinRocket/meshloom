@@ -9,7 +9,6 @@ import {
   Search,
   Hash,
   RadioTower,
-  CheckCheck,
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
 import { RadioStatusChip } from './RadioStatusChip';
@@ -31,7 +30,6 @@ interface Props {
   onSelectConversation: (conversation: Conversation) => void;
   /** The tool open beside this list. Desktop only; a phone shows one at a time. */
   activeConversation?: Conversation | null;
-  onMarkAllRead: () => void;
   pendingCount?: number;
   health?: HealthStatus | null;
   /** Opens the radio read-out. The dot means the same thing on every screen. */
@@ -108,7 +106,6 @@ const ROW_CLASS =
 export function ToolsView({
   onSelectConversation,
   activeConversation,
-  onMarkAllRead,
   pendingCount = 0,
   health,
   onOpenRadioStatus,
@@ -160,23 +157,6 @@ export function ToolsView({
               </button>
             </li>
           ))}
-
-          <li>
-            <button type="button" className={ROW_CLASS} onClick={onMarkAllRead}>
-              <span
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                aria-hidden="true"
-              >
-                <CheckCheck className="h-5 w-5" />
-              </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="font-medium">{t('sidebar.markAllRead')}</span>
-                <span className="text-sm text-muted-foreground">
-                  {t('toolsView.markAllReadDescription')}
-                </span>
-              </span>
-            </button>
-          </li>
         </ul>
       </div>
     </div>

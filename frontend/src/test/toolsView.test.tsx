@@ -10,15 +10,8 @@ import i18n from '../i18n';
 
 function renderTools(overrides?: Partial<React.ComponentProps<typeof ToolsView>>) {
   const onSelectConversation = vi.fn();
-  const onMarkAllRead = vi.fn();
-  render(
-    <ToolsView
-      onSelectConversation={onSelectConversation}
-      onMarkAllRead={onMarkAllRead}
-      {...overrides}
-    />
-  );
-  return { onSelectConversation, onMarkAllRead };
+  render(<ToolsView onSelectConversation={onSelectConversation} {...overrides} />);
+  return { onSelectConversation };
 }
 
 describe('ToolsView', () => {
@@ -72,11 +65,5 @@ describe('ToolsView', () => {
     expect(screen.getByText(i18n.t('toolsView.liveDescription'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('toolsView.packetFeedDescription'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('toolsView.controlDescription'))).toBeInTheDocument();
-  });
-
-  it('reports mark-all-read to the shell', () => {
-    const { onMarkAllRead } = renderTools();
-    fireEvent.click(screen.getByText(i18n.t('sidebar.markAllRead')));
-    expect(onMarkAllRead).toHaveBeenCalled();
   });
 });

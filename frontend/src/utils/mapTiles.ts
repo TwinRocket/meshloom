@@ -14,6 +14,22 @@ export const OSM_RASTER_TILE_ATTRIBUTION =
 
 export const OSM_RASTER_REFERRER_POLICY = 'strict-origin-when-cross-origin' as const;
 
+/**
+ * MapLibre `transformRequest` hook for OSM raster tiles. A per-request
+ * referrerPolicy overrides a document policy of no-referrer, which is what
+ * Home Assistant forces on ingress responses. Leaflet already does this on
+ * its img elements; MapLibre needs it on the tile fetch.
+ */
+export function osmRasterTransformRequest(
+  url: string,
+  resourceType?: string
+): { url: string; referrerPolicy: typeof OSM_RASTER_REFERRER_POLICY } | undefined {
+  if (resourceType === 'Tile' && url.includes('tile.openstreetmap.org')) {
+    return { url, referrerPolicy: OSM_RASTER_REFERRER_POLICY };
+  }
+  return undefined;
+}
+
 /** MapLibre raster style for `#live`. Same OSM tiles as `#map`; no CARTO. */
 export function osmDarkRasterStyle(): StyleSpecification {
   return {

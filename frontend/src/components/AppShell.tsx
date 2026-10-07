@@ -363,7 +363,6 @@ export function AppShell({
   ) : mobileScreen === 'tools' ? (
     <ToolsView
       onSelectConversation={sidebarProps.onSelectConversation}
-      onMarkAllRead={sidebarProps.onMarkAllRead}
       pendingCount={pendingCount}
       health={statusProps.health}
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
@@ -384,6 +383,7 @@ export function AppShell({
       activeMessages={sidebarProps.activeMessages}
       onSelectConversation={sidebarProps.onSelectConversation}
       onNewMessage={sidebarProps.onNewMessage}
+      onMarkAllRead={sidebarProps.onMarkAllRead}
       health={statusProps.health}
       onOpenRadioStatus={() => setRadioStatusOpen(true)}
       updateAvailable={updateAvailable}

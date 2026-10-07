@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- The document policy must survive Home Assistant ingress, which replaces the
+         HTTP Referrer-Policy header with no-referrer. This meta lives inside the
+         add-on HTML, which ingress does not rewrite. -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="mobile-web-app-capable" content="yes" />
     <!-- Both, deliberately. The standard name is what everything except iOS reads;
          the Apple one is the gate for apple-mobile-web-app-status-bar-style, which is

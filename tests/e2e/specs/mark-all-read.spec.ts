@@ -16,8 +16,8 @@ test.describe('Mark all as read', () => {
     await page.goto('/');
     await expect(page.getByText(CHANNEL_NAME, { exact: true })).toBeVisible({ timeout: 15_000 });
 
-    // Sidebar should show the mark-all control
-    const markAll = page.getByText('Mark all as read');
+    // The conversation list should show the mark-all control while unreads exist
+    const markAll = page.getByText('Mark all read', { exact: true });
     await expect(markAll).toBeVisible();
 
     await markAll.click();
@@ -31,6 +31,6 @@ test.describe('Mark all as read', () => {
 
     // Reload to ensure persistence
     await page.reload();
-    await expect(page.getByText('Mark all as read')).not.toBeVisible();
+    await expect(page.getByText('Mark all read', { exact: true })).not.toBeVisible();
   });
 });

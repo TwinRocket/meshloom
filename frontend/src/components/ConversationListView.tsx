@@ -80,6 +80,7 @@ interface Props {
   /** The conversation open beside this list. Desktop only. */
   activeConversation?: Conversation | null;
   onNewMessage: () => void;
+  onMarkAllRead?: () => void;
   health?: HealthStatus | null;
   /** Opens the radio read-out. The dot means the same thing on every screen. */
   onOpenRadioStatus?: () => void;
@@ -205,6 +206,7 @@ export function ConversationListView({
   onSelectConversation,
   activeConversation,
   onNewMessage,
+  onMarkAllRead,
   health,
   onOpenRadioStatus,
   updateAvailable,
@@ -468,6 +470,16 @@ export function ConversationListView({
               </button>
             );
           })}
+          {unreadTotal > 0 && (
+            <button
+              type="button"
+              onClick={onMarkAllRead}
+              aria-label={t('sidebar.markAllRead')}
+              className="shrink-0 rounded-full px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t('conversationList.markAllRead')}
+            </button>
+          )}
         </div>
       </div>
 
