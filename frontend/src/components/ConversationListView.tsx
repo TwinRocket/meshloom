@@ -470,17 +470,20 @@ export function ConversationListView({
               </button>
             );
           })}
-          {unreadTotal > 0 && (
+        </div>
+
+        {unreadTotal > 0 && (
+          <div className="px-4 pb-2">
             <button
               type="button"
               onClick={onMarkAllRead}
               aria-label={t('sidebar.markAllRead')}
-              className="shrink-0 rounded-full px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="block w-full rounded-full border border-border px-3 py-1.5 text-center text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t('conversationList.markAllRead')}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
