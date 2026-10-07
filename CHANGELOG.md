@@ -1,3 +1,31 @@
+## [4.17.0] - 2026-10-07
+
+The Home Assistant map is back, and "Mark all read" is now on the conversation list, one tap away.
+
+### Fixed
+
+- **The map shows again on Home Assistant.** The tiles had been replaced by an "access blocked" picture from OpenStreetMap. You get the real map back.
+
+### What's new
+
+- **"Mark all read" on the conversation list.** When some conversations are unread, a "Mark all read" control appears. One tap clears every unread badge. It used to sit in Tools, out of the way. It is now where you need it.
+
+---
+
+### Français
+
+La carte revient sur Home Assistant, et « Tout lu » est maintenant sur la liste des conversations, à portée de pouce.
+
+#### Corrections
+
+- **La carte s'affiche de nouveau sur Home Assistant.** Les tuiles étaient remplacées par une image « accès bloqué » d'OpenStreetMap. La vraie carte est de retour.
+
+#### Quoi de neuf
+
+- **« Tout lu » sur la liste des conversations.** Dès qu'il reste des conversations non lues, un bouton « Tout lu » apparaît. Un geste efface tous les badges d'un coup. Il se cachait dans Outils ; il est maintenant là où on en a besoin.
+
+---
+
 ## [4.16.1] - 2026-09-25
 
 Naming your region no longer depends on a repeater answering.
