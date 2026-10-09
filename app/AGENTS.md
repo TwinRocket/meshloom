@@ -351,9 +351,20 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 - `POST /fanout/bots/disable-until-restart` — stop bot modules and keep bots disabled until restart
 
 ### Updates
-- `GET /updates` — cached Stats catalogue (`current`, `latest`, `update_available`, `html_url`) plus `install_kind`, `apply_supported`, `auto_update`, and helper `job` progress
-- `POST /updates/apply` — 202 with the same body when `apply_supported`; 409 if apply is unsupported or a job is already applying. package starts `meshloom-update.service` (pkg/nfpm helper); compose writes `request-update` next to the job file. Never apt-upgrades the OS
-- `PATCH /updates/settings` — persist `auto_update` (not via `PATCH /settings`). After the 300s catalogue poll, auto-apply when supported and an update is available; 6h backoff after a failed job
+- `GET /updates` — cached Stats catalogue (`current`, `latest`, `update_available`, `html_url`) plus `install_kind`, `apply_supported`, `auto_update` + window fields, `legacy_update_helper`, and helper `job` progress
+- `POST /updates/apply` — 202 with the same body when `apply_supported`; 409 `apply_not_supported` / `update_not_available` / `apply_in_progress`. Never apt-upgrades the OS
+- `PATCH /updates/settings` — persist `auto_update` and the window (not via `PATCH /settings`). After the 300s catalogue poll, auto-apply when supported and an update is available; 6h backoff after a failed job
+
+#### Update helpers: trust boundary (4.18+)
+
+The app and the container are untrusted by the root helpers. Keep it that way:
+
+- **Trigger only.** The app writes `request-update` (package: `/var/lib/meshloom/request-update`, watched by `meshloom-update.path`; compose: `<dir>/data/request-update`, watched by `meshloom-compose-update.path`). Both path units use `PathChanged=` only. Root never reads, deletes or chowns that file or anything else the app can write. Fallback when the package path unit is not active: `systemctl start --no-block meshloom-update.service` (polkit rule, start only).
+- **Root picks the target.** Package: `pkg/nfpm/apply-update` installs whatever the signed Meshloom repository offers (`--only-upgrade`, apt pin `o=Meshloom`, dnf `--enablerepo=meshloom` with gpgcheck/repo_gpgcheck forced) and fails closed if the Meshloom source lacks `signed-by=`, has `trusted=yes` anywhere, or lacks gpgcheck/repo_gpgcheck. Compose: `scripts/setup/helpers/compose-update` reads the latest tag from the `releases/latest` redirect (strict `X.Y.Z`), verifies the release's `OCI-DIGESTS` with gpgv against `/usr/share/keyrings/meshloom-archive-keyring.gpg`, refuses downgrades, rewrites `<dir>/.env` (`MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:…`) with mktemp+mv, then `docker compose pull` + `up -d`. It never edits YAML. `install.sh` embeds this helper, its units and the release key: after editing any of them run `scripts/setup/sync_installer_embeds.py`.
+- **Root publishes status.** `status.json` (`{schema, state, phase, percent, error, started_at, updated_at, version}`) is written with mktemp + chmod 0644 + mv in a root 0755 directory: `/var/lib/meshloom-update` (`StateDirectory=`) for the package, `<dir>/update-status` mounted `:ro` at `/app/update-status` for compose (`MESHLOOM_UPDATE_STATUS_PATH`).
+- **App side.** `update_apply.write_job()` writes `update-attempt.json` (app-owned: requested target, `last_attempt`, app-side failures). `read_job()` merges it with the helper status (status wins once its `started_at` is at or after the request) and falls back to the legacy `update-job.json` read-only (pre-4.18 helpers; remove in N+2). With the legacy compose helper (no status mount) the app unlinks its own `update-job.json` before triggering so the old helper resolves the latest release instead of re-applying a stale `target`; `legacy_update_helper` asks the user to re-run the installer.
+- **Rate limits.** Units: `StartLimitIntervalSec=3600`, `StartLimitBurst=4`; helpers: 120 s cooldown (a too-soon run publishes `failed`); app: 409 while applying.
+- `MESHLOOM_UPDATE_HELPER=none` (written by the installer when the signed repo lacks this architecture) turns apply off. Tests: `tests/test_update_helpers_exec.py` runs the helpers for real against hostile inputs.
 
 ### Statistics
 - `GET /statistics` — aggregated mesh network stats (entity counts, message/packet splits, activity windows, busiest channels, `region_scope_24h` regional adoption)

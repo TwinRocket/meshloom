@@ -15,13 +15,13 @@ Un script d’installation fait le travail et pose des questions, en français o
 
 ## Pourquoi `/bin/bash -c`
 
-Cette forme n’est pas décorative. Le script est interactif : il demande le mode d’installation, un mapping USB optionnel pour Docker, un mot de passe éventuel. Avec `/bin/bash -c "$(...)"`, le téléchargement se termine d’abord, puis le script s’exécute avec le terminal disponible pour ses questions.
+Cette forme n’est pas décorative. Le script est interactif : il demande la langue, le mode d’installation, le dossier d’installation pour Docker et, si plusieurs ports série sont branchés, lequel mapper. Avec `/bin/bash -c "$(...)"`, le téléchargement se termine d’abord, puis le script s’exécute avec le terminal disponible pour ses questions.
 
 Si on l’envoie dans un tube — `curl … | bash` — l’entrée du script est occupée par le téléchargement. Les questions n’ont plus de terminal pour s’afficher et l’installation part de travers. Gardez le `/bin/bash -c`.
 
 ## Ce que le script demande
 
-Trois blocs de questions, dans cet ordre.
+Les questions, dans cet ordre.
 
 **Le mode.** Un service natif géré par systemd, ou Docker. Le service natif démarre automatiquement avec la machine et sait parler à une radio USB, réseau ou Bluetooth. Docker fonctionne dans un conteneur, ce qui isole l’installation mais restreint l’accès au matériel : partager une radio USB avec un conteneur suppose un Docker en mode root sur Linux. Si ce n’est pas le cas, le script le dit et propose la radio réseau.
 
@@ -29,7 +29,7 @@ Trois blocs de questions, dans cet ordre.
 
 Les détails de chaque transport sont dans [Transports radio](/docs/deep/transports/).
 
-**La sécurité.** Les bots exécutent du code sur la machine : le script les laisse désactivés par défaut, et c’est le bon réglage tant que le réseau n’est pas entièrement de confiance. Il propose aussi de demander un identifiant et un mot de passe à l’ouverture. Il s’agit d’un accès partagé unique, pas de comptes utilisateurs. Voir [Un réseau de confiance](/docs/trust/).
+**La sécurité.** Le script ne pose aucune question de sécurité. Les bots exécutent du code sur la machine et sont **activés par défaut** ; seul le paquet Linux les coupe, dans `/etc/meshloom/meshloom.env`. Ailleurs, `MESHCORE_DISABLE_BOTS=true` les désactive, et `MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD` imposent un accès partagé. Voir [Un réseau de confiance](/docs/trust/).
 
 Un récapitulatif s’affiche avant de lancer quoi que ce soit. Certaines étapes demandent les droits administrateur.
 
@@ -55,14 +55,16 @@ sudo systemctl status meshloom
 
 ## Mettre à jour
 
-Quand le helper est présent, **Réglages → À propos** installe la nouvelle release Meshloom. Les mises à jour automatiques restent éteintes tant que vous ne les activez pas. Ce chemin ne lance jamais un `apt upgrade` du système.
+Quand les mises à jour depuis l’interface sont disponibles, **Réglages → Mises à jour** installe la nouvelle version de Meshloom. Les mises à jour automatiques restent éteintes tant que vous ne les activez pas. Ce chemin ne met à jour que Meshloom et ne lance jamais un `apt upgrade` du système.
 
-Si À propos indique que vous devez mettre à jour Meshloom manuellement, suivez la recette ou relancez l’installeur (il (re)pose un helper manquant) :
+Les mises à jour sont signées. L’installeur embarque la clé de publication Meshloom et vérifie son empreinte ; il ne la télécharge jamais et n’ajoute jamais de source de paquets non signée. Le paquet Linux vérifie la signature du dépôt, et l’assistant de mise à jour refuse de tourner si la source Meshloom n’est pas vérifiée. Avec Docker, l’image est épinglée par empreinte dans le `.env` voisin de `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`), et l’assistant ne déplace cet épinglage que vers une version plus récente dont l’empreinte est signée. Il ne revient jamais en arrière.
+
+Si Réglages → Mises à jour indique une mise à jour manuelle, ou demande de relancer l’installeur, relancez-le : il garde vos données, remplace un ancien assistant de mise à jour et, pour Docker, conserve le Compose précédent en `docker-compose.yml.bak-<date>`. À la main :
 
 ```bash
 sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
-sudo dnf install meshloom                      # Fedora / Rocky / Alma
-sudo docker compose pull && sudo docker compose up -d
+sudo dnf install meshloom                      # Fedora
+sudo docker compose pull && sudo docker compose up -d   # Docker sans l’assistant
 ```
 
 La base de données reste en place : `/var/lib/meshloom` pour le paquet, `./data` pour Docker. Les migrations de schéma s’exécutent au démarrage.

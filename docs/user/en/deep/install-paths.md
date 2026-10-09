@@ -35,7 +35,7 @@ From an existing checkout:
 bash scripts/setup/install_service.sh
 ```
 
-The script is repeatable. Run it again to change the bot setting or authentication credentials. It stops the service, rewrites the unit, reloads systemd, and starts it with the new configuration. Radio transport is configured in the web UI, not in the unit file.
+The script is repeatable. Run it again after pulling a new version: it stops the service, rewrites the unit, reloads systemd, and starts it again. It does not configure bots or authentication; set `MESHCORE_DISABLE_BOTS` and `MESHCORE_BASIC_AUTH_*` in the environment yourself. Radio transport is configured in the web UI, not in the unit file.
 
 ## Docker
 
@@ -46,7 +46,11 @@ The image is `ghcr.io/twinrocket/meshloom`. The repository includes `docker-comp
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`
 - `restart: unless-stopped`
 
-The example also shows `user: "${UID:-1000}:${GID:-1000}"` to avoid root-owned files. This can complicate serial access and may require an extra group such as `dialout`. BLE needs further manual changes; see [Radio transports](/en/docs/deep/transports/).
+- `image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}`: pin a release in a `.env` file next to it, ideally by digest (`MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:…`; each release's signed `OCI-DIGESTS` asset lists it)
+
+The container runs as root by default. To run it as uid 10001 instead, set `MESHLOOM_RUN_AS_USER: "10001"`: the entrypoint hands `./data` to that uid and adds the groups of the mapped serial devices; if the radio is still unreachable it stays root and logs a warning. Do not use it with Bluetooth. BLE needs further manual changes; see [Radio transports](/en/docs/deep/transports/).
+
+A stack written by hand gets no in-app updates. The installer's Docker mode adds a root helper on the host that pins the image by signed digest in `.env` and applies updates on request from Settings → Updates; it never edits `docker-compose.yml`.
 
 ## Portainer
 
@@ -103,7 +107,7 @@ If `frontend/dist` is absent, the backend checks `frontend/prebuilt`. If neither
 
 `MESHCORE_DATABASE_PATH` moves the database. Updates do not replace it; SQLite migrations run at startup in `user_version` order.
 
-Settings → About applies a Meshloom-only upgrade when the helper is present. Otherwise:
+Settings → Updates applies a Meshloom-only upgrade, from a signed source, when the helper is present. Otherwise:
 
 ```bash
 sudo apt-get install --only-upgrade meshloom

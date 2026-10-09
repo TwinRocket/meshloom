@@ -63,9 +63,9 @@ Without any network, open `http://127.0.0.1:8000` on the Pi itself. Messaging an
 
 ## Update
 
-When the image (or a Linux package install) can apply updates, **Settings → About** offers *Install* and an optional automatic update. That path upgrades Meshloom only, not the whole operating system.
+When the image (or a Linux package install) can apply updates, **Settings → Updates** offers *Install now* and an optional automatic update. That path upgrades Meshloom only, from the signed Meshloom repository, not the whole operating system. Images from 4.18 on watch for update requests out of the box; on an older image, one `sudo apt update && sudo apt install meshloom` turns that on.
 
-If About says you must update Meshloom manually, use the recipe it shows, or re-run the Linux installer so it can install the missing helper:
+If Settings → Updates says you must update Meshloom manually, use the recipe it shows, or re-run the Linux installer so it can restore the missing helper:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"

@@ -15,7 +15,7 @@ Cela veut dire : lire tout l’historique des messages directs et des salons, é
 
 Le serveur n’applique pas non plus de restriction d’origine pour les requêtes : n’importe quelle page web peut appeler son API. C’est délibéré — cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration — et cela suppose le même réseau de confiance.
 
-Au premier lancement, l’interface affiche un avertissement qui rappelle cette posture. Il n’est pas décoratif.
+Tant que les bots sont actifs et qu’aucun mot de passe n’est posé, l’interface affiche un avertissement qui rappelle cette posture, jusqu’à ce que vous en preniez acte. Il n’est pas décoratif.
 
 ## Les bots exécutent du code
 
@@ -25,14 +25,14 @@ La conséquence est directe : **toute personne capable d’atteindre Meshloom pe
 
 Deux garde-fous :
 
-- Le script d’installation laisse les bots **désactivés par défaut**. C’est le bon réglage tant qu’il n’y a pas besoin d’automatisation.
+- Les bots sont **activés par défaut**. Seul le paquet Linux les coupe (`MESHCORE_DISABLE_BOTS=true` dans `/etc/meshloom/meshloom.env`) ; l’installeur ne pose aucune question à leur sujet, et les installations Docker les laissent actifs.
 - La variable d’environnement `MESHCORE_DISABLE_BOTS=true` coupe le système de bots au démarrage. Aucun bot ne s’exécute, les réglages correspondants sont refusés, et l’interface affiche la fonction comme désactivée.
 
 Si l’instance est accessible à des personnes que vous ne connaissez pas toutes, gardez les bots coupés.
 
 ## Le mot de passe optionnel
 
-Meshloom peut demander un identifiant et un mot de passe avant d’ouvrir quoi que ce soit. Le script d’installation le propose, et cela se règle sinon avec deux variables d’environnement, qui vont toujours ensemble :
+Meshloom peut demander un identifiant et un mot de passe avant d’ouvrir quoi que ce soit. Le script d’installation ne le met pas en place ; cela se règle avec deux variables d’environnement, qui vont toujours ensemble :
 
 ```
 MESHCORE_BASIC_AUTH_USERNAME

@@ -15,13 +15,13 @@ An installation script does the work and asks questions in English or French. Pa
 
 ## Why `/bin/bash -c`
 
-This form is not decoration. The script is interactive: it asks for the installation mode, an optional USB device mapping for Docker, and an optional password. With `/bin/bash -c "$(...)"`, the download finishes first, then the script runs with the terminal available for its questions.
+This form is not decoration. The script is interactive: it asks for the language, the installation mode, the installation folder for Docker and, when several serial devices are plugged in, which one to map. With `/bin/bash -c "$(...)"`, the download finishes first, then the script runs with the terminal available for its questions.
 
 If you pipe it — `curl … | bash` — the script’s input is occupied by the download. Its questions no longer have a terminal to use, and the installation goes wrong. Keep the `/bin/bash -c`.
 
 ## What the script asks
 
-Three groups of questions, in this order.
+The questions, in this order.
 
 **The mode.** A native service managed by systemd, or Docker. The native service starts automatically with the machine and can talk to a USB, network, or Bluetooth radio. Docker runs in a container, which isolates the installation but restricts hardware access: sharing a USB radio with a container requires root-mode Docker on Linux. If that is not available, the script suggests a network radio.
 
@@ -29,7 +29,7 @@ Three groups of questions, in this order.
 
 Details for each transport are in [Radio transports](/en/docs/deep/transports/).
 
-**Security.** Bots execute code on the machine: the script leaves them disabled by default, which is the right setting while the network is not fully trusted. It also offers to require a username and password on entry. This is one shared login, not user accounts. See [A trusted network](/en/docs/trust/).
+**Security.** The script asks nothing about security. Bots execute code on the machine and are **enabled by default**; only the Linux package turns them off, in `/etc/meshloom/meshloom.env`. Set `MESHCORE_DISABLE_BOTS=true` to turn them off elsewhere, and `MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD` to require a shared login. See [A trusted network](/en/docs/trust/).
 
 A summary appears before anything starts. Some steps require administrator privileges.
 
@@ -55,14 +55,16 @@ sudo systemctl status meshloom
 
 ## Update
 
-When the helper is present, **Settings → About** installs the new Meshloom release. Automatic updates are off until you enable them there. That path never runs a full `apt upgrade`.
+When in-app updates are available, **Settings → Updates** installs the new Meshloom release. Automatic updates are off until you enable them there. That path upgrades Meshloom only and never runs a full `apt upgrade`.
 
-If About says you must update Meshloom manually, use the matching recipe or re-run the installer (it (re)installs a missing helper):
+Updates are signed. The installer embeds the Meshloom release key and checks its fingerprint; it never downloads the key, and it never adds an unsigned package source. The Linux package checks the repository signature, and the update helper refuses to run if the Meshloom source is not signature-checked. With Docker, the image is pinned by digest in `.env` next to `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`), and the update helper only moves that pin to a newer release whose digest is signed. It never downgrades.
+
+If Settings → Updates says you must update manually, or asks you to re-run the installer, re-run it: it keeps your data, replaces an older update helper and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. By hand:
 
 ```bash
 sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
-sudo dnf install meshloom                      # Fedora / Rocky / Alma
-sudo docker compose pull && sudo docker compose up -d
+sudo dnf install meshloom                      # Fedora
+sudo docker compose pull && sudo docker compose up -d   # Docker without the helper
 ```
 
 The database stays in place: `/var/lib/meshloom` for the package, `./data` for Docker. Schema migrations run at startup.
