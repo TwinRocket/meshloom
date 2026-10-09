@@ -1,0 +1,27 @@
+[Unit]
+Description=Meshloom Docker Compose update
+Documentation=https://github.com/TwinRocket/meshloom
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+# At most 4 runs per hour, on top of the helper's own 120 s cooldown.
+StartLimitIntervalSec=3600
+StartLimitBurst=4
+
+[Service]
+Type=oneshot
+# Holds MESHLOOM_COMPOSE_DIR only. Root-owned; the helper validates it.
+EnvironmentFile=/etc/meshloom/compose-update.env
+Environment=DOCKER_CONFIG=/run/meshloom-compose-update/docker
+ExecStart=/usr/lib/meshloom/compose-update
+TimeoutStartSec=30min
+StateDirectory=meshloom-compose-update
+StateDirectoryMode=0700
+RuntimeDirectory=meshloom-compose-update
+RuntimeDirectoryMode=0700
+UMask=0022
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@COMPOSE_DIR@

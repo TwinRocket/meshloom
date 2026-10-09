@@ -31,7 +31,7 @@ def test_install_sh_is_real_utf8() -> None:
 def test_release_asset_tempfile_uses_package_suffix() -> None:
     """apt rejects local files that do not end in .deb / .ddeb / .changes."""
     text = INSTALL_SH.read_text(encoding="utf-8")
-    assert 'mktemp "/tmp/meshloom.XXXXXX${pkg_ext}"' in text
+    assert 'tmp="${tmpdir}/meshloom${pkg_ext}"' in text
     assert 'pkg_ext=".deb"' in text
     assert 'pkg_ext=".rpm"' in text
 
@@ -40,19 +40,20 @@ def test_release_asset_downloads_and_validates_before_install() -> None:
     """4.1.1 shipped a mktemp immediately followed by apt-get install.
 
     The empty tempfile made apt fail with "could not locate member control.tar".
-    Order is load-bearing: mktemp -> curl -> magic/size check -> apt/dnf.
+    Order is load-bearing: signed manifest -> curl -> magic/size + SHA-256 -> apt/dnf.
     """
     text = INSTALL_SH.read_text(encoding="utf-8")
     body = text.split("install_from_release_asset()", 1)[1].split("\nensure_clone()", 1)[0]
 
-    mktemp_at = body.index("mktemp ")
-    curl_at = body.index('curl -fL --max-time 180 "$url" -o "$tmp"')
+    manifest_at = body.index('fetch_signed_manifest "$tag" "$tmpdir"')
+    curl_at = body.index('curl -fL --proto \'=https\' --max-time 180 "$url" -o "$tmp"')
     valid_at = body.index('pkg_file_is_valid "$tmp"')
+    sha_at = body.index('[ "$(sha256_of "$tmp")" != "$expected" ]')
     apt_at = body.index('apt-get install -y "$tmp"')
     dnf_at = body.index('dnf install -y "$tmp"')
+    repo_at = body.index("add_signed_repo")
 
-    assert mktemp_at < curl_at < valid_at < apt_at
-    assert valid_at < dnf_at
+    assert manifest_at < curl_at < valid_at < sha_at < apt_at < dnf_at < repo_at
 
 
 def test_package_validation_checks_real_magic_and_size() -> None:
@@ -72,4 +73,4 @@ def test_release_asset_url_is_anchored_to_suffix() -> None:
 
 def test_release_asset_failure_is_logged_with_url_and_size() -> None:
     text = INSTALL_SH.read_text(encoding="utf-8")
-    assert "release asset unusable: url=${url} bytes=" in text
+    assert "release asset rejected: url=${url} bytes=" in text

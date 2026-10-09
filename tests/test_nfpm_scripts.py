@@ -29,16 +29,34 @@ def test_postinstall_restarts_on_upgrade_only() -> None:
     assert '[ -n "$2" ]' in POSTINST
 
 
-def test_postinstall_clears_request_before_enabling_path() -> None:
-    rm_at = POSTINST.index("rm -f /var/lib/meshloom/request-update")
+def test_postinstall_enables_path_unit_offline_then_restarts_watcher() -> None:
+    enable_at = POSTINST.index("systemctl enable meshloom-update.path || true")
+    running_at = POSTINST.index("if [ -d /run/systemd/system ]")
     reload_at = POSTINST.index("systemctl daemon-reload")
-    enable_now_at = POSTINST.index("systemctl enable --now meshloom-update.path")
+    start_path_at = POSTINST.index("systemctl start meshloom-update.path")
     kill_at = POSTINST.index("kill --kill-whom=all -s SIGKILL meshloom.service")
     start_at = POSTINST.index("systemctl start meshloom || true")
     wait_at = POSTINST.index("systemctl is-active --quiet meshloom")
-    assert rm_at < reload_at < enable_now_at < kill_at < start_at < wait_at
+    # enable runs even without a running systemd (RPi image bake, chroots).
+    assert enable_at < running_at < reload_at < start_path_at < kill_at < start_at < wait_at
+    assert "request-update" not in POSTINST
     assert "activating" not in POSTINST
     assert "dst: /usr/lib/systemd/system/meshloom-update.path" in NFPM
+
+
+def test_postinstall_migrates_existing_installs() -> None:
+    assert "rm -f /var/lib/meshloom/update-job.json" in POSTINST
+    assert "chown root:meshloom /etc/meshloom" in POSTINST
+    assert "chmod 0750 /etc/meshloom" in POSTINST
+    assert "/var/lib/meshloom-update" in POSTINST
+    # Only the official URL is rewritten to a signed source.
+    assert 'OFFICIAL_URL="https://twinrocket.github.io/meshloom"' in POSTINST
+    assert "signed-by=${KEYRING}" in POSTINST
+    assert "repo_gpgcheck=1" in POSTINST
+    tmpfiles = (PKG / "meshloom.tmpfiles").read_text(encoding="utf-8")
+    assert "update-job.json" not in tmpfiles
+    assert "d /etc/meshloom 0750 root meshloom" in tmpfiles
+    assert "d /var/lib/meshloom-update 0755 root root" in tmpfiles
 
 
 def test_postinstall_hard_kills_before_start() -> None:
@@ -65,22 +83,12 @@ def test_posttrans_recovers_disabled_upgrade() -> None:
     assert "posttrans" not in overrides
 
 
-def test_install_sh_fallback_helper_starts_service() -> None:
-    helper = INSTALL[INSTALL.index("_install_package_update_helper_fallback") :]
-    assert "systemctl start meshloom" in helper
-    assert "meshloom-update.path" in helper
-    assert 'rm -f "$REQUEST_PATH"' in helper
-    chown_at = helper.index('chown meshloom:meshloom "$tmp"')
-    mv_at = helper.index('mv -f "$tmp" "$JOB_PATH"')
-    assert chown_at < mv_at
+def test_install_sh_never_writes_its_own_package_helper() -> None:
+    assert "_install_package_update_helper_fallback" not in INSTALL
+    assert "trusted=yes" not in INSTALL
+    assert "gpgcheck=0" not in INSTALL
 
 
-def test_helper_returns_job_file_to_meshloom() -> None:
-    chown_at = APPLY.index('chown meshloom:meshloom "$tmp"')
-    mv_at = APPLY.index('mv -f "$tmp" "$JOB_PATH"')
-    assert chown_at < mv_at
-    assert "\nsucceed\n" in APPLY
-    assert "\nfail()\n" in APPLY or "fail() {" in APPLY
-    assert 'rm -f "$JOB_PATH"' not in APPLY
-    tmpfiles = (PKG / "meshloom.tmpfiles").read_text(encoding="utf-8")
-    assert "z /var/lib/meshloom/update-job.json 0644 meshloom meshloom" in tmpfiles
+def test_service_cannot_write_etc_meshloom() -> None:
+    service = (PKG / "meshloom.service").read_text(encoding="utf-8")
+    assert "ReadWritePaths=/opt/meshloom /var/lib/meshloom\n" in service

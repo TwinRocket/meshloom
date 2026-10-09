@@ -69,11 +69,21 @@ def test_compose_image_version_reads_tag(tmp_path: Path) -> None:
     assert _bash(f'compose_image_version "{compose}"') == "4.1.2"
 
 
-def test_rewrite_compose_image_tag_is_defined() -> None:
+def test_compose_yaml_is_never_rewritten() -> None:
     text = INSTALL_SH.read_text(encoding="utf-8")
-    assert "rewrite_compose_image_tag() {" in text
-    assert 'sub(/:[^[:space:]]+$/, ":" tag)' in text
-    assert text.count('sub(/:[^[:space:]]+$/, ":" tag)') >= 2
+    assert "rewrite_compose_image_tag" not in text
+    assert 'sub(/:[^[:space:]]+$/, ":" tag)' not in text
+    assert "awk -v tag" not in text
+
+
+def test_compose_image_version_reads_env_pin(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("    image: ${MESHLOOM_IMAGE:?pin}\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:4.18.0@sha256:" + "a" * 64 + "\n",
+        encoding="utf-8",
+    )
+    assert _bash(f'compose_image_version "{compose}"') == "4.18.0"
 
 
 def test_compose_image_version_ignores_latest(tmp_path: Path) -> None:
@@ -129,19 +139,17 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "MESHLOOM_INSTALL_KIND: compose" in text
     assert "MESHLOOM_UPDATE_HELPER: compose" in text
     assert "MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json" in text
-    assert "ensure_update_helper package" in text
-    assert "ensure_update_helper compose" in text
+    assert "MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json" in text
+    assert "./update-status:/app/update-status:ro" in text
+    assert "image: \\${MESHLOOM_IMAGE:?" in text
+    assert "ensure_update_helper" in text
+    assert "install_compose_update_helper" in text
     assert "meshloom-compose-update.path" in text
-    assert "docker compose pull" in text
-    assert "PathChanged=" in text
-    assert "could not resolve image tag" in text
-    assert "write_job applying restarting" in text
-    assert "_install_package_update_helper_fallback" in text
+    assert "compose-update --bootstrap" in text
+    assert "docker-compose.yml.bak-" in text
     assert "MESHLOOM_INSTALL_KIND=package" in text
     assert "MESHCORE_DISABLE_BOTS" not in text
     assert "_env_ensure_key" in text
-    assert "rewrite_compose_image_tag" in text
-    assert 'sub(/:[^[:space:]]+$/, ":" tag)' in text
     assert "apt upgrade" not in text or "apt-get install" in text
 
 

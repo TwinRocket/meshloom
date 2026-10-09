@@ -440,9 +440,10 @@ mkdir -p "$REPO_DIR/data"
     fi
     echo "    environment:"
     echo "      MESHCORE_DATABASE_PATH: $(yaml_quote "data/meshcore.db")"
+    # No host update helper is installed by this script, so the app must not
+    # offer in-app updates: kind only. scripts/setup/install.sh installs the
+    # signed helper.
     echo "      MESHLOOM_INSTALL_KIND: compose"
-    echo "      MESHLOOM_UPDATE_HELPER: compose"
-    echo "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
     echo "    restart: unless-stopped"
 } >"$COMPOSE_FILE"
 
