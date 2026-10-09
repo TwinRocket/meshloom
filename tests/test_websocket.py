@@ -153,6 +153,39 @@ class TestWebSocketBroadcast:
         gate.set()
 
     @pytest.mark.asyncio
+    async def test_raw_packet_burst_is_dropped_not_evicted(self, ws_manager: WebSocketManager):
+        """A burst of raw_packet frames past the backlog is shed; the client stays."""
+        ws = _client_ws()
+        gate = asyncio.Event()
+        sent: list[str] = []
+
+        async def gated_send(message):
+            await gate.wait()
+            sent.append(json.loads(message)["type"])
+
+        ws.send_text.side_effect = gated_send
+        with (
+            patch("app.websocket.CLIENT_QUEUE_MAX", 6),
+            patch("app.websocket.CLIENT_RAW_PACKET_BACKLOG_MAX", 3),
+        ):
+            await ws_manager.connect(ws)
+            await _flush()
+            for i in range(50):
+                ws_manager.broadcast_nowait("raw_packet", {"i": i})
+            # State-bearing frames still fit in the headroom above the raw backlog.
+            ws_manager.broadcast_nowait("message", {"id": 1})
+            ws_manager.broadcast_nowait("contact", {"k": 1})
+            await _flush()
+
+            assert ws in ws_manager.active_connections
+            ws.close.assert_not_called()
+            gate.set()
+            await _flush(20)
+
+        assert sent.count("raw_packet") <= 4
+        assert sent[-2:] == ["message", "contact"]
+
+    @pytest.mark.asyncio
     async def test_broadcast_empty_connections(self, ws_manager: WebSocketManager):
         """Broadcast should handle empty connection list gracefully."""
         await ws_manager.broadcast("test", {"data": "value"})
