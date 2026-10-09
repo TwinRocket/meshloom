@@ -158,6 +158,83 @@ describe('useRealtimeAppState', () => {
     });
   });
 
+  it('reconnect snapshot does not overwrite contacts/channels changed by newer WS deltas', async () => {
+    const mk = (key: string, name: string): Contact => ({
+      public_key: key,
+      name,
+      type: 1,
+      flags: 0,
+      direct_path: null,
+      direct_path_len: 0,
+      direct_path_hash_mode: 0,
+      last_advert: null,
+      lat: null,
+      lon: null,
+      last_seen: null,
+      on_radio: false,
+      favorite: false,
+      last_contacted: null,
+      last_read_at: null,
+      first_seen: null,
+    });
+    const a = 'aa'.repeat(32);
+    const b = 'bb'.repeat(32);
+    const c = 'cc'.repeat(32);
+
+    let resolveContacts!: (v: Contact[]) => void;
+    const slowContacts = new Promise<Contact[]>((r) => (resolveContacts = r));
+    // Live state as the app holds it: A (stale name), B (about to be deleted).
+    let liveContacts: Contact[] = [mk(a, 'Old A'), mk(b, 'Bob')];
+    const setContacts = vi.fn((u: Contact[] | ((p: Contact[]) => Contact[])) => {
+      liveContacts = typeof u === 'function' ? u(liveContacts) : u;
+    });
+    const { args } = createRealtimeArgs({
+      fetchAllContacts: vi.fn(() => slowContacts),
+      setContacts: setContacts as never,
+    });
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onReconnect?.();
+    });
+    // Deltas arrive while the REST snapshot is still in flight.
+    act(() => {
+      result.current.onContact?.(mk(a, 'New A'));
+      result.current.onContactDeleted?.(b);
+    });
+    // The older snapshot still lists B and the old name of A, and adds C.
+    await act(async () => {
+      resolveContacts([mk(a, 'Old A'), mk(b, 'Bob'), mk(c, 'Carol')]);
+      await slowContacts;
+    });
+
+    await waitFor(() => {
+      expect(liveContacts.map((x) => x.name).sort()).toEqual(['Carol', 'New A']);
+    });
+  });
+
+  it('only the newest reconnect snapshot is applied', async () => {
+    let resolveFirst!: (v: Contact[]) => void;
+    const first = new Promise<Contact[]>((r) => (resolveFirst = r));
+    const fetchAllContacts = vi
+      .fn<() => Promise<Contact[]>>()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce([]);
+    const { args, fns } = createRealtimeArgs({ fetchAllContacts });
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onReconnect?.();
+      result.current.onReconnect?.();
+    });
+    await waitFor(() => expect(fns.setContacts).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      resolveFirst([]);
+      await first;
+    });
+    expect(fns.setContacts).toHaveBeenCalledTimes(1);
+  });
+
   it('reconnect skips active-conversation reconcile while browsing mid-history', async () => {
     const contacts: Contact[] = [
       {
