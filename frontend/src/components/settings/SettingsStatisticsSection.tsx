@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Separator } from '../ui/separator';
 import { api } from '../../api';
 import type { RegionScopeStats, StatisticsResponse } from '../../types';
+import { formatNumber } from '../../utils/formatNumber';
 
 function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
@@ -52,8 +53,8 @@ function RegionScopeStatsPanel({ stats }: { stats: RegionScopeStats }) {
           </span>
           <span className="font-medium text-right">
             {t('settings.stats.ofTotal', {
-              scoped: stats.scoped_messages.toLocaleString(),
-              total: stats.total_messages.toLocaleString(),
+              scoped: formatNumber(stats.scoped_messages),
+              total: formatNumber(stats.total_messages),
             })}
             {showTrafficPct && (
               <span className="text-muted-foreground"> ({formatPercent(stats.scoped_pct)})</span>
@@ -64,8 +65,8 @@ function RegionScopeStatsPanel({ stats }: { stats: RegionScopeStats }) {
           <span className="text-sm text-muted-foreground">{t('settings.stats.sendersUsing')}</span>
           <span className="font-medium text-right">
             {t('settings.stats.ofTotal', {
-              scoped: stats.scoped_senders.toLocaleString(),
-              total: stats.total_senders.toLocaleString(),
+              scoped: formatNumber(stats.scoped_senders),
+              total: formatNumber(stats.total_senders),
             })}
             {stats.total_senders > 0 && (
               <span className="text-muted-foreground">
@@ -183,7 +184,7 @@ function PacketsPerHourChart({ buckets }: { buckets: { timestamp: number; count:
           labelFormatter={(idx) => data[Number(idx)]?.label ?? ''}
           formatter={(value) => [
             t('settings.stats.tooltipPacketsValue', {
-              count: Number(value).toLocaleString(),
+              count: Number(value),
             }),
             t('settings.stats.tooltipCount'),
           ]}
@@ -483,7 +484,7 @@ export function SettingsStatisticsSection({ className }: { className?: string })
                     cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     formatter={(value: any, _: any, props: any) => [
-                      `${Number(value).toLocaleString()} (${formatPercent(props.payload.pct)})`,
+                      `${formatNumber(Number(value))} (${formatPercent(props.payload.pct)})`,
                       t('settings.stats.tooltipPackets'),
                     ]}
                   />
@@ -539,7 +540,7 @@ export function SettingsStatisticsSection({ className }: { className?: string })
                       cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }}
                       formatter={(value) => [
                         t('settings.stats.tooltipMessages', {
-                          count: Number(value).toLocaleString(),
+                          count: Number(value),
                         }),
                         null,
                       ]}

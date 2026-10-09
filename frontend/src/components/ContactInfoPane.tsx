@@ -59,6 +59,7 @@ import type {
   TelemetryHistoryEntry,
   TelemetryLppSensor,
 } from '../types';
+import { formatNumber } from '../utils/formatNumber';
 
 function contactTypeLabel(type: number, t: (key: string) => string): string {
   if (type === 1) return t('contactInfo.typeClient');
@@ -743,15 +744,12 @@ function MessageStatsSection({
       <SectionLabel>{t('contactInfo.messages')}</SectionLabel>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
         {showDirectMessages && dmMessageCount > 0 && (
-          <InfoItem
-            label={t('contactInfo.directMessages')}
-            value={dmMessageCount.toLocaleString()}
-          />
+          <InfoItem label={t('contactInfo.directMessages')} value={formatNumber(dmMessageCount)} />
         )}
         {channelMessageCount > 0 && (
           <InfoItem
             label={t('contactInfo.channelMessages')}
-            value={channelMessageCount.toLocaleString()}
+            value={formatNumber(channelMessageCount)}
           />
         )}
       </div>

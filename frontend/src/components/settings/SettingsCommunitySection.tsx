@@ -15,6 +15,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { formatNumber } from '../../utils/formatNumber';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
@@ -519,11 +520,11 @@ export function SettingsCommunitySection({
               <div className="space-y-2">
                 <StatRow
                   label={t('settings.community.meHashes24h')}
-                  value={meStats.unique_hashes_24h.toLocaleString()}
+                  value={formatNumber(meStats.unique_hashes_24h)}
                 />
                 <StatRow
                   label={t('settings.community.meHashes7d')}
-                  value={meStats.unique_hashes_7d.toLocaleString()}
+                  value={formatNumber(meStats.unique_hashes_7d)}
                 />
                 <StatRow label={t('settings.community.meIata')} value={meStats.iata || '—'} />
                 <StatRow
@@ -554,15 +555,15 @@ export function SettingsCommunitySection({
               <div className="space-y-2">
                 <StatRow
                   label={t('settings.community.observersOnline')}
-                  value={communityStats.observers_online.toLocaleString()}
+                  value={formatNumber(communityStats.observers_online)}
                 />
                 <StatRow
                   label={t('settings.community.iataActive')}
-                  value={communityStats.iata_active.toLocaleString()}
+                  value={formatNumber(communityStats.iata_active)}
                 />
                 <StatRow
                   label={t('settings.community.uniqueHashes24h')}
-                  value={communityStats.unique_hashes_24h.toLocaleString()}
+                  value={formatNumber(communityStats.unique_hashes_24h)}
                 />
               </div>
             ) : (

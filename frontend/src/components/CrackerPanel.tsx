@@ -637,7 +637,7 @@ export function CrackerPanel({
           <span className="text-xs text-muted-foreground">
             {undecryptedPacketCount !== null && undecryptedPacketCount > 0
               ? t('cracker.historicalCount', {
-                  count: undecryptedPacketCount.toLocaleString(),
+                  count: undecryptedPacketCount,
                 })
               : t('cracker.historicalPlain')}
           </span>

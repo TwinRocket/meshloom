@@ -19,6 +19,7 @@ import {
   type TelemetryHistoryEntry,
   type TelemetrySchedule,
 } from '../../types';
+import { formatNumber } from '../../utils/formatNumber';
 
 export function SettingsRadioAppSection({
   appSettings,
@@ -331,12 +332,12 @@ export function SettingsRadioAppSection({
                       <span>
                         {t('settings.radioApp.rx', {
                           value:
-                            d.packets_received != null ? d.packets_received.toLocaleString() : '?',
+                            d.packets_received != null ? formatNumber(d.packets_received) : '?',
                         })}
                       </span>
                       <span>
                         {t('settings.radioApp.tx', {
-                          value: d.packets_sent != null ? d.packets_sent.toLocaleString() : '?',
+                          value: d.packets_sent != null ? formatNumber(d.packets_sent) : '?',
                         })}
                       </span>
                       {d.lpp_sensors?.map((s) => {
