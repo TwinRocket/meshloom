@@ -1,0 +1,57 @@
+name: Import release signing key
+description: >
+  Imports the CI signing (sub)key into an isolated GNUPGHOME and refuses to
+  continue unless it is the private half of pkg/keys. Fails closed when the
+  secret is missing. Requires the repository to be checked out.
+
+inputs:
+  private-key:
+    description: Armored secret (sub)key, from secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY
+    required: true
+  passphrase:
+    description: Passphrase of the key, if it has one
+    required: false
+    default: ""
+
+outputs:
+  gnupghome:
+    description: Isolated GNUPGHOME holding the key
+    value: ${{ steps.import.outputs.gnupghome }}
+  key-file:
+    description: Path of the armored secret key (for nfpm), mode 0600 in RUNNER_TEMP
+    value: ${{ steps.import.outputs.key_file }}
+  fingerprint:
+    description: Fingerprint of the primary key
+    value: ${{ steps.import.outputs.fingerprint }}
+
+runs:
+  using: composite
+  steps:
+    - id: import
+      shell: bash
+      env:
+        GPG_PRIVATE_KEY: ${{ inputs.private-key }}
+        GPG_PASSPHRASE: ${{ inputs.passphrase }}
+      run: |
+        set -euo pipefail
+        if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+          echo "::error::Secret MESHLOOM_REPO_GPG_PRIVATE_KEY is missing: refusing to publish unsigned release artifacts (pkg/keys/README.md)."
+          exit 1
+        fi
+        umask 077
+        GNUPGHOME="$(mktemp -d "${RUNNER_TEMP}/gnupg.XXXXXX")"
+        export GNUPGHOME
+        KEY_FILE="${RUNNER_TEMP}/meshloom-signing-key.asc"
+        printf '%s\n' "$GPG_PRIVATE_KEY" > "$KEY_FILE"
+        gpg --batch --quiet --import "$KEY_FILE"
+        # The committed public key must be the public half of this secret.
+        "$GITHUB_WORKSPACE/scripts/build/check_signing_keys.sh" --secret-gnupghome "$GNUPGHOME"
+        FPR="$(tr -d ' \t\r\n' < "$GITHUB_WORKSPACE/pkg/keys/FINGERPRINT")"
+        # Fail now, not at signing time, if the passphrase is wrong.
+        echo probe | gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+          --detach-sign -u "$FPR" -o /dev/null
+        {
+          echo "gnupghome=$GNUPGHOME"
+          echo "key_file=$KEY_FILE"
+          echo "fingerprint=$FPR"
+        } >> "$GITHUB_OUTPUT"

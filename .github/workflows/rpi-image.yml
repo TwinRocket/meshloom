@@ -11,8 +11,7 @@ on:
         description: "Meshloom version whose arm64 .deb to bake (no v prefix)"
         required: true
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: rpi-image
@@ -22,6 +21,10 @@ jobs:
   image:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       # Recipe always comes from default branch. The input version only
       # selects which already-published arm64 .deb to bake. Dispatching
@@ -39,8 +42,10 @@ jobs:
       - name: Resolve version
         id: ver
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be X.Y.Z"; exit 1; }
+          echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download arm64 package
         env:
@@ -70,6 +75,13 @@ jobs:
             dist/meshloom-rpi-lite-arm64.img.xz
             dist/meshloom.rpi-imager-manifest
           if-no-files-found: error
+
+      - name: Attest provenance of the image
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            dist/meshloom-rpi-lite-arm64.img.xz
+            dist/meshloom.rpi-imager-manifest
 
       - name: Attach to GitHub release
         env:
