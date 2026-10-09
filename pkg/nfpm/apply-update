@@ -1,98 +1,102 @@
 #!/bin/sh
 # Privileged helper: upgrade only the meshloom package (never the whole system).
-# Writes /var/lib/meshloom/update-job.json (or MESHLOOM_UPDATE_JOB_PATH) as it runs.
-set -e
+#
+# Security model (see app/AGENTS.md, "Updates"):
+#   - The app only *triggers* this unit (meshloom-update.path watches
+#     /var/lib/meshloom/request-update with PathChanged=). This script never
+#     reads, deletes or chowns anything the app can write.
+#   - The target is whatever the signed Meshloom repository offers. The script
+#     fails closed when the Meshloom source is not signature-checked.
+#   - Progress goes to /var/lib/meshloom-update/status.json (StateDirectory,
+#     root 0755), written with mktemp + chmod 0644 + mv. The app only reads it.
+set -eu
 
-JOB_PATH="${MESHLOOM_UPDATE_JOB_PATH:-/var/lib/meshloom/update-job.json}"
-REQUEST_PATH="/var/lib/meshloom/request-update"
+# Tests run this script unprivileged against a fake tree. The override is
+# ignored unless MESHLOOM_HELPER_TESTING=1, which systemd never sets.
+R=
+if [ "${MESHLOOM_HELPER_TESTING:-}" = 1 ]; then
+    R="${MESHLOOM_HELPER_ROOT:?MESHLOOM_HELPER_ROOT is required in testing mode}"
+fi
+
+STATE_DIR="$R/var/lib/meshloom-update"
+STATUS_PATH="$STATE_DIR/status.json"
+STAMP_PATH="$STATE_DIR/last-start"
+RUN_DIR="${RUNTIME_DIRECTORY:-$R/run/meshloom-update}"
+APT_ETC="$R/etc/apt"
+YUM_REPOS="$R/etc/yum.repos.d"
+APT_PIN="$APT_ETC/preferences.d/meshloom.pref"
+OFFICIAL_HOST="twinrocket.github.io/meshloom"
+COOLDOWN_SECONDS=120
+
 STATE=applying
 PHASE=preparing
 PERCENT=
 ERROR=
 STARTED_AT=$(date +%s)
-LAST_ATTEMPT=
-TARGET=
+VERSION=
 FINISHED=0
 FIFO=
+STATUS_READY=0
 
-load_identity() {
-    # Python start_apply writes target/last_attempt first. Keep them across
-    # every helper rewrite so auto_update does not treat a success as unknown.
-    [ -f "$JOB_PATH" ] || return 0
-    existing_target=$(sed -n 's/.*"target":"\([^"]*\)".*/\1/p' "$JOB_PATH" | head -n 1)
-    existing_last=$(sed -n 's/.*"last_attempt":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
-    existing_started=$(sed -n 's/.*"started_at":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
-    if [ -n "$existing_target" ]; then
-        TARGET=$existing_target
-    fi
-    if [ -n "$existing_last" ]; then
-        LAST_ATTEMPT=$existing_last
-    fi
-    if [ -n "$existing_started" ]; then
-        STARTED_AT=$existing_started
-    fi
+log() {
+    echo "meshloom apply-update: $*" >&2
 }
 
 json_escape() {
-    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n\r' '  '
+    printf '%s' "$1" | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
-write_job() {
-    job_dir=$(dirname "$JOB_PATH")
-    mkdir -p /var/lib/meshloom "$job_dir"
-
-    if [ -n "$PERCENT" ]; then
-        percent_json=$PERCENT
-    else
-        percent_json=null
+ensure_root_dir() {
+    # $1 = directory, $2 = mode. Refuse symlinks and foreign owners.
+    dir=$1
+    if [ -L "$dir" ]; then
+        log "refusing symlinked directory $dir"
+        return 1
     fi
-
-    if [ -n "$ERROR" ]; then
-        error_json="\"$(json_escape "$ERROR")\""
-    else
-        error_json=null
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
     fi
-
-    last_json=$STARTED_AT
-    if [ -n "$LAST_ATTEMPT" ]; then
-        last_json=$LAST_ATTEMPT
+    chmod "$2" "$dir"
+    if [ -z "$R" ] && [ "$(stat -c %u "$dir")" != 0 ]; then
+        log "$dir is not owned by root"
+        return 1
     fi
-    target_json=""
-    if [ -n "$TARGET" ]; then
-        target_json=",\"target\":\"$(json_escape "$TARGET")\""
-    fi
-
-    tmp="${JOB_PATH}.tmp.$$"
-    printf '%s\n' "{\"state\":\"${STATE}\",\"phase\":\"${PHASE}\",\"percent\":${percent_json},\"error\":${error_json},\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$tmp"
-    chmod 644 "$tmp" 2>/dev/null || true
-    # Own the tmp before mv so the job file stays meshloom:meshloom.
-    # A root:root leftover makes the next API write_job fail.
-    chown meshloom:meshloom "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$JOB_PATH"
+    return 0
 }
 
-load_last_progress() {
-    # Keep the last phase/percent already published (e.g. from APT::Status-Fd).
-    if [ ! -f "$JOB_PATH" ]; then
-        return 0
+installed_version() {
+    v=
+    if command -v dpkg-query >/dev/null 2>&1; then
+        v=$(dpkg-query -W -f='${Version}' meshloom 2>/dev/null || true)
     fi
-    last_phase=$(sed -n 's/.*"phase":"\([^"]*\)".*/\1/p' "$JOB_PATH")
-    last_percent=$(sed -n 's/.*"percent":\([^,}]*\).*/\1/p' "$JOB_PATH")
-    if [ -n "$last_phase" ]; then
-        PHASE=$last_phase
+    if [ -z "$v" ] && command -v rpm >/dev/null 2>&1; then
+        v=$(rpm -q --qf '%{VERSION}' meshloom 2>/dev/null || true)
     fi
-    if [ -n "$last_percent" ] && [ "$last_percent" != "null" ]; then
-        PERCENT=$last_percent
-    fi
+    case "$v" in
+        '' | *[!0-9A-Za-z.+~:-]* | *not*installed*) v= ;;
+    esac
+    printf '%s' "$v"
+}
+
+write_status() {
+    [ "$STATUS_READY" -eq 1 ] || return 0
+    if [ -n "$PERCENT" ]; then percent_json=$PERCENT; else percent_json=null; fi
+    if [ -n "$ERROR" ]; then error_json="\"$(json_escape "$ERROR")\""; else error_json=null; fi
+    if [ -n "$VERSION" ]; then version_json="\"$(json_escape "$VERSION")\""; else version_json=null; fi
+    now=$(date +%s)
+    tmp=$(mktemp "$STATE_DIR/.status.XXXXXX")
+    printf '{"schema":1,"state":"%s","phase":"%s","percent":%s,"error":%s,"started_at":%s,"updated_at":%s,"version":%s}\n' \
+        "$STATE" "$PHASE" "$percent_json" "$error_json" "$STARTED_AT" "$now" "$version_json" >"$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$STATUS_PATH"
 }
 
 fail() {
     FINISHED=1
     STATE=failed
     ERROR=$1
-    load_last_progress
-    write_job
-    echo "meshloom apply-update: failed: $ERROR" >&2
+    write_status
+    log "failed: $ERROR"
     exit 1
 }
 
@@ -102,20 +106,18 @@ succeed() {
     PHASE=done
     PERCENT=100
     ERROR=
-    write_job
+    VERSION=$(installed_version)
+    write_status
 }
 
 on_exit() {
     rc=$?
-    [ -n "$FIFO" ] && rm -f "$FIFO"
+    if [ -n "$FIFO" ]; then rm -f "$FIFO"; fi
     if [ "$FINISHED" -eq 0 ]; then
         FINISHED=1
         STATE=failed
-        if [ -z "$ERROR" ]; then
-            ERROR="update failed (exit $rc)"
-        fi
-        load_last_progress
-        write_job
+        [ -n "$ERROR" ] || ERROR="update failed (exit $rc)"
+        write_status || true
     fi
 }
 
@@ -141,95 +143,199 @@ parse_apt_status() {
             dlstatus)
                 PHASE=downloading
                 take_apt_percent "$rest"
-                write_job
+                write_status
                 ;;
             pmstatus)
                 PHASE=installing
                 take_apt_percent "$rest"
-                write_job
+                write_status
                 ;;
         esac
     done
 }
 
+# ── source checks (fail closed) ──────────────────────────────────────────────
+
+# Prints one problem per line; empty output means the apt sources are safe.
+apt_source_problems() {
+    found=0
+    for f in "$APT_ETC/sources.list" "$APT_ETC"/sources.list.d/*.list; do
+        [ -f "$f" ] || continue
+        out=$(awk -v host="$OFFICIAL_HOST" -v name="$(basename "$f")" '
+            { sub(/#.*/, "") }
+            $1 != "deb" { next }
+            /trusted=yes/ { print "PROBLEM " FILENAME ": trusted=yes"; next }
+            index($0, host) || name ~ /^meshloom/ {
+                print "FOUND"
+                if ($0 !~ /signed-by=/) print "PROBLEM " FILENAME ": no signed-by="
+            }
+        ' "$f")
+        case "$out" in *FOUND*) found=1 ;; esac
+        printf '%s\n' "$out" | sed -n 's/^PROBLEM //p'
+    done
+    for f in "$APT_ETC"/sources.list.d/*.sources; do
+        [ -f "$f" ] || continue
+        out=$(awk -v host="$OFFICIAL_HOST" -v name="$(basename "$f")" '
+            function flush() {
+                if (trusted) print "PROBLEM " FILENAME ": Trusted: yes"
+                if (ours) {
+                    print "FOUND"
+                    if (!signed) print "PROBLEM " FILENAME ": no Signed-By"
+                }
+                trusted = 0; ours = 0; signed = 0
+            }
+            { sub(/#.*/, "") }
+            /^[[:space:]]*$/ { flush(); next }
+            tolower($1) == "trusted:" && tolower($2) == "yes" { trusted = 1 }
+            tolower($1) == "signed-by:" { signed = 1 }
+            tolower($1) == "uris:" && (index($0, host) || name ~ /^meshloom/) { ours = 1 }
+            END { flush() }
+        ' "$f")
+        case "$out" in *FOUND*) found=1 ;; esac
+        printf '%s\n' "$out" | sed -n 's/^PROBLEM //p'
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "no Meshloom apt source found"
+    fi
+    if [ ! -f "$APT_PIN" ] || ! grep -q '^Pin: release o=Meshloom' "$APT_PIN"; then
+        echo "missing apt pin $APT_PIN"
+    fi
+}
+
+dnf_source_problems() {
+    found=0
+    for f in "$YUM_REPOS"/*.repo; do
+        [ -f "$f" ] || continue
+        out=$(awk '
+            function flush() {
+                if (section == "meshloom") {
+                    print "FOUND"
+                    if (gpg != "1") print "PROBLEM " FILENAME ": gpgcheck is not 1"
+                    if (repogpg != "1") print "PROBLEM " FILENAME ": repo_gpgcheck is not 1"
+                }
+            }
+            { sub(/#.*/, ""); gsub(/[[:space:]]/, "") }
+            /^\[.*\]$/ { flush(); section = substr($0, 2, length($0) - 2); gpg = ""; repogpg = ""; next }
+            /^gpgcheck=/ { gpg = substr($0, 10) }
+            /^repo_gpgcheck=/ { repogpg = substr($0, 15) }
+            END { flush() }
+        ' "$f")
+        case "$out" in *FOUND*) found=1 ;; esac
+        printf '%s\n' "$out" | sed -n 's/^PROBLEM //p'
+    done
+    if [ "$found" -eq 0 ]; then
+        echo "no [meshloom] dnf repository found"
+    fi
+}
+
+require_signed_sources() {
+    problems=$("$1")
+    if [ -n "$problems" ]; then
+        log "unsigned or unsafe Meshloom package source:"
+        printf '%s\n' "$problems" >&2
+        fail "Meshloom package source is not signature-checked; re-run the installer ($(printf '%s' "$problems" | head -n 1))"
+    fi
+}
+
+APT_SECURE="-o Acquire::AllowInsecureRepositories=false -o Acquire::AllowDowngradeToInsecureRepositories=false -o APT::Get::AllowUnauthenticated=false"
+
 run_apt_install() {
-    # "$@" is the apt-get argv after the binary (install ...).
-    # APT::Status-Fd reports dlstatus/pmstatus percents when apt keeps the fd.
-    # If the fifo cannot be created, keep phase and leave percent null.
-    # INSTALL_RC is used instead of a non-zero return so set -e stays safe.
+    # "$@" is the apt-get argv after the options (install ...).
+    # APT::Status-Fd reports dlstatus/pmstatus percents through a FIFO kept in
+    # the unit's RuntimeDirectory (root 0700), never in an app-writable path.
     INSTALL_RC=0
-    FIFO="/var/lib/meshloom/apt-status.$$"
+    FIFO="$RUN_DIR/apt-status.$$"
     rm -f "$FIFO"
-    if mkfifo "$FIFO"; then
+    # shellcheck disable=SC2086
+    if mkfifo -m 0600 "$FIFO"; then
         parse_apt_status <"$FIFO" &
         status_pid=$!
-        DEBIAN_FRONTEND=noninteractive apt-get -o APT::Status-Fd=3 "$@" 3>"$FIFO" || INSTALL_RC=$?
+        apt-get $APT_SECURE -o APT::Status-Fd=3 "$@" 3>"$FIFO" || INSTALL_RC=$?
         wait "$status_pid" 2>/dev/null || true
         rm -f "$FIFO"
         FIFO=
         return 0
     fi
     FIFO=
-    DEBIAN_FRONTEND=noninteractive apt-get "$@" || INSTALL_RC=$?
+    # shellcheck disable=SC2086
+    apt-get $APT_SECURE "$@" || INSTALL_RC=$?
 }
+
+# ── main ─────────────────────────────────────────────────────────────────────
 
 trap on_exit EXIT
 trap 'on_exit; exit 130' INT
 trap 'on_exit; exit 143' TERM
 
-if [ "$(id -u)" -ne 0 ]; then
-    fail "must run as root"
+if [ -z "$R" ] && [ "$(id -u)" -ne 0 ]; then
+    log "must run as root"
+    exit 1
 fi
 
-# Drop the path-unit trigger first so PathExists cannot re-fire this oneshot.
-rm -f "$REQUEST_PATH"
-mkdir -p /var/lib/meshloom
-if command -v chown >/dev/null 2>&1 && getent passwd meshloom >/dev/null 2>&1; then
-    chown meshloom:meshloom /var/lib/meshloom 2>/dev/null || true
-    chmod 0750 /var/lib/meshloom 2>/dev/null || true
+umask 022
+ensure_root_dir "$STATE_DIR" 0755 || exit 1
+STATUS_READY=1
+ensure_root_dir "$RUN_DIR" 0700 || fail "unsafe runtime directory"
+
+# Cooldown on top of the unit's StartLimit*: a burst of triggers runs once.
+now=$(date +%s)
+last=$(sed -n '1{/^[0-9][0-9]*$/p;}' "$STAMP_PATH" 2>/dev/null || true)
+if [ -n "$last" ] && [ "$now" -ge "$last" ] && [ $((now - last)) -lt "$COOLDOWN_SECONDS" ]; then
+    FINISHED=1
+    STATE=failed
+    ERROR="update requested too soon; try again in $((COOLDOWN_SECONDS - (now - last))) s"
+    write_status
+    log "$ERROR"
+    exit 0
 fi
-load_identity
-write_job
+stamp_tmp=$(mktemp "$STATE_DIR/.stamp.XXXXXX")
+printf '%s\n' "$now" >"$stamp_tmp"
+chmod 0644 "$stamp_tmp"
+mv -f "$stamp_tmp" "$STAMP_PATH"
+
+VERSION=$(installed_version)
+write_status
 
 if command -v apt-get >/dev/null 2>&1; then
-    echo "meshloom apply-update: using apt-get (meshloom package only)"
+    log "using apt-get (meshloom package only)"
     export DEBIAN_FRONTEND=noninteractive
+    require_signed_sources apt_source_problems
 
-    PHASE=preparing
+    # shellcheck disable=SC2086
+    apt-get $APT_SECURE update || fail "apt-get update failed"
+
+    PHASE=downloading
     PERCENT=
-    write_job
-    apt-get update || fail "apt-get update failed"
-
+    write_status
     # --only-upgrade is empty when meshloom is not installed (it would
     # upgrade nothing). Fall back to a targeted install of meshloom only.
     if command -v dpkg-query >/dev/null 2>&1 \
         && dpkg-query -W -f='${Status}\n' meshloom 2>/dev/null | grep -q 'ok installed'; then
-        PHASE=downloading
-        PERCENT=
-        write_job
-        run_apt_install install -y --only-upgrade meshloom
+        run_apt_install -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+            install -y --only-upgrade meshloom
         [ "$INSTALL_RC" -eq 0 ] || fail "apt-get install --only-upgrade meshloom failed"
     else
-        PHASE=downloading
-        PERCENT=
-        write_job
-        run_apt_install install -y meshloom
+        run_apt_install -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+            install -y meshloom
         [ "$INSTALL_RC" -eq 0 ] || fail "apt-get install meshloom failed"
     fi
 elif command -v dnf >/dev/null 2>&1; then
-    echo "meshloom apply-update: using dnf (meshloom package only)"
+    log "using dnf (meshloom package only)"
+    require_signed_sources dnf_source_problems
     PHASE=installing
     PERCENT=
-    write_job
-    dnf install -y meshloom || fail "dnf install meshloom failed"
+    write_status
+    dnf install -y --disablerepo='*' --enablerepo=meshloom \
+        --setopt=meshloom.gpgcheck=1 --setopt=meshloom.repo_gpgcheck=1 meshloom \
+        || fail "dnf install meshloom failed"
 else
     fail "no supported package manager (need apt-get or dnf)"
 fi
 
 PHASE=restarting
 PERCENT=90
-write_job
-if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+write_status
+if [ -d "$R/run/systemd/system" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     systemctl enable meshloom || true
     i=0
@@ -242,4 +348,4 @@ if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl is-active --quiet meshloom || fail "meshloom.service failed to start"
 fi
 succeed
-echo "meshloom apply-update: succeeded"
+log "succeeded"

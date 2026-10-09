@@ -20,7 +20,7 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
-ReadWritePaths=/opt/meshloom /var/lib/meshloom /etc/meshloom
+ReadWritePaths=/opt/meshloom /var/lib/meshloom
 SupplementaryGroups=dialout
 
 [Install]

@@ -36,30 +36,51 @@ def test_apply_update_is_meshloom_only() -> None:
     active = _active_shell(text)
 
     assert _SYSTEM_UPGRADE.search(active) is None
-    assert "apt-get update" in active
+    assert "update || fail" in active
     assert "install -y --only-upgrade meshloom" in active
     assert re.search(r"(?m)install -y meshloom$", active)
-    assert "dnf install -y meshloom" in active
-    assert "MESHLOOM_UPDATE_JOB_PATH" in active
-    assert "/var/lib/meshloom/update-job.json" in active
-    assert "mkdir -p /var/lib/meshloom" in active
+    assert "dnf install -y --disablerepo='*' --enablerepo=meshloom" in active
     assert "APT::Status-Fd" in active
-    assert "load_identity" in active
-    assert "last_attempt" in active
-    assert "target_json" in text
     assert "PHASE=restarting" in active
-    text = SCRIPT.read_text(encoding="utf-8")
-    chown_at = text.index('chown meshloom:meshloom "$tmp"')
-    mv_at = text.index('mv -f "$tmp" "$JOB_PATH"')
-    assert chown_at < mv_at
-    assert 'rm -f "$JOB_PATH"' not in text
-    assert 'rm "$JOB_PATH"' not in text
-    rm_request_at = text.index('rm -f "$REQUEST_PATH"')
-    apt_at = text.index("apt-get update")
-    assert text.index("must run as root") < rm_request_at < apt_at
     assert "systemctl enable meshloom || true" in active
     assert "systemctl is-active --quiet meshloom" in active
     assert "systemctl enable meshloom || fail" not in active
+
+
+def test_apply_update_never_touches_app_files() -> None:
+    """Root reads, deletes and chowns nothing the app can write."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    active = _active_shell(text)
+    assert "/var/lib/meshloom/" not in active
+    assert "/var/lib/meshloom\n" not in active
+    assert "request-update" not in active
+    assert "update-job.json" not in active
+    assert "MESHLOOM_UPDATE_JOB_PATH" not in active
+    assert "chown" not in active
+    assert "/var/lib/meshloom-update" in active
+    # Status is published atomically in a root directory.
+    mktemp_at = text.index('tmp=$(mktemp "$STATE_DIR/.status.XXXXXX")')
+    chmod_at = text.index('chmod 0644 "$tmp"', mktemp_at)
+    mv_at = text.index('mv -f "$tmp" "$STATUS_PATH"', chmod_at)
+    assert mktemp_at < chmod_at < mv_at
+    # The FIFO lives in the unit's RuntimeDirectory.
+    assert 'FIFO="$RUN_DIR/apt-status.$$"' in text
+    # Test root override only behind the explicit flag.
+    assert 'if [ "${MESHLOOM_HELPER_TESTING:-}" = 1 ]; then' in text
+
+
+def test_apply_update_fails_closed_on_unsigned_sources() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "require_signed_sources apt_source_problems" in text
+    assert "require_signed_sources dnf_source_problems" in text
+    assert "trusted=yes" in text
+    assert "signed-by=" in text
+    assert "repo_gpgcheck" in text
+    assert "Pin: release o=Meshloom" in text
+    assert "APT::Get::AllowUnauthenticated=false" in text
+    assert text.index("require_signed_sources apt_source_problems") < text.index(
+        "apt-get $APT_SECURE update"
+    )
 
 
 def test_update_unit_and_polkit_are_start_only() -> None:
@@ -71,6 +92,17 @@ def test_update_unit_and_polkit_are_start_only() -> None:
     assert "After=network-online.target" in service
     assert "User=root" in service
     assert "Type=oneshot" in service
+    for line in (
+        "StartLimitIntervalSec=3600",
+        "StartLimitBurst=4",
+        "StateDirectory=meshloom-update",
+        "StateDirectoryMode=0755",
+        "RuntimeDirectory=meshloom-update",
+        "UMask=0022",
+        "PrivateTmp=yes",
+        "ProtectHome=yes",
+    ):
+        assert line in service
 
     assert 'subject.user == "meshloom"' in polkit
     assert 'action.lookup("unit") == "meshloom-update.service"' in polkit
@@ -86,6 +118,6 @@ def test_update_unit_and_polkit_are_start_only() -> None:
     assert "dst: /usr/share/polkit-1/rules.d/60-meshloom-update.rules" in nfpm
 
     path_unit = PATH_UNIT.read_text(encoding="utf-8")
-    assert "PathExists=/var/lib/meshloom/request-update" in path_unit
+    assert "PathExists" not in path_unit
     assert "PathChanged=/var/lib/meshloom/request-update" in path_unit
     assert "Unit=meshloom-update.service" in path_unit

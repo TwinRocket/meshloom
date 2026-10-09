@@ -1,0 +1,10 @@
+# Installed by the meshloom package. Only the signed Meshloom repository
+# (Release Origin: Meshloom) may provide the meshloom package, and that
+# repository may not replace any other package on this system.
+Package: meshloom
+Pin: release o=Meshloom
+Pin-Priority: 990
+
+Package: *
+Pin: release o=Meshloom
+Pin-Priority: -1

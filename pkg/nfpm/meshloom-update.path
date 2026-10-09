@@ -3,7 +3,8 @@ Description=Watch Meshloom package update request
 Documentation=https://github.com/TwinRocket/meshloom
 
 [Path]
-PathExists=/var/lib/meshloom/request-update
+# Edge-triggered only. The helper never reads, deletes or chowns this file:
+# the app writes it, root only reacts to the change.
 PathChanged=/var/lib/meshloom/request-update
 Unit=meshloom-update.service
 

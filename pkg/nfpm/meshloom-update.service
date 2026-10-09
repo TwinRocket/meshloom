@@ -3,9 +3,21 @@ Description=Meshloom package update
 Documentation=https://github.com/TwinRocket/meshloom
 After=network-online.target
 Wants=network-online.target
+# At most 4 runs per hour, on top of the helper's own 120 s cooldown.
+StartLimitIntervalSec=3600
+StartLimitBurst=4
 
 [Service]
 Type=oneshot
 User=root
 ExecStart=/usr/lib/meshloom/apply-update
 TimeoutStartSec=30min
+# Root-owned status directory the app only reads (status.json).
+StateDirectory=meshloom-update
+StateDirectoryMode=0755
+# Root-only scratch space for the APT::Status-Fd FIFO.
+RuntimeDirectory=meshloom-update
+RuntimeDirectoryMode=0700
+UMask=0022
+PrivateTmp=yes
+ProtectHome=yes
