@@ -560,8 +560,6 @@ class TestBroadcastEventRealtime:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
-
             broadcast_event("message", {"type": "PRIV"}, realtime=False)
 
             # Allow tasks to run
@@ -570,7 +568,7 @@ class TestBroadcastEventRealtime:
             await asyncio.sleep(0)
 
             # WebSocket broadcast should still fire
-            mock_ws.broadcast.assert_called_once()
+            mock_ws.broadcast_nowait.assert_called_once()
             # But fanout should NOT be called
             mock_fm.broadcast_message.assert_not_called()
 
@@ -583,7 +581,6 @@ class TestBroadcastEventRealtime:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
             mock_fm.broadcast_message = AsyncMock()
 
             broadcast_event("message", {"type": "PRIV"}, realtime=True)
@@ -592,7 +589,7 @@ class TestBroadcastEventRealtime:
 
             await asyncio.sleep(0)
 
-            mock_ws.broadcast.assert_called_once()
+            mock_ws.broadcast_nowait.assert_called_once()
             mock_fm.broadcast_message.assert_called_once()
 
     @pytest.mark.asyncio
@@ -604,7 +601,6 @@ class TestBroadcastEventRealtime:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
             mock_fm.broadcast_contact = AsyncMock()
 
             broadcast_event("contact", {"public_key": "aabb"}, realtime=True)
@@ -613,7 +609,7 @@ class TestBroadcastEventRealtime:
 
             await asyncio.sleep(0)
 
-            mock_ws.broadcast.assert_called_once()
+            mock_ws.broadcast_nowait.assert_called_once()
             mock_fm.broadcast_contact.assert_called_once()
 
     @pytest.mark.asyncio
@@ -625,15 +621,13 @@ class TestBroadcastEventRealtime:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
-
             broadcast_event("contact", {"public_key": "aabb"}, realtime=False)
 
             import asyncio
 
             await asyncio.sleep(0)
 
-            mock_ws.broadcast.assert_called_once()
+            mock_ws.broadcast_nowait.assert_called_once()
             mock_fm.broadcast_contact.assert_not_called()
 
 

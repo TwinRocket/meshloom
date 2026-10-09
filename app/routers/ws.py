@@ -39,7 +39,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             data = await websocket.receive_text()
             # Client can send "ping" to keep alive
             if data == "ping":
-                await websocket.send_text('{"type":"pong"}')
+                # Through the client's writer queue: a direct send_text here
+                # would race the writer task on the same socket.
+                ws_manager.send_raw(websocket, '{"type":"pong"}')
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket)
     except Exception as e:
