@@ -1,12 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-} from 'react';
+import { lazy, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
@@ -48,6 +40,7 @@ import type { SettingsModalProps } from './SettingsModal';
 import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
+import { LazyBoundary } from './LazyBoundary';
 
 const SettingsModal = lazy(() =>
   import('./SettingsModal').then((m) => ({ default: m.SettingsModal }))
@@ -545,7 +538,7 @@ export function AppShell({
                   'hidden'
               )}
             >
-              <Suspense
+              <LazyBoundary
                 fallback={
                   <div className="flex-1 flex items-center justify-center text-muted-foreground">
                     {t('shell.loadingSearch')}
@@ -553,7 +546,7 @@ export function AppShell({
                 }
               >
                 <SearchView {...searchProps} onBackToTools={handleBackToTools} />
-              </Suspense>
+              </LazyBoundary>
             </div>
           )}
 
@@ -584,7 +577,7 @@ export function AppShell({
                 </h1>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Suspense
+                <LazyBoundary
                   fallback={
                     <div className="flex-1 flex items-center justify-center p-8 text-muted-foreground">
                       {t('shell.loadingSettings')}
@@ -612,7 +605,7 @@ export function AppShell({
                     onClose={onCloseSettingsView}
                     onCommunityStatusChange={updateCommunityStatus}
                   />
-                </Suspense>
+                </LazyBoundary>
               </div>
             </div>
           )}
@@ -637,7 +630,7 @@ export function AppShell({
         )}
       >
         {crackerMounted.current && (
-          <Suspense
+          <LazyBoundary
             fallback={
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 {t('shell.loadingChannelFinder')}
@@ -650,7 +643,7 @@ export function AppShell({
               onRunningChange={onCrackerRunningChange}
               onQueueChange={setCrackerQueueCount}
             />
-          </Suspense>
+          </LazyBoundary>
         )}
       </div>
 
@@ -714,14 +707,14 @@ export function AppShell({
       {/* Info sheets pull recharts/leaflet/qrcode: load them on first open, then keep
           them mounted so the close animation still plays. */}
       {contactPaneLoaded && (
-        <Suspense fallback={null}>
+        <LazyBoundary fallback={null}>
           <ContactInfoPane {...contactInfoPaneProps} />
-        </Suspense>
+        </LazyBoundary>
       )}
       {channelPaneLoaded && (
-        <Suspense fallback={null}>
+        <LazyBoundary fallback={null}>
           <ChannelInfoPane {...channelInfoPaneProps} />
-        </Suspense>
+        </LazyBoundary>
       )}
       <Toaster
         position="top-right"

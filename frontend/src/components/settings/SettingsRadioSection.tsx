@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useMemo, useRef } from 'react';
+import { lazy, useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { ChevronDown, Download, Map, MapPinned, Share2, Upload } from 'lucide-react';
@@ -46,6 +46,7 @@ import {
   type RadioTransportKind,
   type RadioTransportUpdate,
 } from '../../types';
+import { LazyBoundary } from '../LazyBoundary';
 
 const LocationPickerModal = lazy(() =>
   import('../LocationPickerModal').then((m) => ({ default: m.LocationPickerModal }))
@@ -2309,7 +2310,7 @@ export function SettingsRadioSection({
 
             {/* ── Private Key Import Warning ── */}
             {mapPickerOpen && (
-              <Suspense fallback={null}>
+              <LazyBoundary fallback={null}>
                 <LocationPickerModal
                   open={mapPickerOpen}
                   onOpenChange={setMapPickerOpen}
@@ -2321,7 +2322,7 @@ export function SettingsRadioSection({
                     toast.success(t('settings.radio.locationUpdated'));
                   }}
                 />
-              </Suspense>
+              </LazyBoundary>
             )}
             <Dialog
               open={keyImportDialogOpen}

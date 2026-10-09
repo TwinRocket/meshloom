@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect, lazy } from 'react';
 import { Map as MapIcon, Maximize2, List, Minimize2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,7 @@ import type {
   NeighborInfo,
   RepeaterNodeInfoResponse,
 } from '../../types';
+import { LazyBoundary } from '../LazyBoundary';
 
 const NeighborsMiniMap = lazy(() =>
   import('../NeighborsMiniMap').then((m) => ({ default: m.NeighborsMiniMap }))
@@ -489,7 +490,7 @@ export function NeighborsPane({
           {/* Rendered unconditionally: a ternary here meant that every change of mind
               about whether coordinates exist tore Leaflet down and rebuilt it. The map
               draws nothing by itself when it has no position to show. */}
-          <Suspense
+          <LazyBoundary
             fallback={
               <div className="flex min-h-48 flex-1 items-center justify-center text-xs text-muted-foreground">
                 {t('repeater.loadingMap')}
@@ -512,7 +513,7 @@ export function NeighborsPane({
                 expanded ? 'min-h-0 flex-1' : 'h-72 sm:h-96'
               )}
             />
-          </Suspense>
+          </LazyBoundary>
           {!canShowMap && (
             <div className="rounded border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               {t('repeater.mapUnavailable')}

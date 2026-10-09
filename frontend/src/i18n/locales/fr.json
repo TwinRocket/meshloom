@@ -1,4 +1,8 @@
 {
+  "chunkError": {
+    "message": "Une partie de l’application n’a pas pu être chargée (elle a sans doute été mise à jour). Rechargez pour continuer.",
+    "reload": "Recharger"
+  },
   "language": {
     "label": "Langue",
     "description": "S’applique uniquement à ce navigateur. Français par défaut.",

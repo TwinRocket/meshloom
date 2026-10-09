@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import type { Contact, RadioConfig, MessagePath } from '../types';
 import { api } from '../api';
@@ -23,6 +23,7 @@ import { useDistanceUnit } from '../contexts/DistanceUnitContext';
 import type { DistanceUnit } from '../utils/distanceUnits';
 import { LocalRepeaterIcon } from './messagePath/LocalRepeaterIcon';
 import { DirectoryGlobeIcon } from './messagePath/DirectoryGlobeIcon';
+import { LazyBoundary } from './LazyBoundary';
 
 const PathRouteMap = lazy(() =>
   import('./PathRouteMap').then((m) => ({ default: m.PathRouteMap }))
@@ -237,7 +238,7 @@ export function PathModal({
                   <DialogDescription>{t('path.routeMapHelp')}</DialogDescription>
                 </DialogHeader>
                 {mapModalIndex !== null && (
-                  <Suspense
+                  <LazyBoundary
                     fallback={
                       <div
                         className="rounded border border-border bg-muted/30 animate-pulse"
@@ -251,7 +252,7 @@ export function PathModal({
                       directoryHits={directoryHits}
                       height={400}
                     />
-                  </Suspense>
+                  </LazyBoundary>
                 )}
               </DialogContent>
             </Dialog>

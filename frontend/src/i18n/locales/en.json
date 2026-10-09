@@ -1,4 +1,8 @@
 {
+  "chunkError": {
+    "message": "Part of the app could not be loaded (it was probably updated). Reload to continue.",
+    "reload": "Reload"
+  },
   "language": {
     "label": "Language",
     "description": "Applies only to this browser. French is the default.",

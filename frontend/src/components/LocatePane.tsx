@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Crosshair } from 'lucide-react';
 
@@ -17,6 +17,7 @@ import { calibrateRadiusKm } from '../utils/locateZone';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ToolPaneHeader } from './ToolPaneHeader';
+import { LazyBoundary } from './LazyBoundary';
 
 const LocateZoneMap = lazy(() =>
   import('./LocateZoneMap').then((m) => ({ default: m.LocateZoneMap }))
@@ -519,13 +520,13 @@ export function LocatePane({
                 />
                 {t('locate.showDisks')}
               </label>
-              <Suspense fallback={<div className="min-h-72 flex-1" />}>
+              <LazyBoundary fallback={<div className="min-h-72 flex-1" />}>
                 <LocateZoneMap
                   anchors={anchors}
                   declaredGps={result?.declared_gps ?? null}
                   showDisks={showDisks}
                 />
-              </Suspense>
+              </LazyBoundary>
             </>
           ) : (
             <div className="flex min-h-72 flex-1 items-center justify-center rounded border border-dashed border-border text-sm text-muted-foreground">

@@ -101,6 +101,11 @@ export const i18nReady: Promise<void> = i18n
     interpolation: { escapeValue: false },
   })
   .then(() => {
+    // The backend reports a failed chunk import through i18next's log, not by rejecting
+    // init(), so check the bundle actually arrived: raw keys are not an acceptable UI.
+    if (!i18n.hasResourceBundle(i18n.language, 'translation')) {
+      throw new Error(`Locale bundle "${i18n.language}" failed to load`);
+    }
     applyDocumentLanguage(i18n.language);
   });
 

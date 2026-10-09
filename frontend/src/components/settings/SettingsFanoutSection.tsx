@@ -1,13 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-  lazy,
-  Suspense,
-  type ReactNode,
-} from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { ChevronDown, Info } from 'lucide-react';
 import i18n from '../../i18n';
@@ -27,6 +18,7 @@ import { toast } from '../ui/sonner';
 import { cn } from '@/lib/utils';
 import { api } from '../../api';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
+import { LazyBoundary } from '../LazyBoundary';
 
 const BotCodeEditor = lazy(() =>
   import('../BotCodeEditor').then((m) => ({ default: m.BotCodeEditor }))
@@ -1877,7 +1869,7 @@ function BotConfigEditor({
         </Button>
       </div>
 
-      <Suspense
+      <LazyBoundary
         fallback={
           <div className="h-64 md:h-96 rounded-md border border-input bg-code-editor-bg flex items-center justify-center text-muted-foreground">
             {t('settings.fanout.bot.loadingEditor')}
@@ -1885,7 +1877,7 @@ function BotConfigEditor({
         }
       >
         <BotCodeEditor value={code} onChange={(c) => onChange({ ...config, code: c })} />
-      </Suspense>
+      </LazyBoundary>
 
       <div className="text-[0.8125rem] text-muted-foreground space-y-1">
         <p>

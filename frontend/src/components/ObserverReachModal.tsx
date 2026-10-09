@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -28,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
+import { LazyBoundary } from './LazyBoundary';
 
 const EMPTY_CONTACTS: Contact[] = [];
 
@@ -292,7 +293,7 @@ export function ObserverReachModal({
                 })}
               </ul>
             )}
-            <Suspense
+            <LazyBoundary
               fallback={
                 <div
                   className="h-56 rounded border border-border bg-muted/30 animate-pulse"
@@ -308,7 +309,7 @@ export function ObserverReachModal({
                 observerKey={observerRowKey}
                 onSelect={(key) => setExpandedKey((current) => (current === key ? null : key))}
               />
-            </Suspense>
+            </LazyBoundary>
           </div>
         )}
         <DialogFooter>

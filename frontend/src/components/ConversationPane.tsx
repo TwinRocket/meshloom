@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type Ref } from 'react';
+import { lazy, useEffect, useMemo, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Radio } from 'lucide-react';
@@ -37,6 +37,7 @@ import {
   isPrefixOnlyContact,
   isUnknownFullKeyContact,
 } from '../utils/pubkey';
+import { LazyBoundary } from './LazyBoundary';
 
 const RepeaterDashboard = lazy(() =>
   import('./RepeaterDashboard').then((m) => ({ default: m.RepeaterDashboard }))
@@ -296,7 +297,7 @@ export function ConversationPane({
       <>
         <ToolPaneHeader title={t('conversation.nodeMap')} />
         <div className="flex-1 overflow-hidden">
-          <Suspense fallback={<LoadingPane label={t('conversation.loadingMap')} />}>
+          <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingMap')} />}>
             <MapView
               contacts={contacts}
               focusedKey={activeConversation.mapFocusKey}
@@ -316,7 +317,7 @@ export function ConversationPane({
                 })
               }
             />
-          </Suspense>
+          </LazyBoundary>
         </div>
       </>
     );
@@ -379,7 +380,7 @@ export function ConversationPane({
           }
         />
         <div className="flex-1 overflow-hidden">
-          <Suspense fallback={<LoadingPane label={t('conversation.loadingLive')} />}>
+          <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingLive')} />}>
             <LiveView
               contacts={contacts}
               config={config}
@@ -391,7 +392,7 @@ export function ConversationPane({
               onSelectConversation={onSelectConversation}
               onOpenCommunitySettings={onOpenCommunitySettings}
             />
-          </Suspense>
+          </LazyBoundary>
         </div>
       </>
     );
@@ -399,7 +400,7 @@ export function ConversationPane({
 
   if (activeConversation.type === 'visualizer') {
     return (
-      <Suspense fallback={<LoadingPane label={t('conversation.loadingVisualizer')} />}>
+      <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingVisualizer')} />}>
         <VisualizerView
           onBackToTools={onBackToTools}
           contacts={contacts}
@@ -408,13 +409,13 @@ export function ConversationPane({
           radioOffline={!health?.radio_connected}
           directoryEnabled={directoryEnabled}
         />
-      </Suspense>
+      </LazyBoundary>
     );
   }
 
   if (activeConversation.type === 'raw') {
     return (
-      <Suspense fallback={<LoadingPane label={t('conversation.loadingRawPackets')} />}>
+      <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingRawPackets')} />}>
         <RawPacketFeedView
           onBackToTools={onBackToTools}
           contacts={contacts}
@@ -423,7 +424,7 @@ export function ConversationPane({
           onOpenContactInfo={onOpenContactInfo}
           onSelectConversation={onSelectConversation}
         />
-      </Suspense>
+      </LazyBoundary>
     );
   }
 
@@ -465,7 +466,7 @@ export function ConversationPane({
 
   if (activeConversation.type === 'test') {
     return (
-      <Suspense fallback={<LoadingPane label={t('meshTest.loading')} />}>
+      <LazyBoundary fallback={<LoadingPane label={t('meshTest.loading')} />}>
         <MeshTestView
           onBackToTools={onBackToTools}
           contacts={contacts}
@@ -474,7 +475,7 @@ export function ConversationPane({
           radioConnected={health?.radio_connected === true}
           onOpenRadioSettings={onOpenRadioSettings}
         />
-      </Suspense>
+      </LazyBoundary>
     );
   }
 
@@ -504,7 +505,7 @@ export function ConversationPane({
 
   if (activeContactIsRepeater) {
     return (
-      <Suspense fallback={<LoadingPane label={t('conversation.loadingDashboard')} />}>
+      <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingDashboard')} />}>
         <RepeaterDashboard
           key={activeConversation.id}
           onBack={onBack}
@@ -523,7 +524,7 @@ export function ConversationPane({
           autoLoginAndLoadAll={repeaterAutoLoginKey === activeConversation.id}
           onAutoLoginConsumed={onClearRepeaterAutoLogin}
         />
-      </Suspense>
+      </LazyBoundary>
     );
   }
 
@@ -564,7 +565,7 @@ export function ConversationPane({
         <ContactResolutionBanner variant="unknown-full-key" />
       )}
       {activeContactIsSensor && activeContact && (
-        <Suspense fallback={null}>
+        <LazyBoundary fallback={null}>
           <SensorTelemetryPanel
             key={activeContact.public_key}
             contact={activeContact}
@@ -572,7 +573,7 @@ export function ConversationPane({
             trackedTelemetryContacts={trackedTelemetryContacts}
             onToggleTrackedTelemetryContact={onToggleTrackedTelemetryContact}
           />
-        </Suspense>
+        </LazyBoundary>
       )}
       {activeContactIsRoom && activeContact && (
         <RoomServerPanel

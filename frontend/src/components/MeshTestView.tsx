@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RadioTower } from 'lucide-react';
 
@@ -35,6 +35,7 @@ import {
   type MeshTestRun,
 } from '../utils/meshTest';
 import { cn } from '../lib/utils';
+import { LazyBoundary } from './LazyBoundary';
 
 /**
  * Send one flood, then listen for ten minutes to see who heard it.
@@ -285,7 +286,7 @@ export function MeshTestView({
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="h-64 shrink-0 overflow-hidden border-b border-border lg:h-auto lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r">
-          <Suspense
+          <LazyBoundary
             fallback={<div className="h-full w-full animate-pulse bg-muted/30" aria-hidden />}
           >
             <MeshTestMap
@@ -294,7 +295,7 @@ export function MeshTestView({
               selectedKey={selectedKey}
               onSelect={(key) => setSelectedKey((current) => (current === key ? null : key))}
             />
-          </Suspense>
+          </LazyBoundary>
         </div>
 
         <aside className="flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:w-2/5 lg:min-w-[22rem] lg:max-w-[38rem] lg:flex-none">
