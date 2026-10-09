@@ -355,11 +355,13 @@ function buildPath(parsed, packet, myPrefix): string[] {
 | Ambiguous sender/recipient | Off     | Show placeholder nodes for unknown senders                  |
 | Advert-path identity hints | On      | Use stored advert paths to label ambiguous repeaters        |
 | Collapse sibling repeaters | On      | Merge likely ambiguous repeater with known sibling repeater |
-| Split by traffic pattern   | Off     | Split ambiguous repeaters by next-hop routing (see above)   |
+| Split by traffic pattern   | On      | Split ambiguous repeaters by next-hop routing (see above)   |
 | Observation window         | 15 sec  | Wait time for duplicate packets before animating (1-60s)    |
 | Let 'em drift              | On      | Continuous layout optimization                              |
 | Repulsion                  | 200     | Force strength (50-2500)                                    |
 | Packet speed               | 2x      | Particle animation speed multiplier (1x-5x)                 |
+| Prune stale nodes          | On      | Drop idle nodes after `pruneStaleMinutes` (default 5 min)   |
+| Auto orbit                 | Off     | Slowly rotate the camera (`autoOrbit`)                      |
 | Shuffle layout             | -       | Button to randomize node positions and reheat sim           |
 | Oooh Big Stretch!          | -       | Button to temporarily increase repulsion then relax         |
 | Clear & Reset              | -       | Button to clear all nodes, links, and packets               |

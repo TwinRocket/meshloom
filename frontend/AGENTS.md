@@ -121,8 +121,11 @@ frontend/src/
 │   ├── serverLoginState.ts        # Server login state helpers
 │   └── statusDotPulse.ts          # Status dot pulse animation helpers
 ├── components/
-│   ├── StatusBar.tsx
-│   ├── Sidebar.tsx
+│   ├── DesktopRail.tsx         # Desktop navigation rail
+│   ├── BottomNav.tsx           # Phone bottom navigation bar
+│   ├── ConversationListView.tsx # Conversation list column
+│   ├── RadioStatusChip.tsx     # Radio status chip (opens RadioStatusDialog)
+│   ├── EdgeSessionExpiredDialog.tsx # Shown when an upstream auth proxy session expires
 │   ├── ChatHeader.tsx          # Conversation header (push bell, channel mute, trace, favorite, delete)
 │   ├── MessageList.tsx
 │   ├── MessageInput.tsx
@@ -454,13 +457,14 @@ When `apply_supported`, Settings → About shows Install (only if `update_availa
 - Auto reconnect (3s) with cleanup guard on unmount.
 - Heartbeat ping every 30s.
 - Incoming JSON is parsed through `wsEvents.ts`, which validates the top-level envelope and known event type strings, then casts payloads at the handler boundary. It does not schema-validate per-event payload shapes.
-- Event handlers: `health`, `message`, `contact`, `contact_resolved`, `channel`, `raw_packet`, `message_acked`, `contact_deleted`, `channel_deleted`, `error`, `success`, `pong` (ignored).
+- Event handlers: `health`, `message`, `contact`, `contact_resolved`, `channel`, `raw_packet`, `message_acked`, `message_deleted`, `contact_deleted`, `channel_deleted`, `community_packet`, `community_live`, `error`, `success`, `pong` (ignored).
 - For `raw_packet` events, use `observation_id` as event identity; `id` is a storage reference and may repeat.
 
 ## URL Hash Navigation (`utils/urlHash.ts`)
 
 Supported routes:
 - `#raw`
+- `#control`
 - `#live`
 - `#map`
 - `#map/focus/{pubkey_or_prefix}`
@@ -469,6 +473,8 @@ Supported routes:
 - `#trace`
 - `#locate`
 - `#locate/{key_or_prefix}`
+- `#discovered`
+- `#test`
 - `#settings/{section}`
 - `#settings/updates`
 - `#channel/{channelKey}`
@@ -476,7 +482,7 @@ Supported routes:
 - `#contact/{publicKey}`
 - `#contact/{publicKey}/{label}`
 
-Where `{section}` is one of `radio`, `proxy`, `local`, `notifications`, `updates`, `community`, `radio-app`, `database`, `fanout`, `statistics`, or `about`.
+Where `{section}` is one of `radio`, `proxy`, `local`, `notifications`, `updates`, `community`, `fanout`, `radio-app`, `alerts`, `database`, `navigation`, `statistics`, or `about` (see `SETTINGS_SECTION_ORDER`).
 
 Legacy name-based channel/contact hashes are still accepted for compatibility.
 
@@ -648,7 +654,7 @@ Traffic and sender figures use different denominators (all channels vs. decrypta
 
 ## Security Posture (intentional)
 
-- No authentication UI.
+- No accounts or login UI. Access control is HTTP Basic auth (optional, enforced by the backend) or an upstream auth proxy; when that proxy's session expires, `api.ts` detects it (`utils/edgeSession.ts`) and `EdgeSessionExpiredDialog` prompts a reload.
 - Frontend assumes trusted network usage.
 - Bot editor intentionally allows arbitrary backend bot code configuration.
 
