@@ -4,6 +4,9 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
+# VACUUM and journal_mode changes cannot run inside a transaction.
+TRANSACTIONAL = False
+
 
 async def migrate(conn: aiosqlite.Connection) -> None:
     """

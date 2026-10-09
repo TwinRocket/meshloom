@@ -10,12 +10,21 @@ numeric prefix and executes them in order.
 
 This approach is safe for existing users - their databases have user_version=0,
 so all migrations run in order on first startup after upgrade.
+
+Each migration runs inside one explicit transaction together with the
+``user_version`` bump, so a crash or exception mid-migration leaves the
+database exactly as it was before that migration (SQLite DDL and the
+``user_version`` pragma are both transactional). ``conn.commit()`` calls made
+by a migration body are deferred to the runner. A migration that cannot run
+in a transaction (``VACUUM``, ``journal_mode`` changes) sets the module-level
+flag ``TRANSACTIONAL = False`` and is responsible for its own idempotence.
 """
 
 import importlib
 import logging
 import pkgutil
 import re
+from typing import Any, cast
 
 import aiosqlite
 
@@ -32,6 +41,37 @@ async def get_version(conn: aiosqlite.Connection) -> int:
 async def set_version(conn: aiosqlite.Connection, version: int) -> None:
     """Set schema version using SQLite user_version pragma."""
     await conn.execute(f"PRAGMA user_version = {version}")
+
+
+class _DeferredCommitConnection:
+    """Connection proxy whose ``commit()`` is a no-op.
+
+    Migration bodies historically call ``await conn.commit()`` themselves;
+    deferring those lets the runner commit the migration and the version bump
+    atomically.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection):
+        self._conn = conn
+
+    async def commit(self) -> None:
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._conn, name)
+
+
+async def _apply_transactional(conn: aiosqlite.Connection, mod: Any, num: int) -> None:
+    if conn.in_transaction:
+        await conn.commit()
+    await conn.execute("BEGIN")
+    try:
+        await mod.migrate(cast(aiosqlite.Connection, _DeferredCommitConnection(conn)))
+        await set_version(conn, num)
+        await conn.commit()
+    except BaseException:
+        await conn.rollback()
+        raise
 
 
 async def run_migrations(conn: aiosqlite.Connection) -> int:
@@ -52,8 +92,12 @@ async def run_migrations(conn: aiosqlite.Connection) -> int:
             continue
         logger.info("Applying migration %d: %s", num, module_info.name)
         mod = importlib.import_module(f"{__name__}.{module_info.name}")
-        await mod.migrate(conn)
-        await set_version(conn, num)
+        if getattr(mod, "TRANSACTIONAL", True):
+            await _apply_transactional(conn, mod, num)
+        else:
+            await mod.migrate(conn)
+            await set_version(conn, num)
+            await conn.commit()
         version = num
         applied += 1
 
