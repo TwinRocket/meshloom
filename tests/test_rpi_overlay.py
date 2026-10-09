@@ -28,7 +28,7 @@ def test_rpi_overlay_does_not_set_community_env() -> None:
 def test_apply_update_helper_never_upgrades_the_os() -> None:
     helper = (REPO / "pkg/nfpm/apply-update").read_text(encoding="utf-8")
     assert "install -y --only-upgrade meshloom" in helper
-    assert "dnf install -y meshloom" in helper
+    assert "dnf install -y --disablerepo='*' --enablerepo=meshloom" in helper
     assert "apt-get upgrade" not in helper
     assert "dnf upgrade" not in helper
 
@@ -46,9 +46,11 @@ def test_rpi_image_bake_is_release_safe() -> None:
     manifest = (REPO / "pkg/rpi/os-list.rpi-imager-manifest.tmpl").read_text(encoding="utf-8")
 
     assert "write_meshloom_apt_source" in script
-    assert "signed-by=/etc/apt/keyrings/meshloom.gpg" in script
+    assert "signed-by=${keyring}" in script
+    assert "pkg/keys/meshloom-archive-keyring.gpg" in script
     assert "github.io/meshloom/meshloom.gpg" not in script
-    assert "Writing an unsigned Meshloom apt source" in script
+    assert "trusted=yes" not in script
+    assert "systemctl enable meshloom-update.path" in script
     assert 'umount "$BOOTMNT"' in script
     assert "default_branch" in rpi_workflow
     assert "apt-get update -y || true" not in script
