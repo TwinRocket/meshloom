@@ -112,6 +112,7 @@
     "nodeMap": "Carte des nœuds",
     "loadingMap": "Chargement de la carte…",
     "loadingVisualizer": "Chargement du visualiseur…",
+    "loadingRawPackets": "Chargement des paquets bruts…",
     "loadingDashboard": "Chargement du tableau de bord…",
     "prefixOnlyBanner": "Nous avons reçu un message de cet expéditeur mais n’avons pas encore son identité complète. L’envoi est désactivé jusqu’à confirmation de son identité — cela se produit généralement automatiquement à sa prochaine annonce.",
     "unknownFullKeyBanner": "Les détails du profil de cet expéditeur (nom, position) ne sont pas encore arrivés. Ils se rempliront automatiquement à la prochaine annonce de l’expéditeur."

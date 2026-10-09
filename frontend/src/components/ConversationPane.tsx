@@ -10,9 +10,7 @@ import { Button } from './ui/button';
 import { ChatHeader } from './ChatHeader';
 import { MessageInput, type MessageInputHandle } from './MessageInput';
 import { MessageList } from './MessageList';
-import { RawPacketFeedView } from './RawPacketFeedView';
 import { RoomServerPanel } from './RoomServerPanel';
-import { SensorTelemetryPanel } from './SensorTelemetryPanel';
 import { LocatePane, locateConversation } from './LocatePane';
 import { TracePane } from './TracePane';
 import { ToolPaneHeader } from './ToolPaneHeader';
@@ -42,6 +40,12 @@ import {
 
 const RepeaterDashboard = lazy(() =>
   import('./RepeaterDashboard').then((m) => ({ default: m.RepeaterDashboard }))
+);
+const RawPacketFeedView = lazy(() =>
+  import('./RawPacketFeedView').then((m) => ({ default: m.RawPacketFeedView }))
+);
+const SensorTelemetryPanel = lazy(() =>
+  import('./SensorTelemetryPanel').then((m) => ({ default: m.SensorTelemetryPanel }))
 );
 const MapView = lazy(() => import('./MapView').then((m) => ({ default: m.MapView })));
 const LiveView = lazy(() => import('./LiveView').then((m) => ({ default: m.LiveView })));
@@ -410,14 +414,16 @@ export function ConversationPane({
 
   if (activeConversation.type === 'raw') {
     return (
-      <RawPacketFeedView
-        onBackToTools={onBackToTools}
-        contacts={contacts}
-        channels={channels}
-        radioOffline={!health?.radio_connected}
-        onOpenContactInfo={onOpenContactInfo}
-        onSelectConversation={onSelectConversation}
-      />
+      <Suspense fallback={<LoadingPane label={t('conversation.loadingRawPackets')} />}>
+        <RawPacketFeedView
+          onBackToTools={onBackToTools}
+          contacts={contacts}
+          channels={channels}
+          radioOffline={!health?.radio_connected}
+          onOpenContactInfo={onOpenContactInfo}
+          onSelectConversation={onSelectConversation}
+        />
+      </Suspense>
     );
   }
 
@@ -558,13 +564,15 @@ export function ConversationPane({
         <ContactResolutionBanner variant="unknown-full-key" />
       )}
       {activeContactIsSensor && activeContact && (
-        <SensorTelemetryPanel
-          key={activeContact.public_key}
-          contact={activeContact}
-          contacts={contacts}
-          trackedTelemetryContacts={trackedTelemetryContacts}
-          onToggleTrackedTelemetryContact={onToggleTrackedTelemetryContact}
-        />
+        <Suspense fallback={null}>
+          <SensorTelemetryPanel
+            key={activeContact.public_key}
+            contact={activeContact}
+            contacts={contacts}
+            trackedTelemetryContacts={trackedTelemetryContacts}
+            onToggleTrackedTelemetryContact={onToggleTrackedTelemetryContact}
+          />
+        </Suspense>
       )}
       {activeContactIsRoom && activeContact && (
         <RoomServerPanel

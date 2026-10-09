@@ -1861,6 +1861,7 @@
     "nodeMap": "Node Map",
     "loadingMap": "Loading map...",
     "loadingVisualizer": "Loading visualizer...",
+    "loadingRawPackets": "Loading raw packets...",
     "loadingDashboard": "Loading dashboard...",
     "prefixOnlyBanner": "We've received a message from this sender but don't have their full identity yet. Sending is disabled until their identity is confirmed — this usually happens automatically when they next advertise.",
     "unknownFullKeyBanner": "This sender's profile details (name, location) haven't arrived yet. They will fill in automatically when the sender's next advert is heard."

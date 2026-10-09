@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Crosshair } from 'lucide-react';
 
@@ -16,8 +16,11 @@ import { applyHopOverlay, firstHopPrefixes, mergeReachOverlay } from '../utils/l
 import { calibrateRadiusKm } from '../utils/locateZone';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { LocateZoneMap } from './LocateZoneMap';
 import { ToolPaneHeader } from './ToolPaneHeader';
+
+const LocateZoneMap = lazy(() =>
+  import('./LocateZoneMap').then((m) => ({ default: m.LocateZoneMap }))
+);
 
 interface LocatePaneProps {
   /** Leaves this sub-screen for the Tools screen. Phones only. */
@@ -516,11 +519,13 @@ export function LocatePane({
                 />
                 {t('locate.showDisks')}
               </label>
-              <LocateZoneMap
-                anchors={anchors}
-                declaredGps={result?.declared_gps ?? null}
-                showDisks={showDisks}
-              />
+              <Suspense fallback={<div className="min-h-72 flex-1" />}>
+                <LocateZoneMap
+                  anchors={anchors}
+                  declaredGps={result?.declared_gps ?? null}
+                  showDisks={showDisks}
+                />
+              </Suspense>
             </>
           ) : (
             <div className="flex min-h-72 flex-1 items-center justify-center rounded border border-dashed border-border text-sm text-muted-foreground">

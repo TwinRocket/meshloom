@@ -30,8 +30,6 @@ import { countUnreadConversations } from '../utils/unreadConversations';
 import { isPendingChannel, pendingChannels } from '../utils/channelMembership';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
-import { ContactInfoPane } from './ContactInfoPane';
-import { ChannelInfoPane } from './ChannelInfoPane';
 import { CommandPalette } from './CommandPalette';
 import { SecurityWarningModal } from './SecurityWarningModal';
 import { RadioIdentityModal } from './RadioIdentityModal';
@@ -57,6 +55,12 @@ const SettingsModal = lazy(() =>
 const CrackerPanel = lazy(() =>
   import('./CrackerPanel').then((m) => ({ default: m.CrackerPanel }))
 );
+const ContactInfoPane = lazy(() =>
+  import('./ContactInfoPane').then((m) => ({ default: m.ContactInfoPane }))
+);
+const ChannelInfoPane = lazy(() =>
+  import('./ChannelInfoPane').then((m) => ({ default: m.ChannelInfoPane }))
+);
 const SearchView = lazy(() => import('./SearchView').then((m) => ({ default: m.SearchView })));
 
 /** The middle column is the destination's own list. A map or tool has none.
@@ -73,8 +77,8 @@ type BulkAddChannelResultModalProps = Omit<
   ComponentProps<typeof BulkAddChannelResultModal>,
   'open' | 'onClose'
 >;
-type ContactInfoPaneProps = ComponentProps<typeof ContactInfoPane>;
-type ChannelInfoPaneProps = ComponentProps<typeof ChannelInfoPane>;
+type ContactInfoPaneProps = ComponentProps<typeof import('./ContactInfoPane').ContactInfoPane>;
+type ChannelInfoPaneProps = ComponentProps<typeof import('./ChannelInfoPane').ChannelInfoPane>;
 
 interface AppShellProps {
   serverLabel: ServerLabel;
@@ -154,6 +158,10 @@ export function AppShell({
   onCommunityStatusChange,
 }: AppShellProps) {
   const { t } = useTranslation();
+  const [contactPaneLoaded, setContactPaneLoaded] = useState(false);
+  const [channelPaneLoaded, setChannelPaneLoaded] = useState(false);
+  if (!contactPaneLoaded && contactInfoPaneProps.contactKey !== null) setContactPaneLoaded(true);
+  if (!channelPaneLoaded && channelInfoPaneProps.channelKey !== null) setChannelPaneLoaded(true);
   const [crackerQueueCount, setCrackerQueueCount] = useState(0);
 
   const swipeHandlers = useSwipeable({
@@ -703,8 +711,18 @@ export function AppShell({
           await settingsProps.onHealthRefresh();
         }}
       />
-      <ContactInfoPane {...contactInfoPaneProps} />
-      <ChannelInfoPane {...channelInfoPaneProps} />
+      {/* Info sheets pull recharts/leaflet/qrcode: load them on first open, then keep
+          them mounted so the close animation still plays. */}
+      {contactPaneLoaded && (
+        <Suspense fallback={null}>
+          <ContactInfoPane {...contactInfoPaneProps} />
+        </Suspense>
+      )}
+      {channelPaneLoaded && (
+        <Suspense fallback={null}>
+          <ChannelInfoPane {...channelInfoPaneProps} />
+        </Suspense>
+      )}
       <Toaster
         position="top-right"
         offset={toastTopOffset !== undefined ? { top: toastTopOffset } : undefined}
