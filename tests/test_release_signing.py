@@ -394,3 +394,37 @@ def test_passphrase_protected_subkey_is_detected(tmp_path: Path) -> None:
     assert probe.returncode != 0
     action = (ROOT / ".github" / "actions" / "import-signing-key" / "action.yml").read_text()
     assert '--passphrase ""' in action and "passphrase-protected" in action
+
+
+@pytest.mark.skipif(shutil.which("nfpm") is None, reason="nfpm not installed")
+def test_rendered_template_packs_with_nfpm(tmp_path: Path) -> None:
+    """Render the real template through the build script and run nFPM on it.
+
+    nFPM rejects `..` in `src`, so key paths must be absolute placeholders
+    (__KEYRING__, __KEYRING_ASC__) substituted by the script.
+    """
+    tmpl = (ROOT / "pkg" / "nfpm" / "nfpm.yaml.tmpl").read_text()
+    assert "/../" not in tmpl
+    stage = tmp_path / "stage"
+    py = stage / "opt" / "meshloom" / "python" / "bin"
+    py.mkdir(parents=True)
+    (py / "python3").write_text("")
+    (py / "python3").chmod(0o755)
+    out = tmp_path / "out"
+    res = _run(
+        [
+            "bash",
+            str(BUILD / "build_nfpm_packages.sh"),
+            "--version",
+            "9.9.9",
+            "--arch",
+            "amd64",
+            "--stage-dir",
+            str(stage),
+            "--package-only",
+            "--output-dir",
+            str(out),
+        ]
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert list(out.glob("*.deb")) and list(out.glob("*.rpm"))

@@ -248,6 +248,7 @@ sed \
     "${SIGN_FILTER[@]}" \
     -e "s|__SIGN_KEY_FILE__|$SIGN_KEY_FILE|g" \
     -e "s|__KEYRING__|$REPO_ROOT/pkg/keys/meshloom-archive-keyring.gpg|g" \
+    -e "s|__KEYRING_ASC__|$REPO_ROOT/pkg/keys/meshloom.asc|g" \
     -e "s|__NFPM_ARCH__|$NFPM_ARCH|g" \
     -e "s|__NFPM_VERSION__|$VERSION|g" \
     -e "s|__STAGING__|$STAGING|g" \
