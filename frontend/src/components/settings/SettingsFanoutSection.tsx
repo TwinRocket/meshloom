@@ -889,7 +889,8 @@ function MqttHaConfigEditor({
       .catch(console.error);
   }, []);
 
-  const selectedContacts = (config.tracked_contacts as string[]) || [];
+  const trackedContactsConfig = config.tracked_contacts as string[] | undefined;
+  const selectedContacts = useMemo(() => trackedContactsConfig || [], [trackedContactsConfig]);
   const selectedRepeaters = (config.tracked_repeaters as string[]) || [];
 
   const contactOptions = useMemo(

@@ -385,6 +385,7 @@ export function useRealtimeAppState({
       activeConversationRef,
       blockedKeysRef,
       blockedNamesRef,
+      channelsRef,
       checkMention,
       fetchAllContacts,
       fetchConfig,

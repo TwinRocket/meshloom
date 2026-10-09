@@ -140,7 +140,7 @@ export function ObserverReachModal({
     };
   }, [detail, contacts]);
 
-  const observers = detail?.observers ?? [];
+  const observers = useMemo(() => detail?.observers ?? [], [detail]);
   const distanceLabel =
     detail?.max_distance_km != null
       ? formatDistance(detail.max_distance_km, distanceUnit)

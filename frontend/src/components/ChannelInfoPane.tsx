@@ -64,7 +64,7 @@ export function ChannelInfoPane({
     return () => {
       cancelled = true;
     };
-  }, [channelKey]);
+  }, [channelKey, t]);
 
   // Use live channel data where available, fall back to detail snapshot
   const channel = liveChannel ?? detail?.channel ?? null;

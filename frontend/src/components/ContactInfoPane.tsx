@@ -178,7 +178,7 @@ export function ContactInfoPane({
     return () => {
       controller.abort();
     };
-  }, [contactKey, isNameOnly, nameOnlyValue]);
+  }, [contactKey, isNameOnly, nameOnlyValue, t]);
 
   // Load telemetry history when pane opens for a contact
   useEffect(() => {
@@ -213,7 +213,7 @@ export function ContactInfoPane({
     } finally {
       setTelemetryLoading(false);
     }
-  }, [contactKey, isNameOnly]);
+  }, [contactKey, isNameOnly, t]);
 
   // Use live contact data where available, fall back to analytics snapshot
   const contact = liveContact ?? analytics?.contact ?? null;
