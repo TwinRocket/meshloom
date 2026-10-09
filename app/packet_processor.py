@@ -699,8 +699,11 @@ async def _process_advertisement(
         )
 
     # For new contacts, optionally attempt to decrypt any historical DMs we may have stored
-    # This is controlled by the auto_decrypt_dm_on_advert setting
-    if existing is None:
+    # This is controlled by the auto_decrypt_dm_on_advert setting. Keyed on the
+    # atomic ``inserted`` result rather than the earlier ``existing`` read: two
+    # concurrent adverts for an unknown contact both see ``existing is None``,
+    # but only one of them actually inserts the row.
+    if inserted:
         from app.repository import AppSettingsRepository
 
         settings = await AppSettingsRepository.get()

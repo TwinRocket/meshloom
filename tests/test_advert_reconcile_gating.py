@@ -107,3 +107,22 @@ async def test_radio_sync_reconciles_contacts_sequentially(test_db):
 
     assert max_running == 1
     assert len(seen) == 6 and seen[-1] == "ff" * 32
+
+
+@pytest.mark.asyncio
+async def test_concurrent_new_contact_adverts_start_one_historical_decrypt(test_db):
+    """Both adverts read ``existing is None``; only the inserting one decrypts."""
+    from app.packet_processor import process_raw_packet
+    from app.repository import AppSettingsRepository
+
+    await AppSettingsRepository.update(auto_decrypt_dm_on_advert=True)
+    with (
+        patch("app.packet_processor.broadcast_event"),
+        patch("app.packet_processor.start_historical_dm_decryption", new=AsyncMock()) as start,
+    ):
+        await asyncio.gather(
+            process_raw_packet(_with_path(ADVERT, 1), timestamp=1000),
+            process_raw_packet(_with_path(ADVERT, 2), timestamp=1000),
+        )
+
+    start.assert_awaited_once()
