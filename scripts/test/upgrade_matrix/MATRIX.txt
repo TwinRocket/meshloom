@@ -1,0 +1,27 @@
+Upgrade matrix (manual gate before each rollout step, not CI)
+=============================================================
+
+Start from 4.17.0 really installed, then 4.17.0 -> N, then N -> N+1 with the
+new helper. In every case check: serial radio still works (BLE when possible),
+data intact, version changed, status shown in Settings -> Updates, and a
+planted symlink / hostile JSON has no effect.
+
+Mode                      How
+------------------------  ---------------------------------------------------
+Debian 12 apt             package_apt.sh dist/meshloom_N_amd64.deb debian:12
+Ubuntu 24.04 apt          package_apt.sh dist/meshloom_N_amd64.deb ubuntu:24.04
+Fedora 41 dnf             VM: repo file with gpgcheck=0 (4.17 installer), then
+                          `dnf install ./meshloom-N.x86_64.rpm`; expect
+                          gpgcheck=1 + repo_gpgcheck=1 after postinstall
+RPi OS Lite arm64         flash the 4.17 image (path unit not enabled), with and
+                          without polkitd; `apt update && apt install meshloom`
+Compose via install.sh    4.17 install.sh stack: app N with the old helper
+                          (banner shown, in-app update still works), then
+                          re-run install.sh N: .bak kept, .env pinned by digest,
+                          update-status/ root 0755, data/update-job.json gone
+Compose by hand           docker-compose.example.yml with and without .env
+install_docker.sh         generated compose has no MESHLOOM_UPDATE_HELPER
+HA add-on                 build meshloom/Dockerfile on image N; CMD unchanged
+
+Rollback: package `apt install meshloom=<old>` / `dnf downgrade`; compose: put
+the old digest back in .env or restore docker-compose.yml.bak-<date>.
