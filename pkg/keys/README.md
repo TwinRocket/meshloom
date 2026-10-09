@@ -51,8 +51,15 @@ that key has a valid, non-expired, non-revoked signing subkey.
 
 ## Create the key (once, on an offline-capable machine)
 
+> **Work OUTSIDE the repository checkout.** All secret material lives in a
+> dedicated temporary directory; only the three public files are copied into
+> `pkg/keys/` at the end. `.gitignore` also blocks `*.SECRET*`, `*-subkey.asc`
+> and `*revoke*` as a safety net, but do not rely on it.
+
 ```bash
-export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"   # throwaway home
+WORK="$(mktemp -d)"; chmod 700 "$WORK"; cd "$WORK"     # NOT inside the repo
+export GNUPGHOME="$WORK/gnupg"; mkdir -m 700 "$GNUPGHOME"
+mkdir public
 
 # 1. Primary key, certify only, no expiry (the subkeys carry the expiry).
 #    Give it a passphrase: it is the offline master.
@@ -63,29 +70,37 @@ FPR="$(gpg --list-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')"
 gpg --quick-add-key "$FPR" rsa4096 sign 2y
 
 # 3. Revocation certificate, stored with the backup (step 6).
-gpg --gen-revoke "$FPR" > "meshloom-revoke-$FPR.asc"
+#    `gpg --gen-revoke` is INTERACTIVE (reason, comment, confirmations).
+gpg --output "meshloom-revoke-$FPR.asc" --gen-revoke "$FPR"
 
-# 4. Public material into the repo.
-gpg --export "$FPR"          > pkg/keys/meshloom-archive-keyring.gpg
-gpg --armor --export "$FPR"  > pkg/keys/meshloom.asc
-printf '%s\n' "$FPR"         > pkg/keys/FINGERPRINT
+# 4. Public material (the only files that go into the repo).
+gpg --export "$FPR"          > public/meshloom-archive-keyring.gpg
+gpg --armor --export "$FPR"  > public/meshloom.asc
+printf '%s\n' "$FPR"         > public/FINGERPRINT
 
 # 5. Signing subkey only (no primary secret) for the CI secret, WITHOUT passphrase.
 #    Work on a copy: `passwd` is interactive (enter the old passphrase, leave the new
 #    one EMPTY, confirm "without protection"), and it must not touch the master.
-cp -a "$GNUPGHOME" "$GNUPGHOME.ci" && chmod 700 "$GNUPGHOME.ci"
-GNUPGHOME="$GNUPGHOME.ci" gpg --edit-key "$FPR"      # gpg> passwd  ... gpg> save
-GNUPGHOME="$GNUPGHOME.ci" gpg --armor --export-secret-subkeys "$FPR" > meshloom-ci-subkey.asc
+cp -a "$GNUPGHOME" "$WORK/gnupg.ci" && chmod 700 "$WORK/gnupg.ci"
+GNUPGHOME="$WORK/gnupg.ci" gpg --edit-key "$FPR"      # gpg> passwd  ... gpg> save
+GNUPGHOME="$WORK/gnupg.ci" gpg --armor --export-secret-subkeys "$FPR" > meshloom-ci-subkey.asc
 #    Check: the primary is a stub ("sec#") and the subkey signs with no passphrase.
 gpg --show-keys meshloom-ci-subkey.asc
 T="$(mktemp -d)"; chmod 700 "$T"; GNUPGHOME="$T" gpg --batch --import meshloom-ci-subkey.asc
 echo probe | GNUPGHOME="$T" gpg --batch --pinentry-mode loopback --passphrase '' \
     --detach-sign -u "$FPR" -o /dev/null && echo "CI subkey OK"
 
-# 6. Offline backup of the primary secret key (see below), then
-#    delete the primary and the .ci copy from the working machine.
-gpg --armor --export-secret-keys "$FPR" > meshloom-primary-SECRET-$FPR.asc
+# 6. Offline backup of the primary secret key (see below).
+gpg --armor --export-secret-keys "$FPR" > "meshloom-primary-SECRET-$FPR.asc"
+
+# 7. Copy ONLY the public files into the checkout.
+cp public/meshloom-archive-keyring.gpg public/meshloom.asc public/FINGERPRINT /path/to/meshloom/pkg/keys/
+
+# 8. After the offline backup is verified (restore test below) and the CI secret
+#    is set: securely delete every working copy.
+cd / && find "$WORK" "$T" -type f -exec shred -u {} + && rm -rf "$WORK" "$T"
 ```
+
 
 Then, in GitHub (repository secrets, **by the owner only**):
 
