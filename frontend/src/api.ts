@@ -152,6 +152,9 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       },
     });
   } catch (err) {
+    // A cancelled request says nothing about the session: skip the probe (and its extra
+    // network round trip) and let the caller handle the abort.
+    if (isAbortError(err)) throw err;
     // An authentication proxy refusing a JSON request throws the same way an
     // unreachable server does, so ask before blaming the network.
     if (await edgeSessionLost()) reportEdgeSessionExpired();

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import type { RawPacket } from '../types';
-import { appendRawPacketUnique } from '../utils/rawPacketIdentity';
+import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
 import {
   MAX_RAW_PACKET_STATS_OBSERVATIONS,
   summarizeRawPacketForStats,
@@ -31,6 +31,15 @@ function createStatsSession(): RawPacketStatsSessionState {
 
 let packets: RawPacket[] = [];
 let statsSession: RawPacketStatsSessionState = createStatsSession();
+// Key indexes mirroring `packets` and `statsSession.observations`, so de-duplication is
+// O(1) per packet instead of a scan of up to 20 000 retained observations.
+let packetKeys = new Set<string>();
+let observationKeys = new Set<string>();
+
+function rebuildKeyIndexes(): void {
+  packetKeys = new Set(packets.map(getRawPacketObservationKey));
+  observationKeys = new Set(statsSession.observations.map((o) => o.observationKey));
+}
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void): () => void {
@@ -46,19 +55,33 @@ function emit(): void {
   }
 }
 
+function appendPacket(packet: RawPacket, maxPackets: number): RawPacket[] {
+  const key = getRawPacketObservationKey(packet);
+  if (packetKeys.has(key)) {
+    return packets;
+  }
+  const updated = [...packets, packet];
+  packetKeys.add(key);
+  if (updated.length <= maxPackets) {
+    return updated;
+  }
+  const overflow = updated.length - maxPackets;
+  for (let i = 0; i < overflow; i += 1) {
+    packetKeys.delete(getRawPacketObservationKey(updated[i]));
+  }
+  return updated.slice(overflow);
+}
+
 function observePacket(
   session: RawPacketStatsSessionState,
   packet: RawPacket
 ): RawPacketStatsSessionState {
   const observation = summarizeRawPacketForStats(packet);
-  if (
-    session.observations.some(
-      (candidate) => candidate.observationKey === observation.observationKey
-    )
-  ) {
+  if (observationKeys.has(observation.observationKey)) {
     return session;
   }
 
+  observationKeys.add(observation.observationKey);
   const observations = [...session.observations, observation];
   if (observations.length <= MAX_RAW_PACKET_STATS_OBSERVATIONS) {
     return {
@@ -69,6 +92,9 @@ function observePacket(
   }
 
   const overflow = observations.length - MAX_RAW_PACKET_STATS_OBSERVATIONS;
+  for (let i = 0; i < overflow; i += 1) {
+    observationKeys.delete(observations[i].observationKey);
+  }
   return {
     ...session,
     totalObservedPackets: session.totalObservedPackets + 1,
@@ -79,7 +105,7 @@ function observePacket(
 
 /** Record one observed packet into both the rolling buffer and the session stats. */
 export function recordRawPacket(packet: RawPacket, maxPackets: number = MAX_RAW_PACKETS): void {
-  const nextPackets = appendRawPacketUnique(packets, packet, maxPackets);
+  const nextPackets = appendPacket(packet, maxPackets);
   const nextStats = observePacket(statsSession, packet);
   if (nextPackets === packets && nextStats === statsSession) {
     return;
@@ -99,6 +125,7 @@ export function clearRawPackets(): void {
     return;
   }
   packets = [];
+  packetKeys = new Set();
   emit();
 }
 
@@ -106,6 +133,7 @@ export function clearRawPackets(): void {
 export function resetRawPacketStore(): void {
   packets = [];
   statsSession = createStatsSession();
+  rebuildKeyIndexes();
   emit();
 }
 
@@ -132,6 +160,7 @@ export function seedRawPacketStore(next: {
       observations: [...next.statsSession.observations],
     };
   }
+  rebuildKeyIndexes();
   emit();
 }
 
