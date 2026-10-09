@@ -209,7 +209,8 @@ describe('useRealtimeAppState', () => {
     });
 
     await waitFor(() => {
-      expect(liveContacts.map((x) => x.name).sort()).toEqual(['Carol', 'New A']);
+      // Server order is preserved: A keeps its slot (with the live name), B is gone.
+      expect(liveContacts.map((x) => x.name)).toEqual(['New A', 'Carol']);
     });
   });
 

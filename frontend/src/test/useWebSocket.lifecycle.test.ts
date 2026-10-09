@@ -125,12 +125,69 @@ describe('useWebSocket lifecycle', () => {
     act(() => vi.advanceTimersByTime(1));
     expect(MockWebSocket.instances).toHaveLength(3);
 
-    // A successful open resets the backoff to the first step.
+    // A connection that stays up for 10 s resets the backoff to the first step.
     act(() => MockWebSocket.instances[2].onopen?.());
+    act(() => vi.advanceTimersByTime(10000));
     drop();
     act(() => vi.advanceTimersByTime(1000));
     expect(MockWebSocket.instances).toHaveLength(4);
     rnd.mockRestore();
+  });
+
+  it('keeps backing off when the server accepts then immediately closes', () => {
+    renderHook(() => useWebSocket({}));
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const flap = () => {
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      act(() => ws.onopen?.());
+      act(() => ws.onclose?.());
+    };
+    flap();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(MockWebSocket.instances).toHaveLength(2);
+    flap();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(MockWebSocket.instances).toHaveLength(2); // second delay is 2 s, not 1 s
+    act(() => vi.advanceTimersByTime(1000));
+    expect(MockWebSocket.instances).toHaveLength(3);
+    rnd.mockRestore();
+  });
+
+  it('resets the backoff after the first message', () => {
+    renderHook(() => useWebSocket({}));
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const last = () => MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    act(() => last().onclose?.());
+    act(() => vi.advanceTimersByTime(1000));
+    act(() => last().onclose?.());
+    act(() => vi.advanceTimersByTime(2000));
+    expect(MockWebSocket.instances).toHaveLength(3);
+    act(() => last().onmessage?.({ data: JSON.stringify({ type: 'pong', data: null }) }));
+    act(() => last().onclose?.());
+    act(() => vi.advanceTimersByTime(1000));
+    expect(MockWebSocket.instances).toHaveLength(4);
+    rnd.mockRestore();
+  });
+
+  it('reconnects immediately on online / visible when disconnected', () => {
+    renderHook(() => useWebSocket({}));
+    act(() => MockWebSocket.instances[0].onclose?.()); // 1 s timer pending
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    act(() => MockWebSocket.instances[1].onclose?.());
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(MockWebSocket.instances).toHaveLength(3);
+
+    // While connected, the events are no-ops.
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(MockWebSocket.instances).toHaveLength(3);
   });
 
   it('caps the delay and applies +/-25% jitter', () => {

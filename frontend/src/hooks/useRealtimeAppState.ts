@@ -95,8 +95,9 @@ interface SnapshotTracker {
   channels: Set<string>;
 }
 
-/** Snapshot rows win, except for keys a newer WS delta touched: those keep the live state
- *  (present in `live` = upserted by a delta, absent = deleted by a delta). */
+/** Keep the snapshot's (server) order. Keys a newer WS delta touched take the live value
+ *  (or are dropped when the delta deleted them); touched keys the snapshot does not know
+ *  about yet (created by a delta) are appended. */
 function mergeSnapshot<T>(
   snapshot: T[],
   live: T[],
@@ -105,10 +106,21 @@ function mergeSnapshot<T>(
 ): T[] {
   if (touched.size === 0) return snapshot;
   const liveByKey = new Map(live.map((item) => [keyOf(item), item]));
-  const merged = snapshot.filter((item) => !touched.has(keyOf(item)));
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const item of snapshot) {
+    const key = keyOf(item);
+    seen.add(key);
+    if (!touched.has(key)) {
+      merged.push(item);
+      continue;
+    }
+    const current = liveByKey.get(key);
+    if (current) merged.push(current);
+  }
   for (const key of touched) {
-    const item = liveByKey.get(key);
-    if (item) merged.push(item);
+    const current = liveByKey.get(key);
+    if (current && !seen.has(key)) merged.push(current);
   }
   return merged;
 }

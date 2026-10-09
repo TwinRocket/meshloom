@@ -51,6 +51,8 @@ export interface UseWebSocketOptions {
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+/** A connection must survive this long (or deliver a message) before backoff resets. */
+const STABLE_CONNECTION_MS = 10000;
 
 /** Capped exponential backoff with +/-25% jitter, so a restarted server is not hit by
  *  every client at the same instant. `attempt` is 0 for the first retry. */
@@ -65,6 +67,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const shouldReconnectRef = useRef(true);
   const hasConnectedRef = useRef(false);
   const attemptRef = useRef(0);
+  const stableTimerRef = useRef<number | null>(null);
 
   // Store options in ref to avoid stale closures in WebSocket handlers.
   // The onmessage callback captures this ref, and we keep the ref updated
@@ -93,10 +96,21 @@ export function useWebSocket(options: UseWebSocketOptions) {
     // previous socket's late events must not clobber wsRef or schedule extra reconnects.
     wsRef.current = ws;
     const isCurrent = () => wsRef.current === ws;
+    const clearStableTimer = () => {
+      if (stableTimerRef.current !== null) {
+        clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
+    };
 
     ws.onopen = () => {
       if (!isCurrent()) return;
-      attemptRef.current = 0;
+      // Do not reset the backoff yet: a server that accepts then immediately closes would
+      // otherwise be retried at the base delay forever. Reset once the link proves stable.
+      clearStableTimer();
+      stableTimerRef.current = window.setTimeout(() => {
+        attemptRef.current = 0;
+      }, STABLE_CONNECTION_MS);
       // Connection established (or re-established after disconnect)
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -110,6 +124,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     ws.onclose = () => {
       if (!isCurrent()) return;
+      clearStableTimer();
       // Connection lost — will auto-reconnect after delay
       wsRef.current = null;
 
@@ -135,6 +150,10 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     ws.onmessage = (event) => {
       if (!isCurrent()) return;
+      if (attemptRef.current !== 0) {
+        attemptRef.current = 0;
+        clearStableTimer();
+      }
       try {
         const msg = parseWsEvent(event.data);
         if (!isDispatchableWsEvent(msg)) {
@@ -246,8 +265,29 @@ export function useWebSocket(options: UseWebSocketOptions) {
       }
     }, 30000);
 
+    // Coming back online or to the foreground: do not sit out a long backoff.
+    const reconnectNow = () => {
+      if (!shouldReconnectRef.current || wsRef.current !== null) return;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      connect();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') reconnectNow();
+    };
+    window.addEventListener('online', reconnectNow);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       shouldReconnectRef.current = false;
+      window.removeEventListener('online', reconnectNow);
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (stableTimerRef.current !== null) {
+        clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
       clearInterval(pingInterval);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
