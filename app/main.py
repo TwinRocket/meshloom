@@ -39,8 +39,10 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -198,34 +200,84 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down")
-    if startup_radio_task and not startup_radio_task.done():
-        startup_radio_task.cancel()
+    try:
+        await _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager)
+    finally:
+        # Always close the DB, even if an earlier step raised or was cancelled,
+        # so the WAL is checkpointed and the file is left consistent.
         try:
-            await startup_radio_task
-        except asyncio.CancelledError:
-            pass
+            await db.disconnect()
+        except Exception:
+            logger.exception("Shutdown step failed: database disconnect")
+
+
+# Upper bound for steps that talk to the radio (stopping auto-fetch,
+# disconnecting). A wedged serial/BLE link must not hang process exit.
+SHUTDOWN_RADIO_TIMEOUT_SECONDS = 10.0
+
+
+async def _shutdown_step(
+    label: str, step: Callable[[], Awaitable[Any]], timeout: float | None = None
+) -> None:
+    """Run one teardown step; log and continue on failure or timeout."""
+    try:
+        if timeout is None:
+            await step()
+        else:
+            await asyncio.wait_for(step(), timeout=timeout)
+        logger.debug("Shutdown step done: %s", label)
+    except TimeoutError:
+        logger.error("Shutdown step timed out after %.0fs: %s", timeout, label)
+    except Exception:
+        logger.exception("Shutdown step failed: %s", label)
+
+
+async def _cancel_task(task: asyncio.Task | None) -> None:
+    if task is None or task.done():
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> None:
+    from app.background_tasks import drain_background_tasks
     from app.services.community_live import shutdown_community_live
 
-    await shutdown_community_live()
-    await fanout_manager.stop_all()
-    await radio_proxy_manager.stop()
-    await radio_manager.stop_connection_monitor()
-    await stop_background_contact_reconciliation()
-    await stop_message_polling()
-    await stop_radio_stats_sampling()
-    await stop_oss_update_polling()
-    await stop_hashtag_catalogue_polling()
-    await stop_periodic_advert()
-    await stop_periodic_sync()
-    await stop_telemetry_collect()
-    await stop_stale_contact_purge()
-    if radio_manager.meshcore:
-        await radio_manager.meshcore.stop_auto_message_fetching()
-    await radio_manager.disconnect()
-    from app.background_tasks import drain_background_tasks
+    # Callables, not coroutine objects: a step is only created when it runs,
+    # inside the guard (so a synchronous raise is caught too).
+    steps = [
+        ("startup radio task", lambda: _cancel_task(startup_radio_task)),
+        ("community live", shutdown_community_live),
+        ("fanout modules", fanout_manager.stop_all),
+        ("radio proxy", radio_proxy_manager.stop),
+        ("connection monitor", radio_manager.stop_connection_monitor),
+        ("background contact reconciliation", stop_background_contact_reconciliation),
+        ("message polling", stop_message_polling),
+        ("radio stats sampling", stop_radio_stats_sampling),
+        ("OSS update polling", stop_oss_update_polling),
+        ("hashtag catalogue polling", stop_hashtag_catalogue_polling),
+        ("periodic advert", stop_periodic_advert),
+        ("periodic sync", stop_periodic_sync),
+        ("telemetry collect", stop_telemetry_collect),
+        ("housekeeping loop", stop_stale_contact_purge),
+    ]
+    for label, step in steps:
+        await _shutdown_step(label, step)
 
-    await drain_background_tasks()
-    await db.disconnect()
+    meshcore = radio_manager.meshcore
+    if meshcore:
+        await _shutdown_step(
+            "radio auto message fetching",
+            meshcore.stop_auto_message_fetching,
+            SHUTDOWN_RADIO_TIMEOUT_SECONDS,
+        )
+    await _shutdown_step(
+        "radio disconnect", radio_manager.disconnect, SHUTDOWN_RADIO_TIMEOUT_SECONDS
+    )
+    await _shutdown_step("background tasks", drain_background_tasks)
 
 
 app = FastAPI(
