@@ -467,7 +467,7 @@ Repository writes should prefer typed models such as `ContactUpsert` over ad hoc
 - `flood_scope`
 - `known_regions`
 - `blocked_keys`, `blocked_names`, `discovery_blocked_types`
-- `raw_packet_retention_days` (0 = off): hourly housekeeping (`services/stale_contacts.py`, same loop as the stale-contact purge) prunes undecrypted raw packets older than N days in short batches, then runs a bounded `PRAGMA incremental_vacuum`. No UI yet; set through `PATCH /api/settings`.
+- `raw_packet_retention_days` (0 = off): hourly housekeeping (`services/stale_contacts.py`, same loop as the stale-contact purge) prunes undecrypted raw packets older than N days in short batches, then runs a bounded `PRAGMA incremental_vacuum`. Pruned packets can no longer be decrypted by channel/contact keys added later (historical decrypt only sees retained raw packets). No UI yet; set through `PATCH /api/settings`.
 - `tracked_telemetry_repeaters`, `tracked_telemetry_contacts`
 - `auto_resend_channel`
 - `auto_update`

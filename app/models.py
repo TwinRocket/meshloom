@@ -1468,7 +1468,8 @@ class AppSettings(BaseModel):
         description=(
             "Automatic pruning of undecrypted raw packets older than this many days. "
             "0 = disabled (default, keep everything). Packets linked to a stored message "
-            "are never pruned by this job."
+            "are never pruned by this job. Pruned packets can no longer be decrypted by "
+            "channel/contact keys added later."
         ),
     )
     stale_contact_days: int = Field(

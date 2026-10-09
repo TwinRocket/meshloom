@@ -117,7 +117,10 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         ge=0,
         le=3650,
-        description="Automatic prune of undecrypted raw packets older than N days (0 = disabled)",
+        description=(
+            "Automatic prune of undecrypted raw packets older than N days (0 = disabled). "
+            "Pruned packets can no longer be decrypted by channel/contact keys added later."
+        ),
     )
     telemetry_alert_rules: TelemetryAlertRules | None = Field(
         default=None,
