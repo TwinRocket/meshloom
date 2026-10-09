@@ -5,16 +5,20 @@ Keep it aligned with `frontend/src` source code.
 
 ## Stack
 
-- React 18 + TypeScript
-- Vite
-- Vitest + Testing Library
-- shadcn/ui primitives
-- Tailwind utility classes + local CSS (`index.css`, `styles.css`)
-- Sonner (toasts)
-- Leaflet / react-leaflet (map)
-- `@michaelhart/meshcore-decoder` installed via npm alias to `meshcore-decoder-multibyte-patch`
+Verified against `package.json` and `src/`.
+
+- React 19 + TypeScript, Vite 8 (rolldown), Vitest 5 + Testing Library (jsdom)
+- shadcn/ui-style primitives (Radix: checkbox, dialog, label, separator, slot, tabs) in `components/ui/`, `cmdk` for the command palette
+- Tailwind 3 utility classes + local CSS (`index.css`, `styles.css`, `themes.css`)
+- Sonner (toasts), `lucide-react` (icons), `@tanstack/react-virtual` (message list), `react-swipeable`
+- i18next + react-i18next. English and French, loaded on demand (see "i18n" below)
+- Maps: `maplibre-gl` + `@deck.gl/{core,layers,mapbox}` for `#live` (`components/live/liveMap.ts`); Leaflet / react-leaflet for the node map, mini-maps and pickers
+- Charts: `recharts` (contact/channel info panes, telemetry history, statistics)
+- Visualizer: `three` + `d3-force-3d` (`d3-force` is a devDependency, imported for types only)
+- Bot editor: CodeMirror (`@uiw/react-codemirror`, `@codemirror/lang-python`, `@codemirror/theme-one-dark`)
+- `@michaelhart/meshcore-decoder` installed via npm alias to `meshcore-decoder-multibyte-patch` (multibyte-aware decoder build)
 - `meshcore-hashtag-cracker` + `nosleep.js` (channel cracker)
-- Multibyte-aware decoder build published as `meshcore-decoder-multibyte-patch`
+- `qrcode.react` (share QR codes)
 
 ## Code Ethos
 
@@ -33,7 +37,8 @@ frontend/src/
 ├── App.tsx                 # Data/orchestration entry that wires hooks into AppShell
 ├── api.ts                  # Typed REST client
 ├── types.ts                # Shared TS contracts
-├── useWebSocket.ts         # WS lifecycle + event dispatch
+├── useWebSocket.ts         # WS lifecycle: stale-socket guard, capped exponential backoff + jitter, event dispatch
+├── i18n/                   # i18next setup; locales/{en,fr}.json + locales/slices/*.{en,fr}.json, loaded lazily per language
 ├── wsEvents.ts             # Typed WS event parsing / discriminated union
 ├── prefetch.ts             # Consumes prefetched API promises started in index.html
 ├── index.css               # Global styles/utilities
@@ -81,6 +86,7 @@ frontend/src/
 │   └── ...
 ├── utils/
 │   ├── urlHash.ts              # Hash parsing and encoding
+│   ├── formatNumber.ts         # Intl.NumberFormat(i18n.language) helper; use instead of bare toLocaleString()
 │   ├── conversationState.ts    # State keys, in-memory + localStorage helpers
 │   ├── pushPolicy.ts           # Mirror of backend conversation_is_enabled
 │   ├── messageParser.ts        # Message text → rendered segments
@@ -286,11 +292,28 @@ That gives the store a load-bearing invariant: **no ancestor of `MessageList` ma
 - room-server auth/status gate before room chat
 - normal chat chrome (`ChatHeader` + `MessageList` + `MessageInput`)
 
+### Bundle and lazy loading
+
+Startup JS is kept small on purpose (initial gzip: ~545 kB, down from ~750 kB, before the French locale chunk).
+
+- Heavy surfaces are `lazy()` with a `Suspense` fallback: `MapView`, `LiveView`, `VisualizerView`, `RepeaterDashboard`, `RawPacketFeedView`, `SensorTelemetryPanel`, `LocateZoneMap`, `SettingsModal`, `CrackerPanel`, `SearchView`, and the `ContactInfoPane` / `ChannelInfoPane` sheets.
+- The info sheets are mounted on first open (`AppShell` latches `contactPaneLoaded` / `channelPaneLoaded`) and stay mounted afterwards so the close animation plays.
+- Anything that statically imports `recharts`, `react-leaflet`/`leaflet` or `qrcode.react` from an always-loaded module puts them back in the entry chunk. Import such components lazily.
+- No `build.rollupOptions`/`codeSplitting` vendor groups: with rolldown, named groups for recharts or leaflet were measured to hoist them into the entry's static imports. Automatic splitting is better.
+
+### i18n
+
+- `src/i18n/index.ts` registers a small i18next backend that dynamic-imports only the active language (base JSON + `slices/*.<lng>.json`). `main.tsx` awaits `i18nReady` before first render; `i18n.changeLanguage()` fetches the other language on demand.
+- There is no runtime fallback language, so `en` and `fr` must define exactly the same keys. `src/test/i18nParity.test.ts` enforces it.
+- Tests preload both languages in `src/test/setup.ts`.
+- Format numbers with `formatNumber()` (or `{{count, number}}` in the message with a numeric `count`), never bare `toLocaleString()`, so the UI language wins over the OS locale.
+
 ### Initial load + realtime
 
 - Initial data: REST fetches (`api.ts`) for config/settings/channels/contacts/unreads.
 - WebSocket: realtime deltas/events.
-- On reconnect, the app refetches channels and contacts, refreshes unread counts, and reconciles the active conversation to recover disconnect-window drift.
+- On reconnect, the app refetches channels and contacts, refreshes unread counts, and reconciles the active conversation to recover disconnect-window drift. REST snapshots are generation-guarded: only the newest reconnect is applied, and keys changed by WS deltas while the request was in flight keep their live value (`useRealtimeAppState`).
+- `useWebSocket` ignores events from any socket that is no longer `wsRef.current` (StrictMode double-mount, late `close`), and reconnects with capped exponential backoff (1 s to 30 s, +/-25% jitter, reset on open).
 - On WS connect, backend sends `health` only; contacts/channels still come from REST.
 
 ### New Message modal
