@@ -1,6 +1,6 @@
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { IconLayer, PathLayer, ScatterplotLayer } from '@deck.gl/layers';
-import maplibregl, { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
+import { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
 
 import type {
   CommunityPacketType,
@@ -280,7 +280,7 @@ export class LiveMapController {
     this.wallClock = options.now ?? (() => performance.now());
     const saved = readLiveCamera();
     container.classList.add('live-map-osm');
-    this.map = new maplibregl.Map({
+    this.map = new MapLibreMap({
       container,
       style: LIVE_MAP_STYLE,
       center: [saved?.lon ?? 8, saved?.lat ?? 24],
