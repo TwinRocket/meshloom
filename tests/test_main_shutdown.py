@@ -122,3 +122,33 @@ async def test_db_disconnect_runs_even_if_teardown_raises():
             await asyncio.wait_for(cm.__aexit__(None, None, None), timeout=2)
 
     db_disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_swallows_only_its_own_cancellation():
+    async def forever():
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(forever())
+    await asyncio.sleep(0)
+    await main._cancel_task(task)
+    assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_propagates_when_shutdown_is_cancelled():
+    async def slow_to_stop():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.05)  # cleanup still running when shutdown is cancelled
+            raise
+
+    inner = asyncio.create_task(slow_to_stop())
+    await asyncio.sleep(0)
+    outer = asyncio.create_task(main._cancel_task(inner))
+    await asyncio.sleep(0.01)
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(outer, timeout=2)
+    assert outer.cancelled()

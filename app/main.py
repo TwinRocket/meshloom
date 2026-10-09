@@ -239,7 +239,12 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
     try:
         await task
     except asyncio.CancelledError:
-        pass
+        # Swallow only the cancellation we requested. If the shutdown itself
+        # is being cancelled (pending cancel request on the current task), or
+        # the CancelledError did not come from ``task``, propagate it.
+        current = asyncio.current_task()
+        if not task.cancelled() or (current is not None and current.cancelling()):
+            raise
 
 
 async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> None:
