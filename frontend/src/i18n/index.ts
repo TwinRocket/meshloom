@@ -1,4 +1,4 @@
-import i18n from 'i18next';
+import i18n, { type BackendModule } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import {
@@ -7,8 +7,6 @@ import {
   applyDocumentLanguage,
   getSavedLanguage,
 } from '../utils/languagePreference';
-import en from './locales/en.json';
-import fr from './locales/fr.json';
 
 function deepMerge(
   base: Record<string, unknown>,
@@ -35,10 +33,10 @@ function deepMerge(
 
 function mergeSliceModules(
   base: Record<string, unknown>,
-  modules: Record<string, unknown>
+  modules: unknown[]
 ): Record<string, unknown> {
   let out = base;
-  for (const mod of Object.values(modules)) {
+  for (const mod of modules) {
     const overlay =
       mod && typeof mod === 'object' && 'default' in mod
         ? (mod as { default: Record<string, unknown> }).default
@@ -50,23 +48,56 @@ function mergeSliceModules(
   return out;
 }
 
-const enSlices = import.meta.glob('./locales/slices/*.en.json', { eager: true });
-const frSlices = import.meta.glob('./locales/slices/*.fr.json', { eager: true });
-const enMerged = mergeSliceModules(en as Record<string, unknown>, enSlices);
-const frMerged = mergeSliceModules(fr as Record<string, unknown>, frSlices);
+type JsonModule = { default: Record<string, unknown> };
+type Loader = () => Promise<JsonModule>;
+
+// One entry per language, loaded on demand: only the active language is fetched at
+// startup, the other one when the user switches. Slices overlay the base file.
+const baseLoaders: Record<string, Loader> = {
+  en: () => import('./locales/en.json'),
+  fr: () => import('./locales/fr.json'),
+};
+const sliceLoaders: Record<string, Record<string, Loader>> = {
+  en: import.meta.glob<JsonModule>('./locales/slices/*.en.json'),
+  fr: import.meta.glob<JsonModule>('./locales/slices/*.fr.json'),
+};
+
+async function loadLanguage(language: string): Promise<Record<string, unknown>> {
+  const loadBase = baseLoaders[language];
+  if (!loadBase) return {};
+  const [base, ...slices] = await Promise.all([
+    loadBase(),
+    ...Object.values(sliceLoaders[language] ?? {}).map((load) => load()),
+  ]);
+  return mergeSliceModules(base.default, slices);
+}
+
+const lazyBackend: BackendModule = {
+  type: 'backend',
+  init() {},
+  read(language, _namespace, callback) {
+    loadLanguage(language).then(
+      (data) => callback(null, data),
+      (err: unknown) => callback(err instanceof Error ? err : new Error(String(err)), null)
+    );
+  },
+};
 
 applyDocumentLanguage(getSavedLanguage());
 
-void i18n
+/** Resolves once the active language is loaded. Await it before first render. */
+export const i18nReady: Promise<void> = i18n
+  .use(lazyBackend)
   .use(initReactI18next)
   .init({
-    resources: {
-      fr: { translation: frMerged },
-      en: { translation: enMerged },
-    },
     lng: getSavedLanguage(),
-    fallbackLng: FALLBACK_LOCALE,
+    // No runtime fallback: en and fr are kept at key parity (see i18nParity.test.ts),
+    // so the fallback language never needs to be fetched alongside the active one.
+    fallbackLng: false,
     supportedLngs: [DEFAULT_LOCALE, FALLBACK_LOCALE],
+    ns: ['translation'],
+    defaultNS: 'translation',
+    partialBundledLanguages: true,
     interpolation: { escapeValue: false },
   })
   .then(() => {

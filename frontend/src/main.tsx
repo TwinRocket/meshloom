@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
-import './i18n';
+import { i18nReady } from './i18n';
 import './index.css';
 import './themes.css';
 import './styles.css';
@@ -20,13 +20,16 @@ initFollowOSListener();
 applyFontScale(getSavedFontScale());
 initAppViewport();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <PushSubscriptionProvider>
-      <App />
-    </PushSubscriptionProvider>
-  </StrictMode>
-);
+// Wait for the active language bundle so the first paint never shows raw keys.
+void i18nReady.finally(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <PushSubscriptionProvider>
+        <App />
+      </PushSubscriptionProvider>
+    </StrictMode>
+  );
+});
 
 // Register service worker for Web Push (requires secure context)
 if ('serviceWorker' in navigator && window.isSecureContext) {

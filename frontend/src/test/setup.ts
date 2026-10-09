@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom/vitest';
 import { configure } from '@testing-library/react';
-import '../i18n';
+import i18n, { i18nReady } from '../i18n';
+
+await i18nReady;
+// Production loads one language at a time; tests switch languages freely.
+await i18n.loadLanguages(['en', 'fr']);
 
 /**
  * How long an async assertion waits before calling it a failure.
