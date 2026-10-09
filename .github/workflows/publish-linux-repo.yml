@@ -28,10 +28,6 @@ on:
         description: "Fail unless the armhf .deb is attached"
         type: boolean
         default: false
-      allow_unsigned_rpm:
-        description: "Step 0 of the signing roll-out only: tolerate .rpm files built before signing existed"
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       version:
@@ -73,7 +69,6 @@ jobs:
         uses: ./.github/actions/import-signing-key
         with:
           private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
 
       - name: Resolve release
         id: rel
@@ -112,17 +107,13 @@ jobs:
       # Packages are signed by nFPM at build time (pkg/nfpm). Refuse anything
       # else, so dnf with gpgcheck=1 can install every file we serve.
       - name: Assert .rpm packages are signed
-        env:
-          ALLOW_UNSIGNED_RPM: ${{ inputs.allow_unsigned_rpm }}
         run: |
           if ! python3 -I scripts/build/check_rpm_signed.py incoming/*.rpm; then
-            if [ "$ALLOW_UNSIGNED_RPM" = "true" ]; then
-              echo "::warning::publishing .rpm files without a signature (allow_unsigned_rpm); only valid for clients with gpgcheck=0"
-            else
-              echo "::error::unsigned .rpm in the release. Publish a release built after signing was enabled."
-              exit 1
-            fi
+            echo "::error::unsigned .rpm in release $VERSION: dnf with gpgcheck=1 could not install it. Publish a release built with signing enabled."
+            exit 1
           fi
+        env:
+          VERSION: ${{ steps.rel.outputs.version }}
 
       - name: Build apt and rpm trees
         run: |
@@ -169,11 +160,10 @@ jobs:
       - name: Sign metadata and publish the public key
         env:
           GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
-          GPG_PASSPHRASE: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
           KEY_ID: ${{ steps.key.outputs.fingerprint }}
         run: |
           set -euo pipefail
-          sign() { gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" -u "$KEY_ID" "$@"; }
+          sign() { gpg --batch --yes --pinentry-mode loopback --passphrase "" -u "$KEY_ID" "$@"; }
           sign --clearsign -o public/apt/dists/stable/InRelease public/apt/dists/stable/Release
           sign --detach-sign -a -o public/apt/dists/stable/Release.gpg public/apt/dists/stable/Release
           for arch in x86_64 aarch64; do

@@ -27,15 +27,27 @@ that key has a valid, non-expired, non-revoked signing subkey.
 
 ## Key layout
 
-* **Primary key**: ed25519, capability `cert` only, **kept offline**. It never
+* **Primary key**: RSA-4096, capability `cert` only, **kept offline**. It never
   goes into CI. It certifies subkeys, extends their expiry and revokes.
-* **Signing subkey**: ed25519, capability `sign`, 2-year expiry, renewed before it
-  lapses. Only this subkey is exported to the GitHub secret
+* **Signing subkey**: RSA-4096, capability `sign`, 2-year expiry, renewed before
+  it lapses. Only this subkey is exported to the GitHub secret
   (`gpg --export-secret-subkeys`), so a CI leak never exposes the primary.
-* Compatibility note: rpm older than 4.19 (RHEL/Alma/Rocky 9) cannot verify
-  EdDSA signatures. Fedora 41+, Debian and Ubuntu are fine. If those distributions
-  must be supported, use `rsa4096` for the primary and the subkey instead; nothing
-  else in the pipeline changes.
+* **RSA-4096 was chosen for maximum compatibility** (RHEL 8, FIPS-mode systems,
+  old `gpgv`/`rpm`), over ed25519.
+* **The CI subkey has no passphrase.** nFPM cannot use a passphrase-protected
+  key ("signing key is encrypted"); the GitHub secret is its protection. The
+  import step fails if the subkey is encrypted.
+* UID: `Meshloom Release Signing <releases@meshloom.app>`.
+
+## What the signatures protect
+
+* **apt** never verifies a per-`.deb` origin signature. Only `InRelease` /
+  `Release.gpg` protect apt clients (they cover the package hashes). The `.deb`
+  signature nFPM adds is for `debsig-verify` and audit only.
+* **dnf** with `gpgcheck=1` verifies every `.rpm` signature, and with
+  `repo_gpgcheck=1` the `repomd.xml.asc`.
+* `SHA256SUMS` (+ `.asc`) covers debs, rpms, the zip and `install.sh`;
+  `OCI-DIGESTS` (+ `.asc`) pins the image: `ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<index digest>`.
 
 ## Create the key (once, on an offline-capable machine)
 
@@ -43,11 +55,12 @@ that key has a valid, non-expired, non-revoked signing subkey.
 export GNUPGHOME="$(mktemp -d)"; chmod 700 "$GNUPGHOME"   # throwaway home
 
 # 1. Primary key, certify only, no expiry (the subkeys carry the expiry).
-gpg --quick-generate-key "Meshloom Release Signing <macri.pascal@gmail.com>" ed25519 cert never
+#    Give it a passphrase: it is the offline master.
+gpg --quick-generate-key "Meshloom Release Signing <releases@meshloom.app>" rsa4096 cert never
 FPR="$(gpg --list-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')"
 
 # 2. Signing subkey, 2 years.
-gpg --quick-add-key "$FPR" ed25519 sign 2y
+gpg --quick-add-key "$FPR" rsa4096 sign 2y
 
 # 3. Revocation certificate, stored with the backup (step 6).
 gpg --gen-revoke "$FPR" > "meshloom-revoke-$FPR.asc"
@@ -57,21 +70,27 @@ gpg --export "$FPR"          > pkg/keys/meshloom-archive-keyring.gpg
 gpg --armor --export "$FPR"  > pkg/keys/meshloom.asc
 printf '%s\n' "$FPR"         > pkg/keys/FINGERPRINT
 
-# 5. Signing subkey only (no primary secret) for the CI secret.
-#    Protect it with a passphrase, or leave it empty and skip the passphrase secret.
-gpg --armor --export-secret-subkeys "$FPR" > meshloom-ci-subkey.asc
-#    Check: the export must show the primary as a stub ("sec#").
+# 5. Signing subkey only (no primary secret) for the CI secret, WITHOUT passphrase.
+#    Work on a copy: `passwd` is interactive (enter the old passphrase, leave the new
+#    one EMPTY, confirm "without protection"), and it must not touch the master.
+cp -a "$GNUPGHOME" "$GNUPGHOME.ci" && chmod 700 "$GNUPGHOME.ci"
+GNUPGHOME="$GNUPGHOME.ci" gpg --edit-key "$FPR"      # gpg> passwd  ... gpg> save
+GNUPGHOME="$GNUPGHOME.ci" gpg --armor --export-secret-subkeys "$FPR" > meshloom-ci-subkey.asc
+#    Check: the primary is a stub ("sec#") and the subkey signs with no passphrase.
 gpg --show-keys meshloom-ci-subkey.asc
+T="$(mktemp -d)"; chmod 700 "$T"; GNUPGHOME="$T" gpg --batch --import meshloom-ci-subkey.asc
+echo probe | GNUPGHOME="$T" gpg --batch --pinentry-mode loopback --passphrase '' \
+    --detach-sign -u "$FPR" -o /dev/null && echo "CI subkey OK"
 
 # 6. Offline backup of the primary secret key (see below), then
-#    delete the primary from the working machine.
+#    delete the primary and the .ci copy from the working machine.
 gpg --armor --export-secret-keys "$FPR" > meshloom-primary-SECRET-$FPR.asc
 ```
 
 Then, in GitHub (repository secrets, **by the owner only**):
 
 * `MESHLOOM_REPO_GPG_PRIVATE_KEY` = content of `meshloom-ci-subkey.asc`
-* `MESHLOOM_REPO_GPG_PASSPHRASE` = its passphrase (omit if none)
+  (no passphrase secret exists)
 
 Commit `pkg/keys/*` (public files and `FINGERPRINT`), open the PR and run
 `scripts/build/check_signing_keys.sh` (strict) locally: it must print `OK`.
@@ -129,6 +148,10 @@ reading `Release` / `repomd.xml` and the packages exactly as before. Signature
 enforcement only starts when a client's source is rewritten to `signed-by=` /
 `gpgcheck=1` by a package that ships the keyring (release N), and that
 package is itself only published by a workflow that fails when the key is missing.
-Hence the order: key created, repository republished (step 0), then release N.
-Verify step 0 on a VM with the previous release installed: `apt update` and
-`dnf check-update` must still succeed.
+There is no separate republication of the old release: the first signed
+publication is **release 4.18.0 itself**, whose repository metadata and rpms are
+signed in the same publish run. The already-published `install.sh` switches new
+dnf installs to `gpgcheck=1` as soon as `meshloom.asc` appears, which is only safe
+if every rpm served as latest is signed; `publish-linux-repo.yml` therefore fails
+when an rpm is unsigned. Merge order: key created, L2, L1, tag 4.18.0. Verify on a
+VM with 4.17.0 installed that `apt update` and `dnf check-update` still succeed.

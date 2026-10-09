@@ -8,10 +8,6 @@ inputs:
   private-key:
     description: Armored secret (sub)key, from secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY
     required: true
-  passphrase:
-    description: Passphrase of the key, if it has one
-    required: false
-    default: ""
 
 outputs:
   gnupghome:
@@ -31,7 +27,6 @@ runs:
       shell: bash
       env:
         GPG_PRIVATE_KEY: ${{ inputs.private-key }}
-        GPG_PASSPHRASE: ${{ inputs.passphrase }}
       run: |
         set -euo pipefail
         if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
@@ -47,9 +42,13 @@ runs:
         # The committed public key must be the public half of this secret.
         "$GITHUB_WORKSPACE/scripts/build/check_signing_keys.sh" --secret-gnupghome "$GNUPGHOME"
         FPR="$(tr -d ' \t\r\n' < "$GITHUB_WORKSPACE/pkg/keys/FINGERPRINT")"
-        # Fail now, not at signing time, if the passphrase is wrong.
-        echo probe | gpg --batch --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
-          --detach-sign -u "$FPR" -o /dev/null
+        # nFPM cannot use a passphrase-protected key, so the CI subkey must have
+        # none (the GitHub secret is its protection). Fail now, not at signing time.
+        if ! echo probe | gpg --batch --pinentry-mode loopback --passphrase "" \
+          --detach-sign -u "$FPR" -o /dev/null 2>/dev/null; then
+          echo "::error::The CI signing subkey is passphrase-protected (or unusable). Export a passphrase-less subkey (pkg/keys/README.md)."
+          exit 1
+        fi
         {
           echo "gnupghome=$GNUPGHOME"
           echo "key_file=$KEY_FILE"

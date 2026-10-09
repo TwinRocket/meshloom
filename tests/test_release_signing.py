@@ -236,7 +236,8 @@ def test_release_jobs_fail_closed_and_use_least_privilege() -> None:
     sign = (WORKFLOWS / "sign-manifest.yml").read_text()
     for needle in (
         "SHA256SUMS.asc",
-        "oci ",
+        "OCI-DIGESTS.asc",
+        "sha256sum -c --strict",
         "gpgv --keyring",
         "attest-build-provenance",
         "require_armhf",
@@ -262,6 +263,134 @@ def test_release_jobs_fail_closed_and_use_least_privilege() -> None:
     action = (ROOT / ".github" / "actions" / "import-signing-key" / "action.yml").read_text()
     assert "exit 1" in action and "MESHLOOM_REPO_GPG_PRIVATE_KEY" in action
 
+    assert "allow_unsigned_rpm" not in repo
     for wf in ("release", "docker", "nfpm-armhf", "rpi-image", "publish-linux-repo"):
         text = (WORKFLOWS / f"{wf}.yml").read_text()
         assert "\npermissions: {}\n" in text or "\npermissions:\n  contents: read\n" in text, wf
+
+
+def _export_subkey(sec_home: Path) -> bytes:
+    out = subprocess.run(
+        [
+            "gpg",
+            "--batch",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+            "--armor",
+            "--export-secret-subkeys",
+        ],
+        capture_output=True,
+        env={**os.environ, "GNUPGHOME": str(sec_home)},
+        check=True,
+    )
+    return out.stdout
+
+
+@needs_gpg
+@pytest.mark.skipif(shutil.which("nfpm") is None, reason="nfpm not installed")
+def test_nfpm_signs_deb_and_rpm_with_exported_subkey(
+    real_keys: tuple[Path, Path, str], tmp_path: Path
+) -> None:
+    """The real thing: nFPM must accept the --export-secret-subkeys output."""
+    _keys_dir, sec_home, _fpr = real_keys
+    key_file = tmp_path / "ci.asc"
+    key_file.write_bytes(_export_subkey(sec_home))
+    payload = tmp_path / "payload"
+    payload.write_text("x")
+    cfg = tmp_path / "nfpm.yaml"
+    cfg.write_text(
+        f"""name: t
+arch: amd64
+platform: linux
+version: 1.0.0
+release: "1"
+maintainer: t <t@example.invalid>
+description: t
+contents:
+  - src: {payload}
+    dst: /opt/t
+deb:
+  signature:
+    key_file: {key_file}
+    type: origin
+rpm:
+  signature:
+    key_file: {key_file}
+"""
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    for packager in ("deb", "rpm"):
+        res = _run(
+            [
+                "nfpm",
+                "package",
+                "--config",
+                str(cfg),
+                "--packager",
+                packager,
+                "--target",
+                str(out_dir),
+            ]
+        )
+        assert res.returncode == 0, res.stderr
+    rpm = next(out_dir.glob("*.rpm"))
+    assert (
+        _run([sys.executable, "-I", str(BUILD / "check_rpm_signed.py"), str(rpm)]).returncode == 0
+    )
+    assert (
+        "_gpgorigin"
+        in subprocess.run(
+            ["ar", "t", str(next(out_dir.glob("*.deb")))],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
+
+
+@needs_gpg
+def test_passphrase_protected_subkey_is_detected(tmp_path: Path) -> None:
+    """The import action's probe (empty passphrase) must fail for an encrypted key."""
+    home = tmp_path / "enc"
+    home.mkdir(mode=0o700)
+    env = {"GNUPGHOME": str(home)}
+    gen = _run(
+        [
+            "gpg",
+            "--batch",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "pw",
+            "--quick-gen-key",
+            "e <e@example.invalid>",
+            "rsa2048",
+            "sign",
+            "never",
+        ],
+        env,
+    )
+    assert gen.returncode == 0, gen.stderr
+    probe = subprocess.run(
+        [
+            "gpg",
+            "--batch",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+            "--detach-sign",
+            "-o",
+            "/dev/null",
+        ],
+        input=b"probe",
+        capture_output=True,
+        env={**os.environ, **env},
+        check=False,
+    )
+    assert probe.returncode != 0
+    action = (ROOT / ".github" / "actions" / "import-signing-key" / "action.yml").read_text()
+    assert '--passphrase ""' in action and "passphrase-protected" in action

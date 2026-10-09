@@ -12,7 +12,7 @@ name: Release
 # version sources equal the tag and the CI secret MESHLOOM_REPO_GPG_PRIVATE_KEY
 # is the private half of the key committed in pkg/keys. Packages are signed by
 # nFPM, the apt/dnf repo by publish-linux-repo.yml, and `sign-manifest` leaves
-# SHA256SUMS + SHA256SUMS.asc (including the OCI index digest) on the release;
+# SHA256SUMS + OCI-DIGESTS (the OCI index digest) and their .asc on the release;
 # nfpm-armhf.yml re-runs both once the armhf package is attached.
 
 on:
@@ -62,7 +62,6 @@ jobs:
         uses: ./.github/actions/import-signing-key
         with:
           private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
 
   frontend:
     needs: [version, preflight]
@@ -153,13 +152,11 @@ jobs:
         uses: ./.github/actions/import-signing-key
         with:
           private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
 
       - name: Build packages
         env:
           MESHLOOM_REQUIRE_SIGNED: "1"
           MESHLOOM_SIGN_KEY_FILE: ${{ steps.key.outputs.key-file }}
-          NFPM_PASSPHRASE: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
         run: |
           chmod +x scripts/build/build_nfpm_packages.sh
           scripts/build/build_nfpm_packages.sh \
@@ -255,7 +252,7 @@ jobs:
       pages: write
       id-token: write
 
-  # SHA256SUMS + SHA256SUMS.asc (packages, zip, install.sh, OCI index digest).
+  # SHA256SUMS + OCI-DIGESTS and their .asc (packages, zip, install.sh; image digest).
   # Waits for docker.yml's image. Re-run by nfpm-armhf.yml once armhf is attached.
   sign-manifest:
     needs: [version, publish]

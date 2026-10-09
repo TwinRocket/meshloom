@@ -38,7 +38,7 @@ Options:
 
 Signing (packing step only):
   MESHLOOM_SIGN_KEY_FILE   armored secret (sub)key; when set, .deb and .rpm are signed.
-                           A passphrase, if any, goes in NFPM_PASSPHRASE.
+                           It must not be passphrase-protected (nFPM cannot use one).
   MESHLOOM_REQUIRE_SIGNED  1 = refuse to pack unsigned, and refuse placeholder keys
                            in pkg/keys (release jobs set this). Default: unsigned
                            local/PR builds are allowed.

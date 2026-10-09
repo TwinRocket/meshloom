@@ -1,14 +1,14 @@
 name: Sign release manifest
 
-# Produces and signs SHA256SUMS for a release: every .deb/.rpm, the prebuilt
-# frontend zip, install.sh, plus one line pinning the multi-arch OCI image by
-# its index digest:
+# Produces and signs two files for a release:
 #
-#   oci ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<index digest>
+#   SHA256SUMS (+ .asc)    every .deb/.rpm, the prebuilt frontend zip, install.sh;
+#                          strictly `sha256sum -c --strict` compatible
+#   OCI-DIGESTS (+ .asc)   one line pinning the multi-arch image by index digest:
+#                          ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<64 hex>
 #
-# Clients (install.sh, the compose updater) verify SHA256SUMS.asc against the
-# keyring committed in pkg/keys, never against a key fetched from the network,
-# and take the image digest from the signed line.
+# Clients verify the .asc files against the keyring committed in pkg/keys, never
+# against a key fetched from the network.
 #
 # Called by Release (after publish) and again by "Packages (armhf)" once the
 # armhf package is attached, which rewrites the manifest with the new file.
@@ -28,8 +28,6 @@ on:
         default: false
     secrets:
       MESHLOOM_REPO_GPG_PRIVATE_KEY:
-        required: false
-      MESHLOOM_REPO_GPG_PASSPHRASE:
         required: false
   workflow_dispatch:
     inputs:
@@ -79,7 +77,6 @@ jobs:
         uses: ./.github/actions/import-signing-key
         with:
           private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
 
       - name: Download release assets
         run: |
@@ -98,6 +95,13 @@ jobs:
           need 'install.sh'
           if [ "${{ inputs.require_armhf }}" = "true" ]; then need '*_armhf.deb'; fi
           ls -l
+
+      - name: Log in to GHCR (read)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # docker.yml runs on the same tag in parallel. Wait for the index tag, but
       # give up early when that run already failed.
@@ -120,6 +124,15 @@ jobs:
               echo "::error::docker.yml failed for $VERSION; no image to pin"
               exit 1
             fi
+            # The docker run is done and succeeded yet the tag cannot be read:
+            # waiting longer will not help.
+            if [ "${ok:-0}" -gt 0 ]; then
+              inspect_fail=$((${inspect_fail:-0} + 1))
+              if [ "$inspect_fail" -ge 5 ]; then
+                echo "::error::docker.yml succeeded but $IMAGE cannot be inspected"
+                exit 1
+              fi
+            fi
             echo "Waiting for $IMAGE ..."
             sleep 60
           done
@@ -138,19 +151,21 @@ jobs:
       - name: Write and sign SHA256SUMS
         env:
           GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
-          GPG_PASSPHRASE: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
           FPR: ${{ steps.key.outputs.fingerprint }}
           OCI_IMAGE: ${{ steps.oci.outputs.image }}
           OCI_DIGEST: ${{ steps.oci.outputs.digest }}
         run: |
           set -euo pipefail
           (cd manifest && LC_ALL=C sha256sum -- *.deb *.rpm meshloom-prebuilt-frontend-*.zip install.sh | LC_ALL=C sort -k2) > SHA256SUMS
-          echo "oci ${OCI_IMAGE}:${VERSION} ${OCI_DIGEST}" >> SHA256SUMS
-          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
-            --armor --detach-sign -u "$FPR" -o SHA256SUMS.asc SHA256SUMS
-          # Verify with the committed keyring, exactly as a client will.
-          gpgv --keyring "$PWD/pkg/keys/meshloom-archive-keyring.gpg" SHA256SUMS.asc SHA256SUMS
-          cat SHA256SUMS
+          (cd manifest && sha256sum -c --strict ../SHA256SUMS)
+          echo "${OCI_IMAGE}:${VERSION} ${OCI_DIGEST}" > OCI-DIGESTS
+          for f in SHA256SUMS OCI-DIGESTS; do
+            gpg --batch --yes --pinentry-mode loopback --passphrase "" \
+              --armor --detach-sign -u "$FPR" -o "$f.asc" "$f"
+            # Verify with the committed keyring, exactly as a client will.
+            gpgv --keyring "$PWD/pkg/keys/meshloom-archive-keyring.gpg" "$f.asc" "$f"
+            cat "$f"
+          done
 
       - name: Attest provenance of the release assets
         uses: actions/attest-build-provenance@v3
@@ -161,8 +176,9 @@ jobs:
             manifest/meshloom-prebuilt-frontend-*.zip
             manifest/install.sh
             SHA256SUMS
+            OCI-DIGESTS
 
       - name: Upload manifest to the release
         run: |
-          gh release upload "$VERSION" SHA256SUMS SHA256SUMS.asc \
+          gh release upload "$VERSION" SHA256SUMS SHA256SUMS.asc OCI-DIGESTS OCI-DIGESTS.asc \
             --repo "$GITHUB_REPOSITORY" --clobber

@@ -60,7 +60,6 @@ jobs:
         uses: ./.github/actions/import-signing-key
         with:
           private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
 
       - name: Overlay tagged sources
         run: |
@@ -123,7 +122,6 @@ jobs:
         env:
           MESHLOOM_REQUIRE_SIGNED: "1"
           MESHLOOM_SIGN_KEY_FILE: ${{ steps.key.outputs.key-file }}
-          NFPM_PASSPHRASE: ${{ secrets.MESHLOOM_REPO_GPG_PASSPHRASE }}
         run: |
           chmod +x scripts/build/build_nfpm_packages.sh
           scripts/build/build_nfpm_packages.sh \
