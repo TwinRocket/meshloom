@@ -146,8 +146,9 @@ Identity is bound to `radio_bound_public_key`. A live key that does not match, o
 
 - Server is source of truth (`contacts.last_read_at`, `channels.last_read_at`).
 - `GET /api/read-state/unreads` returns counts, mention flags, `last_message_times`, `last_message_previews`, `last_read_ats`, and `first_unread_ids`.
-- `last_message_times` and `last_message_previews` come from the same query: `ROW_NUMBER() OVER (PARTITION BY type, conversation_key ORDER BY received_at DESC, id DESC)` so same-second ties pick the newest `id`. Preview text is truncated to ~120 characters.
-- `first_unread_ids` maps stateKey -> id of the oldest unread message, so the client can anchor the unread divider (and jump to it) without paging back through history. It is computed with `ROW_NUMBER() OVER (PARTITION BY type, conversation_key ORDER BY received_at, id)` — deliberately not `MIN(received_at)` with a bare id, because sender timestamps are whole seconds and same-second ties are routine, and not `MIN(id)`, because historical decryption inserts old messages with new ids.
+- The endpoint never windows or sorts the whole `messages` table: conversations are enumerated by an index skip-scan, then each conversation's newest row and unread rows are read through `idx_messages_pagination` / `idx_messages_unread_covering`. `tests/test_unreads_equivalence.py` keeps the former `ROW_NUMBER()` implementation as an oracle; any change must keep both outputs identical.
+- `last_message_times` and `last_message_previews` take each conversation's newest row ordered by `(received_at DESC, id DESC)`, so same-second ties pick the newest `id`. Preview text is truncated to ~120 characters.
+- `first_unread_ids` maps stateKey -> id of the oldest unread message, so the client can anchor the unread divider (and jump to it) without paging back through history. It is the first unread row ordered by `(received_at, id)`, looked up only for conversations that have unreads — deliberately not `MIN(received_at)` with a bare id, because sender timestamps are whole seconds and same-second ties are routine, and not `MIN(id)`, because historical decryption inserts old messages with new ids.
 
 ### DM ingest + ACKs
 
