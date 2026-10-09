@@ -252,7 +252,7 @@ class AppSettingsRepository:
                    tracked_telemetry_repeaters, tracked_telemetry_contacts,
                    auto_resend_channel,
                    telemetry_interval_hours, telemetry_routed_hourly,
-                   stale_contact_days, telemetry_alert_rules,
+                   stale_contact_days, raw_packet_retention_days, telemetry_alert_rules,
                    notification_destinations,
                    ui_preferences, auto_update,
                    auto_update_window_start, auto_update_window_end,
@@ -377,6 +377,12 @@ class AppSettingsRepository:
             stale_contact_days = 0
 
         try:
+            raw_retention = row["raw_packet_retention_days"]
+            raw_packet_retention_days = int(raw_retention) if raw_retention is not None else 0
+        except (KeyError, TypeError, ValueError):
+            raw_packet_retention_days = 0
+
+        try:
             from app.telemetry_alerts import coerce_telemetry_alert_rules
 
             telemetry_alert_rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"])
@@ -431,6 +437,7 @@ class AppSettingsRepository:
             telemetry_interval_hours=telemetry_interval_hours,
             telemetry_routed_hourly=telemetry_routed_hourly,
             stale_contact_days=stale_contact_days,
+            raw_packet_retention_days=raw_packet_retention_days,
             telemetry_alert_rules=telemetry_alert_rules,
             notification_destinations=notification_destinations,
             auto_update=auto_update,
@@ -460,6 +467,7 @@ class AppSettingsRepository:
         telemetry_interval_hours: int | None = None,
         telemetry_routed_hourly: bool | None = None,
         stale_contact_days: int | None = None,
+        raw_packet_retention_days: int | None = None,
         telemetry_alert_rules: TelemetryAlertRules | None = None,
         notification_destinations: NotificationDestinations
         | NotificationDestinationsUpdate
@@ -552,6 +560,10 @@ class AppSettingsRepository:
             updates.append("stale_contact_days = ?")
             params.append(stale_contact_days)
 
+        if raw_packet_retention_days is not None:
+            updates.append("raw_packet_retention_days = ?")
+            params.append(raw_packet_retention_days)
+
         if telemetry_alert_rules is not None:
             from app.telemetry_alerts import merge_telemetry_alert_rules, stored_rules_dict
 
@@ -632,6 +644,7 @@ class AppSettingsRepository:
         telemetry_interval_hours: int | None = None,
         telemetry_routed_hourly: bool | None = None,
         stale_contact_days: int | None = None,
+        raw_packet_retention_days: int | None = None,
         telemetry_alert_rules: TelemetryAlertRules | None = None,
         notification_destinations: NotificationDestinations
         | NotificationDestinationsUpdate
@@ -664,6 +677,7 @@ class AppSettingsRepository:
                 telemetry_interval_hours=telemetry_interval_hours,
                 telemetry_routed_hourly=telemetry_routed_hourly,
                 stale_contact_days=stale_contact_days,
+                raw_packet_retention_days=raw_packet_retention_days,
                 telemetry_alert_rules=telemetry_alert_rules,
                 notification_destinations=notification_destinations,
                 auto_update=auto_update,

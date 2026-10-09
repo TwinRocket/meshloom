@@ -1,15 +1,23 @@
-"""Best-effort stale-contact purge. Off unless ``stale_contact_days`` > 0."""
+"""Periodic best-effort housekeeping.
+
+- Stale-contact purge: off unless ``stale_contact_days`` > 0.
+- Raw-packet retention: off unless ``raw_packet_retention_days`` > 0; prunes
+  undecrypted raw packets older than that many days, in short batches.
+- Bounded ``PRAGMA incremental_vacuum`` so freed pages go back to the OS.
+"""
 
 import asyncio
 import logging
 import time
 
-from app.repository import AppSettingsRepository, ContactRepository
+from app.repository import AppSettingsRepository, ContactRepository, RawPacketRepository
 
 logger = logging.getLogger(__name__)
 
 SECONDS_PER_DAY = 86400
 STALE_PURGE_INTERVAL_SECONDS = 3600
+# ~8 MB at the default 4 KiB page size per hourly pass.
+INCREMENTAL_VACUUM_MAX_PAGES = 2048
 
 _purge_task: asyncio.Task | None = None
 
@@ -63,15 +71,43 @@ async def purge_stale_contacts() -> int:
     return deleted
 
 
+async def prune_raw_packets() -> int:
+    """Delete undecrypted raw packets past the opt-in retention window."""
+    settings = await AppSettingsRepository.get()
+    days = settings.raw_packet_retention_days
+    if days <= 0:
+        return 0
+    deleted = await RawPacketRepository.prune_old_undecrypted_batched(days)
+    if deleted:
+        logger.info(
+            "Raw packet retention removed %d undecrypted packet(s) (days=%d)", deleted, days
+        )
+    return deleted
+
+
+async def reclaim_free_pages() -> int:
+    from app.database import db
+
+    freed = await db.incremental_vacuum(INCREMENTAL_VACUUM_MAX_PAGES)
+    if freed:
+        logger.info("Incremental vacuum returned %d page(s) to the OS", freed)
+    return freed
+
+
 async def _stale_purge_loop() -> None:
     await asyncio.sleep(60)
     while True:
-        try:
-            await purge_stale_contacts()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Stale contact purge failed")
+        for step, label in (
+            (purge_stale_contacts, "Stale contact purge"),
+            (prune_raw_packets, "Raw packet retention"),
+            (reclaim_free_pages, "Incremental vacuum"),
+        ):
+            try:
+                await step()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("%s failed", label)
         await asyncio.sleep(STALE_PURGE_INTERVAL_SECONDS)
 
 

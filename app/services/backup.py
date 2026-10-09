@@ -209,6 +209,7 @@ async def _restore_settings(settings: AppSettings) -> None:
         telemetry_interval_hours=settings.telemetry_interval_hours,
         telemetry_routed_hourly=settings.telemetry_routed_hourly,
         stale_contact_days=settings.stale_contact_days,
+        raw_packet_retention_days=settings.raw_packet_retention_days,
         telemetry_alert_rules=settings.telemetry_alert_rules,
         notification_destinations=settings.notification_destinations,
         auto_update=settings.auto_update,

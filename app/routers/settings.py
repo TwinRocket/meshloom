@@ -113,6 +113,12 @@ class AppSettingsUpdate(BaseModel):
         le=3650,
         description="Automatic stale-contact purge in days (0 = disabled)",
     )
+    raw_packet_retention_days: int | None = Field(
+        default=None,
+        ge=0,
+        le=3650,
+        description="Automatic prune of undecrypted raw packets older than N days (0 = disabled)",
+    )
     telemetry_alert_rules: TelemetryAlertRules | None = Field(
         default=None,
         description="Global telemetry alert rules plus optional per-node overrides",
@@ -347,6 +353,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     if update.stale_contact_days is not None:
         logger.info("Updating stale_contact_days to %d", update.stale_contact_days)
         kwargs["stale_contact_days"] = update.stale_contact_days
+    if update.raw_packet_retention_days is not None:
+        logger.info("Updating raw_packet_retention_days to %d", update.raw_packet_retention_days)
+        kwargs["raw_packet_retention_days"] = update.raw_packet_retention_days
 
     if update.telemetry_alert_rules is not None:
         # Pass the PATCH fragment through; persist merges unset/null overrides.

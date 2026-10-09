@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -418,6 +419,33 @@ class RawPacketRepository:
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
+
+    @staticmethod
+    async def prune_old_undecrypted_batched(max_age_days: int, batch_size: int = 2000) -> int:
+        """Like ``prune_old_undecrypted`` but in short transactions.
+
+        Used by the periodic retention job: each batch releases the DB lock so
+        packet ingest is never stalled behind one huge DELETE.
+        """
+        cutoff = int(time.time()) - (max_age_days * 86400)
+        total = 0
+        while True:
+            async with db.tx() as conn:
+                async with conn.execute(
+                    """
+                    DELETE FROM raw_packets WHERE id IN (
+                        SELECT id FROM raw_packets
+                        WHERE timestamp < ? AND message_id IS NULL
+                        LIMIT ?
+                    )
+                    """,
+                    (cutoff, batch_size),
+                ) as cursor:
+                    deleted = cursor.rowcount
+            total += deleted
+            if deleted < batch_size:
+                return total
+            await asyncio.sleep(0)
 
     @staticmethod
     async def purge_linked_to_messages() -> int:

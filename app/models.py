@@ -1463,6 +1463,14 @@ class AppSettings(BaseModel):
             "are automatically byte-perfect resent once (within the 30-second dedup window)"
         ),
     )
+    raw_packet_retention_days: int = Field(
+        default=0,
+        description=(
+            "Automatic pruning of undecrypted raw packets older than this many days. "
+            "0 = disabled (default, keep everything). Packets linked to a stored message "
+            "are never pruned by this job."
+        ),
+    )
     stale_contact_days: int = Field(
         default=0,
         description=(

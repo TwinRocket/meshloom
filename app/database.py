@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
     vapid_public_key TEXT DEFAULT '',
     push_conversations TEXT DEFAULT '[]',
     stale_contact_days INTEGER DEFAULT 0,
+    raw_packet_retention_days INTEGER DEFAULT 0,
     community_enabled INTEGER DEFAULT 0,
     community_iata TEXT DEFAULT '',
     community_broker_host TEXT DEFAULT '',
@@ -369,6 +370,26 @@ class Database:
         # Enable FK enforcement for all application queries from this point on.
         await self._connection.execute("PRAGMA foreign_keys = ON")
         logger.debug("Foreign key enforcement enabled")
+
+    async def incremental_vacuum(self, max_pages: int) -> int:
+        """Return up to ``max_pages`` free pages to the OS; returns pages freed.
+
+        The database uses ``auto_vacuum = INCREMENTAL`` (migration 20), so pages
+        freed by DELETEs stay in the file until this runs. Bounded so the lock
+        is only held briefly.
+        """
+        async with self.tx() as conn:
+            async with conn.execute("PRAGMA freelist_count") as cursor:
+                row = await cursor.fetchone()
+            before = int(row[0]) if row else 0
+            if before == 0:
+                return 0
+            async with conn.execute(f"PRAGMA incremental_vacuum({max(1, int(max_pages))})") as c:
+                await c.fetchall()
+            async with conn.execute("PRAGMA freelist_count") as cursor:
+                row = await cursor.fetchone()
+            after = int(row[0]) if row else 0
+        return before - after
 
     async def disconnect(self) -> None:
         async with self._lock:
