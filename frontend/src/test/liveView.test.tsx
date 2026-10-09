@@ -57,8 +57,9 @@ vi.mock('maplibre-gl', () => {
     }
   }
   class NavigationControl {}
-  const maplibregl = { Map: FakeMap, NavigationControl, LngLatBounds };
-  return { default: maplibregl, Map: FakeMap, NavigationControl, LngLatBounds };
+  const setWorkerUrl = () => {};
+  const maplibregl = { Map: FakeMap, NavigationControl, LngLatBounds, setWorkerUrl };
+  return { default: maplibregl, Map: FakeMap, NavigationControl, LngLatBounds, setWorkerUrl };
 });
 
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));

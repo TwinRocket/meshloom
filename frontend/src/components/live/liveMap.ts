@@ -1,6 +1,10 @@
 import { MapboxOverlay } from '@deck.gl/mapbox';
 import { IconLayer, PathLayer, ScatterplotLayer } from '@deck.gl/layers';
-import { LngLatBounds, Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
+import { LngLatBounds, Map as MapLibreMap, NavigationControl, setWorkerUrl } from 'maplibre-gl';
+// maplibre-gl 6 resolves its worker with `new URL('./maplibre-gl-worker.mjs', import.meta.url)`,
+// which a bundler does not emit. `?worker&url` has Vite bundle the worker (and the shared
+// chunk it imports) as its own file and hand back the URL.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
 import type {
   CommunityPacketType,
@@ -280,6 +284,7 @@ export class LiveMapController {
     this.wallClock = options.now ?? (() => performance.now());
     const saved = readLiveCamera();
     container.classList.add('live-map-osm');
+    setWorkerUrl(maplibreWorkerUrl);
     this.map = new MapLibreMap({
       container,
       style: LIVE_MAP_STYLE,
