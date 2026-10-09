@@ -7,7 +7,7 @@ from .conftest import LATEST_SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
-async def test_creates_partial_reconcile_indexes_used_by_planner():
+async def test_creates_partial_sender_backfill_index_used_by_planner():
     conn = await aiosqlite.connect(":memory:")
     try:
         await set_version(conn, 85)
@@ -25,10 +25,5 @@ async def test_creates_partial_reconcile_indexes_used_by_planner():
         )
         plan = " ".join(str(row[3]) for row in await cursor.fetchall())
         assert "idx_messages_chan_unattributed_sender" in plan
-
-        cursor = await conn.execute(
-            "SELECT name FROM sqlite_master WHERE name = 'idx_messages_priv_prefix_key'"
-        )
-        assert await cursor.fetchone() is not None
     finally:
         await conn.close()

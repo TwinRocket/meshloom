@@ -192,24 +192,31 @@ class MessageRepository:
         only a prefix as conversation_key are updated to use the full key.
         """
         lower_key = full_key.lower()
-        # INDEXED BY: the planner otherwise prefers a type-prefixed index and
-        # walks every PRIV row; the partial index only holds prefix-keyed DMs.
+        # Candidate prefix keys are exactly the proper prefixes of the full key,
+        # so an IN list hits idx_messages_pagination with one seek per prefix
+        # instead of walking every PRIV row. Both cases are listed because the
+        # former ``LIKE`` match was case-insensitive.
+        prefixes = sorted(
+            {lower_key[:n] for n in range(1, len(lower_key))}
+            | {lower_key[:n].upper() for n in range(1, len(lower_key))}
+        )
+        if not prefixes:
+            return 0
+        placeholders = ",".join("?" for _ in prefixes)
         async with db.tx() as conn:
             async with conn.execute(
-                """UPDATE messages INDEXED BY idx_messages_priv_prefix_key
-                   SET conversation_key = ?,
+                f"""UPDATE messages SET conversation_key = ?,
                        sender_key = CASE
                            WHEN sender_key IS NOT NULL AND length(sender_key) < 64
                                 AND ? LIKE sender_key || '%'
                            THEN ? ELSE sender_key END
-                   WHERE type = 'PRIV' AND length(conversation_key) < 64
-                   AND ? LIKE conversation_key || '%'
+                   WHERE type = 'PRIV' AND conversation_key IN ({placeholders})
                    AND (
                        SELECT COUNT(*) FROM contacts
                        WHERE length(public_key) = 64
                          AND public_key LIKE messages.conversation_key || '%'
                    ) = 1""",
-                (lower_key, lower_key, lower_key, lower_key),
+                (lower_key, lower_key, lower_key, *prefixes),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount

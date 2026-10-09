@@ -234,8 +234,6 @@ CREATE INDEX IF NOT EXISTS idx_contact_group_members_key
     ON contact_group_members(public_key);
 CREATE INDEX IF NOT EXISTS idx_messages_chan_unattributed_sender
     ON messages(sender_name) WHERE type = 'CHAN' AND sender_key IS NULL;
-CREATE INDEX IF NOT EXISTS idx_messages_priv_prefix_key
-    ON messages(conversation_key) WHERE type = 'PRIV' AND length(conversation_key) < 64;
 """
 
 

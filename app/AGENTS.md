@@ -140,7 +140,7 @@ Identity is bound to `radio_bound_public_key`. A live key that does not match, o
 - `route_override_path`, `route_override_len`, and `route_override_hash_mode` take precedence over the learned direct route for radio-bound sends.
 - Advertisement paths are stored only in `contact_advert_paths` for analytics/visualization. They are not part of `Contact.to_radio_dict()` or DM route selection.
 - `contact_advert_paths` identity is `(public_key, path_hex, path_len)` because the same hex bytes can represent different routes at different hop widths.
-- RF adverts reconcile messages (prefix-contact promotion, prefix-DM claim, channel `sender_key` backfill) only when the advert payload is new, the contact is new, or its name changed. Further observations of the same payload over other paths only refresh the contact and its advert-path history. Radio contact sync reconciles its snapshot through one sequential background worker. Partial indexes `idx_messages_chan_unattributed_sender` and `idx_messages_priv_prefix_key` (migration 086) keep each reconcile pass off a full table scan.
+- RF adverts reconcile messages (prefix-contact promotion, prefix-DM claim, channel `sender_key` backfill) only when the advert payload is new, the contact is new, or its name changed. Further observations of the same payload over other paths only refresh the contact and its advert-path history. Radio contact sync reconciles its snapshot through one sequential background worker. The partial index `idx_messages_chan_unattributed_sender` (migration 086) keeps the sender backfill off a full CHAN scan; the prefix-DM claim matches `conversation_key IN (<proper prefixes of the full key>)` through `idx_messages_pagination`.
 
 ### Read/unread state
 

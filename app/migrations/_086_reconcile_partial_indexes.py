@@ -6,11 +6,11 @@ logger = logging.getLogger(__name__)
 
 
 async def migrate(conn: aiosqlite.Connection) -> None:
-    """Partial indexes for contact/message reconciliation.
+    """Partial index for channel sender backfill.
 
-    ``backfill_channel_sender_key`` and ``claim_prefix_messages`` run whenever a
-    contact identity is (re)learned. Without these they scan every CHAN / PRIV
-    row; both indexes only hold the few rows still awaiting reconciliation.
+    ``backfill_channel_sender_key`` runs whenever a contact identity is
+    (re)learned. Without this index it scans every CHAN row; the index only
+    holds the rows still awaiting attribution.
     """
     tables_cursor = await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     existing_tables = {row[0] for row in await tables_cursor.fetchall()}
@@ -27,13 +27,5 @@ async def migrate(conn: aiosqlite.Connection) -> None:
             ON messages(sender_name) WHERE type = 'CHAN' AND sender_key IS NULL
             """
         )
-    if {"type", "conversation_key"} <= columns:
-        await conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_messages_priv_prefix_key
-            ON messages(conversation_key)
-            WHERE type = 'PRIV' AND length(conversation_key) < 64
-            """
-        )
-    logger.info("Created partial indexes for contact/message reconciliation")
+    logger.info("Created partial index for channel sender backfill")
     await conn.commit()
