@@ -21,11 +21,11 @@ from app.decoder import (
     DecryptedDirectMessage,
     PacketInfo,
     PayloadType,
+    decrypt_group_text,
     derive_public_key,
     parse_advertisement,
     parse_packet,
     try_decrypt_dm,
-    try_decrypt_packet_with_channel_key,
     try_decrypt_path,
     verify_advert_signature,
 )
@@ -500,29 +500,28 @@ async def _process_group_text(
     Tries all known channel keys to decrypt.
     Creates a message entry if successful (or adds path to existing if duplicate).
     """
-    # Try to decrypt with all known channel keys
-    channels = await ChannelRepository.get_all()
+    # The packet is parsed once by the caller; only channels whose key hash
+    # matches the payload's channel-hash byte are tried (usually 0 or 1).
+    if packet_info is None or packet_info.payload_type != PayloadType.GROUP_TEXT:
+        return None
+    if len(packet_info.payload) < 1:
+        return None
 
-    for channel in channels:
-        # Convert hex key to bytes for decryption
-        try:
-            channel_key_bytes = bytes.fromhex(channel.key)
-        except ValueError:
-            continue
-
-        decrypted = try_decrypt_packet_with_channel_key(raw_bytes, channel_key_bytes)
+    candidates = await ChannelRepository.get_decrypt_candidates(packet_info.payload[0])
+    for channel_key, channel_name, channel_key_bytes in candidates:
+        decrypted = decrypt_group_text(packet_info.payload, channel_key_bytes)
         if not decrypted:
             continue
 
         # Successfully decrypted!
-        logger.debug("Decrypted GroupText for channel %s: %s", channel.name, decrypted.message[:50])
+        logger.debug("Decrypted GroupText for channel %s: %s", channel_name, decrypted.message[:50])
 
         # Create message (or add path to existing if duplicate)
         # This handles both new messages and echoes of our own outgoing messages
         msg_id = await create_message_from_decrypted(
             packet_id=packet_id,
-            channel_key=channel.key,
-            channel_name=channel.name,
+            channel_key=channel_key,
+            channel_name=channel_name,
             sender=decrypted.sender,
             message_text=decrypted.message,
             timestamp=decrypted.timestamp,
@@ -539,10 +538,10 @@ async def _process_group_text(
 
         return {
             "decrypted": True,
-            "channel_name": channel.name,
+            "channel_name": channel_name,
             "sender": decrypted.sender,
             "message_id": msg_id,  # None if duplicate, msg_id if new
-            "channel_key": channel.key,
+            "channel_key": channel_key,
             "sender_timestamp": decrypted.timestamp,
             "message": decrypted.message,
         }
