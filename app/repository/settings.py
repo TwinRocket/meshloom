@@ -868,33 +868,6 @@ class AppSettingsRepository:
         return conversations
 
     @staticmethod
-    async def toggle_push_conversation(key: str) -> list[str]:
-        """Add or remove a conversation state key from the global push list.
-
-        Atomic read-modify-write under a single ``db.tx()`` lock.
-        """
-        async with db.tx() as conn:
-            async with conn.execute(
-                "SELECT push_conversations FROM app_settings WHERE id = 1"
-            ) as cursor:
-                row = await cursor.fetchone()
-            current: list[str] = []
-            if row and row["push_conversations"]:
-                try:
-                    current = json.loads(row["push_conversations"])
-                except (json.JSONDecodeError, TypeError):
-                    current = []
-            if key in current:
-                current = [k for k in current if k != key]
-            else:
-                current.append(key)
-            await conn.execute(
-                "UPDATE app_settings SET push_conversations = ? WHERE id = 1",
-                (json.dumps(current),),
-            )
-        return current
-
-    @staticmethod
     async def get_push_defaults() -> PushDefaults:
         """Return per-event media flags. Not part of AppSettings."""
         async with db.readonly() as conn:

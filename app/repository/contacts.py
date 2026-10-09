@@ -382,22 +382,6 @@ class ContactRepository:
         return [ContactRepository._row_to_contact(row) for row in rows]
 
     @staticmethod
-    async def get_recently_contacted_non_repeaters(limit: int = 200) -> list[Contact]:
-        """Get recently interacted-with non-repeater contacts."""
-        async with db.readonly() as conn:
-            async with conn.execute(
-                """
-                SELECT * FROM contacts
-                WHERE type != 2 AND last_contacted IS NOT NULL AND length(public_key) = 64
-                ORDER BY last_contacted DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [ContactRepository._row_to_contact(row) for row in rows]
-
-    @staticmethod
     async def get_recently_dm_active_non_repeaters(limit: int = 200) -> list[Contact]:
         """Get non-repeater contacts with the most recent DM activity (sent or received)."""
         async with db.readonly() as conn:
