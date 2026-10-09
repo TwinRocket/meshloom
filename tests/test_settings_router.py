@@ -217,7 +217,7 @@ class TestToggleFavorite:
         request = FavoriteRequest(type="contact", id="aa" * 32)
         with (
             patch("app.radio_sync.ensure_contact_on_radio", new_callable=AsyncMock) as mock_sync,
-            patch("app.routers.settings.asyncio.create_task") as mock_create_task,
+            patch("app.routers.settings.spawn") as mock_create_task,
         ):
             mock_create_task.side_effect = lambda coro: coro.close()
             result = await toggle_favorite(request)
@@ -236,7 +236,7 @@ class TestToggleFavorite:
         request = FavoriteRequest(type="contact", id="aa" * 32)
         with (
             patch("app.radio_sync.ensure_contact_on_radio", new_callable=AsyncMock) as mock_sync,
-            patch("app.routers.settings.asyncio.create_task") as mock_create_task,
+            patch("app.routers.settings.spawn") as mock_create_task,
         ):
             mock_create_task.side_effect = lambda coro: coro.close()
             result = await toggle_favorite(request)

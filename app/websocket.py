@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.background_tasks import spawn
 from app.events import dump_ws_event
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def broadcast_event(event_type: str, data: dict, *, realtime: bool = True) -> No
         data: Event payload dict
         realtime: If False, skip fanout dispatch (used for historical decryption)
     """
-    asyncio.create_task(ws_manager.broadcast(event_type, data))
+    spawn(ws_manager.broadcast(event_type, data))
 
     if realtime:
         try:
@@ -119,22 +120,22 @@ def broadcast_event(event_type: str, data: dict, *, realtime: bool = True) -> No
         from app.fanout.manager import fanout_manager
 
         if event_type == "message":
-            asyncio.create_task(fanout_manager.broadcast_message(data))
+            spawn(fanout_manager.broadcast_message(data))
 
             from app.push.manager import push_manager
 
-            asyncio.create_task(push_manager.dispatch_message(data))
+            spawn(push_manager.dispatch_message(data))
         elif event_type == "raw_packet":
-            asyncio.create_task(fanout_manager.broadcast_raw(data))
+            spawn(fanout_manager.broadcast_raw(data))
         elif event_type == "contact":
-            asyncio.create_task(fanout_manager.broadcast_contact(data))
+            spawn(fanout_manager.broadcast_contact(data))
 
 
 def dispatch_telemetry_event(data: dict) -> None:
     """Fire-and-forget fanout telemetry dispatch (not a WebSocket event)."""
     from app.fanout.manager import fanout_manager
 
-    asyncio.create_task(fanout_manager.broadcast_telemetry(data))
+    spawn(fanout_manager.broadcast_telemetry(data))
 
 
 def broadcast_error(
@@ -156,7 +157,7 @@ def broadcast_error(
         data["code"] = code
     if params:
         data["params"] = params
-    asyncio.create_task(ws_manager.broadcast("error", data))
+    spawn(ws_manager.broadcast("error", data))
 
 
 def broadcast_success(
@@ -178,7 +179,7 @@ def broadcast_success(
         data["code"] = code
     if params:
         data["params"] = params
-    asyncio.create_task(ws_manager.broadcast("success", data))
+    spawn(ws_manager.broadcast("success", data))
 
 
 def broadcast_health(radio_connected: bool, connection_info: str | None = None) -> None:
@@ -190,4 +191,4 @@ def broadcast_health(radio_connected: bool, connection_info: str | None = None) 
         data = await build_health_data(radio_connected, connection_info)
         await ws_manager.broadcast("health", data)
 
-    asyncio.create_task(_broadcast())
+    spawn(_broadcast())

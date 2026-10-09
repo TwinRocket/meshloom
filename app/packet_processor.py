@@ -12,11 +12,11 @@ This is the primary path for message processing when channel/contact keys
 are offloaded from the radio to the server.
 """
 
-import asyncio
 import logging
 import time
 from itertools import count
 
+from app.background_tasks import spawn
 from app.decoder import (
     DecryptedDirectMessage,
     PacketInfo,
@@ -282,7 +282,7 @@ async def start_historical_dm_decryption(
 
     logger.info("Starting historical DM decryption for contact %s", contact_public_key_hex[:12])
     if background_tasks is None:
-        asyncio.create_task(
+        spawn(
             run_historical_dm_decryption(
                 private_key_bytes,
                 contact_public_key_bytes,

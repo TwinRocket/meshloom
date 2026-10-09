@@ -222,6 +222,9 @@ async def lifespan(app: FastAPI):
     if radio_manager.meshcore:
         await radio_manager.meshcore.stop_auto_message_fetching()
     await radio_manager.disconnect()
+    from app.background_tasks import drain_background_tasks
+
+    await drain_background_tasks()
     await db.disconnect()
 
 
