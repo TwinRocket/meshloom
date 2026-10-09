@@ -38,12 +38,24 @@ def _compose_helper_present() -> bool:
     return helper == "compose" or COMPOSE_HELPER_SENTINEL.exists()
 
 
+def _helper_disabled() -> bool:
+    """``MESHLOOM_UPDATE_HELPER=none``: the installer found no signed repo for this arch."""
+    return (os.environ.get("MESHLOOM_UPDATE_HELPER") or "").strip().lower() == "none"
+
+
 def detect_install_kind() -> tuple[InstallKind, bool]:
     """Return ``(kind, apply_supported)``.
 
     Addon is only ``MESHLOOM_INSTALL_KIND=addon`` — never inferred from
     Supervisor tokens or other Home Assistant signals.
     """
+    kind, supported = _detect()
+    if _helper_disabled():
+        return kind, False
+    return kind, supported
+
+
+def _detect() -> tuple[InstallKind, bool]:
     declared = _env_kind()
     if declared == "addon":
         return "addon", False

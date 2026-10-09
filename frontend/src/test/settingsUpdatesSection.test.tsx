@@ -142,4 +142,17 @@ describe('SettingsUpdatesSection', () => {
     expect(screen.getByText(i18n.t('updates.dockerTitle'))).toBeInTheDocument();
     expect(screen.queryByText(i18n.t('updates.autoUpdate'))).not.toBeInTheDocument();
   });
+
+  it('asks compose installs on the old helper to re-run the installer', () => {
+    const { rerender } = render(
+      <SettingsUpdatesSection
+        updates={status({ install_kind: 'compose', legacy_update_helper: true })}
+      />
+    );
+    expect(screen.getByTestId('updates-legacy-helper')).toHaveTextContent(
+      i18n.t('settings.updates.legacyHelper')
+    );
+    rerender(<SettingsUpdatesSection updates={status({ install_kind: 'compose' })} />);
+    expect(screen.queryByTestId('updates-legacy-helper')).not.toBeInTheDocument();
+  });
 });

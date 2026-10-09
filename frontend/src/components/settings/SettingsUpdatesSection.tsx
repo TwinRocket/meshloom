@@ -76,6 +76,7 @@ export function SettingsUpdatesSection({
   const showManualHelp = (kind === 'container' || kind === 'source') && !applySupported;
   const showRecipes = !applySupported && kind !== 'addon';
   const showInstall = applySupported && updateAvailable && Boolean(onApply);
+  const showLegacyHelper = updates?.legacy_update_helper === true;
   const showJobError =
     Boolean(updates?.job?.error) &&
     updateAvailable &&
@@ -151,6 +152,15 @@ export function SettingsUpdatesSection({
           <StatusRow label={t('settings.updates.job')} value={jobLabel} />
         </dl>
         {showJobError ? <p className="text-[0.8125rem] text-destructive">{job?.error}</p> : null}
+        {showLegacyHelper ? (
+          <p
+            role="status"
+            data-testid="updates-legacy-helper"
+            className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[0.8125rem] text-foreground"
+          >
+            {t('settings.updates.legacyHelper')}
+          </p>
+        ) : null}
       </SettingsGroup>
 
       <SettingsGroup id="settings-updates-actions">

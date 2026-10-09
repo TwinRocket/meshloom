@@ -706,7 +706,8 @@
       },
       "nodeClockHelp": "Times follow this node's clock, not this browser.",
       "nextAutoApply": "Next automatic install",
-      "manualHelp": "How to upgrade"
+      "manualHelp": "How to upgrade",
+      "legacyHelper": "Re-run the Meshloom installer on the host to switch to the signed update helper. This install still uses the previous helper, which trusts files the container can write."
     },
     "common": {
       "storedOnRadio": "Written to the radio",
