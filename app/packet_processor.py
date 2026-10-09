@@ -413,7 +413,7 @@ async def process_raw_packet(
     elif payload_type == PayloadType.ADVERT:
         # Process all advert arrivals (even payload-hash duplicates) so the
         # advert-history table retains recent path observations.
-        await _process_advertisement(raw_bytes, ts, packet_info)
+        await _process_advertisement(raw_bytes, ts, packet_info, is_new_packet=is_new_packet)
 
     elif payload_type == PayloadType.TEXT_MESSAGE:
         # Try to decrypt direct messages using stored private key and known contacts
@@ -555,11 +555,19 @@ async def _process_advertisement(
     raw_bytes: bytes,
     timestamp: int,
     packet_info: PacketInfo | None = None,
+    *,
+    is_new_packet: bool = True,
 ) -> None:
     """
     Process an advertisement packet.
 
     Extracts contact info and updates the database/broadcasts to clients.
+
+    ``is_new_packet`` is False for further observations (other paths) of an
+    advert payload already stored. Those still refresh the contact and its
+    advert-path history, but skip prefix promotion and message reconciliation
+    unless the contact is new or renamed: nothing those steps depend on can
+    have changed since the first observation of the same payload.
     """
     # Parse packet to get path info if not already provided
     if packet_info is None:
@@ -647,16 +655,19 @@ async def _process_advertisement(
         max_paths=10,
         hop_count=new_path_len,
     )
-    promoted_keys = await promote_prefix_contacts_for_contact(
-        public_key=advert.public_key,
-        log=logger,
-    )
-    await record_contact_name_and_reconcile(
-        public_key=advert.public_key,
-        contact_name=advert.name,
-        timestamp=timestamp,
-        log=logger,
-    )
+    identity_changed = inserted or existing is None or existing.name != advert.name
+    promoted_keys: list[str] = []
+    if identity_changed or is_new_packet:
+        promoted_keys = await promote_prefix_contacts_for_contact(
+            public_key=advert.public_key,
+            log=logger,
+        )
+        await record_contact_name_and_reconcile(
+            public_key=advert.public_key,
+            contact_name=advert.name,
+            timestamp=timestamp,
+            log=logger,
+        )
 
     # Read back from DB so the broadcast includes all fields (last_contacted,
     # last_read_at, flags, on_radio, etc.) matching the REST Contact shape exactly.

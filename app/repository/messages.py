@@ -192,9 +192,12 @@ class MessageRepository:
         only a prefix as conversation_key are updated to use the full key.
         """
         lower_key = full_key.lower()
+        # INDEXED BY: the planner otherwise prefers a type-prefixed index and
+        # walks every PRIV row; the partial index only holds prefix-keyed DMs.
         async with db.tx() as conn:
             async with conn.execute(
-                """UPDATE messages SET conversation_key = ?,
+                """UPDATE messages INDEXED BY idx_messages_priv_prefix_key
+                   SET conversation_key = ?,
                        sender_key = CASE
                            WHEN sender_key IS NOT NULL AND length(sender_key) < 64
                                 AND ? LIKE sender_key || '%'

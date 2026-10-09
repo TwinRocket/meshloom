@@ -19,6 +19,7 @@ from typing import Literal
 
 from meshcore import EventType, MeshCore
 
+from app.background_tasks import spawn
 from app.channel_constants import PUBLIC_CHANNEL_KEY, PUBLIC_CHANNEL_NAME
 from app.config import settings
 from app.event_handlers import cleanup_expired_acks, on_contact_message
@@ -142,6 +143,36 @@ async def _reconcile_contact_messages_background(
             exc,
             exc_info=True,
         )
+
+
+_reconcile_batch_task: asyncio.Task | None = None
+_reconcile_batch_queue: dict[str, str | None] = {}
+
+
+def _schedule_contact_reconcile_batch(items: list[tuple[str, str | None]]) -> None:
+    """Queue contacts for reconciliation by one sequential background worker.
+
+    A radio snapshot holds up to a few hundred contacts. Reconciling them one
+    after another in a single task keeps at most one reconciliation statement
+    waiting on the DB lock at a time, instead of one task per contact all
+    contending at once. Repeated syncs while the worker runs only refresh the
+    queue (keyed by public key, newest name wins).
+    """
+    global _reconcile_batch_task
+    for public_key, name in items:
+        _reconcile_batch_queue[public_key] = name
+    if _reconcile_batch_task is not None and not _reconcile_batch_task.done():
+        return
+    if not _reconcile_batch_queue:
+        return
+
+    async def _worker() -> None:
+        while _reconcile_batch_queue:
+            public_key = next(iter(_reconcile_batch_queue))
+            name = _reconcile_batch_queue.pop(public_key)
+            await _reconcile_contact_messages_background(public_key, name)
+
+    _reconcile_batch_task = spawn(_worker(), name="contact-reconcile-batch")
 
 
 async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> str | None:
@@ -1158,17 +1189,14 @@ async def sync_contacts_from_radio(mc: MeshCore) -> dict:
         contacts = _normalize_radio_contacts_payload(result.payload)
         logger.debug("Found %d contacts on radio", len(contacts))
 
+        to_reconcile: list[tuple[str, str | None]] = []
         for public_key, contact_data in contacts.items():
             await ContactRepository.upsert(
                 ContactUpsert.from_radio_dict(public_key, contact_data, on_radio=False)
             )
-            asyncio.create_task(
-                _reconcile_contact_messages_background(
-                    public_key,
-                    contact_data.get("adv_name"),
-                )
-            )
+            to_reconcile.append((public_key, contact_data.get("adv_name")))
             synced += 1
+        _schedule_contact_reconcile_batch(to_reconcile)
 
         logger.debug("Synced %d contacts from radio snapshot", synced)
 
