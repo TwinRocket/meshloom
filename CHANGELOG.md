@@ -1,3 +1,26 @@
+## [4.18.2] - 2026-10-10
+
+Re-running the installer on a Docker stack now keeps the changes you made to your compose file.
+
+### Fixed
+
+- **The installer keeps your edits to docker-compose.yml.** Upgrading from 4.17 means re-running the installer once. If you had edited your compose file, for instance to add a port, it stopped and asked you to edit the file by hand or to regenerate it, which lost your changes. It now lists your changes and offers to keep them, which is the default. It then updates only its own lines (the image and the update helper lines) and leaves yours alone. It checks the result with Docker Compose before writing anything and keeps a `docker-compose.yml.bak-<date>` copy. If it cannot adapt your file, it does not touch it and asks whether to regenerate it.
+- **A stack in /root/meshloom is no longer replaced by an empty one.** Run as a regular user, the installer could not see a stack kept under `/root` and offered to create a new one in your home folder, which started on an empty database. It now stops and asks you to run it again as root.
+
+---
+
+### Français
+
+Relancer l'installeur sur une installation Docker conserve désormais les modifications apportées à votre fichier compose.
+
+#### Corrections
+
+- **L'installeur garde vos modifications de docker-compose.yml.** Passer de la 4.17 à la 4.18 demande de relancer l'installeur une fois. Si vous aviez modifié votre fichier compose, par exemple pour ajouter un port, il s'arrêtait et vous demandait de modifier le fichier à la main ou de le régénérer, ce qui effaçait vos changements. Il liste maintenant vos modifications et propose de les garder, ce qui est le choix par défaut. Il ne met alors à jour que ses propres lignes (l'image et les lignes de l'assistant de mise à jour) et laisse les vôtres. Il vérifie le résultat avec Docker Compose avant d'écrire quoi que ce soit et garde une copie `docker-compose.yml.bak-<date>`. S'il ne sait pas adapter votre fichier, il n'y touche pas et vous demande s'il faut le régénérer.
+- **Une installation dans /root/meshloom n'est plus remplacée par une installation vide.** Lancé en simple utilisateur, l'installeur ne voyait pas une installation rangée sous `/root` et proposait d'en créer une nouvelle dans votre dossier personnel, qui démarrait sur une base vide. Il s'arrête maintenant et vous demande de le relancer en root.
+
+---
+
+
 ## [4.18.1] - 2026-10-10
 
 Two fixes: the mesh visualizer no longer empties itself when the server clock is off, and the Home Assistant add-on radio proxy answers on its published port.

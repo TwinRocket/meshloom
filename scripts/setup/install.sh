@@ -269,10 +269,20 @@ t() {
         fr:compose_dir_unsafe) echo "Les mises à jour depuis l'application exigent un chemin de dossier fait de lettres, chiffres, '.', '_', '-' et '/'. Mettez cette pile à jour à la main." ;;
         en:compose_found) echo "Existing Meshloom stack found in" ;;
         fr:compose_found) echo "Pile Meshloom existante trouvée dans" ;;
-        en:compose_custom) echo "This docker-compose.yml was edited after the installer wrote it (- expected, + yours):" ;;
-        fr:compose_custom) echo "Ce docker-compose.yml a été modifié après l'installeur (- attendu, + le vôtre) :" ;;
-        en:compose_custom_stop) echo "Nothing was changed. Either apply by hand: image: \${MESHLOOM_IMAGE}, the ./update-status:/app/update-status:ro volume and MESHLOOM_UPDATE_STATUS_PATH; or re-run with MESHLOOM_COMPOSE_OVERWRITE=1 to regenerate it (a .bak copy is kept)." ;;
-        fr:compose_custom_stop) echo "Rien n'a été modifié. Soit vous appliquez à la main : image: \${MESHLOOM_IMAGE}, le volume ./update-status:/app/update-status:ro et MESHLOOM_UPDATE_STATUS_PATH ; soit vous relancez avec MESHLOOM_COMPOSE_OVERWRITE=1 pour le régénérer (une copie .bak est gardée)." ;;
+        en:compose_custom) echo "Your docker-compose.yml has changes of your own (+ added, - removed):" ;;
+        fr:compose_custom) echo "Votre docker-compose.yml contient des modifications à vous (+ ajouté, - retiré) :" ;;
+        en:compose_keep_q) echo "Keep your changes?" ;;
+        fr:compose_keep_q) echo "Garder vos modifications ?" ;;
+        en:compose_kept) echo "Your changes were kept. The installer only updated its own lines." ;;
+        fr:compose_kept) echo "Vos modifications sont conservées. L'installeur n'a mis à jour que ses propres lignes." ;;
+        en:compose_patch_failed) echo "Your file could not be adapted automatically. It was not modified." ;;
+        fr:compose_patch_failed) echo "Votre fichier n'a pas pu être adapté automatiquement. Il n'a pas été modifié." ;;
+        en:compose_regen_q) echo "Regenerate it? Your changes would be lost; a copy is kept as docker-compose.yml.bak-<date>." ;;
+        fr:compose_regen_q) echo "Le régénérer ? Vos modifications seraient perdues ; une copie est gardée en docker-compose.yml.bak-<date>." ;;
+        en:compose_untouched) echo "Nothing was changed. Your stack keeps running as it is, without in-app updates." ;;
+        fr:compose_untouched) echo "Rien n'a été modifié. Votre pile continue de tourner telle quelle, sans mise à jour depuis l'application." ;;
+        en:compose_needs_root) echo "The Meshloom stack in $1 can only be read by root. Run the installer again as root: sudo -i, then the same command." ;;
+        fr:compose_needs_root) echo "La pile Meshloom de $1 n'est lisible qu'en root. Relancez l'installeur en root : sudo -i, puis la même commande." ;;
         en:update_docker_managed) echo "Updates: Settings → Updates in Meshloom installs signed releases." ;;
         fr:update_docker_managed) echo "Mises à jour : Réglages → Mises à jour dans Meshloom installe les versions signées." ;;
         *) echo "$key" ;;
@@ -408,10 +418,11 @@ ui_menu() {
 ui_yesno() {
     local q="$1" def="$2" ans
     while :; do
+        # ui_ask exits on EOF, but only its subshell: stop here too.
         if [ "$def" = y ]; then
-            ans="$(ui_ask "${q} $(t hint_yes)" "y")"
+            ans="$(ui_ask "${q} $(t hint_yes)" "y")" || exit 130
         else
-            ans="$(ui_ask "${q} $(t hint_no)" "n")"
+            ans="$(ui_ask "${q} $(t hint_no)" "n")" || exit 130
         fi
         case "$(printf '%s' "$ans" | tr 'A-Z' 'a-z')" in
             y | yes | o | oui) return 0 ;;
@@ -2225,7 +2236,7 @@ write_unmanaged_env() {
 # Where an existing installer-managed stack lives. 4.17 never saved it, so
 # also ask the old helper's config and a running Meshloom container.
 saved_compose_dir() {
-    local dir=""
+    local dir="" p
     dir="$(conf_get "$(system_installer_conf)" compose_dir 2>/dev/null ||
         conf_get "$(user_installer_conf)" compose_dir 2>/dev/null || true)"
     if [ -z "$dir" ] && [ -r /etc/meshloom/compose-update.env ]; then
@@ -2238,7 +2249,17 @@ saved_compose_dir() {
                 --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null; } |
             grep -m 1 '^/' || true)"
     fi
-    if [ -n "$dir" ] && [ -f "${dir}/docker-compose.yml" ]; then
+    if [ -z "$dir" ]; then
+        return 0
+    fi
+    # A non-root run cannot see a stack under /root: report it all the same,
+    # so the caller stops instead of offering a new, empty stack elsewhere.
+    # A stale path (folder deleted) is not reported.
+    p="$dir"
+    while [ "$p" != / ] && [ ! -e "$p" ]; do
+        p="$(dirname "$p")"
+    done
+    if [ -f "${dir}/docker-compose.yml" ] || { ! is_root && [ ! -x "$p" ]; }; then
         printf '%s' "$dir"
     fi
 }
@@ -2283,13 +2304,124 @@ compose_is_installer_generated() {
         return 0
     fi
     ui_warn "  $(t compose_custom)"
-    diff -u "$tmpdir/expected" "$tmpdir/current" | sed 's/^/    /' >&2 || true
+    diff -u "$tmpdir/expected" "$tmpdir/current" |
+        sed -n -e '/^+++/d' -e '/^---/d' -e 's/^\([-+]\)/    \1/p' >&2 || true
     rm -rf "$tmpdir"
     return 1
 }
 
+# Prints an edited compose file with only the installer's own lines updated,
+# inside the meshloom service: the image comes from .env, and the update
+# helper lines (update-status volume, MESHLOOM_UPDATE_*) are set when $2 = 1
+# or dropped when $2 = 0. Everything else is copied as is. Fails when an
+# anchor line is missing or appears more than once.
+patch_compose_file() {
+    awk -v managed="$2" '
+        # Top-level keys: only a "meshloom:" directly under "services:" counts.
+        $0 ~ /^[^ \t\r#]/ { top = ($0 ~ /^services:[ \t\r]*$/); svc = 0 }
+        top && /^  meshloom:[ \t\r]*$/ { seen++; svc = 1; print; next }
+        svc && $0 !~ /^[ \t\r]*(#|$)/ {
+            match($0, /^ */)
+            if (RLENGTH < 4) svc = 0
+        }
+        !svc { print; next }
+        /^    image:/ {
+            # Only the official image moves to .env; a custom one is not ours.
+            if ($0 !~ /^    image: ghcr\.io\/twinrocket\/meshloom[:@]/ &&
+                !($0 ~ /^    image: \$/ && index($0, "MESHLOOM_IMAGE"))) {
+                bad = 1
+                exit 1
+            }
+            img++
+            print "    image: ${MESHLOOM_IMAGE:?run the Meshloom installer to pin the image in .env}"
+            next
+        }
+        $0 == "      # Written by the root update helper; read-only for the container." { next }
+        $0 == "      - ./update-status:/app/update-status:ro" { next }
+        $0 == "      MESHLOOM_UPDATE_HELPER: compose" { next }
+        $0 == "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json" { next }
+        $0 == "      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json" { next }
+        # Any other value for these is a choice of the user: leave the file alone.
+        /MESHLOOM_UPDATE_(HELPER|JOB_PATH|STATUS_PATH)/ || /\/app\/update-status/ {
+            bad = 1
+            exit 1
+        }
+        $0 == "      - ./data:/app/data" {
+            data++
+            print
+            if (managed == 1) {
+                print "      # Written by the root update helper; read-only for the container."
+                print "      - ./update-status:/app/update-status:ro"
+            }
+            next
+        }
+        /^      MESHLOOM_INSTALL_KIND:/ {
+            kind++
+            print
+            if (managed == 1) {
+                print "      MESHLOOM_UPDATE_HELPER: compose"
+                print "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
+                print "      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json"
+            }
+            next
+        }
+        { print }
+        END {
+            if (bad) exit 1
+            if (seen != 1 || img != 1) exit 1
+            if (managed == 1 && (data != 1 || kind != 1)) exit 1
+        }
+    ' "$1"
+}
+
+# The only lines a patch may add or remove, besides the image line.
+compose_owned_lines() {
+    cat <<'EOF'
+      # Written by the root update helper; read-only for the container.
+      - ./update-status:/app/update-status:ro
+      MESHLOOM_UPDATE_HELPER: compose
+      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json
+      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json
+EOF
+}
+
+# Writes the patched compose file to $3 and checks it before anyone uses it:
+# compared line by line with the original, it may only differ by the image
+# line and the installer's own lines, and Docker Compose itself must accept it
+# and see the new image, volume and env. $1 = dir, $2 = managed. Never touches
+# the original; fails on any doubt.
+build_patched_compose() {
+    local dir="$1" managed="$2" out="$3" file="${1}/docker-compose.yml" check
+    local dc sentinel="meshloom-installer-check:0"
+    if ! patch_compose_file "$file" "$managed" >"$out"; then
+        rm -f "$out"
+        return 1
+    fi
+    check="$(mktemp -d /tmp/meshloom-patch.XXXXXX)"
+    compose_owned_lines >"$check/owned"
+    { diff "$file" "$out" || true; } | sed -n 's/^[<>] //p' |
+        grep -v '^    image: ' >"$check/changed" || true
+    if grep -vxF -f "$check/owned" "$check/changed" >/dev/null; then
+        rm -rf "$check" "$out"
+        return 1
+    fi
+    dc="$(compose_cmd)"
+    if ! MESHLOOM_IMAGE="$sentinel" $dc --project-directory "$dir" -f "$out" config \
+        >"$check/config" 2>/dev/null ||
+        ! grep -q "image: ${sentinel}\$" "$check/config" ||
+        { [ "$managed" = 1 ] && {
+            ! grep -q 'MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json' "$check/config" ||
+                ! grep -Eq '(target: /app/update-status$|:/app/update-status:ro)' "$check/config"
+        }; }; then
+        rm -rf "$check" "$out"
+        return 1
+    fi
+    rm -rf "$check"
+    return 0
+}
+
 install_docker_stack() {
-    local default dc existing=0 managed=0 saved
+    local default dc existing=0 managed=0 saved patched keep_edits=0
     ensure_docker
     detect_docker
     prepare_docker_mappings
@@ -2300,6 +2432,10 @@ install_docker_stack() {
         SERIAL_COMPOSE_HOST_PATH=""
     fi
     saved="$(saved_compose_dir)"
+    if [ -n "$saved" ] && [ ! -f "${saved}/docker-compose.yml" ]; then
+        ui_err "$(t compose_needs_root "$saved")"
+        exit 1
+    fi
     default="${saved:-${IN_CHECKOUT:-${HOME}/meshloom}}"
     if [ -n "$saved" ]; then
         ui_dim "  $(t compose_found) ${saved}"
@@ -2312,21 +2448,33 @@ install_docker_stack() {
     esac
     INSTALL_DIR="${INSTALL_DIR%/}"
     COMPOSE_DIR_SAVED="$INSTALL_DIR"
+    if compose_helper_possible "$INSTALL_DIR"; then
+        managed=1
+    fi
     if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
         existing=1
-        # Keep the stack's own radio mappings, and never overwrite edits.
+        # Keep the stack's own radio mappings. Edits are kept unless the user
+        # asks otherwise; MESHLOOM_COMPOSE_OVERWRITE=1 regenerates silently.
         read_compose_mappings "${INSTALL_DIR}/docker-compose.yml"
         if ! compose_is_installer_generated "${INSTALL_DIR}/docker-compose.yml" &&
-            [ "${MESHLOOM_COMPOSE_OVERWRITE:-}" != 1 ]; then
-            ui_err "$(t compose_custom_stop)"
-            exit 1
+            [ "${MESHLOOM_COMPOSE_OVERWRITE:-}" != 1 ] &&
+            ui_yesno "$(t compose_keep_q)" y; then
+            patched="$(mktemp /tmp/meshloom-compose-new.XXXXXX)"
+            if build_patched_compose "$INSTALL_DIR" "$managed" "$patched"; then
+                rm -f "$patched"
+                keep_edits=1
+            else
+                ui_warn "  $(t compose_patch_failed)"
+                if ! ui_yesno "$(t compose_regen_q)" n; then
+                    ui_dim "  $(t compose_untouched)"
+                    exit 0
+                fi
+            fi
         fi
     fi
     confirm_install
     mkdir -p "$INSTALL_DIR"
-    if compose_helper_possible "$INSTALL_DIR"; then
-        managed=1
-    elif [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
+    if [ "$managed" = 0 ] && [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
         ! compose_dir_is_safe "$INSTALL_DIR"; then
         ui_warn "  $(t compose_dir_unsafe)"
     fi
@@ -2347,8 +2495,20 @@ install_docker_stack() {
     else
         write_unmanaged_env "$INSTALL_DIR"
     fi
-    write_docker_compose "$INSTALL_DIR" "$managed"
-    ui_dim "  $(t wrote_config) ${INSTALL_DIR}/docker-compose.yml"
+    if [ "$keep_edits" = 1 ]; then
+        patched="$(mktemp /tmp/meshloom-compose-new.XXXXXX)"
+        if ! build_patched_compose "$INSTALL_DIR" "$managed" "$patched"; then
+            ui_err "$(t compose_patch_failed)"
+            exit 1
+        fi
+        # Written through the existing file: a symlink, owner and mode stay.
+        cat "$patched" >"${INSTALL_DIR}/docker-compose.yml"
+        rm -f "$patched"
+        ui_dim "  $(t compose_kept)"
+    else
+        write_docker_compose "$INSTALL_DIR" "$managed"
+        ui_dim "  $(t wrote_config) ${INSTALL_DIR}/docker-compose.yml"
+    fi
     dc="$(compose_cmd)"
     # An existing stack restarts right away so the app and the helper match.
     if [ "$existing" = 1 ] || ui_yesno "$(t q_start_now)" y; then
