@@ -4,7 +4,7 @@
 # and node publishes no armv7 image at all, so building for a Raspberry Pi 3 fails
 # outright without this. It also drops the emulated npm build from every arm64
 # release, which was pure cost.
-FROM --platform=$BUILDPLATFORM node:24-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:25-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS frontend-builder
 
 ARG COMMIT_HASH=unknown
 
