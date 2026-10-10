@@ -37,6 +37,9 @@ UPDATE_PATH_UNIT = Path("/usr/lib/systemd/system/meshloom-update.path")
 AUTO_UPDATE_BACKOFF_SECONDS = 6 * 3600
 APPLYING_TTL_SECONDS = 20 * 60
 APPLY_TIMEOUT_ERROR = "apply timed out"
+COOLDOWN_ERROR = "update requested too soon; try again in a few minutes"
+# How long the polkit fallback watches the oneshot leave its initial state.
+HELPER_START_CHECK_SECONDS = 5.0
 _PUBLIC_JOB_KEYS = ("state", "phase", "percent", "error", "started_at")
 _PHASES = {"preparing", "downloading", "installing", "restarting", "done"}
 
@@ -187,12 +190,21 @@ def _int_or_none(value: Any) -> int | None:
     return value
 
 
-def _normalize_record(data: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Strictly typed job record, or None. Unknown keys and bad types are dropped."""
+def _normalize_record(
+    data: dict[str, Any] | None, *, allow_cooldown: bool = False
+) -> dict[str, Any] | None:
+    """Strictly typed job record, or None. Unknown keys and bad types are dropped.
+
+    ``cooldown`` exists only in helper status: the helper refused a request that
+    came too soon and left the previous outcome alone.
+    """
     if data is None:
         return None
     state = data.get("state")
-    if state not in {"idle", "applying", "succeeded", "failed"}:
+    allowed = {"idle", "applying", "succeeded", "failed"}
+    if allow_cooldown:
+        allowed.add("cooldown")
+    if state not in allowed:
         return None
     percent = _int_or_none(data.get("percent"))
     if percent is not None and not 0 <= percent <= 100:
@@ -216,7 +228,7 @@ def _normalize_record(data: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def read_helper_status() -> dict[str, Any] | None:
     """What the root helper last published: status.json, else the legacy job file."""
-    status = _normalize_record(_read_json_object(status_path()))
+    status = _normalize_record(_read_json_object(status_path()), allow_cooldown=True)
     if status is not None:
         return status
     # Pre-4.18 helpers (compose installs not yet migrated) write update-job.json.
@@ -237,7 +249,7 @@ def read_job() -> dict[str, Any]:
     helper = read_helper_status()
     merged = idle_job()
     if attempt is None:
-        if helper is not None:
+        if helper is not None and helper.get("state") != "cooldown":
             merged.update(helper)
             if helper.get("started_at") is not None:
                 merged["last_attempt"] = helper["started_at"]
@@ -254,6 +266,9 @@ def read_job() -> dict[str, Any]:
     ):
         for key in _PUBLIC_JOB_KEYS:
             merged[key] = helper.get(key)
+        if helper.get("state") == "cooldown":
+            merged["state"] = "failed"
+            merged["error"] = helper.get("error") or COOLDOWN_ERROR
     return merged
 
 
@@ -370,6 +385,7 @@ async def start_package_helper() -> None:
     if await package_path_watcher_active():
         write_request_file(PACKAGE_REQUEST_PATH)
         return
+    before = (await _unit_properties()).get("ExecMainStartTimestampMonotonic", "")
     proc = await asyncio.create_subprocess_exec(
         "systemctl",
         "start",
@@ -384,6 +400,43 @@ async def start_package_helper() -> None:
             "systemctl start failed"
         )
         raise RuntimeError(detail)
+    # --no-block returns 0 even when systemd refuses the start (start limit,
+    # failed condition). Check that the oneshot really ran or is running so
+    # the UI does not sit on "applying" until the 20 min expiry.
+    await _check_helper_started(before)
+
+
+async def _unit_properties() -> dict[str, str]:
+    proc = await asyncio.create_subprocess_exec(
+        "systemctl",
+        "show",
+        "--property=ActiveState,Result,ExecMainStartTimestampMonotonic",
+        "meshloom-update.service",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    return dict(
+        line.split("=", 1)
+        for line in (out or b"").decode("utf-8", "replace").splitlines()
+        if "=" in line
+    )
+
+
+async def _check_helper_started(before: str) -> None:
+    """Raise unless the oneshot started after ``before`` (its previous start stamp)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + HELPER_START_CHECK_SECONDS
+    props: dict[str, str] = {}
+    while loop.time() < deadline:
+        props = await _unit_properties()
+        if props.get("ExecMainStartTimestampMonotonic", before) != before:
+            return
+        if props.get("ActiveState") in {"activating", "active"}:
+            return
+        await asyncio.sleep(0.5)
+    reason = props.get("Result") or props.get("ActiveState") or "unknown"
+    raise RuntimeError(f"meshloom-update.service did not start ({reason})")
 
 
 def start_compose_helper() -> None:

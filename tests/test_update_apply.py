@@ -164,7 +164,11 @@ async def test_start_package_helper_falls_back_to_no_block(
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate = AsyncMock(return_value=(b"", b""))
-    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as spawn:
+    with (
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(return_value={})),
+        patch("app.services.update_apply._check_helper_started", new=AsyncMock()),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as spawn,
+    ):
         await start_package_helper()
     spawn.assert_awaited_once()
     assert spawn.await_args.args[:4] == (
@@ -188,6 +192,8 @@ async def test_start_package_helper_falls_back_when_watcher_inactive(
     proc.returncode = 0
     proc.communicate = AsyncMock(return_value=(b"", b""))
     with (
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(return_value={})),
+        patch("app.services.update_apply._check_helper_started", new=AsyncMock()),
         patch(
             "app.services.update_apply.package_path_watcher_active",
             new=AsyncMock(return_value=False),
@@ -970,3 +976,62 @@ def test_legacy_compose_helper_flag(job_dir: Path, monkeypatch: pytest.MonkeyPat
         secure = asyncio.run(build_update_status())
     assert legacy.legacy_update_helper is True
     assert secure.legacy_update_helper is False
+
+
+@pytest.mark.asyncio
+async def test_polkit_fallback_reports_a_start_that_never_happened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-block returns 0 even when systemd refuses the start."""
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", tmp_path / "missing.path")
+    monkeypatch.setattr("app.services.update_apply.HELPER_START_CHECK_SECONDS", 0.2)
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    stale = {
+        "ActiveState": "failed",
+        "Result": "start-limit-hit",
+        "ExecMainStartTimestampMonotonic": "5",
+    }
+    with (
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(return_value=stale)),
+        pytest.raises(RuntimeError, match="start-limit-hit"),
+    ):
+        await start_package_helper()
+
+
+@pytest.mark.asyncio
+async def test_polkit_fallback_accepts_a_new_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", tmp_path / "missing.path")
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    states = [
+        {"ActiveState": "failed", "Result": "exit-code", "ExecMainStartTimestampMonotonic": "5"},
+        {"ActiveState": "inactive", "Result": "success", "ExecMainStartTimestampMonotonic": "9"},
+    ]
+    with (
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(side_effect=states)),
+    ):
+        await start_package_helper()
+
+
+def test_helper_cooldown_fails_only_the_request_that_hit_it(
+    job_dir: Path, status_file: Path
+) -> None:
+    now = int(time.time())
+    _helper_status(
+        status_file,
+        state="cooldown",
+        error="update requested too soon; try again in 90 s",
+        started_at=now,
+    )
+    assert read_job()["state"] == "idle"
+    write_job(state="applying", phase="preparing", started_at=now, last_attempt=now)
+    job = read_job()
+    assert job["state"] == "failed"
+    assert "too soon" in job["error"]
