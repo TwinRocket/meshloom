@@ -43,7 +43,7 @@ ok() { printf '    \033[32mOK\033[0m %s\n' "$*"; }
 die() { printf '\n\033[31mERREUR : %s\033[0m\n' "$*" >&2; exit 1; }
 ask_yes() {
     [ "$ASSUME_YES" = 1 ] && return 0
-    local a; read -r -p "    $1 [o/N] " a
+    local a; printf '    %s [o/N] ' "$1" >/dev/tty; read -r a </dev/tty
     case "$a" in o | O | oui | y | Y | yes) return 0 ;; *) return 1 ;; esac
 }
 
@@ -86,9 +86,11 @@ if [ -n "${MESHLOOM_KEY_PASSPHRASE:-}" ]; then
     PASS="$MESHLOOM_KEY_PASSPHRASE"
 else
     [ "$ASSUME_YES" = 1 ] && die "--yes demande MESHLOOM_KEY_PASSPHRASE"
+    { : </dev/tty; } 2>/dev/null || die "pas de terminal interactif : lancez le script dans un vrai terminal WSL (pas via '!' dans Claude Code)"
+    echo "    (Les caractères tapés ne s'affichent PAS : c'est normal. Tapez puis Entrée.)"
     while :; do
-        read -r -s -p "    Phrase secrète : " PASS; echo
-        read -r -s -p "    Encore une fois : " PASS2; echo
+        printf '    Phrase secrète : ' >/dev/tty; IFS= read -r -s PASS </dev/tty; printf '\n' >/dev/tty
+        printf '    Encore une fois : ' >/dev/tty; IFS= read -r -s PASS2 </dev/tty; printf '\n' >/dev/tty
         [ "$PASS" = "$PASS2" ] || { echo "    Différentes, recommencez."; continue; }
         [ "${#PASS}" -ge 16 ] || { echo "    Trop courte (16 caractères minimum)."; continue; }
         break
