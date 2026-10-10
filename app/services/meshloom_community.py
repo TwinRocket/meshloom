@@ -19,6 +19,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.background_tasks import spawn
+from app.data.meshcore_channels import hashtag_room_name
 from app.models import CommunityAirportHit, CommunityStatus
 
 logger = logging.getLogger(__name__)
@@ -343,11 +344,12 @@ async def _reload_system_publisher() -> None:
 
 
 def hashtag_publish_name(name: str) -> str:
-    """Strip a leading ``#`` so Stats receives names only, matching the OSS PUT."""
-    text = (name or "").strip()
-    if text.startswith("#"):
-        text = text[1:].strip()
-    return text
+    """Drop one leading ``#`` so Stats receives names only, matching the OSS PUT.
+
+    The rest is kept exact: Community derives the hash byte from this text, so
+    a trimmed name would publish the key of another channel.
+    """
+    return hashtag_room_name(name)
 
 
 def _hashtag_publish_names(names: list[str]) -> list[str]:
@@ -355,7 +357,7 @@ def _hashtag_publish_names(names: list[str]) -> list[str]:
     seen: set[str] = set()
     for raw in names:
         name = hashtag_publish_name(raw)
-        if not name or name in seen:
+        if not name.strip() or name in seen:
             continue
         seen.add(name)
         cleaned.append(name)
@@ -469,7 +471,7 @@ async def resolve_hashtag_names(hash_bytes: list[str]) -> list[dict[str, str]]:
             continue
         name = hashtag_publish_name(str(row.get("name") or ""))
         hb = str(row.get("hash_byte") or "").strip().lower()
-        if not name or not _HASH_BYTE_RE.fullmatch(hb) or name in seen:
+        if not name.strip() or not _HASH_BYTE_RE.fullmatch(hb) or name in seen:
             continue
         seen.add(name)
         out.append({"name": name, "hash_byte": hb})

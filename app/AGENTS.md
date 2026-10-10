@@ -104,7 +104,7 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 - `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
 - Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).
 - `GET /community/iata/{code}/hashtags` ignores `code` and returns the global list (same as `/community/hashtags`).
-- Hashtag channel key normalization is **not settled**. `app/data/meshcore_channels.py: hashtag_key_from_name` strips whitespace, while Community and the frontend hash the name exactly as given. The divergence is pinned by a strict xfail in `tests/test_community_golden_vectors.py` (issue #51). Do not "fix" either side without that decision.
+- Hashtag keys hash the exact name everywhere; the official-app normalisation is UI input only (see root `AGENTS.md`, "Hashtag rule").
 
 ### Live relay (`services/community_live.py`)
 

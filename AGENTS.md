@@ -32,8 +32,6 @@ This file is the canonical entry point for every coding agent and tool.
   - Access: accounts, login, CORS and credentials, Origin/Host checks.
   - Plugins: a marketplace that will replace the bots' `exec`.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
-- **Undecided rule: hashtag name normalisation** (issue #51). Do not document it
-  or code against it as settled. See "Pitfalls".
 - Prefer fewer, stronger modules over thin wrappers. Use typed contracts (Pydantic
   models, TS types) at API, WebSocket and repository boundaries. Keep refactors
   behaviour-preserving, with tests around the moved seam.
@@ -142,11 +140,15 @@ are not part of the gate. See `CONTRIBUTING.md`.
   as send routes.
 - **Channel keys** are 16 bytes, stored as 32 uppercase hex characters. The key
   of a hashtag channel is `SHA256("#name")[:16]`.
-- **Pitfall: hashtag name normalisation is undecided.** `POST /api/channels`
-  hashes the requested name verbatim (`app/routers/channels.py`).
-  `hashtag_key_from_name` (`app/data/meshcore_channels.py`) strips whitespace
-  first. The Community vectors say "no trimming". `tests/test_community_golden_vectors.py`
-  carries a strict `xfail` for `"fr "`. Do not pick a rule without the owner.
+- **Hashtag rule (decided, #71/#73).** Key derivation always hashes the exact
+  name (`hashtag_key_from_name`, `app/data/meshcore_channels.py`): no trim, no
+  lowercasing, only one leading `#` is dropped then re-added. The official
+  MeshCore app normalisation (trim, lowercase, add `#`, `^#[a-z0-9-]+$`,
+  30 bytes) applies **only to user input in the UI**
+  (`frontend/src/utils/hashtagInput.ts`). Names from the Community catalogue,
+  the cracker, imports or the API are never normalised. The opt-in "extended
+  names" mode hashes the typed name (32-byte radio limit). Golden vectors in
+  `tests/test_community_golden_vectors.py` must all pass.
 - **Public keys** are 64 hex characters. Prefix lookups use `LIKE 'prefix%'` and
   must be unambiguous.
 - **Radio transport** is set in the UI (`app_settings.radio_transport`). Legacy

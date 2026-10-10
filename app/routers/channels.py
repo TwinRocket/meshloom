@@ -10,6 +10,7 @@ from app.channel_constants import (
     is_public_channel_key,
     is_public_channel_name,
 )
+from app.data.meshcore_channels import hashtag_room_name
 from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
 from app.models import (
     Channel,
@@ -134,23 +135,27 @@ def _derive_channel_identity(
             )
         return key_hex, requested_name, False
 
+    # Exact name, never normalized. The UI applies the official input rule
+    # before calling this route; the cracker and imports also call it with
+    # names heard on the network, which must keep the key they decrypt with.
     key_bytes = sha256(requested_name.encode("utf-8")).digest()[:16]
     return key_bytes.hex().upper(), requested_name, is_hashtag
 
 
 def _normalize_bulk_hashtag_name(name: str) -> str | None:
-    trimmed = name.strip()
-    if not trimmed:
+    """``#name`` from one bulk entry, or None. The name itself is kept exact.
+
+    The key is the hash of the exact name (meshcore_py, meshcore-cli, the
+    cracker, Community): no trim, no lowercasing, one leading ``#`` optional.
+    The official app's input rule (trim, lowercase, ``^#[a-z0-9-]+$``, 30
+    bytes) is applied by the UI before submit, and only to what the user
+    typed; this route also serves the "extended names" option, which must stay
+    exact, so it does not normalize.
+    """
+    normalized = hashtag_room_name(name)
+    if not normalized.strip():
         return None
-    normalized = trimmed.lstrip("#").strip()
-    if not normalized:
-        return None
-    # Hashtag channel names are hashed verbatim (matching meshcore_py / meshcore-cli /
-    # meshcore.js), so any character is permitted — '&', capitals, accents, etc. all map
-    # to a valid SHA256-derived key. Character normalization (lowercasing / charset
-    # restriction) is a client-side display choice, applied by the caller before submit.
-    # The on-radio name field holds 32 UTF-8 bytes including the leading '#', so cap there
-    # to keep the stored label and the derived key in sync across clients.
+    # The on-radio name field holds 32 UTF-8 bytes including the leading '#'.
     if len(f"#{normalized}".encode()) > 32:
         return None
     return f"#{normalized}"
