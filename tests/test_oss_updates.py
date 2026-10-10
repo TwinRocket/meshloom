@@ -1,9 +1,10 @@
-"""OSS update-badge: Stats catalogue fetch, SemVer compare, GET /api/updates."""
+"""Update badge: GitHub-first release check, Community mirror, SemVer, GET /api/updates."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,10 +14,15 @@ from app.services.meshloom_community import (
     fetch_meshloom_latest,
 )
 from app.services.oss_updates import (
+    fetch_github_latest as github_latest_original,
+)
+from app.services.oss_updates import (
+    fetch_latest_release,
     get_update_status,
     is_newer_release,
     is_unknown_local_version,
     refresh_oss_update_cache,
+    release_from_redirect,
     reset_oss_update_cache,
 )
 from app.version_info import AppBuildInfo
@@ -170,7 +176,7 @@ class TestSemVerAndCache:
             new=AsyncMock(return_value=null_payload),
         ):
             stored = await refresh_oss_update_cache()
-        assert stored == null_payload
+        assert stored == {**null_payload, "source": "community"}
         with patch(
             "app.services.oss_updates.get_app_build_info",
             return_value=_build("1.2.3"),
@@ -289,3 +295,130 @@ class TestUpdatesEndpoint:
         assert data["checked_at"] == 1_700_000_000
         assert data["auto_update"] is True
         assert data["latest"] == "9.9.9"
+
+
+def _github(handler):
+    real = httpx.AsyncClient
+
+    def make(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real(*args, **kwargs)
+
+    return make
+
+
+_REPO = "https://github.com/TwinRocket/meshloom"
+
+
+class TestGithubFirstUpdateCheck:
+    def test_redirect_must_be_strict_release_tag(self):
+        assert release_from_redirect(f"{_REPO}/releases/tag/4.18.0") == "4.18.0"
+        for bad in (
+            f"{_REPO}/releases/tag/v4.18.0",
+            f"{_REPO}/releases/tag/4.18.0-rc1",
+            f"{_REPO}/releases/tag/04.18.0",
+            f"{_REPO}/releases",
+            "https://evil.example/TwinRocket/meshloom/releases/tag/9.9.9",
+            f"{_REPO}/releases/tag/4.18.0/../9.9.9",
+            "",
+        ):
+            assert release_from_redirect(bad) is None, bad
+
+    @pytest.mark.asyncio
+    async def test_github_redirect_is_parsed_without_following(self):
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(302, headers={"location": f"{_REPO}/releases/tag/4.19.0"})
+
+        with patch("app.services.oss_updates.httpx.AsyncClient", _github(handler)):
+            payload = await github_latest_original()
+        assert seen == [f"{_REPO}/releases/latest"]
+        assert payload == {
+            "version": "4.19.0",
+            "html_url": f"{_REPO}/releases/tag/4.19.0",
+            "source": "github",
+        }
+
+    @pytest.mark.asyncio
+    async def test_github_failure_returns_none(self):
+        def down(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("no route", request=request)
+
+        with patch("app.services.oss_updates.httpx.AsyncClient", _github(down)):
+            assert await github_latest_original() is None
+        with patch(
+            "app.services.oss_updates.httpx.AsyncClient",
+            _github(lambda _r: httpx.Response(200, text="<html>")),
+        ):
+            assert await github_latest_original() is None
+
+    @pytest.mark.asyncio
+    async def test_github_answer_never_touches_community(self):
+        community = AsyncMock(return_value={"version": "1.0.0"})
+        with (
+            patch(
+                "app.services.oss_updates.fetch_github_latest",
+                new=AsyncMock(
+                    return_value={"version": "4.19.0", "html_url": "u", "source": "github"}
+                ),
+            ),
+            patch("app.services.oss_updates.fetch_meshloom_latest", new=community),
+        ):
+            payload = await fetch_latest_release()
+        assert payload is not None and payload["version"] == "4.19.0"
+        community.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_community_is_the_fallback_mirror(self):
+        with (
+            patch("app.services.oss_updates.fetch_github_latest", new=AsyncMock(return_value=None)),
+            patch(
+                "app.services.oss_updates.fetch_meshloom_latest",
+                new=AsyncMock(return_value={"version": "4.19.0", "html_url": "u"}),
+            ),
+            patch(
+                "app.services.oss_updates.get_app_build_info",
+                return_value=_build("4.18.0"),
+            ),
+        ):
+            await refresh_oss_update_cache()
+            status = get_update_status()
+        assert status["latest"] == "4.19.0"
+        assert status["update_available"] is True
+        assert status["source"] == "community"
+
+    @pytest.mark.asyncio
+    async def test_community_down_does_not_hide_update(self):
+        community = AsyncMock(return_value=None)
+        with (
+            patch(
+                "app.services.oss_updates.fetch_github_latest",
+                new=AsyncMock(
+                    return_value={"version": "4.19.0", "html_url": "u", "source": "github"}
+                ),
+            ),
+            patch("app.services.oss_updates.fetch_meshloom_latest", new=community),
+            patch(
+                "app.services.oss_updates.get_app_build_info",
+                return_value=_build("4.18.0"),
+            ),
+        ):
+            await refresh_oss_update_cache()
+            status = get_update_status()
+        assert status["update_available"] is True
+        assert status["source"] == "github"
+        community.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_community_mirror_skipped_while_breaker_open(self):
+        from app.services.meshloom_community import community_breaker
+
+        breaker = community_breaker()
+        for _ in range(breaker.threshold):
+            breaker.record_failure()
+        client = MagicMock()
+        with patch("app.services.meshloom_community.httpx.AsyncClient", client):
+            assert await fetch_meshloom_latest() is None
+        client.assert_not_called()

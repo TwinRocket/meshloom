@@ -82,7 +82,7 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
     },
     {
         "name": "community",
-        "description": "Meshloom Stats opt-in: join state, IATA bind, and contribution proxies.",
+        "description": "Meshloom Community opt-in: join state, IATA bind, and contribution proxies.",
     },
     {
         "name": "statistics",
@@ -91,7 +91,8 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
     {
         "name": "updates",
         "description": (
-            "Cached latest Meshloom OSS release from Stats (no JWT; works opted out), "
+            "Cached latest Meshloom release from GitHub releases/latest, with the "
+            "Community mirror as fallback (no JWT; works opted out), "
             "plus in-app apply status when a package/compose helper is present."
         ),
     },
