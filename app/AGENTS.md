@@ -1,619 +1,177 @@
-# Backend AGENTS.md
+# Backend (`app/`)
 
-This document is the backend working guide for agents and developers.
-Keep it aligned with `app/` source files and router behavior.
+Backend-only facts. The repo map, commands, quality gate, cross-cutting conventions (packet
+identities, message dedup, path hash modes, channel keys), environment variables, the release
+chain, the updater security principle and the working rules are in the root `AGENTS.md`.
+Like everything else here, this file is a hypothesis: check it against the code.
 
-## Stack
+Stack: FastAPI, aiosqlite, Pydantic v2 (+ pydantic-settings), `meshcore` (PyPI), PyCryptodome, httpx.
 
-- FastAPI
-- aiosqlite
-- Pydantic
-- MeshCore Python library (`meshcore` from PyPI)
-- PyCryptodome
-
-## Code Ethos
-
-- Prefer strong domain modules over layers of pass-through helpers.
-- Split code when the new module owns real policy, not just a nicer name.
-- Avoid wrapper services around globals unless they materially improve testability or reduce coupling.
-- Keep workflows locally understandable; do not scatter one reasoning unit across several files without a clear contract.
-- Typed write/read contracts are preferred over loose dict-shaped repository inputs.
-
-## Backend Map
+## Module map
 
 ```text
 app/
-├── main.py              # App startup/lifespan, router registration, static frontend mounting
-├── api_docs.py          # OpenAPI description/tag metadata and docs route registration
-├── config.py            # Env-driven runtime settings
-├── channel_constants.py # Public/default channel constants shared across sync/send logic
-├── database.py          # SQLite connection + base schema + migration runner
-├── migrations/          # Schema migrations (SQLite user_version, per-version modules)
-├── models.py            # Pydantic request/response models and typed write contracts (for example ContactUpsert)
-├── version_info.py      # Unified version/build metadata resolution for debug + startup surfaces
-├── repository/          # Data access layer (contacts, channels, messages, raw_packets, settings, fanout, push_subscriptions, repeater_telemetry, contact_telemetry)
-├── services/            # Shared orchestration/domain services
-│   ├── messages.py              # Shared message creation, dedup, ACK application
-│   ├── message_send.py          # Direct send, channel send, resend workflows
-│   ├── dm_ingest.py             # Shared direct-message ingest / dedup seam for packet + fallback paths
-│   ├── dm_ack_apply.py          # Shared DM ACK application over pending/buffered ACK state
-│   ├── dm_ack_tracker.py        # Pending DM ACK state
-│   ├── contact_reconciliation.py # Prefix-claim, sender-key backfill, name-history wiring
-│   ├── flood_scope.py           # Firmware-version-aware flood-scope set/clear command seam
-│   ├── radio_lifecycle.py       # Post-connect setup and reconnect/setup helpers
-│   ├── radio_commands.py        # Radio config/private-key command workflows
-│   ├── radio_stats.py           # In-memory local radio stats sampling and noise-floor history
-│   ├── radio_runtime.py         # Router/dependency seam over the global RadioManager
-│   ├── radio_transport.py       # UX-owned radio transport snapshot (serial / TCP / BLE)
-│   ├── directory.py             # Community directory (resolve-hops, nodes, reach, neighbors, search)
-│   ├── community_live.py        # Community live-packet relay (one upstream socket, local fan-out)
-│   ├── meshloom_community.py    # Community state, JWT mint, HTTP client + circuit breaker
-│   ├── oss_updates.py           # Release check: GitHub releases/latest, Community mirror fallback
-│   └── rf_locate.py             # RF locate identity + 0-hop disk assembly
-├── radio.py             # RadioManager transport/session state + lock management
-├── radio_proxy/         # Virtual companion TCP radio (protocol, policy, manager)
-├── radio_sync.py        # Polling, sync, periodic advertisement loop
-├── decoder.py           # Packet parsing/decryption
-├── packet_processor.py  # Raw packet pipeline, dedup, path handling
-├── event_handlers.py    # MeshCore event subscriptions and ACK tracking
-├── events.py            # Typed WS event payload serialization
-├── websocket.py         # WS manager + broadcast helpers
-├── security.py          # Optional app-wide HTTP Basic auth middleware for HTTP + WS
-├── push/                # Web Push notification subsystem
-│   ├── vapid.py                 # VAPID key generation, storage, caching; DB subject then env fallback
-│   ├── send.py                  # pywebpush wrapper (async via thread executor)
-│   ├── policy.py                # Conversation enablement (override > PRIV/new_dm > public/hashtag ON > private OFF)
-│   ├── first_seen.py            # First-seen contact alert (new DB insert only, after setup)
-│   └── manager.py               # Message + first-seen dispatch; muted-channel circuit breaker
-├── fanout/              # Fanout bus: MQTT, bots, webhooks, Apprise, SQS (see fanout/AGENTS_fanout.md)
-├── telemetry_interval.py # Shared telemetry interval math for tracked-repeater scheduler
-├── path_utils.py        # Path hex rendering and hop-width helpers
-├── region_scope.py      # Normalize/validate regional flood-scope values
-├── region_resolver.py   # Recompute transport codes per known region to name a packet's region
-├── keystore.py          # Ephemeral private/public key storage for DM decryption
-├── frontend_static.py   # Mount/serve built frontend (production)
-└── routers/
-    ├── health.py
-    ├── debug.py
-    ├── radio.py
-    ├── contacts.py
-    ├── channels.py
-    ├── messages.py
-    ├── packets.py
-    ├── read_state.py
-    ├── rooms.py
-    ├── server_control.py   # Shared helpers for repeater/room CLI flows (not an APIRouter)
-    ├── settings.py
-    ├── fanout.py
-    ├── repeaters.py
-    ├── statistics.py
-    ├── directory.py
-    ├── locate.py
-    ├── community.py         # Meshloom Community join, IATA, hashtag names, Stats proxies
-    ├── push.py
-    ├── updates.py
-    └── ws.py
+├── main.py              # lifespan, middleware (CORS, gzip, Basic auth), router registration, static mount
+├── config.py            # pydantic-settings, env prefix MESHCORE_ (see root env table)
+├── database.py          # SQLite connection, base schema and indexes
+├── migrations/          # _NNN_name.py, each exposes `async def migrate(conn)`; tracked by PRAGMA user_version
+├── models.py            # Pydantic API models and typed write contracts (e.g. ContactUpsert)
+├── events.py            # WsEventType + typed WS payload serialization
+├── websocket.py         # WS manager, broadcast_event(), broadcast_error()
+├── background_tasks.py  # spawn(): fire-and-forget with a strong ref, logged errors, drained on shutdown
+├── radio.py             # RadioManager: transport/session state, radio_operation() lock, slot cache
+├── radio_sync.py        # periodic loops: contact sync/offload, adverts, message poll/audit, telemetry
+├── radio_proxy/         # virtual companion TCP radio (protocol, policy, manager)
+├── decoder.py           # packet parsing and decryption
+├── packet_processor.py  # RX_LOG_DATA pipeline: store raw, decrypt, dedup, paths, ACK codes
+├── event_handlers.py    # MeshCore event subscriptions (on_rx_log_data, on_ack, CONTACT_MSG_RECV fallback)
+├── region_resolver.py   # name a packet's region by recomputing transport codes per known region
+├── security.py          # optional app-wide HTTP Basic auth (HTTP + WS)
+├── frontend_static.py   # serve frontend/dist, else frontend/prebuilt
+├── keystore.py          # in-memory private key for DM decryption
+├── push/                # Web Push (not a fanout module)
+├── fanout/              # fanout bus, see fanout/AGENTS_fanout.md
+├── repository/          # data access, one module per aggregate
+├── services/            # orchestration/domain services (selection below)
+└── routers/             # one APIRouter per file; server_control.py holds shared repeater/room CLI helpers
 ```
 
-## Core Runtime Flows
+Services worth knowing before touching a flow:
 
-### Incoming data
-
-1. Radio emits events.
-2. `on_rx_log_data` stores raw packet and tries decrypt/pipeline handling.
-3. Shared message-domain services create/update `messages` and shape WS payloads.
-4. Direct-message storage is centralized in `services/dm_ingest.py`; packet-processor DMs and `CONTACT_MSG_RECV` fallback events both route through that seam.
-
-### Outgoing messages
-
-1. Send endpoints in `routers/messages.py` validate requests and delegate to `services/message_send.py`.
-2. Service-layer send workflows call MeshCore commands, persist outgoing messages, and wire ACK tracking.
-3. Endpoint broadcasts WS `message` event so all live clients update.
-4. ACK/repeat updates arrive later as `message_acked` events.
-5. Channel resend (`POST /messages/channel/{id}/resend`) strips the sender name prefix by exact match against the current radio name. This assumes the radio name hasn't changed between the original send and the resend. Name changes require an explicit radio config update and are rare, but the `new_timestamp=true` resend path has no time window, so a mismatch is possible if the name was changed between the original send and a later resend.
-
-### Radio transport (UX / `app_settings`, not env)
-
-Transport is configured in the web UI and stored on `app_settings`: `radio_transport` (`serial` / `tcp` / `ble`), `radio_serial_port` (empty = auto-detect), `radio_serial_baudrate`, `radio_tcp_host` / `radio_tcp_port`, `radio_ble_address` / `radio_ble_pin`. Until `radio_transport` is set, the radio stays paused. Do not use `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST`, or `MESHCORE_BLE_ADDRESS` as the configuration surface.
-
-Identity is bound to `radio_bound_public_key`. A live key that does not match, or an existing mesh history with no bound key (`identity_unbound_legacy`), closes ingest and pauses setup until adopt/reject. `pause_connection()` must not run while the post-connect operation lock is held.
-
-### Connection lifecycle
-
-- `RadioManager.start_connection_monitor()` checks health every 5s.
-- `RadioManager.post_connect_setup()` delegates to `services/radio_lifecycle.py`.
-- Routers, startup/lifespan code, fanout helpers, and `radio_sync.py` should reach radio state through `services/radio_runtime.py`, not by importing `app.radio.radio_manager` directly.
-- Shared reconnect/setup helpers in `services/radio_lifecycle.py` are used by startup, the monitor, and manual reconnect/reboot flows before broadcasting healthy state.
-- Setup still includes handler registration, key export, time sync, contact/channel sync, and advertisement tasks. The message-poll task always starts: by default it runs as a low-frequency hourly audit, and `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` switches it to aggressive 10-second polling. That audit checks both missed-radio-message drift and channel-slot cache drift; cache mismatches are logged, toasted, and the send-slot cache is reset.
-- Post-connect setup is timeout-bounded. If initial radio offload/setup hangs too long, the backend logs the failure and broadcasts an `error` toast telling the operator to reboot the radio and restart the server.
-
-## Important Behaviors
-
-### Multibyte routing
-
-- Packet `path_len` values are hop counts, not byte counts.
-- Hop width comes from the packet or radio `path_hash_mode`: `0` = 1-byte, `1` = 2-byte, `2` = 3-byte.
-- Channel slot count comes from firmware-reported `DEVICE_INFO.max_channels`; do not hardcode `40` when scanning/offloading channel slots.
-- Channel sends use a session-local LRU slot cache after startup channel offload clears the radio. Repeated sends to the same channel reuse the loaded slot; new channels fill free slots up to the discovered channel capacity, then evict the least recently used cached channel.
-- TCP radios do not reuse cached slot contents. For TCP, channel sends still force `set_channel(...)` before every send because this backend does not have exclusive device access.
-- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` disables slot reuse on all transports and forces the old always-`set_channel(...)` behavior before every channel send.
-- Contacts persist canonical direct-route fields (`direct_path`, `direct_path_len`, `direct_path_hash_mode`) so contact sync and outbound DM routing reuse the exact stored hop width instead of inferring from path bytes.
-- Direct-route sources are limited to radio contact sync (`out_path`) and PATH/path-discovery updates. This mirrors firmware `onContactPathRecv(...)`, which replaces `ContactInfo.out_path` when a new returned path is heard.
-- `route_override_path`, `route_override_len`, and `route_override_hash_mode` take precedence over the learned direct route for radio-bound sends.
-- Advertisement paths are stored only in `contact_advert_paths` for analytics/visualization. They are not part of `Contact.to_radio_dict()` or DM route selection.
-- `contact_advert_paths` identity is `(public_key, path_hex, path_len)` because the same hex bytes can represent different routes at different hop widths.
-- RF adverts reconcile messages (prefix-contact promotion, prefix-DM claim, channel `sender_key` backfill) only when the advert payload is new, the contact is new, or its name changed. Further observations of the same payload over other paths only refresh the contact and its advert-path history. Radio contact sync reconciles its snapshot through one sequential background worker. The partial index `idx_messages_chan_unattributed_sender` (migration 086) keeps the sender backfill off a full CHAN scan; the prefix-DM claim matches `conversation_key IN (<proper prefixes of the full key>)` through `idx_messages_pagination`.
-
-### Read/unread state
-
-- Server is source of truth (`contacts.last_read_at`, `channels.last_read_at`).
-- `GET /api/read-state/unreads` returns counts, mention flags, `last_message_times`, `last_message_previews`, `last_read_ats`, and `first_unread_ids`.
-- The endpoint never windows or sorts the whole `messages` table: conversations are enumerated by an index skip-scan, then each conversation's newest row and unread rows are read through `idx_messages_pagination` / `idx_messages_unread_covering`. `tests/test_unreads_equivalence.py` keeps the former `ROW_NUMBER()` implementation as an oracle; any change must keep both outputs identical.
-- `last_message_times` and `last_message_previews` take each conversation's newest row ordered by `(received_at DESC, id DESC)`, so same-second ties pick the newest `id`. Preview text is truncated to ~120 characters.
-- `first_unread_ids` maps stateKey -> id of the oldest unread message, so the client can anchor the unread divider (and jump to it) without paging back through history. It is the first unread row ordered by `(received_at, id)`, looked up only for conversations that have unreads — deliberately not `MIN(received_at)` with a bare id, because sender timestamps are whole seconds and same-second ties are routine, and not `MIN(id)`, because historical decryption inserts old messages with new ids.
-
-### DM ingest + ACKs
-
-- `services/dm_ingest.py` is the one place that should decide fallback-context resolution, DM dedup/reconciliation, and packet-linked vs. content-based storage behavior.
-- `CONTACT_MSG_RECV` is a fallback path, not a parallel source of truth. If you change DM storage behavior, trace both `event_handlers.py` and `packet_processor.py`.
-- DM ACK tracking is an in-memory pending/buffered map in `services/dm_ack_tracker.py`, with periodic expiry from `radio_sync.py`.
-- Outgoing DMs send once inline, store/broadcast immediately after the first successful `MSG_SENT`, then may retry up to 2 more times in the background only when the initial `MSG_SENT` result includes an expected ACK code and the message remains unacked.
-- DM retry timing follows the firmware-provided `suggested_timeout` from `PACKET_MSG_SENT`; do not replace it with a fixed app timeout unless you intentionally want more aggressive duplicate-prone retries.
-- Direct-message send behavior is intended to emulate `meshcore_py.commands.send_msg_with_retry(...)` when the radio provides an expected ACK code: stage the effective contact route on the radio, send, wait for ACK, and on the final retry force flood via `reset_path(...)`.
-- Non-final DM attempts use the contact's effective route (`override > direct > flood`). The final retry is intentionally sent as flood even when a routing override exists.
-- DM ACK state is terminal on first ACK. Retry attempts may register multiple expected ACK codes for the same message, but sibling pending codes are cleared once one ACK wins so a DM should not accrue multiple delivery confirmations from retries.
-- ACKs are delivery state, not routing state. Bundled ACKs inside PATH packets still satisfy pending DM sends, but ACK history does not feed contact route learning.
-- DM ACKs are matched from two independent radio emissions, so confirmation does not depend on the radio surfacing a host control frame: (1) the `EventType.ACK`/`SEND_CONFIRMED` host frame via `event_handlers.on_ack`, and (2) the raw RF packet itself via `packet_processor.process_raw_packet`. The packet processor extracts ACK codes both from PATH-return packets (flood replies, ACK embedded in `extra`) and from standalone `PayloadType.ACK` packets (direct replies, 4-byte cleartext payload), feeding both into `apply_dm_ack_code`. This matters for companion firmwares (e.g. pyMC over TCP) that do not reliably emit a separate host ACK frame for direct-routed replies.
-
-### Server login route escalation
-
-`prepare_authenticated_contact_connection` (`routers/server_control.py`, shared by repeater and room login) sends one login over the contact's effective route. If that draws **no reply at all**, it calls `reset_path(...)` and retries exactly once as flood.
-
-This is intentionally *more* than the reference implementations do — do not "correct" it back to single-shot:
-- Firmware `BaseChatMesh::sendLogin` picks flood only when `out_path_len == OUT_PATH_UNKNOWN` and never retries; `CMD_SEND_LOGIN` calls it once.
-- `meshcore_py` has `send_msg_with_retry` (with `flood_after` + `reset_path`) but no login equivalent — `send_login`/`send_login_sync` are single-shot.
-- Firmware only clears a stale path when the *host* asks (`CMD_RESET_PATH`); client-side path learning is otherwise passive via `onContactPathRecv`.
-
-Escalating is still correct because the **server** side treats an inbound flood as its cue to relearn the return path (`simple_repeater`/`simple_room_server`: `if (is_flood) client->out_path_len = OUT_PATH_UNKNOWN`). A flood login is therefore what repairs a broken route in both directions, and login gates the whole repeater dashboard.
-
-Escalation is bounded to one extra attempt and only fires when:
-- the first attempt **timed out**. `LOGIN_FAILED` means the server heard us and refused, so the route is fine and retrying only hammers it with bad credentials; a send error is a local radio problem a different route will not fix.
-- the contact was **not already on flood** (`effective_route_source != "flood"`), since the retry would otherwise be byte-identical.
-
-The retry deliberately does not re-run `_ensure_on_radio` — re-adding the contact would restore the route just cleared. `reset_path` clears the route on the radio only; the stored contact route is untouched, so the next `add_contact` re-stages it. That mirrors the DM retry and keeps one bad login from discarding a route that may be fine.
-
-### Echo/repeat dedup
-
-- Channel message uniqueness (`idx_messages_dedup_null_safe`): `(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `type = 'CHAN'`.
-- Incoming PRIV message uniqueness (`idx_messages_incoming_priv_dedup`): `(type, conversation_key, text, COALESCE(sender_timestamp, 0), COALESCE(sender_key, ''))` where `type = 'PRIV' AND outgoing = 0` — `sender_key` was added in migration 056 to distinguish room-server posts from different senders in the same second.
-- Duplicate insert is treated as an echo/repeat: the new path (if any) is appended, and the ACK count is incremented only for outgoing channel messages. Incoming direct messages with the same dedup identity also collapse onto one stored row, with later observations merging path data instead of creating a second DM.
-
-### Region scope decoding (transport codes)
-
-- `ROUTE_TYPE_TRANSPORT_FLOOD`/`ROUTE_TYPE_TRANSPORT_DIRECT` packets carry a 4-byte transport-code block; `parse_packet_envelope` exposes it as `transport_codes = (code_1, code_2)` (little-endian uint16s; `code_2` is reserved/0).
-- `code_1` is a keyed MAC over the payload, not a stable per-region id: `code = HMAC-SHA256(SHA256("#" + region_name)[:16], payload_type || payload)[:2]` (firmware `TransportKeyStore.cpp`; reserved values `0x0000`/`0xFFFF` are nudged to `0x0001`/`0xFFFE`). There is **no** reverse lookup table — to name a packet's region you recompute the code per candidate region and check for a match (`app/region_resolver.py`).
-- Candidate region names come from `app_settings.known_regions` (user-editable, seeded by migration 063 from `flood_scope` + channel `flood_scope_override`).
-- Channel messages persist `messages.transport_code` (uint16, NULL = unscoped plain flood) and `messages.region` (resolved name, NULL = scoped but no list match) at ingest, so the chat region badge survives raw-packet purge. The packet inspector (`GET /packets/{id}` and the `raw_packet` WS broadcast) resolves region on the fly against the current list since it still holds the raw payload.
-
-### Region-scope adoption stats (`region_scope_24h`)
-
-`GET /statistics` reports regional flood-scope uptake as two views with different denominators that intentionally will not agree:
-
-- **Traffic** (`bucket_region_scope` in `path_utils.py`) counts flood-routed (`route_type` 0/1) GroupText packets across all channels, including undecryptable ones. Zero-hop/direct sends are excluded because firmware reaches them through the non-transport `sendZeroHop`/`sendDirect` overloads and they can never carry transport codes.
-- **Senders** (`StatisticsRepository._region_scope_senders_24h`) counts distinct senders with at least one scoped message. Attribution requires decryption, so it only covers channels we hold keys for — narrower, but self-validating (a decrypted packet is provably not a corrupt capture) and immune to one chatty node skewing the result. Identity is `sender_key` falling back to `sender_name`; scoping reads `messages.transport_code`, falling back to the linked raw packet for rows stored before region tagging existed.
-
-`false_positive_floor` exists because corrupt RF captures land in `raw_packets` with effectively random headers and a share of them claim `TRANSPORT_FLOOD`. That garbage spreads near-uniformly across payload-type buckets, so it is measured directly from payload types the protocol does not define (`0x0C`/`0x0D`/`0x0E`) and averaged per bucket. **A `scoped_messages` count at or below the floor is not evidence of adoption**; surface the two together and never show the percentage alone. Do not "fix" the floor by removing it — without it the metric reads several times higher than reality.
-
-Both traffic buckets come from one 24h raw-packet scan (`_packet_shape_24h`) shared with `path_hash_width_24h`, so adding region stats costs no extra query or parse pass.
-
-### Raw packet dedup policy
-
-- Raw packet storage deduplicates by payload hash (`RawPacketRepository.create`), excluding routing/path bytes.
-- Stored packet `id` is therefore a payload identity, not a per-arrival identity.
-- Realtime raw-packet WS broadcasts include `observation_id` (unique per RF arrival) in addition to `id`.
-- Frontend packet-feed features should key/dedupe by `observation_id`; use `id` only as the storage reference.
-- Message-layer repeat handling (`_handle_duplicate_message` + `MessageRepository.add_path`) is separate from raw-packet storage dedup.
-
-### Contact sync throttle
-
-- `sync_recent_contacts_to_radio()` sets `_last_contact_sync = now` before the sync completes.
-- This is intentional: if sync fails, the next attempt is still throttled to prevent a retry-storm against a flaky radio. Contacts will resync on the next scheduled cycle or on reconnect.
-
-### Periodic advertisement
-
-- Controlled by `app_settings.advert_interval` (seconds).
-- `0` means disabled.
-- Last send time tracked in `app_settings.last_advert_time`.
-
-### Fanout bus
-
-- All external integrations (MQTT, bots, webhooks, Apprise, SQS) are managed through the fanout bus (`app/fanout/`).
-- Configs stored in `fanout_configs` table, managed via `GET/POST/PATCH/DELETE /api/fanout`.
-- `broadcast_event()` in `websocket.py` dispatches to the fanout manager for `message`, `raw_packet`, and `contact` events.
-- WebSocket delivery: each client has a bounded outbound queue (`CLIENT_QUEUE_MAX`) drained by one writer task, so frames reach a client in call order and `broadcast_event()` never waits on socket I/O. `raw_packet` frames are best-effort: once a client's backlog reaches `CLIENT_RAW_PACKET_BACKLOG_MAX` they are dropped for that client rather than queued, which keeps headroom for state-bearing frames during RF bursts. A client whose send times out (`SEND_TIMEOUT_SECONDS`), fails, or whose queue still overflows (`CLIENT_QUEUE_MAX` = 2048) is evicted and its socket is closed with code 1013; the frontend reconnects and refetches. Never call `websocket.send_text` directly on a managed socket (the `pong` reply goes through `ws_manager.send_raw`).
-- `on_message` and `on_raw` are scope-gated. `on_contact`, `on_telemetry`, and `on_health` are dispatched to all modules unconditionally (modules filter internally).
-- Repeater telemetry broadcasts are emitted after `RepeaterTelemetryRepository.record()` in both `radio_sync.py` (auto-collect) and `routers/repeaters.py` (manual fetch). Contact LPP telemetry is similarly recorded to `ContactTelemetryRepository` and dispatched to fanout.
-- The telemetry collection loop in `radio_sync.py` is unified: it iterates over both `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, dispatching to `_collect_repeater_telemetry` (type 2) or `_collect_contact_telemetry` (others). The daily check ceiling uses the combined count.
-- The 60-second radio stats sampling loop in `radio_stats.py` dispatches an enriched health snapshot (radio identity + full stats) to all fanout modules after each sample.
-- Community MQTT publishes raw packets only, but its derived `path` field for direct packets is emitted as comma-separated hop identifiers, not flat path bytes.
-- See `app/fanout/AGENTS_fanout.md` for full architecture details and event payload shapes.
-
-### Web Push notifications
-
-Web Push is a standalone subsystem in `app/push/`, separate from the fanout module system. It sends browser push notifications for incoming messages even when the tab is closed.
-
-- **Not a fanout module** — Web Push manages per-browser subscriptions (N browsers, each with its own endpoint and delivery state), unlike fanout which is one-config-to-one-destination.
-- **VAPID keys**: auto-generated P-256 key pair on first startup, stored in `app_settings.vapid_private_key` / `vapid_public_key`. Cached in-module by `app/push/vapid.py`.
-- **VAPID subject**: `get_vapid_claims()` uses a non-empty `app_settings.vapid_subject` (Settings → Notifications / `PATCH /push/preferences`), then falls back to `MESHCORE_VAPID_SUBJECT` (default `mailto:noreply@meshcore.local`). Apple's APNs rejects `.local` subjects with `403 BadJwtToken`; iOS/Safari deployments must set a real `mailto:`/`https:` contact.
-- **Dispatch**: `broadcast_event()` in `websocket.py` fires `push_manager.dispatch_message(data)` alongside fanout for `message` events. Enablement is `policy.conversation_is_enabled` (`push_defaults` + `push_conversation_overrides`; Public/`#` ON, private-key channels OFF, `PRIV` including rooms via `new_dm`). Muted channels are a separate circuit breaker. First-seen alerts go through `dispatch_first_seen` (not a WebSocket event) after a new contact-row insert. Sends use `pywebpush` in a thread executor.
-- **Preferences API**: `GET`/`PATCH /push/preferences` and `PUT /push/preferences/conversations/{key}` `{override}`. `GET`/`POST /push/conversations` return 404. Migration 071 turns defaults ON and imports legacy `push_conversations` entries as `true` overrides.
-- **Stale cleanup**: HTTP 404/410 from the push service triggers immediate subscription deletion.
-- **Subscriptions stored** in `push_subscriptions` table with `UNIQUE(endpoint)` for upsert semantics.
-- Requires HTTPS (self-signed OK) and outbound internet to reach browser push services.
-
-## API Surface (all under `/api`)
-
-### Health
-- `GET /health`
-
-### Debug
-- `GET /debug` — support snapshot with recent logs, live radio probe, slot/contact audits, and version/git info
-
-### Radio
-- `GET /radio/config` — includes `path_hash_mode`, `path_hash_mode_supported`, advert-location on/off, and `multi_acks_enabled`
-- `GET /radio/proxy` — virtual companion TCP listen settings and live status
-- `PATCH /radio/proxy` — enable/disable/rebind the radio proxy (drops all sessions)
-- `PATCH /radio/config` — may update `path_hash_mode` (`0..2`) when firmware supports it, and `multi_acks_enabled`
-- `GET /radio/private-key` — export in-memory private key as hex (requires `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`)
-- `PUT /radio/private-key`
-- `POST /radio/advertise` — manual advert send; request body may set `mode` to `flood` or `zero_hop` (defaults to `flood`)
-- `POST /radio/discover` — short mesh discovery sweep for nearby repeaters/sensors
-- `POST /radio/discover-regions` — sweep nearby repeaters via the guest anon regions request; aggregates flood-allowed region names into a deduped union for merging into `known_regions` (direct-routed, so only in-range repeaters answer; optional `public_keys`, else recent repeaters)
-- `POST /radio/trace` — send a multi-hop trace loop through known repeaters and back to the local radio
-- `POST /radio/disconnect`
-- `POST /radio/reboot`
-- `POST /radio/reconnect`
-
-### Contacts
-- `GET /contacts`
-- `GET /contacts/analytics` — unified keyed-or-name analytics payload
-- `GET /contacts/repeaters/advert-paths` — recent advert paths for all contacts
-- `POST /contacts`
-- `POST /contacts/bulk-delete`
-- `DELETE /contacts/{public_key}`
-- `POST /contacts/{public_key}/mark-read`
-- `POST /contacts/{public_key}/command`
-- `POST /contacts/{public_key}/routing-override`
-- `POST /contacts/{public_key}/trace`
-- `POST /contacts/{public_key}/path-discovery` — discover forward/return paths, persist the learned direct route, and sync it back to the radio best-effort
-- `POST /contacts/{public_key}/repeater/login` — one attempt on the effective route, then one flood retry on timeout
-- `POST /contacts/{public_key}/repeater/status`
-- `POST /contacts/{public_key}/repeater/lpp-telemetry`
-- `POST /contacts/{public_key}/repeater/neighbors`
-- `POST /contacts/{public_key}/repeater/acl`
-- `POST /contacts/{public_key}/repeater/node-info`
-- `POST /contacts/{public_key}/repeater/radio-settings`
-- `POST /contacts/{public_key}/repeater/regions` — CLI region hierarchy, falling back to the guest anon flood-allowed names (`source`: `cli` or `anon`)
-- `POST /contacts/{public_key}/repeater/advert-intervals`
-- `POST /contacts/{public_key}/repeater/owner-info`
-- `GET /contacts/{public_key}/repeater/telemetry-history` — stored telemetry history for a repeater (read-only, no radio access)
-- `POST /contacts/{public_key}/telemetry` — on-demand CayenneLPP telemetry from any contact (persists in `contact_telemetry_history`)
-- `GET /contacts/{public_key}/telemetry-history` — stored LPP telemetry history for a contact (read-only)
-- `POST /contacts/{public_key}/room/login` — one attempt on the effective route, then one flood retry on timeout
-- `POST /contacts/{public_key}/room/status`
-- `POST /contacts/{public_key}/room/lpp-telemetry`
-- `POST /contacts/{public_key}/room/acl`
-
-### Channels
-- `GET /channels`
-- `GET /channels/{key}/detail`
-- `POST /channels`
-- `POST /channels/bulk-hashtag`
-- `DELETE /channels/{key}`
-- `POST /channels/{key}/flood-scope-override`
-- `POST /channels/{key}/path-hash-mode-override`
-- `POST /channels/{key}/mark-read`
-
-### Messages
-- `GET /messages` — list with filters; supports `q` (full-text search), `after`/`after_id` (forward cursor)
-- `GET /messages/around/{message_id}` — context messages around a target (for jump-to-message navigation)
-- `POST /messages/direct`
-- `POST /messages/channel`
-- `POST /messages/channel/{message_id}/resend`
-
-### Packets
-- `GET /packets/undecrypted/count`
-- `GET /packets/undecrypted/group-text-samples` — bounded newest-first sample of stored undecrypted GroupText for the channel finder (MAC-verified `#meshloom-testing` packets are filtered out)
-- `POST /packets/region-backfill` — re-resolve region scope for stored channel messages that still have a retained raw packet (region is otherwise only tagged at ingest); returns `{scanned, scoped, named}`
-- `GET /packets/{packet_id}` — fetch one stored raw packet by row ID for on-demand inspection
-- `POST /packets/decrypt/historical`
-- `POST /packets/maintenance`
-
-### Read state
-- `GET /read-state/unreads` — counts, mention flags, `last_message_times`, `last_message_previews`, `last_read_ats`, and `first_unread_ids`
-- `POST /read-state/mark-all-read`
-
-### Settings
-- `GET /settings`
-- `PATCH /settings`
-- `POST /settings/favorites/toggle`
-- `POST /settings/blocked-keys/toggle`
-- `POST /settings/blocked-names/toggle`
-- `POST /settings/tracked-telemetry/toggle`
-- `GET /settings/tracked-telemetry/schedule` — current telemetry scheduling derivation, interval options, and next-run-at timestamp
-- `POST /settings/tracked-telemetry-contacts/toggle` — toggle tracked LPP telemetry for any contact (max 8)
-- `GET /settings/tracked-telemetry-contacts/schedule` — contact telemetry scheduling (shared ceiling with repeaters)
-- `POST /settings/muted-channels/toggle`
-
-### Fanout
-- `GET /fanout` — list all fanout configs
-- `POST /fanout` — create new fanout config
-- `PATCH /fanout/{id}` — update fanout config (triggers module reload)
-- `DELETE /fanout/{id}` — delete fanout config (stops module)
-- `POST /fanout/bots/disable-until-restart` — stop bot modules and keep bots disabled until restart
-
-### Updates
-- `GET /updates` — cached latest release (`current`, `latest`, `update_available`, `html_url`, `latest_source`) plus `install_kind`, `apply_supported`, `auto_update` + window fields, `legacy_update_helper`, and helper `job` progress
-- `POST /updates/apply` — 202 with the same body when `apply_supported`; 409 `apply_not_supported` / `update_not_available` / `apply_in_progress`. Never apt-upgrades the OS
-- `PATCH /updates/settings` — persist `auto_update` and the window (not via `PATCH /settings`). After the 300s release poll, auto-apply when supported and an update is available; 6h backoff after a failed job
-
-#### Update helpers: trust boundary (4.18+)
-
-The app and the container are untrusted by the root helpers. Keep it that way:
-
-- **Trigger only.** The app writes `request-update` (package: `/var/lib/meshloom/request-update`, watched by `meshloom-update.path`; compose: `<dir>/data/request-update`, watched by `meshloom-compose-update.path`). Both path units use `PathChanged=` only. Root never reads, deletes or chowns that file or anything else the app can write. Fallback when the package path unit is not active: `systemctl start --no-block meshloom-update.service` (polkit rule, start only).
-- **Root picks the target.** Package: `pkg/nfpm/apply-update` installs whatever the signed Meshloom repository offers (apt `--only-upgrade` with a pin by origin host `twinrocket.github.io`, since a Release `Origin:` can be claimed by any source; dnf `upgrade --refresh --enablerepo=meshloom` with gpgcheck/repo_gpgcheck forced; `failed` if the installed version did not change) and fails closed if the Meshloom source lacks `signed-by=` or carries `trusted=yes`/`allow-insecure=yes`, or the dnf repo lacks gpgcheck/repo_gpgcheck. Unrelated sources are not inspected: the pin keeps them away from the meshloom package. Compose: `scripts/setup/helpers/compose-update` reads the latest tag from the `releases/latest` redirect (strict `X.Y.Z`), verifies the release's `OCI-DIGESTS` with gpgv against `/usr/share/keyrings/meshloom-archive-keyring.gpg`, refuses downgrades, rewrites `<dir>/.env` (`MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:…`) with mktemp+mv, then `docker compose pull` + `up -d`. It never edits YAML. `install.sh` embeds this helper, its units and the release key: after editing any of them run `scripts/setup/sync_installer_embeds.py`.
-- **Root publishes status.** `status.json` (`{schema, state, phase, percent, error, started_at, updated_at, version}`) is written with mktemp + chmod 0644 + mv in a root 0755 directory: `/var/lib/meshloom-update` (`StateDirectory=`) for the package, `<dir>/update-status` mounted `:ro` at `/app/update-status` for compose (`MESHLOOM_UPDATE_STATUS_PATH`).
-- **App side.** `update_apply.write_job()` writes `update-attempt.json` (app-owned: requested target, `last_attempt`, app-side failures). `read_job()` merges it with the helper status (status wins once its `started_at` is at or after the request) and falls back to the legacy `update-job.json` read-only (pre-4.18 helpers; remove in N+2). With the legacy compose helper (no status mount) the app unlinks its own `update-job.json` before triggering so the old helper resolves the latest release instead of re-applying a stale `target`; `legacy_update_helper` asks the user to re-run the installer.
-- **Rate limits.** Helpers: 120 s cooldown; a too-soon run publishes state `cooldown` (kept internal: the app shows `failed` only for the request that hit it). Units set `StartLimitIntervalSec=0`: a systemd start limit would fail the `.path` unit for good. The app's polkit fallback checks that the oneshot really started (`ExecMainStartTimestampMonotonic`) instead of trusting `--no-block`'s exit code. App: 409 while applying.
-- **/etc/meshloom.** root:meshloom 0750. postinstall and `install.sh` (`secure_etc_meshloom`) first move links, non-root entries and hard-linked files to `/var/lib/meshloom-quarantine/`; root writes there with `rm -f` + `install`, never through an existing entry.
-- `MESHLOOM_UPDATE_HELPER=none` (written by the installer when the signed repo lacks this architecture) turns apply off. Tests: `tests/test_update_helpers_exec.py` runs the helpers for real against hostile inputs.
-
-### Statistics
-- `GET /statistics` — aggregated mesh network stats (entity counts, message/packet splits, activity windows, busiest channels, `region_scope_24h` regional adoption)
-
-### Tools
-- `POST /tools/mesh-test` — send one region-scoped GroupText on the built-in `#meshloom-testing` channel and return `{packet_hash, sent_at, flood_scope, origin_lat, origin_lon}` for observer-reach lookup. 404 when Community is off, 400 when `flood_scope` is not in `known_regions`. Writes no Channel row, no Message row, and no send-slot cache entry; the borrowed radio slot is rewritten empty after the send
-
-### Locate
-- `GET /locate?q=` — unique identity then conservative 0-hop coverage disks (`local` / `corescope` / `mixte`). 409 if ambiguous. Never writes inferred lat/lon.
-
-### Directory
-
-Every directory surface is Meshloom Community or nothing. `app/services/directory.py`
-has no HTTP client of its own: with Community on it reads the Stats directory API,
-with Community off it returns empty payloads and `directory_enabled=false`. There is
-no operator-supplied origin setting — `directory_enabled` / `directory_url` were
-dropped in migration 076.
-
-- `POST /directory/resolve-hops` — 2/3-byte hop prefixes only; 1-byte is 400
-- `GET /directory/nodes` — all roles (empty/unknown → `unknown`), paginated to completion
-- `GET /directory/nodes/live` — directory plus local GPS contacts, **including observer GPS**. Observer GPS stays available for hop/origin geometry; the client must not paint a dedicated observer icon.
-- `GET /directory/nodes/search?q=` — name/key search, not hop prefixes
-- `GET /directory/nodes/{pubkey}/reach` — 0-hop observers; 503/502 ≠ empty
-- `GET /directory/nodes/{pubkey}/neighbors`
-- `POST /directory/cache/reset`
-
-### Push
-- `GET /push/vapid-public-key` — VAPID public key for browser `PushManager.subscribe()`
-- `POST /push/subscribe` — register/upsert push subscription (keyed by endpoint URL)
-- `GET /push/subscriptions` — list all push subscriptions
-- `PATCH /push/subscriptions/{id}` — update label or language
-- `DELETE /push/subscriptions/{id}` — delete subscription
-- `POST /push/subscriptions/{id}/test` — send test notification
-- `GET /push/preferences` — defaults, conversation overrides, and stored VAPID subject
-- `PATCH /push/preferences` — update defaults and/or VAPID subject
-- `PUT /push/preferences/conversations/{key}` — set (`true`/`false`) or clear (`null`) one override
-
-### Community
-- `GET /community` — join state (enabled, IATA, locked)
-- `PATCH /community` — enable/disable and set IATA / host overrides
-- `GET /community/airports` — IATA airport search
-- `GET /community/me/stats` — this node's contribution stats
-- `PUT /community/me/iata` — bind IATA on the Stats host
-- `POST /community/me/iata/override` — confirm an IATA concordance override
-- `GET /community/stats` — public community stats
-- `GET /community/hashtags` — shared hashtag names (global)
-- `GET /community/iata/{code}/hashtags` — legacy alias of `/community/hashtags`
-- `PUT /community/me/hashtags` — publish local/discovered hashtag names (names only)
-- `POST /community/live/subscribe` — register or heartbeat a Live session (`session_id` known = cheap TTL refresh)
-- `DELETE /community/live/subscribe/{session_id}` — drop one Live session; upstream socket closes after idle grace when none remain
-- `POST /community/live/relancer` — remint JWT, clear a given-up token refusal, reconnect
-
-One process-wide Community live socket (`app/services/community_live.py`) fans frames to browsers as `community_packet`. Concurrent Live tabs share that socket: the reader task is claimed synchronously under the relay lock, so two `subscribe()` calls cannot open two upstream sockets. The reader reconnects itself with capped exponential backoff (0.5s → 30s) on every close except 4002 (reserved; stops that reader generation, never a 24h gate). The backoff only starts over after a socket stayed up `JWT_EXPIRY_MIN_UPTIME_S` (10s). 4003/409 from a v1 Stats server are treated as 4005 (superseded) and retried; those codes are never placed on `CommunityLiveStatus.close_code`. Status `state` is `connected` / `reconnecting` / `gate` / `opted_out` / `idle` / `auth_rejected`.
-
-JWT remint is local, on every connect attempt. Close 4001 on a socket that stayed up reconnects at once. A **handshake 401 is not a 4001**: it backs off (2s doubling) and gives up after `AUTH_REJECT_MAX_ATTEMPTS` (5) consecutive refusals, or at once for `AUTH_FATAL_CODES`. Community's 401 body is `{detail, code, server_time}` (only `code` is stable; older servers send `detail` only). `classify_auth_rejection()` turns it into `auth_error`: `clock_skew` when `code == "clock_skew"` or `|server_time - now| > 60`, else `token_rejected` (`auth_code` keeps the raw code, `clock_skew_s` the drift). Relancer or `PATCH /community` clears it.
-
-Community HTTP failures: transport error/timeout and upstream 5xx → local **503**; malformed/unexpected answers and other non-200 → 502 (`CommunityUpstreamError.upstream_status` keeps the upstream code); 401 → 502 with a clock hint when the drift explains it. `CommunityBreaker` opens after 3 consecutive failures for 30s (503 without network), then lets one trial through. Observer reach only falls back to per-hash GETs when the batch route is missing (upstream 404/405).
-
-The update check (`app/services/oss_updates.py`) reads GitHub's `releases/latest` redirect first (strict `X.Y.Z` tag, the same lookup as the signed compose helper), and only falls back to the Community mirror `GET /v1/meshloom/latest` (skipped while the breaker is open). `latest_source` says which one answered.
-
-### WebSocket
-- `WS /ws`
-
-## WebSocket Events
-
-- `health` — radio connection status (broadcast on change, personal on connect)
-- `contact` — single contact upsert (from advertisements and radio sync)
-- `contact_resolved` — prefix contact reconciled to a full contact row (payload: `{ previous_public_key, contact }`)
-- `message` — new message (channel or DM, from packet processor or send endpoints)
-- `message_acked` — ACK/echo update for existing message (ack count + paths)
-- `raw_packet` — every incoming RF packet (for real-time packet feed UI)
-- `community_packet` — sanitized Stats live rain frame (v2: `ear`, hop `confidence`)
-- `community_live` — Live relay status (`state`, `connected`, `opted_out`, `close_code`)
-- `contact_deleted` — contact removed from database (payload: `{ public_key }`)
-- `channel` — single channel upsert/update (payload: full `Channel`)
-- `channel_deleted` — channel removed from database (payload: `{ key }`)
-- `error` — toast notification (reconnect failure, missing private key, stuck radio startup, etc.)
-- `success` — toast notification (historical decrypt complete, etc.)
-
-Backend WS sends go through typed serialization in `events.py`. Initial WS connect sends `health` only. Contacts/channels are loaded by REST.
-Client sends `"ping"` text; server replies `{"type":"pong"}`.
-
-## Data Model Notes
-
-Main tables:
-- `contacts` (includes `first_seen` for contact age tracking and `direct_path_hash_mode` / `route_override_*` for DM routing)
-- `channels`
-  Includes optional `flood_scope_override` for channel-specific regional sends and optional `path_hash_mode_override` for per-channel path hop width.
-- `messages` (includes `sender_name`, `sender_key` for per-contact channel message attribution)
-- `raw_packets`
-- `contact_advert_paths` (recent unique advertisement paths per contact, keyed by contact + path bytes + hop count)
-- `contact_name_history` (tracks name changes over time)
-- `repeater_telemetry_history` (time-series telemetry snapshots for tracked repeaters)
-- `contact_telemetry_history` (time-series LPP telemetry snapshots for tracked contacts; same schema as repeater table)
-- `fanout_configs` (MQTT, bot, webhook, Apprise, SQS integration configs)
-- `push_subscriptions` (Web Push browser subscriptions with delivery metadata; UNIQUE on endpoint)
-- `app_settings` (includes `push_defaults`, `push_conversation_overrides`, `vapid_subject`, plus `vapid_private_key` / `vapid_public_key` for Web Push)
-
-Contact route state is canonicalized on the backend:
-- stored route inputs: `direct_path`, `direct_path_len`, `direct_path_hash_mode`, `direct_path_updated_at`, plus optional `route_override_*`
-- computed route surface: `effective_route`, `effective_route_source`, `direct_route`, `route_override`
-- removed legacy names: `last_path`, `last_path_len`, `out_path_hash_mode`
-
-Frontend and send paths should consume the canonical route surface rather than reconstructing precedence from raw fields.
-
-Repository writes should prefer typed models such as `ContactUpsert` over ad hoc dict payloads when adding or updating schema-coupled data.
-
-`max_radio_contacts` is the configured radio contact capacity baseline. Favorites reload first, the app refills non-favorite working-set contacts to about 80% of that capacity, and periodic offload triggers once occupancy reaches about 95%.
-
-`app_settings` fields in active model:
-- `radio_transport`, `radio_serial_port`, `radio_serial_baudrate`, `radio_tcp_host`, `radio_tcp_port`, `radio_ble_address`, `radio_ble_pin`
-- `max_radio_contacts`
-- `auto_decrypt_dm_on_advert`
-- `last_message_times`
-- `advert_interval`
-- `last_advert_time`
-- `flood_scope`
-- `known_regions`
-- `blocked_keys`, `blocked_names`, `discovery_blocked_types`
-- `raw_packet_retention_days` (0 = off): hourly housekeeping (`services/stale_contacts.py`, same loop as the stale-contact purge) prunes undecrypted raw packets older than N days in short batches, then runs a bounded `PRAGMA incremental_vacuum`. Pruned packets can no longer be decrypted by channel/contact keys added later (historical decrypt only sees retained raw packets). No UI yet; set through `PATCH /api/settings`.
-- `tracked_telemetry_repeaters`, `tracked_telemetry_contacts`
-- `auto_resend_channel`
-- `auto_update`
-- `telemetry_interval_hours`
-- `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `vapid_private_key`, `vapid_public_key`
-
-Note: MQTT, community MQTT, and bot configs were migrated to the `fanout_configs` table (migrations 36-38). Push conversation enablement is `push_defaults` + overrides, not the legacy `push_conversations` list.
-
-## Security Posture (intentional)
-
-- No per-user authn/authz model; optionally, operators may enable app-wide HTTP Basic auth for both HTTP and WS entrypoints.
-- No CORS restriction (`*`).
-- Bot code executes user-provided Python via `exec()`.
-
-These are product decisions for trusted-network deployments; do not flag as accidental vulnerabilities.
-
-## Testing
-
-Run backend tests:
-
-```bash
-PYTHONPATH=. uv run pytest tests/ -v
-```
-
-Test suites:
-
-```text
-tests/
-├── conftest.py                 # Shared fixtures
-├── test_ack_tracking_wiring.py # DM ACK tracking extraction and wiring
-├── test_api.py                 # REST endpoint integration tests
-├── test_block_lists.py         # Blocked keys/names filtering across list/search surfaces
-├── test_bot.py                 # Bot execution and sandboxing
-├── test_channel_sender_backfill.py # Sender-key backfill uniqueness rules for channel messages
-├── test_channels_router.py     # Channels router endpoints
-├── test_community_mqtt.py      # Community MQTT publisher (JWT, packet format, hash, broadcast)
-├── test_community_live.py      # Stats live relay sanitize, status, fan-out
-├── test_community_live_resilience.py # Concurrent subscribe, reconnect, 4002 stop, reload
-├── test_community_live_directory.py # Directory map nodes: all roles + pagination
-├── test_community_live_auth.py # Handshake 401 backoff/give-up, clock skew, 4001 uptime rule
-├── test_community_breaker.py   # Community circuit breaker, 503 instead of 500
-├── test_meshloom_community.py  # Meshloom Community join, IATA seed, hashtag share, Stats proxies
-├── test_config.py              # Configuration validation
-├── test_contact_reconciliation_service.py # Prefix/contact reconciliation service helpers
-├── test_contacts_router.py     # Contacts router endpoints
-├── test_decoder.py             # Packet parsing/decryption
-├── test_disable_bots.py        # MESHCORE_DISABLE_BOTS=true feature
-├── test_echo_dedup.py          # Echo/repeat deduplication (incl. concurrent)
-├── test_fanout.py              # Fanout bus CRUD, scope matching, manager dispatch
-├── test_fanout_hitlist.py      # Fanout-related hitlist regression tests
-├── test_fanout_integration.py  # Fanout integration tests
-├── test_event_handlers.py      # ACK tracking, event registration, cleanup
-├── test_frontend_static.py     # Frontend static file serving
-├── test_health_mqtt_status.py  # Health endpoint MQTT status field
-├── test_http_quality.py        # Cache-control / gzip / basic-auth HTTP quality checks
-├── test_key_normalization.py   # Public key normalization
-├── test_rf_locate.py           # RF locate identity, 0-hop extract, directory merge
-├── test_keystore.py            # Ephemeral keystore
-├── test_main_startup.py        # App startup and lifespan
-├── test_map_upload.py          # Map upload fanout module
-├── test_message_pagination.py  # Cursor-based message pagination
-├── test_message_prefix_claim.py # Message prefix claim logic
-├── test_mqtt.py                # MQTT publisher topic routing and lifecycle
-├── test_messages_search.py     # Message search, around, forward pagination
-├── test_mqtt_ha.py             # Home Assistant MQTT Discovery fanout module
-├── test_packet_pipeline.py     # End-to-end packet processing
-├── test_packets_router.py      # Packets router endpoints (decrypt, maintenance)
-├── test_path_utils.py          # Path hex rendering helpers
-├── test_radio.py               # RadioManager, serial detection
-├── test_radio_commands_service.py # Radio config/private-key service workflows
-├── test_radio_lifecycle_service.py # Reconnect/setup orchestration helpers
-├── test_radio_operation.py     # radio_operation() context manager
-├── test_radio_router.py        # Radio router endpoints
-├── test_radio_runtime_service.py # radio_runtime seam behavior and helpers
-├── test_radio_sync.py          # Polling, sync, advertisement
-├── test_real_crypto.py         # Real cryptographic operations
-├── test_repeater_routes.py     # Repeater command/telemetry/trace + granular pane endpoints
-├── test_repository.py          # Data access layer
-├── test_room_routes.py         # Room-server login/status/telemetry/ACL endpoints
-├── test_rx_log_data.py         # on_rx_log_data event handler integration
-├── test_security.py            # Optional Basic Auth middleware / config behavior
-├── test_send_messages.py       # Outgoing messages, bot triggers, concurrent sends
-├── test_settings_router.py     # Settings endpoints, advert validation
-├── test_push_send.py           # Web Push send/dispatch
-├── test_radio_stats.py         # Radio stats sampling and noise-floor history
-├── test_repeater_telemetry.py  # Repeater telemetry history recording
-├── test_service_installer.py   # Service installer script behavior
-├── test_sqs_fanout.py          # SQS fanout module
-├── test_statistics.py          # Statistics aggregation
-├── test_install_kind.py        # MESHLOOM_INSTALL_KIND / helper / container detection
-├── test_update_apply.py        # Apply job files, 409s, PATCH auto_update
-├── test_rpi_overlay.py         # Pi image overlay never pins Community off
-├── test_telemetry_interval.py  # Telemetry interval scheduling math
-├── test_version_info.py        # Version/build metadata resolution
-├── test_websocket.py           # WS manager broadcast/cleanup
-└── test_websocket_route.py     # WS endpoint lifecycle
-```
-
-## Errata & Known Non-Issues
-
-### Sender timestamps are 1-second resolution (protocol constraint)
-
-The MeshCore radio protocol encodes `sender_timestamp` as a 4-byte little-endian integer (Unix seconds). This is a firmware-level wire format — the radio, the Python library (`commands/messaging.py`), and the decoder (`decoder.py`) all read/write exactly 4 bytes. Millisecond Unix timestamps would overflow 4 bytes, so higher resolution is not possible without a firmware change.
-
-**Consequence:** Message dedup still operates at 1-second granularity because the radio protocol only provides second-resolution `sender_timestamp`. Do not attempt to fix this by switching to millisecond timestamps — it will break echo dedup (the echo's 4-byte timestamp won't match the stored value) and overflow `to_bytes(4, "little")`. Incoming DMs now share the same second-resolution content identity tradeoff as channel echoes: same-contact same-text same-second observations collapse onto one stored row.
-
-### Outgoing DM echoes are decrypted to attach the firmware hash
-
-When our own outgoing DM is heard back via `RX_LOG_DATA` (self-echo), `_process_direct_message` passes `our_public_key` so `try_decrypt_dm` can recognize `is_outbound` (`src == us`, `dest == them`). The send endpoint stores the plaintext row without a hash; the echo attaches `packet_hash` via content dedup (`text` + `sender_timestamp`). Echo-first (RF processed before the send INSERT) reuses that row instead of creating a second outgoing message.
-
-### Infinite setup retry on connection monitor
-
-When `post_connect_setup()` fails (e.g. `export_and_store_private_key` raises `RuntimeError` because the radio didn't respond), `_setup_complete` is never set to `True`. The connection monitor sees `connected and not setup_complete` and retries every 5 seconds — indefinitely. This is intentional: the radio may be rebooting, waking from sleep, or otherwise temporarily unresponsive. We keep retrying so that setup completes automatically once the radio becomes available, without requiring manual intervention.
-
-### DELETE channel returns 200 for non-existent keys
-
-`DELETE /api/channels/{key}` returns `{"status": "ok"}` even if the key didn't exist. This is intentional — the postcondition is "channel doesn't exist," which is satisfied regardless of whether it existed before. No 404 needed.
-
-### Contact lat/lon 0.0 vs NULL
-
-MeshCore uses `0.0` as the sentinel for "no GPS coordinates" (see `models.py` `to_radio_dict`). The upsert SQL uses `COALESCE(excluded.lat, contacts.lat)`, which preserves existing values when the new value is `NULL` — but `0.0` is not `NULL`, so it overwrites previously valid coordinates. This is intentional: we always want the most recent location data. If a device stops broadcasting GPS, the old coordinates are presumably stale/wrong, so overwriting with "not available" (`0.0`) is the correct behavior.
-
-## Editing Checklist
-
-When changing backend behavior:
-1. Update/add router and repository tests.
-2. Confirm WS event contracts when payload shape changes.
-3. Run `PYTHONPATH=. uv run pytest tests/ -v`.
-4. If API contract changed, update frontend types and AGENTS docs.
+| Module | Owns |
+|---|---|
+| `radio_runtime.py` | The seam routers, lifespan, fanout and `radio_sync.py` use to reach the global `RadioManager` |
+| `radio_lifecycle.py` | Post-connect setup (timeout 300 s), connection monitor loop (every 5 s) |
+| `radio_identity.py`, `radio_ingest_gate.py` | Bound identity (`radio_bound_public_key`) and the process-wide ingest gate |
+| `radio_transport.py` | Transport snapshot read from `app_settings` (serial/TCP/BLE are UI settings, never env) |
+| `dm_ingest.py`, `dm_ack_apply.py`, `dm_ack_tracker.py` | DM storage and ACK application, shared by packet and fallback paths |
+| `messages.py`, `message_send.py` | Message creation, `handle_duplicate_message`, send/resend workflows |
+| `meshloom_community.py` | Community settings, JWT mint, HTTP client and circuit breaker |
+| `community_live.py` | Community Live relay (one upstream socket) |
+| `directory.py`, `observer_reach.py`, `rf_locate.py` | Community directory, observer reach, RF locate |
+| `hashtag_catalogue.py`, `channel_membership.py` | Unlocking unknown GroupText; pending/adopted/refused channels |
+| `install_kind.py`, `update_apply.py`, `oss_updates.py`, `update_window.py` | In-app updater, see "Updates" |
+| `stale_contacts.py` | Hourly housekeeping: stale contacts, raw-packet retention (`raw_packet_retention_days`, 0 = off) |
+
+## Migrations
+
+- One file per version: `app/migrations/_NNN_description.py`. The runner discovers files by numeric prefix and runs pending ones in order.
+- Each migration runs in one transaction with the `user_version` bump. `conn.commit()` inside a migration is deferred to the runner. A migration that cannot run in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must be idempotent.
+- New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs). Example: `idx_messages_chan_unattributed_sender` (migration 086).
+- Tests: `tests/test_migrations/`.
+
+## Radio lifecycle
+
+- Transport lives in `app_settings` (`radio_transport`, `radio_serial_port` empty = auto-detect, `radio_tcp_*`, `radio_ble_*`). Until `radio_transport` is set, the radio stays paused.
+- A live key that differs from `radio_bound_public_key`, or mesh history with no bound key (`identity_unbound_legacy`), closes ingest and pauses setup until the user adopts or rejects (`POST /radio/identity/adopt|reject`). Do not call `pause_connection()` while the post-connect operation lock is held.
+- The connection monitor checks every 5 s. If post-connect setup fails, `setup_complete` stays false and the monitor retries indefinitely. This is intentional: the radio may be rebooting.
+- If setup exceeds 300 s, the backend logs the failure and broadcasts an `error` toast asking the operator to reboot the radio and restart the server.
+- The message poll task always runs: an hourly audit by default, or every 10 s with `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true`. It also detects channel-slot cache drift and resets the send-slot cache when it finds any.
+- Periodic adverts: `app_settings.advert_interval` in seconds, `0` = off. Any non-zero value is floored at 3600 s (`MIN_ADVERT_INTERVAL`).
+- `sync_recent_contacts_to_radio()` sets `_last_contact_sync` before the sync finishes, so a failed sync stays throttled (no retry storm).
+- Contact capacity: `max_radio_contacts`. Favorites load first, non-favorites refill to 80 %, and a full offload/reload triggers at 95 % (`RADIO_CONTACT_*_RATIO` in `radio_sync.py`).
+
+## Sending
+
+- Routers validate, then delegate to `services/message_send.py`. Radio access goes through `radio_operation()`.
+- Channel slots: the count comes from firmware `max_channels` (fallback 40). Slots are reused through a session LRU cache, except on TCP (`connection_info` starts with `TCP:`) or with `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true`; then every send calls `set_channel(...)`.
+- DM retries mirror `meshcore_py` `send_msg_with_retry`: stage the effective route with `add_contact`, send, and retry up to 2 more times only when `MSG_SENT` returned an expected ACK code. Timing follows the radio's `suggested_timeout`. The last retry is flood (`reset_path`). The first ACK is terminal: sibling ACK codes are cleared.
+- ACKs are matched from the host `ACK` frame (`event_handlers.on_ack`) and from RF packets (PATH-embedded and standalone `ACK` payloads, in `packet_processor`). ACKs never update routes.
+- Channel resend: byte-perfect within 30 s; `?new_timestamp=true` has no time limit and creates a new row. The sender prefix is stripped by exact match on the current radio name.
+- Repeater/room login (`routers/server_control.py: prepare_authenticated_contact_connection`): one try on the effective route, then exactly one flood retry (`reset_path`), only on timeout and only when the route was not already flood. This is deliberate. The server relearns the return path on a flood login. Do not reduce it to single-shot.
+
+## Read state
+
+`GET /read-state/unreads` never windows the whole `messages` table. It enumerates conversations with an index skip-scan and reads through `idx_messages_pagination` / `idx_messages_unread_covering`. `tests/test_unreads_equivalence.py` keeps the old `ROW_NUMBER()` query as an oracle: both outputs must stay identical. `first_unread_ids` is the first unread row by `(received_at, id)`. Using `MIN(id)` would be wrong, because historical decryption inserts old messages with new ids.
+
+## Region-scope stats (`GET /statistics` → `region_scope_24h`)
+
+Two views with different denominators that are not meant to agree. Traffic (`path_utils.bucket_region_scope`) counts flood GroupText, including undecryptable packets. Senders (`StatisticsRepository._region_scope_senders_24h`, in `repository/settings.py`) counts distinct decrypted senders. `false_positive_floor` comes from undefined payload types (`0x0C`–`0x0E`) and measures corrupt captures that claim `TRANSPORT_FLOOD`. Show `scoped_messages` next to the floor, never the percentage alone, and do not remove the floor.
+
+## WebSocket (server side)
+
+- Events (`events.py: WsEventType`): `health`, `message`, `message_acked`, `message_deleted`, `contact`, `contact_resolved`, `contact_deleted`, `channel`, `channel_deleted`, `raw_packet`, `community_packet`, `community_live`, `error`, `success`.
+- On connect the server sends `health` only. Contacts and channels load over REST. The client sends the text `ping`, and the server replies `{"type":"pong"}`.
+- Each client has a bounded queue (`CLIENT_QUEUE_MAX` = 2048) drained by one writer task, so `broadcast_event()` never awaits socket I/O. `raw_packet` frames are dropped for a client whose backlog reaches 1024. A send timeout (5 s), a send error or an overflow evicts the client with close code 1013. Never call `websocket.send_text` on a managed socket: use `ws_manager.send_raw`.
+- `broadcast_event()` also notifies the radio proxy and, when `realtime=True`, dispatches `message` → fanout + Web Push, `raw_packet` → fanout and `contact` → fanout. Historical decryption passes `realtime=False`.
+
+## Community client
+
+### HTTP (`services/meshloom_community.py`)
+
+- Effective config = env first, then DB. `MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST` and `_API_BASE` override the stored value on every read (`get_community_effective()`); they are not only seeds. `MESHLOOM_COMMUNITY` only seeds a brand-new DB. `MESHLOOM_COMMUNITY_LOCKED=1` makes enabling answer 403.
+- Upstream mapping: transport error/timeout/5xx → **503**; 429 → 429; 400 → 400; 401 → 502 (with a clock hint when `classify_auth_rejection` reports `clock_skew`, drift > 60 s); other non-200 → 502 (`CommunityUpstreamError.upstream_status`); an unexpected body → 502.
+- `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
+- Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).
+- `GET /community/iata/{code}/hashtags` ignores `code` and returns the global list (same as `/community/hashtags`).
+- Hashtag channel key normalization is **not settled**. `app/data/meshcore_channels.py: hashtag_key_from_name` strips whitespace, while Community and the frontend hash the name exactly as given. The divergence is pinned by a strict xfail in `tests/test_community_golden_vectors.py` (issue #51). Do not "fix" either side without that decision.
+
+### Live relay (`services/community_live.py`)
+
+- One process-wide upstream socket to `/v1/live/packets`. The reader is claimed under the relay lock, so concurrent `subscribe()` calls cannot open two sockets. Sessions expire after 90 s without a heartbeat; the upstream closes 1.5 s after the last session leaves.
+- Frames go out as `community_packet` through `ws_manager.broadcast`, i.e. to **every** connected WS client, not only to subscribed tabs.
+- Reconnect backoff: 0.5 s doubling up to 30 s. It resets only after a socket stayed up ≥ 10 s (`JWT_EXPIRY_MIN_UPTIME_S`). The JWT is reminted locally on every attempt. A 4001 close on such a socket reconnects at once.
+- A handshake 401 is not a 4001: retry at 2 s, doubling, and give up after 5 refusals (`AUTH_REJECT_MAX_ATTEMPTS`), or at once for `AUTH_FATAL_CODES`. The relay then reports `state: auth_rejected`, with `auth_error` = `clock_skew` or `token_rejected` (`auth_code` keeps the raw code). `POST /community/live/relancer` or `PATCH /community` clears it.
+- 4002: the reader stops that generation and does not reconnect. 4003/4004/4005 are never shown to the user (`CommunityLiveStatus` hides them).
+- `community_live.state` values actually produced: `connected`, `reconnecting`, `opted_out`, `idle`, `auth_rejected`. `gate` is in the type, but nothing sets `_gate_blocked = True` (dead code, tracked as a code issue).
+
+## Updates
+
+Security principle (root side never reads anything the app writes): see the root `AGENTS.md`.
+
+- `services/install_kind.py`: `MESHLOOM_INSTALL_KIND` (`package|compose|addon|container|source`) wins. Otherwise detection order: package helper (`/usr/lib/meshloom/apply-update` or `meshloom-update.service`), compose helper (`MESHLOOM_UPDATE_HELPER=compose` or `/var/lib/meshloom/update-helper-compose`), container, source. Apply is supported only for package/compose with a helper present. `addon` is declared only, never inferred, and never applies. `MESHLOOM_UPDATE_HELPER=none` forces apply off.
+- `services/oss_updates.py`: polls every 300 s (once at start). It reads GitHub `releases/latest` (redirect, strict `X.Y.Z`) and falls back to the Community mirror `GET /v1/meshloom/latest` (no JWT, works with Community off, skipped while the breaker is open). `latest_source` says which one answered.
+- `services/update_apply.py`: the app only writes the trigger `request-update` and its own `update-attempt.json`. The root helper publishes `status.json` (package: `/var/lib/meshloom-update/status.json`; compose: `MESHLOOM_UPDATE_STATUS_PATH`, a read-only mount). `read_job()` shows the attempt until the helper's `started_at` is at or after the request (±2 s), then the helper status. Helper `cooldown` shows as `failed`. The pre-4.18 `update-job.json` is read only as a fallback (`legacy_update_helper`). When the package `.path` unit is not active, the app falls back to `systemctl start --no-block meshloom-update.service` and checks that the unit really started.
+- Routes: `GET /updates`, `POST /updates/refresh`, `POST /updates/apply` (202; 409 `apply_not_supported` / `update_not_available` / `apply_in_progress`), `PATCH /updates/settings` (`auto_update` and window; not through `PATCH /settings`). Auto-apply waits 6 h after a failed job.
+- Tests: `tests/test_update_apply.py`, `tests/test_install_kind.py`, `tests/test_oss_updates.py`, `tests/test_update_helpers_exec.py` (runs the real helpers against hostile inputs).
+
+## Web Push (`app/push/`)
+
+Per-browser subscriptions in `push_subscriptions` (`UNIQUE(endpoint)`). VAPID keys are generated on first start and stored in `app_settings`. The subject is `app_settings.vapid_subject`, falling back to `MESHCORE_VAPID_SUBJECT`; Apple rejects `.local`. Enablement: `policy.conversation_is_enabled` (overrides > `new_dm` for PRIV and rooms > public/hashtag ON > private-key channels OFF). Muted channels are a separate breaker. First-seen alerts (`dispatch_first_seen`) fire only on a new contact insert after setup. A push service answering 404/410 deletes the subscription. Requires HTTPS and outbound internet.
+
+## Security posture: facts, not endorsements
+
+- CORS is `allow_origins=["*"]` **with** `allow_credentials=True` (`main.py`). No accounts or sessions; optional app-wide Basic auth (`security.py`).
+- Bots run user Python through `exec()` (`MESHCORE_DISABLE_BOTS=true` turns this off).
+- Changing these belongs to the out-of-scope Access and Plugins workstreams (root `AGENTS.md`, "Working rules"). Do not change them in passing.
+
+## API routes (all under `/api`)
+
+Source of truth: `app/routers/*.py` and `app.include_router(...)` in `main.py`. The OpenAPI docs are served by `api_docs.py`.
+
+| Router | Routes |
+|---|---|
+| health | `GET /health` |
+| debug | `GET /debug` |
+| radio | `GET,PATCH /radio/config` · `GET,PUT /radio/private-key` (GET needs `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`) · `POST /radio/advertise` · `POST /radio/discover` · `POST /radio/regions/verify` · `POST /radio/discover-regions` · `POST /radio/trace` · `GET,PUT /radio/transport` · `POST /radio/transport/ble-scan` · `GET,PATCH /radio/proxy` (409 on port change when `MESHCORE_MANAGED_PORTS`) · `POST /radio/identity/adopt` · `POST /radio/identity/reject` · `POST /radio/disconnect` · `POST /radio/reboot` · `POST /radio/reconnect` |
+| contacts | `GET,POST /contacts` · `GET /contacts/analytics` · `GET /contacts/repeaters/advert-paths` · `POST /contacts/bulk-delete` · `DELETE /contacts/{pk}` · `POST /contacts/{pk}/mark-read` · `POST /contacts/{pk}/trace` · `POST /contacts/{pk}/path-discovery` · `POST /contacts/{pk}/routing-override` · `POST /contacts/{pk}/telemetry` · `GET /contacts/{pk}/telemetry-history` |
+| contact_groups | `GET,POST /contact-groups` · `PATCH,DELETE /contact-groups/{id}` · `PUT /contact-groups/{id}/members` |
+| repeaters | `POST /contacts/{pk}/repeater/{login,status,lpp-telemetry,neighbors,acl,node-info,radio-settings,advert-intervals,owner-info,regions}` · `GET /contacts/{pk}/repeater/cache` · `GET /contacts/{pk}/repeater/telemetry-history` · `POST /contacts/{pk}/command` |
+| rooms | `POST /contacts/{pk}/room/{login,status,lpp-telemetry,acl}` |
+| channels | `GET,POST /channels` · `GET /channels/rejected` · `GET /channels/{key}/detail` · `POST /channels/bulk-hashtag` · `POST /channels/{key}/{mark-read,flood-scope-override,path-hash-mode-override,adopt,refuse}` · `DELETE /channels/{key}` (200 even if absent) |
+| messages | `GET /messages` (`q`, `after`/`after_id`) · `GET /messages/around/{id}` · `POST /messages/direct` · `POST /messages/channel` · `POST /messages/channel/{id}/resend` · `DELETE /messages/{id}` (local only) |
+| packets | `GET /packets/undecrypted/count` · `GET /packets/undecrypted/group-text-samples` · `GET /packets/history` · `GET /packets/{id}` · `POST /packets/region-backfill` · `POST /packets/decrypt/historical` · `POST /packets/maintenance` |
+| read_state | `GET /read-state/unreads` · `POST /read-state/mark-all-read` |
+| settings | `GET,PATCH /settings` · `POST /settings/{favorites,pins,muted-channels,blocked-keys,blocked-names}/toggle` · `POST /settings/tracked-telemetry/toggle` · `GET /settings/tracked-telemetry/schedule` · `POST /settings/tracked-telemetry-contacts/toggle` · `GET /settings/tracked-telemetry-contacts/schedule` (max 8 tracked each) · `GET /settings/telemetry-alert-catalog` · `POST /settings/notification-destinations/test` · `GET /settings/backup/database` · `GET /settings/backup/json` · `POST /settings/backup/restore` |
+| fanout | `GET,POST /fanout` · `PATCH,DELETE /fanout/{id}` · `POST /fanout/bots/disable-until-restart` |
+| statistics | `GET /statistics` |
+| tools | `POST /tools/mesh-test` (404 when Community is off, 400 when the scope is not in `known_regions`; stores nothing) |
+| locate | `GET /locate?q=` (409 when ambiguous; never writes GPS) |
+| directory | `POST /directory/resolve-hops` (1-byte prefixes → 400) · `GET /directory/nodes` · `GET /directory/nodes/live` · `GET /directory/nodes/search` · `GET /directory/nodes/{pk}/reach` · `GET /directory/nodes/{pk}/neighbors` · `GET /directory/packets/{hash}/reach` · `POST /directory/packets/reach-counts` (≤ 20) · `POST /directory/cache/reset`. Community only: empty payloads when it is off |
+| community | `GET,PATCH /community` · `GET /community/airports` · `GET /community/me/stats` · `PUT /community/me/iata` · `POST /community/me/iata/override` · `GET /community/stats` · `GET /community/hashtags` · `GET /community/iata/{code}/hashtags` (ignores `code`) · `PUT /community/me/hashtags` · `POST /community/live/subscribe` · `DELETE /community/live/subscribe/{session_id}` · `POST /community/live/relancer` |
+| updates | see "Updates" |
+| push | `GET /push/vapid-public-key` · `POST /push/subscribe` · `GET /push/subscriptions` · `PATCH,DELETE /push/subscriptions/{id}` · `POST /push/subscriptions/{id}/test` · `GET,PATCH /push/preferences` · `PUT /push/preferences/conversations/{key}` |
+| ws | `WS /ws` |
+
+## Tests
+
+`PYTHONPATH=. uv run pytest tests/ -q`. One file per area (`tests/test_<module>.py`), plus `tests/test_migrations/`, shared fixtures in `tests/conftest.py`, Playwright e2e in `tests/e2e/` (hardware, not part of the gate). Find the right file with `ls tests | grep <area>` instead of relying on a list here.
+
+When a change touches the API or WS payloads, update `frontend/src/types.ts` and the frontend tests in the same PR.
+
+## Known non-issues
+
+- `sender_timestamp` is 4-byte Unix seconds on the wire. Dedup is per second, and switching to milliseconds would break echo dedup.
+- Our own DM heard back over RF (`try_decrypt_dm` with `is_outbound`) attaches `packet_hash` to the plaintext row stored by the send endpoint. It does not create a second row.
+- Contact lat/lon `0.0` is MeshCore's "no GPS" value and overwrites older coordinates on purpose.
+- `meshcore_py` can raise `IndexError` on a truncated advert `LOG_DATA` frame. This is a one-off parser failure, not DB corruption.

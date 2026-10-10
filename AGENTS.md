@@ -172,6 +172,23 @@ are not part of the gate. See `CONTRIBUTING.md`.
   `LOG_DATA`. This is a library parsing gap. One packet's task fails and later
   packets still process.
 
+## Known code bugs (open, not yet fixed)
+
+Do not document these as features. Fix them only in a lot launched for that.
+
+- **Home Assistant add-on radio proxy port.** `meshloom/run.py` exports
+  `MESHCORE_RADIO_PROXY_PORT` (5051), but nothing in `app/` reads it. The proxy
+  listens on the database port (5001 by default), and `MESHCORE_MANAGED_PORTS=true`
+  makes `PATCH /api/radio/proxy` refuse any port change.
+- **Community Live.** The `gate` state and close code 4002 are dead code:
+  `_gate_blocked` is never set to true (`app/services/community_live.py`,
+  `app/models.py`). The frontend `CommunityLiveStatus` type has a `reconnecting`
+  shape that the backend never sends: it sends `state: "reconnecting"`.
+- `MESHCORE_PUBLIC_URL` is not used by production code.
+  `/api/community/iata/{code}/hashtags` ignores `code`.
+- The docstring of `app/fanout/community_mqtt.py` is stale: it says
+  "LetsMesh only" and cites `app/mqtt.py`, which does not exist.
+
 ## Environment variables
 
 Read by `app/config.py` (`MESHCORE_` prefix) and a few services. Everything else is
