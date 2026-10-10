@@ -141,6 +141,37 @@ describe('NewMessageModal form reset', () => {
       expect(screen.getByText(i18n.t('newMessage.hashtagInvalid'))).toBeTruthy();
     });
 
+    it('normalizes the typed name like the official app', async () => {
+      const user = userEvent.setup();
+      renderModal();
+      await switchToTab(user, i18n.t('newMessage.tabHashtag'));
+
+      await user.type(
+        screen.getByPlaceholderText(i18n.t('newMessage.hashtagPlaceholder')),
+        ' #Test-1 '
+      );
+      await user.click(screen.getByRole('button', { name: i18n.t('newMessage.create') }));
+
+      await waitFor(() => {
+        expect(onCreateHashtagChannel).toHaveBeenCalledWith('#test-1', false);
+      });
+    });
+
+    it('rejects a typed name over 30 bytes', async () => {
+      const user = userEvent.setup();
+      renderModal();
+      await switchToTab(user, i18n.t('newMessage.tabHashtag'));
+
+      await user.type(
+        screen.getByPlaceholderText(i18n.t('newMessage.hashtagPlaceholder')),
+        'a'.repeat(30)
+      );
+      await user.click(screen.getByRole('button', { name: i18n.t('newMessage.create') }));
+
+      expect(onCreateHashtagChannel).not.toHaveBeenCalled();
+      expect(screen.getByText(i18n.t('newMessage.hashtagTooLong'))).toBeTruthy();
+    });
+
     it('hashes the name verbatim when the extended toggle is on', async () => {
       const user = userEvent.setup();
       renderModal();

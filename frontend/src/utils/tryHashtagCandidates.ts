@@ -70,7 +70,8 @@ export function tryHashtagName(
   }
 
   const roomName = normalizeHashtagName(name);
-  const key = deriveHashtagKeyHex(roomName);
+  // Exact name: re-add the '#' so a name like "##x" is not stripped twice.
+  const key = deriveHashtagKeyHex(`#${roomName}`);
   if (
     deriveChannelHashByte(key) !== fields.channelHash ||
     !verifyMac(fields.ciphertext, fields.cipherMac, key)

@@ -34,12 +34,21 @@ def packaged_snapshot_path() -> Path:
     return _PACKAGED_SNAPSHOT
 
 
+def hashtag_room_name(name: str) -> str:
+    """The name without one leading ``#``. Nothing else is touched.
+
+    Key derivation hashes the exact name, like meshcore_py, meshcore-cli, the
+    cracker, the frontend and Community: no trim, no lowercasing. ``#Fr`` and
+    ``#fr`` are two channels. The official app's input normalization (trim,
+    lowercase, ``^#[a-z0-9-]+$``) belongs to the UI only, never here.
+    """
+    text = name or ""
+    return text[1:] if text.startswith("#") else text
+
+
 def hashtag_key_from_name(name: str) -> bytes:
-    """``SHA256("#" + name)[:16]`` after stripping one leading ``#``."""
-    text = (name or "").strip()
-    if text.startswith("#"):
-        text = text[1:]
-    return sha256(f"#{text}".encode()).digest()[:16]
+    """``SHA256("#" + name)[:16]`` on the exact name, one leading ``#`` optional."""
+    return sha256(f"#{hashtag_room_name(name)}".encode()).digest()[:16]
 
 
 def channel_key_hash_byte(key: bytes) -> str:
@@ -65,8 +74,8 @@ def bundled_hashtag_names() -> tuple[str, ...]:
     for raw in names:
         if not isinstance(raw, str):
             continue
-        name = raw.strip()
-        if not name or name.startswith("#") or name in seen:
+        name = raw
+        if not name.strip() or name.startswith("#") or name in seen:
             continue
         seen.add(name)
         cleaned.append(name)

@@ -23,11 +23,6 @@ VECTORS_PATH = Path(__file__).parent / "fixtures" / "community_golden_vectors.js
 VECTORS_SHA256 = "8e777e64aee4e5e250057419c0c4184537d04321de7d1b0e4408a90521279cbb"
 VECTORS: dict[str, Any] = json.loads(VECTORS_PATH.read_text(encoding="utf-8"))
 
-# Known divergence, issue #51: hashtag_key_from_name() trims whitespace, while
-# Community and the frontend hash the name verbatim. Strict: the day the
-# behaviour changes, this xfail turns into a failure and must be removed.
-PYTHON_HASHTAG_DIVERGENCES = {"trailing_space"}
-
 
 def test_vectors_are_an_unedited_copy() -> None:
     digest = hashlib.sha256(VECTORS_PATH.read_bytes()).hexdigest()
@@ -44,20 +39,9 @@ def test_packet_hash_vectors(case: dict[str, Any]) -> None:
     assert calculate_packet_hash(bytes.fromhex(case["raw_hex"])) == case["packet_hash"]
 
 
+# Issue #71: every case, ``trailing_space`` included, hashes the exact name.
 @pytest.mark.parametrize(
-    "case",
-    [
-        pytest.param(
-            c,
-            id=c["id"],
-            marks=pytest.mark.xfail(
-                strict=True, reason="issue #51: Python trims whitespace, Community and TS do not"
-            )
-            if c["id"] in PYTHON_HASHTAG_DIVERGENCES
-            else (),
-        )
-        for c in VECTORS["hashtag"]["cases"]
-    ],
+    "case", VECTORS["hashtag"]["cases"], ids=[c["id"] for c in VECTORS["hashtag"]["cases"]]
 )
 def test_hashtag_vectors(case: dict[str, Any]) -> None:
     assert hashtag_key_from_name(case["input"]).hex() == case["key_hex"]
