@@ -16,6 +16,11 @@ import { Checkbox } from './ui/checkbox';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
 import { parseMeshcoreUri } from '../utils/meshcoreUri';
+import {
+  exactHashtagInput,
+  normalizeHashtagInput,
+  type HashtagInputResult,
+} from '../utils/hashtagInput';
 
 type Tab = 'new-contact' | 'new-channel' | 'hashtag' | 'bulk-hashtag';
 
@@ -45,23 +50,8 @@ interface NewMessageModalProps {
   onBulkAddHashtagChannels: (channelNames: string[], tryHistorical: boolean) => Promise<void>;
 }
 
-function validateHashtagName(channelName: string, permitExtended: boolean): string | null {
-  if (!channelName) {
-    return 'newMessage.hashtagRequired';
-  }
-  // The on-radio channel name field holds 32 UTF-8 bytes including the leading '#'.
-  if (new TextEncoder().encode(`#${channelName}`).length > 32) {
-    return 'newMessage.hashtagTooLong';
-  }
-  if (permitExtended) {
-    // Hashed verbatim, matching meshcore_py / meshcore-cli / meshcore.js — any character
-    // (capitals, whitespace, '&', accents, …) yields a valid SHA256-derived key.
-    return null;
-  }
-  if (!/^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$/.test(channelName)) {
-    return 'newMessage.hashtagInvalid';
-  }
-  return null;
+function parseHashtagInput(raw: string, permitExtended: boolean): HashtagInputResult {
+  return permitExtended ? exactHashtagInput(raw) : normalizeHashtagInput(raw);
 }
 
 function parseBulkHashtagNames(rawText: string, permitExtended: boolean): BulkParseResult {
@@ -77,20 +67,16 @@ function parseBulkHashtagNames(rawText: string, permitExtended: boolean): BulkPa
   const seen = new Set<string>();
 
   for (const token of tokens) {
-    const stripped = token.replace(/^#+/, '');
-    const validationError = validateHashtagName(stripped, permitExtended);
-    if (validationError) {
+    const parsed = parseHashtagInput(token, permitExtended);
+    if (!parsed.ok) {
       invalidNames.push(token);
       continue;
     }
-
-    const normalized = permitExtended ? stripped : stripped.toLowerCase();
-    const channelName = `#${normalized}`;
-    if (seen.has(channelName)) {
+    if (seen.has(parsed.name)) {
       continue;
     }
-    seen.add(channelName);
-    channelNames.push(channelName);
+    seen.add(parsed.name);
+    channelNames.push(parsed.name);
   }
 
   return { channelNames, invalidNames };
@@ -214,14 +200,12 @@ export function NewMessageModal({
         }
         await onCreateChannel(name.trim(), channelKey.trim(), tryHistorical);
       } else if (tab === 'hashtag') {
-        const channelName = name.trim();
-        const validationError = validateHashtagName(channelName, permitExtended);
-        if (validationError) {
-          setError(t(validationError));
+        const parsed = parseHashtagInput(name, permitExtended);
+        if (!parsed.ok) {
+          setError(t(parsed.error));
           return;
         }
-        const normalizedName = permitExtended ? channelName : channelName.toLowerCase();
-        await onCreateHashtagChannel(`#${normalizedName}`, tryHistorical);
+        await onCreateHashtagChannel(parsed.name, tryHistorical);
       } else {
         const { channelNames, invalidNames } = parseBulkHashtagNames(
           bulkChannelText,
@@ -252,17 +236,15 @@ export function NewMessageModal({
 
   const handleCreateAndAddAnother = async () => {
     setError('');
-    const channelName = name.trim();
-    const validationError = validateHashtagName(channelName, permitExtended);
-    if (validationError) {
-      setError(t(validationError));
+    const parsed = parseHashtagInput(name, permitExtended);
+    if (!parsed.ok) {
+      setError(t(parsed.error));
       return;
     }
 
     setLoading(true);
     try {
-      const normalizedName = permitExtended ? channelName : channelName.toLowerCase();
-      await onCreateHashtagChannel(`#${normalizedName}`, tryHistorical);
+      await onCreateHashtagChannel(parsed.name, tryHistorical);
       setName('');
       hashtagInputRef.current?.focus();
     } catch (err) {

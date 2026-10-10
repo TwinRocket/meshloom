@@ -16,6 +16,7 @@ from app.data.meshcore_channels import (
     bundled_names_by_hash_byte,
     channel_key_hash_byte,
     hashtag_key_from_name,
+    hashtag_room_name,
 )
 from app.decoder import extract_payload, try_decrypt_packet_with_channel_key
 from app.repository.channels import ChannelRepository
@@ -51,17 +52,14 @@ _uploaded_hash_bytes: set[str] = set()
 
 
 def _display_name(name: str) -> str:
-    text = (name or "").strip()
-    if text.startswith("#"):
-        text = text[1:].strip()
+    text = hashtag_room_name(name)
     return f"#{text}" if text else ""
 
 
 def _publish_name(name: str) -> str:
-    text = (name or "").strip()
-    if text.startswith("#"):
-        text = text[1:].strip()
-    return text
+    # Exact name: bundled, Community and network names are never normalized,
+    # or the stored label would no longer match the key the MAC check proved.
+    return hashtag_room_name(name)
 
 
 def _normalize_hash_bytes(raw: list[str]) -> list[str]:
@@ -131,7 +129,7 @@ async def _apply_matched_name(name: str, packets: list[bytes]) -> bool:
     MAC must pass on a local sample. Returns True when a new channel was opened.
     """
     publish = _publish_name(name)
-    if not publish:
+    if not publish.strip():
         return False
     key = _mac_matches(publish, packets)
     if key is None:
