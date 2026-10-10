@@ -45,12 +45,12 @@ def get_server_contact_label(contact: Contact) -> str:
 
 
 def _send_cmd_destination(contact: Contact) -> dict:
-    """Build the destination meshcore 2.3.9+ ``send_cmd`` actually accepts.
+    """Build the destination meshcore ``send_cmd`` needs to pick the text type.
 
-    ``send_cmd`` now reads ``dst["type"]`` to pick ``CLI_CMD`` (chat) vs
-    ``CLI_DATA`` (repeater/room/sensor). A public-key string raises
-    ``TypeError``. Do not pass ``dst_type=`` either: that branch ignores the
-    provided value and forces repeater.
+    ``send_cmd`` reads ``dst["type"]`` to pick ``CLI_CMD`` (chat) vs
+    ``CLI_DATA`` (repeater/room/sensor). With a public-key string, meshcore
+    2.3.15 assumes a repeater (2.3.9.1 raised ``TypeError``), so the full
+    contact dict is still required.
     """
     return contact.to_radio_dict()
 
