@@ -531,8 +531,13 @@ class WebhookCaptureServer:
                 }
             )
 
-            # Send 200 OK
-            response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
+            # Send 200 OK. The connection is closed after every request, so say so:
+            # without ``Connection: close`` httpx keeps the socket in its pool and
+            # reuses it for the next request, which races with our close() and
+            # fails with "Server disconnected" depending on scheduling. The webhook
+            # module logs that error and drops the event, which is the flake seen
+            # in tests that send two requests in a row.
+            response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
             writer.write(response)
             await writer.drain()
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
@@ -1150,7 +1155,7 @@ class AppriseJsonCaptureServer:
                     payload = {"_raw": body.decode("utf-8", errors="replace")}
                 self.received.append(payload)
 
-            response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
+            response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
             writer.write(response)
             await writer.drain()
         except (asyncio.IncompleteReadError, ConnectionError, OSError):
