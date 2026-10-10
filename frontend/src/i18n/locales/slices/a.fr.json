@@ -187,6 +187,7 @@
   "meshTest": {
     "title": "Test radio",
     "loading": "Chargement du test radio...",
+    "communityOff": "Le test radio lit sur Meshloom Community qui a entendu votre paquet. Activez Community pour l’utiliser.",
     "run": "Lancer le test",
     "runHelp": "Envoyer un flood et voir qui l’entend",
     "sending": "Envoi…",

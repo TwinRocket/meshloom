@@ -32,8 +32,7 @@ import {
   type SettingsSection,
 } from './settings/settingsConstants';
 import type { ServerLabel } from '../types';
-import { api } from '../api';
-import type { CommunityStatus, HealthStatus, RadioConfig } from '../types';
+import type { HealthStatus, RadioConfig } from '../types';
 import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
@@ -41,6 +40,11 @@ import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { LazyBoundary } from './LazyBoundary';
+import {
+  refreshCommunityStatus,
+  setCommunityStatus,
+  useCommunityState,
+} from '../stores/communityStore';
 
 const SettingsModal = lazy(() =>
   import('./SettingsModal').then((m) => ({ default: m.SettingsModal }))
@@ -112,7 +116,6 @@ interface AppShellProps {
   conversationListCollapsed?: boolean;
   onToggleConversationList?: () => void;
   onExpandConversationList?: () => void;
-  onCommunityStatusChange?: (status: CommunityStatus) => void;
 }
 
 export function AppShell({
@@ -148,7 +151,6 @@ export function AppShell({
   conversationListCollapsed = false,
   onToggleConversationList,
   onExpandConversationList,
-  onCommunityStatusChange,
 }: AppShellProps) {
   const { t } = useTranslation();
   const [contactPaneLoaded, setContactPaneLoaded] = useState(false);
@@ -188,28 +190,13 @@ export function AppShell({
   }
 
   const [identityModalForced, setIdentityModalForced] = useState(false);
-  const [communityStatus, setCommunityStatus] = useState<CommunityStatus | null>(null);
-
-  const updateCommunityStatus = useCallback(
-    (status: CommunityStatus) => {
-      setCommunityStatus(status);
-      onCommunityStatusChange?.(status);
-    },
-    [onCommunityStatusChange]
-  );
+  // Shared Community state (stores/communityStore): the settings section writes
+  // it, and every surface below reads it, so an opt-out shows everywhere at once.
+  const { status: communityStatus, enabled: communityEnabled } = useCommunityState();
 
   useEffect(() => {
-    let cancelled = false;
-    void Promise.resolve(api.getCommunity?.()).then(
-      (status) => {
-        if (!cancelled && status) updateCommunityStatus(status);
-      },
-      () => undefined
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [updateCommunityStatus]);
+    void refreshCommunityStatus();
+  }, []);
 
   const crackerMounted = useRef(false);
   if (showCracker) {
@@ -506,7 +493,7 @@ export function AppShell({
           >
             <ConversationPane
               {...conversationPaneProps}
-              communityEnabled={communityStatus?.enabled ?? true}
+              communityEnabled={communityEnabled ?? true}
               communityIata={communityStatus?.iata}
               onOpenCommunitySettings={() => handleOpenSettings('community')}
               onOpenRadioSettings={() => handleOpenSettings('radio')}
@@ -603,7 +590,7 @@ export function AppShell({
                     updatesApplying={ossUpdates.applying}
                     onOpenManualHelp={() => setUpdateDialogOpen(true)}
                     onClose={onCloseSettingsView}
-                    onCommunityStatusChange={updateCommunityStatus}
+                    onCommunityStatusChange={setCommunityStatus}
                   />
                 </LazyBoundary>
               </div>

@@ -51,6 +51,7 @@
     "observerReachMaxDistance": "Max distance",
     "observerReachDistanceUnavailable": "Distance unavailable",
     "observerReachEmpty": "No node has published hearing this packet to Meshloom Community.",
+    "observerReachCommunityOff": "Who heard this packet comes from Meshloom Community. Turn Community on to see it.",
     "observerReachHops": "{{count}} hops",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Show hops for {{name}}",

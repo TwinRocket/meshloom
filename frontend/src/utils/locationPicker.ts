@@ -83,6 +83,9 @@ export async function lookupCommunityIataLocation(): Promise<
 > {
   try {
     const community = await api.getCommunity();
+    // The IATA stays stored after an opt-out; the airport search is a Community
+    // feature, so it is never asked while Community is off.
+    if (!community.enabled) return null;
     const iata = (community.iata ?? '').trim().toUpperCase();
     if (!IATA_RE.test(iata)) return null;
     const hits = await api.searchCommunityAirports(iata);

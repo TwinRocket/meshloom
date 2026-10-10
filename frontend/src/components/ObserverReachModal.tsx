@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { LazyBoundary } from './LazyBoundary';
+import { useCommunityEnabled } from '../stores/communityStore';
 
 const EMPTY_CONTACTS: Contact[] = [];
 
@@ -82,9 +83,12 @@ export function ObserverReachModal({
   const [detail, setDetail] = useState<PacketObserverReachResponse | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [directoryHits, setDirectoryHits] = useState<Record<string, DirectoryHopHit>>({});
+  // Who heard a packet comes from Community. Off, the reach endpoint answers an
+  // empty list, which would read as "nobody heard it": say Community is off instead.
+  const communityOff = useCommunityEnabled() === false;
 
   useEffect(() => {
-    if (!open || !packetHash) return;
+    if (!open || !packetHash || communityOff) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -107,7 +111,7 @@ export function ObserverReachModal({
     return () => {
       cancelled = true;
     };
-  }, [open, packetHash]);
+  }, [open, packetHash, communityOff]);
 
   useEffect(() => {
     if (!detail) {
@@ -180,13 +184,21 @@ export function ObserverReachModal({
           <DialogTitle>{t('messageList.observerReachTitle')}</DialogTitle>
           <DialogDescription>{t('messageList.observerReachCaveat')}</DialogDescription>
         </DialogHeader>
-        {loading && (
+        {communityOff && (
+          <div className="space-y-1" data-testid="observer-reach-community-off">
+            <p className="text-sm font-medium">{t('community.offTitle')}</p>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('messageList.observerReachCommunityOff')}
+            </p>
+          </div>
+        )}
+        {!communityOff && loading && (
           <p className="text-[0.8125rem] text-muted-foreground">
             {t('messageList.observerReachLoading')}
           </p>
         )}
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        {!loading && !error && detail && (
+        {!communityOff && error && <p className="text-sm text-destructive">{error}</p>}
+        {!communityOff && !loading && !error && detail && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div>

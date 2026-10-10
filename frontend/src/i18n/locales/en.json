@@ -117,6 +117,7 @@
     "observerReachMaxDistance": "Max distance",
     "observerReachDistanceUnavailable": "Distance unavailable",
     "observerReachEmpty": "No node has published hearing this packet to Meshloom Community.",
+    "observerReachCommunityOff": "Who heard this packet comes from Meshloom Community. Turn Community on to see it.",
     "observerReachHops": "{{count}} hops",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Show hops for {{name}}",
@@ -2679,6 +2680,7 @@
   "meshTest": {
     "title": "Radio test",
     "loading": "Loading radio test...",
+    "communityOff": "The radio test reads who heard your packet from Meshloom Community. Turn Community on to use it.",
     "run": "Run the test",
     "runHelp": "Send one flood and watch who hears it",
     "sending": "Sending…",
@@ -2710,6 +2712,10 @@
     "mapEmpty": "No position to show yet.",
     "mapAria": "Map of observers that heard the test",
     "origin": "This radio"
+  },
+  "community": {
+    "offTitle": "Meshloom Community is off",
+    "openSettings": "Open Community settings"
   },
   "settingsIndex": {
     "title": "Settings",

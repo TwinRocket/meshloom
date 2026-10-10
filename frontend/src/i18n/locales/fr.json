@@ -117,6 +117,7 @@
     "observerReachMaxDistance": "Distance max",
     "observerReachDistanceUnavailable": "Distance indisponible",
     "observerReachEmpty": "Aucun nœud n’a publié avoir entendu ce paquet sur Meshloom Community.",
+    "observerReachCommunityOff": "La liste de qui a entendu ce paquet vient de Meshloom Community. Activez Community pour la voir.",
     "observerReachHops": "{{count}} sauts",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Voir les sauts de {{name}}",
@@ -2679,6 +2680,7 @@
   "meshTest": {
     "title": "Test radio",
     "loading": "Chargement du test radio...",
+    "communityOff": "Le test radio lit sur Meshloom Community qui a entendu votre paquet. Activez Community pour l’utiliser.",
     "run": "Lancer le test",
     "runHelp": "Envoyer un flood et voir qui l’entend",
     "sending": "Envoi…",
@@ -2710,6 +2712,10 @@
     "mapEmpty": "Aucune position à afficher pour l’instant.",
     "mapAria": "Carte des oreilles qui ont entendu le test",
     "origin": "Cette radio"
+  },
+  "community": {
+    "offTitle": "Meshloom Community est désactivé",
+    "openSettings": "Ouvrir les réglages Community"
   },
   "settingsIndex": {
     "title": "Réglages",

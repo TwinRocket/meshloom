@@ -100,6 +100,18 @@ describe('SettingsCommunitySection', () => {
     expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('LYS');
   });
 
+  it('offers no airport search while Community is off', async () => {
+    const search = vi.spyOn(api, 'searchCommunityAirports');
+
+    render(<SettingsCommunitySection />);
+
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(i18n.t('settings.community.iataSearch'))).toBeNull();
+    expect(search).not.toHaveBeenCalled();
+  });
+
   it('explains that publish is off when enabled without IATA', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       ...offStatus,

@@ -235,7 +235,7 @@ describe('App hashtag publish ownership', () => {
     expect(mocks.api.putCommunityHashtags).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByRole('button', {
+      await screen.findByRole('button', {
         name: i18n.t('sidebar.discoveredChannels'),
         hidden: true,
       })

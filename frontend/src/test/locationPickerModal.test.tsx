@@ -137,6 +137,38 @@ describe('LocationPickerModal', () => {
     expect(screen.getByText('49.012780, 2.550000')).toBeInTheDocument();
   });
 
+  it('never searches airports while Community is off, even with an IATA stored', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({
+      enabled: false,
+      iata: 'CDG',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: false,
+      publisher_connected: false,
+      env_seeded: false,
+    });
+
+    render(
+      <LocationPickerModal
+        open
+        onOpenChange={vi.fn()}
+        initialLat="0"
+        initialLon="0"
+        onApply={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(api.getCommunity).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByText(i18n.t('settings.radio.pickOnMapCenteredIata', { iata: 'CDG' }))
+      ).not.toBeInTheDocument();
+    });
+    expect(api.searchCommunityAirports).not.toHaveBeenCalled();
+  });
+
   it('centers on the timezone city when radio location and IATA are missing', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
