@@ -1,370 +1,102 @@
-# Fanout Bus Architecture
+# Fanout bus (`app/fanout/`)
 
-The fanout bus is a unified system for dispatching mesh radio events to external integrations. It replaces the previous scattered singleton MQTT publishers with a modular, configurable framework.
+The fanout bus sends mesh events to outside integrations. Each integration is a row in `fanout_configs` plus a `FanoutModule` instance owned by `FanoutManager`. Read this file only when you work on fanout.
 
-## Core Concepts
+## Core
 
-### FanoutModule (base.py)
-Base class that all integration modules extend:
-- `__init__(config_id, config, *, name="")` — constructor; receives the config UUID, the type-specific config dict, and the user-assigned name
-- `start()` / `stop()` — async lifecycle (e.g. open/close connections)
-- `on_message(data)` — receive decoded messages (scope-gated)
-- `on_raw(data)` — receive raw RF packets (scope-gated)
-- `on_contact(data)` — receive contact upserts; dispatched to all modules
-- `on_telemetry(data)` — receive repeater telemetry snapshots; dispatched to all modules
-- `on_health(data)` — receive periodic radio health snapshots; dispatched to all modules
-- `status` property (**must override**) — return `"connected"`, `"disconnected"`, or `"error"`
+- `base.py` — `FanoutModule(config_id, config, *, name="")`. Hooks: `start`/`stop`, `on_message`, `on_raw`, `on_contact`, `on_telemetry`, `on_health`. Each hook is a no-op by default. Subclasses must override `status` (`"connected"` / `"disconnected"` / `"error"`). `_set_last_error()` keeps an operator-facing error and pushes a health update.
+- `manager.py` — `fanout_manager` singleton. `_MODULE_TYPES` (filled in `_register_module_types()`) maps `type` to a class. The manager builds every module as `cls(config_id, config, name=cfg.get("name", ""))`.
+  - `load_from_db()` starts the enabled rows, then `sync_system_modules()`.
+  - `reload_config(id)` stops the module and restarts it if the row is still enabled (one lock per id). `remove_config(id)` stops it.
+  - Each handler runs under `asyncio.wait_for(..., 30 s)` (`_DISPATCH_TIMEOUT_SECONDS`). A timeout sets the module error and restarts the module. An exception sets the error. Modules run concurrently (`asyncio.gather`), and a failure in one module never affects the others.
+  - `broadcast_message` drops `CHAN` messages for pending channels (`is_pending_channel`).
+  - `get_statuses()` feeds `/api/health`. It skips disabled rows and reserved `system:*` ids.
+  - Bots are skipped when `MESHCORE_DISABLE_BOTS` is set (`source="env"`), or after `POST /api/fanout/bots/disable-until-restart` (`source="until_restart"`).
 
-All five event hooks are no-ops by default; modules override only the ones they care about.
-
-### FanoutManager (manager.py)
-Singleton that owns all active modules and dispatches events:
-- `load_from_db()` — startup: load enabled configs, instantiate modules
-- `reload_config(id)` — CRUD: stop old, start new
-- `remove_config(id)` — delete: stop and remove
-- `broadcast_message(data)` — scope-check + dispatch `on_message`
-- `broadcast_raw(data)` — scope-check + dispatch `on_raw`
-- `broadcast_contact(data)` — dispatch `on_contact` to all modules
-- `broadcast_telemetry(data)` — dispatch `on_telemetry` to all modules
-- `broadcast_health_fanout(data)` — dispatch `on_health` to all modules
-- `stop_all()` — shutdown
-- `get_statuses()` — health endpoint data
-
-All modules are constructed uniformly: `cls(config_id, config_blob, name=cfg.get("name", ""))`.
-
-### Scope Matching
-Each config has a `scope` JSON blob controlling what events reach it:
-```json
-{"messages": "all", "raw_packets": "all"}
-{"messages": "none", "raw_packets": "all"}
-{"messages": {"channels": ["key1"], "contacts": "all"}, "raw_packets": "none"}
-```
-Community MQTT always enforces `{"messages": "none", "raw_packets": "all"}`.
-
-Scope only gates `on_message` and `on_raw`. The `on_contact`, `on_telemetry`, and `on_health` hooks are dispatched to all modules unconditionally — modules that care about specific contacts or repeaters filter internally based on their own config.
-
-## Event Flow
+## Event flow
 
 ```
-Radio Event -> packet_processor / event_handler
-  -> broadcast_event("message"|"raw_packet"|"contact", data, realtime=True)
-    -> WebSocket broadcast (always)
-    -> FanoutManager.broadcast_message/raw/contact (only if realtime=True)
-      -> scope check per module (message/raw only)
-      -> module.on_message / on_raw / on_contact
-
-Telemetry collect (radio_sync.py / routers/repeaters.py)
-  -> RepeaterTelemetryRepository.record(...)
-  -> FanoutManager.broadcast_telemetry(data)
-    -> module.on_telemetry (all modules, unconditional)
-
-Health fanout (radio_stats.py, piggybacks on 60s stats sampling loop)
-  -> FanoutManager.broadcast_health_fanout(data)
-    -> module.on_health (all modules, unconditional)
+broadcast_event(type, data, realtime=True)        app/websocket.py
+  -> WebSocket (always)
+  -> if realtime: radio proxy notify, then spawn(...)
+       "message"    -> broadcast_message  (scope) + push_manager.dispatch_message
+       "raw_packet" -> broadcast_raw      (scope)
+       "contact"    -> broadcast_contact  (all modules)
+dispatch_telemetry_event(data)                    app/websocket.py (no WS event)
+  <- radio_sync.py (repeater and contact auto-collect), routers/repeaters.py, routers/contacts.py
+  -> broadcast_telemetry (all modules)
+radio_stats._stats_sampling_loop (every 60 s)
+  -> broadcast_health_fanout (all modules)
 ```
 
-Setting `realtime=False` (used during historical decryption) skips fanout dispatch entirely.
+`realtime=False` (historical decrypt) skips fanout and push.
 
-## Event Payloads
+## Scope
 
-### on_message(data)
-`Message.model_dump()` — the full Pydantic message model. Key fields:
-- `type` (`"PRIV"` | `"CHAN"`), `conversation_key`, `text`, `sender_name`, `sender_key`
-- `outgoing`, `acked`, `paths`, `sender_timestamp`, `received_at`
+`scope` is JSON in the row. It gates `on_message` and `on_raw` only. The other three hooks reach every module.
 
-### on_raw(data)
-Raw packet dict from `packet_processor.py`. Key fields:
-- `id` (storage row ID), `observation_id` (per-arrival), `raw` (hex), `timestamp`
-- `decrypted_info` (optional: `channel_key`, `contact_key`, `text`)
+- `messages`: `"all"` | `"none"` | `{"channels": F, "contacts": F}`, where `F` = `"all"` | `"none"` | `[keys]` | `{"except": [keys]}`. An omitted sub-key means `"none"`.
+- `raw_packets`: `"all"` | `"none"`.
 
-### on_contact(data)
-`Contact.model_dump()` — the full Pydantic contact model. Key fields:
-- `public_key`, `name`, `type` (0=unknown, 1=client, 2=repeater, 3=room, 4=sensor)
-- `lat`, `lon`, `last_seen`, `first_seen`, `on_radio`
+`_enforce_scope()` in `app/routers/fanout.py` sets or validates the scope per type:
 
-### on_telemetry(data)
-Repeater telemetry snapshot, broadcast after successful `RepeaterTelemetryRepository.record()`.
-Identical shape from both auto-collect (`radio_sync.py`) and manual fetch (`routers/repeaters.py`):
-- `public_key`, `name`, `timestamp`
-- `battery_volts`, `noise_floor_dbm`, `last_rssi_dbm`, `last_snr_db`
-- `packets_received`, `packets_sent`, `airtime_seconds`, `rx_airtime_seconds`
-- `uptime_seconds`, `sent_flood`, `sent_direct`, `recv_flood`, `recv_direct`
-- `flood_dups`, `direct_dups`, `full_events`, `tx_queue_len`
+| type | scope |
+|------|-------|
+| `mqtt_community`, `map_upload` | forced `{"messages":"none","raw_packets":"all"}` |
+| `bot` | forced `{"messages":"all","raw_packets":"none"}` |
+| `webhook`, `apprise`, `mqtt_ha` | `messages` configurable, `raw_packets` forced `none` |
+| `mqtt_private`, `sqs` | both configurable |
 
-### on_health(data)
-Radio health + stats snapshot, broadcast every 60s by the stats sampling loop in `radio_stats.py`:
-- `connected` (bool), `connection_info` (str | None)
-- `public_key` (str | None), `name` (str | None)
-- `noise_floor_dbm`, `battery_mv`, `uptime_secs` (int | None)
-- `last_rssi` (int | None), `last_snr` (float | None)
-- `tx_air_secs`, `rx_air_secs` (int | None)
-- `packets_recv`, `packets_sent`, `flood_tx`, `direct_tx`, `flood_rx`, `direct_rx` (int | None)
+## Payloads
 
-## Current Module Types
+- `on_message`: `Message.model_dump()` (`app/models.py`). Includes `type` (`PRIV`/`CHAN`), `conversation_key`, `text`, `sender_name`, `sender_key`, `outgoing`, `acked`, `paths`, `sender_timestamp`, `received_at`, `channel_name`, `packet_hash`, `transport_code`, `region`. `CHAN` text is stored as `"Sender: body"`. Use `base.get_fanout_message_text()` to strip that prefix.
+- `on_raw`: `RawPacketBroadcast` (`app/models.py`). Includes `id` (storage row), `observation_id` (one per RF arrival), `timestamp`, `data` (packet hex), `payload_type`, `snr`, `rssi`, `decrypted`, `decrypted_info` (`channel_key`, `contact_key`, `sender`, `message`, ...), `transport_code`, `region`.
+- `on_contact`: a contact dict (`Contact` fields: `public_key`, `name`, `type`, `lat`, `lon`, `last_seen`, `on_radio`, ...).
+- `on_telemetry`: `{public_key, name, timestamp, **snapshot}`. The snapshot holds repeater status fields or contact LPP data, depending on the source.
+- `on_health`: `radio_stats._build_fanout_payload()` — `connected`, `connection_info`, `public_key`, `name`. When stats are available it adds `noise_floor_dbm`, `battery_mv`, `uptime_secs`, `last_rssi`, `last_snr`, `tx_air_secs`, `rx_air_secs`, `packets_recv`, `packets_sent`, `flood_tx`, `direct_tx`, `flood_rx`, `direct_rx`.
 
-### mqtt_private (mqtt_private.py)
-Wraps `MqttPublisher` from `app/fanout/mqtt.py`. Config blob:
-- `broker_host`, `broker_port`, `username`, `password`
-- `use_tls`, `tls_insecure`, `topic_prefix`
+## Module types
 
-### mqtt_community (mqtt_community.py)
-Wraps `CommunityMqttPublisher` from `app/fanout/community_mqtt.py`. Config blob:
-- `broker_host`, `broker_port`, `iata`, `email`
-- Only publishes raw packets (on_message is a no-op)
-- The published `raw` field is always the original packet hex.
-- When a direct packet includes a `path` field, it is emitted as comma-separated hop identifiers exactly as the packet reports them. Token width varies with the packet's path hash mode (`1`, `2`, or `3` bytes per hop); there is no legacy flat per-byte companion field.
+The router's validators (`_validate_*_config`) are the source of truth for config fields and defaults.
 
-### bot (bot.py)
-Wraps bot code execution via `app/fanout/bot_exec.py`. Config blob:
-- `code` — Python bot function source code
-- Executes in a thread pool with timeout and semaphore concurrency control
-- Rate-limits outgoing messages for repeater compatibility
-- Channel `message_text` passed to bot code is normalized for human readability by stripping a leading `"{sender_name}: "` prefix when it matches the payload sender.
-- The `bot(...)` function receives, in order: `sender_name`, `sender_key`, `message_text`, `is_dm`, `channel_key`, `channel_name`, `sender_timestamp`, `path`, then optionally `is_outgoing`, `path_bytes_per_hop`, `packet_hash`. Two further kwargs — `region` (resolved region name; `None` for unscoped flood or a transport code matching no known region) and `scoped` (`bool`: whether the message carried a regional flood scope) — are delivered **only** to bots that use `**kwargs` or explicitly name the parameter; they are intentionally not added to the positional call styles so existing bot signatures keep binding unchanged. `scoped` disambiguates a `None` region: `not scoped` = unscoped, `scoped and region is None` = scoped-but-unknown-region, `scoped and region` = that named region. Unlike `region` (channel-only historically), `scoped` is also set for scoped DMs (flood-direct messages can carry a scope), which resolves the DM half of #300. `_analyze_bot_signature` in `bot_exec.py` picks the call style from the bot's actual signature.
-- **Return shapes** (`execute_bot_code` → `process_bot_response`): `None` (no reply), a `str`, a `list[str]` (sent in order), or a `dict` `{"region": <name|None>, "message": <str|list[str]>}`. The dict form (`BotReply`) scopes the reply send to a region **for that send only**: a region name applies it, `None`/empty clears it (unscoped/plain flood), and an absent `region` key falls back to the channel's persisted `flood_scope_override`. Region scoping applies to channel replies only — it is ignored for DM replies (DMs are not region-scoped). Outgoing scope reuses the existing `send_channel_message_with_effective_scope` set-scope/send/restore machinery via a per-send `flood_scope_override` on `SendChannelMessageRequest`. Note the bot can scope to any region name; whether the echo is *labeled* still depends on the operator's `app_settings.known_regions` (that list only drives decode, not transmit).
+- `mqtt_private` (`mqtt_private.py` → `MqttPublisher` in `mqtt.py`, on top of `mqtt_base.BaseMqttPublisher`). Fields: `broker_host`, `broker_port` (1883), `username`, `password`, `use_tls`, `tls_insecure`, `topic_prefix` (`meshcore`). Publishes messages and raw packets.
+- `mqtt_ha` (`mqtt_ha.py`). Home Assistant MQTT Discovery. Fields: the same broker fields as `mqtt_private`, plus `topic_prefix`, `tracked_contacts`, and `tracked_repeaters` (lists of public keys). Uses `on_health` (local radio sensors), `on_contact` (device_tracker), `on_telemetry` (repeater sensors), and `on_message` (event entity).
+- `mqtt_community` (`mqtt_community.py` → `CommunityMqttPublisher` in `community_mqtt.py`). This is a user-configured raw-packet uplink. The create UI offers it as generic, MeshRank, or LetsMesh US/EU presets. Fields: `broker_host` (`mqtt-us-v1.letsmesh.net`), `broker_port` (443), `transport` (`websockets`|`tcp`), `use_tls`, `tls_verify`, `auth_mode` (`token`|`password`|`none`), `username`/`password` (required when `auth_mode=password`), `token_audience`, `iata` (required, `^[A-Z]{3}$`), `email`, `websocket_path`, `topic_template` (`meshcore/{IATA}/{PUBLIC_KEY}/packets`). Token auth is an Ed25519 JWT signed with the radio key. `on_message` is a no-op. The payload follows the meshcore-packet-capture format (`community_mqtt._format_raw_packet`): `raw` is the upper-case packet hex. Direct-route packets also carry `path`, which is the hop identifiers joined by commas, so the token width follows the path hash mode.
+- `bot` (`bot.py`, `bot_exec.py`). Field: `code`. The code must define `bot(...)`. The router checks the syntax and signature (400 on error). Creating or patching a bot answers 403 while bots are disabled. Execution model:
+  - The code runs through `exec()` with full `__builtins__` in a dedicated thread pool. Concurrency is capped at 100 (`LoopBoundSemaphore`), and each run times out after 10 s (`BOT_EXECUTION_TIMEOUT`). `_bot_globals` persists between runs. This is arbitrary code execution, by design.
+  - The bot waits 2 s before it runs, so echoes can dedupe. Bot sends are serialized at least 2 s apart (`BOT_MESSAGE_SPACING`).
+  - Positional arguments: `sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path`. The optional `is_outgoing`, `path_bytes_per_hop`, and `packet_hash` are passed when the signature accepts them. `region` and `scoped` go only to bots that name them or take `**kwargs` (`_analyze_bot_signature`). `scoped` = `transport_code is not None`. It is also set on scoped DMs. `region` is `None` both when the message is unscoped and when the region is unknown, so check `scoped` first.
+  - For channel messages, `message_text` drops the `"sender_name: "` prefix.
+  - Return values: `None`, a `str`, a `list[str]`, or `{"region": name|None, "message": str|list[str]}` (`BotReply`). In the dict form, `region` scopes that one channel reply: a name scopes it, `None` sends it unscoped, and an absent key keeps the channel's `flood_scope_override`. Scoping goes through `services/message_send.send_channel_message_with_effective_scope`. DM replies ignore `region`.
+- `webhook` (`webhook.py`). Messages only. Fields: `url` (http/https), `method` (`POST`/`PUT`/`PATCH`), `headers` (object), `hmac_secret`, and `hmac_header` (default `X-Webhook-Signature`). The body is `Message` JSON (compact, sorted keys). The signature is `sha256=<hex HMAC of the body>`. Timeout: 10 s.
+- `apprise` (`apprise_mod.py`). Messages only. Fields: `urls` (newline-separated, at least one), `preserve_identity` (default true; keeps the Discord name and avatar), `include_outgoing` (default false), `markdown_format` (default true), and `body_format_dm` / `body_format_channel` (format strings, checked against `FORMAT_VARIABLES`). Legacy `include_path` is used only when no format string is set (migration 060).
+- `sqs` (`sqs.py`). Fields: `queue_url` (required), `region_name` (taken from an `*.amazonaws.com` URL when empty), `endpoint_url`, and `access_key_id` + `secret_access_key` (both or neither) + `session_token` (needs the key pair). With no keys, the module uses the default AWS credential chain. The body is `{"event_type":"message"|"raw_packet","data":...}`.
+- `map_upload` (`map_upload.py`). Uploads repeater and room adverts (roles 2 and 3) to `https://map.meshcore.io/api/v1/uploader/node` (`_DEFAULT_API_URL`). Each upload is signed with the radio's private key from `keystore`. Without that key the upload is skipped with a warning. The same key is not re-uploaded within 3600 s. Fields: `api_url` (empty = default), `dry_run` (default **true**: logs only), `geofence_enabled`, and `geofence_radius_km`. The geofence center is the radio's live `self_info` `adv_lat`/`adv_lon`. When those are `(0,0)` or unavailable, the geofence check is skipped.
 
-### webhook (webhook.py)
-HTTP webhook delivery. Config blob:
-- `url`, `method` (POST/PUT/PATCH)
-- `hmac_secret` (optional) — when set, each request includes an HMAC-SHA256 signature of the JSON body
-- `hmac_header` (optional, default `X-Webhook-Signature`) — header name for the signature (value format: `sha256=<hex>`)
-- `headers` — arbitrary extra headers (JSON object)
+### System module (not a user type)
 
-### apprise (apprise_mod.py)
-Push notifications via Apprise library. Config blob:
-- `urls` — newline-separated Apprise notification service URLs
-- `preserve_identity` — suppress Discord webhook name/avatar override
-- `include_outgoing` — when true, Meshloom-originated manual and bot-sent messages are forwarded to Apprise; missing/false preserves the legacy incoming-only behavior
-- `include_path` — include routing path in notification body
-- Channel notifications normalize stored message text by stripping a leading `"{sender_name}: "` prefix when it matches the payload sender so alerts do not duplicate the name.
+`meshloom_stats.py` (`MeshloomStatsModule`, id `system:meshloom-stats`) uploads raw packets to the Meshloom Community Stats broker. `sync_system_modules()` starts it from the Community state (`services/meshloom_community.get_community_effective()`), not from `fanout_configs`. It is hidden from `/api/fanout` and from fanout statuses. `PATCH`/`DELETE` on any `system:*` id answer 403. It can run next to a user `mqtt_community` row.
 
-### sqs (sqs.py)
-Amazon SQS delivery. Config blob:
-- `queue_url` — target queue URL
-- `region_name` (optional; inferred from standard AWS SQS queue URLs when omitted), `endpoint_url` (optional)
-- `access_key_id`, `secret_access_key`, `session_token` (all optional; blank uses the normal AWS credential chain)
-- Publishes a JSON envelope of the form `{"event_type":"message"|"raw_packet","data":...}`
-- Supports both decoded messages and raw packets via normal scope selection
+## REST (`app/routers/fanout.py`)
 
-### map_upload (map_upload.py)
-Uploads heard repeater and room-server advertisements to map.meshcore.io. Config blob:
-- `api_url` (optional, default `""`) — upload endpoint; empty falls back to the public map.meshcore.io API
-- `dry_run` (bool, default `true`) — when true, logs the payload at INFO level without sending
-- `geofence_enabled` (bool, default `false`) — when true, only uploads nodes within `geofence_radius_km` of the radio's own configured lat/lon
-- `geofence_radius_km` (float, default `0`) — filter radius in kilometres
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/fanout` | All user rows (without `system:*`) |
+| POST | `/api/fanout` | 400 for an unknown type or an invalid config/scope. 403 for a bot while bots are disabled. Starts the module if enabled |
+| PATCH | `/api/fanout/{id}` | 404 / 403 (reserved id or bot disabled). Re-validates the config every time, then reloads the module |
+| DELETE | `/api/fanout/{id}` | Stops the module, then deletes the row |
+| POST | `/api/fanout/bots/disable-until-restart` | Stops the bot modules and blocks them until the process restarts |
 
-Geofence notes:
-- The reference center is always the radio's own `adv_lat`/`adv_lon` from `radio_runtime.meshcore.self_info`, read **live at upload time** — no lat/lon is stored in the fanout config itself.
-- If the radio's lat/lon is `(0, 0)` or the radio is not connected, the geofence check is silently skipped so uploads continue normally until coordinates are configured.
-- Requires the radio to have `ENABLE_PRIVATE_KEY_EXPORT=1` firmware to sign uploads.
-- Scope is always `{"messages": "none", "raw_packets": "all"}` — only raw RF packets are processed.
+Configs are validated on every create and update, whether they are enabled or not.
 
-## Adding a New Integration Type
+## Adding a type
 
-### Step-by-step checklist
+1. Write `app/fanout/<type>.py`: subclass `FanoutModule`, keep the constructor signature, forward `name` to `super()`, and implement `status`.
+2. Register it in `manager._register_module_types()`.
+3. In `app/routers/fanout.py`: add it to `_VALID_TYPES`, add a `_validate_<type>_config` wired into `_validate_and_normalize_config`, and add an `_enforce_scope` branch if the scope is fixed. Without that branch it gets the `mqtt_private`/`sqs` behaviour.
+4. Frontend (`frontend/src/components/settings/SettingsFanoutSection.tsx`): add the type to `FANOUT_TYPE_ORDER`, the `DraftType` union, and `CREATE_INTEGRATION_DEFINITIONS` (`savedType`, section, default config and scope). Add a `<Type>ConfigEditor` and its `detailType === '<type>'` branch. Use `ScopeSelector` (`showRawPackets` when raw packets are configurable). Add the i18n keys `settings.fanout.types.<type>` and `settings.fanout.create.<draft>.{label,description,defaultName}` in `frontend/src/i18n/locales/{en,fr}.json`.
+5. Tests: `tests/test_fanout.py` (CRUD, scope, manager), `tests/test_fanout_integration.py` (lifecycle and delivery), `tests/test_fanout_hitlist.py`, a dedicated file if needed (for example `test_sqs_fanout.py`, `test_mqtt_ha.py`), and `frontend/src/test/fanoutSection.test.tsx`.
 
-#### 1. Backend module (`app/fanout/my_type.py`)
+## Storage
 
-Create a class extending `FanoutModule`:
-
-```python
-from app.fanout.base import FanoutModule
-
-
-class MyTypeModule(FanoutModule):
-    def __init__(self, config_id: str, config: dict, *, name: str = "") -> None:
-        super().__init__(config_id, config, name=name)
-        # Initialize module-specific state
-
-    async def start(self) -> None:
-        """Open connections, create clients, etc."""
-
-    async def stop(self) -> None:
-        """Close connections, clean up resources."""
-
-    async def on_message(self, data: dict) -> None:
-        """Handle decoded messages. Omit if not needed."""
-
-    async def on_raw(self, data: dict) -> None:
-        """Handle raw packets. Omit if not needed."""
-
-    @property
-    def status(self) -> str:
-        """Required. Return 'connected', 'disconnected', or 'error'."""
-        ...
-```
-
-Constructor requirements:
-- Must accept `config_id: str, config: dict, *, name: str = ""`
-- Must forward `name` to super: `super().__init__(config_id, config, name=name)`
-
-#### 2. Register in manager (`app/fanout/manager.py`)
-
-Add import and mapping in `_register_module_types()`:
-
-```python
-from app.fanout.my_type import MyTypeModule
-
-_MODULE_TYPES["my_type"] = MyTypeModule
-```
-
-#### 3. Router changes (`app/routers/fanout.py`)
-
-Three changes needed:
-
-**a)** Add to `_VALID_TYPES` set:
-```python
-_VALID_TYPES = {"mqtt_private", "mqtt_community", "bot", "webhook", "apprise", "sqs", "my_type"}
-```
-
-**b)** Add a validation function:
-```python
-def _validate_my_type_config(config: dict) -> None:
-    """Validate my_type config blob."""
-    if not config.get("some_required_field"):
-        raise HTTPException(status_code=400, detail="some_required_field is required")
-```
-
-**c)** Wire validation into both `create_fanout_config` and `update_fanout_config` — add an `elif` to the validation block in each:
-```python
-elif body.type == "my_type":
-    _validate_my_type_config(body.config)
-```
-Note: validation only runs when the config will be enabled (disabled configs are treated as drafts).
-
-**d)** Add scope enforcement in `_enforce_scope()` if the type has fixed scope constraints (e.g. raw_packets always none). Otherwise it falls through to the `mqtt_private` default which allows both messages and raw_packets to be configurable.
-
-#### 4. Frontend editor component (`SettingsFanoutSection.tsx`)
-
-Four changes needed in this single file:
-
-**a)** Add to `TYPE_LABELS` and `TYPE_OPTIONS` at the top:
-```tsx
-const TYPE_LABELS: Record<string, string> = {
-  // ... existing entries ...
-  my_type: 'My Type',
-};
-
-const TYPE_OPTIONS = [
-  // ... existing entries ...
-  { value: 'my_type', label: 'My Type' },
-];
-```
-
-**b)** Create an editor component (follows the same pattern as existing editors):
-```tsx
-function MyTypeConfigEditor({
-  config,
-  scope,
-  onChange,
-  onScopeChange,
-}: {
-  config: Record<string, unknown>;
-  scope: Record<string, unknown>;
-  onChange: (config: Record<string, unknown>) => void;
-  onScopeChange: (scope: Record<string, unknown>) => void;
-}) {
-  return (
-    <div className="space-y-3">
-      {/* Type-specific config fields */}
-      <Separator />
-      <ScopeSelector scope={scope} onChange={onScopeChange} />
-    </div>
-  );
-}
-```
-
-If your type does NOT have user-configurable scope (like bot or community MQTT), omit the `scope`/`onScopeChange` props and the `ScopeSelector`.
-
-The `ScopeSelector` component is defined within the same file. It accepts an optional `showRawPackets` prop:
-- **Without `showRawPackets`** (webhook, apprise): shows message scope only (all/only/except — no "none" option since that would make the integration a no-op). A warning appears when the effective selection matches nothing.
-- **With `showRawPackets`** (private MQTT): adds a "Forward raw packets" toggle and includes the "No messages" option (valid when raw packets are enabled). The warning appears only when both raw packets and messages are effectively disabled.
-
-**c)** Add default config and scope in `handleAddCreate`:
-```tsx
-const defaults: Record<string, Record<string, unknown>> = {
-  // ... existing entries ...
-  my_type: { some_field: '', other_field: true },
-};
-const defaultScopes: Record<string, Record<string, unknown>> = {
-  // ... existing entries ...
-  my_type: { messages: 'all', raw_packets: 'none' },
-};
-```
-
-**d)** Wire the editor into the detail view's conditional render block:
-```tsx
-{editingConfig.type === 'my_type' && (
-  <MyTypeConfigEditor
-    config={editConfig}
-    scope={editScope}
-    onChange={setEditConfig}
-    onScopeChange={setEditScope}
-  />
-)}
-```
-
-#### 5. Tests
-
-**Backend integration tests** (`tests/test_fanout_integration.py`):
-- Test that a configured + enabled module receives messages via `FanoutManager.broadcast_message`
-- Test scope filtering (all, none, selective)
-- Test that a disabled module does not receive messages
-
-**Backend unit tests** (`tests/test_fanout_hitlist.py` or a dedicated file):
-- Test config validation (required fields, bad values)
-- Test module-specific logic in isolation
-
-**Frontend tests** (`frontend/src/test/fanoutSection.test.tsx`):
-- The existing suite covers the list/edit/create flow generically. If your editor has special behavior, add specific test cases.
-
-#### Summary of files to touch
-
-| File | Change |
-|------|--------|
-| `app/fanout/my_type.py` | New module class |
-| `app/fanout/manager.py` | Import + register in `_register_module_types()` |
-| `app/routers/fanout.py` | `_VALID_TYPES` + validator function + scope enforcement |
-| `frontend/.../SettingsFanoutSection.tsx` | `TYPE_LABELS` + `TYPE_OPTIONS` + editor component + defaults + detail view wiring |
-| `tests/test_fanout_integration.py` | Integration tests |
-
-## REST API
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/fanout` | List all fanout configs |
-| POST | `/api/fanout` | Create new config |
-| PATCH | `/api/fanout/{id}` | Update config (triggers module reload) |
-| DELETE | `/api/fanout/{id}` | Delete config (stops module) |
-
-## Database
-
-`fanout_configs` table:
-- `id` TEXT PRIMARY KEY
-- `type`, `name`, `enabled`, `config` (JSON), `scope` (JSON)
-- `sort_order`, `created_at`
-
-Migrations:
-- **36**: Creates `fanout_configs` table, migrates existing MQTT settings from `app_settings`
-- **37**: Migrates bot configs from `app_settings.bots` JSON column into fanout rows
-- **38**: Drops legacy `mqtt_*`, `community_mqtt_*`, and `bots` columns from `app_settings`
-
-## Key Files
-
-- `app/fanout/base.py` — FanoutModule base class
-- `app/fanout/manager.py` — FanoutManager singleton
-- `app/fanout/mqtt_base.py` — BaseMqttPublisher ABC (shared MQTT connection loop)
-- `app/fanout/mqtt.py` — MqttPublisher (private MQTT publishing)
-- `app/fanout/community_mqtt.py` — CommunityMqttPublisher (community MQTT with JWT auth)
-- `app/fanout/mqtt_private.py` — Private MQTT fanout module
-- `app/fanout/mqtt_community.py` — Community MQTT fanout module
-- `app/fanout/bot.py` — Bot fanout module
-- `app/fanout/bot_exec.py` — Bot code execution, response processing, rate limiting
-- `app/fanout/webhook.py` — Webhook fanout module
-- `app/fanout/apprise_mod.py` — Apprise fanout module
-- `app/fanout/sqs.py` — Amazon SQS fanout module
-- `app/fanout/map_upload.py` — Map Upload fanout module
-- `app/repository/fanout.py` — Database CRUD
-- `app/routers/fanout.py` — REST API
-- `app/websocket.py` — `broadcast_event()` dispatches to fanout
-- `frontend/src/components/settings/SettingsFanoutSection.tsx` — UI
+The `fanout_configs` table (`app/database.py`) has the columns `id` TEXT PK, `type`, `name`, `enabled`, `config` (JSON), `scope` (JSON), `sort_order`, and `created_at`. CRUD and the in-memory `_configs_cache` live in `app/repository/fanout.py`.
