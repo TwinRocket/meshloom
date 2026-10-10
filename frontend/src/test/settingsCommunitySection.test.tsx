@@ -198,7 +198,7 @@ describe('SettingsCommunitySection', () => {
       publisher_configured: true,
     });
     vi.mocked(api.bindCommunityIata).mockRejectedValue(
-      new ApiError('Stats IATA change cap reached', 429)
+      new ApiError('Community IATA change cap reached', 429)
     );
 
     render(<SettingsCommunitySection />);
