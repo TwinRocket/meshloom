@@ -46,12 +46,21 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 
 La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
 
-**Community désactivé ne veut pas dire zéro trafic réseau.** Le désactiver arrête la publication et toutes les requêtes d’annuaire. Ceci continue :
+**Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`, ou les serveurs définis par `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE`) ainsi que la recherche d’aéroport, immédiatement et sans redémarrage :
 
-- la vérification des nouvelles versions de Meshloom interroge GitHub, puis, en secours, un miroir de Community (`/v1/meshloom/latest`) ;
-- la recherche d’aéroport dans les Réglages interroge `api.fx-port.com`, par l’intermédiaire de votre serveur ;
+- l’état `online` de votre nœud est effacé sur le broker avant la fermeture de la connexion MQTT, pour qu’il ne reste pas affiché en ligne ;
+- le flux Live se ferme, et les requêtes Community encore en cours sont annulées ;
+- les compteurs « entendu par » et le test radio indiquent que Community est désactivé au lieu d’afficher un résultat vide.
+
+Changer le code IATA efface de la même façon l’état laissé sous l’ancien code.
+
+**Community désactivé ne veut pas dire zéro trafic réseau.** Ceci continue :
+
+- la vérification des nouvelles versions de Meshloom interroge GitHub seulement, une fois toutes les 6 heures. Avec Community activé, elle a lieu toutes les 5 minutes et se rabat sur un miroir de Community (`/v1/meshloom/latest`) quand GitHub ne répond pas ;
 - Web Push et les intégrations que vous configurez appellent leurs propres serveurs ;
 - les fonds de carte sont chargés par votre navigateur chez leurs fournisseurs (OpenStreetMap, CARTO, OpenTopoMap, Esri).
+
+La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre serveur) fait partie de Community : désactivé, elle n’est jamais appelée, et vous saisissez vous-même le code à trois lettres.
 
 ## Dans l’interface
 

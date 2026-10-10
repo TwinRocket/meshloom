@@ -46,12 +46,21 @@ With Community on and a code saved, your server sends:
 
 Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
-**Community off does not mean no network traffic at all.** Turning Community off stops publishing and every directory request. These still happen:
+**Turning Community off cuts every connection to Community** (`*.meshloom.app`, or the hosts set by `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE`) and the airport search, at once and without a restart:
 
-- the check for new Meshloom versions asks GitHub, then, as a fallback, a Community mirror (`/v1/meshloom/latest`);
-- the airport search in Settings asks `api.fx-port.com`, through your server;
+- your node's `online` status is cleared on the broker before the MQTT connection closes, so it does not stay listed as online;
+- the Live feed closes, and Community requests still in flight are cancelled;
+- the "heard by" counts and the radio test say Community is off instead of showing an empty result.
+
+Changing the IATA code clears the status left under the old code the same way.
+
+**Community off does not mean no network traffic at all.** These still happen:
+
+- the check for new Meshloom versions asks GitHub only, once every 6 hours. With Community on it runs every 5 minutes and falls back to a Community mirror (`/v1/meshloom/latest`) when GitHub cannot be reached;
 - Web Push and the integrations you set up call their own servers;
 - the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
+
+The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself.
 
 ## In the interface
 

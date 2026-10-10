@@ -68,7 +68,7 @@ What each output sends depends on the scope you give it in **Settings > MQTT & A
 - **Map Upload** sends the adverts of repeaters and room servers, with their position, to a map service (map.meshcore.io or one you choose).
 - **Home Assistant** publishes your devices to the MQTT server (broker) you configure.
 
-Some features need Internet access: [push notifications](/en/docs/deep/push/), and [Meshloom Community](/en/docs/deep/community/) when joined (raw-packet publishing, directory, sharing of hashtag channel names). Even with both off, Meshloom checks for new releases every five minutes (GitHub first, then the Community mirror). It keeps working if that check fails.
+Some features need Internet access: [push notifications](/en/docs/deep/push/), and [Meshloom Community](/en/docs/deep/community/) when joined (raw-packet publishing, directory, sharing of hashtag channel names). Even with both off, Meshloom checks GitHub for new releases once every 6 hours (with Community on: every five minutes, with the Community mirror as a fallback). It keeps working if that check fails.
 
 ## A reasonable posture
 
