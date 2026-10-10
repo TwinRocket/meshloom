@@ -10,7 +10,14 @@
     "liveRain": "Flux live"
   },
   "live": {
-    "bannerOptOut": "La communauté et un code IATA sont requis pour regarder le flux live.",
+    "bannerOptOut": "Community et un code IATA sont requis pour regarder le flux live.",
+    "bannerClockSkew": "Community a refusé le flux live : l’horloge de ce serveur Meshloom est fausse. Corrigez l’heure (NTP) sur le serveur, puis réessayez.",
+    "bannerTokenRejected": "Community a refusé plusieurs fois le jeton live de ce serveur : le flux live ne réessaie plus.",
+    "clockBehindBy_one": "L’horloge du serveur retarde d’environ {{count}} minute.",
+    "clockBehindBy_other": "L’horloge du serveur retarde d’environ {{count}} minutes.",
+    "clockAheadBy_one": "L’horloge du serveur avance d’environ {{count}} minute.",
+    "clockAheadBy_other": "L’horloge du serveur avance d’environ {{count}} minutes.",
+    "retry": "Réessayer",
     "iataFilter": "IATA",
     "iataAll": "Toutes les régions",
     "soundTheme": "Son",

@@ -26,6 +26,7 @@ from app.models import (
 from app.path_utils import canonical_packet_hash, corescope_packet_hash
 from app.repository import AmbiguousPublicKeyPrefixError, ContactRepository, MessageRepository
 from app.services.directory import _as_float, _is_valid_map_location
+from app.services.meshloom_community import CommunityUpstreamError
 from app.services.radio_runtime import radio_runtime
 from app.services.ttl_lru import TtlLruCache
 
@@ -41,6 +42,9 @@ SEALED_REACH_TTL_SECONDS = 3600.0
 LIVE_REACH_TTL_SECONDS = 2.0
 COMMUNITY_OBSERVERS_LIVE_TTL_SECONDS = 8.0
 BATCH_FALLBACK_CONCURRENCY = 4
+# Upstream statuses meaning "this Community has no batch route": the only case
+# where one GET per hash is acceptable.
+BATCH_ROUTE_MISSING_STATUSES = frozenset({404, 405})
 MESHLOOM_BATCH_MAX = 20
 
 REACH_CACHE_MAX = 512
@@ -590,7 +594,13 @@ async def _community_observers() -> dict[str, ObserverGeo]:
 async def _load_uncached_community_reaches(
     hashes_lower: list[str],
 ) -> dict[str, ParsedReach]:
-    """Stats batch query, then per-hash GET for whatever the batch did not answer."""
+    """Community batch query; per-hash GET only when the batch route does not exist.
+
+    The per-hash fallback serves an older Community without the batch route
+    (upstream 404/405) or a batch body we cannot parse.
+    It never runs when Community is failing (503: timeout, 5xx, breaker open):
+    one GET per hash would multiply the load on a server that is already down.
+    """
     from app.services.directory import _community_directory_data
 
     now = time.time()
@@ -603,8 +613,8 @@ async def _load_uncached_community_reaches(
             body={"hashes": hashes_lower},
         )
         parsed = parse_batch_reach(payload) if payload is not None else None
-    except HTTPException as exc:
-        if exc.status_code == 400:
+    except CommunityUpstreamError as exc:
+        if exc.upstream_status not in BATCH_ROUTE_MISSING_STATUSES:
             raise
         parsed = None
 

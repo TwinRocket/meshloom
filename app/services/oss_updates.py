@@ -1,4 +1,10 @@
-"""Poll Meshloom Stats for the latest OSS release and cache the badge state.
+"""Poll for the latest Meshloom release and cache the badge state.
+
+The source of truth is GitHub: the ``releases/latest`` redirect of the
+public repository, the same lookup the signed compose helper makes before it
+installs anything (``scripts/setup/helpers/compose-update``). Community
+(``GET /v1/meshloom/latest``) is only a mirror used when GitHub cannot be
+reached, so a Community outage never hides a security release.
 
 Runs from app lifespan independently of radio connect / SKIP_POST_CONNECT_SYNC.
 The frontend reads GET /api/updates; this is never stuffed into the WS health
@@ -10,10 +16,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any
 
+import httpx
 from packaging.version import InvalidVersion, Version
 
 from app.services.meshloom_community import fetch_meshloom_latest
@@ -23,6 +31,10 @@ from app.version_info import get_app_build_info
 logger = logging.getLogger(__name__)
 
 UPDATE_POLL_INTERVAL_SECONDS = 300
+RELEASES_REPO_URL = "https://github.com/TwinRocket/meshloom"
+GITHUB_LATEST_TIMEOUT_SECONDS = 10.0
+# Same rule as the compose helper: the tag must be a strict X.Y.Z.
+_RELEASE_TAG_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 _poll_task: asyncio.Task | None = None
 _window_timer_task: asyncio.Task | None = None
@@ -50,6 +62,50 @@ def is_newer_release(latest: str, current: str) -> bool:
         return False
 
 
+def release_from_redirect(location: str, *, repo_url: str = RELEASES_REPO_URL) -> str | None:
+    """Tag from a ``releases/latest`` Location, or None unless it is exactly
+    ``<repo>/releases/tag/X.Y.Z``."""
+    prefix = f"{repo_url}/releases/tag/"
+    text = (location or "").strip()
+    if not text.startswith(prefix):
+        return None
+    tag = text[len(prefix) :]
+    return tag if _RELEASE_TAG_RE.fullmatch(tag) else None
+
+
+async def fetch_github_latest() -> dict[str, Any] | None:
+    """Latest release from GitHub's ``releases/latest`` redirect. No API, no token."""
+    url = f"{RELEASES_REPO_URL}/releases/latest"
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=False, timeout=GITHUB_LATEST_TIMEOUT_SECONDS
+        ) as client:
+            response = await client.get(url)
+    except httpx.RequestError as exc:
+        logger.info("GitHub latest release lookup failed: %s", exc)
+        return None
+    location = response.headers.get("location", "")
+    if response.status_code not in {301, 302, 303, 307, 308}:
+        logger.info("GitHub latest release lookup HTTP %s", response.status_code)
+        return None
+    tag = release_from_redirect(location)
+    if tag is None:
+        logger.warning("GitHub latest release redirect refused: %r", location[:200])
+        return None
+    return {"version": tag, "html_url": location.strip(), "source": "github"}
+
+
+async def fetch_latest_release() -> dict[str, Any] | None:
+    """GitHub first, Community mirror second. None when both fail."""
+    payload = await fetch_github_latest()
+    if payload is not None:
+        return payload
+    mirror = await fetch_meshloom_latest()
+    if mirror is None:
+        return None
+    return {**mirror, "source": "community"}
+
+
 def _payload_version(payload: dict[str, Any] | None) -> str | None:
     if not payload:
         return None
@@ -66,6 +122,13 @@ def _payload_html_url(payload: dict[str, Any] | None) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return value.strip()
+
+
+def _payload_source(payload: dict[str, Any] | None) -> str | None:
+    if not payload:
+        return None
+    value = payload.get("source")
+    return value if value in {"github", "community"} else None
 
 
 def _env_latest_override() -> tuple[str | None, str | None]:
@@ -148,9 +211,9 @@ async def _maybe_notify_oss_update() -> None:
 
 
 async def refresh_oss_update_cache() -> dict[str, Any] | None:
-    """Fetch Stats catalogue and replace the cache on success."""
+    """Fetch the latest release (GitHub, then Community) and cache it on success."""
     global _latest_payload, _checked_at
-    payload = await fetch_meshloom_latest()
+    payload = await fetch_latest_release()
     if payload is not None:
         _latest_payload = payload
         _checked_at = int(time.time())
@@ -177,6 +240,7 @@ def get_update_status() -> dict[str, Any]:
         "update_available": update_available,
         "html_url": html_url,
         "checked_at": _checked_at,
+        "source": "env" if env_latest else _payload_source(_latest_payload),
     }
 
 

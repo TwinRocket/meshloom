@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import type { CommunityLiveStatus, CommunityPacket, LiveCloseCode } from '../types';
+import type { CommunityLiveStatus, CommunityPacket, LiveAuthError, LiveCloseCode } from '../types';
 import {
   LIVE_CLOSE_INACTIVE,
   LIVE_CLOSE_JWT_EXPIRED,
@@ -12,7 +12,7 @@ import { asCommunityPacket } from '../utils/livePackets';
 
 export const MAX_LIVE_COMMUNITY_PACKETS = 200;
 
-export type LiveBannerKind = 'opt_out';
+export type LiveBannerKind = 'opt_out' | 'auth_rejected';
 
 export interface LiveConnectionState {
   closeCode: LiveCloseCode | null;
@@ -20,7 +20,11 @@ export interface LiveConnectionState {
   reconnecting: boolean;
   optOut: boolean;
   inactiveObserver: boolean;
-  /** Only 24h-gate and community opt-out. Never set for 4003/4005. */
+  /** Community refused the live token and the relay gave up (until Relancer). */
+  authError: LiveAuthError | null;
+  /** Community clock minus ours, seconds, when known. */
+  clockSkewS: number | null;
+  /** Community opt-out or a given-up token refusal. Never set for 4003/4005. */
   banner: LiveBannerKind | null;
 }
 
@@ -33,6 +37,8 @@ let connection: LiveConnectionState = {
   reconnecting: false,
   optOut: false,
   inactiveObserver: false,
+  authError: null,
+  clockSkewS: null,
   banner: null,
 };
 
@@ -64,9 +70,14 @@ export function normalizeLiveCloseCode(value: unknown): LiveCloseCode | null {
   return null;
 }
 
-function liveBanner(optOut: boolean): LiveBannerKind | null {
+function liveBanner(optOut: boolean, authError: LiveAuthError | null): LiveBannerKind | null {
   if (optOut) return 'opt_out';
+  if (authError) return 'auth_rejected';
   return null;
+}
+
+function normalizeAuthError(value: unknown): LiveAuthError | null {
+  return value === 'clock_skew' || value === 'token_rejected' ? value : null;
 }
 
 function deriveConnection(input: {
@@ -74,14 +85,20 @@ function deriveConnection(input: {
   optOut: boolean;
   connected?: boolean;
   reconnecting?: boolean;
+  authError?: LiveAuthError | null;
+  clockSkewS?: number | null;
 }): LiveConnectionState {
   const closeCode = input.closeCode;
   const optOut = input.optOut;
+  const authError = optOut ? null : (input.authError ?? null);
+  const clockSkewS =
+    authError && typeof input.clockSkewS === 'number' ? Math.round(input.clockSkewS) : null;
   const inactiveObserver = closeCode === LIVE_CLOSE_INACTIVE;
   const connected = !optOut && input.connected === true && closeCode == null;
   const reconnecting =
     !optOut &&
     !connected &&
+    authError == null &&
     (input.reconnecting === true ||
       closeCode === LIVE_CLOSE_JWT_EXPIRED ||
       closeCode === LIVE_CLOSE_INACTIVE ||
@@ -94,7 +111,9 @@ function deriveConnection(input: {
     reconnecting,
     optOut,
     inactiveObserver,
-    banner: liveBanner(optOut),
+    authError,
+    clockSkewS,
+    banner: liveBanner(optOut, authError),
   };
 }
 
@@ -105,6 +124,8 @@ function sameConnection(a: LiveConnectionState, b: LiveConnectionState): boolean
     a.reconnecting === b.reconnecting &&
     a.optOut === b.optOut &&
     a.inactiveObserver === b.inactiveObserver &&
+    a.authError === b.authError &&
+    a.clockSkewS === b.clockSkewS &&
     a.banner === b.banner
   );
 }
@@ -115,8 +136,14 @@ function setConnection(next: LiveConnectionState): void {
   emit();
 }
 
-export function liveBannerI18nKey(state: LiveConnectionState): 'live.bannerOptOut' | null {
+export type LiveBannerI18nKey =
+  'live.bannerOptOut' | 'live.bannerClockSkew' | 'live.bannerTokenRejected';
+
+export function liveBannerI18nKey(state: LiveConnectionState): LiveBannerI18nKey | null {
   if (state.banner === 'opt_out') return 'live.bannerOptOut';
+  if (state.banner === 'auth_rejected') {
+    return state.authError === 'clock_skew' ? 'live.bannerClockSkew' : 'live.bannerTokenRejected';
+  }
   return null;
 }
 
@@ -157,6 +184,8 @@ export function setLiveOptOut(optOut: boolean): void {
       optOut,
       connected: optOut ? false : connection.connected,
       reconnecting: optOut ? false : connection.reconnecting,
+      authError: optOut ? null : connection.authError,
+      clockSkewS: connection.clockSkewS,
     })
   );
 }
@@ -194,18 +223,35 @@ export function relancerLive(): void {
 
 export function applyLiveStatus(
   status:
-    | Partial<Pick<CommunityLiveStatus, 'close_code' | 'opted_out' | 'connected' | 'reconnecting'>>
+    | Partial<
+        Pick<
+          CommunityLiveStatus,
+          | 'close_code'
+          | 'opted_out'
+          | 'connected'
+          | 'reconnecting'
+          | 'state'
+          | 'auth_error'
+          | 'clock_skew_s'
+        >
+      >
     | null
     | undefined
 ): void {
   const optOut = status?.opted_out === true;
   const closeCode = normalizeLiveCloseCode(status?.close_code);
+  // An older relay has no auth_error: treat auth_rejected as a generic refusal.
+  const authError =
+    normalizeAuthError(status?.auth_error) ??
+    (status?.state === 'auth_rejected' ? 'token_rejected' : null);
   setConnection(
     deriveConnection({
       closeCode,
       optOut,
       connected: status?.connected,
       reconnecting: status?.reconnecting,
+      authError,
+      clockSkewS: status?.clock_skew_s,
     })
   );
 }
@@ -218,6 +264,8 @@ export function resetLivePacketStore(): void {
     reconnecting: false,
     optOut: false,
     inactiveObserver: false,
+    authError: null,
+    clockSkewS: null,
     banner: null,
   };
   emit();

@@ -210,7 +210,7 @@ describe('LocatePane', () => {
         empty_reason: 'no_anchors',
       })
     );
-    getDirectoryNodeReach.mockRejectedValue(new ApiError('Stats request failed', 500));
+    getDirectoryNodeReach.mockRejectedValue(new ApiError('Community is unreachable', 503));
 
     render(
       <LocatePane

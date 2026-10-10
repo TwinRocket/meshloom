@@ -1,4 +1,4 @@
-"""Meshloom Stats community state, JWT mint, and HTTP client.
+"""Meshloom Community state, JWT mint, and HTTP client (server code name: Stats).
 
 Community is on for new installs and one opt-out: off means no Stats MQTT
 publish and no Stats HTTP. Env names are MESHLOOM_* only — do not invent
@@ -40,10 +40,19 @@ _PLACEHOLDER_HOST_SUFFIX = ".example.invalid"
 # Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
 # window has elapsed instead of retrying every catalogue pass.
 SAMPLE_QUOTA_BACKOFF_SECONDS = 3600.0
-_IATA_CHANGE_CAP_DETAIL = "Stats IATA change cap reached"
-_SAMPLE_QUOTA_DETAIL = "Stats hashtag sample quota reached"
-_HASHTAG_WRITE_QUOTA_DETAIL = "Stats hashtag write quota reached"
-_GENERIC_RATE_LIMIT_DETAIL = "Stats rate limit reached"
+_IATA_CHANGE_CAP_DETAIL = "Community IATA change cap reached"
+_SAMPLE_QUOTA_DETAIL = "Community hashtag sample quota reached"
+_HASHTAG_WRITE_QUOTA_DETAIL = "Community hashtag write quota reached"
+_GENERIC_RATE_LIMIT_DETAIL = "Community rate limit reached"
+COMMUNITY_UNREACHABLE_DETAIL = "Community is unreachable"
+COMMUNITY_UNAVAILABLE_DETAIL = "Community directory unavailable"
+# Circuit breaker: after this many consecutive transport failures or 5xx, stop
+# calling Community for BREAKER_OPEN_SECONDS and answer 503 at once instead of
+# making every page wait for the full timeout. One trial call then decides.
+BREAKER_FAILURE_THRESHOLD = 3
+BREAKER_OPEN_SECONDS = 30.0
+# Clock drift beyond this (seconds) explains a 401 on a freshly minted token.
+CLOCK_SKEW_TOLERANCE_SECONDS = 60
 _STATS_429_BY_DETAIL = {
     "IATA change cap exceeded": _IATA_CHANGE_CAP_DETAIL,
     "hashtag sample quota": _SAMPLE_QUOTA_DETAIL,
@@ -55,6 +64,63 @@ _STATS_429_BY_PATH = {
     "/v1/me/hashtags": _HASHTAG_WRITE_QUOTA_DETAIL,
 }
 _sample_quota_until = 0.0
+
+
+class CommunityUpstreamError(HTTPException):
+    """Local HTTP error that remembers the Community status it came from."""
+
+    def __init__(self, status_code: int, detail: str, *, upstream_status: int) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.upstream_status = upstream_status
+
+
+class CommunityBreaker:
+    """Consecutive-failure circuit breaker for Community HTTP (closed/open/half-open)."""
+
+    def __init__(
+        self,
+        *,
+        threshold: int = BREAKER_FAILURE_THRESHOLD,
+        open_seconds: float = BREAKER_OPEN_SECONDS,
+    ) -> None:
+        self.threshold = threshold
+        self.open_seconds = open_seconds
+        self.failures = 0
+        self.open_until = 0.0
+        self.trial_in_flight = False
+
+    def allow(self, *, now: float | None = None) -> bool:
+        """True when a call may go out. Half-open lets exactly one trial through."""
+        current = time.monotonic() if now is None else now
+        if self.failures < self.threshold:
+            return True
+        if current < self.open_until or self.trial_in_flight:
+            return False
+        self.trial_in_flight = True
+        return True
+
+    def record_success(self) -> None:
+        self.failures = 0
+        self.open_until = 0.0
+        self.trial_in_flight = False
+
+    def record_failure(self, *, now: float | None = None) -> None:
+        current = time.monotonic() if now is None else now
+        self.failures += 1
+        self.trial_in_flight = False
+        if self.failures >= self.threshold:
+            self.open_until = current + self.open_seconds
+
+    @property
+    def is_open(self) -> bool:
+        return self.failures >= self.threshold
+
+
+_breaker = CommunityBreaker()
+
+
+def community_breaker() -> CommunityBreaker:
+    return _breaker
 
 
 def _env_raw(name: str) -> str:
@@ -313,8 +379,9 @@ def note_sample_quota(*, now: float | None = None) -> None:
 
 
 def reset_stats_client_for_tests() -> None:
-    global _sample_quota_until
+    global _sample_quota_until, _breaker
     _sample_quota_until = 0.0
+    _breaker = CommunityBreaker()
 
 
 def _is_quota_http(exc: BaseException) -> bool:
@@ -439,7 +506,7 @@ def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False)
     if private_key is None or public_key is None:
         raise HTTPException(status_code=503, detail="Radio key is not available")
     if require_iata and not iata:
-        raise HTTPException(status_code=400, detail="IATA is required for Meshloom Stats tokens")
+        raise HTTPException(status_code=400, detail="IATA is required for Community tokens")
     return _generate_jwt_token(private_key, public_key, audience=audience, iata=iata)
 
 
@@ -488,11 +555,15 @@ def _require_enabled(state: CommunityEffective) -> None:
 
 
 async def fetch_meshloom_latest() -> dict[str, Any] | None:
-    """GET Stats OSS catalogue. No JWT; works when Community is opted out.
+    """GET the Community release mirror. No JWT; works when Community is opted out.
 
+    Only a fallback since the update check reads GitHub first
+    (``app.services.oss_updates``). Skipped while the Community breaker is open.
     Do not route this through ``stats_request`` / ``stats_json`` — those call
     ``_require_enabled`` and would 403 opted-out nodes.
     """
+    if _breaker.is_open and time.monotonic() < _breaker.open_until:
+        return None
     state = await get_community_effective()
     url = f"{state.api_base}/v1/meshloom/latest"
     try:
@@ -524,7 +595,11 @@ async def stats_request(
     iata: str | None = None,
     timeout: float = _STATS_TIMEOUT_SECONDS,
 ) -> httpx.Response:
-    """HTTP to Meshloom Stats. Raises 403 when community is off (never calls)."""
+    """HTTP to Community. Raises 403 when community is off (never calls).
+
+    Transport failures, timeouts and 5xx feed the circuit breaker. While it is
+    open this raises 503 without touching the network.
+    """
     state = await get_community_effective()
     _require_enabled(state)
     headers: dict[str, str] = {}
@@ -537,12 +612,27 @@ async def stats_request(
             f"Bearer {mint_stats_jwt(audience=state.api_audience, iata=mint_iata, require_iata=_path_requires_iata(path))}"
         )
     url = f"{state.api_base}{path}"
+    # Checked last: a half-open trial granted here must reach the network.
+    if not _breaker.allow():
+        raise HTTPException(status_code=503, detail=COMMUNITY_UNREACHABLE_DETAIL)
     try:
         async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
-            return await client.request(method, url, params=params, json=json_body, headers=headers)
+            response = await client.request(
+                method, url, params=params, json=json_body, headers=headers
+            )
     except httpx.RequestError as exc:
-        logger.warning("Meshloom Stats %s %s failed: %s", method, path, exc)
-        raise HTTPException(status_code=500, detail="Stats request failed") from exc
+        _breaker.record_failure()
+        logger.warning("Community %s %s failed: %s", method, path, exc)
+        raise HTTPException(status_code=503, detail=COMMUNITY_UNREACHABLE_DETAIL) from exc
+    except BaseException:
+        # Cancellation or a local bug: release a half-open trial without judging Community.
+        _breaker.trial_in_flight = False
+        raise
+    if response.status_code >= 500:
+        _breaker.record_failure()
+    else:
+        _breaker.record_success()
+    return response
 
 
 def _response_detail(response: httpx.Response) -> str:
@@ -564,24 +654,78 @@ def _stats_429_message(path: str, response: httpx.Response) -> str:
     return _STATS_429_BY_PATH.get(path, _GENERIC_RATE_LIMIT_DETAIL)
 
 
-def _json_or_500(response: httpx.Response, *, path: str) -> object:
-    if response.status_code == 429:
+def _response_payload(response: httpx.Response) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def classify_auth_rejection(
+    payload: dict[str, Any] | None, *, now: float | None = None
+) -> tuple[str, int | None]:
+    """Map a Community 401 body to ``(reason, skew_seconds)``.
+
+    Contract (community docs/contracts/errors.md): ``{"detail": str, "code": str,
+    "server_time": int}``; only ``code`` is stable. ``reason`` is ``clock_skew``
+    when the local clock is off (``code == "clock_skew"``, or ``server_time`` is
+    more than 60 s away from ours), else the server ``code`` (``unknown`` when an
+    older server sent no code). Without ``server_time`` the free-text ``detail``
+    is checked as a last resort.
+    """
+    body = payload or {}
+    raw_code = body.get("code")
+    code = raw_code.strip() if isinstance(raw_code, str) and raw_code.strip() else "unknown"
+    server_time = body.get("server_time")
+    skew: int | None = None
+    if isinstance(server_time, int | float) and not isinstance(server_time, bool):
+        local = time.time() if now is None else now
+        skew = int(round(float(server_time) - local))
+    if code == "clock_skew":
+        return "clock_skew", skew
+    if skew is not None and abs(skew) > CLOCK_SKEW_TOLERANCE_SECONDS:
+        return "clock_skew", skew
+    if code == "unknown" and skew is None:
+        detail = body.get("detail")
+        text = detail.lower() if isinstance(detail, str) else ""
+        if any(word in text for word in ("not yet valid", "clock", "skew", "future")):
+            return "clock_skew", None
+        if "expired" in text:
+            return "token_expired", None
+    return code, skew
+
+
+def _json_or_http_error(response: httpx.Response, *, path: str) -> object:
+    status = response.status_code
+    if status == 429:
         raise HTTPException(status_code=429, detail=_stats_429_message(path, response))
-    if response.status_code == 401:
-        raise HTTPException(status_code=502, detail="Stats rejected the radio token")
-    if response.status_code == 400:
-        raise HTTPException(status_code=400, detail="Stats rejected the request")
-    if response.status_code != 200:
-        logger.warning("Meshloom Stats %s HTTP %s", path, response.status_code)
+    if status == 401:
+        reason, _skew = classify_auth_rejection(_response_payload(response))
+        if reason == "clock_skew":
+            raise HTTPException(
+                status_code=502,
+                detail="Community rejected the radio token: this server's clock is off",
+            )
+        raise HTTPException(status_code=502, detail="Community rejected the radio token")
+    if status == 400:
+        raise HTTPException(status_code=400, detail="Community rejected the request")
+    if status >= 500:
+        logger.warning("Community %s HTTP %s", path, status)
         raise HTTPException(
-            status_code=500,
-            detail=f"Stats request failed (HTTP {response.status_code})",
+            status_code=503,
+            detail=f"Community is unavailable (HTTP {status})",
+        )
+    if status != 200:
+        logger.warning("Community %s HTTP %s", path, status)
+        raise CommunityUpstreamError(
+            502, f"Community request failed (HTTP {status})", upstream_status=status
         )
     try:
         return response.json()
     except ValueError as exc:
-        logger.warning("Meshloom Stats %s returned non-JSON", path)
-        raise HTTPException(status_code=500, detail="Stats returned non-JSON") from exc
+        logger.warning("Community %s returned non-JSON", path)
+        raise HTTPException(status_code=502, detail="Community returned non-JSON") from exc
 
 
 async def stats_json(
@@ -596,21 +740,21 @@ async def stats_json(
     response = await stats_request(
         method, path, auth=auth, params=params, json_body=json_body, iata=iata
     )
-    return _json_or_500(response, path=path)
+    return _json_or_http_error(response, path=path)
 
 
 def unwrap_directory_envelope(payload: object) -> object:
-    """Map Stats directory envelope. unavailable / invalid → HTTP 500, never []."""
+    """Map the Community directory envelope. unavailable → 503, malformed → 502, never []."""
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=500, detail="Stats directory unavailable")
+        raise HTTPException(status_code=502, detail=COMMUNITY_UNAVAILABLE_DETAIL)
     status = payload.get("status")
     if status == "unavailable":
-        raise HTTPException(status_code=500, detail="Stats directory unavailable")
+        raise HTTPException(status_code=503, detail=COMMUNITY_UNAVAILABLE_DETAIL)
     if status not in {"complete", "partial"}:
-        raise HTTPException(status_code=500, detail="Stats directory unavailable")
+        raise HTTPException(status_code=502, detail=COMMUNITY_UNAVAILABLE_DETAIL)
     data = payload.get("data")
     if not isinstance(data, dict):
-        raise HTTPException(status_code=500, detail="Stats directory unavailable")
+        raise HTTPException(status_code=502, detail=COMMUNITY_UNAVAILABLE_DETAIL)
     return data
 
 

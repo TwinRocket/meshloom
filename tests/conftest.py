@@ -98,16 +98,27 @@ async def _reset_hashtag_catalogue():
 
 @pytest.fixture(autouse=True)
 def _quiet_oss_update_fetch(monkeypatch):
-    """Lifespan starts the OSS poll; never hit Stats from TestClient tests."""
+    """Lifespan starts the release poll; never hit GitHub or Community from tests."""
     from app.services.oss_updates import reset_oss_update_cache
 
     async def _no_network():
         return None
 
     monkeypatch.setattr("app.services.oss_updates.fetch_meshloom_latest", _no_network)
+    monkeypatch.setattr("app.services.oss_updates.fetch_github_latest", _no_network)
     reset_oss_update_cache()
     yield
     reset_oss_update_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_community_breaker():
+    """Every test starts with a closed Community circuit breaker."""
+    from app.services.meshloom_community import reset_stats_client_for_tests
+
+    reset_stats_client_for_tests()
+    yield
+    reset_stats_client_for_tests()
 
 
 @pytest.fixture(autouse=True)

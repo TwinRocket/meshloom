@@ -1,0 +1,236 @@
+{
+  "$comment": "Shared golden vectors. Source of truth: TwinRocket/meshloom-community docs/contracts/vectors/golden.json. Copies elsewhere carry the sha256 of this file and must be refreshed, never edited. Expected values come from an independent reference written from the rules below, then checked against every implementation.",
+  "version": 1,
+  "packet_hash": {
+    "rule": "header = raw[0]; route_type = header & 3; payload_type = (header >> 2) & 15. Skip 4 transport-code bytes when route_type is 0 or 3. path_byte: mode = path_byte >> 6 (3 is reserved -> invalid), hops = path_byte & 63, path length = hops * (mode + 1) <= 64. At least one payload byte must follow the path. hash = SHA-256(payload_type byte [+ path_byte as 2-byte little-endian when payload_type == 9 TRACE] + payload), first 16 hex digits, uppercase. Any invalid or empty input -> 16 zeros (DROP).",
+    "cases": [
+      {
+        "id": "flood_advert_no_path",
+        "raw_hex": "1100DEAD",
+        "packet_hash": "19D68FE91E75C7DE",
+        "note": "FLOOD (route 1), payload_type 4 (ADVERT), no path"
+      },
+      {
+        "id": "transport_flood",
+        "raw_hex": "100102030400CAFE",
+        "packet_hash": "4776D59C7360344B",
+        "note": "TRANSPORT_FLOOD (route 0): 4 transport-code bytes skipped"
+      },
+      {
+        "id": "flood_txt_no_path",
+        "raw_hex": "0900DEADBEEF",
+        "packet_hash": "BB6724AC0CBF7E07",
+        "note": "FLOOD TXT_MSG (type 2)"
+      },
+      {
+        "id": "flood_txt_two_hops",
+        "raw_hex": "0902AABBDEADBEEF",
+        "packet_hash": "BB6724AC0CBF7E07",
+        "note": "same payload, 2 one-byte hops: path is not hashed, hash equals flood_txt_no_path"
+      },
+      {
+        "id": "direct_txt",
+        "raw_hex": "0A00DEADBEEF",
+        "packet_hash": "BB6724AC0CBF7E07",
+        "note": "DIRECT (route 2): same payload and type, same hash"
+      },
+      {
+        "id": "transport_direct_txt",
+        "raw_hex": "0BA1B2C3D400DEADBEEF",
+        "packet_hash": "BB6724AC0CBF7E07",
+        "note": "TRANSPORT_DIRECT (route 3)"
+      },
+      {
+        "id": "path_mode1_two_hops",
+        "raw_hex": "0942AABBCCDDDEADBEEF",
+        "packet_hash": "BB6724AC0CBF7E07",
+        "note": "path byte 0x42: 2-byte hashes x 2 hops"
+      },
+      {
+        "id": "path_mode2_one_hop",
+        "raw_hex": "0981AABBCCDEADBEEF",
+        "packet_hash": "BB6724AC0CBF7E07",
+        "note": "path byte 0x81: 3-byte hashes x 1 hop"
+      },
+      {
+        "id": "path_exactly_64_bytes",
+        "raw_hex": "0960ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB01",
+        "packet_hash": "25DFD29C09617DCC",
+        "note": "32 hops x 2 bytes = MAX_PATH_SIZE, still valid"
+      },
+      {
+        "id": "trace_path_byte_03",
+        "raw_hex": "2603112233C0FFEE",
+        "packet_hash": "E682678A13ACB9B4",
+        "note": "TRACE (type 9): path_byte hashed as 2-byte LE"
+      },
+      {
+        "id": "trace_path_byte_02",
+        "raw_hex": "26021122C0FFEE",
+        "packet_hash": "81BD633C24E491D1",
+        "note": "TRACE with another path_byte: different hash"
+      },
+      {
+        "id": "real_dm",
+        "raw_hex": "0900FAA1295471ADB44A98B13CA528A4B5C4FBC29B4DA3CED477519B2FBD8FD5467C31E5D58B",
+        "packet_hash": "38F8CC08DF8BCBC7",
+        "note": "real DM packet (meshloom tests/test_real_crypto.py)"
+      },
+      {
+        "id": "real_grp_txt_six77",
+        "raw_hex": "1500E69C7A89DD0AF6A2D69F5823B88F9720731E4B887C56932BF889255D8D926D99195927144323A42DD8A158F878B518B8304DF55E80501C7D02A9FFD578D3518283156BBA257BF8413E80A237393B2E4149BBBC864371140A9BBC4E23EB9BF203EF0D029214B3E3AAC3C0295690ACDB89A28619E7E5F22C83E16073AD679D25FA904D07E5ACF1DB5A7C77D7E1719FB9AE5BF55541EE0D7F59ED890E12CF0FEED6700818",
+        "packet_hash": "B343690851AA8133",
+        "note": "real GroupText in #six77"
+      },
+      {
+        "id": "real_grp_txt_bot_3byte_3hops",
+        "raw_hex": "15833FA002860CCAE0EED9CA78B9AB0775D477C1F6490A398BF4EDC75240",
+        "packet_hash": "D6FC7DD34DFD54AD",
+        "note": "real GroupText in #bot, 3-byte x 3-hop path"
+      },
+      {
+        "id": "invalid_empty",
+        "raw_hex": "",
+        "packet_hash": "0000000000000000",
+        "note": "empty input"
+      },
+      {
+        "id": "invalid_one_byte",
+        "raw_hex": "09",
+        "packet_hash": "0000000000000000",
+        "note": "header only"
+      },
+      {
+        "id": "invalid_no_payload",
+        "raw_hex": "0900",
+        "packet_hash": "0000000000000000",
+        "note": "no payload byte after the path"
+      },
+      {
+        "id": "invalid_reserved_mode3",
+        "raw_hex": "09C1AA01",
+        "packet_hash": "0000000000000000",
+        "note": "path hash mode 3 is reserved"
+      },
+      {
+        "id": "invalid_path_over_64",
+        "raw_hex": "0961ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB01",
+        "packet_hash": "0000000000000000",
+        "note": "33 hops x 2 bytes = 66 > MAX_PATH_SIZE"
+      },
+      {
+        "id": "invalid_path_truncated",
+        "raw_hex": "0903AABB",
+        "packet_hash": "0000000000000000",
+        "note": "3 hops declared, 2 bytes present"
+      },
+      {
+        "id": "invalid_transport_truncated",
+        "raw_hex": "08112233",
+        "packet_hash": "0000000000000000",
+        "note": "transport codes truncated"
+      }
+    ]
+  },
+  "hashtag": {
+    "rule": "Strip exactly one leading '#' from input, then hashed_text = '#' + rest. key = SHA-256(UTF-8(hashed_text))[:16] (key_hex, lowercase). hash_byte = SHA-256(key)[0] as two lowercase hex digits. No trimming, no case folding, no Unicode normalisation.",
+    "cases": [
+      {
+        "id": "test",
+        "input": "#test",
+        "hashed_text": "#test",
+        "key_hex": "9cd8fcf22a47333b591d96a2b848b73f",
+        "hash_byte": "d9",
+        "note": "historic golden (meshloom frontend test): key 9cd8fcf2..., byte d9"
+      },
+      {
+        "id": "no_leading_hash",
+        "input": "test",
+        "hashed_text": "#test",
+        "key_hex": "9cd8fcf22a47333b591d96a2b848b73f",
+        "hash_byte": "d9",
+        "note": "a name without # hashes the same as #name"
+      },
+      {
+        "id": "fr",
+        "input": "fr",
+        "hashed_text": "#fr",
+        "key_hex": "e31f97b98d8ac10649b6822bf96d9b09",
+        "hash_byte": "25",
+        "note": ""
+      },
+      {
+        "id": "six77_real",
+        "input": "#six77",
+        "hashed_text": "#six77",
+        "key_hex": "7aba109edcf304a84433cb71d0f3ab73",
+        "hash_byte": "e6",
+        "note": "real radio: first GroupText payload byte of real_grp_txt_six77 is e6"
+      },
+      {
+        "id": "bot_real",
+        "input": "#bot",
+        "hashed_text": "#bot",
+        "key_hex": "eb50a1bcb3e4e5d7bf69a57c9dada211",
+        "hash_byte": "ca",
+        "note": "real radio: key eb50a1bc... (meshloom tests); first payload byte of real_grp_txt_bot_3byte_3hops is ca"
+      },
+      {
+        "id": "case_sensitive",
+        "input": "Test",
+        "hashed_text": "#Test",
+        "key_hex": "a93ffb88d444ada6c8cee147a1310886",
+        "hash_byte": "ba",
+        "note": "spelling is verbatim: Test != test"
+      },
+      {
+        "id": "double_hash",
+        "input": "##double",
+        "hashed_text": "##double",
+        "key_hex": "6bab57423300e19d4234392d783c7c1d",
+        "hash_byte": "ca",
+        "note": "only ONE leading # is stripped: hashes '##double'"
+      },
+      {
+        "id": "inner_space",
+        "input": "Mesh Core",
+        "hashed_text": "#Mesh Core",
+        "key_hex": "be2a13e4d1d00580fb1dfd1d44a178ec",
+        "hash_byte": "e1",
+        "note": "inner whitespace is part of the name"
+      },
+      {
+        "id": "accents",
+        "input": "été",
+        "hashed_text": "#été",
+        "key_hex": "238e6254e9d860e333eb8af8cc812ac6",
+        "hash_byte": "71",
+        "note": "UTF-8, no Unicode normalisation (NFC input here)"
+      },
+      {
+        "id": "emoji",
+        "input": "🚀",
+        "hashed_text": "#🚀",
+        "key_hex": "ee50b7306b9d9597ff8032c246c9c2b0",
+        "hash_byte": "f0",
+        "note": "4-byte UTF-8"
+      },
+      {
+        "id": "max_32_bytes",
+        "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "hashed_text": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "key_hex": "ce3224f05ad324b9838132b7d5c4bbde",
+        "hash_byte": "a3",
+        "note": "'#' + 31 bytes = 32 bytes, the community length limit"
+      },
+      {
+        "id": "trailing_space",
+        "input": "fr ",
+        "hashed_text": "#fr ",
+        "key_hex": "6cb7f5cb9d23dd78bcffce661f4c41dc",
+        "hash_byte": "60",
+        "note": "whitespace is NOT trimmed: hashes '#fr ', not '#fr'"
+      }
+    ]
+  }
+}

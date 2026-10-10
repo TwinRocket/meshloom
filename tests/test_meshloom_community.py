@@ -38,7 +38,7 @@ from app.services.meshloom_community import (
     MQTT_KEEPALIVE_SECONDS,
     SYSTEM_MESHLOOM_STATS_ID,
     CommunityEffective,
-    _json_or_500,
+    _json_or_http_error,
     get_community_effective,
     mint_stats_jwt,
     reset_stats_client_for_tests,
@@ -139,7 +139,7 @@ class TestCommunityOffHasNoDirectory:
 
 class TestCommunityOnDirectoryUnavailable:
     @pytest.mark.asyncio
-    async def test_stats_unavailable_is_500_not_empty(self, test_db):
+    async def test_stats_unavailable_is_503_not_empty(self, test_db):
         await update_community(enabled=True, iata="CDG")
         with patch(
             "app.services.meshloom_community.stats_json",
@@ -149,7 +149,7 @@ class TestCommunityOnDirectoryUnavailable:
         ):
             with pytest.raises(HTTPException) as exc:
                 await get_directory_node_reach("ab" * 32)
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == 503
         assert "unavailable" in str(exc.value.detail).lower()
 
 
@@ -314,33 +314,33 @@ def _stats_response(status_code: int, detail: object | None = None) -> MagicMock
 class TestStats429Mapping:
     def test_sample_quota_is_not_iata_cap(self):
         with pytest.raises(HTTPException) as exc:
-            _json_or_500(
+            _json_or_http_error(
                 _stats_response(429, "hashtag sample quota"),
                 path="/v1/hashtags/samples",
             )
         assert exc.value.status_code == 429
-        assert exc.value.detail == "Stats hashtag sample quota reached"
+        assert exc.value.detail == "Community hashtag sample quota reached"
 
     def test_iata_cap_keeps_existing_message(self):
         with pytest.raises(HTTPException) as exc:
-            _json_or_500(
+            _json_or_http_error(
                 _stats_response(429, "IATA change cap exceeded"),
                 path="/v1/me/iata",
             )
-        assert exc.value.detail == "Stats IATA change cap reached"
+        assert exc.value.detail == "Community IATA change cap reached"
 
     def test_unknown_429_is_generic_not_iata(self):
         with pytest.raises(HTTPException) as exc:
-            _json_or_500(
+            _json_or_http_error(
                 _stats_response(429, "public stats rate limit"),
                 path="/v1/community/stats",
             )
-        assert exc.value.detail == "Stats rate limit reached"
+        assert exc.value.detail == "Community rate limit reached"
 
     def test_sample_path_fallback_when_body_missing(self):
         with pytest.raises(HTTPException) as exc:
-            _json_or_500(_stats_response(429), path="/v1/hashtags/samples")
-        assert exc.value.detail == "Stats hashtag sample quota reached"
+            _json_or_http_error(_stats_response(429), path="/v1/hashtags/samples")
+        assert exc.value.detail == "Community hashtag sample quota reached"
 
 
 class TestSampleQuotaBackoff:
@@ -351,7 +351,7 @@ class TestSampleQuotaBackoff:
             "app.services.meshloom_community.stats_json",
             new=AsyncMock(
                 side_effect=HTTPException(
-                    status_code=429, detail="Stats hashtag sample quota reached"
+                    status_code=429, detail="Community hashtag sample quota reached"
                 )
             ),
         ) as stats:
@@ -591,12 +591,17 @@ class TestEnvelopeMapping:
         )
         assert data == {"nodes": []}
 
-    def test_unavailable_is_500(self):
+    def test_unavailable_is_503(self):
         with pytest.raises(HTTPException) as exc:
             unwrap_directory_envelope(
                 {"status": "unavailable", "freshness": {}, "sources": [], "data": {"nodes": []}}
             )
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == 503
+
+    def test_malformed_envelope_is_502(self):
+        with pytest.raises(HTTPException) as exc:
+            unwrap_directory_envelope({"status": "weird"})
+        assert exc.value.status_code == 502
 
     def test_defaults_are_official_meshloom_hosts(self):
         assert DEFAULT_BROKER_HOST == "mqtt.meshloom.app"
