@@ -70,7 +70,7 @@ installed_version() {
         v=$(dpkg-query -W -f='${Version}' meshloom 2>/dev/null || true)
     fi
     if [ -z "$v" ] && command -v rpm >/dev/null 2>&1; then
-        v=$(rpm -q --qf '%{VERSION}' meshloom 2>/dev/null || true)
+        v=$(rpm -q --qf '%{VERSION}-%{RELEASE}' meshloom 2>/dev/null || true)
     fi
     case "$v" in
         '' | *[!0-9A-Za-z.+~:-]* | *not*installed*) v= ;;
@@ -164,9 +164,12 @@ apt_source_problems() {
         out=$(awk -v host="$OFFICIAL_HOST" -v name="$(basename "$f")" '
             { sub(/#.*/, "") }
             $1 != "deb" { next }
-            /trusted=yes/ { print "PROBLEM " FILENAME ": trusted=yes"; next }
+            # Only the Meshloom source matters: the origin pin keeps every
+            # other source from providing the meshloom package.
             index($0, host) || name ~ /^meshloom/ {
                 print "FOUND"
+                if ($0 ~ /(trusted|allow-insecure|allow-weak|allow-downgrade-to-insecure)=yes/)
+                    print "PROBLEM " FILENAME ": insecure option on the Meshloom source"
                 if ($0 !~ /signed-by=/) print "PROBLEM " FILENAME ": no signed-by="
             }
         ' "$f")
@@ -177,16 +180,16 @@ apt_source_problems() {
         [ -f "$f" ] || continue
         out=$(awk -v host="$OFFICIAL_HOST" -v name="$(basename "$f")" '
             function flush() {
-                if (trusted) print "PROBLEM " FILENAME ": Trusted: yes"
                 if (ours) {
                     print "FOUND"
+                    if (trusted) print "PROBLEM " FILENAME ": insecure option on the Meshloom source"
                     if (!signed) print "PROBLEM " FILENAME ": no Signed-By"
                 }
                 trusted = 0; ours = 0; signed = 0
             }
             { sub(/#.*/, "") }
             /^[[:space:]]*$/ { flush(); next }
-            tolower($1) == "trusted:" && tolower($2) == "yes" { trusted = 1 }
+            tolower($1) ~ /^(trusted|allow-insecure|allow-weak|allow-downgrade-to-insecure):$/ && tolower($2) == "yes" { trusted = 1 }
             tolower($1) == "signed-by:" { signed = 1 }
             tolower($1) == "uris:" && (index($0, host) || name ~ /^meshloom/) { ours = 1 }
             END { flush() }
@@ -197,7 +200,7 @@ apt_source_problems() {
     if [ "$found" -eq 0 ]; then
         echo "no Meshloom apt source found"
     fi
-    if [ ! -f "$APT_PIN" ] || ! grep -q '^Pin: release o=Meshloom' "$APT_PIN"; then
+    if [ ! -f "$APT_PIN" ] || ! grep -q '^Pin: origin "twinrocket.github.io"' "$APT_PIN"; then
         echo "missing apt pin $APT_PIN"
     fi
 }
@@ -277,13 +280,17 @@ ensure_root_dir "$STATE_DIR" 0755 || exit 1
 STATUS_READY=1
 ensure_root_dir "$RUN_DIR" 0700 || fail "unsafe runtime directory"
 
-# Cooldown on top of the unit's StartLimit*: a burst of triggers runs once.
+# The rate limit (the units have no StartLimit*, see meshloom-update.service):
+# a burst of triggers runs once, the others publish state "cooldown".
 now=$(date +%s)
 last=$(sed -n '1{/^[0-9][0-9]*$/p;}' "$STAMP_PATH" 2>/dev/null || true)
 if [ -n "$last" ] && [ "$now" -ge "$last" ] && [ $((now - last)) -lt "$COOLDOWN_SECONDS" ]; then
+    # A distinct state: the app shows it for the request that hit it, and a
+    # previous "succeeded" is not rewritten as a failure.
     FINISHED=1
-    STATE=failed
+    STATE=cooldown
     ERROR="update requested too soon; try again in $((COOLDOWN_SECONDS - (now - last))) s"
+    VERSION=$(installed_version)
     write_status
     log "$ERROR"
     exit 0
@@ -294,6 +301,7 @@ chmod 0644 "$stamp_tmp"
 mv -f "$stamp_tmp" "$STAMP_PATH"
 
 VERSION=$(installed_version)
+BEFORE=$VERSION
 write_status
 
 if command -v apt-get >/dev/null 2>&1; then
@@ -325,11 +333,20 @@ elif command -v dnf >/dev/null 2>&1; then
     PHASE=installing
     PERCENT=
     write_status
-    dnf install -y --disablerepo='*' --enablerepo=meshloom \
-        --setopt=meshloom.gpgcheck=1 --setopt=meshloom.repo_gpgcheck=1 meshloom \
-        || fail "dnf install meshloom failed"
+    # dnf install is a no-op on an installed package (dnf5): upgrade it, and
+    # --refresh so a 48 h metadata cache does not hide the new release.
+    if rpm -q meshloom >/dev/null 2>&1; then DNF_ACTION=upgrade; else DNF_ACTION=install; fi
+    dnf -y --refresh --disablerepo='*' --enablerepo=meshloom \
+        --setopt=meshloom.gpgcheck=1 --setopt=meshloom.repo_gpgcheck=1 \
+        "$DNF_ACTION" meshloom || fail "dnf $DNF_ACTION meshloom failed"
 else
     fail "no supported package manager (need apt-get or dnf)"
+fi
+
+AFTER=$(installed_version)
+if [ -n "$BEFORE" ] && [ "$AFTER" = "$BEFORE" ]; then
+    VERSION=$AFTER
+    fail "no newer meshloom in the signed repository (installed $AFTER)"
 fi
 
 PHASE=restarting

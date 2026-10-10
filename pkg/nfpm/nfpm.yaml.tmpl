@@ -34,8 +34,8 @@ contents:
     file_info:
       mode: 0644
   # ASCII-armored release key for dnf/rpm (gpgkey=). The binary keyring for
-  # apt signed-by= and gpgv is installed by the signing change (pkg/keys).
-  - src: __PKGDIR__/../keys/meshloom.asc
+  # apt signed-by= and gpgv is __KEYRING__ below.
+  - src: __KEYRING_ASC__
     dst: /usr/share/keyrings/meshloom-archive-keyring.asc
     file_info:
       mode: 0644

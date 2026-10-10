@@ -39,7 +39,8 @@ def test_apply_update_is_meshloom_only() -> None:
     assert "update || fail" in active
     assert "install -y --only-upgrade meshloom" in active
     assert re.search(r"(?m)install -y meshloom$", active)
-    assert "dnf install -y --disablerepo='*' --enablerepo=meshloom" in active
+    assert "dnf -y --refresh --disablerepo='*' --enablerepo=meshloom" in active
+    assert '"$DNF_ACTION" meshloom' in active
     assert "APT::Status-Fd" in active
     assert "PHASE=restarting" in active
     assert "systemctl enable meshloom || true" in active
@@ -73,10 +74,10 @@ def test_apply_update_fails_closed_on_unsigned_sources() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert "require_signed_sources apt_source_problems" in text
     assert "require_signed_sources dnf_source_problems" in text
-    assert "trusted=yes" in text
+    assert "(trusted|allow-insecure|allow-weak|allow-downgrade-to-insecure)=yes" in text
     assert "signed-by=" in text
     assert "repo_gpgcheck" in text
-    assert "Pin: release o=Meshloom" in text
+    assert 'Pin: origin "twinrocket.github.io"' in text
     assert "APT::Get::AllowUnauthenticated=false" in text
     assert text.index("require_signed_sources apt_source_problems") < text.index(
         "apt-get $APT_SECURE update"
@@ -93,8 +94,8 @@ def test_update_unit_and_polkit_are_start_only() -> None:
     assert "User=root" in service
     assert "Type=oneshot" in service
     for line in (
-        "StartLimitIntervalSec=3600",
-        "StartLimitBurst=4",
+        # No start limit: hitting it would kill the .path unit for good.
+        "StartLimitIntervalSec=0",
         "StateDirectory=meshloom-update",
         "StateDirectoryMode=0755",
         "RuntimeDirectory=meshloom-update",

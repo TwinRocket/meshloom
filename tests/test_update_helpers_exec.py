@@ -155,25 +155,49 @@ def env_root(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     log = tmp_path / "calls.log"
     log.touch()
     # Every stub logs "<name> <args>" and a snapshot of the published status.
-    for name in ("systemctl", "dpkg-query", "rpm", "dnf"):
-        _write_exec(
-            stubs / name,
-            f"""
-            echo "{name} $*" >>"$STUB_LOG"
-            [ -f "$STUB_STATUS" ] && sed 's/^/  status /' "$STUB_STATUS" >>"$STUB_LOG"
-            case "{name}:$1" in
-                dpkg-query:-W) case "$*" in *Status*) echo "install ok installed" ;; *) echo "${{STUB_VERSION:-4.17.0-1}}" ;; esac ;;
-                systemctl:is-active) exit 0 ;;
-            esac
-            exit "${{STUB_RC_{name.replace("-", "_").upper()}:-0}}"
-            """,
-        )
+    # The installed meshloom version lives in $STUB_PKG (empty = not installed);
+    # a successful install/upgrade moves it to $STUB_NEW_VERSION.
+    common = """
+        echo "$(basename "$0") $*" >>"$STUB_LOG"
+        [ -f "$STUB_STATUS" ] && sed 's/^/  status /' "$STUB_STATUS" >>"$STUB_LOG"
+        installed=$(cat "$STUB_PKG" 2>/dev/null || true)
+        """
+    _write_exec(stubs / "systemctl", common + "exit 0\n")
+    _write_exec(
+        stubs / "dpkg-query",
+        common
+        + """
+        [ -n "$installed" ] || exit 1
+        case "$*" in *Status*) echo "install ok installed" ;; *) printf '%s' "$installed" ;; esac
+        """,
+    )
+    _write_exec(
+        stubs / "rpm",
+        common
+        + """
+        [ -n "$installed" ] || exit 1
+        printf '%s' "$installed"
+        """,
+    )
+    _write_exec(
+        stubs / "dnf",
+        common
+        + """
+        [ "${STUB_RC_DNF:-0}" = 0 ] || exit "$STUB_RC_DNF"
+        [ -n "${STUB_NEW_VERSION:-}" ] && printf '%s' "$STUB_NEW_VERSION" >"$STUB_PKG"
+        exit 0
+        """,
+    )
+    pkg = tmp_path / "installed-version"
+    pkg.write_text("4.17.0-1")
     env = {
         "PATH": f"{stubs}:{bin_dir}",
         "MESHLOOM_HELPER_TESTING": "1",
         "MESHLOOM_HELPER_ROOT": str(root),
         "RUNTIME_DIRECTORY": str(root / "run" / "helper"),
         "STUB_LOG": str(log),
+        "STUB_PKG": str(pkg),
+        "STUB_NEW_VERSION": "4.18.0-1",
         "HOME": str(tmp_path),
         "LC_ALL": "C",
     }
@@ -218,13 +242,15 @@ def _apt_stub(stubs: Path) -> None:
         """
         echo "apt-get $*" >>"$STUB_LOG"
         [ -f "$STUB_STATUS" ] && sed 's/^/  status /' "$STUB_STATUS" >>"$STUB_LOG"
+        [ "${STUB_RC_APT:-0}" = 0 ] || exit "$STUB_RC_APT"
         case "$*" in
             *APT::Status-Fd=3*install*)
                 echo "dlstatus:1:40:Downloading" >&3
                 echo "pmstatus:meshloom:70:Installing" >&3
+                [ -n "${STUB_NEW_VERSION:-}" ] && printf '%s' "$STUB_NEW_VERSION" >"$STUB_PKG"
                 ;;
         esac
-        exit "${STUB_RC_APT:-0}"
+        exit 0
         """,
     )
 
@@ -263,7 +289,7 @@ def test_apply_update_happy_path_phases_and_status(apt_host) -> None:
     assert status["phase"] == "done"
     assert status["percent"] == 100
     assert status["error"] is None
-    assert status["version"] == "4.17.0-1"
+    assert status["version"] == "4.18.0-1"
 
     lines = log.read_text().splitlines()
     calls = _apt_calls(log)
@@ -297,23 +323,18 @@ def test_apply_update_happy_path_phases_and_status(apt_host) -> None:
         (
             "etc/apt/sources.list.d/meshloom.list",
             f"deb [trusted=yes] {OFFICIAL}/apt stable main\n",
-            "trusted=yes",
+            "insecure option",
         ),
         ("etc/apt/sources.list.d/meshloom.list", f"deb {OFFICIAL}/apt stable main\n", "signed-by"),
         (
             "etc/apt/sources.list.d/meshloom.list",
             f"deb [signed-by=/{KEYRING} trusted=yes] {OFFICIAL}/apt stable main\n",
-            "trusted=yes",
+            "insecure option",
         ),
         (
-            "etc/apt/sources.list.d/other.list",
-            "deb [trusted=yes] http://example.invalid/ x main\n",
-            "trusted=yes",
-        ),
-        (
-            "etc/apt/sources.list.d/other.sources",
-            "Types: deb\nURIs: http://example.invalid/\nSuites: x\nTrusted: yes\n",
-            "Trusted: yes",
+            "etc/apt/sources.list.d/zz.list",
+            f"deb [allow-insecure=yes signed-by=/{KEYRING}] {OFFICIAL}/apt stable main\n",
+            "insecure option",
         ),
         (
             "etc/apt/sources.list.d/meshloom.sources",
@@ -338,6 +359,67 @@ def test_apply_update_fails_closed_on_unsigned_apt_source(
     assert "not signature-checked" in str(status["error"])
 
 
+@pytest.mark.parametrize(
+    ("relpath", "content"),
+    [
+        ("etc/apt/sources.list.d/other.list", "deb [trusted=yes] http://example.invalid/ x main\n"),
+        (
+            "etc/apt/sources.list.d/other.sources",
+            "Types: deb\nURIs: http://example.invalid/\nSuites: x\nTrusted: yes\n",
+        ),
+    ],
+)
+def test_apply_update_ignores_unrelated_sources(apt_host, relpath, content) -> None:
+    """The origin pin keeps third-party sources away from the meshloom package."""
+    root, log, env = apt_host
+    (root / relpath).write_text(content)
+    result = _run(APPLY_UPDATE, env)
+    assert result.returncode == 0, result.stderr
+
+
+def test_apt_pin_ignores_a_spoofed_origin(tmp_path: Path) -> None:
+    """A trusted third-party repo claiming "Origin: Meshloom" with meshloom 9.9.9
+    must not become the candidate (real apt, private Dir tree)."""
+    if shutil.which("apt-cache") is None or shutil.which("apt-get") is None:
+        pytest.skip("apt not available")
+    repo = tmp_path / "evil"
+    (repo / "dists/stable/main/binary-amd64").mkdir(parents=True)
+    (repo / "dists/stable/main/binary-amd64/Packages").write_text(
+        "Package: meshloom\nVersion: 9.9.9-1\nArchitecture: amd64\n"
+        "Maintainer: x <x@x>\nFilename: pool/meshloom.deb\nSize: 1\n"
+        "SHA256: " + "0" * 64 + "\nDescription: evil\n"
+    )
+    (repo / "dists/stable/Release").write_text(
+        "Origin: Meshloom\nLabel: Meshloom\nSuite: stable\nCodename: stable\n"
+        "Architectures: amd64\nComponents: main\n"
+    )
+    etc = tmp_path / "etc"
+    (etc / "preferences.d").mkdir(parents=True)
+    (etc / "sources.list.d").mkdir()
+    shutil.copy(PIN, etc / "preferences.d/meshloom.pref")
+    (etc / "sources.list").write_text(f"deb [trusted=yes arch=amd64] file:{repo} stable main\n")
+    state = tmp_path / "state"
+    (state / "lists/partial").mkdir(parents=True)
+    cache = tmp_path / "cache"
+    (cache / "archives/partial").mkdir(parents=True)
+    (tmp_path / "status").write_text("")
+    opts = [
+        f"-oDir::Etc={etc}",
+        f"-oDir::State={state}",
+        f"-oDir::State::status={tmp_path / 'status'}",
+        f"-oDir::Cache={cache}",
+        "-oAPT::Architecture=amd64",
+        "-oDebug::NoLocking=1",
+    ]
+    update = subprocess.run(["apt-get", *opts, "update"], capture_output=True, text=True)
+    assert update.returncode == 0, update.stderr
+    policy = subprocess.run(
+        ["apt-cache", *opts, "policy", "meshloom"], capture_output=True, text=True, check=True
+    ).stdout
+    assert "Candidate: (none)" in policy, policy
+    assert "9.9.9-1 -1" in policy, policy
+
+
 def test_apply_update_requires_the_origin_pin(apt_host) -> None:
     root, log, env = apt_host
     (root / "etc/apt/preferences.d/meshloom.pref").unlink()
@@ -355,7 +437,8 @@ def test_apply_update_cooldown(apt_host) -> None:
     assert again.returncode == 0
     assert len(_apt_calls(log)) == first
     status = _status(root / "var/lib/meshloom-update/status.json")
-    assert status["state"] == "failed"
+    assert status["state"] == "cooldown"
+    assert status["version"] == "4.18.0-1"
     assert "too soon" in str(status["error"])
 
 
@@ -411,10 +494,39 @@ def test_apply_update_dnf_uses_only_the_signed_repo(dnf_host) -> None:
     result = _run(APPLY_UPDATE, env)
     assert result.returncode == 0, result.stderr
     dnf = [line for line in log.read_text().splitlines() if line.startswith("dnf ")]
+    # dnf5 "install" is a no-op on an installed package: upgrade, with --refresh.
     assert dnf == [
-        "dnf install -y --disablerepo=* --enablerepo=meshloom --setopt=meshloom.gpgcheck=1 "
-        "--setopt=meshloom.repo_gpgcheck=1 meshloom"
+        "dnf -y --refresh --disablerepo=* --enablerepo=meshloom --setopt=meshloom.gpgcheck=1 "
+        "--setopt=meshloom.repo_gpgcheck=1 upgrade meshloom"
     ]
+    status = _status(root / "var/lib/meshloom-update/status.json")
+    assert status["state"] == "succeeded"
+    assert status["version"] == "4.18.0-1"
+
+
+def test_apply_update_dnf_installs_when_absent(dnf_host) -> None:
+    root, log, env = dnf_host
+    (root / "etc/yum.repos.d/meshloom.repo").write_text(_GOOD_REPO)
+    Path(env["STUB_PKG"]).write_text("")
+    assert _run(APPLY_UPDATE, env).returncode == 0
+    assert (
+        "install meshloom"
+        in [ln for ln in log.read_text().splitlines() if ln.startswith("dnf ")][0]
+    )
+
+
+@pytest.mark.parametrize("manager", ["apt", "dnf"])
+def test_apply_update_reports_no_newer_version_as_failure(apt_host, dnf_host, manager) -> None:
+    root, log, env = apt_host if manager == "apt" else dnf_host
+    if manager == "dnf":
+        (root / "etc/yum.repos.d/meshloom.repo").write_text(_GOOD_REPO)
+    env["STUB_NEW_VERSION"] = ""
+    result = _run(APPLY_UPDATE, env)
+    assert result.returncode == 1
+    status = _status(root / "var/lib/meshloom-update/status.json")
+    assert status["state"] == "failed"
+    assert "no newer meshloom" in str(status["error"])
+    assert status["version"] == "4.17.0-1"
 
 
 @pytest.mark.parametrize(

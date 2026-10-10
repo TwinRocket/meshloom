@@ -4,9 +4,10 @@ Documentation=https://github.com/TwinRocket/meshloom
 After=docker.service network-online.target
 Requires=docker.service
 Wants=network-online.target
-# At most 4 runs per hour, on top of the helper's own 120 s cooldown.
-StartLimitIntervalSec=3600
-StartLimitBurst=4
+# No systemd start limit: hitting it fails the .path unit for good, and
+# in-app updates would stop until reboot. The helper's 120 s cooldown is
+# the rate limit.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

@@ -1,10 +1,15 @@
-# Installed by the meshloom package. Only the signed Meshloom repository
-# (Release Origin: Meshloom) may provide the meshloom package, and that
-# repository may not replace any other package on this system.
+# Installed by the meshloom package. Only the official Meshloom repository
+# (twinrocket.github.io, signature-checked through signed-by=) may provide
+# the meshloom package, and that repository may not replace anything else.
+# Pin by origin host, not by Release "Origin:", which any source can claim.
 Package: meshloom
-Pin: release o=Meshloom
+Pin: origin "twinrocket.github.io"
 Pin-Priority: 990
 
+Package: meshloom
+Pin: release *
+Pin-Priority: -1
+
 Package: *
-Pin: release o=Meshloom
+Pin: origin "twinrocket.github.io"
 Pin-Priority: -1

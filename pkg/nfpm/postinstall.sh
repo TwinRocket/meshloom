@@ -31,6 +31,31 @@ else
 fi
 chmod 0750 /etc/meshloom
 
+# Up to 4.17 the meshloom user owned /etc/meshloom and could leave anything
+# there for root to read or follow (a symlink to /etc/shadow, a forged
+# compose-update.env). Now that it can no longer add entries, move every
+# symlink, non-root entry and hard-linked file to a root-only quarantine
+# before any root code reads the directory again.
+quarantine=
+for entry in /etc/meshloom/* /etc/meshloom/.[!.]* /etc/meshloom/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    if [ -L "$entry" ] || [ "$(stat -c %u "$entry")" != 0 ] \
+        || { [ -f "$entry" ] && [ "$(stat -c %h "$entry")" != 1 ]; }; then
+        if [ -z "$quarantine" ]; then
+            mkdir -p -m 0700 /var/lib/meshloom-quarantine
+            quarantine=$(mktemp -d /var/lib/meshloom-quarantine/etc.XXXXXX)
+        fi
+        mv -f "$entry" "$quarantine/"
+        echo "==> Moved untrusted $entry to $quarantine (not owned by root, or a link)."
+    fi
+done
+if [ ! -f /etc/meshloom/meshloom.env ]; then
+    # meshloom.service needs its EnvironmentFile; recreate the packaged defaults.
+    printf '%s\n' "MESHCORE_DATABASE_PATH=/var/lib/meshloom/meshcore.db" \
+        "MESHLOOM_INSTALL_KIND=package" "MESHCORE_DISABLE_BOTS=true" >/etc/meshloom/meshloom.env
+    chmod 0640 /etc/meshloom/meshloom.env
+fi
+
 # Root-owned status directory for the update helper; the app only reads it.
 if [ -L /var/lib/meshloom-update ]; then
     rm -f /var/lib/meshloom-update

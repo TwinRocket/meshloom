@@ -210,8 +210,9 @@ if [ "$MODE" = apply ]; then
     last=$(sed -n '1{/^[0-9][0-9]*$/p;}' "$STAMP_PATH" 2>/dev/null || true)
     if [ -n "$last" ] && [ "$now" -ge "$last" ] && [ $((now - last)) -lt "$COOLDOWN_SECONDS" ]; then
         FINISHED=1
-        STATE=failed
+        STATE=cooldown
         ERROR="update requested too soon; try again in $((COOLDOWN_SECONDS - (now - last))) s"
+        VERSION=$(current_version)
         write_status
         log "$ERROR"
         exit 0

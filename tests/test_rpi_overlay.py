@@ -28,7 +28,7 @@ def test_rpi_overlay_does_not_set_community_env() -> None:
 def test_apply_update_helper_never_upgrades_the_os() -> None:
     helper = (REPO / "pkg/nfpm/apply-update").read_text(encoding="utf-8")
     assert "install -y --only-upgrade meshloom" in helper
-    assert "dnf install -y --disablerepo='*' --enablerepo=meshloom" in helper
+    assert "dnf -y --refresh --disablerepo='*' --enablerepo=meshloom" in helper
     assert "apt-get upgrade" not in helper
     assert "dnf upgrade" not in helper
 
