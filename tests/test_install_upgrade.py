@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 INSTALL_SH = Path(__file__).resolve().parents[1] / "scripts" / "setup" / "install.sh"
 
 _HELPERS = (
@@ -465,3 +467,204 @@ def test_compose_dir_falls_back_to_the_old_helper_config() -> None:
     body = text.split("saved_compose_dir() {", 1)[1].split("\n}\n", 1)[0]
     assert "/etc/meshloom/compose-update.env" in body
     assert "com.docker.compose.project.working_dir" in body
+
+
+_PATCH_FNS = (
+    "compose_cmd",
+    "patch_compose_file",
+    "compose_owned_lines",
+    "build_patched_compose",
+)
+
+
+def _has_docker_compose() -> bool:
+    try:
+        result = subprocess.run(["docker", "compose", "version"], capture_output=True, check=False)
+    except FileNotFoundError:
+        return False
+    return result.returncode == 0
+
+
+needs_compose = pytest.mark.skipif(
+    not _has_docker_compose(), reason="docker compose is not installed"
+)
+
+_COMPOSE_417_EDITED = _COMPOSE_417.replace(
+    '      - "8000:8000"\n', '      - "8000:8000"\n      - "5000:5000"\n'
+)
+
+
+def _patch(path: Path, managed: int) -> subprocess.CompletedProcess[str]:
+    return _bash_fns(_PATCH_FNS, f'patch_compose_file "{path}" {managed}')
+
+
+def _build(directory: Path, managed: int) -> subprocess.CompletedProcess[str]:
+    out = directory / ".docker-compose.yml.meshloom-new"
+    return _bash_fns(_PATCH_FNS, f'build_patched_compose "{directory}" {managed} "{out}"')
+
+
+def test_an_edited_417_file_keeps_its_edits_and_gets_the_helper_lines(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_COMPOSE_417_EDITED, encoding="utf-8")
+    result = _patch(compose, 1)
+    assert result.returncode == 0, result.stderr
+    expected = (
+        _COMPOSE_417_EDITED.replace(
+            "    image: ghcr.io/twinrocket/meshloom:4.17.0",
+            "    image: ${MESHLOOM_IMAGE:?run the Meshloom installer to pin the image in .env}",
+        )
+        .replace(
+            "      - ./data:/app/data\n",
+            "      - ./data:/app/data\n"
+            "      # Written by the root update helper; read-only for the container.\n"
+            "      - ./update-status:/app/update-status:ro\n",
+        )
+        .replace(
+            "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json\n",
+            "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json\n"
+            "      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json\n",
+        )
+    )
+    assert result.stdout == expected
+
+
+def test_patching_twice_changes_nothing(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_COMPOSE_417_EDITED, encoding="utf-8")
+    once = _patch(compose, 1).stdout
+    compose.write_text(once, encoding="utf-8")
+    assert _patch(compose, 1).stdout == once
+
+
+def test_an_unmanaged_stack_drops_the_old_helper_lines(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_COMPOSE_417_EDITED, encoding="utf-8")
+    result = _patch(compose, 0)
+    assert result.returncode == 0, result.stderr
+    assert "MESHLOOM_UPDATE_" not in result.stdout
+    assert "update-status" not in result.stdout
+    assert '"5000:5000"' in result.stdout
+    assert "image: ${MESHLOOM_IMAGE:?" in result.stdout
+
+
+def test_only_the_meshloom_service_is_patched(tmp_path: Path) -> None:
+    other = (
+        "  other:\n"
+        "    image: nginx:1.27\n"
+        "    volumes:\n"
+        "      - ./data:/app/data\n"
+        "    environment:\n"
+        "      MESHLOOM_INSTALL_KIND: compose\n"
+    )
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_COMPOSE_417_EDITED + other, encoding="utf-8")
+    result = _patch(compose, 1)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.endswith(other)
+    assert result.stdout.count("update-status:/app/update-status") == 1
+
+
+def test_a_file_without_the_anchors_is_refused(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        _COMPOSE_417_EDITED.replace("      - ./data:/app/data", '      - "./data:/app/data"'),
+        encoding="utf-8",
+    )
+    assert _patch(compose, 1).returncode != 0
+    compose.write_text(_COMPOSE_417_EDITED.replace("  meshloom:", "  radio:"), encoding="utf-8")
+    assert _patch(compose, 1).returncode != 0
+
+
+@needs_compose
+def test_the_patched_file_is_checked_by_docker_compose(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_COMPOSE_417_EDITED, encoding="utf-8")
+    result = _build(tmp_path, 1)
+    assert result.returncode == 0, result.stderr
+    patched = (tmp_path / ".docker-compose.yml.meshloom-new").read_text(encoding="utf-8")
+    assert patched == _patch(compose, 1).stdout
+    assert compose.read_text(encoding="utf-8") == _COMPOSE_417_EDITED
+
+
+@needs_compose
+def test_a_file_compose_rejects_is_left_alone(tmp_path: Path) -> None:
+    # A file Docker Compose rejects: the anchors are there, the check stops it.
+    listed = _COMPOSE_417_EDITED.replace(
+        '      MESHCORE_DATABASE_PATH: "data/meshcore.db"\n      MESHLOOM_INSTALL_KIND: compose\n',
+        "      - MESHCORE_DATABASE_PATH=data/meshcore.db\n      MESHLOOM_INSTALL_KIND: compose\n",
+    )
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(listed, encoding="utf-8")
+    assert _build(tmp_path, 1).returncode != 0
+    assert compose.read_text(encoding="utf-8") == listed
+    assert not (tmp_path / ".docker-compose.yml.meshloom-new").exists()
+
+
+def test_edits_are_kept_by_default_and_no_dead_end_is_offered() -> None:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    body = text.split("install_docker_stack() {", 1)[1].split("\n}\n", 1)[0]
+    assert 'ui_yesno "$(t compose_keep_q)" y' in body
+    assert 'ui_yesno "$(t compose_regen_q)" n' in body
+    assert "compose_custom_stop" not in text
+    assert "MESHLOOM_COMPOSE_OVERWRITE" in body
+
+
+def test_a_stack_only_root_can_read_stops_a_non_root_run() -> None:
+    text = INSTALL_SH.read_text(encoding="utf-8")
+    saved = text.split("saved_compose_dir() {", 1)[1].split("\n}\n", 1)[0]
+    assert '! is_root && [ ! -x "$p" ]' in saved
+    body = text.split("install_docker_stack() {", 1)[1].split("\n}\n", 1)[0]
+    assert '$(t compose_needs_root "$saved")' in body
+
+
+def test_a_custom_image_or_helper_value_is_never_rewritten(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    for edited in (
+        _COMPOSE_417_EDITED.replace(
+            "ghcr.io/twinrocket/meshloom:4.17.0", "ghcr.io/someone/meshloom-fork:dev"
+        ),
+        _COMPOSE_417_EDITED.replace(
+            "MESHLOOM_UPDATE_HELPER: compose", "MESHLOOM_UPDATE_HELPER: none"
+        ),
+        _COMPOSE_417_EDITED.replace(
+            "      - ./data:/app/data\n",
+            "      - ./data:/app/data\n      - ./update-status:/app/update-status-mine:rw\n",
+        ),
+    ):
+        compose.write_text(edited, encoding="utf-8")
+        assert _patch(compose, 1).returncode != 0, edited
+
+
+def test_a_top_level_network_named_meshloom_is_not_the_service(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    extra = "networks:\n  meshloom:\n    driver: bridge\n"
+    compose.write_text(_COMPOSE_417_EDITED + extra, encoding="utf-8")
+    result = _patch(compose, 1)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.endswith(extra)
+
+
+@needs_compose
+def test_the_patched_file_differs_only_by_the_installer_lines(tmp_path: Path) -> None:
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(_COMPOSE_417_EDITED, encoding="utf-8")
+    out = tmp_path / "out"
+    script = (
+        f'patch_compose_file() {{ sed "s/5000:5000/5001:5000/" "$1"; }}\n'
+        f'build_patched_compose "{tmp_path}" 1 "{out}"'
+    )
+    names = ("compose_cmd", "compose_owned_lines", "build_patched_compose")
+    assert _bash_fns(names, script).returncode != 0
+    assert not out.exists()
+
+
+def test_a_deleted_stack_folder_does_not_block_a_non_root_run(tmp_path: Path) -> None:
+    gone = tmp_path / "gone" / "meshloom"
+    script = (
+        "is_root() { return 1; }\n"
+        f'conf_get() {{ echo "{gone}"; }}\n'
+        "system_installer_conf() { :; }; user_installer_conf() { :; }\n"
+        'echo "[$(saved_compose_dir)]"'
+    )
+    result = _bash_fns(("saved_compose_dir",), script)
+    assert result.stdout.strip() == "[]", result.stderr
