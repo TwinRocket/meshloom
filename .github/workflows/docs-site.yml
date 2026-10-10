@@ -16,8 +16,7 @@ on:
       - "docs/user/**"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: docs-site
@@ -27,6 +26,8 @@ jobs:
   deploy:
     name: Ask meshloom.app to rebuild
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 5
     steps:
       # Absent on a fork, and on this repository until someone creates the hook.

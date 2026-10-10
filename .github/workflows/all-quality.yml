@@ -1,28 +1,44 @@
 name: All Quality
 
+# Also a reusable workflow: docker.yml and release.yml call it and wait for it
+# (`needs:`) before building or publishing anything. Tag pushes are therefore
+# not a trigger here: the release and the image run it themselves, once each.
 on:
   push:
+    branches: ["**"]
   pull_request:
+  workflow_call:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   backend-checks:
+    name: Backend (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # requires-python is >=3.11. 3.12 is the dev baseline, 3.14 is what the
+        # Docker image ships.
+        python-version: ["3.11", "3.12", "3.14"]
+    permissions:
+      contents: read
     timeout-minutes: 45
+    env:
+      # Make uv use the interpreter under test, not whichever it finds first.
+      UV_PYTHON: ${{ matrix.python-version }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
@@ -42,15 +58,18 @@ jobs:
         run: PYTHONPATH=. uv run pytest tests/ -v
 
   frontend-checks:
+    name: Frontend
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 45
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           cache: npm
@@ -75,3 +94,22 @@ jobs:
       - name: Frontend build
         run: npm run build
         working-directory: frontend
+
+  # One stable name to require in branch protection and to `needs:` from other
+  # workflows, whatever the matrix above grows into.
+  all-quality:
+    name: all-quality
+    if: ${{ always() }}
+    needs: [backend-checks, frontend-checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every quality job to have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            [ "$r" = "success" ] || { echo "::error::a quality job ended as '$r'"; exit 1; }
+          done

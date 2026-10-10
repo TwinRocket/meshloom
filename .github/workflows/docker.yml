@@ -33,8 +33,20 @@ concurrency:
 permissions: {}
 
 jobs:
+  # Pull requests already run All Quality as their own workflow; every other
+  # event (main, a version tag, a manual run) must pass it before any image is
+  # built, let alone pushed.
+  quality:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/all-quality.yml
+    permissions:
+      contents: read
+
   matrix:
     name: Architectures
+    needs: quality
+    # `quality` is skipped on pull requests; anything else must have passed it.
+    if: ${{ !cancelled() && (needs.quality.result == 'success' || needs.quality.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions: {}
     outputs:
@@ -71,21 +83,21 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # arm64 builds on arm64 hardware, so it needs no emulation. armv7 does:
       # no runner executes 32-bit ARM, and no Debian-based image publishes the
       # compilers it needs for another architecture.
       - name: Set up QEMU
         if: matrix.slug == 'armv7'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -96,7 +108,7 @@ jobs:
       # A tag written three times would otherwise be whichever job finished last.
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -119,7 +131,7 @@ jobs:
 
       - name: Upload the digest
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: digest-${{ matrix.slug }}
           path: /tmp/digests/*
@@ -138,17 +150,17 @@ jobs:
       attestations: write
     steps:
       - name: Download the digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
           pattern: digest-*
           merge-multiple: true
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -156,7 +168,7 @@ jobs:
 
       - name: Compute tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ needs.matrix.outputs.image }}
           tags: |
@@ -187,7 +199,7 @@ jobs:
       # the attestation ties it to this workflow run and commit.
       - name: Attest image provenance
         if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-name: ${{ needs.matrix.outputs.image }}
           subject-digest: ${{ steps.index.outputs.digest }}

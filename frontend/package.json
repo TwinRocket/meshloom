@@ -1,6 +1,7 @@
 {
   "name": "meshloom-frontend",
   "private": true,
+  "license": "MIT",
   "version": "4.18.0",
   "type": "module",
   "scripts": {

@@ -4,7 +4,7 @@
 # and node publishes no armv7 image at all, so building for a Raspberry Pi 3 fails
 # outright without this. It also drops the emulated npm build from every arm64
 # release, which was pure cost.
-FROM --platform=$BUILDPLATFORM node:24-slim AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS frontend-builder
 
 ARG COMMIT_HASH=unknown
 
@@ -28,7 +28,7 @@ RUN VITE_COMMIT_HASH=${COMMIT_HASH} npm run build
 # Normalised here instead. `COPY --from` is keyed on what the files contain, so
 # two releases hand that layer the same bytes. This stage runs on the build
 # machine and costs a second.
-FROM --platform=$BUILDPLATFORM python:3.14-slim AS deps-manifest
+FROM --platform=$BUILDPLATFORM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS deps-manifest
 
 WORKDIR /manifest
 
@@ -38,7 +38,7 @@ RUN python neutralize_project_version.py .
 
 
 # Stage 3: Python runtime
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 
 WORKDIR /app
 

@@ -20,23 +20,24 @@ on:
       - ".github/workflows/nfpm.yml"
       - ".github/workflows/nfpm-armhf.yml"
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   nfpm-amd64:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 
       # Placeholders are tolerated on pull requests (packaging is still tested,
       # unsigned); a real key in pkg/keys is validated in full.
@@ -74,7 +75,7 @@ jobs:
             --package-only \
             --output-dir dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nfpm-amd64-pr
           path: dist/*
