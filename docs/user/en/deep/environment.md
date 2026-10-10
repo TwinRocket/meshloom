@@ -42,6 +42,7 @@ Until `radio_transport` is set, the radio stays paused. Do not set `MESHCORE_SER
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | VAPID subject fallback when `app_settings.vapid_subject` is empty |
 | `MESHCORE_PUBLIC_URL` | *(empty)* | Accepted but currently has no effect: no production code path reads it (the web manifest uses relative URLs) |
 | `MESHCORE_MANAGED_PORTS` | `false` | Set by a host that decides the listening ports itself, such as the Home Assistant add-on. The proxy port then comes from the host, and the field in Settings says so rather than accepting a value that cannot take effect |
+| `MESHCORE_RADIO_PROXY_PORT` | *(unset)* | The port the radio proxy listens on, chosen by the host. Only used together with `MESHCORE_MANAGED_PORTS=true`, where it replaces the stored port at every start. The Home Assistant add-on sets it to the port it forwards (`5051`) |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Allow a page on the same origin to embed Meshloom in a frame. Home Assistant's ingress does exactly that, and the default headers refuse it outright — which looks like a blank panel with a healthy 200 in the log |
 | `MESHLOOM_COMMUNITY` | *(on for new DBs)* | Seed Community on a brand-new database. Unset or `1` seeds on; `0` / `false` / `off` seeds opted out. Existing databases are never flipped |
 | `MESHLOOM_COMMUNITY_IATA` | *(empty)* | 3-letter IATA. While set, it replaces the code saved in the interface on every read, so changes made in Settings do not take effect |
