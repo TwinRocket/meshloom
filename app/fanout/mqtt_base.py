@@ -23,6 +23,10 @@ import aiomqtt
 logger = logging.getLogger(__name__)
 
 _BACKOFF_MIN = 5
+# stop() bounds: the pre-disconnect publish, then the DISCONNECT itself.
+# aiomqtt's __aexit__ waits for the broker without any timeout of its own.
+BEFORE_DISCONNECT_TIMEOUT_S = 5.0
+STOP_TIMEOUT_S = 10.0
 
 
 def _format_error_detail(exc: Exception) -> str:
@@ -101,13 +105,39 @@ class BaseMqttPublisher(ABC):
             self._task = asyncio.create_task(self._connection_loop())
 
     async def stop(self) -> None:
-        """Cancel the background task and disconnect."""
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+        """Run ``_before_disconnect``, then cancel the loop so it disconnects.
+
+        Both steps are time-bounded: a broker that stops answering must not
+        hang whoever is stopping the publisher (opt-out, settings reload,
+        shutdown). A loop that does not finish in time is left cancelled.
+        """
+        try:
+            client = self._client
+            if client is not None and self.connected:
+                try:
+                    await asyncio.wait_for(
+                        self._before_disconnect(client), timeout=BEFORE_DISCONNECT_TIMEOUT_S
+                    )
+                except Exception as exc:  # TimeoutError included
+                    logger.warning(
+                        "%s pre-disconnect step failed: %s",
+                        self._integration_label(),
+                        _format_error_detail(exc),
+                    )
+        finally:
+            task = self._task
+            if task is not None and not task.done():
+                task.cancel()
+                done, _pending = await asyncio.wait({task}, timeout=STOP_TIMEOUT_S)
+                if not done:
+                    logger.warning(
+                        "%s did not disconnect within %.0fs; abandoning the connection",
+                        self._integration_label(),
+                        STOP_TIMEOUT_S,
+                    )
+            self._reset_after_stop()
+
+    def _reset_after_stop(self) -> None:
         self._task = None
         self._client = None
         self.connected = False
@@ -176,6 +206,15 @@ class BaseMqttPublisher(ABC):
     async def _pre_connect(self, settings: object) -> bool:
         """Called before connecting. Return True to proceed, False to retry."""
         return True
+
+    async def _before_disconnect(self, client: aiomqtt.Client) -> None:
+        """Called by ``stop()`` while still connected, before the DISCONNECT.
+
+        A clean DISCONNECT makes the broker drop the Will, so anything that
+        must be said on the way out (clearing a retained status) goes here.
+        Bounded by ``BEFORE_DISCONNECT_TIMEOUT_S``; errors are logged only.
+        """
+        return
 
     def _on_not_configured(self) -> None:
         """Called each time the loop finds the publisher not configured."""

@@ -1852,7 +1852,6 @@ export interface StatisticsResponse {
 /** Local Meshloom Stats join state. Browser talks only to the Meshloom backend. */
 export interface CommunityStatus {
   enabled: boolean;
-  locked: boolean;
   iata: string;
   broker_host: string;
   api_base: string;

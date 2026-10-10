@@ -76,7 +76,7 @@ Le MQTT **communautaire** est verrouillé sur les paquets bruts uniquement, sans
 
 Le MQTT **privé**, les webhooks, Apprise et SQS peuvent en revanche transporter le texte intégral des messages, selon la portée choisie. Ce sont vos destinations, donc c’est à vous de savoir où elles pointent.
 
-Une sortie Internet est exigée pour les [notifications push](/docs/deep/push/) et, une fois rejoint, pour [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms hashtag). Même une install qui refuse les deux vérifie encore les mises à jour (GitHub, puis le miroir de versions de Community) toutes les cinq minutes ; elle fonctionne sans cet accès. Les payloads push transitent par le service du navigateur.
+Une sortie Internet est exigée pour les [notifications push](/docs/deep/push/) et, une fois rejoint, pour [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms hashtag). Même une install qui refuse les deux vérifie encore les mises à jour sur GitHub, une fois toutes les 6 heures (toutes les cinq minutes, avec le miroir de versions de Community en secours, tant que Community est activé) ; elle fonctionne sans cet accès. Les payloads push transitent par le service du navigateur.
 
 ## Une posture raisonnable
 

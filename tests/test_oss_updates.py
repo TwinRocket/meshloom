@@ -36,8 +36,17 @@ _STATS_PAYLOAD = {
 
 _OPTED_OUT = CommunityEffective(
     enabled=False,
-    locked=False,
     iata="",
+    broker_host="mqtt.meshloom.app",
+    api_base=DEFAULT_API_BASE,
+    api_audience="api.meshloom.app",
+    mqtt_audience="mqtt.meshloom.app",
+)
+
+
+_OPTED_IN = CommunityEffective(
+    enabled=True,
+    iata="CDG",
     broker_host="mqtt.meshloom.app",
     api_base=DEFAULT_API_BASE,
     api_audience="api.meshloom.app",
@@ -60,19 +69,35 @@ def _reset_cache():
 
 class TestFetchMeshloomLatest:
     @pytest.mark.asyncio
-    async def test_opted_out_still_fetches_without_jwt(self):
+    async def test_opted_out_never_calls_the_mirror(self):
+        """Opted out means no request to the Community hosts, the mirror included."""
+        client_cls = MagicMock()
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.meshloom_community.httpx.AsyncClient", client_cls),
+        ):
+            payload = await fetch_meshloom_latest()
+
+        assert payload is None
+        client_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_opted_in_fetches_without_jwt(self):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = _STATS_PAYLOAD
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.request = AsyncMock(return_value=mock_response)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch(
                 "app.services.meshloom_community.get_community_effective",
-                new=AsyncMock(return_value=_OPTED_OUT),
+                new=AsyncMock(return_value=_OPTED_IN),
             ),
             patch(
                 "app.services.meshloom_community.httpx.AsyncClient",
@@ -86,8 +111,9 @@ class TestFetchMeshloomLatest:
         assert payload == _STATS_PAYLOAD
         stats_req.assert_not_called()
         stats_json.assert_not_called()
-        mock_client.get.assert_awaited_once_with(f"{DEFAULT_API_BASE}/v1/meshloom/latest")
-        assert mock_client.get.await_args.kwargs.get("headers") in (None, {})
+        mock_client.request.assert_awaited_once_with(
+            "GET", f"{DEFAULT_API_BASE}/v1/meshloom/latest"
+        )
 
 
 class TestSemVerAndCache:
@@ -419,6 +445,94 @@ class TestGithubFirstUpdateCheck:
         for _ in range(breaker.threshold):
             breaker.record_failure()
         client = MagicMock()
-        with patch("app.services.meshloom_community.httpx.AsyncClient", client):
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_IN),
+            ),
+            patch("app.services.meshloom_community.httpx.AsyncClient", client),
+        ):
             assert await fetch_meshloom_latest() is None
         client.assert_not_called()
+
+
+class TestPollCadence:
+    @pytest.mark.asyncio
+    async def test_interval_is_6h_opted_out_and_300s_opted_in(self):
+        from app.services import oss_updates
+
+        with patch(
+            "app.services.meshloom_community.get_community_effective",
+            new=AsyncMock(return_value=_OPTED_OUT),
+        ):
+            assert await oss_updates.poll_interval_seconds() == 6 * 3600
+        with patch(
+            "app.services.meshloom_community.get_community_effective",
+            new=AsyncMock(return_value=_OPTED_IN),
+        ):
+            assert await oss_updates.poll_interval_seconds() == 300
+
+    @pytest.mark.asyncio
+    async def test_opted_out_loop_checks_github_then_waits_6h(self):
+        import asyncio
+
+        from app.services import oss_updates
+
+        github = AsyncMock(return_value=None)
+        waits: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            waits.append(seconds)
+            raise asyncio.CancelledError
+
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.oss_updates.fetch_github_latest", new=github),
+            patch(
+                "app.services.meshloom_community.httpx.AsyncClient",
+                side_effect=AssertionError("Community mirror called while opted out"),
+            ),
+            patch("app.services.oss_updates.fetch_meshloom_latest", new=fetch_meshloom_latest),
+            patch("app.services.oss_updates._maybe_auto_apply", new=AsyncMock()),
+            patch("app.services.oss_updates._sleep_until_next_poll", new=fake_sleep),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await oss_updates._oss_update_loop()
+
+        github.assert_awaited_once()
+        assert waits == [6 * 3600]
+
+    @pytest.mark.asyncio
+    async def test_turning_community_on_wakes_the_poll(self):
+        import asyncio
+
+        from app.services import oss_updates
+
+        refresh = AsyncMock(return_value=None)
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.oss_updates.refresh_oss_update_cache", new=refresh),
+            patch("app.services.oss_updates._maybe_auto_apply", new=AsyncMock()),
+        ):
+            task = asyncio.create_task(oss_updates._oss_update_loop())
+            try:
+                for _ in range(100):
+                    if refresh.await_count == 1 and oss_updates._poll_wake is not None:
+                        break
+                    await asyncio.sleep(0.01)
+                assert refresh.await_count == 1
+                oss_updates.nudge_oss_update_poll()
+                for _ in range(100):
+                    if refresh.await_count >= 2:
+                        break
+                    await asyncio.sleep(0.01)
+                assert refresh.await_count == 2
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)

@@ -474,6 +474,7 @@ export function ConversationPane({
           floodScope={floodScope}
           radioConnected={health?.radio_connected === true}
           onOpenRadioSettings={onOpenRadioSettings}
+          onOpenCommunitySettings={onOpenCommunitySettings}
         />
       </LazyBoundary>
     );

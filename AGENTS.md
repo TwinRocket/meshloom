@@ -86,7 +86,10 @@ docs/user/            user docs (en, fr), built by the meshloom.app site from th
 - **Community.** `app/services/meshloom_community.py` is the HTTP client. It has a
   circuit breaker, and a timeout or 5xx becomes a 503 for the browser.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
-  module. Details are in `app/AGENTS.md`.
+  module. Opted out means no connection at all to the Community hosts or to
+  the airport search: every egress goes through the guard in
+  `meshloom_community.py`, and an opt-out runs `community_teardown()`.
+  Details are in `app/AGENTS.md`.
 
 ## Commands
 
@@ -210,7 +213,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_PUBLIC_URL` | empty | **no effect today**: only `_resolve_request_base` (`app/frontend_static.py`) reads it, and only tests call that |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
-| `MESHLOOM_COMMUNITY_LOCKED` | unset | `1` prevents enabling Community from the UI |
 | `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source` |
 
 ## Delivery flow

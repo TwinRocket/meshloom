@@ -151,11 +151,11 @@ class FanoutManager:
     async def sync_system_modules(self) -> None:
         """Start or stop the Meshloom Stats publisher from community state."""
         from app.fanout.meshloom_stats import MeshloomStatsModule
-        from app.services.meshloom_community import get_community_effective
+        from app.services.meshloom_community import community_egress_state
 
-        state = await get_community_effective()
+        state = await community_egress_state()
         existing = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
-        if not state.enabled:
+        if state is None:
             if existing is not None:
                 await self.remove_config(SYSTEM_MESHLOOM_STATS_ID)
             return
@@ -172,6 +172,15 @@ class FanoutManager:
         except Exception as exc:
             logger.exception("Failed to start Meshloom Stats publisher")
             self._set_module_error(SYSTEM_MESHLOOM_STATS_ID, _format_error_detail(exc))
+
+    def retire_system_status(self) -> None:
+        """Make the running Stats publisher clear its retained status when it stops."""
+        entry = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
+        if entry is None:
+            return
+        retire = getattr(entry[0], "retire_status", None)
+        if callable(retire):
+            retire()
 
     async def reload_system_module(self, config_id: str) -> None:
         if config_id != SYSTEM_MESHLOOM_STATS_ID:

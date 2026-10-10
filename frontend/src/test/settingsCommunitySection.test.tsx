@@ -9,7 +9,6 @@ import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
 const offStatus: CommunityStatus = {
   enabled: false,
-  locked: false,
   iata: '',
   broker_host: '',
   api_base: '',
@@ -70,18 +69,6 @@ describe('SettingsCommunitySection', () => {
     expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeDisabled();
   });
 
-  it('disables enable and join when locked', async () => {
-    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, locked: true });
-
-    render(<SettingsCommunitySection />);
-
-    expect(await screen.findByText(i18n.t('settings.community.locked'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
-    ).toBeDisabled();
-  });
-
   it('explains IATA as the nearest airport and offers a search', async () => {
     vi.spyOn(api, 'searchCommunityAirports').mockResolvedValue([
       {
@@ -111,6 +98,18 @@ describe('SettingsCommunitySection', () => {
     });
     fireEvent.click(await screen.findByRole('option', { name: /LYS/ }));
     expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('LYS');
+  });
+
+  it('offers no airport search while Community is off', async () => {
+    const search = vi.spyOn(api, 'searchCommunityAirports');
+
+    render(<SettingsCommunitySection />);
+
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(i18n.t('settings.community.iataSearch'))).toBeNull();
+    expect(search).not.toHaveBeenCalled();
   });
 
   it('explains that publish is off when enabled without IATA', async () => {

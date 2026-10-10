@@ -163,6 +163,9 @@ vi.mock('../components/ui/sonner', () => ({
 
 import { act } from '@testing-library/react';
 import { App } from '../App';
+import i18n from '../i18n';
+import { setCommunityStatus } from '../stores/communityStore';
+import type { CommunityStatus } from '../types';
 import {
   LAST_VIEWED_CONVERSATION_KEY,
   REOPEN_LAST_CONVERSATION_KEY,
@@ -276,6 +279,40 @@ describe('App startup hash resolution', () => {
       }
     });
     expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+  });
+
+  it('drops the radio test without a reload when Community is turned off', async () => {
+    const communityOn: CommunityStatus = {
+      enabled: true,
+      iata: 'LYS',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: true,
+      publisher_connected: true,
+      env_seeded: true,
+    };
+    setHash('#test');
+    mocks.api.getCommunity.mockResolvedValue(communityOn);
+
+    render(<App />);
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node).toHaveTextContent(/^test:/);
+      }
+    });
+    expect((await screen.findAllByText(i18n.t('meshTest.title'))).length).toBeGreaterThan(0);
+
+    // What the Community settings section does when the operator opts out.
+    act(() => setCommunityStatus({ ...communityOn, enabled: false }));
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node).toHaveTextContent(`channel:${publicChannel.key}:Public`);
+      }
+    });
+    expect(screen.queryAllByText(i18n.t('meshTest.title'))).toHaveLength(0);
+    expect(window.location.hash).not.toBe('#test');
   });
 
   it('restores the trace tool from the URL hash', async () => {

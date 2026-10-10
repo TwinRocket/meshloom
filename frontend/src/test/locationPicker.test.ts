@@ -96,7 +96,6 @@ describe('lookupCommunityIataLocation', () => {
   it('returns the matching airport coordinates', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: 'lys',
       broker_host: '',
       api_base: '',
@@ -135,7 +134,6 @@ describe('lookupCommunityIataLocation', () => {
   it('returns null when Community has no IATA or the airport has no coords', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',
@@ -147,7 +145,6 @@ describe('lookupCommunityIataLocation', () => {
 
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: 'CDG',
       broker_host: '',
       api_base: '',

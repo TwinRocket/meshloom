@@ -240,10 +240,6 @@ export function SettingsCommunitySection({
       toast.error(t('settings.community.iataChangeCap'));
       return;
     }
-    if (err instanceof ApiError && err.status === 403) {
-      toast.error(t('settings.community.lockedEnable'));
-      return;
-    }
     toast.error(formatApiError(err, t));
   };
 
@@ -271,7 +267,6 @@ export function SettingsCommunitySection({
   };
 
   const handleEnableChange = async (enabled: boolean) => {
-    if (enabled && status?.locked) return;
     setBusy('enable');
     try {
       applyStatus(await api.updateCommunity({ enabled }));
@@ -351,17 +346,11 @@ export function SettingsCommunitySection({
         <p className="text-[0.8125rem] text-muted-foreground">{t('settings.community.intro')}</p>
       </div>
 
-      {status.locked && (
-        <p className="mt-3 text-[0.8125rem] text-muted-foreground">
-          {t('settings.community.locked')}
-        </p>
-      )}
-
       <div className="mt-4 flex items-start gap-3 rounded-md border border-border/60 p-3">
         <Checkbox
           id="community-enable"
           checked={status.enabled}
-          disabled={busy !== null || (status.locked && !status.enabled)}
+          disabled={busy !== null}
           onCheckedChange={(checked) => {
             void handleEnableChange(checked === true);
           }}
@@ -397,11 +386,10 @@ export function SettingsCommunitySection({
             />
             <IataHelp />
           </div>
-          <IataAirportSearch disabled={busy !== null || status.locked} onPick={setIataDraft} />
           <Button
             type="button"
             onClick={() => void handleJoin()}
-            disabled={busy !== null || status.locked || !iataValid}
+            disabled={busy !== null || !iataValid}
           >
             {busy === 'join' ? t('settings.community.joining') : t('settings.community.joinCta')}
           </Button>

@@ -17,7 +17,6 @@ These are intended for diagnosing or working around radios that behave oddly, or
 | `MESHLOOM_COMMUNITY_IATA` | *(none)* | 3-letter IATA code. **Overrides** the stored IATA on every read while set (it is also seeded into a new database), so the value saved in Settings has no effect until you unset it. |
 | `MESHLOOM_COMMUNITY_BROKER_HOST` | `mqtt.meshloom.app` | Community MQTT broker. Overrides the stored value on every read while set. |
 | `MESHLOOM_COMMUNITY_API_BASE` | `https://api.meshloom.app` | Community HTTP API origin. Overrides the stored value on every read while set. |
-| `MESHLOOM_COMMUNITY_LOCKED` | false | Exactly `1`: enabling Community is refused (403). It does not turn off a Community that is already on. |
 
 By default the app relies on radio events plus MeshCore auto-fetch for incoming messages, and also runs a low-frequency hourly audit poll. That audit checks both:
 

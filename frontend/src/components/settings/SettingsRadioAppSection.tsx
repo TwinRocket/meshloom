@@ -20,6 +20,11 @@ import {
   type TelemetrySchedule,
 } from '../../types';
 import { formatNumber } from '../../utils/formatNumber';
+import {
+  refreshCommunityStatus,
+  seedCommunityEnabled,
+  useCommunityEnabled,
+} from '../../stores/communityStore';
 
 export function SettingsRadioAppSection({
   appSettings,
@@ -55,7 +60,7 @@ export function SettingsRadioAppSection({
   const [discoveryBlockedTypes, setDiscoveryBlockedTypes] = useState<number[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [staleDays, setStaleDays] = useState(String(appSettings.stale_contact_days ?? 0));
-  const [communityOn, setCommunityOn] = useState(false);
+  const communityOn = useCommunityEnabled() === true;
   const [cacheResetting, setCacheResetting] = useState(false);
 
   const [latestTelemetry, setLatestTelemetry] = useState<
@@ -72,7 +77,7 @@ export function SettingsRadioAppSection({
   const [intervalDraft, setIntervalDraft] = useState<number>(appSettings.telemetry_interval_hours);
 
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const directoryViaStats = communityOn || Boolean(appSettings.directory_available);
+  const directoryViaStats = communityOn;
 
   useEffect(() => {
     setDiscoveryBlockedTypes(appSettings.discovery_blocked_types ?? []);
@@ -81,18 +86,13 @@ export function SettingsRadioAppSection({
   }, [appSettings]);
 
   useEffect(() => {
-    let cancelled = false;
-    void api.getCommunity().then(
-      (status) => {
-        if (!cancelled) setCommunityOn(status.enabled);
-      },
-      () => {
-        if (!cancelled) setCommunityOn(false);
-      }
-    );
-    return () => {
-      cancelled = true;
-    };
+    if (appSettings.directory_available !== undefined) {
+      seedCommunityEnabled(appSettings.directory_available);
+    }
+  }, [appSettings.directory_available]);
+
+  useEffect(() => {
+    void refreshCommunityStatus();
   }, []);
 
   useEffect(() => {

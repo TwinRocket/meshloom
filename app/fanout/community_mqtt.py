@@ -275,6 +275,31 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         self._stats_supported: bool | None = None
         self._last_stats_fetch: float = 0.0
         self._last_status_publish: float = 0.0
+        # Topic of the last retained "online" status, and whether the next
+        # stop() must clear it (opt-out, IATA change). A plain reload or a
+        # shutdown leaves it alone.
+        self._last_status_topic: str | None = None
+        self._retire_status_on_stop: bool = False
+
+    def retire_status(self) -> None:
+        """Make the next ``stop()`` clear the retained status before DISCONNECT.
+
+        The broker drops the Will on a clean DISCONNECT, so without this the
+        last retained ``online`` would stay on the topic for good.
+        """
+        self._retire_status_on_stop = True
+
+    async def _before_disconnect(self, client: aiomqtt.Client) -> None:
+        if not self._retire_status_on_stop:
+            return
+        self._retire_status_on_stop = False
+        topic = self._last_status_topic
+        if not topic:
+            return
+        # An empty retained payload deletes the retained message (MQTT 3.1.1
+        # 3.3.1.3). QoS 1 so the PUBACK confirms it before we disconnect.
+        await client.publish(topic, b"", qos=1, retain=True)
+        self._last_status_topic = None
 
     async def start(self, settings: object) -> None:
         self._key_unavailable_warned = False
@@ -283,6 +308,7 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         self._stats_supported = None
         self._last_stats_fetch = 0.0
         self._last_status_publish = 0.0
+        self._retire_status_on_stop = False
         await super().start(settings)
 
     def _on_not_configured(self) -> None:
@@ -542,6 +568,8 @@ class CommunityMqttPublisher(BaseMqttPublisher):
             payload["stats"] = stats
 
         await self.publish(status_topic, payload, retain=True)
+        if self.connected:
+            self._last_status_topic = status_topic
         self._last_status_publish = time.monotonic()
 
     async def _on_connected_async(self, settings: object) -> None:

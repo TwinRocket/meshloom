@@ -48,7 +48,6 @@ Until `radio_transport` is set, the radio stays paused. Do not set `MESHCORE_SER
 | `MESHLOOM_COMMUNITY_IATA` | *(empty)* | 3-letter IATA. While set, it replaces the code saved in the interface on every read, so changes made in Settings do not take effect |
 | `MESHLOOM_COMMUNITY_BROKER_HOST` | *(empty)* | Overrides the Community MQTT host (default `mqtt.meshloom.app`) on every read while set |
 | `MESHLOOM_COMMUNITY_API_BASE` | *(empty)* | Overrides the Community API origin (default `https://api.meshloom.app`) on every read while set |
-| `MESHLOOM_COMMUNITY_LOCKED` | `false` | When `1`, the UI cannot enable Community |
 
 Set the VAPID subject in **Settings → Notifications** first. `MESHCORE_VAPID_SUBJECT` is used only when that field is empty. Apple requires a real `mailto:` or `https:` value; APNs rejects the `.local` default with `403 BadJwtToken`. See [Push notifications](/en/docs/deep/push/) and [Apple's web push documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
 

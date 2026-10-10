@@ -119,6 +119,10 @@ class MeshloomStatsModule(FanoutModule):
     async def stop(self) -> None:
         await self._publisher.stop()
 
+    def retire_status(self) -> None:
+        """Clear the retained status topic on the next stop (opt-out, IATA change)."""
+        self._publisher.retire_status()
+
     async def on_raw(self, data: dict) -> None:
         if not self._publisher.connected or self._publisher._settings is None:
             return

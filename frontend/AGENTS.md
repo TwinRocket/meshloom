@@ -57,6 +57,9 @@ Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `Searc
 - `raw_packet`: use `observation_id` as the key to render and dedupe events. `id` is the storage row and can repeat.
 - `contact_resolved` migrates an identity. It affects the active conversation, the cached messages, the unread state keys, and the reconnect reconciliation all at once.
 
+### Community state
+`stores/communityStore.ts` is the only source of "is Community on" (`useCommunityEnabled()`, `useCommunityStatus()`). App settings seed it on startup from `directory_available`; `GET`/`PATCH /api/community` answers replace the seed (`setCommunityStatus`, `refreshCommunityStatus`); a `community_live` WS status whose `opted_out` disagrees triggers a re-read, so other tabs follow. `App` derives `directoryEnabled` from it, so the router leaves `#test` and the test tool disappears as soon as Community is off. With Community off, `ObserverReachModal` and `MeshTestView` say so instead of showing an empty list, the "heard by" badges are hidden, and nothing calls `/api/community/airports` (the location picker checks `enabled` first; the join form has no airport search).
+
 ### Community live status
 `livePacketStore.applyLiveStatus` works out `connected` / `reconnecting` / banner from `close_code`, `connected`, `opted_out`, and `auth_error`. It reads `state` only to treat `auth_rejected` as `token_rejected` for older relays. The optional boolean `CommunityLiveStatus.reconnecting` in `types.ts` is never sent by the backend. The `gate` value of `LiveRelayState` is never reached (see the root `AGENTS.md`). Do not build UI on either of them.
 

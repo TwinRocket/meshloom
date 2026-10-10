@@ -76,7 +76,6 @@ def _v2_packet(**overrides: object) -> dict:
 def _enabled_state() -> CommunityEffective:
     return CommunityEffective(
         enabled=True,
-        locked=False,
         iata="LYS",
         broker_host="mqtt.meshloom.app",
         api_base="https://api.meshloom.app",
@@ -383,7 +382,6 @@ class TestCommunityLiveRelay:
         connect = AsyncMock()
         no_iata = CommunityEffective(
             enabled=True,
-            locked=False,
             iata="",
             broker_host="mqtt.meshloom.app",
             api_base="https://api.meshloom.app",

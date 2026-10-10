@@ -1,16 +1,22 @@
 """Meshloom Community state, JWT mint, and HTTP client (server code name: Stats).
 
-Community is on for new installs and one opt-out: off means no Stats MQTT
-publish and no Stats HTTP. Env names are MESHLOOM_* only — do not invent
-MESHCORE_COMMUNITY aliases.
+Community is on for new installs and one opt-out. Off means no connection at
+all to the Community hosts (HTTP API, Live WS, MQTT broker, release mirror)
+nor to the airport search. This module is the egress guard: every one of
+those connections checks ``community_egress_state()`` first, and HTTP goes
+through ``_community_http()`` so ``community_teardown()`` can cancel what is
+in flight. Env names are MESHLOOM_* only — do not invent MESHCORE_COMMUNITY
+aliases.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -47,6 +53,12 @@ _HASHTAG_WRITE_QUOTA_DETAIL = "Community hashtag write quota reached"
 _GENERIC_RATE_LIMIT_DETAIL = "Community rate limit reached"
 COMMUNITY_UNREACHABLE_DETAIL = "Community is unreachable"
 COMMUNITY_UNAVAILABLE_DETAIL = "Community directory unavailable"
+COMMUNITY_DISABLED_DETAIL = "Community is disabled"
+# Opt-out teardown: each step is bounded on its own. The MQTT step covers the
+# publisher's own bounds (clear the retained status, then DISCONNECT).
+TEARDOWN_STEP_TIMEOUT_S = 20.0
+# Future "last call" to Community before the teardown (see _announce_opt_out).
+OPT_OUT_LAST_CALL_TIMEOUT_S = 5.0
 # Circuit breaker: after this many consecutive transport failures or 5xx, stop
 # calling Community for BREAKER_OPEN_SECONDS and answer 503 at once instead of
 # making every page wait for the full timeout. One trial call then decides.
@@ -65,6 +77,10 @@ _STATS_429_BY_PATH = {
     "/v1/me/hashtags": _HASHTAG_WRITE_QUOTA_DETAIL,
 }
 _sample_quota_until = 0.0
+# Bumped by community_teardown(): a request that passed the enabled check
+# before the opt-out must not leave afterwards.
+_egress_generation = 0
+_inflight: set[asyncio.Future[httpx.Response]] = set()
 
 
 class CommunityUpstreamError(HTTPException):
@@ -126,10 +142,6 @@ def community_breaker() -> CommunityBreaker:
 
 def _env_raw(name: str) -> str:
     return os.environ.get(name, "").strip()
-
-
-def community_locked() -> bool:
-    return _env_raw("MESHLOOM_COMMUNITY_LOCKED") == "1"
 
 
 def env_community_opt_in() -> bool:
@@ -210,7 +222,6 @@ class CommunityRecord:
 @dataclass(frozen=True)
 class CommunityEffective:
     enabled: bool
-    locked: bool
     iata: str
     broker_host: str
     api_base: str
@@ -241,7 +252,6 @@ async def get_community_effective() -> CommunityEffective:
         api_base = DEFAULT_API_BASE
     return CommunityEffective(
         enabled=row.enabled,
-        locked=community_locked(),
         iata=_normalize_iata(iata),
         broker_host=broker,
         api_base=api_base,
@@ -295,10 +305,7 @@ async def update_community(
     from app.repository.settings import AppSettingsRepository
 
     row = await get_community_record()
-    if enabled is True and community_locked():
-        raise HTTPException(
-            status_code=403, detail="Community enable is locked by MESHLOOM_COMMUNITY_LOCKED"
-        )
+    before = await get_community_effective()
     next_iata = row.iata
     if iata is not None:
         normalized = _normalize_iata(iata)
@@ -318,6 +325,11 @@ async def update_community(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         else:
             next_api = ""
+    if before.enabled and enabled is False:
+        # Last call while Community is still on, before the DB flips.
+        await _bounded_step(
+            "opt-out last call", lambda: _announce_opt_out(before), OPT_OUT_LAST_CALL_TIMEOUT_S
+        )
     await AppSettingsRepository.update_community(
         enabled=enabled,
         iata=next_iata if iata is not None else None,
@@ -330,11 +342,117 @@ async def update_community(
     reset_directory_nodes_cache()
     reset_observer_reach_cache()
     state = await get_community_effective()
+    if before.enabled and not state.enabled:
+        await community_teardown()
+        return state
+    if before.enabled and state.enabled and _status_topic_moved(before, state):
+        # The old meshcore/{IATA}/{PUBKEY}/status (or old broker) would keep
+        # its retained "online" forever: clear it on the way out.
+        _retire_publisher_status()
     await _reload_system_publisher()
     from app.services.community_live import sync_community_live
 
     await sync_community_live(state.enabled)
+    if state.enabled and not before.enabled:
+        from app.services.oss_updates import nudge_oss_update_poll
+
+        nudge_oss_update_poll()
     return state
+
+
+def _status_topic_moved(before: CommunityEffective, after: CommunityEffective) -> bool:
+    return bool(before.iata) and (
+        before.iata != after.iata or before.broker_host != after.broker_host
+    )
+
+
+async def _announce_opt_out(state: CommunityEffective) -> None:
+    """Hook: the "last call" to Community when the operator opts out.
+
+    Runs while Community is still on, before the database flips and before
+    ``community_teardown()``, bounded by ``OPT_OUT_LAST_CALL_TIMEOUT_S``. A
+    failure is logged and never blocks the opt-out.
+
+    Not implemented yet: Community does not serve ``POST /v1/me/opt-out``
+    (separate lot). When it does, call it from here, e.g.
+    ``await stats_json("POST", "/v1/me/opt-out", auth=True)``.
+    """
+    del state
+
+
+async def _bounded_step(
+    label: str, step: Callable[[], Awaitable[object]], timeout: float = TEARDOWN_STEP_TIMEOUT_S
+) -> None:
+    try:
+        await asyncio.wait_for(step(), timeout=timeout)
+    except Exception:  # TimeoutError included
+        logger.warning("Community opt-out: %s failed", label, exc_info=True)
+
+
+async def _run_steps(steps: list[tuple[str, Callable[[], Awaitable[object]]]]) -> None:
+    """Run each step bounded, in order; a failed or cancelled step never skips the next."""
+    if not steps:
+        return
+    label, step = steps[0]
+    try:
+        await _bounded_step(label, step)
+    finally:
+        await _run_steps(steps[1:])
+
+
+def _retire_publisher_status() -> None:
+    from app.fanout.manager import fanout_manager
+
+    fanout_manager.retire_system_status()
+
+
+async def _stop_publisher() -> None:
+    """Clear the retained status (before DISCONNECT), then stop the publisher."""
+    _retire_publisher_status()
+    await _reload_system_publisher()
+
+
+async def _close_live() -> None:
+    from app.services.community_live import sync_community_live
+
+    await sync_community_live(False)
+
+
+async def _cancel_inflight_requests() -> None:
+    pending = [task for task in _inflight if not task.done()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.wait(pending)
+
+
+async def _reset_client_state() -> None:
+    global _sample_quota_until
+    _breaker.record_success()
+    _sample_quota_until = 0.0
+    from app.services.community_live import get_live_relay
+
+    get_live_relay().drain_queue()
+
+
+async def community_teardown() -> None:
+    """Cut every Community connection after an opt-out.
+
+    Order: clear the retained MQTT status (published before the DISCONNECT),
+    stop the publisher, close the Live relay, cancel Community requests in
+    flight, then reset the breaker, the sample quota and the Live queue.
+    Each step is bounded and runs even when the previous one failed.
+    """
+    global _egress_generation
+    _egress_generation += 1
+    await _run_steps(
+        [
+            ("MQTT publisher", _stop_publisher),
+            ("Live relay", _close_live),
+            ("in-flight requests", _cancel_inflight_requests),
+            ("client state reset", _reset_client_state),
+        ]
+    )
 
 
 async def _reload_system_publisher() -> None:
@@ -541,7 +659,6 @@ async def community_status() -> CommunityStatus:
     state = await get_community_effective()
     return CommunityStatus(
         enabled=state.enabled,
-        locked=state.locked,
         iata=state.iata,
         broker_host=state.broker_host,
         api_base=state.api_base,
@@ -553,26 +670,74 @@ async def community_status() -> CommunityStatus:
 
 def _require_enabled(state: CommunityEffective) -> None:
     if not state.enabled:
-        raise HTTPException(status_code=403, detail="Community is disabled")
+        raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
+
+
+async def community_egress_state() -> CommunityEffective | None:
+    """The effective config when Community connections are allowed, else None.
+
+    The one check every Community egress makes: HTTP (``stats_request``), the
+    Live socket, the MQTT publisher, the release mirror and the airport search.
+    """
+    state = await get_community_effective()
+    return state if state.enabled else None
+
+
+async def _community_http(
+    method: str,
+    url: str,
+    *,
+    generation: int,
+    timeout: float,
+    follow_redirects: bool = False,
+    **kwargs: Any,
+) -> httpx.Response:
+    """The only place an HTTP request to Community (or the airport search) leaves.
+
+    The request runs as its own task so ``community_teardown()`` can cancel it;
+    the caller then gets the same 403 as a request made after the opt-out.
+    """
+    if generation != _egress_generation:
+        raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
+
+    async def _send() -> httpx.Response:
+        async with httpx.AsyncClient(follow_redirects=follow_redirects, timeout=timeout) as client:
+            return await client.request(method, url, **kwargs)
+
+    task = asyncio.ensure_future(_send())
+    _inflight.add(task)
+    try:
+        return await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if task.cancelled() and (current is None or current.cancelling() == 0):
+            raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL) from None
+        raise
+    finally:
+        _inflight.discard(task)
 
 
 async def fetch_meshloom_latest() -> dict[str, Any] | None:
-    """GET the Community release mirror. No JWT; works when Community is opted out.
+    """GET the Community release mirror. No JWT; never called when opted out.
 
     Only a fallback since the update check reads GitHub first
     (``app.services.oss_updates``). Skipped while the Community breaker is open.
-    Do not route this through ``stats_request`` / ``stats_json`` — those call
-    ``_require_enabled`` and would 403 opted-out nodes.
+    Not routed through ``stats_request``: the mirror needs no JWT and must not
+    feed the breaker.
     """
+    generation = _egress_generation
+    state = await community_egress_state()
+    if state is None:
+        return None
     if _breaker.is_open and time.monotonic() < _breaker.open_until:
         return None
-    state = await get_community_effective()
     url = f"{state.api_base}/v1/meshloom/latest"
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=False, timeout=_STATS_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(url)
+        response = await _community_http(
+            "GET", url, generation=generation, timeout=_STATS_TIMEOUT_SECONDS
+        )
+    except HTTPException:
+        return None
     except httpx.RequestError as exc:
         logger.warning("Meshloom latest release fetch failed: %s", exc)
         return None
@@ -602,6 +767,7 @@ async def stats_request(
     Transport failures, timeouts and 5xx feed the circuit breaker. While it is
     open this raises 503 without touching the network.
     """
+    generation = _egress_generation
     state = await get_community_effective()
     _require_enabled(state)
     headers: dict[str, str] = {}
@@ -618,10 +784,15 @@ async def stats_request(
     if not _breaker.allow():
         raise HTTPException(status_code=503, detail=COMMUNITY_UNREACHABLE_DETAIL)
     try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
-            response = await client.request(
-                method, url, params=params, json=json_body, headers=headers
-            )
+        response = await _community_http(
+            method,
+            url,
+            generation=generation,
+            timeout=timeout,
+            params=params,
+            json=json_body,
+            headers=headers,
+        )
     except httpx.RequestError as exc:
         _breaker.record_failure()
         logger.warning("Community %s %s failed: %s", method, path, exc)
@@ -824,19 +995,28 @@ def _airport_hit(item: object) -> CommunityAirportHit | None:
 
 
 async def search_community_airports(query: str, *, locale: str = "en") -> list[CommunityAirportHit]:
-    """Open FX-Port airport autocomplete. Empty on failure — this is convenience, not directory."""
+    """Open FX-Port airport autocomplete. Empty on failure — this is convenience, not directory.
+
+    A Community feature: empty, with no request, while Community is off.
+    """
     text = (query or "").strip()
     if len(text) < _AIRPORT_QUERY_MIN:
         return []
     text = text[:_AIRPORT_QUERY_MAX]
+    generation = _egress_generation
+    if await community_egress_state() is None:
+        return []
     try:
-        async with httpx.AsyncClient(
-            follow_redirects=True, timeout=AIRPORT_SEARCH_TIMEOUT_SECONDS
-        ) as client:
-            response = await client.get(
-                AIRPORT_SEARCH_URL,
-                params={"query": text, "locale": _airport_locale(locale)},
-            )
+        response = await _community_http(
+            "GET",
+            AIRPORT_SEARCH_URL,
+            generation=generation,
+            timeout=AIRPORT_SEARCH_TIMEOUT_SECONDS,
+            follow_redirects=True,
+            params={"query": text, "locale": _airport_locale(locale)},
+        )
+    except HTTPException:
+        return []
     except httpx.RequestError as exc:
         logger.warning("Airport IATA search failed: %s", exc)
         return []

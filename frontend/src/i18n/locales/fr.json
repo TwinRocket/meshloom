@@ -117,6 +117,7 @@
     "observerReachMaxDistance": "Distance max",
     "observerReachDistanceUnavailable": "Distance indisponible",
     "observerReachEmpty": "Aucun nœud n’a publié avoir entendu ce paquet sur Meshloom Community.",
+    "observerReachCommunityOff": "La liste de qui a entendu ce paquet vient de Meshloom Community. Activez Community pour la voir.",
     "observerReachHops": "{{count}} sauts",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Voir les sauts de {{name}}",
@@ -929,8 +930,6 @@
       "enableHelp": "Quand c’est désactivé, ce serveur ne publie pas vers Meshloom Community.",
       "disableHelp": "Arrêter Meshloom Community arrête la publication, et arrête aussi l’annuaire en ligne : plus de noms de sauts, plus d’ancres locate, plus de compteur « entendu par ».",
       "left": "Meshloom Community arrêté",
-      "locked": "L’opérateur a verrouillé Meshloom Community. L’activation est désactivée.",
-      "lockedEnable": "L’activation de Meshloom Community est verrouillée par l’opérateur.",
       "iata": "Code IATA",
       "iataHelp": "Le code IATA est le code à 3 lettres de l’aéroport le plus proche (A–Z). C’est une étiquette de région approximative. La concordance signifie seulement que le code est cohérent avec la position de votre radio — jamais un emplacement vérifié.",
       "iataPlaceholder": "CDG",
@@ -2681,6 +2680,7 @@
   "meshTest": {
     "title": "Test radio",
     "loading": "Chargement du test radio...",
+    "communityOff": "Le test radio lit sur Meshloom Community qui a entendu votre paquet. Activez Community pour l’utiliser.",
     "run": "Lancer le test",
     "runHelp": "Envoyer un flood et voir qui l’entend",
     "sending": "Envoi…",
@@ -2712,6 +2712,10 @@
     "mapEmpty": "Aucune position à afficher pour l’instant.",
     "mapAria": "Carte des oreilles qui ont entendu le test",
     "origin": "Cette radio"
+  },
+  "community": {
+    "offTitle": "Meshloom Community est désactivé",
+    "openSettings": "Ouvrir les réglages Community"
   },
   "settingsIndex": {
     "title": "Réglages",

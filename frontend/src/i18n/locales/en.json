@@ -117,6 +117,7 @@
     "observerReachMaxDistance": "Max distance",
     "observerReachDistanceUnavailable": "Distance unavailable",
     "observerReachEmpty": "No node has published hearing this packet to Meshloom Community.",
+    "observerReachCommunityOff": "Who heard this packet comes from Meshloom Community. Turn Community on to see it.",
     "observerReachHops": "{{count}} hops",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Show hops for {{name}}",
@@ -929,8 +930,6 @@
       "enableHelp": "When off, this server does not publish to Meshloom Community.",
       "disableHelp": "Stopping Meshloom Community stops publish, and also stops the online directory: no hop names, no locate anchors, no heard-by counts.",
       "left": "Meshloom Community stopped",
-      "locked": "The operator locked Meshloom Community. Enable is disabled.",
-      "lockedEnable": "Meshloom Community enable is locked by the operator.",
       "iata": "IATA code",
       "iataHelp": "The IATA code is the 3-letter code of the nearest airport (A–Z). It is a coarse region label. Concordance only means it is consistent with your radio position — never a verified location.",
       "iataPlaceholder": "CDG",
@@ -2681,6 +2680,7 @@
   "meshTest": {
     "title": "Radio test",
     "loading": "Loading radio test...",
+    "communityOff": "The radio test reads who heard your packet from Meshloom Community. Turn Community on to use it.",
     "run": "Run the test",
     "runHelp": "Send one flood and watch who hears it",
     "sending": "Sending…",
@@ -2712,6 +2712,10 @@
     "mapEmpty": "No position to show yet.",
     "mapAria": "Map of observers that heard the test",
     "origin": "This radio"
+  },
+  "community": {
+    "offTitle": "Meshloom Community is off",
+    "openSettings": "Open Community settings"
   },
   "settingsIndex": {
     "title": "Settings",
