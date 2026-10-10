@@ -49,7 +49,24 @@ that key has a valid, non-expired, non-revoked signing subkey.
 * `SHA256SUMS` (+ `.asc`) covers debs, rpms, the zip and `install.sh`;
   `OCI-DIGESTS` (+ `.asc`) pins the image: `ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<index digest>`.
 
-## Create the key (once, on an offline-capable machine)
+## Create the key: the easy way (recommended)
+
+`pkg/keys/create-release-key.sh` does everything below automatically (French
+messages, one question: the backup passphrase). It generates the key in RAM
+(`/dev/shm`), writes the three public files and an AES-256 encrypted backup
+**outside the repository**, test-restores the backup, checks everything with
+`check_signing_keys.sh`, optionally sets the GitHub secret with `gh`, and
+shreds its working directory.
+
+```bash
+pkg/keys/create-release-key.sh            # output in ~/meshloom-release-key-YYYYMMDD/
+```
+
+Difference with the manual procedure: the primary key itself has no passphrase
+inside the throwaway keyring; the offline backup is protected by symmetric
+AES-256 encryption with your passphrase instead.
+
+## Create the key manually (once, on an offline-capable machine)
 
 > **Work OUTSIDE the repository checkout.** All secret material lives in a
 > dedicated temporary directory; only the three public files are copied into
