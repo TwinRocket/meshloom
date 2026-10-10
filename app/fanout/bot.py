@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.background_tasks import spawn
 from app.fanout.base import FanoutModule
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class BotModule(FanoutModule):
 
     async def on_message(self, data: dict) -> None:
         """Kick off bot execution in a background task so we don't block dispatch."""
-        task = asyncio.create_task(self._run_for_message(data))
+        task = spawn(self._run_for_message(data), name=f"bot-{self.config_id}")
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 

@@ -37,6 +37,7 @@ _COMMUNITY_MQTT_TEMPLATE_FIELD_CANONICAL = {
     "iata": "IATA",
     "public_key": "PUBLIC_KEY",
 }
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _ALLOWED_COMMUNITY_MQTT_TRANSPORTS = {"tcp", "websockets"}
 _ALLOWED_COMMUNITY_MQTT_AUTH_MODES = {"token", "password", "none"}
 
@@ -161,6 +162,19 @@ def _validate_mqtt_community_config(config: dict) -> None:
 
     token_audience = str(config.get("token_audience", "")).strip()
     config["token_audience"] = token_audience
+
+    websocket_path = str(config.get("websocket_path") or "/").strip() or "/"
+    if not websocket_path.startswith("/") or any(c.isspace() for c in websocket_path):
+        raise HTTPException(
+            status_code=400,
+            detail="websocket_path must start with '/' and contain no whitespace",
+        )
+    config["websocket_path"] = websocket_path
+
+    email = str(config.get("email") or "").strip()
+    if email and (len(email) > 254 or not _EMAIL_RE.fullmatch(email)):
+        raise HTTPException(status_code=400, detail="email must be a valid email address")
+    config["email"] = email
 
     iata = config.get("iata", "").upper().strip()
     if not iata or not _IATA_RE.fullmatch(iata):

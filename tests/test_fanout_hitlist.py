@@ -1013,3 +1013,66 @@ class TestFanoutConfigMutationInvariant:
         assert updated["config"]["topic_template"] == "mesh2mqtt/{IATA}/node/{PUBLIC_KEY}"
         assert updated["config"]["transport"] == "websockets"
         assert updated["config"]["auth_mode"] == "token"
+
+
+class TestCommunityMqttWebsocketPathAndEmail:
+    """websocket_path and email are validated like the other connection fields."""
+
+    def test_defaults_are_filled_in(self):
+        from app.routers.fanout import _validate_mqtt_community_config
+
+        config = {"iata": "PDX"}
+        _validate_mqtt_community_config(config)
+        assert config["websocket_path"] == "/"
+        assert config["email"] == ""
+
+    def test_valid_values_are_kept_and_trimmed(self):
+        from app.routers.fanout import _validate_mqtt_community_config
+
+        config = {"iata": "PDX", "websocket_path": " /mqtt ", "email": " a@b.example "}
+        _validate_mqtt_community_config(config)
+        assert config["websocket_path"] == "/mqtt"
+        assert config["email"] == "a@b.example"
+
+    @pytest.mark.parametrize("path", ["mqtt", "/a b", "/a\tb"])
+    def test_bad_websocket_path_rejected(self, path):
+        from app.routers.fanout import _validate_mqtt_community_config
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_mqtt_community_config({"iata": "PDX", "websocket_path": path})
+        assert exc_info.value.status_code == 400
+        assert "websocket_path" in exc_info.value.detail
+
+    @pytest.mark.parametrize(
+        "email", ["nope", "a@b", "a b@c.example", "a@@b.example", "x" * 250 + "@b.co"]
+    )
+    def test_bad_email_rejected(self, email):
+        from app.routers.fanout import _validate_mqtt_community_config
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_mqtt_community_config({"iata": "PDX", "email": email})
+        assert exc_info.value.status_code == 400
+        assert "email" in exc_info.value.detail
+
+
+class TestBotTasksAreTracked:
+    async def test_on_message_uses_the_tracked_spawn_helper(self):
+        import asyncio
+
+        from app.background_tasks import pending_background_tasks
+        from app.fanout.bot import BotModule
+
+        module = BotModule("b1", {"code": ""})
+        gate = asyncio.Event()
+
+        async def blocked(data: dict) -> None:
+            await gate.wait()
+
+        module._run_for_message = blocked  # type: ignore[method-assign]
+        before = pending_background_tasks()
+        await module.on_message({"type": "PRIV"})
+        try:
+            assert pending_background_tasks() == before + 1
+        finally:
+            gate.set()
+            await asyncio.gather(*module._tasks)
