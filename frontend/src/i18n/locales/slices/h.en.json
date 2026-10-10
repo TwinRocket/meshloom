@@ -11,6 +11,13 @@
   },
   "live": {
     "bannerOptOut": "Community and an IATA region are required to watch the live feed.",
+    "bannerClockSkew": "Community refused the live feed: this Meshloom server's clock is wrong. Fix the time (NTP) on the server, then retry.",
+    "bannerTokenRejected": "Community refused this server's live token several times, so the live feed has stopped retrying.",
+    "clockBehindBy_one": "The server clock is about {{count}} minute behind.",
+    "clockBehindBy_other": "The server clock is about {{count}} minutes behind.",
+    "clockAheadBy_one": "The server clock is about {{count}} minute ahead.",
+    "clockAheadBy_other": "The server clock is about {{count}} minutes ahead.",
+    "retry": "Retry",
     "iataFilter": "IATA",
     "iataAll": "All regions",
     "soundTheme": "Sound",

@@ -725,6 +725,12 @@ export type LiveCloseCode =
   | typeof LIVE_CLOSE_RATE_LIMIT
   | typeof LIVE_CLOSE_SUPERSEDED;
 
+export type LiveRelayState =
+  'connected' | 'reconnecting' | 'gate' | 'opted_out' | 'idle' | 'auth_rejected';
+
+/** Why Community refused the live token for good (state `auth_rejected`). */
+export type LiveAuthError = 'clock_skew' | 'token_rejected';
+
 export interface CommunityLiveStatus {
   session_id?: string | null;
   close_code: LiveCloseCode | null;
@@ -732,6 +738,13 @@ export interface CommunityLiveStatus {
   connected: boolean;
   /** Absent on older relays — derive reconnecting from close_code instead. */
   reconnecting?: boolean;
+  state?: LiveRelayState;
+  /** Set with state `auth_rejected`; the relay stopped retrying until Relancer. */
+  auth_error?: LiveAuthError | null;
+  /** Community 401 `code` behind auth_error, when the server sent one. */
+  auth_code?: string | null;
+  /** Community server time minus this server's time, in seconds. */
+  clock_skew_s?: number | null;
 }
 
 export interface DirectoryMapNodesQuery {
@@ -1929,6 +1942,8 @@ export interface OssUpdateStatus {
   next_auto_apply_at?: number | null;
   /** Compose install still runs the pre-4.18 host helper; re-run the installer. */
   legacy_update_helper?: boolean;
+  /** Where `latest` came from: GitHub (primary), the Community mirror, or an env pin. */
+  latest_source?: 'github' | 'community' | 'env' | null;
   job: OssUpdateJob;
 }
 
