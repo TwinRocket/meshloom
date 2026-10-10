@@ -40,6 +40,8 @@ npm run build        # tsc && vite build -> dist/
 ### Packet stream stays out of React ancestors
 `stores/rawPacketStore.ts` is read through `useSyncExternalStore` (`useRawPackets()`, `useRawPacketStatsSession()`). Only leaf views subscribe to it: `RawPacketFeedView`, `VisualizerView`, `LiveView`, `ControlJournalView`, and `CrackerPanel`. **No ancestor of `MessageList` (`App`, `AppShell`, `ConversationPane`) may subscribe**, or every packet re-renders the whole tree. `src/test/appPacketIsolation.test.tsx` enforces this rule.
 
+**Clocks.** The server `packet.timestamp` is the server wall clock and can be minutes off. `recordRawPacket` adds a client-only `received_at_ms` (browser `Date.now()`) to every live packet. Anything compared with `Date.now()` (visualizer pruning, `#raw` stats windows, Live view laser aging) must use `received_at_ms`, falling back to `timestamp` only for history-replayed packets. Displaying a packet's absolute time keeps using `timestamp`.
+
 ### Lazy loading
 Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `SearchView`, the info sheets, `MapView`, `LiveView`, `VisualizerView`, `RepeaterDashboard`, `RawPacketFeedView`, and the map sub-components. If an always-loaded module imports `recharts`, `leaflet`/`react-leaflet`, or `qrcode.react` statically, they end up back in the entry chunk. `vite.config.ts` defines no manual vendor chunks on purpose: Vite splits the chunks automatically.
 

@@ -759,6 +759,9 @@ export interface RawPacket {
   /** Per-observation WS identity (unique per RF arrival, may be absent in older payloads) */
   observation_id?: number;
   timestamp: number;
+  /** Client-only: browser Date.now() when the WS frame was recorded. Live activity
+   *  (visualizer pruning) uses this so a skewed server clock cannot age packets. */
+  received_at_ms?: number;
   data: string; // hex
   payload_type: string;
   snr: number | null; // Signal-to-noise ratio in dB

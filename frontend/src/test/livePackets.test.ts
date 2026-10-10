@@ -9,6 +9,7 @@ import {
   inferFloodForAdvert,
   packetHashFromRaw,
   isOneByteHopToken,
+  isStaleLiveTime,
   liveOpacity,
   liveTypeColor,
   packetTypeFromRaw,
@@ -661,5 +662,32 @@ describe('firmware hash8 and origin resolution', () => {
     expect(plan.lasers).toEqual([]);
     expect(plan.hopFlashes).toEqual([]);
     expect(plan.earFlashes).toEqual([]);
+  });
+});
+
+describe('observationFromRaw clock', () => {
+  const raw = (extra: Partial<RawPacket>): RawPacket => ({
+    id: 9,
+    observation_id: 3,
+    timestamp: 1_700_000_000,
+    data: '09046F17C47ED00A13E16AB5B94B1CC2D1A5059C6E5A6253C60D',
+    payload_type: 'TEXT',
+    snr: null,
+    rssi: null,
+    decrypted: false,
+    decrypted_info: null,
+    ...extra,
+  });
+
+  it('uses the browser receipt time so a skewed server clock cannot make a live packet stale', () => {
+    const receivedAt = 1_791_000_000_000;
+    const obs = observationFromRaw(raw({ received_at_ms: receivedAt }), buildPrefixIndex([]), null);
+    expect(obs?.t).toBe(receivedAt);
+    expect(isStaleLiveTime(obs!.t, receivedAt + 1000)).toBe(false);
+  });
+
+  it('falls back to the server timestamp when there is no receipt time', () => {
+    const obs = observationFromRaw(raw({}), buildPrefixIndex([]), null);
+    expect(obs?.t).toBe(1_700_000_000_000);
   });
 });
