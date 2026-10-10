@@ -22,7 +22,7 @@ On Linux the installer offers a native systemd service or Docker. Radio transpor
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
 ```
 
-Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**. A new install joins Meshloom Community unless you set `MESHLOOM_COMMUNITY=0`; leave or bind an IATA code under **Settings > Community**. User-facing docs live in [`docs/user/`](docs/user/) and are published at https://meshloom.app/docs/.
+Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**. A new install joins Meshloom Community unless you set `MESHLOOM_COMMUNITY=0`; leave it or set an IATA code under **Settings > Meshloom Community**. User-facing docs live in [`docs/user/`](docs/user/) and are published at https://meshloom.app/docs/.
 
 A **Raspberry Pi** can skip the one-liner: flash `meshloom-rpi-lite-arm64.img.xz` from the release (Lite 64-bit, Pi 3 and later). The Release workflow builds that image after the arm64 `.deb`. Open the shipped `meshloom.rpi-imager-manifest` in **Raspberry Pi Imager 2.0.6+** so Wi-Fi, user, and SSH are written (`Use custom` alone skips them). A connected screen shows `http://meshloom.local:8000`. Details: [Raspberry Pi image](docs/user/en/rpi.md).
 
@@ -39,8 +39,8 @@ Or add `https://github.com/TwinRocket/meshloom` by hand under **Settings → Add
 Add-on store → ⋮ → Repositories**, then install **Meshloom**.
 
 The web interface arrives in the sidebar; the radio proxy is the only thing
-published on the host, and its port is set in the add-on's **Network** panel.
-Details: [`meshloom/DOCS.md`](meshloom/DOCS.md).
+published on the host. Details and a known proxy-port limitation:
+[`meshloom/DOCS.md`](meshloom/DOCS.md).
 
 This is not the same as [publishing to Home Assistant over MQTT](README_HA.md),
 which works from any install and needs no add-on.
@@ -53,9 +53,13 @@ Otherwise update by hand, or re-run the installer so it can install the apply he
 
 ```bash
 sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu (Meshloom only)
-sudo dnf install meshloom                      # Fedora / Rocky / Alma
+sudo dnf upgrade meshloom                      # Fedora / Rocky / Alma
 sudo docker compose pull && sudo docker compose up -d
 ```
+
+With Docker, `pull` only moves when the image reference does: if `.env` pins
+`MESHLOOM_IMAGE` to a version and digest, change it first (the digest of each
+release is in its signed `OCI-DIGESTS` asset).
 
 Home Assistant: update the add-on there. The database stays in place (`/var/lib/meshloom` for the package, `./data` for Docker). Schema migrations run on startup.
 

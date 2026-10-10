@@ -243,8 +243,10 @@ rotation steps are in `pkg/keys/README.md`.
 1. `scripts/build/publish.sh` runs the gate, bumps the four version sources
    (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM`
    tag in `meshloom/Dockerfile`), updates `uv.lock` and `CHANGELOG.md`, then
-   commits and **pushes the current branch** and pushes the `X.Y.Z` tag. It
-   builds and publishes nothing itself.
+   runs `git add .`, commits, **pushes the current branch** and pushes the
+   `X.Y.Z` tag. Run it from a clean, up-to-date `main` checkout. It builds and
+   publishes nothing itself. The header of `release.yml` still says to tag by
+   hand afterwards; ignore that, `publish.sh` already does it.
 2. A tag `X.Y.Z` triggers `release.yml`. That workflow runs the quality gate,
    then `preflight`: `check_version_consistency.sh` and a check that the secret
    matches `pkg/keys`. Then it builds the frontend zip and the nFPM `.deb`/`.rpm`

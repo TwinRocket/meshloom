@@ -13,9 +13,11 @@ These are intended for diagnosing or working around radios that behave oddly, or
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | false | Enable autoevict mode for contact loading ([docs](#autoevict-mode)) |
 | `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | false | Highly experimental: if the radio clock is ahead of system time, try forcing the clock to `0xFFFFFFFF`, wait for uint32 wraparound, and then retry normal time sync before falling back to reboot ([docs](#clock-wraparound)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | Enable `GET /api/radio/private-key` to return the in-memory private key as hex for backup or migration. Only enable on a trusted network. Import via `PUT /api/radio/private-key` is always available. ([docs](#private-key-export)) |
-| `MESHLOOM_COMMUNITY` | on for new DBs | Seed Meshloom Community on a brand-new database. Unset or `1` seeds on; `0` / `false` / `off` seeds opted out. Existing databases are never flipped. |
-| `MESHLOOM_COMMUNITY_IATA` | *(none)* | Optional 3-letter IATA to seed on a brand-new database |
-| `MESHLOOM_COMMUNITY_LOCKED` | false | When `1`, the UI cannot enable Community |
+| `MESHLOOM_COMMUNITY` | on for new DBs | Seed Meshloom Community on a brand-new database. Unset or any other value seeds on; `0` / `false` / `off` / `no` seeds opted out. Read only when the database is created; existing databases are never flipped. |
+| `MESHLOOM_COMMUNITY_IATA` | *(none)* | 3-letter IATA code. **Overrides** the stored IATA on every read while set (it is also seeded into a new database), so the value saved in Settings has no effect until you unset it. |
+| `MESHLOOM_COMMUNITY_BROKER_HOST` | `mqtt.meshloom.app` | Community MQTT broker. Overrides the stored value on every read while set. |
+| `MESHLOOM_COMMUNITY_API_BASE` | `https://api.meshloom.app` | Community HTTP API origin. Overrides the stored value on every read while set. |
+| `MESHLOOM_COMMUNITY_LOCKED` | false | Exactly `1`: enabling Community is refused (403). It does not turn off a Community that is already on. |
 
 By default the app relies on radio events plus MeshCore auto-fetch for incoming messages, and also runs a low-frequency hourly audit poll. That audit checks both:
 
@@ -61,7 +63,7 @@ On BLE connections with many contacts (or radios with large contact tables from 
 If the radio's contact table is already full (from contacts added by advertisements or another client), the app may not be able to load all desired contacts. In this case you'll see a warning that auto-DM acking may not work for all contacts. To resolve this:
 
 - **Clear the radio's contact table** using another MeshCore client (e.g., the official companion app), then restart Meshloom
-- **Lower the contact fill target** in Radio Settings to reduce how many contacts the app tries to load
+- **Lower "Max Contacts on Radio"** in **Settings > Radio**: the app fills to about 80% of it
 - **Enable autoevict mode** (see below) to let the radio automatically make room
 - If you don't need auto-DM acking, you can safely ignore these warnings — **sending and receiving messages is never affected**
 
@@ -77,12 +79,11 @@ Setting `MESHCORE_LOAD_WITH_AUTOEVICT=true` enables an alternative contact loadi
 
 ## Sub-Path Reverse Proxy
 
-Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, so they resolve correctly under any prefix.
+Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed.
 
-**Requirements:**
+The proxy must ensure the sub-path URL has a **trailing slash**. If a user visits `/meshcore` (no slash), relative paths break. For Nginx, a `location /meshcore/ { ... }` block (note the trailing slash) does the right thing.
 
-- The proxy must ensure the sub-path URL has a **trailing slash**. If a user visits `/meshcore` (no slash), relative paths break. Most proxies handle this automatically; for Nginx, a `location /meshcore/ { ... }` block (note the trailing slash) does the right thing.
-- For correct PWA install behavior, the proxy should forward `X-Forwarded-Prefix` (set to the sub-path, e.g. `/meshcore`) so the web manifest generates correct `start_url` and `scope` values. `X-Forwarded-Proto` and `X-Forwarded-Host` are also respected for origin resolution.
+CORS currently allows every origin with credentials (`allow_origins=["*"]`, `allow_credentials=True`). Do not expose the interface beyond a trusted network on the strength of Basic auth alone.
 
 ## HTTPS
 
@@ -123,7 +124,7 @@ From an existing clone, you can still run the checkout installer. It runs as you
 bash scripts/setup/install_service.sh
 ```
 
-You can also rerun the script later to change transport, bot, or auth settings. If the service is already running, the installer stops it, rewrites the unit file, reloads systemd, and starts it again with the new configuration.
+It asks only how to get the frontend (build locally or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables (bots, Basic auth) as `Environment=` lines in the unit.
 
 ## Debug Logging And Bug Reports
 
@@ -139,4 +140,4 @@ You can also navigate to `/api/debug` (or go to Settings -> About -> "Open debug
 
 For day-to-day development, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Windows note: I've seen an intermittent startup issue like `"Received empty packet: index out of range"` with failed contact sync. I can't figure out why this happens. The issue typically resolves on restart. If you can figure out why this happens, I will buy you a virtual or iRL six pack if you're in the PNW. As a former always-windows-girlie before embracing WSL2, I despise second-classing M$FT users, but I'm just stuck with this one.
+Windows: an intermittent startup error `"Received empty packet: index out of range"` with a failed contact sync has been reported. Its cause is unknown; restarting usually clears it.

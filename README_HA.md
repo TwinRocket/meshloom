@@ -10,7 +10,7 @@ Meshloom can publish mesh network data to Home Assistant via MQTT Discovery. Dev
 
 ## Setup
 
-1. In Meshloom, go to **Settings > Integrations > Add > Home Assistant MQTT Discovery**
+1. In Meshloom, go to **Settings > MQTT & Automation**, add an integration and pick **Home Assistant MQTT Discovery**
 2. Enter your MQTT broker host and port (same broker HA is connected to)
 3. Optionally enter broker username/password and TLS settings
 4. Select contacts for GPS tracking and repeaters for telemetry (see below)
@@ -30,7 +30,7 @@ Meshloom uses each node's public key to derive a stable short identifier for MQT
 When this README shows `<node_id>`, it always means that 12-character value. Node IDs appear in:
 
 - MQTT discovery topics under `homeassistant/...`
-- Runtime MQTT state topics under your configured prefix, usually `meshcore/...`
+- Runtime MQTT state topics under the integration's topic prefix (default `meshcore`)
 
 **Entity IDs** are different — HA auto-generates them from the device name and entity name, not from the node ID. For example, a radio named "MyRadio" produces entities like `binary_sensor.myradio_connected` and `event.myradio_messages`. A contact named "Alice" produces `device_tracker.alice`. You can find your actual entity IDs in **Settings > Devices & Services > MQTT** in HA, and you can rename them in HA's UI without affecting the integration.
 
@@ -49,12 +49,17 @@ Always created. Updates every 60 seconds.
 |--------|------|-------------|
 | `binary_sensor.<radio_name>_connected` | Connectivity | Radio online/offline |
 | `sensor.<radio_name>_noise_floor` | Signal strength | Radio noise floor (dBm) |
+| `sensor.<radio_name>_battery` | Voltage | Radio battery (V) |
+| `sensor.<radio_name>_uptime` | Duration | Uptime (s) |
+| `sensor.<radio_name>_last_rssi` / `_last_snr` | Signal | Last received RSSI (dBm) / SNR (dB) |
+| `sensor.<radio_name>_tx_airtime` / `_rx_airtime` | Duration | Transmit / receive airtime (s) |
+| `sensor.<radio_name>_packets_received` / `_packets_sent` | count | Packet counters |
 
 ### Repeater Devices
 
 One device per tracked repeater selected in the HA integration. Updates when telemetry is collected (auto-collect cycle (~8 hours or variable in settings), or when you manually fetch from the repeater dashboard).
 
-Repeaters must first be added to the auto-telemetry tracking list in Meshloom's Radio settings section. Only auto-tracked repeaters appear in the HA integration's repeater picker.
+Repeaters must first be added to automatic telemetry tracking (from the repeater's telemetry history pane; the list is under **Settings > Radio-App Management**). Only tracked repeaters appear in the HA integration's repeater picker.
 
 | Entity | Type | Unit | Description |
 |--------|------|------|-------------|
@@ -64,6 +69,7 @@ Repeaters must first be added to the auto-telemetry tracking list in Meshloom's 
 | `sensor.<repeater_name>_last_snr` | -- | dB | Last signal-to-noise ratio |
 | `sensor.<repeater_name>_packets_received` | -- | count | Total packets received |
 | `sensor.<repeater_name>_packets_sent` | -- | count | Total packets sent |
+| `sensor.<repeater_name>_recv_errors` | -- | count | Receive errors |
 | `sensor.<repeater_name>_uptime` | Duration | s | Uptime since last reboot |
 
 If Meshloom already has a cached telemetry snapshot for that repeater, it republishes it on startup so HA can populate the sensors immediately instead of waiting for the next collection cycle.
@@ -473,7 +479,7 @@ If Meshloom already has cached telemetry for that repeater, it republishes the l
 
 ### Contact device tracker shows "Unknown"
 
-The contact's GPS position only updates when Meshloom hears an advertisement from that node that includes GPS coordinates. If the contact's device doesn't broadcast GPS or hasn't advertised recently, the tracker will show as unknown.
+The contact's GPS position updates only when Meshloom hears an advertisement with GPS coordinates from that node, or collects LPP telemetry that contains a GPS reading. Until then the tracker shows as unknown.
 
 ### Entity is "Unavailable"
 
@@ -511,11 +517,11 @@ To stop and clean up:
 
 ## MQTT Topics Reference
 
-Runtime/state topics (where data is published):
+Runtime/state topics (where data is published; `meshcore` is the default topic prefix):
 
 | Topic | Content | Update frequency |
 |-------|---------|-----------------|
-| `meshcore/{node_id}/health` | `{"connected": bool, "noise_floor_dbm": int}` | Every 60s |
+| `meshcore/{node_id}/health` | `{"connected": bool, "noise_floor_dbm": int, "battery_volts": float, ...}` | Every 60s |
 | `meshcore/{node_id}/telemetry` | `{"battery_volts": float, ...}` | ~8h or manual |
 | `meshcore/{node_id}/gps` | `{"latitude": float, "longitude": float, ...}` | On advert |
 | `meshcore/{node_id}/events/message` | `{"event_type": "message_received", ...}` | On message |
@@ -525,9 +531,7 @@ Discovery topics (entity registration, under `homeassistant/`):
 | Pattern | Entity type |
 |---------|------------|
 | `homeassistant/binary_sensor/meshcore_<node_id>/connected/config` | Radio connectivity |
-| `homeassistant/sensor/meshcore_<node_id>/noise_floor/config` | Noise floor sensor |
-| `homeassistant/sensor/meshcore_<node_id>/battery_voltage/config` | Repeater battery |
-| `homeassistant/sensor/meshcore_<node_id>/*/config` | Other repeater sensors |
+| `homeassistant/sensor/meshcore_<node_id>/<object_id>/config` | Radio, repeater and LPP sensors (e.g. `noise_floor`, `battery_voltage`) |
 | `homeassistant/device_tracker/meshcore_<node_id>/config` | Contact GPS tracker |
 | `homeassistant/event/meshcore_<node_id>/messages/config` | Message event entity |
 

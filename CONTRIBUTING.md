@@ -19,14 +19,7 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-Radio transport is configured in the web UI after startup (`app_settings.radio_transport`). An empty serial port means auto-detect. Do not set `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` to choose a transport.
-
-On Windows (PowerShell):
-
-```powershell
-uv sync
-uv run uvicorn app.main:app --reload
-```
+Radio transport is configured in the web UI after startup (`app_settings.radio_transport`). An empty serial port means auto-detect. Do not set `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` to choose a transport: an existing database with no stored transport imports them once (upgrade path); a new database ignores them (`app/services/radio_transport.py`).
 
 ### Frontend
 
@@ -73,9 +66,9 @@ npm run build
 | Script | Purpose |
 |--------|---------|
 | `all_quality.sh` | Repo-standard gate: autofix (ruff, eslint, prettier), then pyright, pytest, vitest, and frontend build. Run before finishing any code change. |
-| `extended_quality.sh` | `all_quality.sh` plus e2e tests and Docker build matrix. Used for release validation. |
+| `extended_quality.sh` | `all_quality.sh`, then `e2e.sh` (needs a radio), then `docker_ci.sh`. Manual; no workflow calls it. |
 | `e2e.sh` | Thin wrapper that runs Playwright e2e tests from `tests/e2e/`. |
-| `docker_ci.sh` | Builds the Docker image and runs a smoke test against it. |
+| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. |
 
 </details>
 
@@ -84,14 +77,19 @@ npm run build
 
 | Script | Purpose |
 |--------|---------|
-| `publish.sh` | Full release ceremony: quality gate, version bump, changelog, frontend build, Docker multi-arch push, GitHub release. |
+| `publish.sh` | Local release step: quality gate, `LICENSES.md`, version bump (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), changelog, then `git add .`, commit, push, and an annotated `X.Y.Z` tag pushed to origin. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |
-| `package_release_artifact.sh` | Builds the prebuilt-frontend release zip attached to GitHub releases. |
-| `create_github_release.sh` | Creates a GitHub release with changelog notes and the release artifact. |
+| `check_version_consistency.sh` | Fails unless the five version sources above equal the tag (Release `preflight`). |
+| `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |
+| `package_release_artifact.sh` | Builds the prebuilt-frontend release zip (called by `release.yml`). |
+| `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). |
 | `build_nfpm_packages.sh` | Builds Meshloom `.deb` and `.rpm` packages with nFPM. |
+| `check_rpm_signed.py` | Fails unless each `.rpm` carries a signature header. |
+| `neutralize_project_version.py` | Pins the project's own version in the dependency manifests so the Docker dependency layer stays cached across releases. |
+| `build_rpi_image.sh` / `build_rpi_kiosk_image.sh` | Raspberry Pi Lite image (built by `release.yml`) / Desktop kiosk image (manual). |
 | `collect_licenses.sh` | Gathers third-party license attributions into `LICENSES.md`. |
 | `print_frontend_licenses.cjs` | Helper that extracts frontend npm dependency licenses. |
-| `dump_api_specs.py` | Dumps the OpenAPI spec from the running backend (developer utility). |
+| `dump_api_specs.py` | Writes `openapi.json` and `ws_events.json` generated from the code (imports the app; no server needed). |
 
 </details>
 
@@ -121,9 +119,9 @@ The test harness starts its own uvicorn instance on port 8001 with a fresh tempo
 
 ### Test tiers
 
-**Most tests (22 of 28) are fully self-contained.** They seed their own data via API calls or direct DB writes and need only a connected radio. These cover messaging, pagination, search, favorites, settings, fanout integrations, historical decryption, and all UI-only views.
+**Most specs are fully self-contained.** They seed their own data via API calls or direct DB writes and need only a connected radio. These cover messaging, pagination, search, favorites, settings, fanout integrations, historical decryption, and all UI-only views.
 
-**Mesh-traffic tests (tagged `@mesh-traffic`)** wait up to 3 minutes for an incoming message from another node on the network. If no traffic arrives, they fail with an advisory that the failure may be RF conditions, not a bug. These are: `incoming-message` and `packet-feed` (second test only).
+**Mesh-traffic tests (tagged `@mesh-traffic`)** wait up to 3 minutes for an incoming message from another node on the network. If no traffic arrives, they fail with an advisory that the failure may be RF conditions, not a bug. These are `incoming-message` and the second test of `packet-feed`.
 
 **The partner-radio DM ACK test (tagged `@partner-radio`)** validates direct-route learning by sending a DM and waiting for an ACK. It requires a second radio in range that has your test radio in its contacts. Configure the partner node's public key and name via `E2E_PARTNER_RADIO_PUBKEY` and `E2E_PARTNER_RADIO_NAME`.
 
@@ -179,17 +177,4 @@ npx playwright test
 
 ## Notes For Agent-Assisted Work
 
-Before making non-trivial changes, read:
-
-- `./AGENTS.md`
-- `./app/AGENTS.md`
-- `./frontend/AGENTS.md`
-
-Read these only when working in those areas:
-
-- `./app/fanout/AGENTS_fanout.md`
-- `./frontend/src/components/visualizer/AGENTS_packet_visualizer.md`
-
-- Agent output is welcome, but human review is mandatory.
-- Agents should start with the AGENTS files above before making architectural changes.
-- If a change touches advanced areas like fanout or the visualizer, read the area-specific AGENTS file before editing.
+Agents start from [`AGENTS.md`](AGENTS.md) at the repository root: it is the canonical guide (map, commands, delivery flow, working rules) and points to the area-specific files. Agent output is welcome, but human review is mandatory.
