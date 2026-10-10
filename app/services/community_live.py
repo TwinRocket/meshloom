@@ -552,6 +552,20 @@ class CommunityLiveRelay:
                 self._idle_close_task = None
         await self.close_stats()
 
+    def drain_queue(self) -> int:
+        """Drop frames waiting for fan-out (opt-out). Returns how many were dropped."""
+        dropped = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return dropped
+            if item is None:
+                # The fan-out stop sentinel is not a frame: keep it.
+                self._queue.put_nowait(None)
+                return dropped
+            dropped += 1
+
     async def shutdown(self) -> None:
         await self.release_all_consumers()
         await self._stop_fanout()
@@ -645,7 +659,7 @@ class CommunityLiveRelay:
     async def _run(self, generation: int) -> None:
         from app.services.meshloom_community import (
             classify_auth_rejection,
-            get_community_effective,
+            community_egress_state,
             mint_stats_jwt,
         )
 
@@ -658,7 +672,7 @@ class CommunityLiveRelay:
                 if not self._has_consumers() or self._gate_blocked or self._auth_error is not None:
                     return
                 try:
-                    state = await get_community_effective()
+                    state = await community_egress_state()
                 except Exception:
                     if generation != self._generation:
                         return
@@ -666,7 +680,7 @@ class CommunityLiveRelay:
                     await self._sleep_backoff(generation, delay)
                     delay = min(RECONNECT_MAX_S, delay * RECONNECT_FACTOR)
                     continue
-                if not state.enabled:
+                if state is None:
                     opted_out = True
                     return
                 if not state.iata:

@@ -640,11 +640,14 @@ class TestAirportSearch:
             {"ap": "XX", "airportname": "too-short"},
         ]
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=response)
+        mock_client.request = AsyncMock(return_value=response)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         monkeypatch.setattr(
             meshloom_community.httpx, "AsyncClient", MagicMock(return_value=mock_client)
+        )
+        monkeypatch.setattr(
+            meshloom_community, "community_egress_state", AsyncMock(return_value=MagicMock())
         )
 
         hits = await meshloom_community.search_community_airports("Lyon", locale="fr")
@@ -653,8 +656,26 @@ class TestAirportSearch:
         assert hits[0].name == "Lyon-Saint-Exupéry"
         assert hits[0].lat == 45.7256
         assert hits[0].lon == 5.0811
-        mock_client.get.assert_awaited()
-        assert mock_client.get.await_args.kwargs["params"]["locale"] == "fr"
+        mock_client.request.assert_awaited()
+        assert mock_client.request.await_args.args[:2] == (
+            "GET",
+            meshloom_community.AIRPORT_SEARCH_URL,
+        )
+        assert mock_client.request.await_args.kwargs["params"]["locale"] == "fr"
+
+    @pytest.mark.asyncio
+    async def test_off_searches_nothing(self, monkeypatch):
+        """Opted out means no request to the airport search either."""
+        from app.services import meshloom_community
+
+        client_cls = MagicMock()
+        monkeypatch.setattr(meshloom_community.httpx, "AsyncClient", client_cls)
+        monkeypatch.setattr(
+            meshloom_community, "community_egress_state", AsyncMock(return_value=None)
+        )
+
+        assert await meshloom_community.search_community_airports("Lyon") == []
+        client_cls.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_airport_coords_are_optional(self, monkeypatch):
@@ -674,11 +695,14 @@ class TestAirportSearch:
             }
         ]
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=response)
+        mock_client.request = AsyncMock(return_value=response)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         monkeypatch.setattr(
             meshloom_community.httpx, "AsyncClient", MagicMock(return_value=mock_client)
+        )
+        monkeypatch.setattr(
+            meshloom_community, "community_egress_state", AsyncMock(return_value=MagicMock())
         )
 
         hits = await meshloom_community.search_community_airports("CDG")

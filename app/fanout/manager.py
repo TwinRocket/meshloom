@@ -151,11 +151,11 @@ class FanoutManager:
     async def sync_system_modules(self) -> None:
         """Start or stop the Meshloom Stats publisher from community state."""
         from app.fanout.meshloom_stats import MeshloomStatsModule
-        from app.services.meshloom_community import get_community_effective
+        from app.services.meshloom_community import community_egress_state
 
-        state = await get_community_effective()
+        state = await community_egress_state()
         existing = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
-        if not state.enabled:
+        if state is None:
             if existing is not None:
                 await self.remove_config(SYSTEM_MESHLOOM_STATS_ID)
             return
