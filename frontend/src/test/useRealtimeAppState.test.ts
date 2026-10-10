@@ -407,7 +407,8 @@ describe('useRealtimeAppState', () => {
       result.current.onRawPacket?.(packet);
     });
 
-    expect(getRawPackets()).toEqual([packet]);
+    // Live frames are stamped with the browser receipt time when recorded.
+    expect(getRawPackets()).toEqual([{ ...packet, received_at_ms: expect.any(Number) }]);
     expect(getRawPacketStatsSession().totalObservedPackets).toBe(1);
   });
 
