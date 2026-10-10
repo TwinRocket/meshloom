@@ -106,12 +106,6 @@ async def get_hashtags() -> CommunityHashtagsResponse:
     return CommunityHashtagsResponse.model_validate(payload)
 
 
-@router.get("/iata/{code}/hashtags", response_model=CommunityHashtagsResponse)
-async def get_iata_hashtags(code: str) -> CommunityHashtagsResponse:
-    del code
-    return await get_hashtags()
-
-
 @router.post("/live/subscribe", response_model=CommunityLiveStatus)
 async def post_live_subscribe(
     body: CommunityLiveSubscribeRequest | None = None,
