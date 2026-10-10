@@ -1,3 +1,72 @@
+## [4.18.0] - 2026-10-10
+
+Updates are now signed from end to end, and Meshloom opens faster and stays fast on busy meshes.
+
+### Before you upgrade
+
+- **Fedora: upgrade once by hand.** The 4.17 updater cannot move a Fedora install forward: it asks dnf to install a package that is already installed, which does nothing and still reports success. Run `sudo dnf upgrade --refresh meshloom` once. From 4.18 on, the in-app update works.
+- **Docker installs made with the one-line installer: run it again once.** This switches your stack to the new, secured update helper. Your radio settings are kept, your compose file is backed up first, and the installer stops and shows you the difference if you edited that file. Until you do, Settings, Updates shows a banner reminding you.
+- **The apt and dnf repository is now signed.** This is its first signed release. The key fingerprint is `D852 F2F0 892A BF37 9F52 D110 FB3E B7BB C439 35C8` (Meshloom Release Signing <releases@meshloom.app>). Package installs switch to it on their own during this upgrade.
+
+### Security
+
+- **Updates install only what Meshloom signed.** The part of the updater that runs as root no longer reads anything the app can write. It takes its target from the signed repository or signed release files, refuses unsigned or "trusted" sources, refuses downgrades, and stops rather than guess when something is off. Docker installs are pinned to an exact, verified image.
+- **Signed release files.** Each release publishes a signed `SHA256SUMS` for its packages, release zip and installer, and a signed `OCI-DIGESTS` for the Docker image. Debian and RPM packages are signed too, and builds carry provenance attestations, so you can check where a file came from.
+- **Map security fix.** The live map library is upgraded to MapLibre 6, which fixes a critical advisory (GHSA-jrc7-96c5-q579).
+
+### Faster
+
+- **The first load is about a third lighter.** Rarely used panels load when you open them, and only your language is downloaded.
+- **Busy meshes no longer slow everything down.** A repeated advert is about 15 times cheaper to handle, unread counts about 19 times faster to compute, and channel messages are matched to their channel more directly. Since these all ran under the same database lock, every other request waits less too.
+- **A slow browser tab no longer holds up the others.** Each open tab gets its own bounded queue. During a burst of radio traffic, raw packet frames are dropped for a tab that falls behind instead of disconnecting it.
+
+### Fixed
+
+- **Reconnecting is calmer and loses nothing.** After a dropped connection, the app retries with a growing delay instead of a fixed one, and a late snapshot can no longer overwrite newer messages that arrived live.
+- **Numbers follow your language.** Counts and distances use your language's separators, for example `0,3` in French.
+- **Shutdown and database upgrades are safer.** Each shutdown step is bounded and logged, the database is always closed, and each database upgrade is applied together with its version number, so an interrupted upgrade cannot leave it half done.
+
+### What's new
+
+- **Optional raw packet retention.** A new setting, `raw_packet_retention_days` (off by default), deletes packets that were never decrypted after that many days and gives the space back. Packets deleted this way cannot be decrypted later, even if you add the right channel or contact key. For now it is set through the API only.
+
+---
+
+### Français
+
+Les mises à jour sont désormais signées de bout en bout, et Meshloom s'ouvre plus vite et reste rapide sur un réseau chargé.
+
+#### Avant de mettre à jour
+
+- **Fedora : mettez à jour une fois à la main.** Le système de mise à jour de la 4.17 ne fait pas avancer une installation Fedora : il demande à dnf d'installer un paquet déjà installé, ce qui ne fait rien et annonce pourtant un succès. Lancez une fois `sudo dnf upgrade --refresh meshloom`. À partir de la 4.18, la mise à jour depuis l'application fonctionne.
+- **Installations Docker faites avec l'installeur en une ligne : relancez-le une fois.** Il fait passer votre installation au nouveau système de mise à jour sécurisé. Vos réglages radio sont conservés, votre fichier compose est sauvegardé d'abord, et l'installeur s'arrête en montrant la différence si vous l'avez modifié. D'ici là, Réglages, Mises à jour affiche un bandeau de rappel.
+- **Le dépôt apt et dnf est maintenant signé.** C'est sa première version signée. L'empreinte de la clé est `D852 F2F0 892A BF37 9F52 D110 FB3E B7BB C439 35C8` (Meshloom Release Signing <releases@meshloom.app>). Les installations par paquet passent dessus d'elles-mêmes pendant cette mise à jour.
+
+#### Sécurité
+
+- **Les mises à jour n'installent que ce que Meshloom a signé.** La partie du système de mise à jour qui tourne en root ne lit plus rien que l'application peut écrire. Elle prend sa cible dans le dépôt signé ou les fichiers de version signés, refuse les sources non signées ou « de confiance », refuse les retours en arrière, et s'arrête plutôt que de deviner quand quelque chose cloche. Les installations Docker sont épinglées sur une image exacte et vérifiée.
+- **Fichiers de version signés.** Chaque version publie un `SHA256SUMS` signé pour ses paquets, son archive et son installeur, et un `OCI-DIGESTS` signé pour l'image Docker. Les paquets Debian et RPM sont signés eux aussi, et les builds portent des attestations de provenance : on peut vérifier d'où vient un fichier.
+- **Correctif de sécurité de la carte.** La bibliothèque de la carte en direct passe à MapLibre 6, qui corrige une alerte critique (GHSA-jrc7-96c5-q579).
+
+#### Plus rapide
+
+- **Le premier chargement est allégé d'environ un tiers.** Les panneaux peu utilisés se chargent à l'ouverture, et seule votre langue est téléchargée.
+- **Un réseau chargé ne ralentit plus tout.** Une annonce répétée coûte environ 15 fois moins cher à traiter, les compteurs de non-lus se calculent environ 19 fois plus vite, et les messages de canal retrouvent leur canal plus directement. Comme tout cela passait par le même verrou de base de données, les autres requêtes attendent moins aussi.
+- **Un onglet lent ne bloque plus les autres.** Chaque onglet ouvert a sa propre file bornée. Pendant une rafale de trafic radio, les paquets bruts sont abandonnés pour l'onglet qui prend du retard au lieu de le déconnecter.
+
+#### Corrections
+
+- **La reconnexion est plus sereine et ne perd rien.** Après une coupure, l'application réessaie avec un délai croissant plutôt que fixe, et un instantané en retard ne peut plus écraser des messages plus récents arrivés en direct.
+- **Les nombres suivent votre langue.** Compteurs et distances utilisent les séparateurs de votre langue, par exemple `0,3` en français.
+- **Arrêt et mises à niveau de la base plus sûrs.** Chaque étape de l'arrêt est bornée et journalisée, la base est toujours fermée, et chaque mise à niveau de la base est appliquée avec son numéro de version : une mise à niveau interrompue ne peut plus la laisser à moitié faite.
+
+#### Quoi de neuf
+
+- **Conservation des paquets bruts, en option.** Un nouveau réglage, `raw_packet_retention_days` (désactivé par défaut), supprime après ce nombre de jours les paquets jamais déchiffrés et récupère la place. Un paquet supprimé ainsi ne pourra plus être déchiffré, même si vous ajoutez plus tard la bonne clé de canal ou de contact. Pour l'instant, il se règle uniquement par l'API.
+
+---
+
+
 ## [4.17.0] - 2026-10-07
 
 The Home Assistant map is back, and "Mark all read" is now on the conversation list, one tap away.
