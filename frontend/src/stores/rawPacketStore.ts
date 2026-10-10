@@ -105,6 +105,9 @@ function observePacket(
 
 /** Record one observed packet into both the rolling buffer and the session stats. */
 export function recordRawPacket(packet: RawPacket, maxPackets: number = MAX_RAW_PACKETS): void {
+  if (packet.received_at_ms === undefined) {
+    packet = { ...packet, received_at_ms: Date.now() };
+  }
   const nextPackets = appendPacket(packet, maxPackets);
   const nextStats = observePacket(statsSession, packet);
   if (nextPackets === packets && nextStats === statsSession) {
