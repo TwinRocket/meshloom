@@ -914,10 +914,10 @@
     "community": {
       "loading": "Loading Meshloom Community…",
       "joinTitle": "Meshloom Community",
-      "intro": "Meshloom Community is on by default. Enter the IATA code of the nearest airport so this server can publish overheard packets and use the community directory. The browser talks only to this Meshloom server.",
+      "intro": "Meshloom Community is on by default. Enter the IATA code of the nearest airport so this server can publish overheard packets and use the Community directory. The browser talks only to this Meshloom server.",
       "joinHelp": "Turn Meshloom Community back on and save a 3-letter IATA airport code. Nothing is published until you join.",
       "bannerMessage": "To use all Meshloom Community features, enter the IATA code of the nearest airport.",
-      "bannerOptedOut": "Meshloom Community is off. Turn it on and enter the IATA code of the nearest airport to use all community features.",
+      "bannerOptedOut": "Meshloom Community is off. Turn it on and enter the IATA code of the nearest airport to use all Community features.",
       "bannerOpenSettings": "Open settings",
       "bannerDismiss": "Don't show again",
       "iataSearch": "Find an airport",

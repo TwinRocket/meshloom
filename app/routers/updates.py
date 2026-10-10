@@ -1,4 +1,4 @@
-"""OSS update catalogue plus Meshloom-only apply."""
+"""Release check (GitHub, Community mirror) plus Meshloom-only apply."""
 
 from __future__ import annotations
 
@@ -42,7 +42,14 @@ class UpdateStatusResponse(BaseModel):
     current: str = Field(description="Local Meshloom SemVer from get_app_build_info()")
     latest: str | None = Field(description="Latest published SemVer, or null if unknown")
     update_available: bool
-    html_url: str | None = Field(description="GitHub release URL from Stats, or null")
+    html_url: str | None = Field(description="GitHub release page of `latest`, or null")
+    latest_source: Literal["github", "community", "env"] | None = Field(
+        default=None,
+        description=(
+            "Where `latest` came from: GitHub releases/latest (primary), the "
+            "Community mirror (fallback), or the MESHLOOM_UPDATE_LATEST pin"
+        ),
+    )
     install_kind: Literal["package", "compose", "addon", "container", "source"]
     apply_supported: bool
     auto_update: bool
@@ -119,6 +126,7 @@ async def build_update_status() -> UpdateStatusResponse:
         latest=catalogue["latest"],
         update_available=catalogue["update_available"],
         html_url=catalogue["html_url"],
+        latest_source=catalogue.get("source"),
         install_kind=kind,
         apply_supported=supported,
         auto_update=settings.auto_update,

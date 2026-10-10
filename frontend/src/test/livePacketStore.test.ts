@@ -144,4 +144,43 @@ describe('livePacketStore', () => {
     });
     expect(liveBannerI18nKey(getLiveConnectionState())).toBe('live.bannerOptOut');
   });
+
+  it('maps a given-up token refusal to a banner, not to reconnecting', () => {
+    applyLiveStatus({
+      close_code: null,
+      opted_out: false,
+      connected: false,
+      state: 'auth_rejected',
+      auth_error: 'clock_skew',
+      clock_skew_s: 125.4,
+    });
+    const state = getLiveConnectionState();
+    expect(state.reconnecting).toBe(false);
+    expect(state.authError).toBe('clock_skew');
+    expect(state.clockSkewS).toBe(125);
+    expect(liveBannerI18nKey(state)).toBe('live.bannerClockSkew');
+
+    applyLiveStatus({
+      close_code: null,
+      opted_out: false,
+      connected: false,
+      state: 'auth_rejected',
+    });
+    expect(liveBannerI18nKey(getLiveConnectionState())).toBe('live.bannerTokenRejected');
+
+    applyLiveStatus({ close_code: null, opted_out: false, connected: true, state: 'connected' });
+    expect(getLiveConnectionState().authError).toBeNull();
+    expect(liveBannerI18nKey(getLiveConnectionState())).toBeNull();
+  });
+
+  it('opt-out wins over a token refusal', () => {
+    applyLiveStatus({
+      close_code: null,
+      opted_out: true,
+      connected: false,
+      auth_error: 'token_rejected',
+    });
+    expect(getLiveConnectionState().authError).toBeNull();
+    expect(liveBannerI18nKey(getLiveConnectionState())).toBe('live.bannerOptOut');
+  });
 });

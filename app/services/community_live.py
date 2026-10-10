@@ -8,7 +8,11 @@ Upstream lifetime is independent of any one browser session: a page reload
 that cannot run React cleanup must not close or reopen the Stats socket.
 The reader loop reconnects itself (capped exponential backoff) on every
 close except reserved 4002 (unused; not a product 24h sesame). JWT remint
-is local and happens on each connect attempt. The live JWT includes the
+is local and happens on each connect attempt. A close 4001 on a socket that
+stayed up remints at once; a handshake 401 never does: it backs off, and the
+relay gives up after ``AUTH_REJECT_MAX_ATTEMPTS`` consecutive refusals (at
+once for refusals no retry can fix) with state ``auth_rejected`` and an
+``auth_error`` reason the UI can explain (``clock_skew`` / ``token_rejected``). The live JWT includes the
 local IATA when set; Stats still treats the claim as optional.
 ``X-Live-Instance`` identifies this process so a v2 Stats server can treat
 our reconnect as a silent same-relay takeover.
@@ -34,6 +38,17 @@ IDLE_CLOSE_GRACE_S = 1.5
 RECONNECT_INITIAL_S = 0.5
 RECONNECT_MAX_S = 30.0
 RECONNECT_FACTOR = 2.0
+# Handshake 401: first retry after AUTH_RETRY_INITIAL_S, doubled each time;
+# stop after AUTH_REJECT_MAX_ATTEMPTS consecutive refusals.
+AUTH_RETRY_INITIAL_S = 2.0
+AUTH_REJECT_MAX_ATTEMPTS = 5
+# A socket must stay up this long to count as healthy: only then does a 4001
+# remint at once and the reconnect backoff start over.
+JWT_EXPIRY_MIN_UPTIME_S = 10.0
+# 401 codes no retry can fix without a human (community errors.md).
+AUTH_FATAL_CODES = frozenset(
+    {"token_audience", "token_signature", "token_malformed", "token_missing", "token_in_query"}
+)
 
 CLOSE_JWT_EXPIRED = 4001
 CLOSE_INACTIVE = 4002
@@ -44,8 +59,8 @@ LIVE_CLOSE_CODES = frozenset(
     {CLOSE_JWT_EXPIRED, CLOSE_INACTIVE, CLOSE_SLOT_BUSY, CLOSE_RATE_LIMIT, CLOSE_SUPERSEDED}
 )
 USER_CLOSE_CODES = frozenset({CLOSE_JWT_EXPIRED, CLOSE_INACTIVE})
+# 401 is deliberately absent: a handshake refusal is not a 4001 (see _run).
 HANDSHAKE_TO_CLOSE = {
-    401: CLOSE_JWT_EXPIRED,
     403: CLOSE_INACTIVE,
     409: CLOSE_SUPERSEDED,
     429: CLOSE_RATE_LIMIT,
@@ -76,7 +91,8 @@ PACKET_TYPES = KNOWN_PACKET_TYPES
 _PACKET_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
-LiveState = Literal["connected", "reconnecting", "gate", "opted_out", "idle"]
+LiveState = Literal["connected", "reconnecting", "gate", "opted_out", "idle", "auth_rejected"]
+LiveAuthError = Literal["clock_skew", "token_rejected"]
 _HASH8_RE = re.compile(r"^[0-9a-f]{8}$")
 _PACKET_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
@@ -128,6 +144,19 @@ def _http_status(exc: BaseException) -> int | None:
         if isinstance(nested, int):
             return nested
     return None
+
+
+def _handshake_body(exc: BaseException) -> dict[str, Any] | None:
+    """JSON body of a refused handshake (websockets ``InvalidStatus.response.body``)."""
+    response = getattr(exc, "response", None)
+    body = getattr(response, "body", None)
+    if not isinstance(body, (bytes, bytearray)) or not body:
+        return None
+    try:
+        payload = json.loads(bytes(body).decode())
+    except (UnicodeDecodeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _finite_coord(value: object) -> float | None:
@@ -357,6 +386,9 @@ class CommunityLiveRelay:
         self._connected = False
         self._close_code: int | None = None
         self._gate_blocked = False
+        self._auth_error: LiveAuthError | None = None
+        self._auth_code: str | None = None
+        self._clock_skew_s: int | None = None
         self._generation = 0
         self._instance_id = uuid.uuid4().hex
 
@@ -389,6 +421,8 @@ class CommunityLiveRelay:
     def _live_state(self, *, opted_out: bool) -> LiveState:
         if opted_out:
             return "opted_out"
+        if self._auth_error is not None:
+            return "auth_rejected"
         if self._gate_blocked:
             return "gate"
         if self._connected:
@@ -406,6 +440,9 @@ class CommunityLiveRelay:
             "opted_out": opted_out,
             "connected": self._connected,
             "state": self._live_state(opted_out=opted_out),
+            "auth_error": None if opted_out else self._auth_error,
+            "auth_code": None if opted_out else self._auth_code,
+            "clock_skew_s": None if opted_out else self._clock_skew_s,
         }
 
     async def _can_open_live(self, enabled: bool) -> bool:
@@ -422,7 +459,7 @@ class CommunityLiveRelay:
         # socket against our own pubkey slot (measured production deadlock).
         if not self._lock.locked():
             raise RuntimeError("reader claim requires the relay lock")
-        if self._gate_blocked:
+        if self._gate_blocked or self._auth_error is not None:
             return
         if self._reader_task is not None and not self._reader_task.done():
             return
@@ -468,12 +505,13 @@ class CommunityLiveRelay:
         return self.snapshot(opted_out=not await community_enabled())
 
     async def relancer(self) -> dict[str, Any]:
-        """Mint a new API JWT and reconnect. Clears leftover 4002/_gate_blocked."""
+        """Mint a new API JWT and reconnect. Clears 4002 and a given-up 401."""
         from app.services.meshloom_community import community_enabled
 
         enabled = await community_enabled()
         can_open = await self._can_open_live(enabled)
         self._gate_blocked = False
+        self._clear_auth_error()
         self._close_code = None
         await self.close_stats()
         if can_open:
@@ -484,7 +522,14 @@ class CommunityLiveRelay:
             await self._broadcast_status(opted_out=not enabled)
         return self.snapshot(opted_out=not enabled)
 
+    def _clear_auth_error(self) -> None:
+        self._auth_error = None
+        self._auth_code = None
+        self._clock_skew_s = None
+
     async def sync_community(self, enabled: bool) -> None:
+        # A settings change (IATA, API base, opt-in) is a fresh start for auth.
+        self._clear_auth_error()
         if not enabled:
             self._gate_blocked = False
             await self.close_stats()
@@ -524,7 +569,7 @@ class CommunityLiveRelay:
             try:
                 await ws.close()
             except Exception:
-                logger.debug("Stats live socket close failed", exc_info=True)
+                logger.debug("Community live socket close failed", exc_info=True)
         if task is not None and not task.done():
             task.cancel()
             try:
@@ -598,14 +643,19 @@ class CommunityLiveRelay:
         return websockets.connect(url, **_connect_header_kwargs(headers))
 
     async def _run(self, generation: int) -> None:
-        from app.services.meshloom_community import get_community_effective, mint_stats_jwt
+        from app.services.meshloom_community import (
+            classify_auth_rejection,
+            get_community_effective,
+            mint_stats_jwt,
+        )
 
         await self._ensure_fanout()
         delay = RECONNECT_INITIAL_S
+        auth_failures = 0
         opted_out = False
         try:
             while generation == self._generation:
-                if not self._has_consumers() or self._gate_blocked:
+                if not self._has_consumers() or self._gate_blocked or self._auth_error is not None:
                     return
                 try:
                     state = await get_community_effective()
@@ -637,8 +687,11 @@ class CommunityLiveRelay:
                     await self._sleep_backoff(generation, delay)
                     delay = min(RECONNECT_MAX_S, delay * RECONNECT_FACTOR)
                     continue
-                logger.info("Opening Stats live socket")
+                logger.info("Opening Community live socket")
                 close_code: int | None = None
+                auth_payload: dict[str, Any] | None = None
+                auth_refused = False
+                opened_at: float | None = None
                 try:
                     async with await self._connect(url, token) as ws:
                         if generation != self._generation:
@@ -646,7 +699,8 @@ class CommunityLiveRelay:
                         self._ws = ws
                         self._connected = True
                         self._close_code = None
-                        delay = RECONNECT_INITIAL_S
+                        opened_at = time.monotonic()
+                        auth_failures = 0
                         await self._broadcast_status(opted_out=False)
                         async for message in ws:
                             if generation != self._generation:
@@ -663,14 +717,60 @@ class CommunityLiveRelay:
                 except Exception as exc:
                     if generation != self._generation:
                         return
-                    close_code = map_stats_close(
-                        code=_ws_close_code(exc), http_status=_http_status(exc)
+                    http_status = _http_status(exc)
+                    if http_status == 401:
+                        auth_refused = True
+                        auth_payload = _handshake_body(exc)
+                    else:
+                        close_code = map_stats_close(
+                            code=_ws_close_code(exc), http_status=http_status
+                        )
+                    logger.info(
+                        "Community live socket ended (close_code=%s, http=%s)",
+                        close_code,
+                        http_status,
                     )
-                    logger.info("Stats live socket ended (close_code=%s)", close_code)
                 self._connected = False
                 self._ws = None
+                # Only a socket that stayed up earns a fresh backoff; one that is
+                # closed right after opening keeps growing the delay.
+                stayed_up = (
+                    opened_at is not None
+                    and time.monotonic() - opened_at >= JWT_EXPIRY_MIN_UPTIME_S
+                )
+                if stayed_up:
+                    delay = RECONNECT_INITIAL_S
                 if generation != self._generation or not self._has_consumers():
                     return
+                if auth_refused:
+                    auth_failures += 1
+                    reason, skew = classify_auth_rejection(auth_payload)
+                    code = (auth_payload or {}).get("code")
+                    give_up = (
+                        reason in AUTH_FATAL_CODES or auth_failures >= AUTH_REJECT_MAX_ATTEMPTS
+                    )
+                    logger.warning(
+                        "Community refused the live token (%s, attempt %d/%d)%s",
+                        reason,
+                        auth_failures,
+                        AUTH_REJECT_MAX_ATTEMPTS,
+                        "; giving up until Relancer or a settings change" if give_up else "",
+                    )
+                    self._close_code = None
+                    if give_up:
+                        self._auth_error = (
+                            "clock_skew" if reason == "clock_skew" else "token_rejected"
+                        )
+                        self._auth_code = code if isinstance(code, str) and code else None
+                        self._clock_skew_s = skew
+                        await self._broadcast_status(opted_out=False)
+                        return
+                    await self._broadcast_status(opted_out=False)
+                    await self._sleep_backoff(
+                        generation,
+                        min(RECONNECT_MAX_S, AUTH_RETRY_INITIAL_S * 2 ** (auth_failures - 1)),
+                    )
+                    continue
                 if close_code == CLOSE_INACTIVE:
                     # 4002 is reserved unused. Do not reconnect this generation.
                     # Do not set _gate_blocked: 4002 is not a product 24h sesame.
@@ -679,9 +779,13 @@ class CommunityLiveRelay:
                     return
                 self._close_code = user_visible_close_code(close_code)
                 await self._broadcast_status(opted_out=False)
-                sleep_for = 0.0 if close_code == CLOSE_JWT_EXPIRED else delay
+                # A natural JWT expiry (socket stayed up) remints at once. A 4001
+                # right after opening means the server keeps rejecting fresh
+                # tokens: that is a loop, so back off like any other close.
+                natural_expiry = close_code == CLOSE_JWT_EXPIRED and stayed_up
+                sleep_for = 0.0 if natural_expiry else delay
                 await self._sleep_backoff(generation, sleep_for)
-                if close_code != CLOSE_JWT_EXPIRED:
+                if not natural_expiry:
                     delay = min(RECONNECT_MAX_S, max(RECONNECT_INITIAL_S, delay) * RECONNECT_FACTOR)
         finally:
             if generation == self._generation:

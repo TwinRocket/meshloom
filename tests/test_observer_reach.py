@@ -13,6 +13,7 @@ from app.repository import (
     MessageRepository,
     RawPacketRepository,
 )
+from app.services.meshloom_community import CommunityUpstreamError
 from app.services.observer_reach import (
     ParsedReach,
     get_packet_observer_reach,
@@ -426,7 +427,7 @@ class TestObserverReachGate:
 
 class TestCommunityObserverReach:
     @pytest.mark.asyncio
-    async def test_batch_unavailable_falls_back_to_packet_detail(self, test_db):
+    async def test_batch_route_missing_falls_back_to_packet_detail(self, test_db):
         reset_observer_reach_cache()
         from app.services.meshloom_community import update_community
 
@@ -434,7 +435,9 @@ class TestCommunityObserverReach:
 
         async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
             if path.endswith("/observations"):
-                raise HTTPException(status_code=500, detail="Stats directory unavailable")
+                raise CommunityUpstreamError(
+                    502, "Community request failed (HTTP 404)", upstream_status=404
+                )
             if "/packets/" in path:
                 return {
                     "observers": [
@@ -531,7 +534,7 @@ class TestCommunityObserverReach:
         await update_community(enabled=True, iata="LYS")
 
         async def fake_data(*_args: object, **_kwargs: object) -> object:
-            raise HTTPException(status_code=500, detail="Stats directory unavailable")
+            raise HTTPException(status_code=503, detail="Community directory unavailable")
 
         with patch(
             "app.services.directory._community_directory_data",
@@ -539,7 +542,40 @@ class TestCommunityObserverReach:
         ):
             with pytest.raises(HTTPException) as exc:
                 await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == 503
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            HTTPException(status_code=503, detail="Community is unreachable"),
+            HTTPException(status_code=503, detail="Community is unavailable (HTTP 502)"),
+            CommunityUpstreamError(502, "Community rejected", upstream_status=403),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_failing_batch_never_fans_out_per_hash(self, test_db, error):
+        """5xx / timeout / breaker on the batch must not turn into one GET per hash."""
+        reset_observer_reach_cache()
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        calls: list[str] = []
+
+        async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
+            calls.append(path)
+            if path.endswith("/observations"):
+                raise error
+            return {"observers": []}
+
+        hashes = [f"{i:016X}" for i in range(1, 9)]
+        with patch(
+            "app.services.directory._community_directory_data",
+            side_effect=fake_data,
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await get_packet_observer_reach_counts(hashes)
+        assert exc.value.status_code == error.status_code
+        assert [p for p in calls if "/packets/" in p and not p.endswith("/observations")] == []
 
     @pytest.mark.asyncio
     async def test_unsealed_result_uses_live_ttl(self, test_db):
@@ -708,7 +744,9 @@ class TestCommunityObserverReach:
 
         async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
             if path.endswith("/observations"):
-                raise HTTPException(status_code=500, detail="Stats directory unavailable")
+                raise CommunityUpstreamError(
+                    502, "Community request failed (HTTP 404)", upstream_status=404
+                )
             if "/packets/" in path:
                 return {
                     "observers": [
@@ -861,7 +899,7 @@ class TestCommunityObserverReach:
 
         async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
             if fail:
-                raise HTTPException(status_code=500, detail="Stats directory unavailable")
+                raise HTTPException(status_code=503, detail="Community directory unavailable")
             if path.endswith("/observations"):
                 return {
                     "results": {
@@ -885,7 +923,7 @@ class TestCommunityObserverReach:
         ):
             with pytest.raises(HTTPException) as exc:
                 await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
-            assert exc.value.status_code == 500
+            assert exc.value.status_code == 503
             fail = False
             result = await get_packet_observer_reach_counts(["AABBCCDDEEFF0011"])
         assert result.counts["AABBCCDDEEFF0011"] == 1

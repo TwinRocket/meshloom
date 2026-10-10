@@ -300,6 +300,14 @@ export function LiveView({
   const needsCommunitySetup =
     iataKnown && (!communityEnabled || communityIata.trim() === '' || connection.optOut);
   const bannerKey = needsCommunitySetup ? 'live.bannerOptOut' : liveBannerI18nKey(connection);
+  const authRejected = !needsCommunitySetup && connection.banner === 'auth_rejected';
+  const skewMinutes =
+    connection.clockSkewS != null
+      ? Math.max(1, Math.round(Math.abs(connection.clockSkewS) / 60))
+      : null;
+  const retryLive = useCallback(() => {
+    void api.relancerCommunityLive().then(applyLiveStatus, () => {});
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -307,7 +315,19 @@ export function LiveView({
         <LiveBanner tone="muted">
           <div className="flex flex-wrap items-center gap-2">
             <span>{t(bannerKey)}</span>
-            {onOpenCommunitySettings && (
+            {authRejected && skewMinutes != null && connection.authError === 'clock_skew' && (
+              <span>
+                {t((connection.clockSkewS ?? 0) > 0 ? 'live.clockBehindBy' : 'live.clockAheadBy', {
+                  count: skewMinutes,
+                })}
+              </span>
+            )}
+            {authRejected && (
+              <Button type="button" size="sm" variant="outline" onClick={retryLive}>
+                {t('live.retry')}
+              </Button>
+            )}
+            {!authRejected && onOpenCommunitySettings && (
               <Button type="button" size="sm" variant="outline" onClick={onOpenCommunitySettings}>
                 {t('settings.community.bannerOpenSettings')}
               </Button>
