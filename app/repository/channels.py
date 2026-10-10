@@ -1,3 +1,5 @@
+import functools
+import hashlib
 import time
 from typing import Any
 
@@ -71,8 +73,59 @@ _CHANNEL_SELECT = (
 )
 
 
+# GroupText trial-decrypt index: first byte of SHA256(key) -> [(key, name,
+# key bytes)], in ``get_all()`` order (first match wins, as before). Built
+# lazily, dropped by every write that can add, remove or rename a channel, and
+# tied to the connected Database object so a swapped DB never sees stale keys.
+_DecryptCandidate = tuple[str, str, bytes]
+_decrypt_index: dict[int, list[_DecryptCandidate]] | None = None
+_decrypt_index_db: object | None = None
+_decrypt_index_generation = 0
+
+
+def invalidate_channel_decrypt_index() -> None:
+    global _decrypt_index, _decrypt_index_generation
+    _decrypt_index = None
+    _decrypt_index_generation += 1
+
+
+def _invalidates_decrypt_index(fn):
+    """Drop the decrypt index once the write has committed (or failed)."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        finally:
+            invalidate_channel_decrypt_index()
+
+    return wrapper
+
+
 class ChannelRepository:
     @staticmethod
+    async def get_decrypt_candidates(channel_hash: int) -> list[_DecryptCandidate]:
+        """Channels whose key hash byte equals ``channel_hash`` (usually 0 or 1)."""
+        global _decrypt_index, _decrypt_index_db
+        index = _decrypt_index
+        if index is None or _decrypt_index_db is not db:
+            generation = _decrypt_index_generation
+            source_db = db
+            index = {}
+            for channel in await ChannelRepository.get_all():
+                try:
+                    key_bytes = bytes.fromhex(channel.key)
+                except ValueError:
+                    continue
+                bucket = index.setdefault(hashlib.sha256(key_bytes).digest()[0], [])
+                bucket.append((channel.key, channel.name, key_bytes))
+            # Only publish if no write invalidated the index while we read.
+            if generation == _decrypt_index_generation and source_db is db:
+                _decrypt_index, _decrypt_index_db = index, source_db
+        return index.get(channel_hash, [])
+
+    @staticmethod
+    @_invalidates_decrypt_index
     async def upsert(
         key: str,
         name: str,
@@ -103,6 +156,7 @@ class ChannelRepository:
                 pass
 
     @staticmethod
+    @_invalidates_decrypt_index
     async def upsert_name(
         key: str,
         name: str,
@@ -126,6 +180,7 @@ class ChannelRepository:
                 pass
 
     @staticmethod
+    @_invalidates_decrypt_index
     async def insert_if_absent(
         key: str,
         name: str,
@@ -203,6 +258,7 @@ class ChannelRepository:
         return rowcount > 0
 
     @staticmethod
+    @_invalidates_decrypt_index
     async def delete(key: str) -> None:
         """Delete a channel by key."""
         async with db.tx() as conn:

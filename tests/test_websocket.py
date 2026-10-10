@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.websocket import SEND_TIMEOUT_SECONDS, WebSocketManager
+from app.websocket import EVICT_CLOSE_CODE, WebSocketManager
 
 
 @pytest.fixture
@@ -23,153 +23,171 @@ def mock_websocket():
     return ws
 
 
+async def _flush(rounds: int = 5) -> None:
+    """Let per-client writer tasks drain their queues."""
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+
+
+def _client_ws() -> AsyncMock:
+    ws = AsyncMock()
+    ws.accept = AsyncMock()
+    ws.close = AsyncMock()
+    return ws
+
+
 class TestWebSocketBroadcast:
     """Tests for the broadcast functionality."""
 
     @pytest.mark.asyncio
     async def test_broadcast_sends_to_all_clients(self, ws_manager: WebSocketManager):
-        """Broadcast should send message to all connected clients."""
-        ws1 = AsyncMock()
-        ws2 = AsyncMock()
-        ws1.accept = AsyncMock()
-        ws2.accept = AsyncMock()
-
+        ws1, ws2 = _client_ws(), _client_ws()
         await ws_manager.connect(ws1)
         await ws_manager.connect(ws2)
 
         await ws_manager.broadcast("test", {"key": "value"})
-
-        # Both clients should receive the message
-        ws1.send_text.assert_called_once()
-        ws2.send_text.assert_called_once()
-
-        # Verify the message format
-        import json
+        await _flush()
 
         expected = json.dumps({"type": "test", "data": {"key": "value"}})
-        ws1.send_text.assert_called_with(expected)
-        ws2.send_text.assert_called_with(expected)
+        ws1.send_text.assert_called_once_with(expected)
+        ws2.send_text.assert_called_once_with(expected)
 
     @pytest.mark.asyncio
-    async def test_broadcast_removes_failed_clients(self, ws_manager: WebSocketManager):
-        """Clients that fail to receive should be removed."""
-        good_ws = AsyncMock()
-        bad_ws = AsyncMock()
-        good_ws.accept = AsyncMock()
-        bad_ws.accept = AsyncMock()
+    async def test_failed_client_is_evicted_and_closed(self, ws_manager: WebSocketManager):
+        good_ws, bad_ws = _client_ws(), _client_ws()
         bad_ws.send_text.side_effect = Exception("Connection closed")
-
         await ws_manager.connect(good_ws)
         await ws_manager.connect(bad_ws)
 
-        assert len(ws_manager.active_connections) == 2
-
         await ws_manager.broadcast("test", {})
+        await _flush()
 
-        # Bad client should be removed
-        assert len(ws_manager.active_connections) == 1
-        assert good_ws in ws_manager.active_connections
-        assert bad_ws not in ws_manager.active_connections
+        assert list(ws_manager.active_connections) == [good_ws]
+        bad_ws.close.assert_awaited_once_with(code=EVICT_CLOSE_CODE)
+        good_ws.close.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_broadcast_handles_timeout(self, ws_manager: WebSocketManager):
-        """Clients that timeout should be removed."""
-        good_ws = AsyncMock()
-        slow_ws = AsyncMock()
-        good_ws.accept = AsyncMock()
-        slow_ws.accept = AsyncMock()
+    async def test_timed_out_client_is_evicted_and_closed(self, ws_manager: WebSocketManager):
+        """A stuck socket is closed, not merely forgotten (no zombie sessions)."""
+        good_ws, slow_ws = _client_ws(), _client_ws()
 
-        # Make slow_ws hang indefinitely
-        async def slow_send(_):
-            await asyncio.sleep(SEND_TIMEOUT_SECONDS + 1)
+        async def hang(_):
+            await asyncio.sleep(3600)
 
-        slow_ws.send_text.side_effect = slow_send
-
+        slow_ws.send_text.side_effect = hang
         await ws_manager.connect(good_ws)
         await ws_manager.connect(slow_ws)
 
-        assert len(ws_manager.active_connections) == 2
+        with patch("app.websocket.SEND_TIMEOUT_SECONDS", 0.05):
+            await ws_manager.broadcast("test", {})
+            await asyncio.sleep(0.15)
+            await _flush()
 
-        # Broadcast should complete despite slow client (due to timeout)
-        await ws_manager.broadcast("test", {})
-
-        # Slow client should be removed due to timeout
-        assert len(ws_manager.active_connections) == 1
-        assert good_ws in ws_manager.active_connections
-
-    @pytest.mark.asyncio
-    async def test_broadcast_concurrent_sends(self, ws_manager: WebSocketManager):
-        """Verify that sends happen concurrently, not sequentially."""
-        call_times = []
-
-        async def record_send_time(ws_name):
-            async def _send(_):
-                call_times.append((ws_name, asyncio.get_event_loop().time()))
-                await asyncio.sleep(0.1)  # Simulate some work
-
-            return _send
-
-        ws1 = AsyncMock()
-        ws2 = AsyncMock()
-        ws3 = AsyncMock()
-        ws1.accept = AsyncMock()
-        ws2.accept = AsyncMock()
-        ws3.accept = AsyncMock()
-
-        ws1.send_text.side_effect = await record_send_time("ws1")
-        ws2.send_text.side_effect = await record_send_time("ws2")
-        ws3.send_text.side_effect = await record_send_time("ws3")
-
-        await ws_manager.connect(ws1)
-        await ws_manager.connect(ws2)
-        await ws_manager.connect(ws3)
-
-        start_time = asyncio.get_event_loop().time()
-        await ws_manager.broadcast("test", {})
-        elapsed = asyncio.get_event_loop().time() - start_time
-
-        # If sequential: 3 * 0.1 = 0.3s
-        # If concurrent: ~0.1s
-        # Allow some margin for test overhead
-        assert elapsed < 0.2, f"Sends should be concurrent, took {elapsed}s"
+        assert list(ws_manager.active_connections) == [good_ws]
+        slow_ws.close.assert_awaited_once_with(code=EVICT_CLOSE_CODE)
 
     @pytest.mark.asyncio
-    async def test_broadcast_does_not_block_on_slow_client(self, ws_manager: WebSocketManager):
-        """A slow client should not block messages to fast clients."""
-        fast_ws = AsyncMock()
-        slow_ws = AsyncMock()
-        fast_ws.accept = AsyncMock()
-        slow_ws.accept = AsyncMock()
-
+    async def test_broadcast_never_waits_on_client_io(self, ws_manager: WebSocketManager):
+        """broadcast() only enqueues; a slow client cannot block the caller or others."""
+        fast_ws, slow_ws = _client_ws(), _client_ws()
         fast_received_at = None
-        slow_received_at = None
 
         async def fast_send(_):
             nonlocal fast_received_at
-            fast_received_at = asyncio.get_event_loop().time()
+            fast_received_at = asyncio.get_running_loop().time()
 
         async def slow_send(_):
-            nonlocal slow_received_at
-            await asyncio.sleep(0.2)  # Slow client
-            slow_received_at = asyncio.get_event_loop().time()
+            await asyncio.sleep(0.2)
 
         fast_ws.send_text.side_effect = fast_send
         slow_ws.send_text.side_effect = slow_send
-
         await ws_manager.connect(slow_ws)
         await ws_manager.connect(fast_ws)
 
-        start_time = asyncio.get_event_loop().time()
+        start = asyncio.get_running_loop().time()
         await ws_manager.broadcast("test", {})
-
-        # Fast client should receive message quickly, not waiting for slow client
+        assert asyncio.get_running_loop().time() - start < 0.05
+        await _flush()
         assert fast_received_at is not None
-        assert fast_received_at - start_time < 0.1, "Fast client was blocked by slow client"
+        assert fast_received_at - start < 0.1, "Fast client was blocked by slow client"
+
+    @pytest.mark.asyncio
+    async def test_per_client_order_is_preserved(self, ws_manager: WebSocketManager):
+        received: list[str] = []
+
+        async def jittery_send(message):
+            # Earlier frames take longer; order must still hold.
+            await asyncio.sleep(0.01 if "first" in message else 0)
+            received.append(json.loads(message)["type"])
+
+        ws = _client_ws()
+        ws.send_text.side_effect = jittery_send
+        await ws_manager.connect(ws)
+
+        await ws_manager.send_personal(ws, "first", {})
+        ws_manager.broadcast_nowait("second", {})
+        ws_manager.broadcast_nowait("third", {})
+        await asyncio.sleep(0.05)
+
+        assert received == ["first", "second", "third"]
+
+    @pytest.mark.asyncio
+    async def test_queue_overflow_evicts_and_closes_client(self, ws_manager: WebSocketManager):
+        ws = _client_ws()
+        gate = asyncio.Event()
+
+        async def blocked_send(_):
+            await gate.wait()
+
+        ws.send_text.side_effect = blocked_send
+        with patch("app.websocket.CLIENT_QUEUE_MAX", 3):
+            await ws_manager.connect(ws)
+        await _flush()  # writer picks the first frame and blocks on it
+
+        for i in range(10):
+            ws_manager.broadcast_nowait("test", {"i": i})
+        await _flush()
+
+        assert ws not in ws_manager.active_connections
+        ws.close.assert_awaited_once_with(code=EVICT_CLOSE_CODE)
+        gate.set()
+
+    @pytest.mark.asyncio
+    async def test_raw_packet_burst_is_dropped_not_evicted(self, ws_manager: WebSocketManager):
+        """A burst of raw_packet frames past the backlog is shed; the client stays."""
+        ws = _client_ws()
+        gate = asyncio.Event()
+        sent: list[str] = []
+
+        async def gated_send(message):
+            await gate.wait()
+            sent.append(json.loads(message)["type"])
+
+        ws.send_text.side_effect = gated_send
+        with (
+            patch("app.websocket.CLIENT_QUEUE_MAX", 6),
+            patch("app.websocket.CLIENT_RAW_PACKET_BACKLOG_MAX", 3),
+        ):
+            await ws_manager.connect(ws)
+            await _flush()
+            for i in range(50):
+                ws_manager.broadcast_nowait("raw_packet", {"i": i})
+            # State-bearing frames still fit in the headroom above the raw backlog.
+            ws_manager.broadcast_nowait("message", {"id": 1})
+            ws_manager.broadcast_nowait("contact", {"k": 1})
+            await _flush()
+
+            assert ws in ws_manager.active_connections
+            ws.close.assert_not_called()
+            gate.set()
+            await _flush(20)
+
+        assert sent.count("raw_packet") <= 4
+        assert sent[-2:] == ["message", "contact"]
 
     @pytest.mark.asyncio
     async def test_broadcast_empty_connections(self, ws_manager: WebSocketManager):
         """Broadcast should handle empty connection list gracefully."""
-        # Should not raise
         await ws_manager.broadcast("test", {"data": "value"})
 
 
@@ -218,7 +236,6 @@ class TestBroadcastEventFanout:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
             mock_fm.broadcast_message = AsyncMock()
 
             broadcast_event("message", {"id": 1, "text": "hello"})
@@ -226,7 +243,7 @@ class TestBroadcastEventFanout:
             # Let the asyncio tasks run
             await asyncio.sleep(0)
 
-            mock_ws.broadcast.assert_called_once_with("message", {"id": 1, "text": "hello"})
+            mock_ws.broadcast_nowait.assert_called_once_with("message", {"id": 1, "text": "hello"})
             mock_fm.broadcast_message.assert_called_once_with({"id": 1, "text": "hello"})
 
     @pytest.mark.asyncio
@@ -238,13 +255,12 @@ class TestBroadcastEventFanout:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
             mock_fm.broadcast_raw = AsyncMock()
 
             broadcast_event("raw_packet", {"data": "ff00"})
             await asyncio.sleep(0)
 
-            mock_ws.broadcast.assert_called_once()
+            mock_ws.broadcast_nowait.assert_called_once()
             mock_fm.broadcast_raw.assert_called_once_with({"data": "ff00"})
 
 
@@ -261,13 +277,12 @@ class TestDispatchTelemetryEvent:
             patch("app.websocket.ws_manager") as mock_ws,
             patch("app.fanout.manager.fanout_manager") as mock_fm,
         ):
-            mock_ws.broadcast = AsyncMock()
             mock_fm.broadcast_telemetry = AsyncMock()
 
             dispatch_telemetry_event(payload)
             await asyncio.sleep(0)
 
-            mock_ws.broadcast.assert_not_called()
+            mock_ws.broadcast_nowait.assert_not_called()
             mock_fm.broadcast_telemetry.assert_called_once_with(payload)
 
 
@@ -279,18 +294,18 @@ class TestBroadcastErrorSuccessCodes:
         from app.websocket import broadcast_error
 
         with patch("app.websocket.ws_manager") as mock_ws:
-            mock_ws.broadcast = AsyncMock()
             broadcast_error("Radio not connected")
             await asyncio.sleep(0)
 
-        mock_ws.broadcast.assert_called_once_with("error", {"message": "Radio not connected"})
+        mock_ws.broadcast_nowait.assert_called_once_with(
+            "error", {"message": "Radio not connected"}
+        )
 
     @pytest.mark.asyncio
     async def test_broadcast_error_includes_code_and_params(self):
         from app.websocket import broadcast_error
 
         with patch("app.websocket.ws_manager") as mock_ws:
-            mock_ws.broadcast = AsyncMock()
             broadcast_error(
                 "Cannot decrypt historical DMs",
                 "Private key not available.",
@@ -299,7 +314,7 @@ class TestBroadcastErrorSuccessCodes:
             )
             await asyncio.sleep(0)
 
-        mock_ws.broadcast.assert_called_once_with(
+        mock_ws.broadcast_nowait.assert_called_once_with(
             "error",
             {
                 "message": "Cannot decrypt historical DMs",
@@ -314,7 +329,6 @@ class TestBroadcastErrorSuccessCodes:
         from app.websocket import broadcast_success
 
         with patch("app.websocket.ws_manager") as mock_ws:
-            mock_ws.broadcast = AsyncMock()
             broadcast_success(
                 "Historical decrypt complete for Alice",
                 "Decrypted 1 message",
@@ -323,7 +337,7 @@ class TestBroadcastErrorSuccessCodes:
             )
             await asyncio.sleep(0)
 
-        mock_ws.broadcast.assert_called_once_with(
+        mock_ws.broadcast_nowait.assert_called_once_with(
             "success",
             {
                 "message": "Historical decrypt complete for Alice",

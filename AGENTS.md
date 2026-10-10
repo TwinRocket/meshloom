@@ -80,7 +80,7 @@ Ancillary AGENTS.md files which should generally not be reviewed unless specific
 
 ## Error Handling Philosophy
 
-**Background tasks** (WebSocket broadcasts, periodic sync, contact auto-loading, etc.) use fire-and-forget `asyncio.create_task`. Exceptions in these tasks are logged to the backend logs, which is sufficient for debugging. There is no need to track task references or add done-callbacks purely for error visibility. If there's a convenient way to bubble an error to the frontend (e.g., via `broadcast_error` for user-actionable problems), do so, but this is minor and best-effort.
+**Background tasks** (fanout dispatch, contact auto-loading, historical decrypt, etc.) are fire-and-forget, but go through `app.background_tasks.spawn()` rather than bare `asyncio.create_task`: the helper keeps a strong reference (bare tasks can be garbage-collected mid-flight), logs exceptions with their traceback, and the lifespan teardown cancels and drains whatever is still running. Long-lived loops that already keep their own task handle (periodic sync, connection monitor) do not need it. If there's a convenient way to bubble an error to the frontend (e.g., via `broadcast_error` for user-actionable problems), do so, but this is minor and best-effort.
 
 Radio startup/setup is one place where that frontend bubbling is intentional: if post-connect setup hangs past its timeout, the backend both logs the failure and pushes a toast instructing the operator to reboot the radio and restart the server.
 

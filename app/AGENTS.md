@@ -140,13 +140,15 @@ Identity is bound to `radio_bound_public_key`. A live key that does not match, o
 - `route_override_path`, `route_override_len`, and `route_override_hash_mode` take precedence over the learned direct route for radio-bound sends.
 - Advertisement paths are stored only in `contact_advert_paths` for analytics/visualization. They are not part of `Contact.to_radio_dict()` or DM route selection.
 - `contact_advert_paths` identity is `(public_key, path_hex, path_len)` because the same hex bytes can represent different routes at different hop widths.
+- RF adverts reconcile messages (prefix-contact promotion, prefix-DM claim, channel `sender_key` backfill) only when the advert payload is new, the contact is new, or its name changed. Further observations of the same payload over other paths only refresh the contact and its advert-path history. Radio contact sync reconciles its snapshot through one sequential background worker. The partial index `idx_messages_chan_unattributed_sender` (migration 086) keeps the sender backfill off a full CHAN scan; the prefix-DM claim matches `conversation_key IN (<proper prefixes of the full key>)` through `idx_messages_pagination`.
 
 ### Read/unread state
 
 - Server is source of truth (`contacts.last_read_at`, `channels.last_read_at`).
 - `GET /api/read-state/unreads` returns counts, mention flags, `last_message_times`, `last_message_previews`, `last_read_ats`, and `first_unread_ids`.
-- `last_message_times` and `last_message_previews` come from the same query: `ROW_NUMBER() OVER (PARTITION BY type, conversation_key ORDER BY received_at DESC, id DESC)` so same-second ties pick the newest `id`. Preview text is truncated to ~120 characters.
-- `first_unread_ids` maps stateKey -> id of the oldest unread message, so the client can anchor the unread divider (and jump to it) without paging back through history. It is computed with `ROW_NUMBER() OVER (PARTITION BY type, conversation_key ORDER BY received_at, id)` — deliberately not `MIN(received_at)` with a bare id, because sender timestamps are whole seconds and same-second ties are routine, and not `MIN(id)`, because historical decryption inserts old messages with new ids.
+- The endpoint never windows or sorts the whole `messages` table: conversations are enumerated by an index skip-scan, then each conversation's newest row and unread rows are read through `idx_messages_pagination` / `idx_messages_unread_covering`. `tests/test_unreads_equivalence.py` keeps the former `ROW_NUMBER()` implementation as an oracle; any change must keep both outputs identical.
+- `last_message_times` and `last_message_previews` take each conversation's newest row ordered by `(received_at DESC, id DESC)`, so same-second ties pick the newest `id`. Preview text is truncated to ~120 characters.
+- `first_unread_ids` maps stateKey -> id of the oldest unread message, so the client can anchor the unread divider (and jump to it) without paging back through history. It is the first unread row ordered by `(received_at, id)`, looked up only for conversations that have unreads — deliberately not `MIN(received_at)` with a bare id, because sender timestamps are whole seconds and same-second ties are routine, and not `MIN(id)`, because historical decryption inserts old messages with new ids.
 
 ### DM ingest + ACKs
 
@@ -226,6 +228,7 @@ Both traffic buckets come from one 24h raw-packet scan (`_packet_shape_24h`) sha
 - All external integrations (MQTT, bots, webhooks, Apprise, SQS) are managed through the fanout bus (`app/fanout/`).
 - Configs stored in `fanout_configs` table, managed via `GET/POST/PATCH/DELETE /api/fanout`.
 - `broadcast_event()` in `websocket.py` dispatches to the fanout manager for `message`, `raw_packet`, and `contact` events.
+- WebSocket delivery: each client has a bounded outbound queue (`CLIENT_QUEUE_MAX`) drained by one writer task, so frames reach a client in call order and `broadcast_event()` never waits on socket I/O. `raw_packet` frames are best-effort: once a client's backlog reaches `CLIENT_RAW_PACKET_BACKLOG_MAX` they are dropped for that client rather than queued, which keeps headroom for state-bearing frames during RF bursts. A client whose send times out (`SEND_TIMEOUT_SECONDS`), fails, or whose queue still overflows (`CLIENT_QUEUE_MAX` = 2048) is evicted and its socket is closed with code 1013; the frontend reconnects and refetches. Never call `websocket.send_text` directly on a managed socket (the `pong` reply goes through `ws_manager.send_raw`).
 - `on_message` and `on_raw` are scope-gated. `on_contact`, `on_telemetry`, and `on_health` are dispatched to all modules unconditionally (modules filter internally).
 - Repeater telemetry broadcasts are emitted after `RepeaterTelemetryRepository.record()` in both `radio_sync.py` (auto-collect) and `routers/repeaters.py` (manual fetch). Contact LPP telemetry is similarly recorded to `ContactTelemetryRepository` and dispatched to fanout.
 - The telemetry collection loop in `radio_sync.py` is unified: it iterates over both `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, dispatching to `_collect_repeater_telemetry` (type 2) or `_collect_contact_telemetry` (others). The daily check ceiling uses the combined count.
@@ -464,6 +467,7 @@ Repository writes should prefer typed models such as `ContactUpsert` over ad hoc
 - `flood_scope`
 - `known_regions`
 - `blocked_keys`, `blocked_names`, `discovery_blocked_types`
+- `raw_packet_retention_days` (0 = off): hourly housekeeping (`services/stale_contacts.py`, same loop as the stale-contact purge) prunes undecrypted raw packets older than N days in short batches, then runs a bounded `PRAGMA incremental_vacuum`. Pruned packets can no longer be decrypted by channel/contact keys added later (historical decrypt only sees retained raw packets). No UI yet; set through `PATCH /api/settings`.
 - `tracked_telemetry_repeaters`, `tracked_telemetry_contacts`
 - `auto_resend_channel`
 - `auto_update`

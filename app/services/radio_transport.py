@@ -7,7 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-from app.models import RadioTransportKind, RadioTransportSnapshot
+from app.models import RadioTransportSnapshot
 from app.repository.radio_transport import RadioTransportRepository
 
 logger = logging.getLogger(__name__)
@@ -109,10 +109,6 @@ async def maybe_import_legacy_env(*, existing_database: bool) -> RadioTransportS
 
 async def get_transport() -> RadioTransportSnapshot:
     return await RadioTransportRepository.get()
-
-
-def connection_type_of(snapshot: RadioTransportSnapshot) -> RadioTransportKind:
-    return snapshot.connection_type
 
 
 def is_tcp(snapshot: RadioTransportSnapshot | None = None) -> bool:

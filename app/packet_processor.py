@@ -12,20 +12,20 @@ This is the primary path for message processing when channel/contact keys
 are offloaded from the radio to the server.
 """
 
-import asyncio
 import logging
 import time
 from itertools import count
 
+from app.background_tasks import spawn
 from app.decoder import (
     DecryptedDirectMessage,
     PacketInfo,
     PayloadType,
+    decrypt_group_text,
     derive_public_key,
     parse_advertisement,
     parse_packet,
     try_decrypt_dm,
-    try_decrypt_packet_with_channel_key,
     try_decrypt_path,
     verify_advert_signature,
 )
@@ -282,7 +282,7 @@ async def start_historical_dm_decryption(
 
     logger.info("Starting historical DM decryption for contact %s", contact_public_key_hex[:12])
     if background_tasks is None:
-        asyncio.create_task(
+        spawn(
             run_historical_dm_decryption(
                 private_key_bytes,
                 contact_public_key_bytes,
@@ -413,7 +413,7 @@ async def process_raw_packet(
     elif payload_type == PayloadType.ADVERT:
         # Process all advert arrivals (even payload-hash duplicates) so the
         # advert-history table retains recent path observations.
-        await _process_advertisement(raw_bytes, ts, packet_info)
+        await _process_advertisement(raw_bytes, ts, packet_info, is_new_packet=is_new_packet)
 
     elif payload_type == PayloadType.TEXT_MESSAGE:
         # Try to decrypt direct messages using stored private key and known contacts
@@ -500,29 +500,28 @@ async def _process_group_text(
     Tries all known channel keys to decrypt.
     Creates a message entry if successful (or adds path to existing if duplicate).
     """
-    # Try to decrypt with all known channel keys
-    channels = await ChannelRepository.get_all()
+    # The packet is parsed once by the caller; only channels whose key hash
+    # matches the payload's channel-hash byte are tried (usually 0 or 1).
+    if packet_info is None or packet_info.payload_type != PayloadType.GROUP_TEXT:
+        return None
+    if len(packet_info.payload) < 1:
+        return None
 
-    for channel in channels:
-        # Convert hex key to bytes for decryption
-        try:
-            channel_key_bytes = bytes.fromhex(channel.key)
-        except ValueError:
-            continue
-
-        decrypted = try_decrypt_packet_with_channel_key(raw_bytes, channel_key_bytes)
+    candidates = await ChannelRepository.get_decrypt_candidates(packet_info.payload[0])
+    for channel_key, channel_name, channel_key_bytes in candidates:
+        decrypted = decrypt_group_text(packet_info.payload, channel_key_bytes)
         if not decrypted:
             continue
 
         # Successfully decrypted!
-        logger.debug("Decrypted GroupText for channel %s: %s", channel.name, decrypted.message[:50])
+        logger.debug("Decrypted GroupText for channel %s: %s", channel_name, decrypted.message[:50])
 
         # Create message (or add path to existing if duplicate)
         # This handles both new messages and echoes of our own outgoing messages
         msg_id = await create_message_from_decrypted(
             packet_id=packet_id,
-            channel_key=channel.key,
-            channel_name=channel.name,
+            channel_key=channel_key,
+            channel_name=channel_name,
             sender=decrypted.sender,
             message_text=decrypted.message,
             timestamp=decrypted.timestamp,
@@ -539,10 +538,10 @@ async def _process_group_text(
 
         return {
             "decrypted": True,
-            "channel_name": channel.name,
+            "channel_name": channel_name,
             "sender": decrypted.sender,
             "message_id": msg_id,  # None if duplicate, msg_id if new
-            "channel_key": channel.key,
+            "channel_key": channel_key,
             "sender_timestamp": decrypted.timestamp,
             "message": decrypted.message,
         }
@@ -555,11 +554,19 @@ async def _process_advertisement(
     raw_bytes: bytes,
     timestamp: int,
     packet_info: PacketInfo | None = None,
+    *,
+    is_new_packet: bool = True,
 ) -> None:
     """
     Process an advertisement packet.
 
     Extracts contact info and updates the database/broadcasts to clients.
+
+    ``is_new_packet`` is False for further observations (other paths) of an
+    advert payload already stored. Those still refresh the contact and its
+    advert-path history, but skip prefix promotion and message reconciliation
+    unless the contact is new or renamed: nothing those steps depend on can
+    have changed since the first observation of the same payload.
     """
     # Parse packet to get path info if not already provided
     if packet_info is None:
@@ -647,16 +654,19 @@ async def _process_advertisement(
         max_paths=10,
         hop_count=new_path_len,
     )
-    promoted_keys = await promote_prefix_contacts_for_contact(
-        public_key=advert.public_key,
-        log=logger,
-    )
-    await record_contact_name_and_reconcile(
-        public_key=advert.public_key,
-        contact_name=advert.name,
-        timestamp=timestamp,
-        log=logger,
-    )
+    identity_changed = inserted or existing is None or existing.name != advert.name
+    promoted_keys: list[str] = []
+    if identity_changed or is_new_packet:
+        promoted_keys = await promote_prefix_contacts_for_contact(
+            public_key=advert.public_key,
+            log=logger,
+        )
+        await record_contact_name_and_reconcile(
+            public_key=advert.public_key,
+            contact_name=advert.name,
+            timestamp=timestamp,
+            log=logger,
+        )
 
     # Read back from DB so the broadcast includes all fields (last_contacted,
     # last_read_at, flags, on_radio, etc.) matching the REST Contact shape exactly.
@@ -688,8 +698,11 @@ async def _process_advertisement(
         )
 
     # For new contacts, optionally attempt to decrypt any historical DMs we may have stored
-    # This is controlled by the auto_decrypt_dm_on_advert setting
-    if existing is None:
+    # This is controlled by the auto_decrypt_dm_on_advert setting. Keyed on the
+    # atomic ``inserted`` result rather than the earlier ``existing`` read: two
+    # concurrent adverts for an unknown contact both see ``existing is None``,
+    # but only one of them actually inserts the row.
+    if inserted:
         from app.repository import AppSettingsRepository
 
         settings = await AppSettingsRepository.get()

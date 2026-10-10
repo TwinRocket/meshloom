@@ -295,7 +295,7 @@ class TestOutgoingDMBroadcast:
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
             patch.object(radio_manager, "_meshcore", mc),
             patch("app.routers.messages.broadcast_event"),
-            patch("app.services.message_send.asyncio.create_task") as mock_create_task,
+            patch("app.services.message_send.spawn") as mock_create_task,
         ):
             message = await send_direct_message(
                 SendDirectMessageRequest(destination=pub_key, text="Hello")
@@ -343,7 +343,7 @@ class TestOutgoingDMBroadcast:
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
             patch.object(radio_manager, "_meshcore", mc),
             patch("app.routers.messages.broadcast_event"),
-            patch("app.services.message_send.asyncio.create_task", side_effect=schedule_retry),
+            patch("app.services.message_send.spawn", side_effect=schedule_retry),
             patch("app.services.message_send.asyncio.sleep", side_effect=no_wait),
         ):
             await send_direct_message(SendDirectMessageRequest(destination=pub_key, text="Hello"))
@@ -391,7 +391,7 @@ class TestOutgoingDMBroadcast:
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
             patch.object(radio_manager, "_meshcore", mc),
             patch("app.routers.messages.broadcast_event"),
-            patch("app.services.message_send.asyncio.create_task", side_effect=schedule_retry),
+            patch("app.services.message_send.spawn", side_effect=schedule_retry),
             patch("app.services.message_send.asyncio.sleep", side_effect=gated_sleep),
         ):
             message = await send_direct_message(
@@ -448,7 +448,7 @@ class TestOutgoingDMBroadcast:
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
             patch.object(radio_manager, "_meshcore", mc),
             patch("app.routers.messages.broadcast_event"),
-            patch("app.services.message_send.asyncio.create_task", side_effect=schedule_retry),
+            patch("app.services.message_send.spawn", side_effect=schedule_retry),
             patch("app.services.message_send.asyncio.sleep", side_effect=gated_sleep),
         ):
             message = await send_direct_message(

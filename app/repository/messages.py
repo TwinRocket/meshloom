@@ -192,21 +192,31 @@ class MessageRepository:
         only a prefix as conversation_key are updated to use the full key.
         """
         lower_key = full_key.lower()
+        # Candidate prefix keys are exactly the proper prefixes of the full key,
+        # so an IN list hits idx_messages_pagination with one seek per prefix
+        # instead of walking every PRIV row. Both cases are listed because the
+        # former ``LIKE`` match was case-insensitive.
+        prefixes = sorted(
+            {lower_key[:n] for n in range(1, len(lower_key))}
+            | {lower_key[:n].upper() for n in range(1, len(lower_key))}
+        )
+        if not prefixes:
+            return 0
+        placeholders = ",".join("?" for _ in prefixes)
         async with db.tx() as conn:
             async with conn.execute(
-                """UPDATE messages SET conversation_key = ?,
+                f"""UPDATE messages SET conversation_key = ?,
                        sender_key = CASE
                            WHEN sender_key IS NOT NULL AND length(sender_key) < 64
                                 AND ? LIKE sender_key || '%'
                            THEN ? ELSE sender_key END
-                   WHERE type = 'PRIV' AND length(conversation_key) < 64
-                   AND ? LIKE conversation_key || '%'
+                   WHERE type = 'PRIV' AND conversation_key IN ({placeholders})
                    AND (
                        SELECT COUNT(*) FROM contacts
                        WHERE length(public_key) = 64
                          AND public_key LIKE messages.conversation_key || '%'
                    ) = 1""",
-                (lower_key, lower_key, lower_key, lower_key),
+                (lower_key, lower_key, lower_key, *prefixes),
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
@@ -853,67 +863,98 @@ class MessageRepository:
         )
         blocked_sql = f" AND {blocked_clause}" if blocked_clause else ""
 
-        # Last message times for all conversations (including read ones),
-        # excluding blocked incoming traffic so refresh matches live WS behavior.
-        last_time_clause, last_time_params = MessageRepository._build_blocked_incoming_clause(
-            blocked_keys=blocked_keys, blocked_names=blocked_names
-        )
-        last_time_where_sql = f"WHERE {last_time_clause}" if last_time_clause else ""
+        # Every query below starts from the list of conversations, found by a
+        # skip-scan (one index seek per distinct type / conversation_key), then
+        # touches only each conversation's newest row and its unread rows
+        # through idx_messages_pagination / idx_messages_unread_covering. The
+        # previous ROW_NUMBER() windows sorted the whole messages table while
+        # holding the DB lock (~0.5 s at 300k messages).
+        conversations_cte = """
+            WITH RECURSIVE
+            types(t) AS (
+                SELECT MIN(type) FROM messages
+                UNION ALL
+                SELECT (SELECT MIN(type) FROM messages WHERE type > types.t)
+                FROM types WHERE types.t IS NOT NULL
+            ),
+            conv(t, ck) AS (
+                SELECT t, (SELECT MIN(conversation_key) FROM messages WHERE type = types.t)
+                FROM types WHERE types.t IS NOT NULL
+                UNION ALL
+                SELECT conv.t, (
+                    SELECT MIN(conversation_key) FROM messages
+                    WHERE type = conv.t AND conversation_key > conv.ck
+                )
+                FROM conv WHERE conv.ck IS NOT NULL
+            ),
+            convs AS (
+                SELECT conv.t, conv.ck,
+                       ch.key IS NOT NULL AS has_channel,
+                       COALESCE(ch.muted, 0) AS muted,
+                       COALESCE(
+                           CASE WHEN conv.t = 'CHAN' THEN ch.last_read_at
+                                WHEN conv.t = 'PRIV' THEN ct.last_read_at END,
+                           0
+                       ) AS read_at
+                FROM conv
+                LEFT JOIN channels ch ON conv.t = 'CHAN' AND ch.key = conv.ck
+                LEFT JOIN contacts ct ON conv.t = 'PRIV' AND ct.public_key = conv.ck
+                WHERE conv.ck IS NOT NULL
+            )
+        """
+        if mention_token:
+            mention_sql = "SUM(INSTR(LOWER(m.text), LOWER(?)) > 0) > 0"
+            mention_params: list[Any] = [mention_token]
+        else:
+            mention_sql = "0"
+            mention_params = []
 
-        # Single readonly acquisition for all 5 queries — they form one logical
-        # snapshot, and holding the lock for the batch is cheaper than acquiring
-        # it 5 times.
         async with db.readonly() as conn:
-            # Channel unreads
+            # Unread counts, mention flags and oldest unread id. Muted channels
+            # are skipped. Channel *counts* need a channels row (orphan channel
+            # conversations only get a first-unread id, as before); every
+            # non-channel conversation counts against its contact's read
+            # boundary (0 when there is no contact row).
             async with conn.execute(
                 f"""
-                SELECT m.conversation_key,
-                       COUNT(*) as unread_count,
-                       SUM(CASE
-                               WHEN ? <> '' AND INSTR(LOWER(m.text), LOWER(?)) > 0 THEN 1
-                               ELSE 0
-                           END) > 0 as has_mention
-                FROM messages m
-                JOIN channels c ON m.conversation_key = c.key
-                WHERE m.type = 'CHAN' AND m.outgoing = 0
-                  AND m.received_at > COALESCE(c.last_read_at, 0)
-                  AND COALESCE(c.muted, 0) = 0
-                  {blocked_sql}
-                GROUP BY m.conversation_key
+                {conversations_cte},
+                unread AS (
+                    SELECT c.t, c.ck, c.has_channel, c.read_at,
+                           COUNT(*) AS unread_count,
+                           {mention_sql} AS has_mention
+                    FROM convs c
+                    JOIN messages m
+                      ON m.type = c.t AND m.conversation_key = c.ck
+                     AND m.outgoing = 0 AND m.received_at > c.read_at
+                    WHERE (c.t <> 'CHAN' OR c.muted = 0)
+                      {blocked_sql}
+                    GROUP BY c.t, c.ck
+                )
+                SELECT u.t, u.ck, u.has_channel, u.unread_count, u.has_mention,
+                       (
+                           SELECT m.id FROM messages m
+                           WHERE m.type = u.t AND m.conversation_key = u.ck
+                             AND m.outgoing = 0 AND m.received_at > u.read_at
+                             {blocked_sql}
+                           ORDER BY m.received_at ASC, m.id ASC
+                           LIMIT 1
+                       ) AS first_unread_id
+                FROM unread u
                 """,
-                (mention_token or "", mention_token or "", *blocked_params),
+                (*mention_params, *blocked_params, *blocked_params),
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
-                state_key = f"channel-{row['conversation_key']}"
-                counts[state_key] = row["unread_count"]
-                if mention_token and row["has_mention"]:
-                    mention_flags[state_key] = True
-
-            # Contact unreads
-            async with conn.execute(
-                f"""
-                SELECT m.conversation_key,
-                       COUNT(*) as unread_count,
-                       SUM(CASE
-                               WHEN ? <> '' AND INSTR(LOWER(m.text), LOWER(?)) > 0 THEN 1
-                               ELSE 0
-                           END) > 0 as has_mention
-                FROM messages m
-                LEFT JOIN contacts ct ON m.conversation_key = ct.public_key
-                WHERE m.type = 'PRIV' AND m.outgoing = 0
-                  AND m.received_at > COALESCE(ct.last_read_at, 0)
-                  {blocked_sql}
-                GROUP BY m.conversation_key
-                """,
-                (mention_token or "", mention_token or "", *blocked_params),
-            ) as cursor:
-                rows = await cursor.fetchall()
-            for row in rows:
-                state_key = f"contact-{row['conversation_key']}"
-                counts[state_key] = row["unread_count"]
-                if mention_token and row["has_mention"]:
-                    mention_flags[state_key] = True
+                is_channel = row["t"] == "CHAN"
+                state_key = f"{'channel' if is_channel else 'contact'}-{row['ck']}"
+                # Oldest unread by (received_at, id): sender timestamps are whole
+                # seconds, so several unread messages routinely share a second;
+                # this matches the client's own ordering.
+                first_unread_ids[state_key] = row["first_unread_id"]
+                if (is_channel and row["has_channel"]) or row["t"] == "PRIV":
+                    counts[state_key] = row["unread_count"]
+                    if mention_token and row["has_mention"]:
+                        mention_flags[state_key] = True
 
             async with conn.execute(
                 """
@@ -935,68 +976,34 @@ class MessageRepository:
             for row in rows:
                 last_read_ats[f"contact-{row['public_key']}"] = row["last_read_at"]
 
-            # Oldest unread message per conversation. ROW_NUMBER rather than
-            # MIN(received_at) with a bare id: sender timestamps are whole seconds
-            # (a protocol constraint, see AGENTS.md), so several unread messages
-            # routinely share the oldest second and SQLite's bare-column rule only
-            # promises *a* row holding the minimum. Ordering by (received_at, id)
-            # picks the same message the client's own ordering does.
+            # Newest message per conversation (including read ones), ordered by
+            # (received_at DESC, id DESC) like the client, excluding blocked
+            # incoming traffic so refresh matches live WS behavior.
             async with conn.execute(
                 f"""
-                WITH ranked AS (
-                    SELECT m.type, m.conversation_key, m.id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY m.type, m.conversation_key
-                               ORDER BY m.received_at ASC, m.id ASC
-                           ) AS rn
-                    FROM messages m
-                    LEFT JOIN channels c ON m.type = 'CHAN' AND m.conversation_key = c.key
-                    LEFT JOIN contacts ct ON m.type = 'PRIV' AND m.conversation_key = ct.public_key
-                    WHERE m.outgoing = 0
-                      AND m.received_at > COALESCE(
-                              CASE WHEN m.type = 'CHAN' THEN c.last_read_at ELSE ct.last_read_at END,
-                              0
-                          )
-                      AND (m.type <> 'CHAN' OR COALESCE(c.muted, 0) = 0)
-                      {blocked_sql}
+                {conversations_cte},
+                last AS (
+                    SELECT c.t, c.ck, (
+                        SELECT m.id FROM messages m
+                        WHERE m.type = c.t AND m.conversation_key = c.ck
+                          {blocked_sql}
+                        ORDER BY m.received_at DESC, m.id DESC
+                        LIMIT 1
+                    ) AS last_id
+                    FROM convs c
                 )
-                SELECT type, conversation_key, id FROM ranked WHERE rn = 1
+                SELECT l.t, l.ck, lm.received_at AS last_message_time,
+                       SUBSTR(COALESCE(lm.text, ''), 1, 120) AS last_message_preview,
+                       lm.outgoing
+                FROM last l
+                JOIN messages lm ON lm.id = l.last_id
                 """,
                 blocked_params,
             ) as cursor:
                 rows = await cursor.fetchall()
             for row in rows:
-                prefix = "channel" if row["type"] == "CHAN" else "contact"
-                first_unread_ids[f"{prefix}-{row['conversation_key']}"] = row["id"]
-
-            # Newest message per conversation. ROW_NUMBER rather than MAX(received_at)
-            # with a bare text column: sender timestamps are whole seconds, so several
-            # messages routinely share the newest second. Ordering by
-            # (received_at DESC, id DESC) is the inverse of first_unread_ids and
-            # returns both the timestamp and a short preview in this same 5th query.
-            async with conn.execute(
-                f"""
-                WITH ranked AS (
-                    SELECT type, conversation_key, received_at, text, outgoing,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY type, conversation_key
-                               ORDER BY received_at DESC, id DESC
-                           ) AS rn
-                    FROM messages
-                    {last_time_where_sql}
-                )
-                SELECT type, conversation_key, received_at AS last_message_time,
-                       SUBSTR(COALESCE(text, ''), 1, 120) AS last_message_preview,
-                       outgoing
-                FROM ranked
-                WHERE rn = 1
-                """,
-                last_time_params,
-            ) as cursor:
-                rows = await cursor.fetchall()
-            for row in rows:
-                prefix = "channel" if row["type"] == "CHAN" else "contact"
-                state_key = f"{prefix}-{row['conversation_key']}"
+                prefix = "channel" if row["t"] == "CHAN" else "contact"
+                state_key = f"{prefix}-{row['ck']}"
                 last_message_times[state_key] = row["last_message_time"]
                 last_message_previews[state_key] = row["last_message_preview"] or ""
                 last_message_outgoing[state_key] = bool(row["outgoing"])

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import tempfile
@@ -9,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.background_tasks import spawn
 from app.database import db
 from app.models import (
     CONTACT_TYPE_REPEATER,
@@ -112,6 +112,15 @@ class AppSettingsUpdate(BaseModel):
         ge=0,
         le=3650,
         description="Automatic stale-contact purge in days (0 = disabled)",
+    )
+    raw_packet_retention_days: int | None = Field(
+        default=None,
+        ge=0,
+        le=3650,
+        description=(
+            "Automatic prune of undecrypted raw packets older than N days (0 = disabled). "
+            "Pruned packets can no longer be decrypted by channel/contact keys added later."
+        ),
     )
     telemetry_alert_rules: TelemetryAlertRules | None = Field(
         default=None,
@@ -347,6 +356,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     if update.stale_contact_days is not None:
         logger.info("Updating stale_contact_days to %d", update.stale_contact_days)
         kwargs["stale_contact_days"] = update.stale_contact_days
+    if update.raw_packet_retention_days is not None:
+        logger.info("Updating raw_packet_retention_days to %d", update.raw_packet_retention_days)
+        kwargs["raw_packet_retention_days"] = update.raw_packet_retention_days
 
     if update.telemetry_alert_rules is not None:
         # Pass the PATCH fragment through; persist merges unset/null overrides.
@@ -384,10 +396,10 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         # the background since it walks every channel message with a retained raw
         # packet; clients refetch conversations to see updated badges.
         if known_regions_changed:
-            from app.services.messages import backfill_message_regions
+            from app.services.messages import schedule_region_backfill
 
             logger.info("known_regions changed; scheduling region backfill")
-            asyncio.create_task(backfill_message_regions(result.known_regions))
+            schedule_region_backfill(result.known_regions)
 
         return await _present_settings(result)
 
@@ -408,7 +420,7 @@ async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
         if new_value:
             from app.radio_sync import ensure_contact_on_radio
 
-            asyncio.create_task(ensure_contact_on_radio(request.id, force=True))
+            spawn(ensure_contact_on_radio(request.id, force=True))
     else:
         channel = await ChannelRepository.get_by_key(request.id)
         if not channel:

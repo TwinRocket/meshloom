@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from app.background_tasks import spawn
 from app.models import Message, MessagePath
 from app.repository import ContactRepository, MessageRepository, RawPacketRepository
 
@@ -439,6 +441,35 @@ async def backfill_message_regions(known_regions: list[str]) -> dict[str, int]:
 
     logger.info("Region backfill complete: scanned=%d scoped=%d named=%d", scanned, scoped, named)
     return {"scanned": scanned, "scoped": scoped, "named": named}
+
+
+_region_backfill_task: asyncio.Task | None = None
+_region_backfill_pending: list[str] | None = None
+
+
+def schedule_region_backfill(known_regions: list[str]) -> asyncio.Task:
+    """Single-flight region backfill.
+
+    A backfill walks every CHAN message with a retained raw packet, so two of
+    them must never run side by side. While one is running, further requests
+    only record the newest region list; one follow-up pass runs with it once
+    the current pass ends.
+    """
+    global _region_backfill_task, _region_backfill_pending
+
+    if _region_backfill_task is not None and not _region_backfill_task.done():
+        _region_backfill_pending = list(known_regions)
+        return _region_backfill_task
+
+    async def _run(regions: list[str] | None) -> None:
+        global _region_backfill_pending
+        while regions is not None:
+            await backfill_message_regions(regions)
+            regions, _region_backfill_pending = _region_backfill_pending, None
+
+    _region_backfill_pending = None
+    _region_backfill_task = spawn(_run(list(known_regions)), name="region-backfill")
+    return _region_backfill_task
 
 
 async def create_dm_message_from_decrypted(

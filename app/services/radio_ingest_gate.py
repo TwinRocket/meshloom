@@ -34,7 +34,3 @@ def deny_ingest() -> None:
 
 def ingest_allowed() -> bool:
     return _ingest_allowed
-
-
-def current_session() -> int:
-    return _session_generation

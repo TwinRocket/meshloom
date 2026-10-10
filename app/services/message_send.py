@@ -9,6 +9,7 @@ from typing import Any, NamedTuple
 from fastapi import HTTPException
 from meshcore import EventType
 
+from app.background_tasks import spawn
 from app.loop_lock import LoopBoundLock
 from app.models import ResendChannelMessageResponse
 from app.radio import RadioOperationBusyError
@@ -647,7 +648,7 @@ async def send_direct_message_to_contact(
 ) -> DirectSendResult:
     """Send a direct message and persist/broadcast the outgoing row."""
     if retry_task_scheduler is None:
-        retry_task_scheduler = asyncio.create_task
+        retry_task_scheduler = spawn
     if retry_sleep_fn is None:
         retry_sleep_fn = asyncio.sleep
 
@@ -963,7 +964,7 @@ async def send_channel_message_to_channel(
     try:
         settings = await AppSettingsRepository.get()
         if settings.auto_resend_channel:
-            asyncio.create_task(
+            spawn(
                 _channel_echo_watchdog(
                     message_id=outgoing_message.id,
                     radio_manager=radio_manager,

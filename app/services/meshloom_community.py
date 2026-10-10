@@ -7,7 +7,6 @@ MESHCORE_COMMUNITY aliases.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import re
@@ -19,6 +18,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import HTTPException
 
+from app.background_tasks import spawn
 from app.models import CommunityAirportHit, CommunityStatus
 
 logger = logging.getLogger(__name__)
@@ -427,7 +427,7 @@ async def schedule_hashtag_names_publish(
     state = await get_community_effective()
     if not state.enabled or not state.iata:
         return
-    asyncio.create_task(_put_hashtag_names(cleaned))
+    spawn(_put_hashtag_names(cleaned))
 
 
 def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False) -> str:

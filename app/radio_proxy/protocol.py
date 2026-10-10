@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from meshcore.packets import CommandType, PacketType
+from meshcore.packets import PacketType
 
 RX_MARKER = 0x3C  # client → proxy
 TX_MARKER = 0x3E  # proxy → client
@@ -255,12 +255,6 @@ def encode_log_data(*, payload: bytes, snr: float = 0.0, rssi: int = 0) -> bytes
 
 
 @dataclass(frozen=True)
-class DecodedCommand:
-    code: int
-    raw: bytes
-
-
-@dataclass(frozen=True)
 class SendTxtCommand:
     txt_type: int
     attempt: int
@@ -318,12 +312,6 @@ class FrameAssembler:
                 return frames
             frames.append(bytes(self._buf[3:total]))
             del self._buf[:total]
-
-
-def decode_command(payload: bytes) -> DecodedCommand:
-    if not payload:
-        raise ValueError("empty companion command")
-    return DecodedCommand(code=payload[0], raw=payload)
 
 
 def parse_send_txt(payload: bytes) -> SendTxtCommand:
@@ -399,10 +387,3 @@ def parse_get_contacts_since(payload: bytes) -> int:
 
 def is_empty_channel_secret(secret: bytes) -> bool:
     return not secret or all(b == 0 for b in secret)
-
-
-def command_name(code: int) -> str:
-    try:
-        return CommandType(code).name
-    except ValueError:
-        return f"CMD_{code:#x}"

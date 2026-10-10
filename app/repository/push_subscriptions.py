@@ -85,15 +85,6 @@ class PushSubscriptionRepository:
         return _row_to_dict(row) if row else None
 
     @staticmethod
-    async def get_by_endpoint(endpoint: str) -> dict[str, Any] | None:
-        async with db.readonly() as conn:
-            async with conn.execute(
-                "SELECT * FROM push_subscriptions WHERE endpoint = ?", (endpoint,)
-            ) as cursor:
-                row = await cursor.fetchone()
-        return _row_to_dict(row) if row else None
-
-    @staticmethod
     async def get_all() -> list[dict[str, Any]]:
         async with db.readonly() as conn:
             async with conn.execute(
@@ -135,14 +126,6 @@ class PushSubscriptionRepository:
         async with db.tx() as conn:
             async with conn.execute(
                 "DELETE FROM push_subscriptions WHERE id = ?", (subscription_id,)
-            ) as cursor:
-                return cursor.rowcount > 0
-
-    @staticmethod
-    async def delete_by_endpoint(endpoint: str) -> bool:
-        async with db.tx() as conn:
-            async with conn.execute(
-                "DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,)
             ) as cursor:
                 return cursor.rowcount > 0
 
