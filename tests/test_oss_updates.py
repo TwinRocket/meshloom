@@ -454,3 +454,85 @@ class TestGithubFirstUpdateCheck:
         ):
             assert await fetch_meshloom_latest() is None
         client.assert_not_called()
+
+
+class TestPollCadence:
+    @pytest.mark.asyncio
+    async def test_interval_is_6h_opted_out_and_300s_opted_in(self):
+        from app.services import oss_updates
+
+        with patch(
+            "app.services.meshloom_community.get_community_effective",
+            new=AsyncMock(return_value=_OPTED_OUT),
+        ):
+            assert await oss_updates.poll_interval_seconds() == 6 * 3600
+        with patch(
+            "app.services.meshloom_community.get_community_effective",
+            new=AsyncMock(return_value=_OPTED_IN),
+        ):
+            assert await oss_updates.poll_interval_seconds() == 300
+
+    @pytest.mark.asyncio
+    async def test_opted_out_loop_checks_github_then_waits_6h(self):
+        import asyncio
+
+        from app.services import oss_updates
+
+        github = AsyncMock(return_value=None)
+        waits: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            waits.append(seconds)
+            raise asyncio.CancelledError
+
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.oss_updates.fetch_github_latest", new=github),
+            patch(
+                "app.services.meshloom_community.httpx.AsyncClient",
+                side_effect=AssertionError("Community mirror called while opted out"),
+            ),
+            patch("app.services.oss_updates.fetch_meshloom_latest", new=fetch_meshloom_latest),
+            patch("app.services.oss_updates._maybe_auto_apply", new=AsyncMock()),
+            patch("app.services.oss_updates._sleep_until_next_poll", new=fake_sleep),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await oss_updates._oss_update_loop()
+
+        github.assert_awaited_once()
+        assert waits == [6 * 3600]
+
+    @pytest.mark.asyncio
+    async def test_turning_community_on_wakes_the_poll(self):
+        import asyncio
+
+        from app.services import oss_updates
+
+        refresh = AsyncMock(return_value=None)
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.oss_updates.refresh_oss_update_cache", new=refresh),
+            patch("app.services.oss_updates._maybe_auto_apply", new=AsyncMock()),
+        ):
+            task = asyncio.create_task(oss_updates._oss_update_loop())
+            try:
+                for _ in range(100):
+                    if refresh.await_count == 1 and oss_updates._poll_wake is not None:
+                        break
+                    await asyncio.sleep(0.01)
+                assert refresh.await_count == 1
+                oss_updates.nudge_oss_update_poll()
+                for _ in range(100):
+                    if refresh.await_count >= 2:
+                        break
+                    await asyncio.sleep(0.01)
+                assert refresh.await_count == 2
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)

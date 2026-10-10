@@ -353,6 +353,10 @@ async def update_community(
     from app.services.community_live import sync_community_live
 
     await sync_community_live(state.enabled)
+    if state.enabled and not before.enabled:
+        from app.services.oss_updates import nudge_oss_update_poll
+
+        nudge_oss_update_poll()
     return state
 
 

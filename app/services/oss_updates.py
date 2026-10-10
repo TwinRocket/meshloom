@@ -6,6 +6,10 @@ installs anything (``scripts/setup/helpers/compose-update``). Community
 (``GET /v1/meshloom/latest``) is only a mirror used when GitHub cannot be
 reached, so a Community outage never hides a security release.
 
+With Community on, the check runs every 300 s and falls back to the mirror.
+Opted out, it asks GitHub only (the mirror is never called) and only once
+every 6 h; turning Community back on wakes the loop at once.
+
 Runs from app lifespan independently of radio connect / SKIP_POST_CONNECT_SYNC.
 The frontend reads GET /api/updates; this is never stuffed into the WS health
 event (that frame already fires every 60s for radio stats).
@@ -31,12 +35,14 @@ from app.version_info import get_app_build_info
 logger = logging.getLogger(__name__)
 
 UPDATE_POLL_INTERVAL_SECONDS = 300
+UPDATE_POLL_INTERVAL_OPTED_OUT_SECONDS = 6 * 3600
 RELEASES_REPO_URL = "https://github.com/TwinRocket/meshloom"
 GITHUB_LATEST_TIMEOUT_SECONDS = 10.0
 # Same rule as the compose helper: the tag must be a strict X.Y.Z.
 _RELEASE_TAG_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 _poll_task: asyncio.Task | None = None
+_poll_wake: asyncio.Event | None = None
 _window_timer_task: asyncio.Task | None = None
 _latest_payload: dict[str, Any] | None = None
 _checked_at: int | None = None
@@ -96,7 +102,11 @@ async def fetch_github_latest() -> dict[str, Any] | None:
 
 
 async def fetch_latest_release() -> dict[str, Any] | None:
-    """GitHub first, Community mirror second. None when both fail."""
+    """GitHub first, Community mirror second. None when both fail.
+
+    The mirror answers None without any request while Community is off
+    (``fetch_meshloom_latest`` is behind the Community egress guard).
+    """
     payload = await fetch_github_latest()
     if payload is not None:
         return payload
@@ -182,9 +192,10 @@ def _schedule_window_apply(when: datetime) -> None:
 
 def reset_oss_update_cache() -> None:
     """Drop the in-memory catalogue (tests)."""
-    global _latest_payload, _checked_at
+    global _latest_payload, _checked_at, _poll_wake
     _latest_payload = None
     _checked_at = None
+    _poll_wake = None
     _cancel_window_timer()
 
 
@@ -306,6 +317,35 @@ async def _maybe_auto_apply() -> None:
         return
 
 
+async def poll_interval_seconds() -> int:
+    """300 s with Community on, 6 h opted out (GitHub only)."""
+    from app.services.meshloom_community import community_enabled
+
+    try:
+        enabled = await community_enabled()
+    except Exception:
+        logger.debug("Community state unavailable for the update poll", exc_info=True)
+        return UPDATE_POLL_INTERVAL_SECONDS
+    return UPDATE_POLL_INTERVAL_SECONDS if enabled else UPDATE_POLL_INTERVAL_OPTED_OUT_SECONDS
+
+
+def nudge_oss_update_poll() -> None:
+    """Run the next check now (Community just turned on, back to the 300 s cadence)."""
+    if _poll_wake is not None:
+        _poll_wake.set()
+
+
+async def _sleep_until_next_poll(seconds: float) -> None:
+    global _poll_wake
+    if _poll_wake is None:
+        _poll_wake = asyncio.Event()
+    try:
+        await asyncio.wait_for(_poll_wake.wait(), timeout=seconds)
+    except TimeoutError:
+        pass
+    _poll_wake.clear()
+
+
 async def _oss_update_loop() -> None:
     while True:
         try:
@@ -315,14 +355,11 @@ async def _oss_update_loop() -> None:
             raise
         except Exception:
             logger.exception("OSS update poll failed")
-        try:
-            await asyncio.sleep(UPDATE_POLL_INTERVAL_SECONDS)
-        except asyncio.CancelledError:
-            raise
+        await _sleep_until_next_poll(await poll_interval_seconds())
 
 
 async def start_oss_update_polling() -> None:
-    """Start the 300s catalogue poll. Fetches once immediately on start."""
+    """Start the catalogue poll (300 s, or 6 h opted out). Fetches once on start."""
     global _poll_task
     if _poll_task is not None and not _poll_task.done():
         return
@@ -331,7 +368,8 @@ async def start_oss_update_polling() -> None:
 
 async def stop_oss_update_polling() -> None:
     """Stop the catalogue poll."""
-    global _poll_task
+    global _poll_task, _poll_wake
+    _poll_wake = None
     await _await_cancelled_window_timer()
     if _poll_task is None:
         return
