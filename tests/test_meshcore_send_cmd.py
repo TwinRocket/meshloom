@@ -1,4 +1,4 @@
-"""Contract tests for meshcore 2.3.9+ ``send_cmd`` destination handling."""
+"""Contract tests for meshcore ``send_cmd`` destination handling (pinned 2.3.15)."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,12 +18,17 @@ def _handler() -> MessagingCommands:
 
 
 @pytest.mark.asyncio
-async def test_library_send_cmd_rejects_public_key_string():
-    """meshcore 2.3.9.1 reads dst['type']; a hex key crashes instead of sending."""
+async def test_library_send_cmd_treats_public_key_string_as_repeater():
+    """Since meshcore 2.3.15 a bare key no longer crashes, but the type is lost.
+
+    The library assumes a repeater (``CLI_DATA``), which is wrong for a chat
+    contact. Meshloom therefore keeps passing the full contact dict.
+    """
     handler = _handler()
-    with pytest.raises(TypeError, match="string indices must be integers"):
-        await handler.send_cmd("aa" * 32, "ver")
-    handler.send.assert_not_awaited()
+    await handler.send_cmd("aa" * 32, "ver")
+
+    payload = handler.send.await_args.args[0]
+    assert payload[1] == TxtType.CLI_DATA.value
 
 
 @pytest.mark.asyncio
