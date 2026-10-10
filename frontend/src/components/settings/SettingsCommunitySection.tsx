@@ -386,7 +386,6 @@ export function SettingsCommunitySection({
             />
             <IataHelp />
           </div>
-          <IataAirportSearch disabled={busy !== null} onPick={setIataDraft} />
           <Button
             type="button"
             onClick={() => void handleJoin()}

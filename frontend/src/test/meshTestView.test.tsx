@@ -30,6 +30,7 @@ vi.mock('../components/MeshTestMap', () => ({
 }));
 
 import { MeshTestView } from '../components/MeshTestView';
+import { setCommunityStatus } from '../stores/communityStore';
 
 describe('MeshTestView', () => {
   beforeEach(() => {
@@ -141,5 +142,49 @@ describe('MeshTestView', () => {
     });
     const hop = screen.getByText(/FR06-CARROS-Village/).closest('li');
     expect(hop?.textContent).not.toContain(i18n.t('meshTest.noPosition'));
+  });
+});
+
+describe('MeshTestView with Community off', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    apiMocks.getPacketObserverReach.mockReset();
+  });
+
+  it('says Community is off and polls nothing', async () => {
+    sessionStorage.setItem(
+      MESH_TEST_RUN_KEY,
+      JSON.stringify({
+        packetHash: 'abc',
+        sentAt: Math.floor(Date.now() / 1000),
+        floodScope: 'nl-gr',
+        originLat: 48.85,
+        originLon: 2.35,
+      })
+    );
+    setCommunityStatus({
+      enabled: false,
+      iata: 'LYS',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: false,
+      publisher_connected: false,
+      env_seeded: true,
+    });
+    const onOpenCommunitySettings = vi.fn();
+
+    render(
+      <MeshTestView
+        contacts={[]}
+        knownRegions={['nl-gr']}
+        radioConnected
+        onOpenCommunitySettings={onOpenCommunitySettings}
+      />
+    );
+
+    expect(await screen.findByText(i18n.t('meshTest.communityOff'))).toBeInTheDocument();
+    screen.getByRole('button', { name: i18n.t('community.openSettings') }).click();
+    expect(onOpenCommunitySettings).toHaveBeenCalled();
+    expect(apiMocks.getPacketObserverReach).not.toHaveBeenCalled();
   });
 });
