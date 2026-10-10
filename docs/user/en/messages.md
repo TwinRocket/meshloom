@@ -45,7 +45,7 @@ The channel name is hashed — passed through a function that always produces th
 
 A few consequences:
 
-- **The name is hashed exactly as written.** An extra capital letter, space, or accent creates a different key and therefore a different channel. By default, Meshloom lowercases the name and limits it to letters, numbers, and hyphens to avoid these near-misses. An option allows capitals, spaces, and extended characters when joining a channel created elsewhere with an unusual name.
+- **The name is hashed exactly as written.** An extra capital letter, space, or accent creates a different key and therefore a different channel. By default, Meshloom lowercases the name and limits it to letters, numbers, and hyphens to avoid these near-misses. An option allows capitals, spaces, and extended characters when joining a channel created elsewhere with an unusual name. Clients do not all treat spaces at the start or end of a name the same way yet; avoid them.
 - **The name must be short.** Thirty-two bytes maximum, including `#`. Accented characters can use more than one byte.
 - **An easy-to-guess name is an open channel.** `#meteo` is not a secret. A hashtag channel helps organize conversations; it does not hide them.
 

@@ -83,7 +83,7 @@ Two things work differently there:
 
 **The radio proxy port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the proxy is the only thing on the network. Its port is changed in the add-on's **Network** panel; the field inside Meshloom shows it and says so, because a value set there would leave the proxy listening where nothing is forwarded.
 
-**Notifications need an address of their own.** The sidebar has no durable public address, so Web Push cannot work through it alone. Giving the instance a real hostname — the Cloudflared add-on does this without opening a port on your router — and entering it as the add-on's `public_url` is what makes notifications possible.
+**Notifications need an address of their own.** The sidebar has no durable public address, so Web Push cannot work through it alone. Giving the instance a real hostname — the Cloudflared add-on does this without opening a port on your router — and opening Meshloom at that address is what makes notifications possible. The add-on's `public_url` option is passed to Meshloom but has no effect yet.
 
 This is not the same as [publishing the mesh to Home Assistant over MQTT](/en/docs/deep/home-assistant/), which works from any installation and needs no add-on.
 

@@ -45,7 +45,7 @@ Concrètement, le nom du salon est haché — passé dans une fonction qui produ
 
 Quelques conséquences à connaître :
 
-- **Le nom est haché tel quel.** Une majuscule, un espace ou un accent en trop produisent une clé différente, donc un autre salon. Par défaut, Meshloom met le nom en minuscules et le limite aux lettres, chiffres et tirets, ce qui évite ce genre de faux jumeaux. Une option permet d’autoriser majuscules, espaces et caractères étendus, pour rejoindre un salon créé ailleurs avec un nom exotique.
+- **Le nom est haché tel quel.** Une majuscule, un espace ou un accent en trop produisent une clé différente, donc un autre salon. Par défaut, Meshloom met le nom en minuscules et le limite aux lettres, chiffres et tirets, ce qui évite ce genre de faux jumeaux. Une option permet d’autoriser majuscules, espaces et caractères étendus, pour rejoindre un salon créé ailleurs avec un nom exotique. Les clients ne traitent pas encore tous de la même façon les espaces en début ou en fin de nom ; évitez-les.
 - **Le nom est court par obligation.** Trente-deux octets au maximum, `#` compris. Les caractères accentués en consomment plus d’un.
 - **Un nom devinable est un salon lisible par n’importe qui.** `#meteo` n’est pas un secret. Un salon hashtag sert à s’organiser, pas à se cacher.
 

@@ -83,7 +83,7 @@ Deux choses s'y passent différemment :
 
 **Le port du proxy radio se règle dans Home Assistant, pas dans Meshloom.** L'interface passe par la barre latérale et ne publie rien : le proxy est la seule chose présente sur le réseau. Son port se change dans le panneau **Réseau** de l'add-on ; le champ dans Meshloom l'affiche et le dit, parce qu'une valeur saisie là laisserait le proxy à l'écoute là où rien n'est redirigé.
 
-**Les notifications ont besoin d'une adresse à elles.** La barre latérale n'a pas d'adresse publique durable, donc Web Push ne peut pas fonctionner par ce seul chemin. Donner un vrai nom d'hôte à l'instance — l'add-on Cloudflared le fait sans ouvrir de port sur votre box — et le saisir comme `public_url` de l'add-on est ce qui rend les notifications possibles.
+**Les notifications ont besoin d'une adresse à elles.** La barre latérale n'a pas d'adresse publique durable, donc Web Push ne peut pas fonctionner par ce seul chemin. Donner un vrai nom d'hôte à l'instance — l'add-on Cloudflared le fait sans ouvrir de port sur votre box — et ouvrir Meshloom à cette adresse est ce qui rend les notifications possibles. L'option `public_url` de l'add-on est transmise à Meshloom mais reste sans effet pour l'instant.
 
 Ce n'est pas la même chose que [publier le mesh vers Home Assistant en MQTT](/fr/docs/deep/home-assistant/), qui fonctionne depuis n'importe quelle installation et ne demande aucun add-on.
 

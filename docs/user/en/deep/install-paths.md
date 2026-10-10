@@ -21,6 +21,8 @@ Native systemd installation uses `apt-get` or `dnf` when a package is available.
 - `/etc/meshloom/meshloom.env`
 - `/var/lib/meshloom`
 
+If no package exists for the platform, the script falls back to a source install: it clones the latest release into a folder (default `~/meshloom`) and runs `install_service.sh`. That install updates with `git pull` and a service restart, not from Settings → Updates.
+
 Check it normally:
 
 ```bash

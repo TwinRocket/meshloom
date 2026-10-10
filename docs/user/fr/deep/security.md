@@ -13,7 +13,7 @@ Les décisions listées ci-dessous sont **délibérées**. Elles ne sont pas des
 
 **Pas de comptes utilisateurs.** Aucune session, aucun modèle d’autorisation, aucune permission par fonctionnalité. Quiconque atteint l’interface peut tout faire : lire l’historique, envoyer des messages, modifier la configuration radio, éditer des bots.
 
-**Pas de restriction d’origine.** Le backend autorise toutes les origines (`allow_origins=["*"]`). C’est ce qui permet de consulter sa radio depuis n’importe quel appareil du réseau local sans configuration. C’est aussi ce qui fait qu’une page web tierce ouverte dans le même navigateur peut parler à l’API.
+**Pas de restriction d’origine.** Le backend autorise toutes les origines (`allow_origins=["*"]`, avec `allow_credentials=True`). C’est ce qui permet de consulter sa radio depuis n’importe quel appareil du réseau local sans configuration. C’est aussi ce qui fait qu’une page web tierce ouverte dans le même navigateur peut parler à l’API.
 
 **Exécution de code arbitraire par les bots.** Le système de bots exécute du Python fourni par l’utilisateur via `exec()`, avec l’ensemble des `__builtins__`. C’est assumé : les bots sont une fonctionnalité de puissance pour l’automatisation. La conséquence directe est que **toute personne sur le réseau peut exécuter du code arbitraire** sur la machine qui héberge Meshloom.
 
@@ -76,7 +76,7 @@ Le MQTT **communautaire** est verrouillé sur les paquets bruts uniquement, sans
 
 Le MQTT **privé**, les webhooks, Apprise et SQS peuvent en revanche transporter le texte intégral des messages, selon la portée choisie. Ce sont vos destinations, donc c’est à vous de savoir où elles pointent.
 
-Une sortie Internet est exigée pour les [notifications push](/docs/deep/push/) et, une fois rejoint, pour [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms hashtag). Une install qui refuse les deux peut rester isolée. Les payloads push transitent par le service du navigateur.
+Une sortie Internet est exigée pour les [notifications push](/docs/deep/push/) et, une fois rejoint, pour [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms hashtag). Même une install qui refuse les deux vérifie encore les mises à jour (GitHub, puis le miroir de versions de Community) toutes les cinq minutes ; elle fonctionne sans cet accès. Les payloads push transitent par le service du navigateur.
 
 ## Une posture raisonnable
 
