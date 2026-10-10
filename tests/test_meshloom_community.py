@@ -24,7 +24,6 @@ from app.routers.community import (
     get_community,
     get_community_stats,
     get_hashtags,
-    get_iata_hashtags,
     patch_community,
     put_me_hashtags,
     put_me_iata,
@@ -452,16 +451,12 @@ class TestCommunityHashtagProxies:
         assert result.hashtags[0].name == "meshcore"
         assert result.hashtags[0].hash_byte == "d9"
 
-    async def test_legacy_iata_hashtags_route_is_global(self):
-        payload = {"hashtags": [{"name": "meshcore", "hash_byte": "d9"}]}
-        with patch(
-            "app.routers.community.stats_json",
-            new=AsyncMock(return_value=payload),
-        ) as stats:
-            result = await get_iata_hashtags("cdg")
+    def test_per_iata_hashtags_route_is_removed(self):
+        from app.main import app
 
-        stats.assert_awaited_once_with("GET", "/v1/hashtags", auth=False)
-        assert result.hashtags[0].name == "meshcore"
+        paths = app.openapi()["paths"]
+        assert "/api/community/hashtags" in paths
+        assert "/api/community/iata/{code}/hashtags" not in paths
 
     @pytest.mark.asyncio
     async def test_put_me_hashtags_is_authenticated(self):
