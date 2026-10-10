@@ -44,6 +44,16 @@ _OPTED_OUT = CommunityEffective(
 )
 
 
+_OPTED_IN = CommunityEffective(
+    enabled=True,
+    iata="CDG",
+    broker_host="mqtt.meshloom.app",
+    api_base=DEFAULT_API_BASE,
+    api_audience="api.meshloom.app",
+    mqtt_audience="mqtt.meshloom.app",
+)
+
+
 def _build(version: str) -> AppBuildInfo:
     return AppBuildInfo(
         version=version, version_source="test", commit_hash=None, commit_source=None
@@ -59,19 +69,35 @@ def _reset_cache():
 
 class TestFetchMeshloomLatest:
     @pytest.mark.asyncio
-    async def test_opted_out_still_fetches_without_jwt(self):
+    async def test_opted_out_never_calls_the_mirror(self):
+        """Opted out means no request to the Community hosts, the mirror included."""
+        client_cls = MagicMock()
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.meshloom_community.httpx.AsyncClient", client_cls),
+        ):
+            payload = await fetch_meshloom_latest()
+
+        assert payload is None
+        client_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_opted_in_fetches_without_jwt(self):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = _STATS_PAYLOAD
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.request = AsyncMock(return_value=mock_response)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
         with (
             patch(
                 "app.services.meshloom_community.get_community_effective",
-                new=AsyncMock(return_value=_OPTED_OUT),
+                new=AsyncMock(return_value=_OPTED_IN),
             ),
             patch(
                 "app.services.meshloom_community.httpx.AsyncClient",
@@ -85,8 +111,9 @@ class TestFetchMeshloomLatest:
         assert payload == _STATS_PAYLOAD
         stats_req.assert_not_called()
         stats_json.assert_not_called()
-        mock_client.get.assert_awaited_once_with(f"{DEFAULT_API_BASE}/v1/meshloom/latest")
-        assert mock_client.get.await_args.kwargs.get("headers") in (None, {})
+        mock_client.request.assert_awaited_once_with(
+            "GET", f"{DEFAULT_API_BASE}/v1/meshloom/latest"
+        )
 
 
 class TestSemVerAndCache:
@@ -418,6 +445,12 @@ class TestGithubFirstUpdateCheck:
         for _ in range(breaker.threshold):
             breaker.record_failure()
         client = MagicMock()
-        with patch("app.services.meshloom_community.httpx.AsyncClient", client):
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_IN),
+            ),
+            patch("app.services.meshloom_community.httpx.AsyncClient", client),
+        ):
             assert await fetch_meshloom_latest() is None
         client.assert_not_called()
