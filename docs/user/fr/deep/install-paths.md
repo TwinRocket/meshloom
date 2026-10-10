@@ -21,7 +21,7 @@ En systemd natif, il installe le paquet `meshloom` via `apt-get` ou `dnf` quand 
 - le fichier d’environnement `/etc/meshloom/meshloom.env`
 - le répertoire de données `/var/lib/meshloom`
 
-Si le paquet n’est pas disponible pour la plateforme, le script retombe sur une installation depuis les sources.
+Si le paquet n’est pas disponible pour la plateforme, le script retombe sur une installation depuis les sources : il clone la dernière version dans un dossier (par défaut `~/meshloom`) et lance `install_service.sh`. Cette installation se met à jour par `git pull` et un redémarrage du service, pas depuis Réglages → Mises à jour.
 
 L’état du service se lit comme n’importe quel autre :
 

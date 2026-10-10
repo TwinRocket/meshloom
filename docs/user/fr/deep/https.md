@@ -50,13 +50,11 @@ Les deux montages sont en lecture seule. Le `command` écrase celui de l’image
 
 Meshloom accepte d’être servi sous un préfixe, par exemple `/meshcore/`, y compris via l’ingress Home Assistant. Tous les chemins d’assets frontend et d’API sont relatifs, donc ils se résolvent correctement sous n’importe quel préfixe.
 
-Deux exigences côté proxy.
+Une exigence côté proxy.
 
 **La barre oblique finale.** L’URL du sous-chemin doit en avoir une. Si un visiteur atteint `/meshcore` sans barre finale, les chemins relatifs cassent. La plupart des proxys s’en occupent seuls ; pour Nginx, un bloc `location /meshcore/ { ... }` — avec la barre — fait ce qu’il faut.
 
-**`X-Forwarded-Prefix`.** Pour que l’installation en PWA se comporte correctement, le proxy doit transmettre cet en-tête avec le sous-chemin, par exemple `/meshcore`. Le manifeste web s’en sert pour générer des valeurs `start_url` et `scope` justes. `X-Forwarded-Proto` et `X-Forwarded-Host` sont également respectés pour la résolution de l’origine.
-
-Sans `X-Forwarded-Prefix`, l’application reste utilisable dans un onglet ; c’est l’installation en application qui devient bancale.
+**Pas d’en-tête `X-Forwarded-*` requis.** Le manifeste web est lui aussi relatif (`start_url` et `scope` valent `./`), donc l’installation en PWA fonctionne sous le préfixe sans `X-Forwarded-Prefix`.
 
 ## WebSocket
 

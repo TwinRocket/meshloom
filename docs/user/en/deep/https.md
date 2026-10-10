@@ -42,7 +42,7 @@ The read-only mounts are intentional. `command` replaces the image command, so i
 
 ## Reverse proxy under a subpath
 
-Meshloom can run under a prefix such as `/meshcore/`, including through the Home Assistant ingress. Keep the trailing slash. A proxy should also forward `X-Forwarded-Prefix: /meshcore`; the manifest uses it for correct `start_url` and `scope`. `X-Forwarded-Proto` and `X-Forwarded-Host` are also respected.
+Meshloom can run under a prefix such as `/meshcore/`, including through the Home Assistant ingress. Keep the trailing slash. Asset, API, and web-manifest URLs are relative (`start_url` and `scope` are `./`), so no `X-Forwarded-*` header is needed.
 
 ## WebSocket
 

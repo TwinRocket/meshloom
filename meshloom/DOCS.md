@@ -35,8 +35,8 @@ anywhere else.
 | Option | What it does |
 |---|---|
 | `log_level` | How much the add-on writes to its log. |
-| `proxy_port` | The port the radio proxy listens on inside the container. See below. |
-| `public_url` | The address this instance is reached at from outside, when a tunnel gives it one. |
+| `proxy_port` | Intended container-side port of the radio proxy. **Currently not applied** — see below. |
+| `public_url` | The address this instance is reached at from outside. Accepted, but no feature uses it yet. |
 | `basic_auth_username` / `basic_auth_password` | Guards the web interface when it is published beyond ingress. |
 | `vapid_subject` | Contact address for Web Push. |
 | `disable_bots` | Turns off the bot system. |
@@ -48,10 +48,14 @@ and receive through this radio without unplugging it.
 
 Ingress does not carry it: ingress serves the web interface, and the proxy is a
 plain TCP listener. So it is published on the host, and the published port is
-changed in this add-on's **Network** panel, not inside Meshloom.
-The field in Meshloom's own settings is read-only for that reason and says so: a
-value set there would leave the proxy listening on a port nothing is forwarded to,
-which looks exactly like a working proxy that nobody can reach.
+changed in this add-on's **Network** panel, not inside Meshloom. The port field
+in Meshloom's own settings is read-only here.
+
+**Known limitation.** The add-on forwards container port `5051`, but Meshloom
+does not read `proxy_port`: the proxy listens on the port stored in its settings,
+`5001` by default, and the read-only field prevents changing it. The proxy is also
+off until you enable it in **Settings > Proxy**. Until this is fixed, nothing
+reaches the proxy through the published `5051/tcp`.
 
 ## Reaching it from outside
 
@@ -59,16 +63,15 @@ Ingress authenticates with Home Assistant and needs nothing published, but the
 address it serves under belongs to Home Assistant and is not durable — so **Web
 Push notifications will not work through ingress alone**.
 
-Giving Meshloom a hostname of its own takes two steps, because ingress cannot
+Giving Meshloom a hostname of its own takes these steps, because ingress cannot
 provide one:
 
 1. In this add-on's **Network** panel, give `8000/tcp` a host port. It is blank by
    default, and while it is blank there is no address for anything to point at.
 2. Route that hostname to `http://<home-assistant-ip>:<the port you chose>`. The
    **Cloudflared** add-on does this without opening a port on your router.
-3. Set `public_url` to the hostname you chose, so the links Meshloom builds —
-   Web Push among them — name the address you actually reach it at rather than one
-   inferred from whatever header survived the trip.
+3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
+   Setting `public_url` is harmless but has no effect yet.
 
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
 address and a port, and Meshloom answers to whatever name it is asked for. Ingress

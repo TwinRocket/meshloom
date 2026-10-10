@@ -11,7 +11,7 @@ Meshloom is designed for a trusted network. Several architectural choices depend
 
 **No user accounts.** There are no sessions, authorization model, or per-feature permissions. Anyone who reaches the UI can read history, send messages, change radio settings, and edit bots.
 
-**No origin restriction.** The backend allows all origins (`allow_origins=["*"]`). This makes LAN access easy, but a third-party page in the same browser can also call the API.
+**No origin restriction.** The backend allows all origins (`allow_origins=["*"]`, with `allow_credentials=True`). This makes LAN access easy, but a third-party page in the same browser can also call the API.
 
 **Arbitrary bot execution.** Bots run user-supplied Python through `exec()` with full `__builtins__`. Anyone on the network can execute arbitrary code on the Meshloom host. This is intentional.
 
@@ -48,7 +48,7 @@ When enabled, `GET /api/radio/private-key` returns the key as hexadecimal. Enabl
 
 Community MQTT (a Fanout module you configure) is locked to raw packets and never carries decoded conversation text. Private MQTT, webhooks, Apprise, and SQS can carry full message text according to their scope.
 
-Internet egress is required for [push notifications](/en/docs/deep/push/) and, when joined, [Meshloom Community](/en/docs/deep/community/) (raw-packet publish, directory, hashtag-name share). An install that opts out of both can stay isolated.
+Internet egress is required for [push notifications](/en/docs/deep/push/) and, when joined, [Meshloom Community](/en/docs/deep/community/) (raw-packet publish, directory, hashtag-name share). Even an install that opts out of both still checks for updates (GitHub, then the Community release mirror) every five minutes; it keeps working without that access.
 
 ## A reasonable posture
 
