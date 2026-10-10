@@ -957,7 +957,7 @@
       "privacyPrivateKey": "Quiconque possède la clé privée de la radio peut publier et lire vos statistiques « me ».",
       "privacyRotate": "Changer la clé radio rend orphelins l’historique et l’association IATA.",
       "privacyStop": "Arrêter Meshloom Community arrête la publication.",
-      "privacyHashtags": "Quand Community est activé, Meshloom partage les noms des canaux hashtag — pas les messages ni les clés privées — avec votre zone IATA afin que d’autres puissent trouver les salons publics.",
+      "privacyHashtags": "Quand Community est activé, Meshloom partage les noms des canaux hashtag — pas les messages ni les clés privées — avec Meshloom Community (une liste globale, pas par zone IATA) afin que d’autres puissent trouver les salons publics.",
       "privacyDirectory": "Community coupé, il n’y a plus d’annuaire du tout. Meshloom ne contacte aucun autre hôte.",
       "meTitle": "Votre contribution",
       "meHashes24h": "Hachages uniques (24 h)",
