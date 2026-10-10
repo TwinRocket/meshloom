@@ -77,7 +77,7 @@ npm run build
 
 | Script | Purpose |
 |--------|---------|
-| `publish.sh` | Local release step: quality gate, `LICENSES.md`, version bump (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), changelog, then `git add .`, commit, push, and an annotated `X.Y.Z` tag pushed to origin. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
+| `publish.sh` | Local release step: quality gate, `LICENSES.md`, version bump (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), changelog, then a commit of exactly those files, a push of `main` and an annotated `X.Y.Z` tag pushed to origin. It refuses to run off `main`, on a dirty tree, or when `main` differs from `origin/main`. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |
 | `check_version_consistency.sh` | Fails unless the five version sources above equal the tag (Release `preflight`). |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |

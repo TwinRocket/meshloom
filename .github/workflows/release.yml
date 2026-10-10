@@ -5,8 +5,9 @@ name: Release
 # in this same run (a second workflow would not start: GITHUB_TOKEN releases
 # do not trigger on.release). The armhf package is workflow_dispatch'd after
 # publish so QEMU does not block a re-run. Cut a release with
-# scripts/build/publish.sh, then:
-#   git tag X.Y.Z && git push origin X.Y.Z
+# scripts/build/publish.sh from a clean, up-to-date main: it bumps the versions,
+# updates the changelog, commits, pushes main and pushes the annotated X.Y.Z tag
+# that starts this workflow. Do not tag by hand afterwards.
 #
 # Signing (pkg/keys/README.md): `preflight` refuses to start unless the four
 # version sources equal the tag and the CI secret MESHLOOM_REPO_GPG_PRIVATE_KEY
