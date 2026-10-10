@@ -1,0 +1,184 @@
+name: Sign release manifest
+
+# Produces and signs two files for a release:
+#
+#   SHA256SUMS (+ .asc)    every .deb/.rpm, the prebuilt frontend zip, install.sh;
+#                          strictly `sha256sum -c --strict` compatible
+#   OCI-DIGESTS (+ .asc)   one line pinning the multi-arch image by index digest:
+#                          ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<64 hex>
+#
+# Clients verify the .asc files against the keyring committed in pkg/keys, never
+# against a key fetched from the network.
+#
+# Called by Release (after publish) and again by "Packages (armhf)" once the
+# armhf package is attached, which rewrites the manifest with the new file.
+# Fails closed: a missing key, a missing asset or a missing image platform
+# leaves the release without a manifest rather than with an unsigned one.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version (no v prefix)"
+        type: string
+        required: true
+      require_armhf:
+        description: "Fail unless the armhf .deb is attached"
+        type: boolean
+        default: false
+    secrets:
+      MESHLOOM_REPO_GPG_PRIVATE_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (no v prefix)"
+        required: true
+      require_armhf:
+        description: "Fail unless the armhf .deb is attached"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Release and armhf both call this; run them one after the other so the later
+# manifest (which sees the armhf package) is always the one that is left.
+concurrency:
+  group: sign-manifest-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  sign-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write        # upload SHA256SUMS(.asc) to the release
+      actions: read          # look at the docker.yml run for this tag
+      packages: read
+      id-token: write        # build provenance attestation
+      attestations: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Validate version
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be X.Y.Z"; exit 1; }
+
+      # The keyring and the scripts come from the release tag, i.e. exactly what
+      # the packages of that release ship.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
+
+      - name: Download release assets
+        run: |
+          mkdir -p manifest
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" --dir manifest \
+            --pattern '*.deb' --pattern '*.rpm' \
+            --pattern 'meshloom-prebuilt-frontend-*.zip' --pattern 'install.sh'
+          cd manifest
+          shopt -s nullglob
+          need() { compgen -G "$1" >/dev/null || { echo "::error::release $VERSION has no asset matching $1"; exit 1; }; }
+          need '*_amd64.deb'
+          need '*_arm64.deb'
+          need '*.x86_64.rpm'
+          need '*.aarch64.rpm'
+          need 'meshloom-prebuilt-frontend-*.zip'
+          need 'install.sh'
+          if [ "${{ inputs.require_armhf }}" = "true" ]; then need '*_armhf.deb'; fi
+          ls -l
+
+      - name: Log in to GHCR (read)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # docker.yml runs on the same tag in parallel. Wait for the index tag, but
+      # give up early when that run already failed.
+      - name: Resolve the OCI index digest
+        id: oci
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
+          deadline=$((SECONDS + 5400))
+          DIGEST=""
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if raw="$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest}}' 2>/dev/null)"; then
+              DIGEST="$(jq -r '.digest // empty' <<<"$raw")"
+              [ -n "$DIGEST" ] && break
+            fi
+            failed="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --branch "$VERSION" \
+              --json conclusion --jq '[.[] | select(.conclusion == "failure" or .conclusion == "cancelled")] | length' 2>/dev/null || echo 0)"
+            ok="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow docker.yml --branch "$VERSION" \
+              --json conclusion --jq '[.[] | select(.conclusion == "success")] | length' 2>/dev/null || echo 0)"
+            if [ "${failed:-0}" -gt 0 ] && [ "${ok:-0}" -eq 0 ]; then
+              echo "::error::docker.yml failed for $VERSION; no image to pin"
+              exit 1
+            fi
+            # The docker run is done and succeeded yet the tag cannot be read:
+            # waiting longer will not help.
+            if [ "${ok:-0}" -gt 0 ]; then
+              inspect_fail=$((${inspect_fail:-0} + 1))
+              if [ "$inspect_fail" -ge 5 ]; then
+                echo "::error::docker.yml succeeded but $IMAGE cannot be inspected"
+                exit 1
+              fi
+            fi
+            echo "Waiting for $IMAGE ..."
+            sleep 60
+          done
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no valid index digest for $IMAGE"; exit 1; }
+          # The index must carry every platform we ship; pinning a partial index
+          # would hand a 32-bit Raspberry Pi an image it cannot run.
+          platforms="$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest.Manifests}}' |
+            jq -r '.[].platform | select(.architecture != "unknown") | "\(.os)/\(.architecture)\(if .variant then "/" + .variant else "" end)"' | sort)"
+          echo "$platforms"
+          for p in linux/amd64 linux/arm64 linux/arm/v7; do
+            grep -qx "$p" <<<"$platforms" || { echo "::error::image index lacks $p"; exit 1; }
+          done
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Write and sign SHA256SUMS
+        env:
+          GNUPGHOME: ${{ steps.key.outputs.gnupghome }}
+          FPR: ${{ steps.key.outputs.fingerprint }}
+          OCI_IMAGE: ${{ steps.oci.outputs.image }}
+          OCI_DIGEST: ${{ steps.oci.outputs.digest }}
+        run: |
+          set -euo pipefail
+          (cd manifest && LC_ALL=C sha256sum -- *.deb *.rpm meshloom-prebuilt-frontend-*.zip install.sh | LC_ALL=C sort -k2) > SHA256SUMS
+          (cd manifest && sha256sum -c --strict ../SHA256SUMS)
+          echo "${OCI_IMAGE}:${VERSION} ${OCI_DIGEST}" > OCI-DIGESTS
+          for f in SHA256SUMS OCI-DIGESTS; do
+            gpg --batch --yes --pinentry-mode loopback --passphrase "" \
+              --armor --detach-sign -u "$FPR" -o "$f.asc" "$f"
+            # Verify with the committed keyring, exactly as a client will.
+            gpgv --keyring "$PWD/pkg/keys/meshloom-archive-keyring.gpg" "$f.asc" "$f"
+            cat "$f"
+          done
+
+      - name: Attest provenance of the release assets
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            manifest/*.deb
+            manifest/*.rpm
+            manifest/meshloom-prebuilt-frontend-*.zip
+            manifest/install.sh
+            SHA256SUMS
+            OCI-DIGESTS
+
+      - name: Upload manifest to the release
+        run: |
+          gh release upload "$VERSION" SHA256SUMS SHA256SUMS.asc OCI-DIGESTS OCI-DIGESTS.asc \
+            --repo "$GITHUB_REPOSITORY" --clobber

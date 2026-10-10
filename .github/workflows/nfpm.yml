@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - "pkg/nfpm/**"
+      - "pkg/keys/**"
+      - "scripts/build/check_*"
       - "scripts/build/build_nfpm_packages.sh"
       - "scripts/build/neutralize_project_version.py"
       - "Dockerfile.nfpm-armhf"
@@ -35,6 +37,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - uses: astral-sh/setup-uv@v6
+
+      # Placeholders are tolerated on pull requests (packaging is still tested,
+      # unsigned); a real key in pkg/keys is validated in full.
+      - name: Check signing trust anchor
+        run: scripts/build/check_signing_keys.sh --allow-placeholder
 
       - name: Install nFPM
         run: |

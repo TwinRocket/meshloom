@@ -42,3 +42,8 @@ docker-compose.yaml
 ha_test_config/
 .DS_Store
 *.tsbuildinfo
+
+# Key material safety net (pkg/keys/README.md): never commit secrets
+*.SECRET*
+*-subkey.asc
+*revoke*

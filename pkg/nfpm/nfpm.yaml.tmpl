@@ -46,10 +46,22 @@ contents:
     dst: /usr/lib/tmpfiles.d/meshloom.conf
     file_info:
       mode: 0644
+  # Trust anchor for the signed apt/dnf repository (pkg/keys/README.md).
+  - src: __KEYRING__
+    dst: /usr/share/keyrings/meshloom-archive-keyring.gpg
+    file_info:
+      mode: 0644
 scripts:
   postinstall: __PKGDIR__/postinstall.sh
   preremove: __PKGDIR__/preremove.sh
   postremove: __PKGDIR__/postremove.sh
+# SIGN-BEGIN (lines between the markers are dropped for unsigned local builds;
+# release builds require the key, see build_nfpm_packages.sh)
+deb:
+  signature:
+    key_file: __SIGN_KEY_FILE__
+    type: origin
+# SIGN-END
 overrides:
   deb:
     depends:
@@ -60,3 +72,7 @@ overrides:
 rpm:
   scripts:
     posttrans: __PKGDIR__/posttrans.sh
+  # SIGN-BEGIN
+  signature:
+    key_file: __SIGN_KEY_FILE__
+  # SIGN-END

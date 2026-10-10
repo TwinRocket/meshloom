@@ -36,6 +36,13 @@ Options:
   --package-only       Pack an already assembled --stage-dir
   --help
 
+Signing (packing step only):
+  MESHLOOM_SIGN_KEY_FILE   armored secret (sub)key; when set, .deb and .rpm are signed.
+                           It must not be passphrase-protected (nFPM cannot use one).
+  MESHLOOM_REQUIRE_SIGNED  1 = refuse to pack unsigned, and refuse placeholder keys
+                           in pkg/keys (release jobs set this). Default: unsigned
+                           local/PR builds are allowed.
+
 The two halves exist for armhf. The tree can only be assembled where its own
 interpreter runs, which for armv7 means emulation, and nFPM publishes no armv7
 binary to run there. So the tree is assembled under emulation and packed after.
@@ -222,8 +229,26 @@ if [ "$STAGE_ONLY" -eq 1 ] || [ "$DEPS_ONLY" -eq 1 ] || [ "$SKIP_DEPS" -eq 1 ]; 
 fi
 
 mkdir -p "$OUTPUT_DIR"
+
+SIGN_KEY_FILE="${MESHLOOM_SIGN_KEY_FILE:-}"
+if [ "${MESHLOOM_REQUIRE_SIGNED:-0}" = "1" ]; then
+    [ -n "$SIGN_KEY_FILE" ] && [ -s "$SIGN_KEY_FILE" ] || {
+        echo "MESHLOOM_REQUIRE_SIGNED=1 but MESHLOOM_SIGN_KEY_FILE is unset or empty" >&2
+        exit 1; }
+    "$SCRIPT_DIR/check_signing_keys.sh"
+fi
+
 CFG="$(mktemp)"
+SIGN_FILTER=(-e "/# SIGN-BEGIN/d" -e "/# SIGN-END/d")
+if [ -z "$SIGN_KEY_FILE" ]; then
+    echo "[nfpm] WARNING: building UNSIGNED packages (no MESHLOOM_SIGN_KEY_FILE)." >&2
+    SIGN_FILTER=(-e "/# SIGN-BEGIN/,/# SIGN-END/d")
+fi
 sed \
+    "${SIGN_FILTER[@]}" \
+    -e "s|__SIGN_KEY_FILE__|$SIGN_KEY_FILE|g" \
+    -e "s|__KEYRING__|$REPO_ROOT/pkg/keys/meshloom-archive-keyring.gpg|g" \
+    -e "s|__KEYRING_ASC__|$REPO_ROOT/pkg/keys/meshloom.asc|g" \
     -e "s|__NFPM_ARCH__|$NFPM_ARCH|g" \
     -e "s|__NFPM_VERSION__|$VERSION|g" \
     -e "s|__STAGING__|$STAGING|g" \

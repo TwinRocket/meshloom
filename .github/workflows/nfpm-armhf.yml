@@ -12,11 +12,7 @@ on:
         description: "Meshloom version to package (no v prefix)"
         required: true
 
-permissions:
-  contents: write
-  packages: write
-  pages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: nfpm-armhf-${{ inputs.version }}
@@ -26,12 +22,18 @@ jobs:
   package:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write   # attach the package to the release
+      packages: write   # buildx registry cache
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Resolve version
         id: ver
-        run: echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${VERSION#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$VERSION' is not X.Y.Z"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
         env:
           VERSION: ${{ inputs.version }}
 
@@ -47,6 +49,17 @@ jobs:
         with:
           ref: ${{ steps.ver.outputs.version }}
           path: tag-src
+
+      - name: Version consistency of the tag
+        env:
+          MESHLOOM_VERSION_ROOT: ${{ github.workspace }}/tag-src
+        run: scripts/build/check_version_consistency.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Import signing key
+        id: key
+        uses: ./.github/actions/import-signing-key
+        with:
+          private-key: ${{ secrets.MESHLOOM_REPO_GPG_PRIVATE_KEY }}
 
       - name: Overlay tagged sources
         run: |
@@ -106,6 +119,9 @@ jobs:
           sudo install -m 0755 nfpm /usr/local/bin/nfpm
 
       - name: Pack
+        env:
+          MESHLOOM_REQUIRE_SIGNED: "1"
+          MESHLOOM_SIGN_KEY_FILE: ${{ steps.key.outputs.key-file }}
         run: |
           chmod +x scripts/build/build_nfpm_packages.sh
           scripts/build/build_nfpm_packages.sh \
@@ -127,11 +143,30 @@ jobs:
           gh release upload "${{ steps.ver.outputs.version }}" dist/* \
             --clobber --repo "$GITHUB_REPOSITORY"
 
+  # Both re-run now that armhf is attached: the apt index gains the architecture
+  # and SHA256SUMS(.asc) is rewritten to include the new .deb.
   linux-repo:
     needs: [package]
     uses: ./.github/workflows/publish-linux-repo.yml
+    with:
+      version: ${{ needs.package.outputs.version }}
+      require_armhf: true
     secrets: inherit
     permissions:
       contents: read
       pages: write
       id-token: write
+
+  sign-manifest:
+    needs: [package]
+    uses: ./.github/workflows/sign-manifest.yml
+    with:
+      version: ${{ needs.package.outputs.version }}
+      require_armhf: true
+    secrets: inherit
+    permissions:
+      contents: write
+      actions: read
+      packages: read
+      id-token: write
+      attestations: write
