@@ -1,3 +1,28 @@
+## [4.18.1] - 2026-10-10
+
+Two fixes: the mesh visualizer no longer empties itself when the server clock is off, and the Home Assistant add-on radio proxy answers on its published port.
+
+### Fixed
+
+- **The mesh visualizer keeps its nodes when the server clock is off.** The graph drew each packet, then erased it within a second, leaving only your own node and "Listening for mesh traffic…". It compared the server's packet time with your browser's clock, so a server more than 5 minutes behind made every packet look stale. Live traffic is now timed by when your browser receives it. The same fix applies to the time windows of the raw packet statistics and to the live view.
+- **Home Assistant add-on: the radio proxy is reachable.** The add-on publishes port 5051, but the proxy kept listening on 5001, so apps could not connect. It now listens on the published port.
+- **Community MQTT settings are checked.** The WebSocket path must start with `/` and contain no spaces, and the email, if set, must look like an address.
+
+---
+
+### Français
+
+Deux corrections : le visualiseur de mesh ne se vide plus quand l'horloge du serveur est décalée, et le proxy radio de l'add-on Home Assistant répond sur son port publié.
+
+#### Corrections
+
+- **Le visualiseur de mesh garde ses nœuds quand l'horloge du serveur est décalée.** Le graphe dessinait chaque paquet puis l'effaçait en moins d'une seconde, ne laissant que votre propre nœud et « En écoute du trafic mesh… ». Il comparait l'heure du paquet donnée par le serveur à l'horloge de votre navigateur : un serveur en retard de plus de 5 minutes rendait chaque paquet trop ancien. Le trafic en direct est maintenant daté à sa réception par votre navigateur. La même correction s'applique aux fenêtres de temps des statistiques de paquets bruts et à la vue en direct.
+- **Add-on Home Assistant : le proxy radio est joignable.** L'add-on publie le port 5051, mais le proxy restait à l'écoute sur 5001 : les applications ne pouvaient pas s'y connecter. Il écoute maintenant sur le port publié.
+- **Les réglages MQTT Community sont vérifiés.** Le chemin WebSocket doit commencer par `/` et ne contenir aucun espace, et l'e-mail, s'il est renseigné, doit ressembler à une adresse.
+
+---
+
+
 ## [4.18.0] - 2026-10-10
 
 Updates are now signed from end to end, and Meshloom opens faster and stays fast on busy meshes.
