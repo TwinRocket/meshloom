@@ -80,7 +80,7 @@ async def post_packet_reach_counts(
 
 @router.get("/nodes/{pubkey}/reach", response_model=DirectoryReachResponse)
 async def get_node_reach(pubkey: str) -> DirectoryReachResponse:
-    """Community 0-hop observers. HTTP 500 is a failure, not empty data."""
+    """Community 0-hop observers. 503/502 is a failure, not empty data."""
     return await get_directory_node_reach(pubkey)
 
 

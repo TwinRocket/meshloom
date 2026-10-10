@@ -161,7 +161,7 @@ class FanoutManager:
             return
         if existing is not None:
             await self.remove_config(SYSTEM_MESHLOOM_STATS_ID)
-        module = MeshloomStatsModule(SYSTEM_MESHLOOM_STATS_ID, {}, name="Meshloom Stats")
+        module = MeshloomStatsModule(SYSTEM_MESHLOOM_STATS_ID, {}, name="Meshloom Community")
         try:
             await module.start()
             self._modules[SYSTEM_MESHLOOM_STATS_ID] = (

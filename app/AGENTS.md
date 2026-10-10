@@ -46,7 +46,9 @@ app/
 │   ├── radio_runtime.py         # Router/dependency seam over the global RadioManager
 │   ├── radio_transport.py       # UX-owned radio transport snapshot (serial / TCP / BLE)
 │   ├── directory.py             # Community directory (resolve-hops, nodes, reach, neighbors, search)
-│   ├── community_live.py        # Stats live-packet relay (one upstream socket, local fan-out)
+│   ├── community_live.py        # Community live-packet relay (one upstream socket, local fan-out)
+│   ├── meshloom_community.py    # Community state, JWT mint, HTTP client + circuit breaker
+│   ├── oss_updates.py           # Release check: GitHub releases/latest, Community mirror fallback
 │   └── rf_locate.py             # RF locate identity + 0-hop disk assembly
 ├── radio.py             # RadioManager transport/session state + lock management
 ├── radio_proxy/         # Virtual companion TCP radio (protocol, policy, manager)
@@ -351,9 +353,9 @@ Web Push is a standalone subsystem in `app/push/`, separate from the fanout modu
 - `POST /fanout/bots/disable-until-restart` — stop bot modules and keep bots disabled until restart
 
 ### Updates
-- `GET /updates` — cached Stats catalogue (`current`, `latest`, `update_available`, `html_url`) plus `install_kind`, `apply_supported`, `auto_update` + window fields, `legacy_update_helper`, and helper `job` progress
+- `GET /updates` — cached latest release (`current`, `latest`, `update_available`, `html_url`, `latest_source`) plus `install_kind`, `apply_supported`, `auto_update` + window fields, `legacy_update_helper`, and helper `job` progress
 - `POST /updates/apply` — 202 with the same body when `apply_supported`; 409 `apply_not_supported` / `update_not_available` / `apply_in_progress`. Never apt-upgrades the OS
-- `PATCH /updates/settings` — persist `auto_update` and the window (not via `PATCH /settings`). After the 300s catalogue poll, auto-apply when supported and an update is available; 6h backoff after a failed job
+- `PATCH /updates/settings` — persist `auto_update` and the window (not via `PATCH /settings`). After the 300s release poll, auto-apply when supported and an update is available; 6h backoff after a failed job
 
 #### Update helpers: trust boundary (4.18+)
 
@@ -388,7 +390,7 @@ dropped in migration 076.
 - `GET /directory/nodes` — all roles (empty/unknown → `unknown`), paginated to completion
 - `GET /directory/nodes/live` — directory plus local GPS contacts, **including observer GPS**. Observer GPS stays available for hop/origin geometry; the client must not paint a dedicated observer icon.
 - `GET /directory/nodes/search?q=` — name/key search, not hop prefixes
-- `GET /directory/nodes/{pubkey}/reach` — 0-hop observers; HTTP 500 ≠ empty
+- `GET /directory/nodes/{pubkey}/reach` — 0-hop observers; 503/502 ≠ empty
 - `GET /directory/nodes/{pubkey}/neighbors`
 - `POST /directory/cache/reset`
 
@@ -416,9 +418,15 @@ dropped in migration 076.
 - `PUT /community/me/hashtags` — publish local/discovered hashtag names (names only)
 - `POST /community/live/subscribe` — register or heartbeat a Live session (`session_id` known = cheap TTL refresh)
 - `DELETE /community/live/subscribe/{session_id}` — drop one Live session; upstream socket closes after idle grace when none remain
-- `POST /community/live/relancer` — remint JWT, clear the 24h gate, reconnect
+- `POST /community/live/relancer` — remint JWT, clear a given-up token refusal, reconnect
 
-One process-wide Stats live socket (`app/services/community_live.py`) fans frames to browsers as `community_packet`. Concurrent Live tabs share that socket: the reader task is claimed synchronously under the relay lock, so two `subscribe()` calls cannot open two upstream sockets. The reader reconnects itself with capped exponential backoff (0.5s → 30s) on every close except 4002 (24h gate). 4003/409 from a v1 Stats server are treated as 4005 (superseded) and retried; those codes are never placed on `CommunityLiveStatus.close_code`. Status `state` is `connected` / `reconnecting` / `gate` / `opted_out` / `idle`.
+One process-wide Community live socket (`app/services/community_live.py`) fans frames to browsers as `community_packet`. Concurrent Live tabs share that socket: the reader task is claimed synchronously under the relay lock, so two `subscribe()` calls cannot open two upstream sockets. The reader reconnects itself with capped exponential backoff (0.5s → 30s) on every close except 4002 (reserved; stops that reader generation, never a 24h gate). The backoff only starts over after a socket stayed up `JWT_EXPIRY_MIN_UPTIME_S` (10s). 4003/409 from a v1 Stats server are treated as 4005 (superseded) and retried; those codes are never placed on `CommunityLiveStatus.close_code`. Status `state` is `connected` / `reconnecting` / `gate` / `opted_out` / `idle` / `auth_rejected`.
+
+JWT remint is local, on every connect attempt. Close 4001 on a socket that stayed up reconnects at once. A **handshake 401 is not a 4001**: it backs off (2s doubling) and gives up after `AUTH_REJECT_MAX_ATTEMPTS` (5) consecutive refusals, or at once for `AUTH_FATAL_CODES`. Community's 401 body is `{detail, code, server_time}` (only `code` is stable; older servers send `detail` only). `classify_auth_rejection()` turns it into `auth_error`: `clock_skew` when `code == "clock_skew"` or `|server_time - now| > 60`, else `token_rejected` (`auth_code` keeps the raw code, `clock_skew_s` the drift). Relancer or `PATCH /community` clears it.
+
+Community HTTP failures: transport error/timeout and upstream 5xx → local **503**; malformed/unexpected answers and other non-200 → 502 (`CommunityUpstreamError.upstream_status` keeps the upstream code); 401 → 502 with a clock hint when the drift explains it. `CommunityBreaker` opens after 3 consecutive failures for 30s (503 without network), then lets one trial through. Observer reach only falls back to per-hash GETs when the batch route is missing (upstream 404/405).
+
+The update check (`app/services/oss_updates.py`) reads GitHub's `releases/latest` redirect first (strict `X.Y.Z` tag, the same lookup as the signed compose helper), and only falls back to the Community mirror `GET /v1/meshloom/latest` (skipped while the breaker is open). `latest_source` says which one answered.
 
 ### WebSocket
 - `WS /ws`
@@ -519,6 +527,8 @@ tests/
 ├── test_community_live.py      # Stats live relay sanitize, status, fan-out
 ├── test_community_live_resilience.py # Concurrent subscribe, reconnect, 4002 stop, reload
 ├── test_community_live_directory.py # Directory map nodes: all roles + pagination
+├── test_community_live_auth.py # Handshake 401 backoff/give-up, clock skew, 4001 uptime rule
+├── test_community_breaker.py   # Community circuit breaker, 503 instead of 500
 ├── test_meshloom_community.py  # Meshloom Community join, IATA seed, hashtag share, Stats proxies
 ├── test_config.py              # Configuration validation
 ├── test_contact_reconciliation_service.py # Prefix/contact reconciliation service helpers

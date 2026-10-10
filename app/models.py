@@ -2148,7 +2148,22 @@ class CommunityLiveStatus(BaseModel):
     close_code: int | None = None
     opted_out: bool
     connected: bool
-    state: Literal["connected", "reconnecting", "gate", "opted_out", "idle"] = "idle"
+    state: Literal["connected", "reconnecting", "gate", "opted_out", "idle", "auth_rejected"] = (
+        "idle"
+    )
+    auth_error: Literal["clock_skew", "token_rejected"] | None = Field(
+        default=None,
+        description=(
+            "Set with state auth_rejected: Community refused the live token and the "
+            "relay stopped retrying. clock_skew means this server's clock is off."
+        ),
+    )
+    auth_code: str | None = Field(
+        default=None, description="Community 401 `code` behind auth_error, when it sent one"
+    )
+    clock_skew_s: int | None = Field(
+        default=None, description="Community server_time minus local time, in seconds"
+    )
 
     @field_validator("close_code")
     @classmethod

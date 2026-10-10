@@ -60,7 +60,7 @@ async def patch_community(body: CommunityUpdate) -> CommunityStatus:
 async def get_me_stats() -> CommunityMeStats:
     payload = await stats_json("GET", "/v1/me/stats", auth=True)
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
     return CommunityMeStats.model_validate(payload)
 
 
@@ -76,7 +76,7 @@ async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult
         json_body["lon"] = lon
     payload = await stats_json("PUT", "/v1/me/iata", auth=True, json_body=json_body, iata=body.iata)
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
     result = CommunityIataBindResult.model_validate(payload)
     await update_community(iata=result.iata)
     return result
@@ -86,7 +86,7 @@ async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult
 async def post_me_iata_override() -> CommunityIataBindResult:
     payload = await stats_json("POST", "/v1/me/iata/override", auth=True)
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
     return CommunityIataBindResult.model_validate(payload)
 
 
@@ -94,7 +94,7 @@ async def post_me_iata_override() -> CommunityIataBindResult:
 async def get_community_stats() -> CommunityPublicStats:
     payload = await stats_json("GET", "/v1/community/stats", auth=False)
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
     return CommunityPublicStats.model_validate(payload)
 
 
@@ -102,7 +102,7 @@ async def get_community_stats() -> CommunityPublicStats:
 async def get_hashtags() -> CommunityHashtagsResponse:
     payload = await stats_json("GET", "/v1/hashtags", auth=False)
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
     return CommunityHashtagsResponse.model_validate(payload)
 
 
@@ -139,5 +139,5 @@ async def put_me_hashtags(body: CommunityHashtagPut) -> CommunityHashtagsRespons
         json_body={"names": body.names},
     )
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Stats returned an unexpected body")
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
     return CommunityHashtagsResponse.model_validate(payload)

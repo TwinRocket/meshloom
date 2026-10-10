@@ -318,7 +318,9 @@ class TestSampleQueueUpload:
         async def fake_stats(method: str, path: str, **kwargs):
             calls.append((method, path))
             if path == "/v1/hashtags/samples":
-                raise HTTPException(status_code=429, detail="Stats hashtag sample quota reached")
+                raise HTTPException(
+                    status_code=429, detail="Community hashtag sample quota reached"
+                )
             return {"hashtags": []}
 
         with patch(

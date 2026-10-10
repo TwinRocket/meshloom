@@ -195,6 +195,40 @@ describe('LiveView', () => {
     expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
   });
 
+  it('explains a given-up clock-skew refusal and retries through Relancer', async () => {
+    vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
+      session_id: 'live-session',
+      close_code: null,
+      opted_out: false,
+      connected: false,
+      state: 'auth_rejected',
+      auth_error: 'clock_skew',
+      auth_code: 'clock_skew',
+      clock_skew_s: -600,
+    });
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    expect(await screen.findByText(i18n.t('live.bannerClockSkew'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('live.clockAheadBy', { count: 10 }))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.retry') }));
+    expect(api.relancerCommunityLive).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.queryByText(i18n.t('live.bannerClockSkew'))).not.toBeInTheDocument()
+    );
+  });
+
+  it('shows a generic refusal banner when the relay gives up without a reason', async () => {
+    vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
+      session_id: 'live-session',
+      close_code: null,
+      opted_out: false,
+      connected: false,
+      state: 'auth_rejected',
+    });
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    expect(await screen.findByText(i18n.t('live.bannerTokenRejected'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: i18n.t('live.retry') })).toBeInTheDocument();
+  });
+
   it('has no play/pause control', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(i18n.exists('live.playPause')).toBe(false);
