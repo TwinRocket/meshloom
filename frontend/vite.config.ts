@@ -13,6 +13,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // No manual vendor groups on purpose: with Vite 8 / rolldown, forcing recharts or
+    // leaflet into named groups hoisted them into the entry's static imports
+    // (+50..120 kB gzip at startup). Automatic splitting keeps them in lazy chunks.
   },
   server: {
     host: true,

@@ -687,7 +687,7 @@ describe('ConversationPane', () => {
     expect(onRefuseChannel).toHaveBeenCalledWith(channel.key);
   });
 
-  it('passes optional nav callbacks into the raw feed without subscribing to packets', () => {
+  it('passes optional nav callbacks into the raw feed without subscribing to packets', async () => {
     const onOpenContactInfo = vi.fn();
     const onSelectConversation = vi.fn();
     render(
@@ -700,7 +700,7 @@ describe('ConversationPane', () => {
       />
     );
 
-    expect(screen.getByText(i18n.t('rawPacket.title'))).toBeInTheDocument();
+    expect(await screen.findByText(i18n.t('rawPacket.title'))).toBeInTheDocument();
     expect(screen.getByTestId('raw-packet-list')).toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t('rawPacket.pauseAria'))).toBeInTheDocument();
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();

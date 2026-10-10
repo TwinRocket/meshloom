@@ -11,6 +11,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { MeshcoreShareQr } from './MeshcoreShareQr';
 import { toast } from './ui/sonner';
 import type { Channel, ChannelDetail, PathHashWidthStats } from '../types';
+import { formatNumber } from '../utils/formatNumber';
 
 interface ChannelInfoPaneProps {
   channelKey: string | null;
@@ -63,7 +64,7 @@ export function ChannelInfoPane({
     return () => {
       cancelled = true;
     };
-  }, [channelKey]);
+  }, [channelKey, t]);
 
   // Use live channel data where available, fall back to detail snapshot
   const channel = liveChannel ?? detail?.channel ?? null;
@@ -166,27 +167,27 @@ export function ChannelInfoPane({
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <InfoItem
                     label={t('channelInfo.lastHour')}
-                    value={detail.message_counts.last_1h.toLocaleString()}
+                    value={formatNumber(detail.message_counts.last_1h)}
                   />
                   <InfoItem
                     label={t('channelInfo.last24h')}
-                    value={detail.message_counts.last_24h.toLocaleString()}
+                    value={formatNumber(detail.message_counts.last_24h)}
                   />
                   <InfoItem
                     label={t('channelInfo.last48h')}
-                    value={detail.message_counts.last_48h.toLocaleString()}
+                    value={formatNumber(detail.message_counts.last_48h)}
                   />
                   <InfoItem
                     label={t('channelInfo.last7d')}
-                    value={detail.message_counts.last_7d.toLocaleString()}
+                    value={formatNumber(detail.message_counts.last_7d)}
                   />
                   <InfoItem
                     label={t('channelInfo.allTime')}
-                    value={detail.message_counts.all_time.toLocaleString()}
+                    value={formatNumber(detail.message_counts.all_time)}
                   />
                   <InfoItem
                     label={t('channelInfo.uniqueSenders')}
-                    value={detail.unique_sender_count.toLocaleString()}
+                    value={formatNumber(detail.unique_sender_count)}
                   />
                 </div>
               </div>
@@ -326,7 +327,7 @@ function HopWidthChart({ stats, ready }: { stats: PathHashWidthStats; ready: boo
             />
             <span className="text-[0.6875rem] text-muted-foreground flex-1">{d.name}</span>
             <span className="text-[0.6875rem] font-medium tabular-nums">
-              {d.value.toLocaleString()}
+              {formatNumber(d.value)}
             </span>
           </div>
         ))}

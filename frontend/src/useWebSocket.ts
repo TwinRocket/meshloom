@@ -49,11 +49,25 @@ export interface UseWebSocketOptions {
   onReconnect?: () => void;
 }
 
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+/** A connection must survive this long (or deliver a message) before backoff resets. */
+const STABLE_CONNECTION_MS = 10000;
+
+/** Capped exponential backoff with +/-25% jitter, so a restarted server is not hit by
+ *  every client at the same instant. `attempt` is 0 for the first retry. */
+export function reconnectDelayMs(attempt: number, random: () => number = Math.random): number {
+  const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.min(attempt, 10));
+  return Math.round(base * (0.75 + random() * 0.5));
+}
+
 export function useWebSocket(options: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const shouldReconnectRef = useRef(true);
   const hasConnectedRef = useRef(false);
+  const attemptRef = useRef(0);
+  const stableTimerRef = useRef<number | null>(null);
 
   // Store options in ref to avoid stale closures in WebSocket handlers.
   // The onmessage callback captures this ref, and we keep the ref updated
@@ -77,7 +91,26 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     const ws = new WebSocket(wsUrl);
 
+    // Every handler ignores sockets that are no longer current. Closing a socket is
+    // asynchronous, so under StrictMode (mount, cleanup, mount) or after a reconnect the
+    // previous socket's late events must not clobber wsRef or schedule extra reconnects.
+    wsRef.current = ws;
+    const isCurrent = () => wsRef.current === ws;
+    const clearStableTimer = () => {
+      if (stableTimerRef.current !== null) {
+        clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
+    };
+
     ws.onopen = () => {
+      if (!isCurrent()) return;
+      // Do not reset the backoff yet: a server that accepts then immediately closes would
+      // otherwise be retried at the base delay forever. Reset once the link proves stable.
+      clearStableTimer();
+      stableTimerRef.current = window.setTimeout(() => {
+        attemptRef.current = 0;
+      }, STABLE_CONNECTION_MS);
       // Connection established (or re-established after disconnect)
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -90,6 +123,8 @@ export function useWebSocket(options: UseWebSocketOptions) {
     };
 
     ws.onclose = () => {
+      if (!isCurrent()) return;
+      clearStableTimer();
       // Connection lost — will auto-reconnect after delay
       wsRef.current = null;
 
@@ -97,21 +132,28 @@ export function useWebSocket(options: UseWebSocketOptions) {
         return;
       }
 
-      // Reconnect after 3 seconds
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      const delay = reconnectDelayMs(attemptRef.current);
+      attemptRef.current += 1;
       reconnectTimeoutRef.current = window.setTimeout(() => {
-        // Reconnect attempt after disconnect
+        reconnectTimeoutRef.current = null;
         connect();
-      }, 3000);
+      }, delay);
     };
 
     ws.onerror = (error) => {
+      if (!isCurrent()) return;
       console.error('WebSocket error:', error);
     };
 
     ws.onmessage = (event) => {
+      if (!isCurrent()) return;
+      if (attemptRef.current !== 0) {
+        attemptRef.current = 0;
+        clearStableTimer();
+      }
       try {
         const msg = parseWsEvent(event.data);
         if (!isDispatchableWsEvent(msg)) {
@@ -209,12 +251,11 @@ export function useWebSocket(options: UseWebSocketOptions) {
         console.error('Failed to parse WebSocket message:', e);
       }
     };
-
-    wsRef.current = ws;
   }, []); // No dependencies - handlers accessed through ref
 
   useEffect(() => {
     shouldReconnectRef.current = true;
+    attemptRef.current = 0;
     connect();
 
     // Ping every 30 seconds to keep connection alive
@@ -224,16 +265,38 @@ export function useWebSocket(options: UseWebSocketOptions) {
       }
     }, 30000);
 
+    // Coming back online or to the foreground: do not sit out a long backoff.
+    const reconnectNow = () => {
+      if (!shouldReconnectRef.current || wsRef.current !== null) return;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      connect();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') reconnectNow();
+    };
+    window.addEventListener('online', reconnectNow);
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
       shouldReconnectRef.current = false;
+      window.removeEventListener('online', reconnectNow);
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (stableTimerRef.current !== null) {
+        clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
       clearInterval(pingInterval);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      // Detach first so the socket's own close event is ignored as stale.
+      const current = wsRef.current;
+      wsRef.current = null;
+      current?.close();
     };
   }, [connect]);
 }

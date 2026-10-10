@@ -64,6 +64,7 @@ import { getContactDisplayName } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
 import { ToolPaneHeader } from './ToolPaneHeader';
 import i18n from '../i18n';
+import { formatNumber } from '../utils/formatNumber';
 
 const DISPLAY_CAPS = [200, 500, 2000, 5000] as const;
 type DisplayCap = (typeof DISPLAY_CAPS)[number];
@@ -320,8 +321,8 @@ function FeedFilterControls({
       ) : (
         <span className="text-[0.6875rem] text-muted-foreground tabular-nums">
           {t('rawPacket.filterMatch', {
-            match: matchCount.toLocaleString(),
-            total: totalCount.toLocaleString(),
+            match: formatNumber(matchCount),
+            total: formatNumber(totalCount),
           })}
         </span>
       )}
@@ -886,20 +887,20 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
               <>
                 <p>
                   {t('rawPacket.historyPreview', {
-                    count: preview.total.toLocaleString(),
+                    count: preview.total,
                   })}
                 </p>
                 {preview.truncated ? (
                   <p className="mt-1 text-warning">
                     {t('rawPacket.historyPreviewTruncated', {
-                      scanned: preview.scanned.toLocaleString(),
+                      scanned: formatNumber(preview.scanned),
                     })}
                   </p>
                 ) : null}
                 {preview.total > displayCap ? (
                   <p className="mt-1 text-warning">
                     {t('rawPacket.historyCapWarning', {
-                      count: preview.total.toLocaleString(),
+                      count: preview.total,
                       cap: displayCap,
                     })}
                   </p>
@@ -1102,7 +1103,7 @@ function getCoverageMessage(
     return {
       tone: 'warning',
       message: i18n.t('rawPacket.coverageTrimmed', {
-        count: session.totalObservedPackets.toLocaleString(),
+        count: session.totalObservedPackets,
       }),
     };
   }
@@ -1119,7 +1120,7 @@ function getCoverageMessage(
   return {
     tone: 'default',
     message: i18n.t('rawPacket.coverageTracking', {
-      count: session.observations.length.toLocaleString(),
+      count: session.observations.length,
     }),
   };
 }
@@ -1154,7 +1155,7 @@ function RankedBars({
     value: item.count,
     detail: formatter
       ? formatter(item)
-      : `${item.count.toLocaleString()} · ${formatPercent(item.share)}`,
+      : `${formatNumber(item.count)} · ${formatPercent(item.share)}`,
   }));
 
   return (
@@ -1243,7 +1244,7 @@ function NeighborList({
                 <div className="truncate text-sm text-foreground">{item.label}</div>
                 <div className="text-xs text-muted-foreground">
                   {mode === 'heard'
-                    ? i18n.t('rawPacket.packetsCount', { count: item.count.toLocaleString() })
+                    ? i18n.t('rawPacket.packetsCount', { count: item.count })
                     : mode === 'signal'
                       ? i18n.t('rawPacket.bestRssi', { rssi: formatRssi(item.bestRssi) })
                       : i18n.t('rawPacket.lastSeen', {
@@ -1894,9 +1895,9 @@ export function RawPacketFeedView({
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">
                   {t('rawPacket.packetsInWindow', {
-                    count: stats.packetCount.toLocaleString(),
+                    count: stats.packetCount,
                     window: t(WINDOW_LOWER_KEYS[selectedWindow]),
-                    observed: rawPacketStatsSession.totalObservedPackets.toLocaleString(),
+                    observed: formatNumber(rawPacketStatsSession.totalObservedPackets),
                   })}
                 </div>
               </div>
@@ -1906,25 +1907,25 @@ export function RawPacketFeedView({
                   label={t('rawPacket.packetsPerMin')}
                   value={formatRate(stats.packetsPerMinute)}
                   detail={t('rawPacket.packetsTotal', {
-                    count: stats.packetCount.toLocaleString(),
+                    count: stats.packetCount,
                   })}
                 />
                 <StatTile
                   label={t('rawPacket.uniqueSources')}
-                  value={stats.uniqueSources.toLocaleString()}
+                  value={formatNumber(stats.uniqueSources)}
                   detail={t('rawPacket.uniqueSourcesDetail')}
                 />
                 <StatTile
                   label={t('rawPacket.decryptRate')}
                   value={formatPercent(stats.decryptRate)}
                   detail={t('rawPacket.decryptRateDetail', {
-                    decrypted: stats.decryptedCount.toLocaleString(),
-                    locked: stats.undecryptedCount.toLocaleString(),
+                    decrypted: formatNumber(stats.decryptedCount),
+                    locked: formatNumber(stats.undecryptedCount),
                   })}
                 />
                 <StatTile
                   label={t('rawPacket.pathDiversity')}
-                  value={stats.distinctPaths.toLocaleString()}
+                  value={formatNumber(stats.distinctPaths)}
                   detail={t('rawPacket.pathDiversityDetail', {
                     rate: formatPercent(stats.pathBearingRate),
                   })}

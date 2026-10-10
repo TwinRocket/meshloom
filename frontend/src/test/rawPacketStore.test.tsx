@@ -306,4 +306,27 @@ describe('rawPacketStore', () => {
     expect(getRawPackets()).toHaveLength(25);
     expect(mocks.messageList.mock.calls.length).toBe(rendersAfterMount);
   });
+
+  it('dedups by key through eviction: an evicted key can be recorded again, a retained one cannot', () => {
+    recordRawPacket(createPacket({ id: 1, observation_id: 1 }), 2);
+    recordRawPacket(createPacket({ id: 2, observation_id: 2 }), 2);
+    recordRawPacket(createPacket({ id: 2, observation_id: 2 }), 2);
+    expect(getRawPackets().map((p) => p.observation_id)).toEqual([1, 2]);
+
+    recordRawPacket(createPacket({ id: 3, observation_id: 3 }), 2); // evicts obs 1
+    expect(getRawPackets().map((p) => p.observation_id)).toEqual([2, 3]);
+    recordRawPacket(createPacket({ id: 1, observation_id: 1 }), 2);
+    expect(getRawPackets().map((p) => p.observation_id)).toEqual([3, 1]);
+  });
+
+  it('keeps de-duplicating after seed and reset rebuild the key indexes', () => {
+    seedRawPacketStore({ packets: [createPacket({ id: 5, observation_id: 5 })] });
+    recordRawPacket(createPacket({ id: 5, observation_id: 5 }));
+    expect(getRawPackets()).toHaveLength(1);
+
+    resetRawPacketStore();
+    recordRawPacket(createPacket({ id: 5, observation_id: 5 }));
+    expect(getRawPackets()).toHaveLength(1);
+    expect(getRawPacketStatsSession().totalObservedPackets).toBe(1);
+  });
 });

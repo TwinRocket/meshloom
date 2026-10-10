@@ -1,12 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ComponentProps,
-} from 'react';
+import { lazy, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
@@ -30,8 +22,6 @@ import { countUnreadConversations } from '../utils/unreadConversations';
 import { isPendingChannel, pendingChannels } from '../utils/channelMembership';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
-import { ContactInfoPane } from './ContactInfoPane';
-import { ChannelInfoPane } from './ChannelInfoPane';
 import { CommandPalette } from './CommandPalette';
 import { SecurityWarningModal } from './SecurityWarningModal';
 import { RadioIdentityModal } from './RadioIdentityModal';
@@ -50,12 +40,19 @@ import type { SettingsModalProps } from './SettingsModal';
 import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
+import { LazyBoundary } from './LazyBoundary';
 
 const SettingsModal = lazy(() =>
   import('./SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
 const CrackerPanel = lazy(() =>
   import('./CrackerPanel').then((m) => ({ default: m.CrackerPanel }))
+);
+const ContactInfoPane = lazy(() =>
+  import('./ContactInfoPane').then((m) => ({ default: m.ContactInfoPane }))
+);
+const ChannelInfoPane = lazy(() =>
+  import('./ChannelInfoPane').then((m) => ({ default: m.ChannelInfoPane }))
 );
 const SearchView = lazy(() => import('./SearchView').then((m) => ({ default: m.SearchView })));
 
@@ -73,8 +70,8 @@ type BulkAddChannelResultModalProps = Omit<
   ComponentProps<typeof BulkAddChannelResultModal>,
   'open' | 'onClose'
 >;
-type ContactInfoPaneProps = ComponentProps<typeof ContactInfoPane>;
-type ChannelInfoPaneProps = ComponentProps<typeof ChannelInfoPane>;
+type ContactInfoPaneProps = ComponentProps<typeof import('./ContactInfoPane').ContactInfoPane>;
+type ChannelInfoPaneProps = ComponentProps<typeof import('./ChannelInfoPane').ChannelInfoPane>;
 
 interface AppShellProps {
   serverLabel: ServerLabel;
@@ -154,6 +151,10 @@ export function AppShell({
   onCommunityStatusChange,
 }: AppShellProps) {
   const { t } = useTranslation();
+  const [contactPaneLoaded, setContactPaneLoaded] = useState(false);
+  const [channelPaneLoaded, setChannelPaneLoaded] = useState(false);
+  if (!contactPaneLoaded && contactInfoPaneProps.contactKey !== null) setContactPaneLoaded(true);
+  if (!channelPaneLoaded && channelInfoPaneProps.channelKey !== null) setChannelPaneLoaded(true);
   const [crackerQueueCount, setCrackerQueueCount] = useState(0);
 
   const swipeHandlers = useSwipeable({
@@ -537,7 +538,7 @@ export function AppShell({
                   'hidden'
               )}
             >
-              <Suspense
+              <LazyBoundary
                 fallback={
                   <div className="flex-1 flex items-center justify-center text-muted-foreground">
                     {t('shell.loadingSearch')}
@@ -545,7 +546,7 @@ export function AppShell({
                 }
               >
                 <SearchView {...searchProps} onBackToTools={handleBackToTools} />
-              </Suspense>
+              </LazyBoundary>
             </div>
           )}
 
@@ -576,7 +577,7 @@ export function AppShell({
                 </h1>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Suspense
+                <LazyBoundary
                   fallback={
                     <div className="flex-1 flex items-center justify-center p-8 text-muted-foreground">
                       {t('shell.loadingSettings')}
@@ -604,7 +605,7 @@ export function AppShell({
                     onClose={onCloseSettingsView}
                     onCommunityStatusChange={updateCommunityStatus}
                   />
-                </Suspense>
+                </LazyBoundary>
               </div>
             </div>
           )}
@@ -629,7 +630,7 @@ export function AppShell({
         )}
       >
         {crackerMounted.current && (
-          <Suspense
+          <LazyBoundary
             fallback={
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 {t('shell.loadingChannelFinder')}
@@ -642,7 +643,7 @@ export function AppShell({
               onRunningChange={onCrackerRunningChange}
               onQueueChange={setCrackerQueueCount}
             />
-          </Suspense>
+          </LazyBoundary>
         )}
       </div>
 
@@ -703,8 +704,18 @@ export function AppShell({
           await settingsProps.onHealthRefresh();
         }}
       />
-      <ContactInfoPane {...contactInfoPaneProps} />
-      <ChannelInfoPane {...channelInfoPaneProps} />
+      {/* Info sheets pull recharts/leaflet/qrcode: load them on first open, then keep
+          them mounted so the close animation still plays. */}
+      {contactPaneLoaded && (
+        <LazyBoundary fallback={null}>
+          <ContactInfoPane {...contactInfoPaneProps} />
+        </LazyBoundary>
+      )}
+      {channelPaneLoaded && (
+        <LazyBoundary fallback={null}>
+          <ChannelInfoPane {...channelInfoPaneProps} />
+        </LazyBoundary>
+      )}
       <Toaster
         position="top-right"
         offset={toastTopOffset !== undefined ? { top: toastTopOffset } : undefined}

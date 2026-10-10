@@ -375,6 +375,7 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
 
   const refresh = useCallback(async () => {
     await loadStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers only touch refs and state setters, so the first-render closures stay valid
   }, []);
 
   const checkNow = useCallback(async () => {
@@ -392,6 +393,7 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
     } finally {
       if (!cancelledRef.current) setChecking(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers only touch refs and state setters, so the first-render closures stay valid
   }, []);
 
   const apply = useCallback(async () => {
@@ -443,12 +445,14 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
       setProgressPercent(PHASE_PERCENT.restarting);
       startJobPolling();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers only touch refs and state setters, so the first-render closures stay valid
   }, []);
 
   const setUpdateSettings = useCallback(async (settings: OssUpdateSettingsPatch) => {
     if (typeof api.patchUpdateSettings !== 'function') return;
     const next = await api.patchUpdateSettings(settings);
     if (!cancelledRef.current) persistStatus(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the helpers only touch refs and state setters, so the first-render closures stay valid
   }, []);
 
   const setAutoUpdate = useCallback(

@@ -585,6 +585,20 @@ describe('fetchJson (via api methods)', () => {
       expect(options.signal).toBe(controller.signal);
     });
 
+    it('does not probe the edge session when the request was aborted', async () => {
+      installMockFetch();
+      mockFetch.mockRejectedValueOnce(new DOMException('aborted', 'AbortError'));
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(api.getMessages({ limit: 10 }, controller.signal)).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+
+      // One call only: no follow-up session probe.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('calls fetch without signal when none is provided', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({

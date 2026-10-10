@@ -121,6 +121,10 @@ vi.mock('../components/ConversationPane', async (importOriginal) => {
             ? `${props.activeConversation.type}:${props.activeConversation.id}`
             : 'none'}
         </div>
+        {/* The contact pane mounts lazily on first open, so the test opens it explicitly. */}
+        <button type="button" onClick={() => props.onOpenContactInfo?.('aa'.repeat(32))}>
+          Open Contact Pane
+        </button>
         <actual.ConversationPane {...props} />
       </>
     ),
@@ -295,6 +299,8 @@ describe('App search jump target handling', () => {
     await act(async () => {
       render(<App />);
     });
+
+    fireEvent.click(await screen.findByText('Open Contact Pane'));
 
     await waitFor(() => {
       expect(screen.getByText('Search Contact By Key')).toBeInTheDocument();

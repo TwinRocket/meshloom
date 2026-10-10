@@ -1,6 +1,7 @@
 import {
   useCallback,
   useMemo,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -88,6 +89,42 @@ function isMessageBlocked(msg: Message, blockedKeys: string[], blockedNames: str
   return blockedNames.length > 0 && !!msg.sender_name && blockedNames.includes(msg.sender_name);
 }
 
+/** Keys changed by WebSocket deltas while a reconnect REST snapshot is in flight. */
+interface SnapshotTracker {
+  contacts: Set<string>;
+  channels: Set<string>;
+}
+
+/** Keep the snapshot's (server) order. Keys a newer WS delta touched take the live value
+ *  (or are dropped when the delta deleted them); touched keys the snapshot does not know
+ *  about yet (created by a delta) are appended. */
+function mergeSnapshot<T>(
+  snapshot: T[],
+  live: T[],
+  touched: Set<string>,
+  keyOf: (item: T) => string
+): T[] {
+  if (touched.size === 0) return snapshot;
+  const liveByKey = new Map(live.map((item) => [keyOf(item), item]));
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const item of snapshot) {
+    const key = keyOf(item);
+    seen.add(key);
+    if (!touched.has(key)) {
+      merged.push(item);
+      continue;
+    }
+    const current = liveByKey.get(key);
+    if (current) merged.push(current);
+  }
+  for (const key of touched) {
+    const current = liveByKey.get(key);
+    if (current && !seen.has(key)) merged.push(current);
+  }
+  return merged;
+}
+
 export function useRealtimeAppState({
   prevHealthRef,
   setHealth,
@@ -114,6 +151,17 @@ export function useRealtimeAppState({
   removeMessage,
   maxRawPackets = MAX_RAW_PACKETS,
 }: UseRealtimeAppStateArgs): UseWebSocketOptions {
+  // Reconnect recovery: bumped per reconnect so only the newest snapshot is applied, and
+  // each in-flight snapshot records which keys WS deltas touched meanwhile so a slower
+  // REST response cannot overwrite them with older data.
+  const reconnectGenerationRef = useRef(0);
+  const activeSnapshotsRef = useRef<Set<SnapshotTracker>>(new Set());
+  const noteDelta = useCallback((kind: keyof SnapshotTracker, ...keys: string[]) => {
+    for (const tracker of activeSnapshotsRef.current) {
+      for (const key of keys) tracker[kind].add(key);
+    }
+  }, []);
+
   const mergeChannelIntoList = useCallback(
     (updated: Channel) => {
       setChannels((prev) => {
@@ -203,10 +251,34 @@ export function useRealtimeAppState({
         clearRawPackets();
         reconcileOnReconnect();
         refreshUnreads();
-        api.getChannels().then(setChannels).catch(console.error);
-        fetchAllContacts()
-          .then((data) => setContacts(data))
+        const generation = ++reconnectGenerationRef.current;
+        const tracker: SnapshotTracker = { contacts: new Set(), channels: new Set() };
+        activeSnapshotsRef.current.add(tracker);
+        const isLatest = () => generation === reconnectGenerationRef.current;
+        const channelsDone = api
+          .getChannels()
+          .then((data) => {
+            if (!isLatest()) return;
+            const touched = tracker.channels;
+            setChannels(
+              touched.size === 0 ? data : (prev) => mergeSnapshot(data, prev, touched, (c) => c.key)
+            );
+          })
           .catch(console.error);
+        const contactsDone = fetchAllContacts()
+          .then((data) => {
+            if (!isLatest()) return;
+            const touched = tracker.contacts;
+            setContacts(
+              touched.size === 0
+                ? data
+                : (prev) => mergeSnapshot(data, prev, touched, (c) => c.public_key)
+            );
+          })
+          .catch(console.error);
+        void Promise.all([channelsDone, contactsDone]).finally(() => {
+          activeSnapshotsRef.current.delete(tracker);
+        });
       },
       onMessage: (msg: Message) => {
         if (isMessageBlocked(msg, blockedKeysRef.current, blockedNamesRef.current)) {
@@ -231,9 +303,11 @@ export function useRealtimeAppState({
         }
       },
       onContact: (contact: Contact) => {
+        noteDelta('contacts', contact.public_key);
         setContacts((prev) => mergeContactIntoList(prev, contact));
       },
       onContactResolved: (previousPublicKey: string, contact: Contact) => {
+        noteDelta('contacts', previousPublicKey, contact.public_key);
         setContacts((prev) =>
           mergeContactIntoList(
             prev.filter((candidate) => candidate.public_key !== previousPublicKey),
@@ -256,6 +330,7 @@ export function useRealtimeAppState({
         }
       },
       onChannel: (channel: Channel) => {
+        noteDelta('channels', channel.key);
         const existed = channelsRef.current.some((item) => item.key === channel.key);
         mergeChannelIntoList(channel);
         if (!existed && channel.membership === 'pending') {
@@ -273,6 +348,7 @@ export function useRealtimeAppState({
         }
       },
       onContactDeleted: (publicKey: string) => {
+        noteDelta('contacts', publicKey);
         setContacts((prev) => prev.filter((c) => c.public_key !== publicKey));
         removeConversationMessages(publicKey);
         removeConversationState(getStateKey('contact', publicKey));
@@ -283,6 +359,7 @@ export function useRealtimeAppState({
         }
       },
       onChannelDeleted: (key: string) => {
+        noteDelta('channels', key);
         setChannels((prev) => prev.filter((c) => c.key !== key));
         removeConversationMessages(key);
         removeConversationState(getStateKey('channel', key));
@@ -320,6 +397,7 @@ export function useRealtimeAppState({
       activeConversationRef,
       blockedKeysRef,
       blockedNamesRef,
+      channelsRef,
       checkMention,
       fetchAllContacts,
       fetchConfig,
@@ -328,6 +406,7 @@ export function useRealtimeAppState({
       renameConversationMessages,
       maxRawPackets,
       mergeChannelIntoList,
+      noteDelta,
       pendingDeleteFallbackRef,
       prevHealthRef,
       recordMessageEvent,

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import i18n from '../i18n';
 import {
   parsePathHops,
   extractPacketPayloadHex,
@@ -690,12 +691,13 @@ describe('isValidLocation', () => {
 });
 
 describe('formatDistance', () => {
-  const formatInteger = (value: number) => value.toLocaleString();
+  // Distances follow the UI language, not the OS locale.
+  const formatInteger = (value: number) => new Intl.NumberFormat(i18n.language).format(value);
   const formatOneDecimal = (value: number) =>
-    value.toLocaleString(undefined, {
+    new Intl.NumberFormat(i18n.language, {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
-    });
+    }).format(value);
 
   it('defaults to imperial formatting', () => {
     expect(formatDistance(0.01)).toBe(`${formatInteger(33)}ft`);

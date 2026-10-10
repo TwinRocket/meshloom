@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Separator } from '../ui/separator';
 import { RepeaterPane, NotFetched, KvRow, formatDuration } from './repeaterPaneShared';
 import type { RepeaterStatusResponse, PaneState } from '../../types';
+import { formatNumber } from '../../utils/formatNumber';
 
 function Secondary({ children }: { children: ReactNode }) {
   return <span className="ml-1.5 font-normal text-muted-foreground">{children}</span>;
@@ -77,8 +78,8 @@ export function TelemetryPane({
             value={
               <>
                 {t('repeater.packetsRxTx', {
-                  rx: data.packets_received.toLocaleString(),
-                  tx: data.packets_sent.toLocaleString(),
+                  rx: formatNumber(data.packets_received),
+                  tx: formatNumber(data.packets_sent),
                 })}
                 {rxPerMin && txPerMin && (
                   <Secondary>{t('repeater.packetsAvg', { rx: rxPerMin, tx: txPerMin })}</Secondary>
@@ -89,22 +90,22 @@ export function TelemetryPane({
           <KvRow
             label={t('repeater.flood')}
             value={t('repeater.packetsRxTx', {
-              rx: data.recv_flood.toLocaleString(),
-              tx: data.sent_flood.toLocaleString(),
+              rx: formatNumber(data.recv_flood),
+              tx: formatNumber(data.sent_flood),
             })}
           />
           <KvRow
             label={t('repeater.direct')}
             value={t('repeater.packetsRxTx', {
-              rx: data.recv_direct.toLocaleString(),
-              tx: data.sent_direct.toLocaleString(),
+              rx: formatNumber(data.recv_direct),
+              tx: formatNumber(data.sent_direct),
             })}
           />
           <KvRow
             label={t('repeater.duplicates')}
             value={t('repeater.duplicatesValue', {
-              flood: data.flood_dups.toLocaleString(),
-              direct: data.direct_dups.toLocaleString(),
+              flood: formatNumber(data.flood_dups),
+              direct: formatNumber(data.direct_dups),
             })}
           />
           {data.recv_errors != null && (
@@ -112,7 +113,7 @@ export function TelemetryPane({
               label={t('repeater.rxErrors')}
               value={
                 <>
-                  {data.recv_errors.toLocaleString()}
+                  {formatNumber(data.recv_errors)}
                   {data.packets_received > 0 && (
                     <Secondary>
                       (

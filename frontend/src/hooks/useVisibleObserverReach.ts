@@ -170,6 +170,8 @@ export function useVisibleObserverReach(options: {
   const hashSignature = useMemo(() => {
     if (!directoryEnabled || !conversationKey) return '';
     return readyVisibleHashes(messages, visibleIndexes, Date.now()).join(',');
+    // delayTick is a deliberate re-evaluation trigger: readiness depends on Date.now().
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [directoryEnabled, conversationKey, messages, visibleIndexes, delayTick]);
 
   useEffect(() => {
