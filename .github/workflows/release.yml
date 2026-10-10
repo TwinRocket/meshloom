@@ -43,17 +43,26 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$RAW_VERSION' is not X.Y.Z"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+  # The same lint, typecheck and test suite as every push, on the tagged commit.
+  # Nothing is built or published unless it passes (preflight waits for it, and
+  # every later job waits for preflight).
+  quality:
+    needs: version
+    uses: ./.github/workflows/all-quality.yml
+    permissions:
+      contents: read
+
   # Fail before building anything: the four version sources must equal the tag,
   # and the signing trust anchor must be real and match the CI secret. A release
   # without a key would otherwise ship packages nobody can verify.
   preflight:
-    needs: version
+    needs: [version, quality]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Version consistency
         run: scripts/build/check_version_consistency.sh "${{ needs.version.outputs.version }}"
@@ -70,11 +79,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           cache: npm
@@ -101,12 +110,12 @@ jobs:
             --output "$ASSET"
           echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: frontend-dist
           path: frontend/dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: frontend-zip
           path: ${{ steps.artifact.outputs.asset }}
@@ -126,14 +135,14 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 
       - name: Install nFPM
         run: |
@@ -168,7 +177,7 @@ jobs:
       - name: Assert the rpm is signed
         run: python3 -I scripts/build/check_rpm_signed.py dist/*.rpm
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nfpm-${{ matrix.arch }}
           path: dist/*
@@ -182,21 +191,21 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-zip
           path: artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nfpm-amd64
           path: artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nfpm-arm64
           path: artifacts
@@ -279,9 +288,9 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: nfpm-arm64
           path: incoming
@@ -300,7 +309,7 @@ jobs:
           sudo scripts/build/build_rpi_image.sh --deb "$DEB" --output-dir dist \
             --version "${{ needs.version.outputs.version }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: meshloom-rpi-lite-arm64
           path: |
@@ -309,7 +318,7 @@ jobs:
           if-no-files-found: error
 
       - name: Attest provenance of the image
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-path: |
             dist/meshloom-rpi-lite-arm64.img.xz

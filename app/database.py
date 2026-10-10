@@ -382,11 +382,21 @@ class Database:
             before = int(row[0]) if row else 0
             if before == 0:
                 return 0
-            async with conn.execute(f"PRAGMA incremental_vacuum({max(1, int(max_pages))})") as c:
-                await c.fetchall()
-            async with conn.execute("PRAGMA freelist_count") as cursor:
-                row = await cursor.fetchone()
-            after = int(row[0]) if row else 0
+            # Python 3.11's sqlite3 resets a PRAGMA statement after its first
+            # row, so one call frees a single page there (3.12+ frees them all).
+            # Repeat until the budget is spent or a call frees nothing.
+            budget = min(max(1, int(max_pages)), before)
+            after = before
+            while before - after < budget:
+                remaining = budget - (before - after)
+                async with conn.execute(f"PRAGMA incremental_vacuum({remaining})") as c:
+                    await c.fetchall()
+                async with conn.execute("PRAGMA freelist_count") as cursor:
+                    row = await cursor.fetchone()
+                now = int(row[0]) if row else 0
+                if now >= after:
+                    break
+                after = now
         return before - after
 
     async def disconnect(self) -> None:

@@ -4,7 +4,7 @@
 
 ARG UV_VERSION=0.6.17
 
-FROM arm32v7/debian:trixie-slim AS toolchain
+FROM arm32v7/debian:trixie-slim@sha256:e958ee9cb97626ef502ff94a6325e2aeb303366fc2208e7ceb830bc48066b8f4 AS toolchain
 
 ARG UV_VERSION
 
