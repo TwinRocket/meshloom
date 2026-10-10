@@ -59,7 +59,7 @@ When in-app updates are available, **Settings → Updates** installs the new Mes
 
 Updates are signed. The installer embeds the Meshloom release key and checks its fingerprint; it never downloads the key, and it never adds an unsigned package source. The Linux package checks the repository signature, and the update helper refuses to run if the Meshloom source is not signature-checked. With Docker, the image is pinned by digest in `.env` next to `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`), and the update helper only moves that pin to a newer release whose digest is signed. It never downgrades.
 
-If Settings → Updates says you must update manually, or asks you to re-run the installer, re-run it: it keeps your data, replaces an older update helper and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. By hand:
+If Settings → Updates says you must update manually, or asks you to re-run the installer, re-run it: it keeps your data, replaces an older update helper and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. If you edited your `docker-compose.yml` (an extra port, for instance), the installer shows your changes and offers to keep them, which is the default: it then updates only its own lines (image, update helper) and leaves yours alone. If it cannot adapt your file, it leaves it untouched and asks whether to regenerate it. Run the installer as the account that created the stack: `root` if it lives in `/root/meshloom`. By hand:
 
 ```bash
 sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
