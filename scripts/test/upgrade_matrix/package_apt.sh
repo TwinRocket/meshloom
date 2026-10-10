@@ -61,7 +61,7 @@ run_in "DEBIAN_FRONTEND=noninteractive apt-get install -y -q /tmp/meshloom-new.d
 echo "== 4. check the migration"
 run_in "grep -q 'signed-by=/usr/share/keyrings/meshloom-archive-keyring.gpg' /etc/apt/sources.list.d/meshloom.list
     ! grep -q trusted=yes /etc/apt/sources.list.d/meshloom.list
-    grep -q 'Pin: release o=Meshloom' /etc/apt/preferences.d/meshloom.pref
+    grep -q 'Pin: origin "twinrocket.github.io"' /etc/apt/preferences.d/meshloom.pref
     [ \"\$(stat -c '%U:%G %a' /etc/meshloom)\" = 'root:meshloom 750' ]
     [ ! -e /var/lib/meshloom/update-job.json ] && [ ! -L /var/lib/meshloom/update-job.json ]
     [ \"\$(cat /root/precious)\" = precious ]

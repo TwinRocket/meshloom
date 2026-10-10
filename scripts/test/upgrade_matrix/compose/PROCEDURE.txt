@@ -1,0 +1,49 @@
+Compose upgrade e2e (4.17.0 install.sh stack -> app N on the old helper ->
+re-run install.sh N -> signed update N -> N+1). Manual, not CI. Validated
+2026-10-10 with a throwaway key. Never run install.sh on your own machine:
+everything below runs inside the privileged "e2ec-host" container.
+
+Needs: Docker, a throwaway release key (GNUPGHOME + FINGERPRINT + its public
+keyring), a test CA (ca.crt/ca.key) and a server cert for github.com,
+api.github.com and ghcr.io signed by it, in $C/tls (srv.crt, srv.key, ca.crt).
+
+1. Infra: fake github.com/api.github.com (gh_server.py) and a TLS registry:2
+   as ghcr.io, on network e2e-net.
+     sh start_infra.sh
+2. Release images: "N" = the 4.17.0 runtime + this branch's app/ and
+   entrypoint (Dockerfile.appN, build context = a copy of app/ and
+   docker-entrypoint.sh). Build tags 4.18.2, 4.18.3, 4.18.4 (--build-arg TAG=…
+   gives each its own digest).
+3. Host: docker build -t e2ec-dind -f Dockerfile.dind .
+   docker run -d --name e2ec-host --privileged --cgroupns=host \
+     -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock \
+     -v e2ec-docker:/var/lib/docker --network e2e-net \
+     --add-host github.com:172.31.250.20 --add-host api.github.com:172.31.250.20 \
+     --add-host ghcr.io:172.31.250.21 e2ec-dind
+   Inside: trust ca.crt (update-ca-certificates and
+   /etc/docker/certs.d/ghcr.io/ca.crt), set daemon.json
+   {"features":{"containerd-snapshotter":false}} (nested overlay), restart
+   docker. docker save the images on the host, docker load them inside, tag
+   them ghcr.io/twinrocket/meshloom:<tag>, push, note each RepoDigest, then
+   delete the local copies so pulls really go through the registry.
+4. Per tag write OCI-DIGESTS ("ghcr.io/twinrocket/meshloom:<tag> sha256:<d>")
+   and sign it (gpg --armor --detach-sign) into $C/gh/<tag>/. publish.sh <tag>
+   makes <tag> the latest release.
+5. publish.sh 4.17.0; run the 4.17.0 install.sh (git show 4.17.0:scripts/setup/install.sh)
+   inside with a pty: printf '1\n2\n\ny\ny\n' | script -qfec "bash install-4.17.0.sh" /dev/null
+6. publish.sh 4.18.2; as the 4.17 app would: data/update-job.json with
+   "target":"4.18.2" + data/request-update. Old helper moves the stack to 4.18.2.
+   GET /api/updates -> legacy_update_helper=true (banner).
+7. publish.sh 4.18.3; in the container: uv run python -c "...start_apply('compose', target='4.18.3')".
+   The app drops its own update-job.json, the old helper resolves 4.18.3 itself.
+8. Re-run install.sh N (sync_installer_embeds.py with the throwaway key first):
+   printf '2\n\ny\n' | script ... (language is remembered). Expect: stack found,
+   docker-compose.yml.bak-<date>, .env pinned by digest, update-status/ root
+   755 with status.json, update-job.json gone, path unit active, up -d.
+9. publish.sh 4.18.4; trigger via start_apply -> status succeeded 4.18.4, .env
+   moved, hostile data/update-job.json untouched, /app/update-status read-only.
+10. Negative (trigger_in_host.sh copied to /usr/local/bin/e2e-trigger):
+    cooldown (keep), downgrade (publish 4.18.2), wrong signer on OCI-DIGESTS,
+    hostile Location (gh/location file) -> each "failed"/"cooldown", .env unchanged.
+11. Edit docker-compose.yml (e.g. a port), re-run install.sh N -> it stops with
+    a diff and changes nothing (MESHLOOM_COMPOSE_OVERWRITE=1 to force).

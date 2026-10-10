@@ -1,0 +1,8 @@
+# "Release N" image for the e2e: 4.17.0 runtime + this branch's app and entrypoint.
+FROM ghcr.io/twinrocket/meshloom:4.17.0
+COPY app/ /app/app/
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ARG TAG=0
+LABEL e2e.tag=$TAG
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
