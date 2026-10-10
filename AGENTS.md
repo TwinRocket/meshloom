@@ -334,7 +334,7 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | Connection status, fanout statuses, bots_disabled flag |
-| GET | `/api/updates` | Cached Meshloom catalogue plus install kind, apply support, auto-update, and helper job |
+| GET | `/api/updates` | Cached latest release (GitHub `releases/latest`, Community mirror as fallback; `latest_source`) plus install kind, apply support, auto-update, and helper job |
 | POST | `/api/updates/apply` | Start a Meshloom-only apply when the helper is present (202; 409 otherwise) |
 | PATCH | `/api/updates/settings` | Persist `auto_update` (not via `PATCH /api/settings`) |
 | GET | `/api/debug` | Support snapshot: recent logs, live radio probe, contact/channel drift audit, and running version/git info |
@@ -420,7 +420,7 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | POST | `/api/tools/mesh-test` | Send one region-scoped test packet on the built-in `#meshloom-testing` channel; stores nothing locally and returns the packet hash for observer reach |
 | GET | `/api/locate?q=` | RF locate zone for one uniquely resolved node (0-hop disks). 409 if the query is ambiguous |
 | GET | `/api/directory/nodes` | Community map nodes (all roles, paginated; empty/unknown role → `unknown`) |
-| GET | `/api/directory/nodes/{pubkey}/reach` | Community 0-hop observers. HTTP 500 is a failure, not empty data |
+| GET | `/api/directory/nodes/{pubkey}/reach` | Community 0-hop observers. 503 (Community down) / 502 (bad answer) is a failure, not empty data |
 | GET | `/api/directory/nodes/{pubkey}/neighbors` | Community neighbor affinity for optional disk calibration |
 | GET | `/api/directory/nodes/search?q=` | Community name/key search (not hop prefixes) |
 | GET | `/api/push/vapid-public-key` | VAPID public key for browser push subscription |
@@ -444,7 +444,7 @@ All endpoints are prefixed with `/api` (e.g., `/api/health`).
 | PUT | `/api/community/me/hashtags` | Publish local/discovered hashtag names (names only) |
 | POST | `/api/community/live/subscribe` | Register or heartbeat a Live session; one process-wide Stats socket |
 | DELETE | `/api/community/live/subscribe/{session_id}` | Drop one Live session (upstream closes after idle grace when none remain) |
-| POST | `/api/community/live/relancer` | Remint JWT, clear the 24h viewer gate, reconnect |
+| POST | `/api/community/live/relancer` | Remint JWT, clear a given-up token refusal (`auth_rejected`), reconnect |
 | WS | `/api/ws` | Real-time updates |
 
 ## Key Concepts
@@ -500,7 +500,9 @@ All external integrations are managed through the fanout bus (`app/fanout/`). Ea
 
 Community MQTT forwards raw packets only. Its derived `path` field, when present on direct packets, is a comma-separated list of hop identifiers as reported by the packet format. Token width therefore varies with the packet's path hash mode; it is intentionally not a flat per-byte rendering.
 
-Community Live (`POST/DELETE /api/community/live/subscribe`, `POST /api/community/live/relancer`) opens one process-wide Stats WebSocket and fans sanitized v2 frames to browsers as `community_packet`. The reader is claimed under a lock so concurrent tab subscribe cannot open a second upstream socket. The reader reconnects with capped exponential backoff except on close 4002 (24h gate). 4003/409 from a v1 Stats server are treated as 4005 and are never a user-facing error. `community_live` reports `state`: `connected` / `reconnecting` / `gate` / `opted_out` / `idle`.
+Community Live (`POST/DELETE /api/community/live/subscribe`, `POST /api/community/live/relancer`) opens one process-wide Stats WebSocket and fans sanitized v2 frames to browsers as `community_packet`. The reader is claimed under a lock so concurrent tab subscribe cannot open a second upstream socket. The reader reconnects with capped exponential backoff except on close 4002 (reserved, never a product gate: it stops that reader generation only). A close 4001 on a socket that stayed up remints at once; a handshake **401 is not a 4001**: the relay backs off (2s, 4s, 8s, 16s) and gives up after 5 consecutive refusals, or at once for refusals no retry can fix (`token_audience`, `token_signature`, `token_malformed`, `token_missing`, `token_in_query`), with `state: auth_rejected` and `auth_error` = `clock_skew` (Community `code: clock_skew`, or `server_time` more than 60s from ours) or `token_rejected`. Relancer or a Community settings change clears it. 4003/409 from a v1 Stats server are treated as 4005 and are never a user-facing error. `community_live` reports `state`: `connected` / `reconnecting` / `gate` / `opted_out` / `idle` / `auth_rejected`.
+
+Community HTTP (`app/services/meshloom_community.py`): a timeout or 5xx answers **503** to the browser (never 500), and three consecutive ones open a circuit breaker for 30s, during which calls answer 503 without touching the network; one trial call then decides. Observer reach falls back to one GET per packet hash only when the batch route is missing upstream (404/405), never on a 5xx, timeout or open breaker.
 
 ### Web Push Notifications
 
