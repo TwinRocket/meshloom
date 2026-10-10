@@ -205,8 +205,8 @@ t() {
         fr:using_repo) echo "Installation depuis le dépôt de paquets Meshloom." ;;
         en:using_asset) echo "Installing the package from the latest release." ;;
         fr:using_asset) echo "Installation du paquet depuis la dernière version publiée." ;;
-        en:asset_bad) echo "The downloaded package is not usable; falling back to a source install." ;;
-        fr:asset_bad) echo "Le paquet téléchargé est inutilisable ; retour à une installation depuis les sources." ;;
+        en:asset_bad) echo "The release package address is not the expected one. Nothing was installed." ;;
+        fr:asset_bad) echo "L'adresse du paquet publié n'est pas celle attendue. Rien n'a été installé." ;;
         en:using_clone) echo "No ready-made package for this system; installing from source." ;;
         fr:using_clone) echo "Aucun paquet prêt pour ce système ; installation depuis les sources." ;;
         en:prompt_dir) echo "Installation folder" ;;
@@ -253,6 +253,28 @@ t() {
         fr:browser_body) echo "Rien n'a été installé. Ouvrez le Meshloom déjà en service sur votre réseau :" ;;
         en:browser_hint) echo "Its address is that machine's IP address followed by port 8000." ;;
         fr:browser_hint) echo "Son adresse est l'adresse IP de cette machine suivie du port 8000." ;;
+        en:key_missing) echo "This installer does not carry the Meshloom release key, so it cannot check what it installs. Download the installer from https://get.meshloom.app again." ;;
+        fr:key_missing) echo "Cet installeur ne contient pas la clé de publication Meshloom : il ne peut pas vérifier ce qu'il installe. Téléchargez de nouveau l'installeur depuis https://get.meshloom.app." ;;
+        en:key_bad) echo "The release key embedded in this installer does not match its pinned fingerprint. Installation stopped." ;;
+        fr:key_bad) echo "La clé de publication embarquée ne correspond pas à son empreinte. Installation arrêtée." ;;
+        en:sig_failed) echo "The release could not be verified against the Meshloom signing key. Nothing was installed." ;;
+        fr:sig_failed) echo "La version publiée n'a pas pu être vérifiée avec la clé de signature Meshloom. Rien n'a été installé." ;;
+        en:compose_pin_failed) echo "Could not pin a signed Meshloom image. Nothing was changed in the running stack." ;;
+        fr:compose_pin_failed) echo "Impossible d'épingler une image Meshloom signée. La pile en service n'a pas été modifiée." ;;
+        en:compose_secure) echo "Installing the secure update helper" ;;
+        fr:compose_secure) echo "Installation de l'assistant de mise à jour sécurisé" ;;
+        en:compose_backup) echo "The previous docker-compose.yml was kept as docker-compose.yml.bak-<date>." ;;
+        fr:compose_backup) echo "L'ancien docker-compose.yml a été conservé en docker-compose.yml.bak-<date>." ;;
+        en:compose_dir_unsafe) echo "In-app updates need a folder path made of letters, digits, '.', '_', '-' and '/'. Update this stack by hand." ;;
+        fr:compose_dir_unsafe) echo "Les mises à jour depuis l'application exigent un chemin de dossier fait de lettres, chiffres, '.', '_', '-' et '/'. Mettez cette pile à jour à la main." ;;
+        en:compose_found) echo "Existing Meshloom stack found in" ;;
+        fr:compose_found) echo "Pile Meshloom existante trouvée dans" ;;
+        en:compose_custom) echo "This docker-compose.yml was edited after the installer wrote it (- expected, + yours):" ;;
+        fr:compose_custom) echo "Ce docker-compose.yml a été modifié après l'installeur (- attendu, + le vôtre) :" ;;
+        en:compose_custom_stop) echo "Nothing was changed. Either apply by hand: image: \${MESHLOOM_IMAGE}, the ./update-status:/app/update-status:ro volume and MESHLOOM_UPDATE_STATUS_PATH; or re-run with MESHLOOM_COMPOSE_OVERWRITE=1 to regenerate it (a .bak copy is kept)." ;;
+        fr:compose_custom_stop) echo "Rien n'a été modifié. Soit vous appliquez à la main : image: \${MESHLOOM_IMAGE}, le volume ./update-status:/app/update-status:ro et MESHLOOM_UPDATE_STATUS_PATH ; soit vous relancez avec MESHLOOM_COMPOSE_OVERWRITE=1 pour le régénérer (une copie .bak est gardée)." ;;
+        en:update_docker_managed) echo "Updates: Settings → Updates in Meshloom installs signed releases." ;;
+        fr:update_docker_managed) echo "Mises à jour : Réglages → Mises à jour dans Meshloom installe les versions signées." ;;
         *) echo "$key" ;;
     esac
 }
@@ -528,34 +550,67 @@ conf_get() {
 }
 
 write_installer_conf() {
-    local dest="$1" lang="$2" version="${3:-}"
+    local dest="$1" lang="$2" version="${3:-}" compose_dir="${4:-}"
     {
         echo "lang=$lang"
         if [ -n "$version" ]; then
             echo "version=$version"
         fi
+        if [ -n "$compose_dir" ]; then
+            echo "compose_dir=$compose_dir"
+        fi
     } >"$dest"
 }
 
 save_user_installer_conf() {
-    local dest prev_version=""
+    local dest prev_version="" prev_dir=""
     dest="$(user_installer_conf)"
     mkdir -p "$(dirname "$dest")"
     prev_version="$(conf_get "$dest" version || true)"
-    write_installer_conf "$dest" "$ML_LANG" "${TARGET_VERSION:-$prev_version}"
+    prev_dir="$(conf_get "$dest" compose_dir || true)"
+    write_installer_conf "$dest" "$ML_LANG" "${TARGET_VERSION:-$prev_version}" "${COMPOSE_DIR_SAVED:-$prev_dir}"
+}
+
+# /etc/meshloom holds files root reads. Up to 4.17 the package let the
+# meshloom user own it, so before root writes there: make it root's again and
+# quarantine links and entries root does not own (never follow or reuse them).
+secure_etc_meshloom() {
+    local entry q=""
+    if [ -L /etc/meshloom ]; then
+        as_root rm -f /etc/meshloom
+    fi
+    as_root mkdir -p /etc/meshloom
+    as_root chown root /etc/meshloom
+    as_root chmod go-w /etc/meshloom
+    for entry in $(as_root find /etc/meshloom -mindepth 1 -maxdepth 1 \
+        \( -type l -o ! -user root -o \( -type f -links +1 \) \) -print 2>/dev/null); do
+        if [ -z "$q" ]; then
+            as_root mkdir -p -m 0700 /var/lib/meshloom-quarantine
+            q="$(as_root mktemp -d /var/lib/meshloom-quarantine/etc.XXXXXX)"
+        fi
+        as_root mv -f "$entry" "$q/"
+        ui_warn "  Moved untrusted ${entry} to ${q}"
+    done
+}
+
+# Root write into /etc/meshloom: replace the entry, never write through it.
+install_etc_file() {
+    local src="$1" dest="$2" mode="$3"
+    as_root rm -f "$dest"
+    as_root install -m "$mode" "$src" "$dest"
 }
 
 save_system_installer_conf() {
-    local dest tmp prev_version=""
+    local dest tmp prev_version="" prev_dir=""
     dest="$(system_installer_conf)"
     tmp="$(mktemp /tmp/meshloom-installer.XXXXXX)"
     if [ -f "$dest" ]; then
         prev_version="$(conf_get "$dest" version || true)"
+        prev_dir="$(conf_get "$dest" compose_dir || true)"
     fi
-    write_installer_conf "$tmp" "$ML_LANG" "${TARGET_VERSION:-$prev_version}"
-    as_root mkdir -p "$(dirname "$dest")"
-    as_root cp "$tmp" "$dest"
-    as_root chmod 644 "$dest"
+    write_installer_conf "$tmp" "$ML_LANG" "${TARGET_VERSION:-$prev_version}" "${COMPOSE_DIR_SAVED:-$prev_dir}"
+    secure_etc_meshloom
+    install_etc_file "$tmp" "$dest" 0644
     rm -f "$tmp"
 }
 
@@ -629,24 +684,16 @@ compose_image_version() {
     local file="$1" v=""
     [ -f "$file" ] || return 1
     v="$(sed -n 's/.*meshloom:\([^[:space:]"]*\).*/\1/p' "$file" | head -n 1)"
+    if [ -z "$v" ] || [ "${v#\$}" != "$v" ]; then
+        # 4.18+: the image is pinned in .env next to the compose file.
+        v="$(sed -n 's/^MESHLOOM_IMAGE=.*meshloom:\([^[:space:]"]*\).*/\1/p' "$(dirname "$file")/.env" 2>/dev/null | head -n 1)"
+    fi
+    v="${v%%@*}"
     v="$(normalize_version "$v")"
     if [ -z "$v" ] || [ "$v" = "latest" ]; then
         return 1
     fi
     printf '%s' "$v"
-}
-
-rewrite_compose_image_tag() {
-    # Pin the Meshloom GHCR image so compose pull fetches that release.
-    local file="$1" tag="$2"
-    tag="${tag#v}"
-    [ -n "$tag" ] || return 1
-    [ -f "$file" ] || return 1
-    awk -v tag="$tag" '
-        $1 == "image:" { sub(/:[^[:space:]]+$/, ":" tag) }
-        { print }
-    ' "$file" >"${file}.new"
-    mv "${file}.new" "$file"
 }
 
 detect_installed_version() {
@@ -673,6 +720,11 @@ detect_installed_version() {
         fi
     done
     if v="$(compose_image_version "${IN_CHECKOUT:+${IN_CHECKOUT}/docker-compose.yml}")"; then
+        INSTALLED_VERSION="$v"
+        return 0
+    fi
+    wd="$(conf_get "$(system_installer_conf)" compose_dir || true)"
+    if [ -n "$wd" ] && v="$(compose_image_version "${wd}/docker-compose.yml")"; then
         INSTALLED_VERSION="$v"
         return 0
     fi
@@ -1216,9 +1268,201 @@ persist_installer_state() {
     fi
 }
 
-# Idempotent: re-running the installer (upgrade or reinstall) installs a missing
-# apply helper. Package units ship in the .deb; Compose units are written here
-# because the curl one-liner has no sibling files on disk.
+# ── release key and signed sources ────────────────────────────────────────────
+#
+# The release public key is embedded below and pinned by fingerprint. It is
+# never downloaded: a key fetched from the same place as the packages would
+# prove nothing. There is no unsigned fallback anywhere in this installer.
+
+KEYRING_PATH=/usr/share/keyrings/meshloom-archive-keyring.gpg
+KEYRING_ASC_PATH=/usr/share/keyrings/meshloom-archive-keyring.asc
+RELEASE_KEY_DIR=""
+VERSION_RE='^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$'
+
+# >>> embed: pkg/keys (generated by scripts/setup/sync_installer_embeds.py; do not edit)
+MESHLOOM_KEY_FINGERPRINT='D852F2F0892ABF379F52D110FB3EB7BBC43935C8'
+MESHLOOM_KEYRING_SHA256='2ddedab2fd4ec3640ae410cd0070fad839e033b94c51fced8a2ce4a107ac693b'
+MESHLOOM_KEY_ASC='-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+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
+Sf0ZAstXK9E=
+=sXph
+-----END PGP PUBLIC KEY BLOCK-----
+'
+# <<< embed: pkg/keys
+
+# >>> embed: pkg/nfpm/meshloom.pref (generated by scripts/setup/sync_installer_embeds.py; do not edit)
+_embed_apt_pin() {
+    cat <<'MESHLOOM_EMBED_EOF'
+# Installed by the meshloom package. Only the official Meshloom repository
+# (twinrocket.github.io, signature-checked through signed-by=) may provide
+# the meshloom package, and that repository may not replace anything else.
+# Pin by origin host, not by Release "Origin:", which any source can claim.
+Package: meshloom
+Pin: origin "twinrocket.github.io"
+Pin-Priority: 990
+
+Package: meshloom
+Pin: release *
+Pin-Priority: -1
+
+Package: *
+Pin: origin "twinrocket.github.io"
+Pin-Priority: -1
+MESHLOOM_EMBED_EOF
+}
+# <<< embed: pkg/nfpm/meshloom.pref
+
+release_key_embedded() {
+    printf '%s\n' "$MESHLOOM_KEY_FINGERPRINT" | grep -Eq '^[0-9A-F]{40}$' &&
+        [ -n "$MESHLOOM_KEY_ASC" ] && [ -n "$MESHLOOM_KEYRING_SHA256" ]
+}
+
+# ASCII armor -> binary packets, with sed/base64 only (gpg may be absent).
+dearmor_key() {
+    sed -n '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/,/^-----END PGP PUBLIC KEY BLOCK-----$/p' |
+        sed '1d;$d' |
+        awk 'body && $0 !~ /^=/ { print } /^$/ { body = 1 }' |
+        base64 -d
+}
+
+sha256_of() {
+    sha256sum "$1" | awk '{print $1}'
+}
+
+# Decode the embedded key into a private temp dir and check it twice: the
+# SHA-256 of the keyring, and (when gpg exists) the primary fingerprint.
+prepare_release_key() {
+    local dir fpr
+    [ -z "$RELEASE_KEY_DIR" ] || return 0
+    if ! release_key_embedded; then
+        ui_err "$(t key_missing)"
+        exit 1
+    fi
+    dir="$(mktemp -d /tmp/meshloom-key.XXXXXX)"
+    printf '%s' "$MESHLOOM_KEY_ASC" >"$dir/meshloom.asc"
+    if ! dearmor_key <"$dir/meshloom.asc" >"$dir/meshloom.gpg" 2>/dev/null ||
+        [ "$(sha256_of "$dir/meshloom.gpg")" != "$MESHLOOM_KEYRING_SHA256" ]; then
+        rm -rf "$dir"
+        ui_err "$(t key_bad)"
+        exit 1
+    fi
+    if command -v gpg >/dev/null 2>&1; then
+        fpr="$(GNUPGHOME="$dir" gpg --batch --with-colons --show-keys "$dir/meshloom.gpg" 2>/dev/null |
+            awk -F: '/^fpr:/ {print $10; exit}')"
+        if [ "$fpr" != "$MESHLOOM_KEY_FINGERPRINT" ]; then
+            rm -rf "$dir"
+            ui_err "$(t key_bad)"
+            exit 1
+        fi
+    fi
+    RELEASE_KEY_DIR="$dir"
+}
+
+install_release_key() {
+    prepare_release_key
+    as_root install -D -m 0644 "$RELEASE_KEY_DIR/meshloom.gpg" "$KEYRING_PATH"
+    as_root install -D -m 0644 "$RELEASE_KEY_DIR/meshloom.asc" "$KEYRING_ASC_PATH"
+}
+
+ensure_gpgv() {
+    if [ "$PKG_MGR" = "dnf" ]; then
+        ensure_cmd gpgv "gnupg2"
+    else
+        ensure_cmd gpgv "gpgv"
+    fi
+}
+
+# Signed apt/dnf source for the Meshloom repository, plus the apt pin. Always
+# written, even after a release-asset install, so later updates stay signed.
+add_signed_repo() {
+    local tmp
+    install_release_key
+    if [ "$PKG_MGR" = "apt" ]; then
+        tmp="$(mktemp /tmp/meshloom-pref.XXXXXX)"
+        _embed_apt_pin >"$tmp"
+        as_root install -D -m 0644 "$tmp" /etc/apt/preferences.d/meshloom.pref
+        rm -f "$tmp"
+        as_root mkdir -p /etc/apt/sources.list.d
+        echo "deb [signed-by=${KEYRING_PATH}] ${PAGES_BASE}/apt stable main" |
+            as_root tee /etc/apt/sources.list.d/meshloom.list >/dev/null
+        as_root chmod 0644 /etc/apt/sources.list.d/meshloom.list
+    else
+        as_root mkdir -p /etc/yum.repos.d
+        as_root tee /etc/yum.repos.d/meshloom.repo >/dev/null <<EOF
+[meshloom]
+name=Meshloom
+baseurl=${PAGES_BASE}/rpm/\$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file://${KEYRING_ASC_PATH}
+EOF
+        as_root chmod 0644 /etc/yum.repos.d/meshloom.repo
+    fi
+}
+
+# Idempotent: re-running the installer (upgrade or reinstall) restores a
+# missing packaged helper from the signed repository. The package is the only
+# source of the package-mode helper; the installer never writes its own copy.
 _package_update_helper_present() {
     [ -x /usr/lib/meshloom/apply-update ] \
         && [ -f /usr/lib/systemd/system/meshloom-update.service ] \
@@ -1231,6 +1475,16 @@ _env_ensure_key() {
         return 0
     fi
     printf '%s=%s\n' "$key" "$value" | as_root tee -a "$dest" >/dev/null
+}
+
+_env_set_key() {
+    local dest="$1" key="$2" value="$3"
+    as_root sed -i "/^${key}=/d" "$dest"
+    printf '%s=%s\n' "$key" "$value" | as_root tee -a "$dest" >/dev/null
+}
+
+_env_drop_key() {
+    as_root sed -i "/^${2}=/d" "$1"
 }
 
 _restore_package_update_helper() {
@@ -1248,263 +1502,451 @@ _restore_package_update_helper() {
     fi
 }
 
-_install_package_update_helper_fallback() {
-    as_root mkdir -p /usr/lib/meshloom /usr/lib/systemd/system /usr/share/polkit-1/rules.d /var/lib/meshloom
-    as_root tee /usr/lib/meshloom/apply-update >/dev/null <<'EOF'
-#!/bin/sh
-# Fallback helper written by install.sh when the packaged files are missing.
-set -e
-JOB_PATH="${MESHLOOM_UPDATE_JOB_PATH:-/var/lib/meshloom/update-job.json}"
-REQUEST_PATH="/var/lib/meshloom/request-update"
-STARTED_AT=$(date +%s)
-LAST_ATTEMPT=
-TARGET=
-load_identity() {
-    [ -f "$JOB_PATH" ] || return 0
-    existing_target=$(sed -n 's/.*"target":"\([^"]*\)".*/\1/p' "$JOB_PATH" | head -n 1)
-    existing_last=$(sed -n 's/.*"last_attempt":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
-    existing_started=$(sed -n 's/.*"started_at":\([0-9][0-9]*\).*/\1/p' "$JOB_PATH" | head -n 1)
-    [ -n "$existing_target" ] && TARGET=$existing_target
-    [ -n "$existing_last" ] && LAST_ATTEMPT=$existing_last
-    [ -n "$existing_started" ] && STARTED_AT=$existing_started
-}
-write_job() {
-    last_json=${LAST_ATTEMPT:-$STARTED_AT}
-    target_json=""
-    [ -n "$TARGET" ] && target_json=",\"target\":\"${TARGET}\""
-    mkdir -p "$(dirname "$JOB_PATH")"
-    tmp="${JOB_PATH}.tmp.$$"
-    printf '%s\n' "{\"state\":\"$1\",\"phase\":\"$2\",\"percent\":null,\"error\":$3,\"started_at\":${STARTED_AT},\"last_attempt\":${last_json}${target_json}}" >"$tmp"
-    chmod 644 "$tmp" 2>/dev/null || true
-    chown meshloom:meshloom "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$JOB_PATH"
-}
-rm -f "$REQUEST_PATH"
-mkdir -p /var/lib/meshloom
-chown meshloom:meshloom /var/lib/meshloom 2>/dev/null || true
-chmod 0750 /var/lib/meshloom 2>/dev/null || true
-load_identity
-write_job applying preparing null
-if command -v apt-get >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update || { write_job failed preparing "\"apt-get update failed\""; exit 1; }
-    write_job applying downloading null
-    if command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${Status}\n' meshloom 2>/dev/null | grep -q 'ok installed'; then
-        apt-get install -y --only-upgrade meshloom || { write_job failed downloading "\"apt-get install --only-upgrade meshloom failed\""; exit 1; }
-    else
-        apt-get install -y meshloom || { write_job failed downloading "\"apt-get install meshloom failed\""; exit 1; }
-    fi
-elif command -v dnf >/dev/null 2>&1; then
-    write_job applying installing null
-    dnf install -y meshloom || { write_job failed installing "\"dnf install meshloom failed\""; exit 1; }
-else
-    write_job failed preparing "\"no supported package manager\""
-    exit 1
-fi
-write_job applying restarting null
-if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl daemon-reload || true
-    systemctl enable meshloom || true
-    i=0
-    while [ "$i" -lt 15 ]; do
-        systemctl is-active --quiet meshloom && break
-        systemctl start meshloom || true
-        i=$((i + 1))
-        sleep 1
-    done
-    systemctl is-active --quiet meshloom || { write_job failed restarting "\"meshloom.service failed to start\""; exit 1; }
-fi
-write_job succeeded done null
-EOF
-    as_root chmod 0755 /usr/lib/meshloom/apply-update
-    as_root tee /usr/lib/systemd/system/meshloom-update.service >/dev/null <<'EOF'
-[Unit]
-Description=Meshloom package update
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-User=root
-ExecStart=/usr/lib/meshloom/apply-update
-TimeoutStartSec=30min
-EOF
-    as_root tee /usr/lib/systemd/system/meshloom-update.path >/dev/null <<'EOF'
-[Unit]
-Description=Watch Meshloom package update request
-
-[Path]
-PathExists=/var/lib/meshloom/request-update
-PathChanged=/var/lib/meshloom/request-update
-Unit=meshloom-update.service
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    as_root tee /usr/share/polkit-1/rules.d/60-meshloom-update.rules >/dev/null <<'EOF'
-polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.systemd1.manage-units" &&
-        action.lookup("unit") == "meshloom-update.service" &&
-        action.lookup("verb") == "start" &&
-        subject.user == "meshloom") {
-        return polkit.Result.YES;
-    }
-});
-EOF
-    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
-        rm -f /var/lib/meshloom/request-update
-        as_root systemctl daemon-reload || true
-        as_root systemctl enable --now meshloom-update.path || true
-    fi
-}
-
 ensure_update_helper() {
-    local kind="$1" compose_dir="${2:-}"
-    case "$kind" in
-        package)
-            if _package_update_helper_present; then
-                as_root systemctl daemon-reload || true
-                return 0
-            fi
-            _restore_package_update_helper
-            if _package_update_helper_present; then
-                as_root systemctl daemon-reload || true
-                return 0
-            fi
-            _install_package_update_helper_fallback
-            as_root systemctl daemon-reload || true
-            ;;
-        compose)
-            [ -n "$compose_dir" ] || return 0
-            _install_compose_update_helper "$compose_dir"
-            ;;
-    esac
-}
-
-_install_compose_update_helper() {
-    local compose_dir="$1"
-    local unit_dir="/etc/systemd/system"
-    local env_file="/etc/meshloom/compose-update.env"
-    local data_dir="${compose_dir}/data"
-    as_root mkdir -p /etc/meshloom /usr/lib/meshloom "$data_dir"
-    {
-        printf 'MESHLOOM_COMPOSE_DIR=%s\n' "$compose_dir"
-        printf 'MESHLOOM_GHCR_IMAGE=%s\n' "$GHCR_IMAGE"
-        printf 'MESHLOOM_RELEASES_API=%s\n' "$API_RELEASES"
-    } | as_root tee "$env_file" >/dev/null
-    as_root tee /usr/lib/meshloom/compose-update >/dev/null <<'EOF'
-#!/bin/sh
-set -eu
-# Host-side helper for installer-managed Docker. Never bind-mount docker.sock
-# into the Meshloom container. Rewrite the pinned image tag, then pull/up.
-. /etc/meshloom/compose-update.env
-JOB="${MESHLOOM_COMPOSE_DIR}/data/update-job.json"
-REQ="${MESHLOOM_COMPOSE_DIR}/data/request-update"
-COMPOSE="${MESHLOOM_COMPOSE_DIR}/docker-compose.yml"
-mkdir -p "$(dirname "$JOB")"
-# PathExists only retriggers on absent → present. Drop a leftover request first.
-rm -f "$REQ"
-
-json_field() {
-    [ -f "$JOB" ] || return 0
-    sed -n "s/.*\"$1\":\"\\([^\"]*\\)\".*/\\1/p" "$JOB" | head -n 1
-}
-json_int() {
-    [ -f "$JOB" ] || return 0
-    sed -n "s/.*\"$1\":\\([0-9][0-9]*\\).*/\\1/p" "$JOB" | head -n 1
-}
-
-now="$(date +%s)"
-started="$(json_int started_at || true)"
-[ -n "${started:-}" ] || started="$now"
-last="$(json_int last_attempt || true)"
-[ -n "${last:-}" ] || last="$now"
-target="$(json_field target || true)"
-if [ -z "${target:-}" ]; then
-    target="$(curl -fsSL --max-time 15 "${MESHLOOM_RELEASES_API}" 2>/dev/null |
-        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 || true)"
-fi
-target="${target#v}"
-
-write_job() {
-    state="$1"
-    phase="$2"
-    percent="$3"
-    error="$4"
-    target_json=""
-    if [ -n "$target" ]; then
-        target_json=",\"target\":\"${target}\""
+    _package_update_helper_present || _restore_package_update_helper
+    if [ -d /run/systemd/system ]; then
+        as_root systemctl daemon-reload || true
+        if _package_update_helper_present; then
+            as_root systemctl enable --now meshloom-update.path || true
+        fi
     fi
-    printf '%s\n' "{\"state\":\"${state}\",\"phase\":\"${phase}\",\"percent\":${percent},\"error\":${error},\"started_at\":${started},\"last_attempt\":${last}${target_json}}" >"$JOB"
 }
 
-write_job applying downloading null null
-if [ -z "$target" ]; then
-    write_job failed downloading null "\"could not resolve image tag\""
+# ── compose update helper ─────────────────────────────────────────────────────
+
+# >>> embed: scripts/setup/helpers/compose-update (generated by scripts/setup/sync_installer_embeds.py; do not edit)
+_embed_compose_update() {
+    cat <<'MESHLOOM_EMBED_EOF'
+#!/bin/sh
+# Host-side helper for installer-managed Docker Compose (meshloom-compose-update).
+#
+# Security model (see app/AGENTS.md, "Updates"):
+#   - The container only *triggers* this unit (PathChanged= on
+#     <dir>/data/request-update). Nothing under data/ is ever read here.
+#   - The target is the latest GitHub release, resolved from the
+#     releases/latest redirect. Its image digest comes from OCI-DIGESTS, signed
+#     with the Meshloom release key (gpgv). Downgrades are refused.
+#   - The image is pinned by digest in <dir>/.env (MESHLOOM_IMAGE), rewritten
+#     with mktemp + mv. docker-compose.yml is never edited.
+#   - Progress goes to <dir>/update-status/status.json (root 0755 directory,
+#     mounted read-only in the container).
+#
+# Usage: compose-update             apply the latest release (systemd unit)
+#        compose-update --bootstrap  write .env for a fresh install, no pull/up
+set -eu
+
+R=
+if [ "${MESHLOOM_HELPER_TESTING:-}" = 1 ]; then
+    R="${MESHLOOM_HELPER_ROOT:?MESHLOOM_HELPER_ROOT is required in testing mode}"
+fi
+
+REPO_URL="https://github.com/TwinRocket/meshloom"
+IMAGE_REPO="ghcr.io/twinrocket/meshloom"
+KEYRING="$R/usr/share/keyrings/meshloom-archive-keyring.gpg"
+STATE_DIR="$R/var/lib/meshloom-compose-update"
+STAMP_PATH="$STATE_DIR/last-start"
+RUN_DIR="${RUNTIME_DIRECTORY:-$R/run/meshloom-compose-update}"
+COOLDOWN_SECONDS=120
+VERSION_RE='^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$'
+DIGEST_RE='^sha256:[0-9a-f]{64}$'
+DIR_RE='^/[A-Za-z0-9._/-]+$'
+
+MODE=apply
+if [ "${1:-}" = "--bootstrap" ]; then
+    MODE=bootstrap
+fi
+
+STATE=applying
+PHASE=preparing
+PERCENT=
+ERROR=
+STARTED_AT=$(date +%s)
+VERSION=
+FINISHED=0
+STATUS_READY=0
+WORK=
+
+log() {
+    echo "meshloom compose-update: $*" >&2
+}
+
+json_escape() {
+    printf '%s' "$1" | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+is_root_owned_dir() {
+    [ -d "$1" ] && [ ! -L "$1" ] || return 1
+    [ -n "$R" ] || [ "$(stat -c %u "$1")" = 0 ]
+}
+
+write_status() {
+    [ "$STATUS_READY" -eq 1 ] || return 0
+    if [ -n "$PERCENT" ]; then percent_json=$PERCENT; else percent_json=null; fi
+    if [ -n "$ERROR" ]; then error_json="\"$(json_escape "$ERROR")\""; else error_json=null; fi
+    if [ -n "$VERSION" ]; then version_json="\"$VERSION\""; else version_json=null; fi
+    now=$(date +%s)
+    tmp=$(mktemp "$STATUS_DIR/.status.XXXXXX")
+    printf '{"schema":1,"state":"%s","phase":"%s","percent":%s,"error":%s,"started_at":%s,"updated_at":%s,"version":%s}\n' \
+        "$STATE" "$PHASE" "$percent_json" "$error_json" "$STARTED_AT" "$now" "$version_json" >"$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$STATUS_DIR/status.json"
+}
+
+fail() {
+    FINISHED=1
+    STATE=failed
+    ERROR=$1
+    write_status
+    log "failed: $ERROR"
+    exit 1
+}
+
+on_exit() {
+    rc=$?
+    if [ -n "$WORK" ]; then rm -rf "$WORK"; fi
+    if [ "$FINISHED" -eq 0 ]; then
+        FINISHED=1
+        STATE=failed
+        [ -n "$ERROR" ] || ERROR="update failed (exit $rc)"
+        write_status || true
+    fi
+}
+
+# version_gt A B: true when A > B (both already match VERSION_RE).
+version_gt() {
+    a1=${1%%.*}; rest=${1#*.}; a2=${rest%%.*}; a3=${rest#*.}
+    b1=${2%%.*}; rest=${2#*.}; b2=${rest%%.*}; b3=${rest#*.}
+    [ "$a1" -ne "$b1" ] && { [ "$a1" -gt "$b1" ]; return; }
+    [ "$a2" -ne "$b2" ] && { [ "$a2" -gt "$b2" ]; return; }
+    [ "$a3" -gt "$b3" ]
+}
+
+# Latest release tag from the releases/latest redirect. The Location header
+# must be exactly <repo>/releases/tag/X.Y.Z; anything else is refused.
+resolve_latest() {
+    location=$(curl -fsS --proto '=https' --max-time 20 -o /dev/null -w '%{redirect_url}' \
+        "${REPO_URL}/releases/latest") || return 1
+    tag=${location#"${REPO_URL}/releases/tag/"}
+    [ "$tag" != "$location" ] || return 1
+    case "$tag" in
+        '' | *[!0-9.]*) return 1 ;;
+    esac
+    printf '%s\n' "$tag" | grep -Eq "$VERSION_RE" || return 1
+    printf '%s' "$tag"
+}
+
+# Digest of the OCI index for $1, from the release's OCI-DIGESTS file signed
+# with the Meshloom release key. The file holds exactly one line:
+#   ghcr.io/twinrocket/meshloom:X.Y.Z sha256:<64 lowercase hex>
+signed_digest() {
+    tag=$1
+    curl -fsSL --proto '=https' --max-time 60 -o "$WORK/OCI-DIGESTS" \
+        "${REPO_URL}/releases/download/${tag}/OCI-DIGESTS" || return 2
+    curl -fsSL --proto '=https' --max-time 60 -o "$WORK/OCI-DIGESTS.asc" \
+        "${REPO_URL}/releases/download/${tag}/OCI-DIGESTS.asc" || return 2
+    gpgv --keyring "$KEYRING" "$WORK/OCI-DIGESTS.asc" "$WORK/OCI-DIGESTS" >/dev/null 2>&1 || return 3
+    [ "$(wc -l <"$WORK/OCI-DIGESTS" | tr -d ' ')" = 1 ] || return 4
+    escaped=$(printf '%s' "$tag" | sed 's/\./\\./g')
+    line=$(grep -E "^ghcr\.io/twinrocket/meshloom:${escaped} sha256:[0-9a-f]{64}\$" "$WORK/OCI-DIGESTS" || true)
+    [ -n "$line" ] || return 4
+    digest=${line##* }
+    printf '%s\n' "$digest" | grep -Eq "$DIGEST_RE" || return 4
+    printf '%s' "$digest"
+}
+
+# Version currently pinned in .env, or empty when there is no valid pin.
+current_version() {
+    [ -f "$ENV_FILE" ] || return 0
+    sed -n 's/^MESHLOOM_IMAGE=//p' "$ENV_FILE" | head -n 1 |
+        sed -n "s|^ghcr\.io/twinrocket/meshloom:\([0-9]*\.[0-9]*\.[0-9]*\)@sha256:[0-9a-f]\{64\}\$|\1|p"
+}
+
+write_env() {
+    image="${IMAGE_REPO}:$1@$2"
+    tmp=$(mktemp "$COMPOSE_DIR/.env.XXXXXX")
+    {
+        echo "# Managed by meshloom-compose-update. MESHLOOM_IMAGE is pinned by digest."
+        echo "MESHLOOM_IMAGE=${image}"
+        if [ -f "$ENV_FILE" ]; then
+            grep -v -e '^MESHLOOM_IMAGE=' -e '^# Managed by meshloom-compose-update' "$ENV_FILE" || true
+        fi
+    } >"$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$ENV_FILE"
+}
+
+trap on_exit EXIT
+trap 'on_exit; exit 130' INT
+trap 'on_exit; exit 143' TERM
+
+if [ -z "$R" ] && [ "$(id -u)" -ne 0 ]; then
+    log "must run as root"
     exit 1
 fi
-if [ -f "$COMPOSE" ]; then
-    awk -v tag="$target" '
-        $1 == "image:" { sub(/:[^[:space:]]+$/, ":" tag) }
-        { print }
-    ' "$COMPOSE" >"${COMPOSE}.new"
-    mv "${COMPOSE}.new" "$COMPOSE"
+umask 022
+
+# Only the directory comes from /etc/meshloom/compose-update.env (root-owned,
+# passed by systemd EnvironmentFile=). It is validated, never sourced.
+COMPOSE_DIR="${MESHLOOM_COMPOSE_DIR:-}"
+if ! printf '%s\n' "$COMPOSE_DIR" | grep -Eq "$DIR_RE" || [ "$(printf '%s\n' "$COMPOSE_DIR" | wc -l)" -ne 1 ]; then
+    log "invalid MESHLOOM_COMPOSE_DIR"
+    exit 1
 fi
-cd "$MESHLOOM_COMPOSE_DIR"
-if docker compose pull; then
-    write_job applying installing null null
-    write_job applying restarting 90 null
-    if docker compose up -d; then
-        write_job succeeded done 100 null
+case "/$COMPOSE_DIR/" in
+    */../* | */./*)
+        log "invalid MESHLOOM_COMPOSE_DIR"
+        exit 1
+        ;;
+esac
+COMPOSE_DIR="$R$COMPOSE_DIR"
+if [ ! -d "$COMPOSE_DIR" ] || [ -L "$COMPOSE_DIR" ]; then
+    log "compose directory missing: $COMPOSE_DIR"
+    exit 1
+fi
+ENV_FILE="$COMPOSE_DIR/.env"
+STATUS_DIR="$COMPOSE_DIR/update-status"
+if [ -L "$STATUS_DIR" ]; then
+    log "refusing symlinked $STATUS_DIR"
+    exit 1
+fi
+mkdir -p "$STATUS_DIR"
+chmod 0755 "$STATUS_DIR"
+if ! is_root_owned_dir "$STATUS_DIR"; then
+    log "$STATUS_DIR must be a root-owned directory"
+    exit 1
+fi
+STATUS_READY=1
+
+for d in "$STATE_DIR" "$RUN_DIR"; do
+    if [ -L "$d" ]; then fail "unsafe helper directory"; fi
+    mkdir -p "$d"
+    chmod 0700 "$d"
+done
+WORK=$(mktemp -d "$RUN_DIR/work.XXXXXX")
+
+if [ "$MODE" = apply ]; then
+    now=$(date +%s)
+    last=$(sed -n '1{/^[0-9][0-9]*$/p;}' "$STAMP_PATH" 2>/dev/null || true)
+    if [ -n "$last" ] && [ "$now" -ge "$last" ] && [ $((now - last)) -lt "$COOLDOWN_SECONDS" ]; then
+        FINISHED=1
+        STATE=cooldown
+        ERROR="update requested too soon; try again in $((COOLDOWN_SECONDS - (now - last))) s"
+        VERSION=$(current_version)
+        write_status
+        log "$ERROR"
         exit 0
     fi
+    printf '%s\n' "$now" >"$STAMP_PATH"
 fi
-write_job failed downloading null "\"docker compose pull/up failed\""
-exit 1
-EOF
-    as_root chmod 0755 /usr/lib/meshloom/compose-update
-    as_root tee "${unit_dir}/meshloom-compose-update.service" >/dev/null <<EOF
+
+CURRENT=$(current_version)
+VERSION=$CURRENT
+write_status
+
+[ -s "$KEYRING" ] || fail "release key missing ($KEYRING); re-run the installer"
+command -v gpgv >/dev/null 2>&1 || fail "gpgv is not installed"
+
+TARGET=$(resolve_latest) || fail "could not resolve the latest release"
+rc=0
+DIGEST=$(signed_digest "$TARGET") || rc=$?
+case "$rc" in
+    0) ;;
+    2) fail "could not download OCI-DIGESTS for $TARGET" ;;
+    3) fail "OCI-DIGESTS signature check failed for $TARGET" ;;
+    *) fail "no signed image digest for $TARGET" ;;
+esac
+
+if [ -n "$CURRENT" ]; then
+    if version_gt "$CURRENT" "$TARGET"; then
+        fail "refusing downgrade from $CURRENT to $TARGET"
+    fi
+    if [ "$CURRENT" = "$TARGET" ] && grep -qx "MESHLOOM_IMAGE=${IMAGE_REPO}:${TARGET}@${DIGEST}" "$ENV_FILE"; then
+        if [ "$MODE" = apply ]; then
+            # Already pinned: still make sure that image is the one running.
+            :
+        else
+            FINISHED=1
+            STATE=succeeded
+            PHASE=done
+            PERCENT=100
+            write_status
+            exit 0
+        fi
+    fi
+elif [ "$MODE" = apply ]; then
+    fail "no valid MESHLOOM_IMAGE pin in $ENV_FILE; re-run the installer"
+fi
+
+write_env "$TARGET" "$DIGEST"
+log "pinned ${IMAGE_REPO}:${TARGET}@${DIGEST}"
+
+if [ "$MODE" = bootstrap ]; then
+    FINISHED=1
+    STATE=succeeded
+    PHASE=done
+    PERCENT=100
+    VERSION=$TARGET
+    write_status
+    exit 0
+fi
+
+cd "$COMPOSE_DIR"
+PHASE=downloading
+write_status
+docker compose pull || fail "docker compose pull failed"
+PHASE=restarting
+PERCENT=90
+write_status
+docker compose up -d || fail "docker compose up -d failed"
+FINISHED=1
+STATE=succeeded
+PHASE=done
+PERCENT=100
+VERSION=$TARGET
+write_status
+log "running ${TARGET}"
+MESHLOOM_EMBED_EOF
+}
+# <<< embed: scripts/setup/helpers/compose-update
+
+# >>> embed: scripts/setup/helpers/meshloom-compose-update.service.in (generated by scripts/setup/sync_installer_embeds.py; do not edit)
+_embed_compose_service() {
+    cat <<'MESHLOOM_EMBED_EOF'
 [Unit]
-Description=Meshloom Docker Compose apply
-After=docker.service
+Description=Meshloom Docker Compose update
+Documentation=https://github.com/TwinRocket/meshloom
+After=docker.service network-online.target
 Requires=docker.service
+Wants=network-online.target
+# No systemd start limit: hitting it fails the .path unit for good, and
+# in-app updates would stop until reboot. The helper's 120 s cooldown is
+# the rate limit.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
+# Holds MESHLOOM_COMPOSE_DIR only. Root-owned; the helper validates it.
 EnvironmentFile=/etc/meshloom/compose-update.env
+Environment=DOCKER_CONFIG=/run/meshloom-compose-update/docker
 ExecStart=/usr/lib/meshloom/compose-update
-EOF
-    as_root tee "${unit_dir}/meshloom-compose-update.path" >/dev/null <<EOF
+TimeoutStartSec=30min
+StateDirectory=meshloom-compose-update
+StateDirectoryMode=0700
+RuntimeDirectory=meshloom-compose-update
+RuntimeDirectoryMode=0700
+UMask=0022
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@COMPOSE_DIR@
+MESHLOOM_EMBED_EOF
+}
+# <<< embed: scripts/setup/helpers/meshloom-compose-update.service.in
+
+# >>> embed: scripts/setup/helpers/meshloom-compose-update.path.in (generated by scripts/setup/sync_installer_embeds.py; do not edit)
+_embed_compose_path() {
+    cat <<'MESHLOOM_EMBED_EOF'
 [Unit]
 Description=Watch Meshloom compose update request
+Documentation=https://github.com/TwinRocket/meshloom
 
 [Path]
-PathExists=${data_dir}/request-update
-PathChanged=${data_dir}/request-update
+# Edge-triggered only. The helper never reads anything under data/.
+PathChanged=@COMPOSE_DIR@/data/request-update
+Unit=meshloom-compose-update.service
 
 [Install]
 WantedBy=multi-user.target
-EOF
+MESHLOOM_EMBED_EOF
+}
+# <<< embed: scripts/setup/helpers/meshloom-compose-update.path.in
+
+# The helper runs as root on the host, so it only exists where it can do its
+# job safely: Linux, rootful Docker (the root daemon is the one it drives),
+# systemd running, and a compose path systemd and the helper both accept.
+compose_helper_possible() {
+    [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
+        [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1 &&
+        compose_dir_is_safe "$1"
+}
+
+compose_dir_is_safe() {
+    printf '%s\n' "$1" | grep -Eq '^/[A-Za-z0-9._/-]+$' || return 1
+    case "/$1/" in
+        */../* | */./*) return 1 ;;
+    esac
+    return 0
+}
+
+_stop_compose_update_helper() {
+    as_root systemctl disable --now meshloom-compose-update.path >/dev/null 2>&1 || true
+    as_root systemctl stop meshloom-compose-update.service >/dev/null 2>&1 || true
+}
+
+# Writes the helper, its root-only config and units, the root-owned status
+# directory, and pins the image (.env) through the helper's own signature
+# checks. The path unit is enabled by enable_compose_update_helper once the
+# stack runs.
+install_compose_update_helper() {
+    local dir="$1" tmp
+    prepare_release_key
+    ensure_gpgv
+    install_release_key
+    _stop_compose_update_helper
+    tmp="$(mktemp -d /tmp/meshloom-helper.XXXXXX)"
+    _embed_compose_update >"$tmp/compose-update"
+    _embed_compose_service | sed "s|@COMPOSE_DIR@|${dir}|g" >"$tmp/meshloom-compose-update.service"
+    _embed_compose_path | sed "s|@COMPOSE_DIR@|${dir}|g" >"$tmp/meshloom-compose-update.path"
+    printf 'MESHLOOM_COMPOSE_DIR=%s\n' "$dir" >"$tmp/compose-update.env"
+    secure_etc_meshloom
+    as_root install -D -m 0755 "$tmp/compose-update" /usr/lib/meshloom/compose-update
+    install_etc_file "$tmp/compose-update.env" /etc/meshloom/compose-update.env 0644
+    as_root install -D -m 0644 "$tmp/meshloom-compose-update.service" \
+        /etc/systemd/system/meshloom-compose-update.service
+    as_root install -D -m 0644 "$tmp/meshloom-compose-update.path" \
+        /etc/systemd/system/meshloom-compose-update.path
+    rm -rf "$tmp"
+    as_root install -d -m 0755 -o root -g root "${dir}/update-status"
+    mkdir -p "${dir}/data"
+    # Up to 4.17 the root helper read its target back from this file.
+    as_root rm -f "${dir}/data/update-job.json"
     as_root systemctl daemon-reload || true
+    if ! run_soft as_root env MESHLOOM_COMPOSE_DIR="$dir" /usr/lib/meshloom/compose-update --bootstrap; then
+        ui_err "$(t compose_pin_failed)"
+        tail -n 20 "$INSTALL_LOG" >&2 || true
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        exit 1
+    fi
+}
+
+enable_compose_update_helper() {
     as_root systemctl enable --now meshloom-compose-update.path || true
 }
 
 write_meshloom_env() {
-    local dest="$1"
-    as_root mkdir -p "$(dirname "$dest")"
+    local dest="$1" tmp
+    secure_etc_meshloom
     if [ ! -f "$dest" ]; then
+        tmp="$(mktemp /tmp/meshloom-env.XXXXXX)"
         {
             echo "# Generated by Meshloom install.sh"
             echo "# Radio transport is configured in the web UI (app_settings), not here."
             echo "MESHCORE_DATABASE_PATH=/var/lib/meshloom/meshcore.db"
             echo "MESHLOOM_INSTALL_KIND=package"
-        } | as_root tee "$dest" >/dev/null
-        as_root chmod 640 "$dest"
-        return
+        } >"$tmp"
+        install_etc_file "$tmp" "$dest" 0640
+        rm -f "$tmp"
     fi
     # Do not clobber a packaged env. Only fill missing keys the one-liner owns.
     _env_ensure_key "$dest" MESHCORE_DATABASE_PATH /var/lib/meshloom/meshcore.db
     _env_ensure_key "$dest" MESHLOOM_INSTALL_KIND package
+    # In-app updates need this machine's architecture in the signed repository.
+    if [ "${REPO_HAS_ARCH:-1}" = 1 ]; then
+        _env_drop_key "$dest" MESHLOOM_UPDATE_HELPER
+    else
+        _env_set_key "$dest" MESHLOOM_UPDATE_HELPER none
+    fi
     as_root chmod 640 "$dest" || true
 }
 
@@ -1516,42 +1958,32 @@ start_meshloom_unit() {
 
 install_from_pages() {
     phase "$(t using_repo)"
-    run_quiet as_root mkdir -p /etc/apt/keyrings /etc/yum.repos.d
+    add_signed_repo
     if [ "$PKG_MGR" = "apt" ]; then
-        if http_ok "${PAGES_BASE}/meshloom.gpg"; then
-            curl -fsSL "${PAGES_BASE}/meshloom.gpg" | as_root tee /etc/apt/keyrings/meshloom.gpg >/dev/null
-            echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] ${PAGES_BASE}/apt stable main" |
-                as_root tee /etc/apt/sources.list.d/meshloom.list >/dev/null
-        else
-            echo "deb [trusted=yes] ${PAGES_BASE}/apt stable main" |
-                as_root tee /etc/apt/sources.list.d/meshloom.list >/dev/null
-        fi
         run_quiet as_root apt-get update
         run_quiet as_root apt-get install -y meshloom
     else
-        if http_ok "${PAGES_BASE}/meshloom.asc"; then
-            as_root rpm --import "${PAGES_BASE}/meshloom.asc" >/dev/null 2>&1 || true
-        fi
-        as_root tee /etc/yum.repos.d/meshloom.repo >/dev/null <<EOF
-[meshloom]
-name=Meshloom
-baseurl=${PAGES_BASE}/rpm/\$basearch
-enabled=1
-gpgcheck=$(http_ok "${PAGES_BASE}/meshloom.asc" && echo 1 || echo 0)
-gpgkey=${PAGES_BASE}/meshloom.asc
-EOF
         run_quiet as_root dnf install -y meshloom
     fi
-    as_root mkdir -p /etc/meshloom
+    REPO_HAS_ARCH=1
     write_meshloom_env /etc/meshloom/meshloom.env
     start_meshloom_unit
     persist_installer_state
-    ensure_update_helper package
+    ensure_update_helper
     phase_ok
 }
 
+# Signed release manifest: SHA256SUMS checked with gpgv against the embedded key.
+# Prints nothing and fails on any problem; never falls back to unsigned.
+fetch_signed_manifest() {
+    local tag="$1" dir="$2" base="https://github.com/${REPO}/releases/download/${tag}"
+    run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/SHA256SUMS" -o "${dir}/SHA256SUMS" || return 1
+    run_soft curl -fsSL --proto '=https' --max-time 60 "${base}/SHA256SUMS.asc" -o "${dir}/SHA256SUMS.asc" || return 1
+    run_soft gpgv --keyring "${RELEASE_KEY_DIR}/meshloom.gpg" "${dir}/SHA256SUMS.asc" "${dir}/SHA256SUMS"
+}
+
 install_from_release_asset() {
-    local arch suffix url tmp pkg_ext pkg_kind
+    local arch suffix url tmp tmpdir pkg_ext pkg_kind tag name expected
     arch="$(host_arch)"
     [ "$arch" != "unknown" ] || return 1
     if [ "$PKG_MGR" = "apt" ]; then
@@ -1565,31 +1997,71 @@ install_from_release_asset() {
     fi
     url="$(release_asset_url "$suffix")"
     [ -n "$url" ] || return 1
+    # From here on there is a package for this machine: any failure is an
+    # error, never a silent switch to another install method.
+    case "$url" in
+        "https://github.com/${REPO}/releases/download/"*) ;;
+        *)
+            ui_err "$(t asset_bad)"
+            exit 1
+            ;;
+    esac
+    tag="${url#"https://github.com/${REPO}/releases/download/"}"
+    name="${tag#*/}"
+    tag="${tag%%/*}"
+    case "$tag" in
+        '' | *[!0-9.]*) tag="" ;;
+    esac
+    case "$name" in
+        *[!A-Za-z0-9._+~-]*) name="" ;;
+    esac
+    if ! printf '%s\n' "$tag" | grep -Eq "$VERSION_RE" ||
+        ! printf '%s\n' "$name" | grep -Eq '^meshloom[A-Za-z0-9._+~-]*$'; then
+        ui_err "$(t asset_bad)"
+        exit 1
+    fi
     phase "$(t using_asset)"
+    ensure_gpgv
+    prepare_release_key
+    tmpdir="$(mktemp -d /tmp/meshloom-release.XXXXXX)"
+    if ! fetch_signed_manifest "$tag" "$tmpdir"; then
+        ui_err "$(t sig_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        rm -rf "$tmpdir"
+        exit 1
+    fi
+    expected="$(awk -v f="$name" '$2 == f || $2 == "*" f { print $1 }' "${tmpdir}/SHA256SUMS" | head -n 1)"
     # apt only accepts local files whose name ends in .deb / .ddeb / .changes.
-    tmp="$(mktemp "/tmp/meshloom.XXXXXX${pkg_ext}")"
-    # The download and the validation below must stay between the mktemp and the
-    # apt/dnf call: handing over a freshly created (empty) tempfile is what
-    # produced "could not locate member control.tar" in 4.1.1.
-    if ! run_soft curl -fL --max-time 180 "$url" -o "$tmp" ||
-        ! pkg_file_is_valid "$tmp" "$pkg_kind"; then
-        log_note "release asset unusable: url=${url} bytes=$(file_size "$tmp") magic=$(file_magic_hex "$tmp" 8)"
-        ui_warn "  $(t asset_bad)"
-        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG"
-        rm -f "$tmp"
-        return 1
+    tmp="${tmpdir}/meshloom${pkg_ext}"
+    if ! run_soft curl -fL --proto '=https' --max-time 180 "$url" -o "$tmp" ||
+        ! pkg_file_is_valid "$tmp" "$pkg_kind" ||
+        ! printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' ||
+        [ "$(sha256_of "$tmp")" != "$expected" ]; then
+        log_note "release asset rejected: url=${url} bytes=$(file_size "$tmp") expected=${expected}"
+        ui_err "$(t sig_failed)"
+        printf '  %s: %s\n' "$(t log_at)" "$INSTALL_LOG" >&2
+        rm -rf "$tmpdir"
+        exit 1
     fi
     if [ "$PKG_MGR" = "apt" ]; then
         run_quiet as_root apt-get install -y "$tmp"
     else
         run_quiet as_root dnf install -y "$tmp"
     fi
-    rm -f "$tmp"
-    as_root mkdir -p /etc/meshloom
+    rm -rf "$tmpdir"
+    # Always add the signed repository so later updates come from it. When it
+    # does not carry this architecture yet, in-app updates stay off.
+    add_signed_repo
+    REPO_HAS_ARCH=0
+    if [ "$PKG_MGR" = "apt" ] && pages_apt_has_host_arch; then
+        REPO_HAS_ARCH=1
+    elif [ "$PKG_MGR" = "dnf" ] && http_ok "${PAGES_BASE}/rpm/$(rpm_arch)/repodata/repomd.xml"; then
+        REPO_HAS_ARCH=1
+    fi
     write_meshloom_env /etc/meshloom/meshloom.env
     start_meshloom_unit
     persist_installer_state
-    ensure_update_helper package
+    ensure_update_helper
     phase_ok
 }
 
@@ -1692,20 +2164,26 @@ yaml_quote() {
     printf '"%s"' "$value"
 }
 
+# $1 = dir, $2 = 1 when the root update helper manages this stack.
+# The image is never written here: compose reads MESHLOOM_IMAGE from .env,
+# which the helper pins by digest. Updates never edit this file.
 write_docker_compose() {
-    local dir="$1"
-    local tag
-    tag="$(latest_release_tag || true)"
+    local dir="$1" managed="${2:-0}"
     mkdir -p "${dir}/data"
     {
-        echo "# Generated by Meshloom install.sh"
+        echo "# Generated by Meshloom install.sh. Re-run the installer to regenerate it."
+        echo "# The image comes from .env (MESHLOOM_IMAGE), pinned by digest."
         echo "services:"
         echo "  meshloom:"
-        echo "    image: ${GHCR_IMAGE}:latest"
+        echo "    image: \${MESHLOOM_IMAGE:?run the Meshloom installer to pin the image in .env}"
         echo "    ports:"
         echo "      - \"8000:8000\""
         echo "    volumes:"
         echo "      - ./data:/app/data"
+        if [ "$managed" = 1 ]; then
+            echo "      # Written by the root update helper; read-only for the container."
+            echo "      - ./update-status:/app/update-status:ro"
+        fi
         if [ -n "$DBUS_SOCKET" ]; then
             echo "      # Host D-Bus socket (BlueZ). Extra caps such as NET_ADMIN may still be needed for BLE."
             echo "      - ${DBUS_SOCKET}:/run/dbus/system_bus_socket:ro"
@@ -1717,16 +2195,101 @@ write_docker_compose() {
         echo "    environment:"
         echo "      MESHCORE_DATABASE_PATH: $(yaml_quote "data/meshcore.db")"
         echo "      MESHLOOM_INSTALL_KIND: compose"
-        echo "      MESHLOOM_UPDATE_HELPER: compose"
-        echo "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
+        if [ "$managed" = 1 ]; then
+            echo "      MESHLOOM_UPDATE_HELPER: compose"
+            echo "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
+            echo "      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json"
+        fi
+        if [ "${RUN_AS_USER:-}" = 1 ]; then
+            echo "      # Runs Meshloom as uid 10001 instead of root. Remove this line for"
+            echo "      # Bluetooth, or if the radio stops answering."
+            echo "      MESHLOOM_RUN_AS_USER: \"10001\""
+        fi
         echo "    restart: unless-stopped"
     } >"${dir}/docker-compose.yml"
-    if [ -n "$tag" ]; then
-        rewrite_compose_image_tag "${dir}/docker-compose.yml" "$tag"
+}
+
+# Stacks without the root helper (Docker Desktop, rootless Docker) follow
+# :latest, so the manual "pull && up -d" recipe keeps upgrading them.
+write_unmanaged_env() {
+    local dir="$1"
+    if [ -f "${dir}/.env" ]; then
+        grep -v '^MESHLOOM_IMAGE=' "${dir}/.env" >"${dir}/.env.new" || true
+    else
+        : >"${dir}/.env.new"
+    fi
+    { echo "MESHLOOM_IMAGE=${GHCR_IMAGE}:latest"; cat "${dir}/.env.new"; } >"${dir}/.env"
+    rm -f "${dir}/.env.new"
+}
+
+# Where an existing installer-managed stack lives. 4.17 never saved it, so
+# also ask the old helper's config and a running Meshloom container.
+saved_compose_dir() {
+    local dir=""
+    dir="$(conf_get "$(system_installer_conf)" compose_dir 2>/dev/null ||
+        conf_get "$(user_installer_conf)" compose_dir 2>/dev/null || true)"
+    if [ -z "$dir" ] && [ -r /etc/meshloom/compose-update.env ]; then
+        dir="$(sed -n 's/^MESHLOOM_COMPOSE_DIR=//p' /etc/meshloom/compose-update.env | head -n 1)"
+    fi
+    if [ -z "$dir" ] && command -v docker >/dev/null 2>&1; then
+        dir="$({ docker ps -a --filter label=com.docker.compose.service=meshloom \
+            --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null ||
+            command sudo -n docker ps -a --filter label=com.docker.compose.service=meshloom \
+                --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null; } |
+            grep -m 1 '^/' || true)"
+    fi
+    if [ -n "$dir" ] && [ -f "${dir}/docker-compose.yml" ]; then
+        printf '%s' "$dir"
     fi
 }
 
+# Radio mappings of an existing installer-written compose file.
+read_compose_mappings() {
+    local file="$1"
+    SERIAL_COMPOSE_HOST_PATH="$(sed -n 's|^      - \(.*\):/dev/meshcore-radio$|\1|p' "$file" | head -n 1)"
+    DBUS_SOCKET="$(sed -n 's|^      - \(.*\):/run/dbus/system_bus_socket:ro$|\1|p' "$file" | head -n 1)"
+    if [ -n "$SERIAL_COMPOSE_HOST_PATH" ]; then
+        TRANSPORT="serial"
+        SERIAL_PORT="$SERIAL_COMPOSE_HOST_PATH"
+    fi
+}
+
+# The parts every installer version writes, without the ones that change
+# between versions (header comments, image, update helper and uid lines).
+normalize_generated_compose() {
+    sed -e '/^#/d' \
+        -e 's|^    image: .*$|    image: <image>|' \
+        -e '/MESHLOOM_UPDATE_HELPER:/d' -e '/MESHLOOM_UPDATE_JOB_PATH:/d' \
+        -e '/MESHLOOM_UPDATE_STATUS_PATH:/d' -e '/MESHLOOM_RUN_AS_USER:/d' \
+        -e '/update-status:\/app\/update-status/d' \
+        -e '/^      # Written by the root update helper/d' \
+        -e '/^      # Runs Meshloom as uid 10001/d' -e '/^      # Bluetooth, or if the radio stops/d' \
+        "$1"
+}
+
+# True when an existing compose file is exactly what an installer wrote, so
+# regenerating it loses nothing. Otherwise print the difference and stop.
+compose_is_installer_generated() {
+    local file="$1" expected tmpdir
+    tmpdir="$(mktemp -d /tmp/meshloom-compose.XXXXXX)"
+    (
+        RUN_AS_USER=0
+        write_docker_compose "$tmpdir" 0
+    )
+    normalize_generated_compose "$tmpdir/docker-compose.yml" >"$tmpdir/expected"
+    normalize_generated_compose "$file" >"$tmpdir/current"
+    if cmp -s "$tmpdir/expected" "$tmpdir/current"; then
+        rm -rf "$tmpdir"
+        return 0
+    fi
+    ui_warn "  $(t compose_custom)"
+    diff -u "$tmpdir/expected" "$tmpdir/current" | sed 's/^/    /' >&2 || true
+    rm -rf "$tmpdir"
+    return 1
+}
+
 install_docker_stack() {
+    local default dc existing=0 managed=0 saved
     ensure_docker
     detect_docker
     prepare_docker_mappings
@@ -1736,15 +2299,59 @@ install_docker_stack() {
         SERIAL_PORT=""
         SERIAL_COMPOSE_HOST_PATH=""
     fi
-    local default="${IN_CHECKOUT:-${HOME}/meshloom}" dc
+    saved="$(saved_compose_dir)"
+    default="${saved:-${IN_CHECKOUT:-${HOME}/meshloom}}"
+    if [ -n "$saved" ]; then
+        ui_dim "  $(t compose_found) ${saved}"
+    fi
     INSTALL_DIR="$(ui_ask "$(t prompt_dir)" "$default")"
     INSTALL_DIR="${INSTALL_DIR:-$default}"
+    case "$INSTALL_DIR" in
+        /*) ;;
+        *) INSTALL_DIR="$(pwd)/${INSTALL_DIR}" ;;
+    esac
+    INSTALL_DIR="${INSTALL_DIR%/}"
+    COMPOSE_DIR_SAVED="$INSTALL_DIR"
+    if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
+        existing=1
+        # Keep the stack's own radio mappings, and never overwrite edits.
+        read_compose_mappings "${INSTALL_DIR}/docker-compose.yml"
+        if ! compose_is_installer_generated "${INSTALL_DIR}/docker-compose.yml" &&
+            [ "${MESHLOOM_COMPOSE_OVERWRITE:-}" != 1 ]; then
+            ui_err "$(t compose_custom_stop)"
+            exit 1
+        fi
+    fi
     confirm_install
     mkdir -p "$INSTALL_DIR"
-    write_docker_compose "$INSTALL_DIR"
+    if compose_helper_possible "$INSTALL_DIR"; then
+        managed=1
+    elif [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
+        ! compose_dir_is_safe "$INSTALL_DIR"; then
+        ui_warn "  $(t compose_dir_unsafe)"
+    fi
+    # Non-root container: opt-in, new serial installs only, never on upgrade.
+    RUN_AS_USER=0
+    if [ "$existing" = 0 ] && [ -n "$SERIAL_COMPOSE_HOST_PATH" ]; then
+        RUN_AS_USER=1
+    fi
+    if [ "$existing" = 1 ]; then
+        cp -p "${INSTALL_DIR}/docker-compose.yml" \
+            "${INSTALL_DIR}/docker-compose.yml.bak-$(date +%Y%m%d-%H%M%S)"
+        ui_dim "  $(t compose_backup)"
+    fi
+    if [ "$managed" = 1 ]; then
+        phase "$(t compose_secure)"
+        install_compose_update_helper "$INSTALL_DIR"
+        phase_ok
+    else
+        write_unmanaged_env "$INSTALL_DIR"
+    fi
+    write_docker_compose "$INSTALL_DIR" "$managed"
     ui_dim "  $(t wrote_config) ${INSTALL_DIR}/docker-compose.yml"
     dc="$(compose_cmd)"
-    if ui_yesno "$(t q_start_now)" y; then
+    # An existing stack restarts right away so the app and the helper match.
+    if [ "$existing" = 1 ] || ui_yesno "$(t q_start_now)" y; then
         phase "$(t working)"
         (
             cd "$INSTALL_DIR"
@@ -1754,7 +2361,9 @@ install_docker_stack() {
         phase_ok
     fi
     persist_installer_state
-    ensure_update_helper compose "$INSTALL_DIR"
+    if [ "$managed" = 1 ]; then
+        enable_compose_update_helper
+    fi
     printf '\n'
     if [ "$UPGRADE_KIND" = "upgrade" ]; then
         ui_ok "  $(t done_upgrade)"
@@ -1762,7 +2371,11 @@ install_docker_stack() {
         ui_ok "  $(t done)"
     fi
     printf '  %s\n    %s\n' "$(t open_at)" "http://127.0.0.1:8000"
-    ui_dim "  $(t update_docker): $(priv "$dc pull") && $(priv "$dc up -d")"
+    if [ "$managed" = 1 ]; then
+        ui_dim "  $(t update_docker_managed)"
+    else
+        ui_dim "  $(t update_docker): $(priv "$dc pull") && $(priv "$dc up -d")"
+    fi
 }
 
 show_browser_only() {

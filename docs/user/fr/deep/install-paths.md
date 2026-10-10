@@ -37,7 +37,7 @@ Depuis un dépôt déjà cloné, l’installeur de checkout reste utilisable. Il
 bash scripts/setup/install_service.sh
 ```
 
-Le script est rejouable. Le relancer plus tard permet de changer l’activation des bots ou les identifiants d’authentification. Si le service tourne déjà, il l’arrête, réécrit le fichier d’unité, recharge systemd, puis le redémarre avec la nouvelle configuration. Le transport radio se configure dans l’interface, pas dans le fichier d’unité.
+Le script est rejouable. Relancez-le après avoir récupéré une nouvelle version : si le service tourne déjà, il l’arrête, réécrit le fichier d’unité, recharge systemd, puis le redémarre. Il ne configure ni les bots ni l’authentification : posez vous-même `MESHCORE_DISABLE_BOTS` et `MESHCORE_BASIC_AUTH_*` dans l’environnement. Le transport radio se configure dans l’interface, pas dans le fichier d’unité.
 
 ## Docker
 
@@ -48,7 +48,11 @@ L’image est publiée sur `ghcr.io/twinrocket/meshloom`. Le dépôt fournit `do
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`
 - `restart: unless-stopped`
 
-Sur Linux, l’exemple mentionne la possibilité de faire tourner le conteneur sous votre utilisateur hôte (`user: "${UID:-1000}:${GID:-1000}"`) pour éviter des fichiers appartenant à root dans `./data`. C’est moins fiable pour l’accès au périphérique série que de rester en root, et cela peut demander une configuration de groupe supplémentaire, `dialout` par exemple.
+- `image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}` : épinglez une version dans un fichier `.env` voisin, idéalement par empreinte (`MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:…` ; l’asset signé `OCI-DIGESTS` de chaque version la donne)
+
+Le conteneur tourne en root par défaut. Pour le faire tourner sous l’uid 10001, posez `MESHLOOM_RUN_AS_USER: "10001"` : l’entrypoint donne `./data` à cet uid et ajoute les groupes des ports série mappés ; si la radio reste inaccessible, il reste en root et l’écrit dans les logs. À éviter en Bluetooth.
+
+Une pile écrite à la main n’a pas de mise à jour depuis l’interface. Le mode Docker de l’installeur ajoute sur l’hôte un assistant root qui épingle l’image par empreinte signée dans `.env` et applique les mises à jour demandées depuis Réglages → Mises à jour ; il ne modifie jamais `docker-compose.yml`.
 
 BLE en conteneur demande des ajustements manuels supplémentaires. Voir [Transports radio](/docs/deep/transports/).
 
@@ -121,7 +125,7 @@ La base SQLite est le seul état persistant qui compte. Son emplacement dépend 
 
 Les mises à jour ne touchent pas la base. Les migrations de schéma s’appliquent au démarrage, dans l’ordre, en s’appuyant sur le `user_version` de SQLite.
 
-Réglages → À propos applique une mise à jour Meshloom seule quand le helper est présent. Sinon :
+Réglages → Mises à jour applique une mise à jour de Meshloom seul, depuis une source signée, quand l’assistant est présent. Sinon :
 
 ```bash
 sudo apt-get install --only-upgrade meshloom

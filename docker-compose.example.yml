@@ -1,12 +1,11 @@
 services:
   meshloom:
     # build: .
-    image: ghcr.io/twinrocket/meshloom:latest
-
-    # Optional on Linux: run container as your host user to avoid root-owned files in ./data
-    # This is less reliable for serial-device access than running as root and may require
-    # extra group setup (for example dialout) or other manual customization.
-    # user: "${UID:-1000}:${GID:-1000}"
+    # Pin a release (and ideally its digest) in a .env file next to this one:
+    #   MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:<digest>
+    # The digest of each release is in its signed OCI-DIGESTS asset.
+    # Without .env this follows :latest.
+    image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}
     ports:
       - "8000:8000"
     volumes:
@@ -24,6 +23,12 @@ services:
 
     environment:
       MESHCORE_DATABASE_PATH: data/meshcore.db
+
+      # Optional: run Meshloom as uid 10001 instead of root. The entrypoint
+      # hands ./data to that uid and adds the groups of mapped serial devices;
+      # if the radio is still not reachable it stays root and logs a warning.
+      # Not for Bluetooth (BLE needs root on the host D-Bus).
+      # MESHLOOM_RUN_AS_USER: "10001"
 
       # New empty data volumes join Meshloom Community on. Set 0 to seed opted out.
       # MESHLOOM_COMMUNITY: "0"

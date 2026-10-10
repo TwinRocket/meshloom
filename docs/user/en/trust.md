@@ -15,7 +15,7 @@ That means reading the complete history of direct messages and channels, writing
 
 The server also applies no origin restriction to requests: any web page can call its API. This is deliberate — it lets you open the interface from any device on the network without extra configuration — and it requires that same trusted network.
 
-On first launch, the interface shows a warning about this posture. It is not decorative.
+While bots are enabled and no password is set, the interface shows a warning about this posture until you acknowledge it. It is not decorative.
 
 ## Bots execute code
 
@@ -25,14 +25,14 @@ The consequence is direct: **anyone who can reach Meshloom can make the host mac
 
 Two safeguards:
 
-- The installation script leaves bots **disabled by default**. Keep that setting until you actually need automation.
+- Bots are **enabled by default**. Only the Linux package turns them off (`MESHCORE_DISABLE_BOTS=true` in `/etc/meshloom/meshloom.env`); the installer asks nothing about them, and Docker installs keep them on.
 - The environment variable `MESHCORE_DISABLE_BOTS=true` turns off the bot system at startup. No bot runs, the related settings are rejected, and the interface shows the feature as disabled.
 
 If people you do not all know can reach the instance, keep bots disabled.
 
 ## The optional password
 
-Meshloom can require a username and password before opening anything. The installation script offers this. Otherwise, configure it with two environment variables, always together:
+Meshloom can require a username and password before opening anything. The installation script does not set this up; configure it with two environment variables, always together:
 
 ```
 MESHCORE_BASIC_AUTH_USERNAME

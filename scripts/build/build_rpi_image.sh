@@ -99,21 +99,23 @@ require_disk() {
     fi
 }
 
+# Signed apt source only. The key is the committed trust anchor
+# (pkg/keys), never fetched from Pages; without it the bake stops rather than
+# shipping an image whose updates are unchecked.
 write_meshloom_apt_source() {
     local dest_root="$1"
     local pages="https://twinrocket.github.io/meshloom"
-    local key="$dest_root/etc/apt/keyrings/meshloom.gpg"
+    local keyring_src="${MESHLOOM_KEYRING:-$REPO_ROOT/pkg/keys/meshloom-archive-keyring.gpg}"
+    local keyring="/usr/share/keyrings/meshloom-archive-keyring.gpg"
     local list="$dest_root/etc/apt/sources.list.d/meshloom.list"
-    mkdir -p "$dest_root/etc/apt/keyrings" "$dest_root/etc/apt/sources.list.d"
-    # Never fetch the key from Pages during bake. That URL 404s until the
-    # linux-repo job has run, and a GITHUB_TOKEN release does not start it.
-    if [ -n "${MESHLOOM_GPG_KEY:-}" ] && [ -f "$MESHLOOM_GPG_KEY" ]; then
-        install -m 0644 "$MESHLOOM_GPG_KEY" "$key"
-        echo "deb [signed-by=/etc/apt/keyrings/meshloom.gpg] ${pages}/apt stable main" >"$list"
-        return
+    if [ ! -s "$keyring_src" ] || ! gpg --batch --show-keys "$keyring_src" >/dev/null 2>&1; then
+        echo "Missing or invalid release keyring: $keyring_src" >&2
+        exit 1
     fi
-    echo "[rpi] Writing an unsigned Meshloom apt source (no local GPG key)."
-    echo "deb [trusted=yes] ${pages}/apt stable main" >"$list"
+    install -D -m 0644 "$keyring_src" "$dest_root$keyring"
+    install -D -m 0644 "$REPO_ROOT/pkg/nfpm/meshloom.pref" "$dest_root/etc/apt/preferences.d/meshloom.pref"
+    mkdir -p "$dest_root/etc/apt/sources.list.d"
+    echo "deb [signed-by=${keyring}] ${pages}/apt stable main" >"$list"
 }
 
 WORKDIR="$(mktemp -d /tmp/meshloom-rpi.XXXXXX)"
@@ -236,6 +238,8 @@ dpkg -i /tmp/meshloom.deb || apt-get install -y -f
 dpkg-query -W -f='${Status}\n' meshloom | grep -q 'ok installed'
 rm -f /tmp/meshloom.deb
 systemctl enable meshloom.service
+# The package's postinstall enables it too; keep the image explicit.
+systemctl enable meshloom-update.path
 systemctl enable meshloom-console.service
 systemctl enable avahi-daemon.service
 hostnamectl set-hostname meshloom 2>/dev/null || echo meshloom >/etc/hostname

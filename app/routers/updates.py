@@ -15,6 +15,7 @@ from app.services.update_apply import (
     UpdateApplyBusy,
     expire_stale_applying_job,
     public_job_for_client,
+    secure_compose_helper,
     start_apply,
 )
 from app.services.update_window import (
@@ -52,6 +53,13 @@ class UpdateStatusResponse(BaseModel):
     tz_name: str
     next_auto_apply_at: int | None = Field(
         description="Unix time when the next auto-apply window opens, or now if already open"
+    )
+    legacy_update_helper: bool = Field(
+        default=False,
+        description=(
+            "Compose install still runs the pre-4.18 host update helper; "
+            "re-running the installer replaces it with the signed helper"
+        ),
     )
     job: UpdateJobResponse
 
@@ -129,6 +137,7 @@ async def build_update_status() -> UpdateStatusResponse:
             if pending_auto
             else None
         ),
+        legacy_update_helper=bool(kind == "compose" and supported and not secure_compose_helper()),
         job=UpdateJobResponse.model_validate(
             public_job_for_client(
                 current=catalogue["current"],

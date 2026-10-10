@@ -3,9 +3,22 @@ Description=Meshloom package update
 Documentation=https://github.com/TwinRocket/meshloom
 After=network-online.target
 Wants=network-online.target
+# No systemd start limit: hitting it fails the .path unit for good, and
+# in-app updates would stop until reboot. The helper's 120 s cooldown is
+# the rate limit.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 User=root
 ExecStart=/usr/lib/meshloom/apply-update
 TimeoutStartSec=30min
+# Root-owned status directory the app only reads (status.json).
+StateDirectory=meshloom-update
+StateDirectoryMode=0755
+# Root-only scratch space for the APT::Status-Fd FIFO.
+RuntimeDirectory=meshloom-update
+RuntimeDirectoryMode=0700
+UMask=0022
+PrivateTmp=yes
+ProtectHome=yes

@@ -86,6 +86,11 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
+# Root by default, like every image before it. MESHLOOM_RUN_AS_USER=10001 opts
+# in to running as that uid (see docker-entrypoint.sh). setpriv comes with
+# util-linux in the base image.
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 # Last, because its value changes with every commit and an ENV layer invalidates
 # everything built after it. Declared any earlier, it rebuilt the dependency
 # layer on every push — which on armv7 means compiling eight C extensions under
@@ -95,5 +100,7 @@ ENV COMMIT_HASH=${COMMIT_HASH}
 
 EXPOSE 8000
 
-# Run the application (we retain root for max compatibility)
+# Run the application. The entrypoint only execs CMD unless
+# MESHLOOM_RUN_AS_USER is set, so the Home Assistant add-on's CMD is unchanged.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

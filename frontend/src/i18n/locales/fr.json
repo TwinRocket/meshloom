@@ -1024,7 +1024,8 @@
       },
       "nodeClockHelp": "Les horaires suivent l’horloge du nœud, pas celle de ce navigateur.",
       "nextAutoApply": "Prochaine installation automatique",
-      "manualHelp": "Comment mettre à jour"
+      "manualHelp": "Comment mettre à jour",
+      "legacyHelper": "Relancez l’installeur Meshloom sur l’hôte pour passer à l’assistant de mise à jour signé. Cette installation utilise encore l’ancien assistant, qui se fie à des fichiers que le conteneur peut modifier."
     },
     "fanout": {
       "types": {

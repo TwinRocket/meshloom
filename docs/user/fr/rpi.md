@@ -63,9 +63,9 @@ Sans aucun réseau, ouvrez `http://127.0.0.1:8000` sur le Pi. La messagerie et l
 
 ## Mettre à jour
 
-Quand l’image (ou une install paquet Linux) peut appliquer les mises à jour, **Réglages → À propos** propose *Installer* et une mise à jour automatique optionnelle. Ce chemin ne met à jour que Meshloom, pas tout le système.
+Quand l’image (ou une install paquet Linux) peut appliquer les mises à jour, **Réglages → Mises à jour** propose *Installer maintenant* et une mise à jour automatique optionnelle. Ce chemin ne met à jour que Meshloom, depuis le dépôt Meshloom signé, pas tout le système. Les images à partir de 4.18 surveillent les demandes de mise à jour d’emblée ; sur une image plus ancienne, un `sudo apt update && sudo apt install meshloom` l’active.
 
-Si À propos indique que vous devez mettre à jour Meshloom manuellement, suivez la recette affichée, ou relancez l’installeur Linux pour qu’il pose le helper manquant :
+Si Réglages → Mises à jour indique une mise à jour manuelle, suivez la recette affichée, ou relancez l’installeur Linux pour qu’il rétablisse l’assistant manquant :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"

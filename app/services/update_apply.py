@@ -1,4 +1,13 @@
-"""Start a Meshloom-only upgrade via the privileged helper. Never apt-upgrade the OS."""
+"""Start a Meshloom-only upgrade via the privileged helper. Never apt-upgrade the OS.
+
+Trust boundary (app/AGENTS.md, "Updates"): the app only *triggers* the root
+helper by writing ``request-update``. The helper picks its target from a signed
+source and publishes progress in a root-owned ``status.json`` that the app only
+reads. What the app itself remembers (requested target, last attempt, app-side
+failures) lives in ``update-attempt.json`` in its own data directory.
+``read_job()`` merges the two. ``update-job.json`` is the pre-4.18 helper file:
+read-only, for display, while an old compose helper is still installed.
+"""
 
 from __future__ import annotations
 
@@ -18,10 +27,19 @@ JobPhase = Literal["preparing", "downloading", "installing", "restarting", "done
 DEFAULT_DATA_DIR = Path("/var/lib/meshloom")
 DEFAULT_JOB_PATH = DEFAULT_DATA_DIR / "update-job.json"
 PACKAGE_REQUEST_PATH = DEFAULT_DATA_DIR / "request-update"
+# Root-owned (StateDirectory=meshloom-update); written only by apply-update.
+PACKAGE_STATUS_PATH = Path("/var/lib/meshloom-update/status.json")
+ATTEMPT_FILE_NAME = "update-attempt.json"
+STATUS_MAX_BYTES = 64 * 1024
+# The helper starts after the request; allow for coarse clocks only.
+STATUS_CLOCK_SKEW_SECONDS = 2
 UPDATE_PATH_UNIT = Path("/usr/lib/systemd/system/meshloom-update.path")
 AUTO_UPDATE_BACKOFF_SECONDS = 6 * 3600
 APPLYING_TTL_SECONDS = 20 * 60
 APPLY_TIMEOUT_ERROR = "apply timed out"
+COOLDOWN_ERROR = "update requested too soon; try again in a few minutes"
+# How long the polkit fallback watches the oneshot leave its initial state.
+HELPER_START_CHECK_SECONDS = 5.0
 _PUBLIC_JOB_KEYS = ("state", "phase", "percent", "error", "started_at")
 _PHASES = {"preparing", "downloading", "installing", "restarting", "done"}
 
@@ -51,6 +69,23 @@ def job_path() -> Path:
 def request_path() -> Path:
     """Compose helper request file: ``request-update`` next to the job file."""
     return job_path().with_name("request-update")
+
+
+def attempt_path() -> Path:
+    """App-owned record of the last apply request (never read by root)."""
+    return job_path().with_name(ATTEMPT_FILE_NAME)
+
+
+def status_path() -> Path:
+    """Root-written helper status: compose mounts it read-only, package uses StateDirectory."""
+    override = (os.environ.get("MESHLOOM_UPDATE_STATUS_PATH") or "").strip()
+    return Path(override) if override else PACKAGE_STATUS_PATH
+
+
+def secure_compose_helper() -> bool:
+    """True when the 4.18+ compose helper mounted its status directory here."""
+    override = (os.environ.get("MESHLOOM_UPDATE_STATUS_PATH") or "").strip()
+    return bool(override) and Path(override).parent.is_dir()
 
 
 def write_request_file(path: Path) -> None:
@@ -134,24 +169,106 @@ def public_job_for_client(
     return public
 
 
-def read_job() -> dict[str, Any]:
-    path = job_path()
+def _read_json_object(path: Path) -> dict[str, Any] | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return idle_job()
-    if not isinstance(data, dict):
-        return idle_job()
+        with path.open("rb") as handle:
+            raw = handle.read(STATUS_MAX_BYTES + 1)
+    except OSError:
+        return None
+    if len(raw) > STATUS_MAX_BYTES:
+        return None
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _normalize_record(
+    data: dict[str, Any] | None, *, allow_cooldown: bool = False
+) -> dict[str, Any] | None:
+    """Strictly typed job record, or None. Unknown keys and bad types are dropped.
+
+    ``cooldown`` exists only in helper status: the helper refused a request that
+    came too soon and left the previous outcome alone.
+    """
+    if data is None:
+        return None
+    state = data.get("state")
+    allowed = {"idle", "applying", "succeeded", "failed"}
+    if allow_cooldown:
+        allowed.add("cooldown")
+    if state not in allowed:
+        return None
+    percent = _int_or_none(data.get("percent"))
+    if percent is not None and not 0 <= percent <= 100:
+        percent = None
+    error = data.get("error")
+    record: dict[str, Any] = {
+        "state": state,
+        "phase": _as_phase(data.get("phase")),
+        "percent": percent,
+        "error": error[:500] if isinstance(error, str) else None,
+        "started_at": _int_or_none(data.get("started_at")),
+    }
+    last = _int_or_none(data.get("last_attempt"))
+    if last is not None:
+        record["last_attempt"] = last
+    target = data.get("target")
+    if isinstance(target, str) and len(target) <= 64:
+        record["target"] = target
+    return record
+
+
+def read_helper_status() -> dict[str, Any] | None:
+    """What the root helper last published: status.json, else the legacy job file."""
+    status = _normalize_record(_read_json_object(status_path()), allow_cooldown=True)
+    if status is not None:
+        return status
+    # Pre-4.18 helpers (compose installs not yet migrated) write update-job.json.
+    return _normalize_record(_read_json_object(job_path()))
+
+
+def read_attempt() -> dict[str, Any] | None:
+    return _normalize_record(_read_json_object(attempt_path()))
+
+
+def read_job() -> dict[str, Any]:
+    """Merge the app's attempt with the helper's status.
+
+    The helper's record wins once it started after the request; until then (or
+    when the app itself gave up) the attempt is what the UI shows.
+    """
+    attempt = read_attempt()
+    helper = read_helper_status()
     merged = idle_job()
-    for key in _PUBLIC_JOB_KEYS:
-        if key in data:
-            merged[key] = data[key]
-    if data.get("state") not in {"idle", "applying", "succeeded", "failed"}:
-        merged["state"] = "idle"
-    if data.get("last_attempt") is not None:
-        merged["last_attempt"] = data["last_attempt"]
-    if data.get("target") is not None:
-        merged["target"] = data["target"]
+    if attempt is None:
+        if helper is not None and helper.get("state") != "cooldown":
+            merged.update(helper)
+            if helper.get("started_at") is not None:
+                merged["last_attempt"] = helper["started_at"]
+        return merged
+    merged.update(attempt)
+    requested = attempt.get("started_at")
+    helper_started = helper.get("started_at") if helper else None
+    if (
+        helper is not None
+        and attempt.get("state") == "applying"
+        and isinstance(requested, int)
+        and isinstance(helper_started, int)
+        and helper_started >= requested - STATUS_CLOCK_SKEW_SECONDS
+    ):
+        for key in _PUBLIC_JOB_KEYS:
+            merged[key] = helper.get(key)
+        if helper.get("state") == "cooldown":
+            merged["state"] = "failed"
+            merged["error"] = helper.get("error") or COOLDOWN_ERROR
     return merged
 
 
@@ -176,8 +293,7 @@ def write_job(
     }
     if target is not None:
         payload["target"] = target
-    path = job_path()
-    _write_job_file(path, json.dumps(payload))
+    _write_job_file(attempt_path(), json.dumps(payload))
     return payload
 
 
@@ -245,7 +361,7 @@ def expire_stale_applying_job(*, now: int | None = None) -> dict[str, Any]:
             target=target if isinstance(target, str) else None,
         )
     except OSError:
-        logger.warning("Could not persist expired apply job at %s", job_path())
+        logger.warning("Could not persist expired apply job at %s", attempt_path())
         return expired
 
 
@@ -269,6 +385,7 @@ async def start_package_helper() -> None:
     if await package_path_watcher_active():
         write_request_file(PACKAGE_REQUEST_PATH)
         return
+    before = (await _unit_properties()).get("ExecMainStartTimestampMonotonic", "")
     proc = await asyncio.create_subprocess_exec(
         "systemctl",
         "start",
@@ -283,9 +400,51 @@ async def start_package_helper() -> None:
             "systemctl start failed"
         )
         raise RuntimeError(detail)
+    # --no-block returns 0 even when systemd refuses the start (start limit,
+    # failed condition). Check that the oneshot really ran or is running so
+    # the UI does not sit on "applying" until the 20 min expiry.
+    await _check_helper_started(before)
+
+
+async def _unit_properties() -> dict[str, str]:
+    proc = await asyncio.create_subprocess_exec(
+        "systemctl",
+        "show",
+        "--property=ActiveState,Result,ExecMainStartTimestampMonotonic",
+        "meshloom-update.service",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    return dict(
+        line.split("=", 1)
+        for line in (out or b"").decode("utf-8", "replace").splitlines()
+        if "=" in line
+    )
+
+
+async def _check_helper_started(before: str) -> None:
+    """Raise unless the oneshot started after ``before`` (its previous start stamp)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + HELPER_START_CHECK_SECONDS
+    props: dict[str, str] = {}
+    while loop.time() < deadline:
+        props = await _unit_properties()
+        if props.get("ExecMainStartTimestampMonotonic", before) != before:
+            return
+        if props.get("ActiveState") in {"activating", "active"}:
+            return
+        await asyncio.sleep(0.5)
+    reason = props.get("Result") or props.get("ActiveState") or "unknown"
+    raise RuntimeError(f"meshloom-update.service did not start ({reason})")
 
 
 def start_compose_helper() -> None:
+    if not secure_compose_helper():
+        # Pre-4.18 compose helper: it reads `target` back from update-job.json
+        # and would re-apply a stale one. Without the file it resolves the
+        # latest release itself. The file is in the app's own data directory.
+        job_path().unlink(missing_ok=True)
     write_request_file(request_path())
 
 

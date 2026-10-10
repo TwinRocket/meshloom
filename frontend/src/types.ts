@@ -1927,6 +1927,8 @@ export interface OssUpdateStatus {
   checked_at?: number | null;
   tz_name?: string | null;
   next_auto_apply_at?: number | null;
+  /** Compose install still runs the pre-4.18 host helper; re-run the installer. */
+  legacy_update_helper?: boolean;
   job: OssUpdateJob;
 }
 

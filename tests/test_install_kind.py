@@ -53,3 +53,11 @@ def test_undeclared_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.install_kind._compose_helper_present", lambda: False)
     monkeypatch.setattr("app.services.install_kind._in_container", lambda: False)
     assert detect_install_kind() == ("source", False)
+
+
+def test_installer_can_turn_apply_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MESHLOOM_UPDATE_HELPER=none: no signed repository carries this architecture."""
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    monkeypatch.setenv("MESHLOOM_UPDATE_HELPER", "none")
+    monkeypatch.setattr("app.services.install_kind._package_helper_present", lambda: True)
+    assert detect_install_kind() == ("package", False)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -163,7 +164,11 @@ async def test_start_package_helper_falls_back_to_no_block(
     proc = AsyncMock()
     proc.returncode = 0
     proc.communicate = AsyncMock(return_value=(b"", b""))
-    with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as spawn:
+    with (
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(return_value={})),
+        patch("app.services.update_apply._check_helper_started", new=AsyncMock()),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as spawn,
+    ):
         await start_package_helper()
     spawn.assert_awaited_once()
     assert spawn.await_args.args[:4] == (
@@ -187,6 +192,8 @@ async def test_start_package_helper_falls_back_when_watcher_inactive(
     proc.returncode = 0
     proc.communicate = AsyncMock(return_value=(b"", b""))
     with (
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(return_value={})),
+        patch("app.services.update_apply._check_helper_started", new=AsyncMock()),
         patch(
             "app.services.update_apply.package_path_watcher_active",
             new=AsyncMock(return_value=False),
@@ -809,3 +816,222 @@ class TestAutoApply:
 
         assert response.status_code == 202
         start.assert_awaited_once()
+
+
+# ── 4.18 trust boundary: app attempt file + root status file ─────────────────
+
+
+@pytest.fixture
+def status_file(job_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    status_dir = job_dir / "update-status"
+    status_dir.mkdir()
+    path = status_dir / "status.json"
+    monkeypatch.setenv("MESHLOOM_UPDATE_STATUS_PATH", str(path))
+    return path
+
+
+def _helper_status(path: Path, **fields: object) -> None:
+    base = {
+        "schema": 1,
+        "state": "applying",
+        "phase": "downloading",
+        "percent": None,
+        "error": None,
+        "started_at": int(time.time()),
+        "updated_at": int(time.time()),
+        "version": "1.2.3",
+    }
+    base.update(fields)
+    path.write_text(json.dumps(base), encoding="utf-8")
+
+
+def test_write_job_goes_to_the_app_attempt_file(job_dir: Path) -> None:
+    from app.services.update_apply import attempt_path
+
+    write_job(state="applying", phase="preparing", target="1.2.3")
+    assert attempt_path() == job_dir / "update-attempt.json"
+    assert attempt_path().exists()
+    assert not (job_dir / "update-job.json").exists()
+
+
+def test_helper_status_wins_once_it_started_after_the_request(
+    job_dir: Path, status_file: Path
+) -> None:
+    now = int(time.time())
+    write_job(state="applying", phase="preparing", target="1.2.4", started_at=now, last_attempt=now)
+    _helper_status(
+        status_file, state="applying", phase="downloading", percent=40, started_at=now + 1
+    )
+    job = read_job()
+    assert job["phase"] == "downloading"
+    assert job["percent"] == 40
+    assert job["target"] == "1.2.4"
+    _helper_status(status_file, state="succeeded", phase="done", percent=100, started_at=now + 1)
+    assert read_job()["state"] == "succeeded"
+
+
+def test_stale_helper_status_does_not_hide_a_new_request(job_dir: Path, status_file: Path) -> None:
+    now = int(time.time())
+    _helper_status(status_file, state="succeeded", phase="done", started_at=now - 3600)
+    write_job(state="applying", phase="preparing", started_at=now, last_attempt=now)
+    job = read_job()
+    assert job["state"] == "applying"
+    assert job["phase"] == "preparing"
+
+
+def test_app_side_failure_beats_helper_status(job_dir: Path, status_file: Path) -> None:
+    now = int(time.time())
+    _helper_status(status_file, state="applying", started_at=now)
+    write_job(state="failed", error=APPLY_TIMEOUT_ERROR, started_at=now - 1)
+    assert read_job()["state"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "[]",
+        '{"state": "pwned"}',
+        '{"state": "applying", "percent": "1; rm -rf /", "phase": "evil", "started_at": "x"}',
+        '{"state": "failed", "error": ' + json.dumps("x" * 10_000) + "}",
+        "{" + " " * (70 * 1024) + "}",
+    ],
+)
+def test_hostile_status_json_is_sanitised(job_dir: Path, status_file: Path, raw: str) -> None:
+    status_file.write_text(raw, encoding="utf-8")
+    job = read_job()
+    assert job["state"] in {"idle", "applying", "failed"}
+    assert job["phase"] in {None, "preparing", "downloading", "installing", "restarting", "done"}
+    assert job["percent"] is None or isinstance(job["percent"], int)
+    assert job["started_at"] is None or isinstance(job["started_at"], int)
+    assert job["error"] is None or len(job["error"]) <= 500
+
+
+def test_legacy_job_file_is_read_only_fallback(job_dir: Path, status_file: Path) -> None:
+    legacy = job_dir / "update-job.json"
+    legacy.write_text(
+        json.dumps({"state": "succeeded", "phase": "done", "started_at": 5, "target": "4.18.0"}),
+        encoding="utf-8",
+    )
+    job = read_job()
+    assert job["state"] == "succeeded"
+    assert job["last_attempt"] == 5
+    status_file.write_text(json.dumps({"state": "failed", "error": "new", "started_at": 9}))
+    assert read_job()["error"] == "new"
+    assert legacy.exists()
+
+
+@pytest.mark.asyncio
+async def test_compose_request_with_legacy_helper_drops_stale_target(job_dir: Path) -> None:
+    legacy = job_dir / "update-job.json"
+    legacy.write_text(json.dumps({"state": "succeeded", "target": "4.17.0"}), encoding="utf-8")
+    await start_apply("compose", target="4.18.0")
+    # The old root helper re-applies `target` from this file; without it,
+    # it resolves the latest release itself.
+    assert not legacy.exists()
+    assert (job_dir / "request-update").read_text(encoding="utf-8") == "1\n"
+
+
+@pytest.mark.asyncio
+async def test_compose_request_with_secure_helper_keeps_files(
+    job_dir: Path, status_file: Path
+) -> None:
+    legacy = job_dir / "update-job.json"
+    legacy.write_text("{}", encoding="utf-8")
+    await start_apply("compose", target="4.18.0")
+    assert legacy.exists()
+    assert (job_dir / "request-update").exists()
+
+
+def test_legacy_compose_helper_flag(job_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.routers.updates import build_update_status
+
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "compose")
+    monkeypatch.setenv("MESHLOOM_UPDATE_HELPER", "compose")
+    monkeypatch.delenv("MESHLOOM_UPDATE_STATUS_PATH", raising=False)
+    settings = SimpleNamespace(
+        auto_update=False,
+        auto_update_window_start="00:00",
+        auto_update_window_end="00:00",
+        auto_update_weekdays=[0, 1, 2, 3, 4, 5, 6],
+    )
+    catalogue = {
+        "current": "4.18.0",
+        "latest": "4.18.0",
+        "update_available": False,
+        "html_url": None,
+    }
+    import asyncio
+
+    with (
+        patch("app.routers.updates.get_update_status", return_value=catalogue),
+        patch(
+            "app.routers.updates.AppSettingsRepository.get", new=AsyncMock(return_value=settings)
+        ),
+    ):
+        legacy = asyncio.run(build_update_status())
+        status_dir = job_dir / "update-status"
+        status_dir.mkdir()
+        monkeypatch.setenv("MESHLOOM_UPDATE_STATUS_PATH", str(status_dir / "status.json"))
+        secure = asyncio.run(build_update_status())
+    assert legacy.legacy_update_helper is True
+    assert secure.legacy_update_helper is False
+
+
+@pytest.mark.asyncio
+async def test_polkit_fallback_reports_a_start_that_never_happened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-block returns 0 even when systemd refuses the start."""
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", tmp_path / "missing.path")
+    monkeypatch.setattr("app.services.update_apply.HELPER_START_CHECK_SECONDS", 0.2)
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    stale = {
+        "ActiveState": "failed",
+        "Result": "start-limit-hit",
+        "ExecMainStartTimestampMonotonic": "5",
+    }
+    with (
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(return_value=stale)),
+        pytest.raises(RuntimeError, match="start-limit-hit"),
+    ):
+        await start_package_helper()
+
+
+@pytest.mark.asyncio
+async def test_polkit_fallback_accepts_a_new_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.services.update_apply.UPDATE_PATH_UNIT", tmp_path / "missing.path")
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    states = [
+        {"ActiveState": "failed", "Result": "exit-code", "ExecMainStartTimestampMonotonic": "5"},
+        {"ActiveState": "inactive", "Result": "success", "ExecMainStartTimestampMonotonic": "9"},
+    ]
+    with (
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+        patch("app.services.update_apply._unit_properties", new=AsyncMock(side_effect=states)),
+    ):
+        await start_package_helper()
+
+
+def test_helper_cooldown_fails_only_the_request_that_hit_it(
+    job_dir: Path, status_file: Path
+) -> None:
+    now = int(time.time())
+    _helper_status(
+        status_file,
+        state="cooldown",
+        error="update requested too soon; try again in 90 s",
+        started_at=now,
+    )
+    assert read_job()["state"] == "idle"
+    write_job(state="applying", phase="preparing", started_at=now, last_attempt=now)
+    job = read_job()
+    assert job["state"] == "failed"
+    assert "too soon" in job["error"]

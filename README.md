@@ -47,7 +47,7 @@ which works from any install and needs no add-on.
 
 ## Update
 
-On a package or installer-managed Docker install, **Settings → About** can install the new Meshloom release (optional automatic updates). That upgrades Meshloom only.
+On a package or installer-managed Docker install, **Settings → Updates** can install the new, signed Meshloom release (optional automatic updates). That upgrades Meshloom only.
 
 Otherwise update by hand, or re-run the installer so it can install the apply helper if it is missing:
 

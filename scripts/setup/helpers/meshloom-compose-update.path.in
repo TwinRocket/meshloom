@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch Meshloom compose update request
+Documentation=https://github.com/TwinRocket/meshloom
+
+[Path]
+# Edge-triggered only. The helper never reads anything under data/.
+PathChanged=@COMPOSE_DIR@/data/request-update
+Unit=meshloom-compose-update.service
+
+[Install]
+WantedBy=multi-user.target

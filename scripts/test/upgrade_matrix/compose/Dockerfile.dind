@@ -1,0 +1,5 @@
+FROM ubuntu:24.04
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      systemd systemd-sysv dbus ca-certificates curl gpgv docker.io docker-compose-v2 util-linux iproute2 && \
+    rm -rf /var/lib/apt/lists/*
+CMD ["/sbin/init"]

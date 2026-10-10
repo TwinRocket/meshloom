@@ -33,6 +33,18 @@ contents:
     dst: /usr/share/polkit-1/rules.d/60-meshloom-update.rules
     file_info:
       mode: 0644
+  # ASCII-armored release key for dnf/rpm (gpgkey=). The binary keyring for
+  # apt signed-by= and gpgv is __KEYRING__ below.
+  - src: __KEYRING_ASC__
+    dst: /usr/share/keyrings/meshloom-archive-keyring.asc
+    file_info:
+      mode: 0644
+  - src: __PKGDIR__/meshloom.pref
+    dst: /etc/apt/preferences.d/meshloom.pref
+    type: config
+    packager: deb
+    file_info:
+      mode: 0644
   - src: __PKGDIR__/meshloom.env
     dst: /etc/meshloom/meshloom.env
     type: config|noreplace
