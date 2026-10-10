@@ -12,18 +12,17 @@ content*, never a key downloaded at install time.
 | `meshloom.asc` | the same key, ASCII-armored | dnf `gpgkey=`; published as `meshloom.asc` on the repo |
 | `FINGERPRINT` | 40 hex characters of the primary key, uppercase, no spaces, one line | embedded in `install.sh`, checked by CI against both files and the CI secret |
 
-## Current status: PLACEHOLDERS
+## Current key
 
-The three files are **placeholders** until the owner creates the key (procedure
-below). `scripts/build/check_signing_keys.sh` detects them and:
+Primary fingerprint `D852F2F0892ABF379F52D110FB3EB7BBC43935C8` (RSA-4096,
+certify only), signing subkey RSA-4096 expiring 2028-10-09. Check with
+`gpg --show-keys pkg/keys/meshloom.asc`.
 
-* in release jobs (strict mode) **fails the run** before anything is built or published;
-* in pull-request jobs (`--allow-placeholder`) only prints a notice, so packaging
-  can still be tested.
-
-A real key is accepted only if `FINGERPRINT`, the `.gpg`, the `.asc` and (in CI)
-the secret `MESHLOOM_REPO_GPG_PRIVATE_KEY` all describe the same primary key, and
-that key has a valid, non-expired, non-revoked signing subkey.
+`scripts/build/check_signing_keys.sh` checks that `FINGERPRINT`, the `.gpg`, the
+`.asc` and (in CI) the secret `MESHLOOM_REPO_GPG_PRIVATE_KEY` all describe the same
+primary key, with a valid, non-expired, non-revoked signing subkey. Release jobs
+run it strict; pull-request jobs pass `--allow-placeholder`, which only matters if
+the files are ever reset to placeholders.
 
 ## Key layout
 
@@ -185,5 +184,4 @@ publication is **release 4.18.0 itself**, whose repository metadata and rpms are
 signed in the same publish run. The already-published `install.sh` switches new
 dnf installs to `gpgcheck=1` as soon as `meshloom.asc` appears, which is only safe
 if every rpm served as latest is signed; `publish-linux-repo.yml` therefore fails
-when an rpm is unsigned. Merge order: key created, L2, L1, tag 4.18.0. Verify on a
-VM with 4.17.0 installed that `apt update` and `dnf check-update` still succeed.
+when an rpm is unsigned.
