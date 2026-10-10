@@ -616,7 +616,7 @@
       "privacyPrivateKey": "Anyone with the radio private key can publish and read your “me” stats.",
       "privacyRotate": "Rotating the radio key orphans your history and IATA bind.",
       "privacyStop": "Stopping Meshloom Community stops publish.",
-      "privacyHashtags": "When Community is on, Meshloom shares hashtag channel names — not messages or private keys — with your IATA zone so others can find public rooms.",
+      "privacyHashtags": "When Community is on, Meshloom shares hashtag channel names — not messages or private keys — with Meshloom Community (one global list, not per IATA zone) so others can find public rooms.",
       "privacyDirectory": "With Community off there is no directory at all. Meshloom never contacts any other host.",
       "meTitle": "Your contribution",
       "meHashes24h": "Unique hashes (24h)",

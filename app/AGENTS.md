@@ -103,7 +103,7 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 - Upstream mapping: transport error/timeout/5xx → **503**; 429 → 429; 400 → 400; 401 → 502 (with a clock hint when `classify_auth_rejection` reports `clock_skew`, drift > 60 s); other non-200 → 502 (`CommunityUpstreamError.upstream_status`); an unexpected body → 502.
 - `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
 - Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).
-- `GET /community/iata/{code}/hashtags` ignores `code` and returns the global list (same as `/community/hashtags`).
+- The hashtag catalogue is global: `GET /community/hashtags` proxies `GET /v1/hashtags`. There is no per-IATA catalogue (`/community/iata/{code}/hashtags` was removed; Community answers 410 on its old `/v1/iata/{code}/hashtags`).
 - Hashtag keys hash the exact name everywhere; the official-app normalisation is UI input only (see root `AGENTS.md`, "Hashtag rule").
 
 ### Live relay (`services/community_live.py`)
@@ -158,7 +158,7 @@ Source of truth: `app/routers/*.py` and `app.include_router(...)` in `main.py`. 
 | tools | `POST /tools/mesh-test` (404 when Community is off, 400 when the scope is not in `known_regions`; stores nothing) |
 | locate | `GET /locate?q=` (409 when ambiguous; never writes GPS) |
 | directory | `POST /directory/resolve-hops` (1-byte prefixes → 400) · `GET /directory/nodes` · `GET /directory/nodes/live` · `GET /directory/nodes/search` · `GET /directory/nodes/{pk}/reach` · `GET /directory/nodes/{pk}/neighbors` · `GET /directory/packets/{hash}/reach` · `POST /directory/packets/reach-counts` (≤ 20) · `POST /directory/cache/reset`. Community only: empty payloads when it is off |
-| community | `GET,PATCH /community` · `GET /community/airports` · `GET /community/me/stats` · `PUT /community/me/iata` · `POST /community/me/iata/override` · `GET /community/stats` · `GET /community/hashtags` · `GET /community/iata/{code}/hashtags` (ignores `code`) · `PUT /community/me/hashtags` · `POST /community/live/subscribe` · `DELETE /community/live/subscribe/{session_id}` · `POST /community/live/relancer` |
+| community | `GET,PATCH /community` · `GET /community/airports` · `GET /community/me/stats` · `PUT /community/me/iata` · `POST /community/me/iata/override` · `GET /community/stats` · `GET /community/hashtags` · `PUT /community/me/hashtags` · `POST /community/live/subscribe` · `DELETE /community/live/subscribe/{session_id}` · `POST /community/live/relancer` |
 | updates | see "Updates" |
 | push | `GET /push/vapid-public-key` · `POST /push/subscribe` · `GET /push/subscriptions` · `PATCH,DELETE /push/subscriptions/{id}` · `POST /push/subscriptions/{id}/test` · `GET,PATCH /push/preferences` · `PUT /push/preferences/conversations/{key}` |
 | ws | `WS /ws` |

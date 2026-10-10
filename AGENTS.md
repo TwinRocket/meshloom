@@ -189,7 +189,6 @@ Do not document these as features. Fix them only in a lot launched for that.
   its own state and reads `state` only for `auth_rejected`
   (`frontend/src/stores/livePacketStore.ts`).
 - `MESHCORE_PUBLIC_URL` is not used by production code.
-  `/api/community/iata/{code}/hashtags` ignores `code`.
 - The docstring of `app/fanout/community_mqtt.py` is stale: it says
   "LetsMesh only" and cites `app/mqtt.py`, which does not exist.
 
