@@ -15,7 +15,7 @@ Une **base toute neuve** seed Community activé, sauf si vous posez `MESHLOOM_CO
 
 Tant qu’un code IATA d’aéroport n’est pas enregistré, une bannière reste affichée. La publication des paquets, le Live et la publication des noms hashtag attendent ce code. L’annuaire (noms de sauts, locate, « entendu par ») n’en a pas besoin. Un opérateur qui coupe Community peut masquer la bannière définitivement dans ce navigateur.
 
-Tant que `MESHLOOM_COMMUNITY_IATA` est posée, son code à 3 lettres remplace à chaque lecture celui enregistré dans l’interface ; `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les hôtes. `MESHLOOM_COMMUNITY_LOCKED=1` empêche l’interface d’activer Community.
+Tant que `MESHLOOM_COMMUNITY_IATA` est posée, son code à 3 lettres remplace à chaque lecture celui enregistré dans l’interface ; `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les hôtes.
 
 ## Ce qui quitte la machine
 

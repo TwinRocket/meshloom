@@ -9,7 +9,6 @@ import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
 const offStatus: CommunityStatus = {
   enabled: false,
-  locked: false,
   iata: '',
   broker_host: '',
   api_base: '',
@@ -68,18 +67,6 @@ describe('SettingsCommunitySection', () => {
     expect(screen.getByText(i18n.t('settings.community.privacyPrivateKey'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyHashtags'))).toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeDisabled();
-  });
-
-  it('disables enable and join when locked', async () => {
-    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, locked: true });
-
-    render(<SettingsCommunitySection />);
-
-    expect(await screen.findByText(i18n.t('settings.community.locked'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
-    ).toBeDisabled();
   });
 
   it('explains IATA as the nearest airport and offers a search', async () => {

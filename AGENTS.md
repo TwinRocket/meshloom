@@ -210,7 +210,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_PUBLIC_URL` | empty | **no effect today**: only `_resolve_request_base` (`app/frontend_static.py`) reads it, and only tests call that |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
-| `MESHLOOM_COMMUNITY_LOCKED` | unset | `1` prevents enabling Community from the UI |
 | `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source` |
 
 ## Delivery flow

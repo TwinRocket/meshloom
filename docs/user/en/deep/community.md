@@ -15,7 +15,7 @@ A **brand-new database** seeds Community on, unless you set `MESHLOOM_COMMUNITY=
 
 Until an IATA airport code is saved, a banner stays on screen. Packet publishing, Live, and hashtag-name publishing wait for that code. The directory (hop names, locate, heard-by) does not need it. An operator who turns Community off can dismiss the banner permanently in that browser.
 
-While `MESHLOOM_COMMUNITY_IATA` is set, its 3-letter code replaces the one saved in the interface on every read; `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` do the same for the hosts. `MESHLOOM_COMMUNITY_LOCKED=1` blocks the UI from turning Community on.
+While `MESHLOOM_COMMUNITY_IATA` is set, its 3-letter code replaces the one saved in the interface on every read; `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` do the same for the hosts.
 
 ## What leaves the machine
 

@@ -52,7 +52,6 @@ Tant que `radio_transport` n’est pas défini, la radio reste en pause. Ne déf
 | `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code IATA à 3 lettres. Tant qu'elle est posée, elle remplace à chaque lecture le code enregistré dans l'interface : un changement fait dans les Réglages ne prend pas effet |
 | `MESHLOOM_COMMUNITY_BROKER_HOST` | *(vide)* | Remplace à chaque lecture l'hôte MQTT Community (défaut `mqtt.meshloom.app`) tant qu'elle est posée |
 | `MESHLOOM_COMMUNITY_API_BASE` | *(vide)* | Remplace à chaque lecture l'origine de l'API Community (défaut `https://api.meshloom.app`) tant qu'elle est posée |
-| `MESHLOOM_COMMUNITY_LOCKED` | `false` | À `1`, l’interface ne peut pas activer Community |
 
 Le sujet VAPID se règle d’abord dans **Réglages → Notifications**. `MESHCORE_VAPID_SUBJECT` n’est utilisé que si ce champ est vide. Apple exige un `mailto:` ou un `https:` réel : APNs rejette le domaine `.local` par défaut avec `403 BadJwtToken`. Google FCM l’accepte. Voir [Notifications push](/docs/deep/push/) et la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
 

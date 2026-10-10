@@ -99,7 +99,7 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 
 ### HTTP (`services/meshloom_community.py`)
 
-- Effective config = env first, then DB. `MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST` and `_API_BASE` override the stored value on every read (`get_community_effective()`); they are not only seeds. `MESHLOOM_COMMUNITY` only seeds a brand-new DB. `MESHLOOM_COMMUNITY_LOCKED=1` makes enabling answer 403.
+- Effective config = env first, then DB. `MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST` and `_API_BASE` override the stored value on every read (`get_community_effective()`); they are not only seeds. `MESHLOOM_COMMUNITY` only seeds a brand-new DB.
 - Upstream mapping: transport error/timeout/5xx → **503**; 429 → 429; 400 → 400; 401 → 502 (with a clock hint when `classify_auth_rejection` reports `clock_skew`, drift > 60 s); other non-200 → 502 (`CommunityUpstreamError.upstream_status`); an unexpected body → 502.
 - `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
 - Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).

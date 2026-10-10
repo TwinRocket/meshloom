@@ -128,10 +128,6 @@ def _env_raw(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
-def community_locked() -> bool:
-    return _env_raw("MESHLOOM_COMMUNITY_LOCKED") == "1"
-
-
 def env_community_opt_in() -> bool:
     """New installs default on. MESHLOOM_COMMUNITY=0/false/off seeds opted out."""
     raw = _env_raw("MESHLOOM_COMMUNITY").lower()
@@ -210,7 +206,6 @@ class CommunityRecord:
 @dataclass(frozen=True)
 class CommunityEffective:
     enabled: bool
-    locked: bool
     iata: str
     broker_host: str
     api_base: str
@@ -241,7 +236,6 @@ async def get_community_effective() -> CommunityEffective:
         api_base = DEFAULT_API_BASE
     return CommunityEffective(
         enabled=row.enabled,
-        locked=community_locked(),
         iata=_normalize_iata(iata),
         broker_host=broker,
         api_base=api_base,
@@ -295,10 +289,6 @@ async def update_community(
     from app.repository.settings import AppSettingsRepository
 
     row = await get_community_record()
-    if enabled is True and community_locked():
-        raise HTTPException(
-            status_code=403, detail="Community enable is locked by MESHLOOM_COMMUNITY_LOCKED"
-        )
     next_iata = row.iata
     if iata is not None:
         normalized = _normalize_iata(iata)
@@ -541,7 +531,6 @@ async def community_status() -> CommunityStatus:
     state = await get_community_effective()
     return CommunityStatus(
         enabled=state.enabled,
-        locked=state.locked,
         iata=state.iata,
         broker_host=state.broker_host,
         api_base=state.api_base,

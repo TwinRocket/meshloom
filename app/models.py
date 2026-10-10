@@ -2037,7 +2037,6 @@ class CommunityStatus(BaseModel):
     """Local Meshloom Stats community join state (OSS-owned, not a fanout row)."""
 
     enabled: bool
-    locked: bool
     iata: str
     broker_host: str
     api_base: str

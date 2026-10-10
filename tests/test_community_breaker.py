@@ -21,7 +21,6 @@ from app.services.meshloom_community import (
 
 _ON = CommunityEffective(
     enabled=True,
-    locked=False,
     iata="LYS",
     broker_host="mqtt.meshloom.app",
     api_base="https://api.meshloom.app",

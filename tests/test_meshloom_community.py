@@ -18,14 +18,13 @@ from app.fanout.community_mqtt import (
 )
 from app.fanout.manager import FanoutManager, is_reserved_fanout_id
 from app.fanout.meshloom_stats import MeshloomStatsPublisher, _state_to_settings
-from app.models import CommunityHashtagPut, CommunityIataBindRequest, CommunityUpdate
+from app.models import CommunityHashtagPut, CommunityIataBindRequest
 from app.repository.fanout import FanoutConfigRepository
 from app.routers.community import (
     get_community,
     get_community_stats,
     get_hashtags,
     get_iata_hashtags,
-    patch_community,
     put_me_hashtags,
     put_me_iata,
 )
@@ -184,7 +183,6 @@ class TestJwtIataClaim:
     async def test_directory_auth_does_not_require_iata(self):
         state = CommunityEffective(
             enabled=True,
-            locked=False,
             iata="",
             broker_host=DEFAULT_BROKER_HOST,
             api_base=DEFAULT_API_BASE,
@@ -214,7 +212,6 @@ class TestJwtIataClaim:
     async def test_me_auth_requires_iata(self):
         state = CommunityEffective(
             enabled=True,
-            locked=False,
             iata="CDG",
             broker_host=DEFAULT_BROKER_HOST,
             api_base=DEFAULT_API_BASE,
@@ -244,7 +241,6 @@ class TestJwtIataClaim:
     async def test_first_iata_bind_mints_with_requested_code(self):
         state = CommunityEffective(
             enabled=True,
-            locked=False,
             iata="",
             broker_host=DEFAULT_BROKER_HOST,
             api_base=DEFAULT_API_BASE,
@@ -274,7 +270,6 @@ class TestJwtIataClaim:
     async def test_hashtag_sample_auth_requires_iata(self):
         state = CommunityEffective(
             enabled=True,
-            locked=False,
             iata="BOD",
             broker_host=DEFAULT_BROKER_HOST,
             api_base=DEFAULT_API_BASE,
@@ -367,7 +362,6 @@ class TestPublisherRequiresIata:
         pub._settings = _state_to_settings(
             CommunityEffective(
                 enabled=True,
-                locked=False,
                 iata="",
                 broker_host=DEFAULT_BROKER_HOST,
                 api_base=DEFAULT_API_BASE,
@@ -386,7 +380,6 @@ class TestPublisherRequiresIata:
         pub._settings = _state_to_settings(
             CommunityEffective(
                 enabled=True,
-                locked=False,
                 iata="CDG",
                 broker_host=DEFAULT_BROKER_HOST,
                 api_base=DEFAULT_API_BASE,
@@ -481,17 +474,6 @@ class TestCommunityHashtagProxies:
         assert result.hashtags[0].name == "meshcore"
 
 
-class TestCommunityLocked:
-    @pytest.mark.asyncio
-    async def test_locked_env_rejects_enable(self, test_db, monkeypatch):
-        monkeypatch.setenv("MESHLOOM_COMMUNITY_LOCKED", "1")
-        with pytest.raises(HTTPException) as exc:
-            await patch_community(CommunityUpdate(enabled=True, iata="CDG"))
-        assert exc.value.status_code == 403
-        state = await get_community_effective()
-        assert state.enabled is False
-
-
 class TestExistingDbDoesNotAutoEnable:
     @pytest.mark.asyncio
     async def test_existing_install_stays_off(self, test_db, monkeypatch):
@@ -532,7 +514,6 @@ class TestKeepaliveAndJwtKwargs:
         settings = _state_to_settings(
             CommunityEffective(
                 enabled=True,
-                locked=False,
                 iata="CDG",
                 broker_host=DEFAULT_BROKER_HOST,
                 api_base=DEFAULT_API_BASE,
