@@ -86,7 +86,10 @@ docs/user/            user docs (en, fr), built by the meshloom.app site from th
 - **Community.** `app/services/meshloom_community.py` is the HTTP client. It has a
   circuit breaker, and a timeout or 5xx becomes a 503 for the browser.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
-  module. Details are in `app/AGENTS.md`.
+  module. Opted out means no connection at all to the Community hosts or to
+  the airport search: every egress goes through the guard in
+  `meshloom_community.py`, and an opt-out runs `community_teardown()`.
+  Details are in `app/AGENTS.md`.
 
 ## Commands
 
