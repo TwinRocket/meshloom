@@ -21,6 +21,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data); return
         self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
 srv = http.server.ThreadingHTTPServer(("0.0.0.0", 443), H)
-ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(sys.argv[2], sys.argv[3])
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+ctx.load_cert_chain(sys.argv[2], sys.argv[3])
 srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
 srv.serve_forever()
