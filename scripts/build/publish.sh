@@ -67,6 +67,21 @@ done
 echo -e "${YELLOW}=== Meshloom Publish Script ===${NC}"
 echo
 
+# A release is cut from an up-to-date, clean main: the commit below is pushed to
+# the current branch and the tag points at it. Anything else would push unrelated
+# work or tag a commit that is not on main, so refuse before changing anything.
+RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$RELEASE_BRANCH" != "main" ]; then
+    release_die "Releases are cut from main; you are on '$RELEASE_BRANCH'."
+fi
+if [ -n "$(git status --porcelain)" ]; then
+    release_die "The working tree is not clean; commit or stash first."
+fi
+git fetch --quiet origin main
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+    release_die "main is not at origin/main; pull or push first."
+fi
+
 if [ "$SKIP_QUALITY" -eq 0 ]; then
     echo -e "${YELLOW}Running repo quality gate...${NC}"
     ./scripts/quality/all_quality.sh
@@ -191,9 +206,15 @@ fi
 
 # Commit the changes
 echo -e "${YELLOW}Committing changes...${NC}"
-git add .
+# Only the files this script writes: never `git add .`, which would also commit
+# whatever else the quality gate's autofixers touched.
+git add pyproject.toml uv.lock frontend/package.json meshloom/config.yaml \
+    meshloom/Dockerfile CHANGELOG.md
+if [ "$SKIP_LICENSES" -eq 0 ]; then
+    git add LICENSES.md
+fi
 git commit -m "Updating changelog + build for $VERSION"
-git push
+git push origin "$RELEASE_BRANCH"
 echo -e "${GREEN}Changes committed!${NC}"
 echo
 

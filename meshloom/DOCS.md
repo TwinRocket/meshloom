@@ -51,11 +51,12 @@ plain TCP listener. So it is published on the host, and the published port is
 changed in this add-on's **Network** panel, not inside Meshloom. The port field
 in Meshloom's own settings is read-only here.
 
-**Known limitation.** The add-on forwards container port `5051`, but Meshloom
-does not read `proxy_port`: the proxy listens on the port stored in its settings,
-`5001` by default, and the read-only field prevents changing it. The proxy is also
-off until you enable it in **Settings > Proxy**. Until this is fixed, nothing
-reaches the proxy through the published `5051/tcp`.
+The add-on tells Meshloom the port at startup (`MESHCORE_RADIO_PROXY_PORT`, from
+the `proxy_port` option, `5051` by default), and Meshloom listens on it whatever
+the stored setting says. The proxy itself is off until you enable it in
+**Settings > Proxy**. Leave `proxy_port` at `5051`: it has to equal the container
+port the add-on forwards, which is fixed by the manifest. Only the host side of
+the mapping is yours to change, in the Network panel.
 
 ## Reaching it from outside
 

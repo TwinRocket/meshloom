@@ -1,10 +1,17 @@
 """Community MQTT publisher for sharing raw packets with the MeshCore community.
 
-Publishes raw packet data to mqtt-us-v1.letsmesh.net using the protocol
+Publishes raw packet data to a MeshCore community MQTT broker, using the protocol
 defined by meshcore-packet-capture (https://github.com/agessaman/meshcore-packet-capture).
+The broker, transport, TLS, auth mode, token audience, websocket path and topic
+template are all settings: the defaults point at mqtt-us-v1.letsmesh.net, and the
+same publisher serves any compatible broker (MeshRank, LetsMesh EU, ...). The
+``mqtt_community`` fanout module wraps it, and ``MeshloomStatsPublisher`` subclasses
+it for the Meshloom Community stats uplink.
 
-Authentication uses Ed25519 JWT tokens signed with the radio's private key.
-This module is independent from the private MqttPublisher in app/mqtt.py.
+Authentication is, per ``auth_mode``, an Ed25519 JWT signed with the radio's private
+key (``token``), a username and password, or none.
+This module is independent from the private publisher in app/fanout/mqtt_private.py;
+both share app/fanout/mqtt_base.py.
 """
 
 from __future__ import annotations

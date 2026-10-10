@@ -162,6 +162,19 @@ def _validate_mqtt_community_config(config: dict) -> None:
     token_audience = str(config.get("token_audience", "")).strip()
     config["token_audience"] = token_audience
 
+    websocket_path = str(config.get("websocket_path") or "/").strip() or "/"
+    if not websocket_path.startswith("/") or any(c.isspace() for c in websocket_path):
+        raise HTTPException(
+            status_code=400,
+            detail="websocket_path must start with '/' and contain no whitespace",
+        )
+    config["websocket_path"] = websocket_path
+
+    email = str(config.get("email") or "").strip()
+    if email and not _is_plausible_email(email):
+        raise HTTPException(status_code=400, detail="email must be a valid email address")
+    config["email"] = email
+
     iata = config.get("iata", "").upper().strip()
     if not iata or not _IATA_RE.fullmatch(iata):
         raise HTTPException(
@@ -177,6 +190,15 @@ def _validate_mqtt_community_config(config: dict) -> None:
         topic_template = _DEFAULT_COMMUNITY_MQTT_TOPIC_TEMPLATE
 
     config["topic_template"] = _normalize_community_topic_template(topic_template)
+
+
+def _is_plausible_email(email: str) -> bool:
+    """One ``@``, no whitespace, a dot inside the domain. No regex: CodeQL flags the
+    equivalent pattern as polynomial backtracking."""
+    if len(email) > 254 or any(c.isspace() for c in email) or email.count("@") != 1:
+        return False
+    local, _, domain = email.partition("@")
+    return bool(local) and "." in domain[1:-1]
 
 
 def _validate_bot_config(config: dict) -> None:

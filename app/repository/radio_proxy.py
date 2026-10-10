@@ -14,6 +14,25 @@ from app.radio_proxy.manager import (
 
 logger = logging.getLogger(__name__)
 
+
+def _host_port_override() -> int | None:
+    """The port a managing host (the Home Assistant add-on) forwards, if any."""
+    from app.config import settings
+
+    if settings.managed_ports and settings.radio_proxy_port:
+        return settings.radio_proxy_port
+    return None
+
+
+def _with_host_port(stored: ProxySettings) -> ProxySettings:
+    port = _host_port_override()
+    if port is None or port == stored.port:
+        return stored
+    return ProxySettings(
+        enabled=stored.enabled, bind=stored.bind, port=port, max_clients=stored.max_clients
+    )
+
+
 _PROXY_COLUMNS = (
     "radio_proxy_enabled",
     "radio_proxy_bind",
@@ -36,7 +55,7 @@ class RadioProxyRepository:
                 logger.warning(
                     "Radio proxy settings columns are missing; using defaults until migration 074"
                 )
-                return ProxySettings()
+                return _with_host_port(ProxySettings())
             async with conn.execute(
                 """
                 SELECT radio_proxy_enabled, radio_proxy_bind, radio_proxy_port,
@@ -46,12 +65,14 @@ class RadioProxyRepository:
             ) as cursor:
                 row = await cursor.fetchone()
         if row is None:
-            return ProxySettings()
-        return ProxySettings(
-            enabled=bool(row["radio_proxy_enabled"]),
-            bind=row["radio_proxy_bind"] or DEFAULT_BIND,
-            port=int(row["radio_proxy_port"] or DEFAULT_PORT),
-            max_clients=int(row["radio_proxy_max_clients"] or DEFAULT_MAX_CLIENTS),
+            return _with_host_port(ProxySettings())
+        return _with_host_port(
+            ProxySettings(
+                enabled=bool(row["radio_proxy_enabled"]),
+                bind=row["radio_proxy_bind"] or DEFAULT_BIND,
+                port=int(row["radio_proxy_port"] or DEFAULT_PORT),
+                max_clients=int(row["radio_proxy_max_clients"] or DEFAULT_MAX_CLIENTS),
+            )
         )
 
     @staticmethod

@@ -178,10 +178,6 @@ are not part of the gate. See `CONTRIBUTING.md`.
 
 Do not document these as features. Fix them only in a lot launched for that.
 
-- **Home Assistant add-on radio proxy port.** `meshloom/run.py` exports
-  `MESHCORE_RADIO_PROXY_PORT` (5051), but nothing in `app/` reads it. The proxy
-  listens on the database port (5001 by default), and `MESHCORE_MANAGED_PORTS=true`
-  makes `PATCH /api/radio/proxy` refuse any port change.
 - **Community Live.** The `gate` state and close code 4002 are dead code:
   `_gate_blocked` is never set to true (`app/services/community_live.py`,
   `app/models.py`). The frontend `CommunityLiveStatus.reconnecting` boolean is
@@ -190,8 +186,6 @@ Do not document these as features. Fix them only in a lot launched for that.
   (`frontend/src/stores/livePacketStore.ts`).
 - `MESHCORE_PUBLIC_URL` is not used by production code.
   `/api/community/iata/{code}/hashtags` ignores `code`.
-- The docstring of `app/fanout/community_mqtt.py` is stale: it says
-  "LetsMesh only" and cites `app/mqtt.py`, which does not exist.
 
 ## Environment variables
 
@@ -212,6 +206,7 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | fallback when `app_settings.vapid_subject` is empty; Apple rejects `.local` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
 | `MESHCORE_MANAGED_PORTS` | `false` | the host owns the proxy port; `PATCH /api/radio/proxy` answers 409 to a port change |
+| `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
 | `MESHCORE_PUBLIC_URL` | empty | **no effect today**: only `_resolve_request_base` (`app/frontend_static.py`) reads it, and only tests call that |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
@@ -242,13 +237,13 @@ Clients and installers trust the public key committed in `pkg/keys` (or embedded
 in `install.sh`), never a key fetched at install time. The procedure and the
 rotation steps are in `pkg/keys/README.md`.
 
-1. `scripts/build/publish.sh` runs the gate, bumps the four version sources
-   (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM`
-   tag in `meshloom/Dockerfile`), updates `uv.lock` and `CHANGELOG.md`, then
-   runs `git add .`, commits, **pushes the current branch** and pushes the
-   `X.Y.Z` tag. Run it from a clean, up-to-date `main` checkout. It builds and
-   publishes nothing itself. The header of `release.yml` still says to tag by
-   hand afterwards; ignore that, `publish.sh` already does it.
+1. `scripts/build/publish.sh` refuses to run unless you are on a clean `main`
+   equal to `origin/main`. It runs the gate, regenerates `LICENSES.md`, bumps the
+   version sources (`pyproject.toml`, `frontend/package.json`,
+   `meshloom/config.yaml`, the `FROM` tag in `meshloom/Dockerfile`), updates
+   `uv.lock` and `CHANGELOG.md`, then commits exactly those files, pushes `main`
+   and pushes the annotated `X.Y.Z` tag. It builds and publishes nothing itself.
+   Do not tag by hand afterwards.
 2. A tag `X.Y.Z` triggers `release.yml`. That workflow runs the quality gate,
    then `preflight`: `check_version_consistency.sh` and a check that the secret
    matches `pkg/keys`. Then it builds the frontend zip and the nFPM `.deb`/`.rpm`
