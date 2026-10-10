@@ -182,8 +182,10 @@ Do not document these as features. Fix them only in a lot launched for that.
   makes `PATCH /api/radio/proxy` refuse any port change.
 - **Community Live.** The `gate` state and close code 4002 are dead code:
   `_gate_blocked` is never set to true (`app/services/community_live.py`,
-  `app/models.py`). The frontend `CommunityLiveStatus` type has a `reconnecting`
-  shape that the backend never sends: it sends `state: "reconnecting"`.
+  `app/models.py`). The frontend `CommunityLiveStatus.reconnecting` boolean is
+  never sent by the backend, which sends `state` instead. The frontend rebuilds
+  its own state and reads `state` only for `auth_rejected`
+  (`frontend/src/stores/livePacketStore.ts`).
 - `MESHCORE_PUBLIC_URL` is not used by production code.
   `/api/community/iata/{code}/hashtags` ignores `code`.
 - The docstring of `app/fanout/community_mqtt.py` is stale: it says
