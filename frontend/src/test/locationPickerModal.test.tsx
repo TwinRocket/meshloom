@@ -100,7 +100,6 @@ describe('LocationPickerModal', () => {
   it('centers on the Community IATA airport when no radio location is set', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: 'CDG',
       broker_host: '',
       api_base: '',
@@ -141,7 +140,6 @@ describe('LocationPickerModal', () => {
   it('centers on the timezone city when radio location and IATA are missing', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',

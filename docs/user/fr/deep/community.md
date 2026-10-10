@@ -31,7 +31,6 @@ Trois autres variables s’adressent à ceux qui font tourner Meshloom pour d’
 
 - `MESHLOOM_COMMUNITY_IATA` remplace le code enregistré dans l’interface tant qu’elle est définie : modifier le code dans les Réglages n’a alors aucun effet.
 - `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les deux serveurs Community.
-- `MESHLOOM_COMMUNITY_LOCKED=1` empêche l’interface d’activer Community.
 
 Voir [Variables et réglages](/docs/deep/environment/).
 

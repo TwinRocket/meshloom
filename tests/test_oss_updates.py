@@ -36,7 +36,6 @@ _STATS_PAYLOAD = {
 
 _OPTED_OUT = CommunityEffective(
     enabled=False,
-    locked=False,
     iata="",
     broker_host="mqtt.meshloom.app",
     api_base=DEFAULT_API_BASE,

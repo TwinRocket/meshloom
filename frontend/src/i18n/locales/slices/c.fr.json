@@ -588,8 +588,6 @@
       "enableHelp": "Quand c’est désactivé, ce serveur ne publie pas vers Meshloom Community.",
       "disableHelp": "Arrêter Meshloom Community arrête la publication, et arrête aussi l’annuaire en ligne : plus de noms de sauts, plus d’ancres locate, plus de compteur « entendu par ».",
       "left": "Meshloom Community arrêté",
-      "locked": "L’opérateur a verrouillé Meshloom Community. L’activation est désactivée.",
-      "lockedEnable": "L’activation de Meshloom Community est verrouillée par l’opérateur.",
       "iata": "Code IATA",
       "iataHelp": "Le code IATA est le code à 3 lettres de l’aéroport le plus proche (A–Z). C’est une étiquette de région approximative. La concordance signifie seulement que le code est cohérent avec la position de votre radio — jamais un emplacement vérifié.",
       "iataPlaceholder": "CDG",

@@ -222,7 +222,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
-| `MESHLOOM_COMMUNITY_LOCKED` | unset | `1` prevents enabling Community from the UI |
 | `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source`. Set by `meshloom.env` (`package`) and by the add-on (`addon`) |
 | `MESHLOOM_UPDATE_HELPER` | unset | `compose` marks a compose install with its helper; `none` forces "apply not supported" (`app/services/install_kind.py`) |
 | `MESHLOOM_UPDATE_STATUS_PATH` | unset | where the compose helper's read-only status file is mounted (`app/services/update_apply.py`). Without it the package path `/var/lib/meshloom-update/status.json` is used |

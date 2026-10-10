@@ -21,7 +21,6 @@ from tests.test_community_live import FakeStatsSocket, _Close, _wait_until
 def _enabled_state() -> CommunityEffective:
     return CommunityEffective(
         enabled=True,
-        locked=False,
         iata="LYS",
         broker_host="mqtt.meshloom.app",
         api_base="https://api.meshloom.app",

@@ -31,7 +31,6 @@ Three other variables are meant for people who run Meshloom for others:
 
 - `MESHLOOM_COMMUNITY_IATA` replaces the code saved in the interface for as long as it is set, so changing the code in Settings has no effect.
 - `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` do the same for the two Community servers.
-- `MESHLOOM_COMMUNITY_LOCKED=1` stops the interface from turning Community on.
 
 See [Variables and settings](/en/docs/deep/environment/).
 

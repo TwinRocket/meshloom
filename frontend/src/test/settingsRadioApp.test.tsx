@@ -47,7 +47,6 @@ describe('SettingsRadioAppSection telemetry alerts', () => {
   beforeEach(() => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',

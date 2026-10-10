@@ -657,7 +657,6 @@ describe('fetchJson (via api methods)', () => {
   describe('Meshloom Stats community client', () => {
     const communityStatus = {
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: 'mqtt.meshloom.app',
       api_base: 'https://api.meshloom.app',

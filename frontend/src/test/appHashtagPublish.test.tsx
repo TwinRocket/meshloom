@@ -182,7 +182,6 @@ describe('App hashtag publish ownership', () => {
     });
     mocks.api.getCommunity.mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: 'LYS',
       broker_host: '',
       api_base: '',
@@ -210,7 +209,6 @@ describe('App hashtag publish ownership', () => {
   it('does not fetch hashtag names when community is disabled', async () => {
     mocks.api.getCommunity.mockResolvedValue({
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',

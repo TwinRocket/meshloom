@@ -929,8 +929,6 @@
       "enableHelp": "When off, this server does not publish to Meshloom Community.",
       "disableHelp": "Stopping Meshloom Community stops publish, and also stops the online directory: no hop names, no locate anchors, no heard-by counts.",
       "left": "Meshloom Community stopped",
-      "locked": "The operator locked Meshloom Community. Enable is disabled.",
-      "lockedEnable": "Meshloom Community enable is locked by the operator.",
       "iata": "IATA code",
       "iataHelp": "The IATA code is the 3-letter code of the nearest airport (A–Z). It is a coarse region label. Concordance only means it is consistent with your radio position — never a verified location.",
       "iataPlaceholder": "CDG",
