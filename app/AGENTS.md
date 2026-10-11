@@ -136,8 +136,9 @@ How Meshloom talks to the optional Meshloom Community service.
 - Frames go out as `community_packet` through `ws_manager.broadcast`, i.e. to **every** connected WS client, not only to subscribed tabs.
 - Reconnect backoff: 0.5 s doubling up to 30 s. It resets only after a socket stayed up ≥ 10 s (`JWT_EXPIRY_MIN_UPTIME_S`). The JWT is reminted locally on every attempt. A 4001 close on such a socket reconnects at once.
 - A handshake 401 is not a 4001: retry at 2 s, doubling, and give up after 5 refusals (`AUTH_REJECT_MAX_ATTEMPTS`), or at once for `AUTH_FATAL_CODES`. The relay then reports `state: auth_rejected`, with `auth_error` = `clock_skew` or `token_rejected` (`auth_code` keeps the raw code). `POST /community/live/relancer` or `PATCH /community` clears it.
-- 4002: the reader stops that generation and does not reconnect. 4003/4004/4005 are never shown to the user (`CommunityLiveStatus` hides them).
-- `community_live.state` values actually produced: `connected`, `reconnecting`, `opted_out`, `idle`, `auth_rejected`. `gate` is in the type, but nothing sets `_gate_blocked = True` (dead code, tracked as a code issue).
+- Other handshake refusals: 409 maps to 4005, 429 and 503 to 4004; any other status, 403 included, has no close code. All of them reconnect with the normal backoff.
+- 4002 is reserved and Community never sends it. If a 4002 close ever arrives, the reader stops that generation and waits for `POST /community/live/relancer`. 4003/4004/4005 are never shown to the user (`CommunityLiveStatus` hides them).
+- `community_live.state` values: `connected`, `reconnecting`, `opted_out`, `idle`, `auth_rejected`.
 
 ## Updates
 

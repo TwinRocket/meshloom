@@ -62,7 +62,7 @@ Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `Searc
 - `contact_resolved` migrates an identity. It affects the active conversation, the cached messages, the unread state keys, and the reconnect reconciliation all at once.
 
 ### Community live status
-`livePacketStore.applyLiveStatus` works out `connected` / `reconnecting` / banner from `close_code`, `connected`, `opted_out`, and `auth_error`. It reads `state` only to treat `auth_rejected` as `token_rejected` for older relays. The optional boolean `CommunityLiveStatus.reconnecting` in `types.ts` is never sent by the backend. The `gate` value of `LiveRelayState` is never reached (see the root `AGENTS.md`). Do not build UI on either of them.
+`livePacketStore.applyLiveStatus` keeps only what `LiveView` shows: the opt-out flag, `auth_error`, `clock_skew_s`, and the banner they produce. Close codes never reach the user, so the store ignores `close_code` and `connected`. It reads `state` only to treat `auth_rejected` as `token_rejected` for older relays.
 
 ### Messages and unreads
 - An outgoing message appears after the send API returns. There is no optimistic insert. The backend also emits a WS `message` so other tabs stay in sync.

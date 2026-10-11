@@ -7,7 +7,7 @@ IATA is set, and at least one Live session is present.
 Upstream lifetime is independent of any one browser session: a page reload
 that cannot run React cleanup must not close or reopen the Stats socket.
 The reader loop reconnects itself (capped exponential backoff) on every
-close except reserved 4002 (unused; not a product 24h sesame). JWT remint
+close except reserved 4002 (never sent by Community). JWT remint
 is local and happens on each connect attempt. A close 4001 on a socket that
 stayed up remints at once; a handshake 401 never does: it backs off, and the
 relay gives up after ``AUTH_REJECT_MAX_ATTEMPTS`` consecutive refusals (at
@@ -60,8 +60,8 @@ LIVE_CLOSE_CODES = frozenset(
 )
 USER_CLOSE_CODES = frozenset({CLOSE_JWT_EXPIRED, CLOSE_INACTIVE})
 # 401 is deliberately absent: a handshake refusal is not a 4001 (see _run).
+# Any other refusal (403 included) has no close code and reconnects with backoff.
 HANDSHAKE_TO_CLOSE = {
-    403: CLOSE_INACTIVE,
     409: CLOSE_SUPERSEDED,
     429: CLOSE_RATE_LIMIT,
     503: CLOSE_RATE_LIMIT,
@@ -91,7 +91,7 @@ PACKET_TYPES = KNOWN_PACKET_TYPES
 _PACKET_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
-LiveState = Literal["connected", "reconnecting", "gate", "opted_out", "idle", "auth_rejected"]
+LiveState = Literal["connected", "reconnecting", "opted_out", "idle", "auth_rejected"]
 LiveAuthError = Literal["clock_skew", "token_rejected"]
 _HASH8_RE = re.compile(r"^[0-9a-f]{8}$")
 _PACKET_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -385,7 +385,6 @@ class CommunityLiveRelay:
         self._ws: Any = None
         self._connected = False
         self._close_code: int | None = None
-        self._gate_blocked = False
         self._auth_error: LiveAuthError | None = None
         self._auth_code: str | None = None
         self._clock_skew_s: int | None = None
@@ -423,8 +422,6 @@ class CommunityLiveRelay:
             return "opted_out"
         if self._auth_error is not None:
             return "auth_rejected"
-        if self._gate_blocked:
-            return "gate"
         if self._connected:
             return "connected"
         if self._reader_task is not None and not self._reader_task.done():
@@ -459,7 +456,7 @@ class CommunityLiveRelay:
         # socket against our own pubkey slot (measured production deadlock).
         if not self._lock.locked():
             raise RuntimeError("reader claim requires the relay lock")
-        if self._gate_blocked or self._auth_error is not None:
+        if self._auth_error is not None:
             return
         if self._reader_task is not None and not self._reader_task.done():
             return
@@ -505,12 +502,11 @@ class CommunityLiveRelay:
         return self.snapshot(opted_out=not await community_enabled())
 
     async def relancer(self) -> dict[str, Any]:
-        """Mint a new API JWT and reconnect. Clears 4002 and a given-up 401."""
+        """Mint a new API JWT and reconnect. Clears a 4002 stop and a given-up 401."""
         from app.services.meshloom_community import community_enabled
 
         enabled = await community_enabled()
         can_open = await self._can_open_live(enabled)
-        self._gate_blocked = False
         self._clear_auth_error()
         self._close_code = None
         await self.close_stats()
@@ -531,7 +527,6 @@ class CommunityLiveRelay:
         # A settings change (IATA, API base, opt-in) is a fresh start for auth.
         self._clear_auth_error()
         if not enabled:
-            self._gate_blocked = False
             await self.close_stats()
             await self._broadcast_status(opted_out=True)
             return
@@ -655,7 +650,7 @@ class CommunityLiveRelay:
         opted_out = False
         try:
             while generation == self._generation:
-                if not self._has_consumers() or self._gate_blocked or self._auth_error is not None:
+                if not self._has_consumers() or self._auth_error is not None:
                     return
                 try:
                     state = await get_community_effective()
@@ -772,8 +767,8 @@ class CommunityLiveRelay:
                     )
                     continue
                 if close_code == CLOSE_INACTIVE:
-                    # 4002 is reserved unused. Do not reconnect this generation.
-                    # Do not set _gate_blocked: 4002 is not a product 24h sesame.
+                    # 4002 is reserved and never sent (contract live-events.md):
+                    # if it ever arrives, stop this generation until Relancer.
                     self._close_code = user_visible_close_code(close_code)
                     await self._broadcast_status(opted_out=False)
                     return
