@@ -154,9 +154,8 @@ class TestCommunityLiveResilience:
             await asyncio.sleep(0.08)
             await relay.close_stats()
         assert len(connects) == 1
-        assert relay._gate_blocked is False
 
-    async def test_relancer_clears_gate_and_reconnects(self):
+    async def test_relancer_reconnects_after_4002(self):
         relay = CommunityLiveRelay()
         connects: list[int] = []
 
@@ -174,9 +173,8 @@ class TestCommunityLiveResilience:
             await _wait_until(lambda: len(connects) >= 2)
             await relay.close_stats()
         assert len(connects) >= 2
-        assert relay._gate_blocked is False
 
-    async def test_status_distinguishes_connected_reconnect_gate_and_opt_out(self):
+    async def test_status_distinguishes_connected_reconnect_and_opt_out(self):
         relay = CommunityLiveRelay()
         phase = {"n": 0}
 
@@ -197,10 +195,6 @@ class TestCommunityLiveResilience:
             mid = relay.snapshot(opted_out=False)
             assert mid["state"] == "reconnecting"
             assert mid["close_code"] not in {4003, 4005}
-            relay._gate_blocked = True
-            relay._close_code = CLOSE_INACTIVE
-            gated = relay.snapshot(opted_out=False)
-            assert gated["state"] == "gate"
             opted = relay.snapshot(opted_out=True)
             assert opted["state"] == "opted_out"
             await relay.close_stats()

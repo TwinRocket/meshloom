@@ -36,7 +36,6 @@ anywhere else.
 |---|---|
 | `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. |
 | `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
-| `public_url` | The address this instance is reached at from outside. Accepted and passed to Meshloom, but no feature uses it yet. |
 | `basic_auth_username` / `basic_auth_password` | Asks for a username and password on the whole web interface and API. Both or neither. The check has no exception for ingress: if you set them, open the sidebar entry afterwards to make sure it still loads. |
 | `vapid_subject` | Contact address for Web Push, as `mailto:you@example.com`. Apple refuses the default `.local` address, so set a real one for iPhones. |
 | `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on. |
@@ -75,7 +74,6 @@ provide one:
 2. Route that hostname to `http://<home-assistant-ip>:<the port you chose>`. The
    **Cloudflared** add-on does this without opening a port on your router.
 3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
-   Setting `public_url` is harmless but has no effect yet.
 
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
 address and a port, and Meshloom answers to whatever name it is asked for. Ingress

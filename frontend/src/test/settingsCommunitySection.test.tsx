@@ -66,7 +66,10 @@ describe('SettingsCommunitySection', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyAccount'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyPrivateKey'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.community.privacyPackets'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.community.privacyRadio'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyHashtags'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.community.privacyDirectory'))).toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeDisabled();
   });
 

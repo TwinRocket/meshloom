@@ -245,8 +245,10 @@ t() {
         fr:update_dnf) echo "Pour mettre à jour plus tard" ;;
         en:update_docker) echo "To update later, in that folder" ;;
         fr:update_docker) echo "Pour mettre à jour plus tard, dans ce dossier" ;;
-        en:update_git) echo "To update later: git pull, then restart the service" ;;
-        fr:update_git) echo "Pour mettre à jour plus tard : git pull, puis redémarrez le service" ;;
+        en:update_git) echo "To update later, replace X.Y.Z with the latest version shown in Settings → Updates (without the v) and run:" ;;
+        fr:update_git) echo "Pour mettre à jour plus tard, remplacez X.Y.Z par la dernière version affichée dans Réglages → Mises à jour (sans le v) et lancez :" ;;
+        en:update_git_branch) echo "To update later, run:" ;;
+        fr:update_git_branch) echo "Pour mettre à jour plus tard, lancez :" ;;
         en:step_browser) echo "Open Meshloom" ;;
         fr:step_browser) echo "Ouvrir Meshloom" ;;
         en:browser_body) echo "Nothing was installed. Open the Meshloom already running on your network:" ;;
@@ -2165,7 +2167,22 @@ install_native_service() {
     else
         ui_ok "  $(t done)"
     fi
-    ui_dim "  $(t update_git)"
+    print_source_update_hint
+}
+
+# A source install has no in-app updater. The clone made above is a release tag
+# (detached HEAD), where `git pull` does nothing: fetch the new tag instead.
+print_source_update_hint() {
+    local rerun="MESHLOOM_FRONTEND_MODE=${MESHLOOM_FRONTEND_MODE:-build} bash scripts/setup/install_service.sh"
+    if git -C "$INSTALL_DIR" symbolic-ref -q HEAD >/dev/null 2>&1; then
+        ui_dim "  $(t update_git_branch)"
+        ui_dim "    cd ${INSTALL_DIR} && git pull && ${rerun}"
+    else
+        ui_dim "  $(t update_git)"
+        ui_dim "    cd ${INSTALL_DIR}"
+        ui_dim "    git fetch --depth 1 origin tag X.Y.Z && git checkout X.Y.Z"
+        ui_dim "    ${rerun}"
+    fi
 }
 
 yaml_quote() {

@@ -8,12 +8,11 @@ import { api } from '../api';
 import type { Contact } from '../types';
 import i18n from '../i18n';
 import {
+  applyLiveStatus,
   recordCommunityPacket,
   resetLivePacketStore,
-  setLiveCloseCode,
 } from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
-import { stopLivePacketFixtures } from '../fixtures/livePacketFixtures';
 import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
 import { LiveSoundEngine } from '../utils/liveSound';
 
@@ -127,21 +126,20 @@ describe('LiveView', () => {
   });
 
   afterEach(() => {
-    stopLivePacketFixtures();
     resetLivePacketStore();
     overlays.length = 0;
   });
 
   it('does not show retired Relancer or slot-busy banners', () => {
     vi.mocked(api.subscribeCommunityLive).mockReturnValue(new Promise(() => {}));
-    setLiveCloseCode(4001);
+    applyLiveStatus({ close_code: 4001, opted_out: false, connected: false });
     const { rerender } = render(
       <LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />
     );
     expect(screen.queryByText(i18n.t('live.bannerExpired'))).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
 
-    setLiveCloseCode(4003);
+    applyLiveStatus({ close_code: 4003, opted_out: false, connected: false });
     rerender(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(screen.queryByText(i18n.t('live.bannerSlotBusy'))).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('live.relancer') })).not.toBeInTheDocument();
@@ -187,7 +185,7 @@ describe('LiveView', () => {
 
   it('does not show a 24h inactive banner or Relancer when 4002 is set', () => {
     vi.mocked(api.subscribeCommunityLive).mockReturnValue(new Promise(() => {}));
-    setLiveCloseCode(4002);
+    applyLiveStatus({ close_code: 4002, opted_out: false, connected: false });
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(screen.queryByText(i18n.t('live.bannerOptOut'))).not.toBeInTheDocument();
     expect(i18n.exists('live.bannerInactive')).toBe(false);

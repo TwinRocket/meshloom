@@ -2148,9 +2148,7 @@ class CommunityLiveStatus(BaseModel):
     close_code: int | None = None
     opted_out: bool
     connected: bool
-    state: Literal["connected", "reconnecting", "gate", "opted_out", "idle", "auth_rejected"] = (
-        "idle"
-    )
+    state: Literal["connected", "reconnecting", "opted_out", "idle", "auth_rejected"] = "idle"
     auth_error: Literal["clock_skew", "token_rejected"] | None = Field(
         default=None,
         description=(

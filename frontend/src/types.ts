@@ -725,8 +725,7 @@ export type LiveCloseCode =
   | typeof LIVE_CLOSE_RATE_LIMIT
   | typeof LIVE_CLOSE_SUPERSEDED;
 
-export type LiveRelayState =
-  'connected' | 'reconnecting' | 'gate' | 'opted_out' | 'idle' | 'auth_rejected';
+export type LiveRelayState = 'connected' | 'reconnecting' | 'opted_out' | 'idle' | 'auth_rejected';
 
 /** Why Community refused the live token for good (state `auth_rejected`). */
 export type LiveAuthError = 'clock_skew' | 'token_rejected';
@@ -736,8 +735,6 @@ export interface CommunityLiveStatus {
   close_code: LiveCloseCode | null;
   opted_out: boolean;
   connected: boolean;
-  /** Absent on older relays — derive reconnecting from close_code instead. */
-  reconnecting?: boolean;
   state?: LiveRelayState;
   /** Set with state `auth_rejected`; the relay stopped retrying until Relancer. */
   auth_error?: LiveAuthError | null;

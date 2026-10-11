@@ -57,13 +57,6 @@ class Settings(BaseSettings):
             "container port. Without ``managed_ports`` the port is edited in the UI."
         ),
     )
-    public_url: str = Field(
-        default="",
-        description=(
-            "External address this instance is reached at, when a tunnel or proxy "
-            "gives it one. Used where a link has to survive leaving the page."
-        ),
-    )
 
     @field_validator("vapid_subject", mode="before")
     @classmethod

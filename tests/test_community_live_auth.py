@@ -86,6 +86,33 @@ class TestClassifyAuthRejection:
 
 
 @pytest.mark.asyncio
+class TestHandshake403:
+    async def test_reconnects_with_backoff(self):
+        """A 403 used to map to the reserved 4002 and stopped the relay for good."""
+        relay = CommunityLiveRelay()
+        connects: list[int] = []
+
+        async def connect(_url: str, _token: str):
+            connects.append(1)
+            if len(connects) < 3:
+                raise _refused(403, {"detail": "forbidden"})
+            return FakeStatsSocket([])
+
+        delays = _track_sleeps(relay)
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            stack.enter_context(patch("app.services.community_live.RECONNECT_INITIAL_S", 0.5))
+            await relay.subscribe()
+            await _wait_until(lambda: len(connects) >= 3)
+            snap = relay.snapshot(opted_out=False)
+            await relay.close_stats()
+        assert delays[:2] == [0.5, 1.0]
+        assert snap["close_code"] is None
+        assert snap["state"] in {"connected", "reconnecting"}
+        assert relay._auth_error is None
+
+
+@pytest.mark.asyncio
 class TestHandshake401:
     async def test_backs_off_then_gives_up_with_visible_state(self):
         relay = CommunityLiveRelay()
