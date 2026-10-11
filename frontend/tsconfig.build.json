@@ -1,0 +1,11 @@
+// `npm run build` type-checks only what src/main.tsx imports, plus the ambient
+// .d.ts files, like the bundle itself. A Portainer GitOps stack keeps files
+// deleted upstream, and such a dead file must not fail its image build.
+// `npm run typecheck` checks all of src/, tests included; CI and
+// all_quality.sh run it.
+{
+  "extends": "./tsconfig.json",
+  "files": ["src/main.tsx"],
+  "include": ["src/**/*.d.ts"],
+  "exclude": ["src/test"]
+}
