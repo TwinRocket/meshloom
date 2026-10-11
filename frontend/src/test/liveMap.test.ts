@@ -209,11 +209,11 @@ describe('LiveMapController', () => {
     expect(shots[0].remanenceMs).toBe(400);
 
     t += 700;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()[0].finishedAt).toBeNull();
 
     t += 700;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()[0].finishedAt).not.toBeNull();
   });
 
@@ -281,7 +281,7 @@ describe('LiveMapController', () => {
     );
     expect(engine.getShotSnapshots()).toHaveLength(1);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const afterLate = engine.getShotSnapshots();
     expect(afterLate).toHaveLength(2);
     expect(afterLate.some((shot) => shot.lastPoint?.[0] === 6.1 && shot.pointCount === 2)).toBe(
@@ -364,7 +364,7 @@ describe('LiveMapController', () => {
     expect(engine.pendingBucketCount()).toBe(1);
     expect(engine.getShotSnapshots()).toEqual([]);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const shots = engine.getShotSnapshots();
     expect(shots).toHaveLength(1);
     expect(shots[0].pointCount).toBe(2);
@@ -399,7 +399,7 @@ describe('LiveMapController', () => {
     );
     expect(engine.pendingBucketCount()).toBe(1);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(1);
   });
 
@@ -432,7 +432,7 @@ describe('LiveMapController', () => {
       new Set()
     );
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
     expect(laser?.lastPoint).toEqual([4.92, 45.74]);
     expect(engine.drawnPublicKeys()).toEqual([]);
@@ -484,7 +484,7 @@ describe('LiveMapController', () => {
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
     expect(engine.pendingAnimCount()).toBe(surplus);
     expect(engine.droppedPendingCount()).toBe(0);
@@ -499,14 +499,14 @@ describe('LiveMapController', () => {
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     // Derive from the cap: hardcoding the index pins the test to one ceiling.
     const firstDeferred = `late-${MAX_CONCURRENT_ANIMS}`;
     const lastDeferred = `late-${MAX_CONCURRENT_ANIMS + 4}`;
     expect(engine.getShotSnapshots().map((shot) => shot.id)).not.toContain(firstDeferred);
 
     t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const ids = engine.getShotSnapshots().map((shot) => shot.id);
     expect(ids).toContain(firstDeferred);
     expect(ids).toContain(lastDeferred);
@@ -525,13 +525,13 @@ describe('LiveMapController', () => {
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
     expect(engine.pendingAnimCount()).toBe(MAX_PENDING_ANIMS);
     expect(engine.droppedPendingCount()).toBe(overflow);
 
     t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const ids = engine.getShotSnapshots().map((shot) => shot.id);
     expect(ids).not.toContain(`shed-${MAX_CONCURRENT_ANIMS}`);
     expect(ids).not.toContain(`shed-${MAX_CONCURRENT_ANIMS + overflow - 1}`);
@@ -550,7 +550,7 @@ describe('LiveMapController', () => {
     for (let i = 0; i < arrivals; i++) {
       engine.syncObservations([uniqueFlash(`sust-${i}`, i)], new Set());
       t += cadenceMs;
-      engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+      engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
       for (const shot of engine.getShotSnapshots()) {
         expect(shot.startedAt).toBeLessThanOrEqual(t + maxAhead);
       }
@@ -582,9 +582,35 @@ describe('LiveMapController', () => {
     engine.syncObservations(rows, new Set());
     expect(engine.pendingBucketCount()).toBe(1);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.droppedCatchupCount()).toBe(extra);
     expect(engine.getShotSnapshots()).toHaveLength(1);
+  });
+
+  it('indexes the regions that heard a packet, local ones under the radio IATA', async () => {
+    const engine = await readyController(() => 1_000);
+    engines.push(engine);
+    engine.setLocalIata('nce');
+    engine.syncObservations(
+      [
+        observation({
+          id: 'far',
+          source: 'community',
+          iata: 'BCN',
+          packetHash: 'aaaabbbbccccdddd',
+        }),
+        observation({ id: 'local', source: 'local', iata: null, packetHash: 'aaaabbbbccccdddd' }),
+        observation({
+          id: 'other',
+          source: 'community',
+          iata: 'XXX',
+          packetHash: 'eeeeffff00001111',
+        }),
+      ],
+      new Set()
+    );
+    expect(engine.packetRegionsFor('aaaabbbbccccdddd')).toEqual(['BCN', 'NCE']);
+    expect(engine.packetRegionsFor('eeeeffff00001111')).toEqual([]);
   });
 
   it('releases a type-filtered shot slot after travel so a visible one can draw', async () => {
@@ -592,7 +618,7 @@ describe('LiveMapController', () => {
     const engine = await readyController(() => t);
     engines.push(engine);
     const hiddenAdvert: Set<CommunityPacketType> = new Set(['advert']);
-    const hideAdvert = { iata: '', hiddenTypes: hiddenAdvert, exactOnly: false };
+    const hideAdvert = { iata: new Set<string>(), hiddenTypes: hiddenAdvert, exactOnly: false };
     engine.setFilters(hideAdvert);
     engine.syncObservations([uniqueFlash('hid-0', 0)], new Set());
     t += LIVE_HOLD_MS;
@@ -636,7 +662,7 @@ describe('LiveMapController', () => {
     const engine = await readyController(() => t);
     engines.push(engine);
     const hideAdvert = {
-      iata: '',
+      iata: new Set<string>(),
       hiddenTypes: new Set<CommunityPacketType>(['advert']),
       exactOnly: false,
     };
@@ -667,7 +693,7 @@ describe('LiveMapController', () => {
     expect(first?.data.length).toBeGreaterThan(0);
 
     t += 16;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const second = lastLayer('live-nodes');
     expect(second?.data).toBe(first?.data);
     expect(second?.updateTriggers?.getPosition).toBe(first?.updateTriggers?.getPosition);
@@ -717,7 +743,7 @@ describe('LiveMapController', () => {
     expect(lastLayer('live-local-radio')?.data.length).toBe(1);
 
     engine.setLocalRadio(null);
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const local = lastLayer('live-local-radio');
     expect(local?.data.length).toBe(0);
   });
@@ -818,7 +844,7 @@ describe('LiveMapController', () => {
 
     const travelMs = engine.getShotSnapshots()[0]?.travelMs ?? 0;
     t += travelMs / 2;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(onLaserSegment).toHaveBeenCalledTimes(2);
     expect(onLaserSegment.mock.calls[1]?.[0]).toEqual({
       type: 'ack',

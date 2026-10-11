@@ -742,6 +742,19 @@ export interface CommunityLiveStatus {
   auth_code?: string | null;
   /** Community server time minus this server's time, in seconds. */
   clock_skew_s?: number | null;
+  /** Regions the upstream socket asked Community for; null = the global feed. */
+  upstream_iata?: string[] | null;
+}
+
+export interface CommunityIataActiveEntry {
+  code: string;
+  unique_hashes_24h: number;
+}
+
+export interface CommunityIataActiveResponse {
+  /** False when Community is off or does not serve the list yet. */
+  available: boolean;
+  codes: CommunityIataActiveEntry[];
 }
 
 export interface DirectoryMapNodesQuery {

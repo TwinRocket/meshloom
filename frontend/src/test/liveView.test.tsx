@@ -14,6 +14,7 @@ import {
 } from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
+import { LIVE_IATA_STORAGE_KEY } from '../utils/liveIataPreference';
 import { LiveSoundEngine } from '../utils/liveSound';
 
 vi.mock('../api', () => ({
@@ -22,6 +23,7 @@ vi.mock('../api', () => ({
     unsubscribeCommunityLive: vi.fn(),
     relancerCommunityLive: vi.fn(),
     getLiveDirectoryMapNodes: vi.fn(),
+    getCommunityActiveIata: vi.fn(),
   },
 }));
 
@@ -89,6 +91,16 @@ vi.mock('@deck.gl/layers', () => ({
 describe('LiveView', () => {
   beforeEach(() => {
     localStorage.removeItem(LIVE_PACKET_LEGEND_OPEN_KEY);
+    localStorage.removeItem(LIVE_IATA_STORAGE_KEY);
+    vi.mocked(api.subscribeCommunityLive).mockReset();
+    vi.mocked(api.getCommunityActiveIata).mockReset();
+    vi.mocked(api.getCommunityActiveIata).mockResolvedValue({
+      available: true,
+      codes: [
+        { code: 'NCE', unique_hashes_24h: 40 },
+        { code: 'TLN', unique_hashes_24h: 12 },
+      ],
+    });
     localStorage.setItem('meshloom-live-sound-theme', 'laser');
     resetLivePacketStore();
     resetRawPacketStore();
@@ -181,6 +193,14 @@ describe('LiveView', () => {
       screen.getByRole('button', { name: i18n.t('settings.community.bannerOpenSettings') })
     ).toBeInTheDocument();
     expect(api.subscribeCommunityLive).not.toHaveBeenCalled();
+    expect(api.getCommunityActiveIata).not.toHaveBeenCalled();
+  });
+
+  it('asks Community for nothing while it is off', async () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled={false} communityIata="LYS" />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.subscribeCommunityLive).not.toHaveBeenCalled();
+    expect(api.getCommunityActiveIata).not.toHaveBeenCalled();
   });
 
   it('does not show a 24h inactive banner or Relancer when 4002 is set', () => {
@@ -233,10 +253,87 @@ describe('LiveView', () => {
     expect(screen.queryByRole('button', { name: /play|pause|lecture/i })).not.toBeInTheDocument();
   });
 
-  it('exposes an IATA-only filter', () => {
+  it('filters on the radio IATA by default and subscribes with it', async () => {
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
-    expect(screen.getByLabelText(i18n.t('live.iataFilter'))).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: i18n.t('live.iataAll') })).toBeInTheDocument();
+    expect(screen.getByTestId('live-iata-label')).toHaveTextContent('LYS');
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenCalledWith(undefined, ['LYS'])
+    );
+    // The region picker is no longer a <select>.
+    expect(screen.queryByRole('option', { name: i18n.t('live.iataAll') })).not.toBeInTheDocument();
+  });
+
+  it('offers active, seen and radio regions as checkboxes, and remembers the choice', async () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    await waitFor(() => expect(api.getCommunityActiveIata).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenCalledWith(undefined, ['LYS'])
+    );
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.iataFilter') }));
+    const menu = await screen.findByRole('menu', { name: i18n.t('live.iataMenu') });
+    expect(menu).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: /NCE/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /TLN/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /LYS/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: i18n.t('live.iataAll') })).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /NCE/ }));
+    expect(screen.getByTestId('live-iata-label')).toHaveTextContent('LYS, NCE');
+    expect(localStorage.getItem(LIVE_IATA_STORAGE_KEY)).toBe(JSON.stringify(['LYS', 'NCE']));
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenCalledWith('live-session', ['LYS', 'NCE'])
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: i18n.t('live.iataAll') }));
+    expect(screen.getByTestId('live-iata-label')).toHaveTextContent(i18n.t('live.iataAll'));
+    expect(localStorage.getItem(LIVE_IATA_STORAGE_KEY)).toBe('all');
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenLastCalledWith('live-session', null)
+    );
+  });
+
+  it('restores the saved regions', async () => {
+    localStorage.setItem(LIVE_IATA_STORAGE_KEY, JSON.stringify(['tln', 'NCE']));
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    expect(screen.getByTestId('live-iata-label')).toHaveTextContent('NCE, TLN');
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenCalledWith(undefined, ['NCE', 'TLN'])
+    );
+  });
+
+  it('falls back to the radio IATA when storage is unreadable', async () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    try {
+      render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+      expect(screen.getByTestId('live-iata-label')).toHaveTextContent('LYS');
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+
+  it('keeps the seen regions when Community has no active list yet', async () => {
+    vi.mocked(api.getCommunityActiveIata).mockRejectedValue(new Error('404'));
+    recordCommunityPacket({
+      v: 2,
+      event_id: 'mrs-1',
+      hash8: 'abcdef01',
+      type: 'advert',
+      path: [],
+      hop_count: 0,
+      hops: [],
+      ear: { lat: 43.3, lon: 5.4, source: 'advert' },
+      iata: 'MRS',
+      t: Date.now(),
+      ear_id: 'ear-mrs',
+    });
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    await waitFor(() => expect(api.getCommunityActiveIata).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.iataFilter') }));
+    expect(await screen.findByRole('checkbox', { name: /MRS/ })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /LYS/ })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /NCE/ })).not.toBeInTheDocument();
   });
 
   it('exposes packet-type chips and an exact-only toggle', () => {

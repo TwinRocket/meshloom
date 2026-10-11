@@ -59,7 +59,9 @@ Packets that could not be decrypted are not necessarily lost. They are what make
 
 ## The live feed
 
-**Live** draws packets on a map as they are heard. It shows packets heard by Meshloom Community observers as well as by your own radio, so you see activity far beyond your own range. You can filter by region code, hide packet types, keep only the traces whose route is certain, and choose a sound theme.
+**Live** draws packets on a map as they are heard. It shows packets heard by Meshloom Community observers as well as by your own radio, so you see activity far beyond your own range. You can choose the regions shown, hide packet types, keep only the traces whose route is certain, and choose a sound theme.
+
+**Regions** opens a list of airport codes (IATA) with a box to tick for each. By default only your own region is ticked, the code saved in Meshloom Community. Tick other codes to add them, or **All regions** to see the whole feed. The list offers the regions active in the last 24 hours, the ones already seen on the map and your own. The filter follows the packet: when a packet is heard in a region you chose, all its observations are drawn, even those heard elsewhere. Packets heard by your own radio always appear. Your choice is remembered in this browser.
 
 Your own radio's packets always appear. The packets of Community observers need Meshloom Community to be on and an airport code (IATA) to be saved; without them, a banner explains what is missing. If Community refuses the connection because the server's clock is wrong, the banner says so: set the server's time right, then choose **Retry**.
 

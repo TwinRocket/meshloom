@@ -143,6 +143,53 @@ describe('MeshTestView', () => {
     const hop = screen.getByText(/FR06-CARROS-Village/).closest('li');
     expect(hop?.textContent).not.toContain(i18n.t('meshTest.noPosition'));
   });
+
+  it('marks only the members when members and upstream observers share a region', async () => {
+    // Lot G: upstream observers now carry real IATAs, so a member and an
+    // upstream observer can hear the same packet in the same region. Only
+    // the member gets the Meshloom mark.
+    setCommunityStatus({
+      enabled: true,
+      iata: 'NCE',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: true,
+      publisher_connected: true,
+      env_seeded: true,
+    });
+    sessionStorage.setItem(
+      MESH_TEST_RUN_KEY,
+      JSON.stringify({
+        packetHash: 'abc',
+        sentAt: Math.floor(Date.now() / 1000),
+        floodScope: 'nl-gr',
+        originLat: 43.7,
+        originLon: 7.26,
+      })
+    );
+    apiMocks.getPacketObserverReach.mockResolvedValue({
+      directory_enabled: true,
+      observer_count: 4,
+      observers: [
+        { name: 'Member-Nice', public_key: 'aa'.repeat(32), lat: 43.7, lon: 7.25, isMLC: true },
+        { name: 'Upstream-Nice', public_key: 'bb'.repeat(32), lat: 43.71, lon: 7.26 },
+        { name: 'Upstream-Antibes', lat: 43.58, lon: 7.12, isMLC: false },
+        { name: 'Member-Cannes', public_key: 'cc'.repeat(32), lat: 43.55, lon: 7.01, isMLC: true },
+      ],
+      origin_available: false,
+      sealed: false,
+    });
+
+    render(<MeshTestView contacts={[]} knownRegions={['nl-gr']} radioConnected />);
+
+    expect(await screen.findByText('Upstream-Nice')).toBeInTheDocument();
+    const marks = screen.getAllByTestId('mesh-test-mlc-mark');
+    expect(marks).toHaveLength(2);
+    const marked = marks.map((mark) => mark.closest('li')?.textContent ?? '');
+    expect(marked.some((text) => text.includes('Member-Nice'))).toBe(true);
+    expect(marked.some((text) => text.includes('Member-Cannes'))).toBe(true);
+    expect(marked.some((text) => text.includes('Upstream'))).toBe(false);
+  });
 });
 
 describe('MeshTestView with Community off', () => {
