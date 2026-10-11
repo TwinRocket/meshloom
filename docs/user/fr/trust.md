@@ -1,55 +1,56 @@
 ---
 title: Un réseau de confiance
-description: Pas de comptes, des bots en Python, et pourquoi l’instance reste sur un réseau que vous connaissez.
+description: Pas de comptes, des bots en Python, et pourquoi Meshloom a sa place sur un réseau que vous connaissez.
 level: start
 order: 6
 ---
 
-Meshloom part d’un postulat simple : il tourne sur un réseau dont vous connaissez les occupants. Ce n’est pas un oubli, c’est le modèle. Autant savoir ce qu’il implique.
+Meshloom suppose qu’il tourne sur un réseau dont vous connaissez les utilisateurs. Ce n’est pas un oubli, c’est le modèle. Autant comprendre ce que cela implique.
 
 ## Il n’y a pas de comptes
 
-Pas de comptes utilisateurs, pas de sessions, pas de rôles, pas de permissions par fonction. Quiconque atteint l’adresse du serveur sur le port `8000` obtient l’interface complète, sans rien à saisir.
+Il n’y a ni comptes utilisateurs, ni sessions, ni rôles, ni permissions par fonction. Quiconque atteint le serveur sur le port `8000` obtient l’interface complète sans rien saisir.
 
-Cela veut dire : lire tout l’historique des messages directs et des salons, écrire au nom de votre nœud, changer le nom et les paramètres radio, supprimer des contacts, purger la base. Il n’y a aucun niveau intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ».
+Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ».
 
-Le serveur n’applique pas non plus de restriction d’origine pour les requêtes : n’importe quelle page web peut appeler son API. C’est délibéré — cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration — et cela suppose le même réseau de confiance.
-
-Tant que les bots sont actifs et qu’aucun mot de passe n’est posé, l’interface affiche un avertissement qui rappelle cette posture, jusqu’à ce que vous en preniez acte. Il n’est pas décoratif.
+Le serveur accepte aussi les requêtes venant de n’importe quelle page web. C’est voulu : cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration supplémentaire. Cela repose sur ce même réseau de confiance.
 
 ## Les bots exécutent du code
 
-Meshloom peut déclencher des bots : de petits programmes qui réagissent aux messages reçus. Ils sont écrits en Python et exécutés tels quels sur la machine, sans bac à sable ni liste d’instructions autorisées.
+Meshloom sait lancer des bots : de petits programmes qui réagissent aux messages reçus. Ils s’écrivent en Python, et Meshloom les exécute tels quels, sans bac à sable ni liste d’instructions autorisées.
 
-La conséquence est directe : **toute personne capable d’atteindre Meshloom peut faire exécuter du code arbitraire sur la machine qui l’héberge.** Pas seulement dans l’application — sur la machine, avec les droits du serveur. C’est une fonctionnalité assumée, pensée pour l’automatisation, et c’est aussi le point le plus sensible de l’installation.
+La conséquence est directe : **quiconque atteint Meshloom peut faire exécuter n’importe quel code à la machine hôte.** Pas seulement dans l’application : sur la machine, avec les droits du serveur. C’est une fonction d’automatisation voulue, et c’est aussi la partie la plus sensible d’une installation.
 
-Deux garde-fous :
+Tant que les bots sont activés et qu’aucun mot de passe n’est défini, Meshloom ouvre une fenêtre d’avertissement (« L’exécution non protégée de bots est activée »). Vous pouvez y désactiver les bots jusqu’au prochain redémarrage, ou cocher la reconnaissance et la fermer pour ce navigateur. Ce n’est pas décoratif.
 
-- Les bots sont **activés par défaut**. Seul le paquet Linux les coupe (`MESHCORE_DISABLE_BOTS=true` dans `/etc/meshloom/meshloom.env`) ; l’installeur ne pose aucune question à leur sujet, et les installations Docker les laissent actifs.
-- La variable d’environnement `MESHCORE_DISABLE_BOTS=true` coupe le système de bots au démarrage. Aucun bot ne s’exécute, les réglages correspondants sont refusés, et l’interface affiche la fonction comme désactivée.
+Deux protections existent :
 
-Si l’instance est accessible à des personnes que vous ne connaissez pas toutes, gardez les bots coupés.
+- Les bots sont **activés par défaut**, sauf dans le paquet Linux et l’image Raspberry Pi, qui les coupent (`MESHCORE_DISABLE_BOTS=true` dans `/etc/meshloom/meshloom.env`). L’installeur ne pose aucune question à ce sujet. Les installations Docker et l’add-on Home Assistant gardent les bots actifs (l’add-on a une option `disable_bots`).
+- Définir `MESHCORE_DISABLE_BOTS=true` coupe tout le système de bots au démarrage. Aucun bot ne tourne, les modifications de bots sont refusées, et l’interface présente la fonction comme désactivée.
 
-## Le mot de passe optionnel
+Si des personnes que vous ne connaissez pas toutes peuvent atteindre l’instance, gardez les bots désactivés.
 
-Meshloom peut demander un identifiant et un mot de passe avant d’ouvrir quoi que ce soit. Le script d’installation ne le met pas en place ; cela se règle avec deux variables d’environnement, qui vont toujours ensemble :
+## Le mot de passe facultatif
+
+Meshloom peut demander un nom d’utilisateur et un mot de passe avant d’afficher quoi que ce soit. L’installeur ne le met pas en place. On le configure avec deux variables d’environnement, toujours ensemble :
 
 ```
 MESHCORE_BASIC_AUTH_USERNAME
 MESHCORE_BASIC_AUTH_PASSWORD
 ```
 
-Il s’agit d’un accès partagé unique, pas de comptes : un seul identifiant pour tout le monde, et celui qui l’a a tout. C’est un portail grossier, utile pour éviter qu’un appareil de passage sur le réseau tombe sur l’interface par hasard. Ce n’est pas un modèle d’autorisation.
+C’est un identifiant partagé unique, pas des comptes : un seul accès pour tout le monde, et celui qui l’a possède tout. C’est une barrière simple, utile pour empêcher un appareil quelconque du réseau d’ouvrir l’interface par accident. Ce n’est pas un système de permissions.
 
-Et cela **suppose HTTPS**. En HTTP simple, l’identifiant et le mot de passe circulent en clair à chaque requête sur le réseau. Mettre en place un certificat, même auto-signé, est décrit dans [HTTPS](/docs/deep/https/).
+Il **exige aussi HTTPS**. En HTTP simple, le nom d’utilisateur et le mot de passe circulent en clair à chaque requête. [HTTPS](/docs/deep/https/) explique comment mettre en place un certificat, même auto-signé.
 
 ## En pratique
 
-Quelques règles qui évitent l’essentiel des ennuis :
+Quelques règles évitent la plupart des ennuis :
 
-- **Ne pas exposer le port `8000` sur internet.** Pas de redirection de port sur la box. Pour un accès à distance, un VPN vers le réseau local est la bonne réponse.
-- Sur un réseau partagé — colocation, bureau, réseau invité — activer le mot de passe et garder les bots coupés.
-- Se souvenir que la clé privée de la radio est communiquée au serveur pour déchiffrer les messages directs. Elle n’est gardée qu’en mémoire, et son export par l’API est désactivé sauf activation explicite. Mais une machine compromise reste une machine compromise.
-- Traiter les salons comme ce qu’ils sont. La clé est l’unique accès : la donner, c’est donner l’historique à venir et la capacité d’écrire.
+- **N’exposez pas le port `8000` à Internet.** Ne le redirigez pas depuis votre box. Pour un accès à distance, utilisez un VPN vers votre réseau domestique ou professionnel.
+- Sur un réseau partagé (colocation, bureau, réseau invité), définissez le mot de passe et gardez les bots désactivés.
+- Rappelez-vous que la clé privée de la radio est donnée au serveur pour qu’il déchiffre les messages directs. Elle reste en mémoire uniquement, et la relire par l’API est désactivé tant que vous ne l’activez pas. Mais une machine compromise reste une machine compromise.
+- Si vous activez **Réglages > Proxy** pour partager votre radio avec d’autres applications, sachez qu’il n’a aucun identifiant, et que l’accès Basic ne le couvre pas.
+- Traitez les canaux pour ce qu’ils sont. La clé est le seul accès : la donner à quelqu’un lui permet d’y lire et d’y écrire.
 
-Le détail des réglages de sécurité, du certificat auto-signé et des variables associées est dans [Sécurité](/docs/deep/security/).
+Les détails des réglages de sécurité, des certificats auto-signés et des variables associées sont dans [Sécurité](/docs/deep/security/).
