@@ -226,6 +226,8 @@ body {
 /* Constrain Leaflet map z-index to stay below modals/sheets */
 .leaflet-container {
   z-index: 0 !important;
+  /* Leaflet's own stack, plus the combining-marks fallback from index.css */
+  font-family: 'Helvetica Neue', Arial, Helvetica, sans-serif, 'Meshloom Marks';
 }
 
 .leaflet-pane {
