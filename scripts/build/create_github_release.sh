@@ -12,11 +12,13 @@ Usage: scripts/build/create_github_release.sh --version X.Y.Z --asset PATH [opti
 Creates a draft GitHub release (invisible to Stats / Meshloom clients),
 uploads each asset one at a time with logs and retries, then publishes.
 
+Never creates or pushes a tag: the X.Y.Z tag must already exist on origin
+(scripts/build/tag_release.sh) and point at the checked-out commit.
+
 Options:
   --version VERSION         Release version / tag (required)
   --asset PATH              Asset to attach; may be specified multiple times
   --notes-file PATH         Markdown release notes file; defaults to CHANGELOG section
-  --full-git-hash HASH      Commit to tag if the tag does not already exist locally
   --title TITLE             Release title (default: version)
   --help                    Show this message
 EOF
@@ -25,7 +27,6 @@ EOF
 VERSION=""
 TITLE=""
 NOTES_FILE=""
-FULL_GIT_HASH=""
 ASSETS=()
 TEMP_NOTES_FILE=""
 
@@ -104,10 +105,6 @@ while [ $# -gt 0 ]; do
             NOTES_FILE="${2:-}"
             shift 2
             ;;
-        --full-git-hash)
-            FULL_GIT_HASH="${2:-}"
-            shift 2
-            ;;
         --title)
             TITLE="${2:-}"
             shift 2
@@ -129,7 +126,6 @@ release_validate_version "$VERSION"
 
 REPO_ROOT="$(release_repo_root)"
 TITLE="${TITLE:-$VERSION}"
-FULL_GIT_HASH="${FULL_GIT_HASH:-$(release_resolve_full_hash "$REPO_ROOT")}"
 
 for asset in "${ASSETS[@]}"; do
     [ -f "$asset" ] || release_die "Asset not found: $asset"
@@ -143,15 +139,25 @@ fi
 
 [ -f "$NOTES_FILE" ] || release_die "Notes file not found: $NOTES_FILE"
 
-if ! git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-    echo "[create_github_release] Creating local tag $VERSION at $FULL_GIT_HASH..." >&2
-    git -C "$REPO_ROOT" tag -a "$VERSION" "$FULL_GIT_HASH" -F "$NOTES_FILE"
-fi
-
-if ! git -C "$REPO_ROOT" ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-    echo "[create_github_release] Pushing tag $VERSION to origin..." >&2
-    git -C "$REPO_ROOT" push origin "$VERSION"
-fi
+# Tags are cut by a human (scripts/build/tag_release.sh) and protected by a
+# ruleset; CI only publishes an existing one. The assets were built from the
+# checked-out commit, so the tag has to point at it.
+set +e
+REMOTE_TAG="$(git -C "$REPO_ROOT" ls-remote --exit-code origin "refs/tags/$VERSION^{}" "refs/tags/$VERSION")"
+LS_REMOTE_STATUS=$?
+set -e
+case "$LS_REMOTE_STATUS" in
+    0) ;;
+    2) release_die "Tag $VERSION does not exist on origin. CI never creates tags: run scripts/build/tag_release.sh $VERSION first." ;;
+    *) release_die "Could not query origin's tags (git ls-remote exited $LS_REMOTE_STATUS)." ;;
+esac
+# An annotated tag lists its peeled commit as "<sha> refs/tags/X^{}"; a
+# lightweight one only as "<sha> refs/tags/X".
+TAG_COMMIT="$(awk -v peeled="refs/tags/$VERSION^{}" '$2 == peeled { print $1; exit }' <<< "$REMOTE_TAG")"
+TAG_COMMIT="${TAG_COMMIT:-$(awk '{ print $1; exit }' <<< "$REMOTE_TAG")}"
+HEAD_COMMIT="$(release_resolve_full_hash "$REPO_ROOT")"
+[ "$TAG_COMMIT" = "$HEAD_COMMIT" ] \
+    || release_die "Tag $VERSION points at $TAG_COMMIT, but the assets were built from $HEAD_COMMIT. Run the workflow on the tag."
 
 if gh release view "$VERSION" >/dev/null 2>&1; then
     echo "[create_github_release] Reusing existing GitHub release ${VERSION}." >&2
