@@ -23,6 +23,7 @@ import {
   type LiveSource,
   type LiveWaypoint,
 } from '../../utils/livePackets';
+import { normalizeIataCode } from '../../utils/liveIataPreference';
 
 export { LIVE_PACKET_TYPES };
 
@@ -69,7 +70,8 @@ export type LonLat = [number, number];
 export type Rgba = [number, number, number, number];
 
 export interface LiveViewFilters {
-  iata: string;
+  /** Regions shown. Empty = every region. */
+  iata: ReadonlySet<string>;
   hiddenTypes: ReadonlySet<CommunityPacketType>;
   exactOnly: boolean;
 }
@@ -168,7 +170,7 @@ export const LIVE_ROLE_SHAPES: readonly LiveRoleShape[] = [
 export const DEFAULT_LIVE_CAMERA: LiveCamera = { lat: 24, lon: 8, zoom: 2.15 };
 
 export function emptyLiveFilters(): LiveViewFilters {
-  return { iata: '', hiddenTypes: new Set(), exactOnly: false };
+  return { iata: new Set(), hiddenTypes: new Set(), exactOnly: false };
 }
 
 export function waypointConfidence(point: LiveWaypoint): LiveHopConfidence {
@@ -281,25 +283,123 @@ export function nodeRoleStyle(role: DirectoryNodeRole | string | undefined): Nod
   return NODE_ROLE_STYLE[normalizeDirectoryRole(role)];
 }
 
-export function observationPassesFilters(obs: LiveObservation, filters: LiveViewFilters): boolean {
-  const iata = filters.iata.trim().toUpperCase();
-  if (iata && obs.iata && obs.iata.toUpperCase() !== iata) return false;
-  return !filters.hiddenTypes.has(obs.type);
+/** Packet (bucket key) → every region that heard it. */
+export type LivePacketRegions = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** Packets remembered by the region index; the oldest are forgotten first. */
+export const LIVE_PACKET_REGIONS_MAX = 4096;
+
+/**
+ * Remember which regions heard each packet, so the region filter can follow
+ * the packet: once one observation comes from a chosen region, every
+ * observation of that packet shows, wherever it was heard. A local
+ * observation (no IATA) counts for the radio's own region.
+ */
+export class LivePacketRegionIndex {
+  private readonly regions = new Map<string, Set<string>>();
+
+  constructor(private readonly max = LIVE_PACKET_REGIONS_MAX) {}
+
+  add(obs: Pick<LiveObservation, 'packetHash' | 'hash8' | 'iata'>, localIata?: string | null) {
+    const code = normalizeIataCode(obs.iata ?? localIata);
+    if (!code) return;
+    const key = observationBucketKey(obs);
+    let set = this.regions.get(key);
+    if (!set) {
+      set = new Set();
+      this.regions.set(key, set);
+      if (this.regions.size > this.max) {
+        const oldest = this.regions.keys().next().value;
+        if (oldest !== undefined) this.regions.delete(oldest);
+      }
+    }
+    set.add(code);
+  }
+
+  get(key: string): ReadonlySet<string> | undefined {
+    return this.regions.get(key);
+  }
+
+  get size(): number {
+    return this.regions.size;
+  }
+
+  asMap(): LivePacketRegions {
+    return this.regions;
+  }
 }
 
+export function packetRegionsOf(
+  observations: Iterable<LiveObservation>,
+  localIata?: string | null
+): LivePacketRegions {
+  const index = new LivePacketRegionIndex(Number.MAX_SAFE_INTEGER);
+  for (const obs of observations) index.add(obs, localIata);
+  return index.asMap();
+}
+
+/**
+ * Region filter that follows the packet. A local observation (no IATA)
+ * always passes; any other passes when its own region, or any region that
+ * heard the same packet, is selected. An empty selection shows everything.
+ */
+export function observationPassesFilters(
+  obs: LiveObservation,
+  filters: LiveViewFilters,
+  packetRegions?: LivePacketRegions
+): boolean {
+  if (filters.hiddenTypes.has(obs.type)) return false;
+  if (filters.iata.size === 0 || !obs.iata) return true;
+  const own = obs.iata.toUpperCase();
+  if (filters.iata.has(own)) return true;
+  const heardIn = packetRegions?.get(observationBucketKey(obs));
+  if (!heardIn) return false;
+  for (const code of heardIn) {
+    if (filters.iata.has(code)) return true;
+  }
+  return false;
+}
+
+/** Regions seen in the feed, sorted. The `XXX` placeholder is not a region. */
 export function collectIataCodes(observations: Iterable<LiveObservation>): string[] {
   const codes = new Set<string>();
   for (const obs of observations) {
-    if (obs.iata) codes.add(obs.iata.toUpperCase());
+    const code = normalizeIataCode(obs.iata);
+    if (code) codes.add(code);
   }
   return [...codes].sort();
 }
 
 export function filterLiveObservations(
   observations: LiveObservation[],
-  filters: LiveViewFilters
+  filters: LiveViewFilters,
+  localIata?: string | null
 ): LiveObservation[] {
-  return observations.filter((obs) => observationPassesFilters(obs, filters));
+  const regions = packetRegionsOf(observations, localIata);
+  return observations.filter((obs) => observationPassesFilters(obs, filters, regions));
+}
+
+/** Picker options: Community's active regions, then the ones seen, then the radio's. */
+export function liveIataOptions(
+  active: Iterable<string>,
+  seen: Iterable<string>,
+  radioIata: string | undefined,
+  selected: Iterable<string> = []
+): string[] {
+  const codes = new Set<string>();
+  for (const source of [active, seen, selected, radioIata ? [radioIata] : []]) {
+    for (const raw of source) {
+      const code = normalizeIataCode(raw);
+      // normalizeIataCode already drops the placeholders (XXX, LOC, AAA).
+      if (code) codes.add(code);
+    }
+  }
+  const radio = normalizeIataCode(radioIata);
+  return [...codes].sort((a, b) => {
+    if (a === radio) return -1;
+    if (b === radio) return 1;
+    return a.localeCompare(b);
+  });
 }
 
 export function localHash8Set(observations: LiveObservation[]): Set<string> {

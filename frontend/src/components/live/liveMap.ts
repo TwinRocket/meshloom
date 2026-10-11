@@ -48,6 +48,7 @@ import {
   observationColor,
   observationDrawOpacity,
   observationPassesFilters,
+  LivePacketRegionIndex,
   placeableEdges,
   readLiveCamera,
   remanenceOpacity,
@@ -248,7 +249,10 @@ export class LiveMapController {
   private lastHoverKey = '';
   private resizeObserver: ResizeObserver | null = null;
 
-  private filters: LiveViewFilters = { iata: '', hiddenTypes: new Set(), exactOnly: false };
+  private filters: LiveViewFilters = { iata: new Set(), hiddenTypes: new Set(), exactOnly: false };
+  /** Regions that heard each packet: the region filter follows the packet. */
+  private packetRegions = new LivePacketRegionIndex();
+  private localIata: string | null = null;
   private localHash8 = new Set<string>();
   private seen = new Set<string>();
   private shots: LaserShot[] = [];
@@ -387,6 +391,16 @@ export class LiveMapController {
     this.draw();
   }
 
+  /** The radio's IATA: its own (local) observations count for that region. */
+  setLocalIata(iata: string | null | undefined): void {
+    this.localIata = iata?.trim() ? iata.trim().toUpperCase() : null;
+  }
+
+  /** Regions heard for a packet bucket key (tests and hover). */
+  packetRegionsFor(key: string): string[] {
+    return [...(this.packetRegions.get(key) ?? [])].sort();
+  }
+
   setLocalRadio(config: RadioConfig | null): void {
     if (config && isValidLocation(config.lat, config.lon)) {
       this.localRadioConfig = config;
@@ -417,6 +431,7 @@ export class LiveMapController {
     for (const obs of observations) {
       if (this.seen.has(obs.id)) continue;
       this.seen.add(obs.id);
+      this.packetRegions.add(obs, this.localIata);
       if (!shouldSpawnLaser(obs)) continue;
       this.enqueueObservation(obs, now);
     }
@@ -1109,7 +1124,7 @@ export class LiveMapController {
       if (travel.finished && shot.finishedAt == null) shot.finishedAt = now;
       if (shot.finishedAt != null && now - shot.finishedAt >= shot.remanenceMs) continue;
       nextShots.push(shot);
-      if (!observationPassesFilters(shot.obs, this.filters)) continue;
+      if (!observationPassesFilters(shot.obs, this.filters, this.packetRegions.asMap())) continue;
       this.maybeRippleHops(shot, travel.headT, now);
       this.maybeSoundEdges(shot, travel.headT);
 

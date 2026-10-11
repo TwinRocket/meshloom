@@ -21,6 +21,8 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 
 Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié.
 
+Ce code est aussi la région que la page Live affiche par défaut ; on peut y ajouter d’autres régions.
+
 Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live, la publication des noms hashtag et les recherches de canaux attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Si vous avez désactivé Community, vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
 
 ## Installations neuves

@@ -41,6 +41,8 @@ import {
   dashLonLat,
   LOCAL_RADIO_VISUAL,
   filterLiveObservations,
+  LivePacketRegionIndex,
+  liveIataOptions,
   hexToRgba,
   interpolatePolyline,
   laserGlowWidth,
@@ -155,7 +157,7 @@ function observation(overrides: Partial<LiveObservation> = {}): LiveObservation 
     source: overrides.source ?? 'community',
     type: overrides.type ?? 'text',
     snr: overrides.snr ?? 0,
-    iata: overrides.iata ?? 'LYS',
+    iata: 'iata' in overrides ? (overrides.iata ?? null) : 'LYS',
     t: overrides.t ?? Date.now(),
     earId: overrides.earId ?? 'ear-1',
     ear: overrides.ear ?? { lat: 45.7, lon: 4.8, source: 'advert' },
@@ -175,7 +177,7 @@ describe('live observation filters', () => {
   it('keeps every observation when filters are empty', () => {
     const rows = [observation(), observation({ id: 'obs-2', type: 'ack', iata: 'NCE' })];
     expect(
-      filterLiveObservations(rows, { iata: '', hiddenTypes: new Set(), exactOnly: false })
+      filterLiveObservations(rows, { iata: new Set(), hiddenTypes: new Set(), exactOnly: false })
     ).toHaveLength(2);
   });
 
@@ -183,11 +185,89 @@ describe('live observation filters', () => {
     const rows = [
       observation({ id: 'a', type: 'text', iata: 'LYS' }),
       observation({ id: 'b', type: 'ack', iata: 'LYS' }),
-      observation({ id: 'c', type: 'text', iata: 'NCE' }),
+      observation({ id: 'c', type: 'text', iata: 'NCE', hash8: 'cafecafe' }),
     ];
     const hiddenTypes = new Set<CommunityPacketType>(['ack']);
-    const filtered = filterLiveObservations(rows, { iata: 'lys', hiddenTypes, exactOnly: false });
+    const filtered = filterLiveObservations(rows, {
+      iata: new Set(['LYS']),
+      hiddenTypes,
+      exactOnly: false,
+    });
     expect(filtered.map((row) => row.id)).toEqual(['a']);
+  });
+
+  it('follows the packet: a far observation shows once its packet was heard in a chosen region', () => {
+    const near = observation({ id: 'near', iata: 'NCE', packetHash: 'aaaaaaaaaaaaaaaa' });
+    const far = observation({ id: 'far', iata: 'BCN', packetHash: 'aaaaaaaaaaaaaaaa' });
+    const elsewhere = observation({ id: 'else', iata: 'BCN', packetHash: 'bbbbbbbbbbbbbbbb' });
+    const filters = {
+      iata: new Set(['NCE']),
+      hiddenTypes: new Set<CommunityPacketType>(),
+      exactOnly: false,
+    };
+    // Order does not matter in the browser: the far one arrives first here.
+    expect(filterLiveObservations([far, near, elsewhere], filters).map((row) => row.id)).toEqual([
+      'far',
+      'near',
+    ]);
+    // Without the index, the far observation alone does not pass.
+    expect(observationPassesFilters(far, filters)).toBe(false);
+  });
+
+  it('several regions at once, hash8-only frames included', () => {
+    const rows = [
+      observation({ id: 'lys', iata: 'LYS', hash8: '11111111' }),
+      observation({ id: 'tln', iata: 'TLN', hash8: '22222222' }),
+      observation({ id: 'tln-far', iata: 'MRS', hash8: '22222222' }),
+      observation({ id: 'cdg', iata: 'CDG', hash8: '33333333' }),
+    ];
+    const filters = {
+      iata: new Set(['LYS', 'TLN']),
+      hiddenTypes: new Set<CommunityPacketType>(),
+      exactOnly: false,
+    };
+    expect(filterLiveObservations(rows, filters).map((row) => row.id)).toEqual([
+      'lys',
+      'tln',
+      'tln-far',
+    ]);
+  });
+
+  it('counts a local observation for the radio region, so its packet is followed', () => {
+    const local = observation({ id: 'local', source: 'local', iata: null, hash8: '44444444' });
+    const far = observation({ id: 'far', iata: 'BCN', hash8: '44444444' });
+    const filters = {
+      iata: new Set(['NCE']),
+      hiddenTypes: new Set<CommunityPacketType>(),
+      exactOnly: false,
+    };
+    expect(filterLiveObservations([local, far], filters, 'NCE').map((row) => row.id)).toEqual([
+      'local',
+      'far',
+    ]);
+    expect(filterLiveObservations([local, far], filters, 'LYS').map((row) => row.id)).toEqual([
+      'local',
+    ]);
+  });
+
+  it('bounds the packet region index, forgetting the oldest packet first', () => {
+    const index = new LivePacketRegionIndex(2);
+    index.add(observation({ hash8: '00000001', iata: 'NCE' }));
+    index.add(observation({ hash8: '00000002', iata: 'NCE' }));
+    index.add(observation({ hash8: '00000002', iata: 'BCN' }));
+    index.add(observation({ hash8: '00000003', iata: 'xxx' }));
+    index.add(observation({ hash8: '00000004', iata: 'LYS' }));
+    expect(index.size).toBe(2);
+    expect(index.get('00000001')).toBeUndefined();
+    expect([...(index.get('00000002') ?? [])].sort()).toEqual(['BCN', 'NCE']);
+    expect(index.get('00000003')).toBeUndefined();
+  });
+
+  it('builds picker options from active, seen and radio regions, radio first', () => {
+    expect(
+      liveIataOptions(['TLN', 'XXX', 'nce', 'LOC'], ['MRS', 'NCE', 'aaa'], 'lys', ['CDG'])
+    ).toEqual(['LYS', 'CDG', 'MRS', 'NCE', 'TLN']);
+    expect(liveIataOptions([], [], undefined)).toEqual([]);
   });
 
   it('collects sorted unique IATA codes', () => {
@@ -197,6 +277,7 @@ describe('live observation filters', () => {
         observation({ iata: 'LYS' }),
         observation({ iata: 'LYS' }),
         observation({ iata: null }),
+        observation({ iata: 'XXX' }),
       ])
     ).toEqual(['LYS', 'NCE']);
   });
@@ -204,14 +285,18 @@ describe('live observation filters', () => {
   it('does not treat exactOnly as an observation-level hide', () => {
     const obs = observation();
     expect(
-      observationPassesFilters(obs, { iata: '', hiddenTypes: new Set(), exactOnly: true })
+      observationPassesFilters(obs, { iata: new Set(), hiddenTypes: new Set(), exactOnly: true })
     ).toBe(true);
   });
 
   it('keeps local observations without IATA when a region filter is set', () => {
     const local = observation({ id: 'local', source: 'local', iata: null, type: 'text' });
     expect(
-      observationPassesFilters(local, { iata: 'LYS', hiddenTypes: new Set(), exactOnly: false })
+      observationPassesFilters(local, {
+        iata: new Set(['NCE']),
+        hiddenTypes: new Set(),
+        exactOnly: false,
+      })
     ).toBe(true);
   });
 });

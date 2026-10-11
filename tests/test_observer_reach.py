@@ -118,6 +118,35 @@ class TestObservationParsers:
         )
         assert [item.is_mlc for item in parsed] == [True, False, False]
 
+    def test_is_mlc_stays_exact_with_members_and_upstream_mixed(self):
+        """Lot G: upstream observers now share real IATAs with members.
+
+        Same packet, same region: only the member keeps the Meshloom mark, an
+        upstream observer (pubkey or neutral ``obs-`` id) never gains it, and a
+        member heard twice keeps it.
+        """
+        from app.services.observer_reach import _dedup_entries
+
+        member = "aa" * 32
+        upstream = "bb" * 32
+        parsed = parse_packet_observations(
+            {
+                "observers": [
+                    {"observer_id": member, "public_key": member, "name": "Member", "isMLC": True},
+                    {"observer_id": upstream, "public_key": upstream, "name": "Upstream"},
+                    {"observer_id": "obs-0123456789abcdef", "name": "Neutral", "isMLC": False},
+                    {
+                        "observer_id": member,
+                        "public_key": member,
+                        "name": "Member",
+                        "path_json": ["ab"],
+                    },
+                ]
+            }
+        )
+        entries = {entry.name: entry.isMLC for entry in _dedup_entries(parsed, {})}
+        assert entries == {"Member": True, "Upstream": False, "Neutral": False}
+
     def test_batch_results(self):
         parsed = parse_batch_observations(
             {

@@ -21,6 +21,8 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 
 The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed.
 
+The code is also the region the Live page shows by default; you can add other regions there.
+
 Until a code is saved, a banner stays on screen. Publishing packets, the Live page, publishing hashtag names and channel look-ups wait for that code. The directory (hop names, RF locate, "heard by") does not need it. If you have turned Community off, you can dismiss the banner for good in that browser with **Don't show again**.
 
 ## New installs

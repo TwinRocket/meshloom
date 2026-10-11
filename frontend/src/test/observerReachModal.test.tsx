@@ -158,6 +158,40 @@ describe('ObserverReachModal hop path', () => {
   });
 });
 
+describe('ObserverReachModal Meshloom mark', () => {
+  beforeEach(() => {
+    apiMocks.getPacketObserverReach.mockReset();
+    apiMocks.resolveDirectoryHops.mockReset();
+    apiMocks.resolveDirectoryHops.mockResolvedValue({ resolved: {} });
+    setCommunityStatus(communityOn);
+  });
+
+  it('marks only the members when members and upstream observers share a region', async () => {
+    apiMocks.getPacketObserverReach.mockResolvedValue({
+      directory_enabled: true,
+      packet_hash: 'AABBCCDDEEFF0011',
+      observer_count: 4,
+      observers: [
+        { name: 'Member-Lyon', public_key: 'aa'.repeat(32), hops: 1, path: ['ab'], isMLC: true },
+        { name: 'Upstream-Lyon', public_key: 'bb'.repeat(32), hops: 1, path: ['ab'] },
+        { name: 'Upstream-Villeurbanne', hops: 2, path: ['ab', 'cd'], isMLC: false },
+        { name: 'Member-Bron', public_key: 'cc'.repeat(32), hops: 0, path: [], isMLC: true },
+      ],
+      origin_available: false,
+    });
+
+    render(<ObserverReachModal packetHash="AABBCCDDEEFF0011" open onOpenChange={() => {}} />);
+
+    expect(await screen.findByText('Upstream-Lyon')).toBeInTheDocument();
+    const marks = screen.getAllByTestId('observer-mlc-mark');
+    expect(marks).toHaveLength(2);
+    const marked = marks.map((mark) => mark.closest('li')?.textContent ?? '');
+    expect(marked.some((text) => text.includes('Member-Lyon'))).toBe(true);
+    expect(marked.some((text) => text.includes('Member-Bron'))).toBe(true);
+    expect(marked.some((text) => text.includes('Upstream'))).toBe(false);
+  });
+});
+
 describe('ObserverReachModal with Community off', () => {
   beforeEach(() => {
     apiMocks.getPacketObserverReach.mockReset();
