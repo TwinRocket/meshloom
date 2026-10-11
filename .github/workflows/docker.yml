@@ -71,6 +71,11 @@ jobs:
   build:
     name: ${{ matrix.slug }}
     needs: matrix
+    # Without this, the implicit success() also looks at `quality`, which is
+    # skipped on pull requests, so the PR build never ran. Pull requests still
+    # push nothing: no GHCR login, outputs=type=cacheonly, no cache-to, and the
+    # digest steps and `merge` are skipped.
+    if: ${{ !cancelled() && needs.matrix.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
