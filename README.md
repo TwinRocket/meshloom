@@ -16,7 +16,7 @@ Meshloom takes over radio contacts and channels. A poor fit if you swap radios a
 
 ## Install
 
-On Linux the installer offers a native systemd service or Docker. Radio transport is configured in the web UI after install. Use `bash -c` so prompts still have a terminal — do not pipe into `bash`.
+On Linux the installer offers a background service (a signed `.deb` or `.rpm` package where one exists for your machine, otherwise a source install) or Docker. On macOS and other systems it offers Docker with a radio on the network, or simply points you to a Meshloom already running elsewhere. Radio transport is configured in the web UI after install. Use `bash -c` so prompts still have a terminal — do not pipe into `bash`.
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -39,7 +39,7 @@ Or add `https://github.com/TwinRocket/meshloom` by hand under **Settings → Add
 Add-on store → ⋮ → Repositories**, then install **Meshloom**.
 
 The web interface arrives in the sidebar; the radio proxy is the only thing
-published on the host. Details and a known proxy-port limitation:
+published on the host. Options, the radio proxy port and reaching Meshloom from outside:
 [`meshloom/DOCS.md`](meshloom/DOCS.md).
 
 This is not the same as [publishing to Home Assistant over MQTT](README_HA.md),
@@ -61,7 +61,7 @@ With Docker, `pull` only moves when the image reference does: if `.env` pins
 `MESHLOOM_IMAGE` to a version and digest, change it first (the digest of each
 release is in its signed `OCI-DIGESTS` asset).
 
-Home Assistant: update the add-on there. The database stays in place (`/var/lib/meshloom` for the package, `./data` for Docker). Schema migrations run on startup.
+Home Assistant: update the add-on there (the in-app updater only reports a new version). The database stays in place (`/var/lib/meshloom` for the package, `./data` for Docker, the add-on's own config folder for Home Assistant). Schema migrations run on startup.
 
 ## More
 

@@ -1,5 +1,7 @@
 # Packet visualizer (`#visualizer`)
 
+The visualizer is a 3D picture of the mesh: each node is a dot, each packet travels along the hops it took. This page explains how it is built.
+
 Read this only when you change the 3D visualizer. Its numbers come from the code listed below. Check them again before you rely on them.
 
 ## Layers

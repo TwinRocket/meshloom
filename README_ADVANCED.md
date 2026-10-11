@@ -1,6 +1,31 @@
 # Advanced Setup And Troubleshooting
 
-Once the backend is running, FastAPI serves interactive API docs at `/docs` on the same host and port as the web UI. For a default local launch, that is http://localhost:8000/docs.
+This page collects what goes beyond a normal install: environment variables, fixes for radios that behave oddly, HTTPS, reverse proxies and debug logs. Once the backend is running, FastAPI serves interactive API docs at `/docs` on the same host and port as the web UI. For a default local launch, that is http://localhost:8000/docs.
+
+## Where to set an environment variable
+
+A variable is read when Meshloom starts, so restart it after changing one.
+
+| Install | Where |
+|---|---|
+| Package (`.deb` / `.rpm`) | `/etc/meshloom/meshloom.env`, then `sudo systemctl restart meshloom` |
+| Docker Compose | the `environment:` block of your `docker-compose.yml`, then `docker compose up -d` |
+| Checkout installed with `install_service.sh` | `Environment=` lines in the `meshloom` unit |
+| Home Assistant add-on | the add-on options, see [`meshloom/DOCS.md`](meshloom/DOCS.md) |
+
+## Everyday environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | The SQLite file. The package sets `/var/lib/meshloom/meshcore.db` |
+| `MESHCORE_DISABLE_BOTS` | false | Turns the bot system off. Bots run Python code with full access to the machine; the package turns them off by default |
+| `MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD` | empty | Asks for a username and password on everything, including the WebSocket. Both or neither, otherwise Meshloom refuses to start. Use HTTPS with it |
+| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Contact address sent with Web Push. Apple refuses `.local`, so set a real `mailto:` for iPhones |
+| `MESHLOOM_RUN_AS_USER` | unset | Docker only: a numeric user id (the installer uses `10001`). Meshloom then runs as that user instead of root, after giving it `./data` and the serial devices you mapped. If the radio is still unreadable it stays root and logs a warning. Not for Bluetooth, which needs root on the host |
+| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | See [Private Key Export](#private-key-export) |
+
+The radio itself (USB, network or Bluetooth) is never chosen by a variable: it is set in **Settings > Radio**.
 
 ## Remediation & Advanced Environment Variables
 
@@ -32,7 +57,7 @@ If you see that warning, or if messages on the radio never show up in the app, t
 
 ### Force Channel Slot Reconfigure
 
-If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, try `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` to force the radio to validate the channel slot is valid before sending (will delay sending by ~500ms).
+If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, try `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` to force the radio to validate the channel slot is valid before sending (sending is a little slower, because the radio is written to before each send).
 
 ### Clock Wraparound
 
@@ -89,6 +114,8 @@ CORS currently allows every origin with credentials (`allow_origins=["*"]`, `all
 
 WebGPU channel-finding requires a secure context when you are not on `localhost`.
 
+This applies to a checkout you start yourself. A package install runs `/opt/meshloom/.venv/bin/uvicorn` from the `meshloom` systemd unit without TLS, so for HTTPS there put a reverse proxy in front of port 8000.
+
 Generate a local cert and start the backend with TLS:
 
 ```bash
@@ -112,7 +139,9 @@ Accept the browser warning, or use [mkcert](https://github.com/FiloSottile/mkcer
 
 ## Portainer GitOps
 
-For a stack that builds from this repo, use [`docker-compose.dev.yaml`](docker-compose.dev.yaml) as the Compose path and load the keys from [`.env.example`](.env.example) into the Portainer Environment section (or a local `.env`). Do not commit real radio hosts, ports, or VAPID addresses.
+For a stack that **builds the image from this repo** (not the published one), use [`docker-compose.dev.yaml`](docker-compose.dev.yaml) as the Compose path and load the keys from [`.env.example`](.env.example) into the Portainer Environment section (or a local `.env`). Besides the `MESHCORE_*` variables, the file reads `MESHLOOM_HTTP_PORT` (web port on the host, default 8000), `MESHLOOM_PROXY_PORT` (radio proxy port on the host, default 5001), `MESHLOOM_DATA_PATH` (host folder for the database) and `MESHLOOM_NETWORK` (Docker network name). Do not commit real radio hosts, ports, or VAPID addresses.
+
+To run the **published image** instead, start from [`docker-compose.example.yml`](docker-compose.example.yml) and pin `MESHLOOM_IMAGE` (see the Update section of the [README](README.md)).
 
 ## Systemd Service
 
@@ -124,7 +153,9 @@ From an existing clone, you can still run the checkout installer. It runs as you
 bash scripts/setup/install_service.sh
 ```
 
-It asks only how to get the frontend (build locally or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables (bots, Basic auth) as `Environment=` lines in the unit.
+It asks only how to get the frontend (build locally with Node.js 20+ and npm 9+, or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables (bots, Basic auth) as `Environment=` lines in the unit.
+
+A package install is different: the unit is `meshloom.service`, runs as the `meshloom` user, keeps its data in `/var/lib/meshloom` and reads `/etc/meshloom/meshloom.env`.
 
 ## Debug Logging And Bug Reports
 
@@ -133,6 +164,8 @@ If you're experiencing issues or opening a bug report, please start the backend 
 ```bash
 MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+On a package install, add `MESHCORE_LOG_LEVEL=DEBUG` to `/etc/meshloom/meshloom.env`, restart the service and read the logs with `journalctl -u meshloom`. With Docker, add it to `environment:` and use `docker compose logs meshloom`. The add-on has a `log_level` option.
 
 You can also navigate to `/api/debug` (or go to Settings -> About -> "Open debug support snapshot" at the bottom). This debug block contains information about the operating environment, expectations around keys and channels, and radio status. It also includes the most recent logs. **Non-log information reveals no keys, channel names, or other privilege information beyond the names of your bots. The logs, however, may contain channel names or keys (but never your private key).** If you do not wish to include this information, copy up to the `STOP COPYING HERE` marker in the debug body.
 

@@ -35,7 +35,8 @@ assignees: ''
 ## 💻 Environment Information
 - **OS:** <!-- e.g. macOS 15, Windows 11, Raspberry Pi OS -->
 - **Browser / Version:** <!-- e.g. Chrome 150, Safari 18 -->
-- **Meshloom Version:** <!-- e.g. v4.0.0 -->
+- **Meshloom Version:** <!-- e.g. 4.18.2 (Settings → About) -->
+- **Install type:** <!-- package (.deb/.rpm), Docker, Home Assistant add-on, Raspberry Pi image, source -->
 
 ## 📸 Screenshots / Debug Logs
 <!-- Screenshots are great. A debug snapshot or debug-level logs help enormously. -->
@@ -58,7 +59,7 @@ communication and packet processing:
 ```bash
 MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
-Then reproduce the issue and paste the relevant log output.
+On a package install, set `MESHCORE_LOG_LEVEL=DEBUG` in `/etc/meshloom/meshloom.env` and restart the service; with Docker, add it under `environment:`; in the Home Assistant add-on, set the `log_level` option. Then reproduce the issue and paste the relevant log output.
 
 </details>
 

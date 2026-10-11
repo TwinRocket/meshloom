@@ -6,11 +6,13 @@
 - Prefer small, comprehensible changes over large sweeping ones. Individual commits should be meaningful atomic chunks of work. Pull requests with many, many commits instead of a phased approach may be declined.
 - Pull requests must be fully understood and explicitly endorsed by a human before merge. AI assistance is great, and this repo is optimized for it, but we keep quality by keeping our agents on track to write clear code, useful (not useless) tests, good architecture, and big-picture thinking.
 - No pull request should introduce new failing lint, typecheck, test, or build results.
-- Every pull request should have an associated issue or discussion thread; a brand new feature appearing first in a PR is an antipattern.
+- Every pull request from a contributor should have an associated issue or discussion thread; a brand new feature appearing first in a PR is an antipattern. The repository owners and maintainers may open a PR directly.
 - No truly automated radio traffic. Bot replies are already the practical edge of what this project wants to automate; any kind of traffic that would be intervalized or automated is not what this project is about.
 - No ingestion from the internet onto the mesh. This project is a radio client, not a bridge for outside traffic to enter the network. The mesh is strong because it is a radio mesh, not the internet with some weird wireless links.
 
 ## Local Development
+
+You need [uv](https://docs.astral.sh/uv/) with Python 3.11 or later (CI tests 3.11, 3.12 and 3.14) and Node.js 24 (`.nvmrc`; CI uses 24 too).
 
 ### Backend
 
@@ -80,7 +82,7 @@ npm run build
 | `publish.sh` | Cuts a release in one command (`scripts/build/publish.sh X.Y.Z`), run by an admin on `main` equal to `origin/main`. The only local change allowed is an uncommitted `CHANGELOG.md` edit (the `[X.Y.Z]` section written by hand), which is committed with the release. Refuses a tag that already exists locally or on origin. Runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), checks it with `check_version_consistency.sh`, commits exactly those files, pushes `main`, then pushes the annotated (unsigned) `X.Y.Z` tag. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
 | `tag_release.sh` | Recovery only, when `publish.sh` pushed `main` but not the tag: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes the annotated `X.Y.Z` tag after confirmation (`--dry-run` checks only). |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |
-| `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). |
+| `check_version_consistency.sh` | Fails unless the four version sources (`pyproject.toml`, `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag of `meshloom/Dockerfile`) equal the tag (Release `preflight`, `publish.sh`, `tag_release.sh`). `uv.lock` is updated by `publish.sh` but not checked. |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |
 | `package_release_artifact.sh` | Builds the prebuilt-frontend release zip (called by `release.yml`). |
 | `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). Never creates a tag: fails unless `X.Y.Z` exists on origin and points at the built commit. |
@@ -116,7 +118,7 @@ npx playwright test              # headless
 npx playwright test --headed     # watch it run
 ```
 
-The test harness starts its own uvicorn instance on port 8001 with a fresh temporary database. Your development server (port 8000) is unaffected.
+The test harness starts its own uvicorn instance on port 8001 with a fresh temporary database (it builds `frontend/dist` first when that folder is missing). Your development server (port 8000) is unaffected.
 
 ### Test tiers
 
@@ -172,7 +174,7 @@ npx playwright test
 
 - Keep scope tight.
 - Explain why the change is needed.
-- Link the issue or discussion where the behavior was agreed on.
+- Link the issue or discussion where the behavior was agreed on (contributors; not required of the owners).
 - Call out any follow-up work left intentionally undone.
 - Do not treat code review as the place where the app's direction is first introduced or debated
 

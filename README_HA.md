@@ -1,6 +1,8 @@
 # Home Assistant Integration
 
-Meshloom can publish mesh network data to Home Assistant via MQTT Discovery. Devices and entities appear automatically in HA -- no custom component or HACS install needed.
+Meshloom can send what your radio sees (its own health, repeater readings, the position of nodes, incoming messages) to Home Assistant, where it shows up as ordinary devices and entities you can put on a dashboard or use in automations. It works through MQTT Discovery, so no custom component or HACS install is needed, and it runs from any Meshloom install.
+
+This page is about publishing the mesh **to** Home Assistant over MQTT. Running Meshloom itself as a Home Assistant add-on is a different thing, described in [`meshloom/DOCS.md`](meshloom/DOCS.md).
 
 ## Prerequisites
 
@@ -43,7 +45,7 @@ You can also see the MQTT topic IDs in Meshloom's Home Assistant integration UI:
 
 ### Local Radio Device
 
-Always created. Updates every 60 seconds.
+Created as soon as Meshloom knows the radio's identity, which is the first health update after the radio connects. Updates every 60 seconds.
 
 | Entity | Type | Description |
 |--------|------|-------------|
@@ -57,9 +59,9 @@ Always created. Updates every 60 seconds.
 
 ### Repeater Devices
 
-One device per tracked repeater selected in the HA integration. Updates when telemetry is collected (auto-collect cycle (~8 hours or variable in settings), or when you manually fetch from the repeater dashboard).
+One device per tracked repeater selected in the HA integration. Updates when telemetry is collected: by the automatic cycle (every 8 hours by default, adjustable from 1 to 24 hours in **Settings > Radio-App Management**), or when you fetch it by hand from the repeater dashboard.
 
-Repeaters must first be added to automatic telemetry tracking (from the repeater's telemetry history pane; the list is under **Settings > Radio-App Management**). Only tracked repeaters appear in the HA integration's repeater picker.
+Repeaters must first be added to automatic telemetry tracking (from the repeater's telemetry history pane; the list is under **Settings > Radio-App Management**, at most 8 repeaters). Only tracked repeaters appear in the HA integration's repeater picker.
 
 | Entity | Type | Unit | Description |
 |--------|------|------|-------------|
@@ -72,7 +74,9 @@ Repeaters must first be added to automatic telemetry tracking (from the repeater
 | `sensor.<repeater_name>_recv_errors` | -- | count | Receive errors |
 | `sensor.<repeater_name>_uptime` | Duration | s | Uptime since last reboot |
 
-If Meshloom already has a cached telemetry snapshot for that repeater, it republishes it on startup so HA can populate the sensors immediately instead of waiting for the next collection cycle.
+If the repeater also reports CayenneLPP readings (temperature, humidity, voltage...), Meshloom adds one more sensor per reading, named like the contact ones below (`sensor.<repeater_name>_lpp_<type>_ch<n>`). A GPS reading from a repeater is not published.
+
+If Meshloom already has a cached telemetry snapshot for that repeater, it republishes it on startup so HA can populate the sensors immediately instead of waiting for the next collection cycle. Repeater and LPP sensors are marked unavailable in HA if no new value arrives within 10 hours.
 
 ### Contact Devices
 
@@ -118,7 +122,7 @@ MQTT topic paths use the 12-character node ID (first 12 hex characters of the pu
 
 ## What Appears When
 
-- Always created: the local radio device and its entities
+- Created once the radio is known: the local radio device and its entities
 - Created when selected in the HA integration: tracked repeater devices and tracked contact device trackers
 - Populated only after data exists: contact GPS trackers need an advert with GPS or a GPS reading in collected LPP telemetry; repeater sensors need telemetry, although cached repeater telemetry is replayed on startup when available
 - Message event entity: always created once the HA integration is enabled for a connected radio
@@ -473,7 +477,7 @@ mosquitto_pub -h <broker> -t 'homeassistant/sensor/meshcore_unknown/noise_floor/
 
 ### Repeater sensors show "Unknown" or "Unavailable"
 
-Repeater telemetry only updates when collected. Trigger a manual fetch by opening the repeater's dashboard in Meshloom and clicking "Status", or wait for the next auto-collect cycle (~8 hours).
+Repeater telemetry only updates when collected, and HA marks a sensor unavailable after 10 hours without a new value. Trigger a manual fetch by opening the repeater's dashboard in Meshloom and clicking "Status", or wait for the next auto-collect cycle (8 hours by default).
 
 If Meshloom already has cached telemetry for that repeater, it republishes the last known values on startup. If the sensors are still unknown or unavailable, it usually means no telemetry has ever been collected for that repeater yet.
 
@@ -503,7 +507,7 @@ That gives you:
 - Mosquitto at `localhost:1883`
 - A pre-created HA MQTT integration using that broker
 
-To watch all MQTT traffic during testing:
+The Home Assistant login is `dev` / `dev`, and Mosquitto accepts anonymous connections. To watch all MQTT traffic during testing:
 
 ```bash
 docker exec ha-test-mosquitto mosquitto_sub -h 127.0.0.1 -t '#' -v
