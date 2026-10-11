@@ -39,7 +39,7 @@ describe('Live region preference', () => {
     const codes = Array.from(
       { length: LIVE_IATA_SELECTION_MAX + 1 },
       (_, i) =>
-        `A${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))}`
+        `B${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))}`
     );
     expect(normalizeLiveIataSelection(codes.slice(0, LIVE_IATA_SELECTION_MAX))).toHaveLength(
       LIVE_IATA_SELECTION_MAX
@@ -47,13 +47,14 @@ describe('Live region preference', () => {
     expect(normalizeLiveIataSelection(codes)).toBeNull();
   });
 
-  it('ignores garbage and the XXX placeholder', () => {
+  it('ignores garbage and the placeholders (XXX, LOC, AAA)', () => {
     localStorage.setItem(LIVE_IATA_STORAGE_KEY, '{not json');
     expect(getSavedLiveIataSelection()).toBeUndefined();
     localStorage.setItem(LIVE_IATA_STORAGE_KEY, '"LYS"');
     expect(getSavedLiveIataSelection()).toBeUndefined();
     expect(normalizeLiveIataSelection(['XXX', 'ab', 3, 'nce'])).toEqual(['NCE']);
     expect(normalizeLiveIataSelection(['XXX'])).toBeNull();
+    expect(normalizeLiveIataSelection(['loc', 'AAA'])).toBeNull();
   });
 
   it('survives storage that throws', () => {

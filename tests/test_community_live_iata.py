@@ -118,9 +118,9 @@ class TestFilterHelpers:
     def test_selection_normalisation(self):
         assert normalize_iata_selection(None) is None
         assert normalize_iata_selection([]) is None
-        assert normalize_iata_selection(["nce", " tln ", "b4d", "XXX", 3]) == frozenset(
-            {"NCE", "TLN"}
-        )
+        assert normalize_iata_selection(
+            ["nce", " tln ", "b4d", "XXX", "loc", "AAA", 3]
+        ) == frozenset({"NCE", "TLN"})
         assert normalize_iata_selection("NCE") is None
 
     def test_url_carries_sorted_codes_or_nothing(self):
@@ -137,8 +137,9 @@ class TestFilterHelpers:
         assert CommunityLiveSubscribeRequest(iata=["nce", "NCE", "lys"]).iata == ["NCE", "LYS"]
         with pytest.raises(ValidationError):
             CommunityLiveSubscribeRequest(iata=["NICE"])
-        with pytest.raises(ValidationError):
-            CommunityLiveSubscribeRequest(iata=["xxx"])
+        for placeholder in ("xxx", "LOC", "AAA"):
+            with pytest.raises(ValidationError):
+                CommunityLiveSubscribeRequest(iata=["NCE", placeholder])
         with pytest.raises(ValidationError):
             CommunityLiveSubscribeRequest(iata=[f"A{i:02d}" for i in range(65)])
 
@@ -352,6 +353,8 @@ class TestActiveIataParse:
                 {"code": "nce", "unique_hashes_24h": 4},
                 {"code": "LYS", "unique_hashes_24h": 9},
                 {"code": "XXX", "unique_hashes_24h": 99},
+                {"code": "LOC", "unique_hashes_24h": 7},
+                {"code": "aaa", "unique_hashes_24h": 5},
                 {"code": "bad!", "unique_hashes_24h": 1},
                 {"code": "TLN"},
                 "junk",

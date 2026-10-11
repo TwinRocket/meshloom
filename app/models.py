@@ -2179,6 +2179,9 @@ class CommunityLiveStatus(BaseModel):
 
 
 LIVE_IATA_SELECTION_MAX = 64
+# Not regions: Community files unplaced observations under them (its ingest and
+# auth use the same set).
+LIVE_PLACEHOLDER_IATAS = frozenset({"XXX", "LOC", "AAA"})
 
 
 class CommunityLiveSubscribeRequest(BaseModel):
@@ -2202,9 +2205,8 @@ class CommunityLiveSubscribeRequest(BaseModel):
             code = raw.strip().upper() if isinstance(raw, str) else ""
             if not re.fullmatch(r"[A-Z]{3}", code):
                 raise ValueError("each IATA code is three letters")
-            if code == "XXX":
-                # Community's placeholder for unplaced observations, not a region.
-                raise ValueError("XXX is not a region")
+            if code in LIVE_PLACEHOLDER_IATAS:
+                raise ValueError(f"{code} is not a region")
             if code not in codes:
                 codes.append(code)
         return codes or None

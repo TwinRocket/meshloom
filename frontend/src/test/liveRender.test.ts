@@ -264,13 +264,9 @@ describe('live observation filters', () => {
   });
 
   it('builds picker options from active, seen and radio regions, radio first', () => {
-    expect(liveIataOptions(['TLN', 'XXX', 'nce'], ['MRS', 'NCE'], 'lys', ['CDG'])).toEqual([
-      'LYS',
-      'CDG',
-      'MRS',
-      'NCE',
-      'TLN',
-    ]);
+    expect(
+      liveIataOptions(['TLN', 'XXX', 'nce', 'LOC'], ['MRS', 'NCE', 'aaa'], 'lys', ['CDG'])
+    ).toEqual(['LYS', 'CDG', 'MRS', 'NCE', 'TLN']);
     expect(liveIataOptions([], [], undefined)).toEqual([]);
   });
 

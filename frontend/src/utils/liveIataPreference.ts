@@ -5,8 +5,8 @@
  * Nothing stored means "the radio's IATA" (see `effectiveLiveIataSelection`).
  */
 export const LIVE_IATA_STORAGE_KEY = 'meshloom-live-iata';
-/** Not a region: Community files unplaced observations under it. */
-export const LIVE_PLACEHOLDER_IATA = 'XXX';
+/** Not regions: Community files unplaced observations under them. */
+export const LIVE_PLACEHOLDER_IATAS: ReadonlySet<string> = new Set(['XXX', 'LOC', 'AAA']);
 /** The relay refuses a longer list (backend `LIVE_IATA_SELECTION_MAX`). */
 export const LIVE_IATA_SELECTION_MAX = 64;
 
@@ -18,7 +18,7 @@ const IATA_RE = /^[A-Z]{3}$/;
 export function normalizeIataCode(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const code = raw.trim().toUpperCase();
-  if (!IATA_RE.test(code) || code === LIVE_PLACEHOLDER_IATA) return null;
+  if (!IATA_RE.test(code) || LIVE_PLACEHOLDER_IATAS.has(code)) return null;
   return code;
 }
 

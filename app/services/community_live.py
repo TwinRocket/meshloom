@@ -40,6 +40,8 @@ import uuid
 from typing import Any, Literal
 from urllib.parse import urlencode
 
+from app.models import LIVE_PLACEHOLDER_IATAS as PLACEHOLDER_IATAS
+
 logger = logging.getLogger(__name__)
 
 LIVE_PATH = "/v1/live/packets"
@@ -67,8 +69,6 @@ UPSTREAM_IATA_MAX = 16
 FILTER_DEBOUNCE_S = 2.0
 # After a handshake 400 on a filtered URL, stay on the global feed this long.
 FILTER_RETRY_S = 3600.0
-# Not a region: Community files unplaced observations under it.
-PLACEHOLDER_IATA = "XXX"
 IataFilter = frozenset[str] | None
 
 CLOSE_JWT_EXPIRED = 4001
@@ -145,7 +145,7 @@ def normalize_iata_selection(codes: object) -> IataFilter:
         if not isinstance(raw, str):
             continue
         code = raw.strip().upper()
-        if _IATA_RE.fullmatch(code) and code != PLACEHOLDER_IATA:
+        if _IATA_RE.fullmatch(code) and code not in PLACEHOLDER_IATAS:
             out.add(code)
     return frozenset(out) or None
 
@@ -164,7 +164,7 @@ def upstream_iata_filter(selections: list[IataFilter], radio_iata: str) -> IataF
     for selection in selections:
         union.update(selection or ())
     radio = (radio_iata or "").strip().upper()
-    if _IATA_RE.fullmatch(radio) and radio != PLACEHOLDER_IATA:
+    if _IATA_RE.fullmatch(radio) and radio not in PLACEHOLDER_IATAS:
         union.add(radio)
     if not union or len(union) > UPSTREAM_IATA_MAX:
         return None
@@ -1019,7 +1019,7 @@ def parse_active_iata(payload: object) -> list[dict[str, Any]]:
             continue
         raw = row.get("code")
         code = raw.strip().upper() if isinstance(raw, str) else ""
-        if not _IATA_RE.fullmatch(code) or code == PLACEHOLDER_IATA:
+        if not _IATA_RE.fullmatch(code) or code in PLACEHOLDER_IATAS:
             continue
         count = row.get("unique_hashes_24h")
         hashes = count if isinstance(count, int) and not isinstance(count, bool) else 0

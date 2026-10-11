@@ -23,7 +23,7 @@ import {
   type LiveSource,
   type LiveWaypoint,
 } from '../../utils/livePackets';
-import { LIVE_PLACEHOLDER_IATA, normalizeIataCode } from '../../utils/liveIataPreference';
+import { normalizeIataCode } from '../../utils/liveIataPreference';
 
 export { LIVE_PACKET_TYPES };
 
@@ -390,7 +390,8 @@ export function liveIataOptions(
   for (const source of [active, seen, selected, radioIata ? [radioIata] : []]) {
     for (const raw of source) {
       const code = normalizeIataCode(raw);
-      if (code && code !== LIVE_PLACEHOLDER_IATA) codes.add(code);
+      // normalizeIataCode already drops the placeholders (XXX, LOC, AAA).
+      if (code) codes.add(code);
     }
   }
   const radio = normalizeIataCode(radioIata);
