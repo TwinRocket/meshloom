@@ -195,7 +195,7 @@ Defects we know about and have not fixed yet; do not describe them as features.
 
 Do not document these as features. Fix them only in a lot launched for that.
 
-- `/api/community/iata/{code}/hashtags` ignores `code`.
+None listed at the moment.
 
 ## Environment variables
 

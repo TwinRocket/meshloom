@@ -105,6 +105,43 @@ class TestCreateChannelHashtagPublish:
         stats.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_adopt_hash_named_channel_with_own_key_skips_put(self, test_db):
+        """A pending "#" channel whose key is not derived from its name is private."""
+        from app.routers.channels import adopt_channel
+
+        await update_community(enabled=True, iata="LYS")
+        await ChannelRepository.upsert("AA" * 16, "#family", is_hashtag=True, membership="pending")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await adopt_channel("AA" * 16)
+            await asyncio.sleep(0)
+
+        stats.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_adopt_pending_hashtag_puts_name(self, test_db):
+        from app.routers.channels import adopt_channel
+
+        await update_community(enabled=True, iata="LYS")
+        key = sha256(b"#fr").digest()[:16].hex().upper()
+        await ChannelRepository.upsert(key, "#fr", is_hashtag=True, membership="pending")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await adopt_channel(key)
+            await asyncio.sleep(0)
+
+        stats.assert_awaited_once_with(
+            "PUT",
+            "/v1/me/hashtags",
+            auth=True,
+            json_body={"names": ["fr"]},
+        )
+
+    @pytest.mark.asyncio
     async def test_bulk_hashtag_puts_new_names_when_community_joined(self, test_db, client):
         await update_community(enabled=True, iata="LYS")
         with patch(

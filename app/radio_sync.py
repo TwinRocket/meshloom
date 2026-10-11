@@ -192,6 +192,7 @@ async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> st
     key_bytes = secret if isinstance(secret, bytes) else bytes(secret)
     key_hex = key_bytes.hex().upper()
 
+    from app.data.meshcore_channels import is_public_hashtag_channel
     from app.services.channel_membership import adopt_channel_record
     from app.services.meshloom_community import schedule_hashtag_names_publish
     from app.services.test_channel import is_test_channel_key, is_test_channel_name
@@ -208,7 +209,10 @@ async def upsert_channel_from_radio_slot(payload: dict, *, on_radio: bool) -> st
         is_hashtag=is_hashtag,
         on_radio=on_radio,
     )
-    await schedule_hashtag_names_publish([name], is_hashtag=is_hashtag)
+    # A "#" name on a slot with its own secret is a private channel: never publish it.
+    await schedule_hashtag_names_publish(
+        [name], is_hashtag=is_hashtag and is_public_hashtag_channel(name, key_hex)
+    )
     return key_hex
 
 

@@ -21,7 +21,7 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 
 Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié.
 
-Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live et la publication des noms hashtag attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Si vous avez désactivé Community, vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
+Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live, la publication des noms hashtag et les recherches de canaux attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Si vous avez désactivé Community, vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
 
 ## Installations neuves
 
@@ -42,7 +42,7 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 - Les **paquets bruts**, tels qu’ils circulent par les ondes, avec la force du signal, le nom de votre radio et sa clé publique. Les messages des salons privés et les messages directs restent chiffrés. Le texte de vos conversations ne passe jamais par ce chemin.
 - Un **message d’état**, à l’ouverture de la connexion puis toutes les cinq minutes : le nom de votre radio, sa clé publique, son modèle, sa version de firmware et ses paramètres radio (fréquence, largeur de bande, facteur d’étalement, taux de codage), la version de Meshloom, et les compteurs de la radio quand elle les fournit.
 - Des **requêtes d’annuaire.** Pour nommer un saut ou dessiner une zone de localisation RF, votre serveur interroge Community sur les nœuds concernés. Le navigateur ne parle jamais à Community lui-même : c’est votre serveur qui relaie. Les sauts d’un seul octet ne sont jamais envoyés.
-- Les **noms de salons hashtag.** Quand vous créez ou adoptez un salon hashtag, ou quand Meshloom en trouve un, son nom (50 au plus à la fois) est ajouté à la liste globale. Les noms ne sont pas regroupés par aéroport. Les clés ne sont pas partagées.
+- Les **noms de salons hashtag.** Quand vous créez ou adoptez un salon hashtag, ou quand Meshloom en trouve un, son nom (50 au plus à la fois) est ajouté à la liste globale. Les noms ne sont pas regroupés par aéroport. Les clés ne sont pas partagées. Un salon dont la clé ne découle pas de son nom est privé : son nom n’est jamais partagé, même s’il commence par `#`.
 - Des **recherches de canaux.** Pour reconnaître un canal inconnu, Meshloom envoie l’identifiant d’un octet du canal pour demander quels noms peuvent correspondre. Si rien ne correspond, il peut aussi envoyer un paquet chiffré de ce canal (une fois par identifiant tant que Meshloom tourne), pour que la communauté essaie d’en retrouver le nom. Seuls les canaux que vous ne pouvez pas lire sont concernés.
 
 La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.

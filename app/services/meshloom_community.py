@@ -448,7 +448,7 @@ async def resolve_hashtag_names(hash_bytes: list[str]) -> list[dict[str, str]]:
     """POST /v1/hashtags/resolve. Body is hash_bytes only — never ciphertext.
 
     Caller must have already checked Community on + IATA. ``stats_json``
-    raises when Community is off (no HTTP). Distinct names, all IATA.
+    raises when Community is off (no HTTP). Distinct names, global catalogue.
     """
     cleaned = _normalize_resolve_hash_bytes(hash_bytes)
     if not cleaned:
