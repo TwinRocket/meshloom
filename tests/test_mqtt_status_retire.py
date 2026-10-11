@@ -2,17 +2,19 @@
 
 A clean DISCONNECT makes the broker drop the Will, so a publisher that only
 cancels its loop leaves the last retained ``online`` on its status topic for
-good. ``retire_status()`` + ``stop()`` must publish an empty retained payload
-on that topic before the DISCONNECT.
+good. Every clean ``stop()`` publishes the Will's retained ``offline`` itself;
+``retire_status()`` + ``stop()`` then also clears the topic with an empty
+retained payload, all before the DISCONNECT.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -92,6 +94,11 @@ def _env():
         patch("app.fanout.meshloom_stats._generate_jwt_token", return_value="jwt"),
         patch("app.fanout.community_mqtt._generate_jwt_token", return_value="jwt"),
         patch("app.fanout.mqtt_base._broadcast_health"),
+        # The publisher re-checks the egress guard before each connect.
+        patch(
+            "app.services.meshloom_community.community_egress_state",
+            AsyncMock(return_value=SimpleNamespace(enabled=True)),
+        ),
         patch("app.websocket.broadcast_success"),
         patch("app.websocket.broadcast_error"),
         patch("app.websocket.broadcast_health"),
@@ -100,6 +107,16 @@ def _env():
         p.start()
     yield
     patch.stopall()
+
+
+def _offline_events(events: list[tuple], topic: str) -> list[tuple]:
+    out = []
+    for e in events:
+        if e[0] != "publish" or e[1] != topic or not isinstance(e[2], str):
+            continue
+        if json.loads(e[2]).get("status") == "offline":
+            out.append(e)
+    return out
 
 
 class TestRetireStatus:
@@ -114,19 +131,42 @@ class TestRetireStatus:
         pub.retire_status()
         await pub.stop()
 
+        offline = _offline_events(events, topic)
         clear = ("publish", topic, b"", True, 1)
+        assert len(offline) == 1
         assert clear in events
+        # offline first: if the clear fails, "offline" stays, never "online".
+        assert events.index(offline[0]) < events.index(clear)
         assert events.index(clear) < events.index(("disconnect",))
         assert events[-1] == ("disconnect",)
 
     @pytest.mark.asyncio
-    async def test_plain_stop_keeps_retained_status(self):
-        """A reload or a shutdown is not an opt-out: no empty payload."""
+    async def test_plain_stop_publishes_offline_and_keeps_topic(self):
+        """A reload or a shutdown: the Will's "offline", retained; no clear."""
         events: list[tuple] = []
         pub = await _start(events)
+        topic = f"meshcore/CDG/{PUBKEY_HEX}/status"
         await pub.stop()
         assert not [e for e in events if e[0] == "publish" and e[2] == b""]
+        offline = _offline_events(events, topic)
+        assert len(offline) == 1
+        assert offline[0][3] is True and offline[0][4] == 1
+        body = json.loads(offline[0][2])
+        assert body["origin_id"] == PUBKEY_HEX
+        assert events.index(offline[0]) < events.index(("disconnect",))
         assert events[-1] == ("disconnect",)
+
+    @pytest.mark.asyncio
+    async def test_stop_while_disconnected_publishes_nothing(self):
+        """Broker unreachable at opt-out: nothing to send, the stop still ends."""
+        events: list[tuple] = []
+        pub = await _start(events)
+        pub.connected = False
+        pub.retire_status()
+        await pub.stop()
+        assert _offline_events(events, f"meshcore/CDG/{PUBKEY_HEX}/status") == []
+        assert not [e for e in events if e[0] == "publish" and e[2] == b""]
+        assert pub._task is None
 
     @pytest.mark.asyncio
     async def test_hung_clear_is_bounded_and_still_disconnects(self, monkeypatch):

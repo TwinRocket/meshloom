@@ -260,6 +260,18 @@ def _get_client_version() -> str:
     return f"{_CLIENT_ID}/{build.version}-{commit_hash}"
 
 
+def _offline_status_payload(device_name: str, pubkey_hex: str) -> str:
+    """The ``offline`` status: the Will's payload, also published on a clean stop."""
+    return json.dumps(
+        {
+            "status": "offline",
+            "timestamp": _format_utc_timestamp(),
+            "origin": device_name or "MeshCore Device",
+            "origin_id": pubkey_hex,
+        }
+    )
+
+
 class CommunityMqttPublisher(BaseMqttPublisher):
     """Manages the community MQTT connection and publishes raw packets."""
 
@@ -276,29 +288,35 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         self._last_stats_fetch: float = 0.0
         self._last_status_publish: float = 0.0
         # Topic of the last retained "online" status, and whether the next
-        # stop() must clear it (opt-out, IATA change). A plain reload or a
-        # shutdown leaves it alone.
+        # stop() must also clear it (opt-out, IATA change). Any clean stop
+        # (reload, shutdown) first replaces it with a retained "offline".
         self._last_status_topic: str | None = None
+        self._last_status_identity: tuple[str, str] = ("", "")
         self._retire_status_on_stop: bool = False
 
     def retire_status(self) -> None:
         """Make the next ``stop()`` clear the retained status before DISCONNECT.
 
-        The broker drops the Will on a clean DISCONNECT, so without this the
-        last retained ``online`` would stay on the topic for good.
+        Used on opt-out and when the status topic moves (IATA or broker
+        change): nothing of this node must stay on the old topic.
         """
         self._retire_status_on_stop = True
 
     async def _before_disconnect(self, client: aiomqtt.Client) -> None:
-        if not self._retire_status_on_stop:
-            return
+        retire = self._retire_status_on_stop
         self._retire_status_on_stop = False
         topic = self._last_status_topic
         if not topic:
             return
-        # An empty retained payload deletes the retained message (MQTT 3.1.1
-        # 3.3.1.3). QoS 1 so the PUBACK confirms it before we disconnect.
-        await client.publish(topic, b"", qos=1, retain=True)
+        # A clean DISCONNECT makes the broker drop the Will, so say "offline"
+        # ourselves, retained, as the Will would have. QoS 1: the PUBACK
+        # confirms each step before the next one.
+        offline = _offline_status_payload(*self._last_status_identity)
+        await client.publish(topic, offline, qos=1, retain=True)
+        if retire:
+            # An empty retained payload deletes the retained message (MQTT
+            # 3.1.1 3.3.1.3). If this step fails, "offline" stays, not "online".
+            await client.publish(topic, b"", qos=1, retain=True)
         self._last_status_topic = None
 
     async def start(self, settings: object) -> None:
@@ -375,14 +393,7 @@ class CommunityMqttPublisher(BaseMqttPublisher):
             device_name = radio_manager.meshcore.self_info.get("name", "")
 
         status_topic = _build_status_topic(s, pubkey_hex)
-        offline_payload = json.dumps(
-            {
-                "status": "offline",
-                "timestamp": _format_utc_timestamp(),
-                "origin": device_name or "MeshCore Device",
-                "origin_id": pubkey_hex,
-            }
-        )
+        offline_payload = _offline_status_payload(device_name, pubkey_hex)
 
         kwargs: dict[str, Any] = {
             "hostname": broker_host,
@@ -570,6 +581,7 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         await self.publish(status_topic, payload, retain=True)
         if self.connected:
             self._last_status_topic = status_topic
+            self._last_status_identity = (device_name, pubkey_hex)
         self._last_status_publish = time.monotonic()
 
     async def _on_connected_async(self, settings: object) -> None:
