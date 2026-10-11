@@ -17,6 +17,8 @@ This file is the canonical entry point for every coding agent and tool.
 
 ## Working rules
 
+The rules that keep changes safe: check the code rather than trust the docs, respect the shared contracts, and leave the parked projects alone.
+
 - **Docs and contracts are not authoritative.** Every `AGENTS.md`, README, user
   doc and contract was written by an LLM and may be wrong. Check every claim against
   the code before you rely on it. If a doc is wrong, fix it in the same PR.
@@ -35,8 +37,11 @@ This file is the canonical entry point for every coding agent and tool.
 - Prefer fewer, stronger modules over thin wrappers. Use typed contracts (Pydantic
   models, TS types) at API, WebSocket and repository boundaries. Keep refactors
   behaviour-preserving, with tests around the moved seam.
+- **Keep the docs in sync with every change.** Any change (code, config, CI, scripts, infra) comes with a check of the docs that describe it: `AGENTS.md`, `README.md`, `README_ADVANCED.md`, `README_HA.md`, `CONTRIBUTING.md`, `docs/user/` (including its copy on the website), the shared contracts, ADRs and header comments. If they no longer match, fix them in the same pull request, and say in the PR body which docs were checked or updated.
 
 ## Repository map
+
+Where to find what, folder by folder.
 
 ```
 app/                  FastAPI backend (see app/AGENTS.md)
@@ -58,11 +63,16 @@ pkg/rpi/              Raspberry Pi image and kiosk files
 scripts/quality/      all_quality.sh (gate), extended_quality.sh, e2e.sh, docker_ci.sh
 scripts/build/        publish.sh (release), tag_release.sh (recovery), nFPM, Pi images, signing and version checks
 scripts/setup/        install.sh (public one-liner), compose update helper, embed sync
+scripts/test/         upgrade matrix (apt and compose upgrades, run by hand)
+scripts/bench/        backend_perf.py, a manual benchmark
 docs/user/            user docs (en, fr), built by the meshloom.app site from this folder
-.github/workflows/    CI, release, packages, repo publication
+                      (docs-site.yml asks that site to rebuild whenever this folder changes on main)
+.github/workflows/    CI (all-quality, codeql, addon), release, packages, repo publication, image, docs-site
 ```
 
 ## Architecture
+
+How a radio message travels through the program, in and out.
 
 - **Radio in.** `meshcore` events reach `app/event_handlers.py`. Raw RF
   (`RX_LOG_DATA`) goes through `app/packet_processor.py`: parse, decrypt with
@@ -81,14 +91,17 @@ docs/user/            user docs (en, fr), built by the meshloom.app site from th
   including the radio transport, live in `app_settings` and are edited in the UI,
   not through environment variables. Fanout configs live in `fanout_configs`.
 - **Frontend.** In production FastAPI serves `frontend/dist`. When it is missing,
-  it falls back to `frontend/prebuilt`. With neither, it serves the API only and
-  logs an error.
+  it falls back to `frontend/prebuilt` (the release zip ships that one; the
+  Docker image builds `dist`). With neither, it serves the API only, answers `/` with a 404 JSON
+  explaining how to build the frontend, and logs an error.
 - **Community.** `app/services/meshloom_community.py` is the HTTP client. It has a
   circuit breaker, and a timeout or 5xx becomes a 503 for the browser.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
   module. Details are in `app/AGENTS.md`.
 
 ## Commands
+
+How to run Meshloom on your machine and how to check your work before sharing it.
 
 ```bash
 uv sync                                   # backend deps (Python >= 3.11; CI: 3.11, 3.12, 3.14)
@@ -120,6 +133,8 @@ The e2e tests (`tests/e2e`, Playwright, port 8001) need a real serial radio. The
 are not part of the gate. See `CONTRIBUTING.md`.
 
 ## Conventions and pitfalls (verified)
+
+Rules about identifiers, message duplicates and settings that are easy to get wrong, each checked against the code.
 
 - **Packet identities.** The `raw_packets.id` row is deduplicated by payload hash,
   with path bytes excluded. The WebSocket-only `observation_id` is unique per RF
@@ -176,6 +191,8 @@ are not part of the gate. See `CONTRIBUTING.md`.
 
 ## Known code bugs (open, not yet fixed)
 
+Defects we know about and have not fixed yet; do not describe them as features.
+
 Do not document these as features. Fix them only in a lot launched for that.
 
 - **Community Live.** The `gate` state and close code 4002 are dead code:
@@ -189,12 +206,14 @@ Do not document these as features. Fix them only in a lot launched for that.
 
 ## Environment variables
 
+The settings you can change from outside the program, before it starts.
+
 Read by `app/config.py` (`MESHCORE_` prefix) and a few services. Everything else is
 in `app_settings`, edited in the UI.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
+| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR`. The last 1000 lines are also kept in memory for `GET /api/debug` |
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | SQLite file; update job files live next to it |
 | `MESHCORE_DISABLE_BOTS` | `false` | disables bot execution and bot config (403) |
 | `MESHCORE_BASIC_AUTH_USERNAME` / `_PASSWORD` | empty | app-wide Basic auth; both or neither (startup error otherwise) |
@@ -202,38 +221,50 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | `set_channel` before every channel send |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | contact loading with `AUTO_ADD_OVERWRITE_OLDEST` |
 | `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | debug: skip post-connect sync/offload and periodic loops |
+| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | experimental clock fix when the radio clock is ahead of the host. Unusual name: no `MESHCORE_` prefix (`config.py`, `radio_sync.py`) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | enables `GET /api/radio/private-key` |
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | fallback when `app_settings.vapid_subject` is empty; Apple rejects `.local` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
 | `MESHCORE_MANAGED_PORTS` | `false` | the host owns the proxy port; `PATCH /api/radio/proxy` answers 409 to a port change |
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
-| `MESHCORE_PUBLIC_URL` | empty | **no effect today**: only `_resolve_request_base` (`app/frontend_static.py`) reads it, and only tests call that |
+| `MESHCORE_PUBLIC_URL` | empty | **no effect today**: only `_resolve_request_base` (`app/frontend_static.py`) reads it, and only tests call that. The add-on option `public_url` feeds it |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
 | `MESHLOOM_COMMUNITY_LOCKED` | unset | `1` prevents enabling Community from the UI |
-| `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source` |
+| `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source`. Set by `meshloom.env` (`package`) and by the add-on (`addon`) |
+| `MESHLOOM_UPDATE_HELPER` | unset | `compose` marks a compose install with its helper; `none` forces "apply not supported" (`app/services/install_kind.py`) |
+| `MESHLOOM_UPDATE_STATUS_PATH` | unset | where the compose helper's read-only status file is mounted (`app/services/update_apply.py`). Without it the package path `/var/lib/meshloom-update/status.json` is used |
+| `MESHLOOM_UPDATE_JOB_PATH` | unset | overrides the location of the legacy `update-job.json` (and so of `request-update`, which sits next to it) |
+| `MESHLOOM_UPDATE_LATEST` / `_HTML_URL` | unset | private test pin: makes the updater believe a given version is the latest, with an optional release page. Never shipped in `meshloom.env` |
+| `MESHLOOM_RUN_AS_USER` | unset | Docker only: numeric uid to drop to (the installer uses `10001`). `docker-entrypoint.sh` hands `/app/data` to that uid and adds the groups of the mapped serial devices. If a device stays unreadable it keeps running as root and logs a warning |
+| `APP_VERSION`, `COMMIT_HASH` | unset | build metadata read by `app/version_info.py`; the Docker image sets `COMMIT_HASH` |
 
 ## Delivery flow
 
-1. Open or reuse a GitHub issue first (`CONTRIBUTING.md`). A feature must not
-   appear first in a PR.
+The steps from an idea to a change merged on `main`.
+
+1. Outside contributors open or reuse a GitHub issue first (`CONTRIBUTING.md`):
+   a feature must not appear first in a PR. The repository owners are not bound
+   by this and may open a PR directly.
 2. Create a branch off up-to-date `origin/main`, one branch per lot (`fix/…`,
    `docs/…`, `feat/…`).
 3. Make small, atomic commits. Each commit should pass the tests on its own:
    history is kept, and bisect relies on it.
 4. Run `./scripts/quality/all_quality.sh` and get it green locally.
-5. Open a PR that links the issue (`Closes #N`) and states what was left out
+5. Open a PR that links the issue (`Closes #N`, when there is one) and states what was left out
    on purpose.
 6. Wait for green CI. `main` is protected by a ruleset: a PR is required, with
    the `all-quality`, `analyze (python)` and `analyze (javascript-typescript)`
-   checks green. Admins bypass it and may push directly to `main` (that is how
-   `publish.sh` pushes the release commit). A second ruleset reserves the
-   creation of `X.Y.Z` tags to admins. No workflow pushes `main` or creates a
+   checks green, merge commit only (branch deletion and force-push are also blocked). Admins bypass it and may push directly to `main` (that is how
+   `publish.sh` pushes the release commit). A second ruleset (`release-tags`) reserves the
+   creation, update and deletion of `X.Y.Z` tags to admins. No workflow pushes `main` or creates a
    tag.
 7. Merge with a **merge commit** (not squash, not rebase), only after a human
    approves.
 
 ## Signed release chain
+
+How a release is built and signed, so that installers can prove nothing was altered on the way.
 
 The key is `pkg/keys/`: primary fingerprint
 `D852F2F0892ABF379F52D110FB3EB7BBC43935C8`, RSA-4096, certify only, kept offline.
@@ -281,13 +312,17 @@ rotation steps are in `pkg/keys/README.md`.
    - the Raspberry Pi image job, and a dispatch of `nfpm-armhf.yml`. The armhf
      job reruns the repo publication and the manifest once its package is
      attached.
-3. `docker.yml` builds the multi-arch GHCR image: `:edge` on `main`, `:latest`
-   and `:X.Y.Z` on tags.
+3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
+   image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
+   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. Tag builds also get a
+   build provenance attestation. Pull requests build without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
    the apt pin. After changing any of them, run
    `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.
 
 ## Updater security principle
+
+How the in-app update stays safe: the part with administrator rights never trusts files written by the web application.
 
 **The root side never reads anything the app writes.** The app runs as the
 unprivileged user `meshloom`. Only these paths exist between the app and root:

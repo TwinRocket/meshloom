@@ -5,13 +5,15 @@ identities, message dedup, path hash modes, channel keys), environment variables
 chain, the updater security principle and the working rules are in the root `AGENTS.md`.
 Like everything else here, this file is a hypothesis: check it against the code.
 
-Stack: FastAPI, aiosqlite, Pydantic v2 (+ pydantic-settings), `meshcore` (PyPI), PyCryptodome, httpx.
+In short: the backend talks to one radio, stores what it hears in SQLite and exposes it to the web interface over REST and a WebSocket.
+
+Stack: FastAPI, aiosqlite, Pydantic v2 (+ pydantic-settings), `meshcore` (PyPI), PyCryptodome, httpx, Apprise (email alerts and the `apprise` fanout type).
 
 ## Module map
 
 ```text
 app/
-├── main.py              # lifespan, middleware (CORS, gzip, Basic auth), router registration, static mount
+├── main.py              # lifespan, middleware (CORS, gzip, Basic auth, security headers), router registration, static mount
 ├── config.py            # pydantic-settings, env prefix MESHCORE_ (see root env table)
 ├── database.py          # SQLite connection, base schema and indexes
 ├── migrations/          # _NNN_name.py, each exposes `async def migrate(conn)`; tracked by PRAGMA user_version
@@ -29,6 +31,13 @@ app/
 ├── security.py          # optional app-wide HTTP Basic auth (HTTP + WS)
 ├── frontend_static.py   # serve frontend/dist, else frontend/prebuilt
 ├── keystore.py          # in-memory private key for DM decryption
+├── path_utils.py        # path_len byte (hash mode + hop count), packet hash, region-scope buckets
+├── telemetry_alerts.py  # alert rules evaluated after each telemetry poll (see "Telemetry alerts")
+├── telemetry_interval.py # tracked-repeater polling interval and its daily ceiling
+├── notify.py, email_template.py # delivery of system alerts (push, email, webhook) and the HTML email
+├── version_info.py      # version and commit resolution (package metadata, env, build_info.json, pyproject)
+├── api_docs.py          # the custom /docs page
+├── region_scope.py, channel_constants.py, loop_lock.py # name normalisation, constants, loop-bound locks
 ├── push/                # Web Push (not a fanout module)
 ├── fanout/              # fanout bus, see fanout/AGENTS_fanout.md
 ├── repository/          # data access, one module per aggregate
@@ -51,9 +60,18 @@ Services worth knowing before touching a flow:
 | `directory.py`, `observer_reach.py`, `rf_locate.py` | Community directory, observer reach, RF locate |
 | `hashtag_catalogue.py`, `channel_membership.py` | Unlocking unknown GroupText; pending/adopted/refused channels |
 | `install_kind.py`, `update_apply.py`, `oss_updates.py`, `update_window.py` | In-app updater, see "Updates" |
-| `stale_contacts.py` | Hourly housekeeping: stale contacts, raw-packet retention (`raw_packet_retention_days`, 0 = off) |
+| `stale_contacts.py` | Hourly housekeeping: stale contacts (`stale_contact_days`, 0 = off), raw-packet retention (`raw_packet_retention_days`, 0 = off), bounded `incremental_vacuum` |
+| `radio_stats.py` | One 60 s loop that samples the local radio (noise floor, battery, airtime, packets). Feeds `GET /health`, the WS `health` frame and the fanout `on_health` hook |
+| `radio_commands.py`, `flood_scope.py` | Radio command helpers, including firmware-compatible flood-scope commands |
+| `region_candidates.py` | Tests proposed region names against packets already stored (no airtime) |
+| `test_channel.py` | The built-in `#meshloom-testing` channel used by the radio self-test and by `POST /tools/mesh-test`. It stores no channel and no message |
+| `backup.py` | JSON backup/restore of contacts, channels, settings and groups (the SQLite download lives beside it) |
+| `contact_access.py`, `contact_reconciliation.py` | Contact lookup and radio staging shared by the contact, repeater and room routers; contact/message reconciliation |
+| `raw_packet_decrypt.py`, `ttl_lru.py` | Decrypted info attached to raw packets; bounded TTL/LRU caches |
 
 ## Migrations
+
+Migrations change the shape of the database when the program is upgraded.
 
 - One file per version: `app/migrations/_NNN_description.py`. The runner discovers files by numeric prefix and runs pending ones in order.
 - Each migration runs in one transaction with the `user_version` bump. `conn.commit()` inside a migration is deferred to the runner. A migration that cannot run in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must be idempotent.
@@ -61,6 +79,8 @@ Services worth knowing before touching a flow:
 - Tests: `tests/test_migrations/`.
 
 ## Radio lifecycle
+
+How the program connects to the radio, keeps the link alive and notices when it is a different radio.
 
 - Transport lives in `app_settings` (`radio_transport`, `radio_serial_port` empty = auto-detect, `radio_tcp_*`, `radio_ble_*`). Until `radio_transport` is set, the radio stays paused.
 - A live key that differs from `radio_bound_public_key`, or mesh history with no bound key (`identity_unbound_legacy`), closes ingest and pauses setup until the user adopts or rejects (`POST /radio/identity/adopt|reject`). Do not call `pause_connection()` while the post-connect operation lock is held.
@@ -72,6 +92,8 @@ Services worth knowing before touching a flow:
 - Contact capacity: `max_radio_contacts`. Favorites load first, non-favorites refill to 80 %, and a full offload/reload triggers at 95 % (`RADIO_CONTACT_*_RATIO` in `radio_sync.py`).
 
 ## Sending
+
+How a message leaves the program and how we know it arrived.
 
 - Routers validate, then delegate to `services/message_send.py`. Radio access goes through `radio_operation()`.
 - Channel slots: the count comes from firmware `max_channels` (fallback 40). Slots are reused through a session LRU cache, except on TCP (`connection_info` starts with `TCP:`) or with `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true`; then every send calls `set_channel(...)`.
@@ -97,6 +119,8 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 
 ## Community client
 
+How Meshloom talks to the optional Meshloom Community service.
+
 ### HTTP (`services/meshloom_community.py`)
 
 - Effective config = env first, then DB. `MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST` and `_API_BASE` override the stored value on every read (`get_community_effective()`); they are not only seeds. `MESHLOOM_COMMUNITY` only seeds a brand-new DB. `MESHLOOM_COMMUNITY_LOCKED=1` makes enabling answer 403.
@@ -117,6 +141,8 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 
 ## Updates
 
+How the program learns that a new version exists and, on some installs, installs it.
+
 Security principle (root side never reads anything the app writes): see the root `AGENTS.md`.
 
 - `services/install_kind.py`: `MESHLOOM_INSTALL_KIND` (`package|compose|addon|container|source`) wins. Otherwise detection order: package helper (`/usr/lib/meshloom/apply-update` or `meshloom-update.service`), compose helper (`MESHLOOM_UPDATE_HELPER=compose` or `/var/lib/meshloom/update-helper-compose`), container, source. Apply is supported only for package/compose with a helper present. `addon` is declared only, never inferred, and never applies. `MESHLOOM_UPDATE_HELPER=none` forces apply off.
@@ -124,6 +150,18 @@ Security principle (root side never reads anything the app writes): see the root
 - `services/update_apply.py`: the app only writes the trigger `request-update` and its own `update-attempt.json`. The root helper publishes `status.json` (package: `/var/lib/meshloom-update/status.json`; compose: `MESHLOOM_UPDATE_STATUS_PATH`, a read-only mount). `read_job()` shows the attempt until the helper's `started_at` is at or after the request (±2 s), then the helper status. Helper `cooldown` shows as `failed`. The pre-4.18 `update-job.json` is read only as a fallback (`legacy_update_helper`). When the package `.path` unit is not active, the app falls back to `systemctl start --no-block meshloom-update.service` and checks that the unit really started.
 - Routes: `GET /updates`, `POST /updates/refresh`, `POST /updates/apply` (202; 409 `apply_not_supported` / `update_not_available` / `apply_in_progress`), `PATCH /updates/settings` (`auto_update` and window; not through `PATCH /settings`). Auto-apply waits 6 h after a failed job.
 - Tests: `tests/test_update_apply.py`, `tests/test_install_kind.py`, `tests/test_oss_updates.py`, `tests/test_update_helpers_exec.py` (runs the real helpers against hostile inputs).
+
+## Telemetry polling and alerts
+
+Repeaters and contacts that the user tracks are polled for telemetry (`radio_sync.py`), up to 8 tracked repeaters and 8 tracked contacts (`routers/settings.py`). The polling interval is one of 1, 2, 3, 4, 6, 8 (default), 12 or 24 hours. Repeaters and contacts each have their own ceiling of 24 checks per day, so the shortest allowed interval grows with the number of tracked nodes in that list (`telemetry_interval.py`); the stored choice is not changed, only clamped. With `telemetry_routed_hourly`, nodes reachable by a direct or routed path are also polled every hour. Each node keeps its samples for 30 days or 1000 samples, whichever comes first (`repository/repeater_telemetry.py`, `repository/contact_telemetry.py`).
+
+After each poll, `telemetry_alerts.note_telemetry_poll()` evaluates the rules. Untracked nodes never alert, and a poll skipped because the radio was busy is not counted as a miss. Tracking a node writes a per-node override with `alerting: false` (`alerting_off_patch`), so its alerts stay off until the user turns them on. The rules are:
+
+- gauges with a threshold and a re-arm margin (hysteresis, not a time window): `battery` (on by default, below 3.5 V), `noise` (on, above -90 dBm), `rssi`, `snr`, `tx_queue` (off by default), and scalar CayenneLPP readings such as `lpp:temperature` (off by default);
+- `silence`: alert after N polls without a usable reply (default 2, between 1 and 4);
+- `gps_lost`: a node that used to report a GPS fix stops reporting one.
+
+Rules and per-node overrides live in `app_settings.telemetry_alert_rules`; the on/off state of each alert in `telemetry_alert_state`. Delivery goes through `notify.dispatch_system_event()` to any of three transports: Web Push (on by default), email (an Apprise `mailto` URL built on the fly from the SMTP settings, never stored as a URL) and a signed webhook (`X-Webhook-Event`, optional `X-Webhook-Signature: sha256=<HMAC of the body>`). Failures are only logged at debug level. SMTP password and webhook secret are stored in `app_settings.notification_destinations`; the API returns them as `********` and a PATCH that sends `********` back keeps the stored value. `POST /settings/notification-destinations/test` sends a fixed test alert on the email or the webhook channel (400 when it is not configured, 502 when the send fails). `GET /settings/telemetry-alert-catalog` lists the metrics a node can alert on.
 
 ## Web Push (`app/push/`)
 
@@ -136,6 +174,8 @@ Per-browser subscriptions in `push_subscriptions` (`UNIQUE(endpoint)`). VAPID ke
 - Changing these belongs to the out-of-scope Access and Plugins workstreams (root `AGENTS.md`, "Working rules"). Do not change them in passing.
 
 ## API routes (all under `/api`)
+
+Every address the web interface (or a script) can call.
 
 Source of truth: `app/routers/*.py` and `app.include_router(...)` in `main.py`. The OpenAPI docs are served by `api_docs.py`.
 

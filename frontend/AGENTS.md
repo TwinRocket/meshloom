@@ -26,6 +26,8 @@ npm run build        # tsc && vite build -> dist/
 
 ## Where things live
 
+A map of the main files of the web interface.
+
 - `main.tsx`: waits for `i18nReady`, then renders. It also registers `public/sw.js`, on secure contexts only.
 - `App.tsx` wires the hooks and builds the `AppShell` props. `components/AppShell.tsx` owns the layout, the settings/search/cracker surfaces, the modals, and the info sheets. `components/ConversationPane.tsx` picks the active surface: map, live, visualizer, raw feed, trace, locate, test, repeater dashboard, room gate, or chat.
 - `api.ts`: typed REST client. `types.ts`: shared contracts. `wsEvents.ts` + `useWebSocket.ts`: the WebSocket.
@@ -36,6 +38,8 @@ npm run build        # tsc && vite build -> dist/
 - `src/test/`: vitest suites. `tests/e2e/` at the repo root: Playwright, for layout checks that jsdom cannot do.
 
 ## Invariants that are easy to break
+
+Rules that, if broken, make the interface slow or wrong without any visible error.
 
 ### Packet stream stays out of React ancestors
 `stores/rawPacketStore.ts` is read through `useSyncExternalStore` (`useRawPackets()`, `useRawPacketStatsSession()`). Only leaf views subscribe to it: `RawPacketFeedView`, `VisualizerView`, `LiveView`, `ControlJournalView`, and `CrackerPanel`. **No ancestor of `MessageList` (`App`, `AppShell`, `ConversationPane`) may subscribe**, or every packet re-renders the whole tree. `src/test/appPacketIsolation.test.tsx` enforces this rule.

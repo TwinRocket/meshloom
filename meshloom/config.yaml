@@ -28,7 +28,8 @@ ports:
   # Home Assistant and without opening anything. Give it a host port only to reach
   # Meshloom on a hostname of its own — a tunnel pointing at it directly, which
   # ingress cannot provide since it lives under Home Assistant's own address. Web
-  # Push needs such a hostname, and `public_url` is where you then state it.
+  # Push needs such a hostname. `public_url` is accepted for that hostname, but no
+  # feature reads it yet.
   8000/tcp: null
 ports_description:
   5051/tcp: Radio proxy — other MeshCore clients connect here
@@ -57,8 +58,8 @@ schema:
   # once here and pushed into Meshloom at startup; the field is read-only in the app
   # for that reason.
   proxy_port: port
-  # Set this when a tunnel gives the instance a durable address. Web Push needs one:
-  # ingress alone has no stable external URL.
+  # The address a tunnel gives the instance, if any. Web Push needs a durable
+  # address (ingress alone has none), but this option is not used by any feature yet.
   public_url: str?
   basic_auth_username: str?
   basic_auth_password: password?
