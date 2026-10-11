@@ -255,6 +255,16 @@ jobs:
             --ref "${{ github.event.repository.default_branch }}" \
             -f version="${{ needs.version.outputs.version }}"
 
+  # meshloom.app builds its docs from the latest tag: rebuild it now that the
+  # release is public. Called here because a GITHUB_TOKEN release does not
+  # trigger docs-site.yml's on.release.
+  docs-site:
+    needs: [publish]
+    uses: ./.github/workflows/docs-site.yml
+    secrets:
+      DOCS_SITE_DEPLOY_HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}
+    permissions: {}
+
   # Publishes amd64/arm64 immediately. The armhf workflow refreshes the index
   # once that package is attached, rather than holding this run for QEMU.
   linux-repo:

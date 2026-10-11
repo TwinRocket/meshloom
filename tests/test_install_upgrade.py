@@ -388,18 +388,27 @@ def test_packaging_works_from_a_relative_stage_dir(tmp_path: Path) -> None:
     assert "--packager rpm" not in invocations
 
 
-def test_a_doc_change_asks_the_site_to_rebuild() -> None:
-    """meshloom.app pulls docs/user/ when it builds, and nothing here built it.
+def test_a_release_asks_the_site_to_rebuild() -> None:
+    """meshloom.app pulls docs/user/ from the latest X.Y.Z tag when it builds.
 
-    A correction merged into this repository stayed invisible until someone
-    redeployed that site by hand, which is how readers kept seeing a sentence
-    saying a 32-bit Raspberry Pi could not install Meshloom after it could.
+    Nothing here used to build it, so a correction stayed invisible until
+    someone redeployed the site by hand. Rebuilding on a push to main does not
+    help either: the site would only pull the previous tag again. The release
+    workflow calls docs-site.yml after `publish`, because a release published
+    with the GITHUB_TOKEN never triggers on.release.
     """
-    workflow = (
-        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "docs-site.yml"
-    ).read_text(encoding="utf-8")
-    assert "docs/user/**" in workflow
-    assert "DOCS_SITE_DEPLOY_HOOK" in workflow
+    workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    site = (workflows / "docs-site.yml").read_text(encoding="utf-8")
+    assert "DOCS_SITE_DEPLOY_HOOK" in site
+    assert "workflow_call:" in site
+    assert "workflow_dispatch:" in site
+    assert "docs/user/**" not in site
+
+    release = (workflows / "release.yml").read_text(encoding="utf-8")
+    job = release.split("\n  docs-site:\n", 1)[1].split("\n\n", 1)[0]
+    assert "needs: [publish]" in job
+    assert "uses: ./.github/workflows/docs-site.yml" in job
+    assert "DOCS_SITE_DEPLOY_HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}" in job
 
 
 # What the 4.17 installer wrote (write_docker_compose + its tag rewrite).
