@@ -269,9 +269,15 @@ describe('LiveView', () => {
     await waitFor(() =>
       expect(api.subscribeCommunityLive).toHaveBeenCalledWith(undefined, ['LYS'])
     );
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.iataFilter') }));
-    const menu = await screen.findByRole('menu', { name: i18n.t('live.iataMenu') });
-    expect(menu).toBeInTheDocument();
+    // The button's name is its visible text: the label and the selection.
+    const toggle = screen.getByRole('button', {
+      name: new RegExp(`^${i18n.t('live.iataFilter')}\\s*LYS$`),
+    });
+    fireEvent.click(toggle);
+    const panel = await screen.findByRole('group', { name: i18n.t('live.iataMenu') });
+    expect(panel).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveAttribute('aria-controls', panel.id);
     expect(await screen.findByRole('checkbox', { name: /NCE/ })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: /TLN/ })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: /LYS/ })).toBeChecked();
@@ -289,6 +295,32 @@ describe('LiveView', () => {
     expect(localStorage.getItem(LIVE_IATA_STORAGE_KEY)).toBe('all');
     await waitFor(() =>
       expect(api.subscribeCommunityLive).toHaveBeenLastCalledWith('live-session', null)
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: i18n.t('live.iataMenu') })).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+  });
+
+  it('keeps the session id the relay answers with', async () => {
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenCalledWith(undefined, ['LYS'])
+    );
+    // The relay forgot 'live-session' (TTL, restart) and minted a new one.
+    vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
+      session_id: 'renewed',
+      close_code: null,
+      opted_out: false,
+      connected: false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(i18n.t('live.iataFilter')) }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /NCE/ }));
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenCalledWith('live-session', ['LYS', 'NCE'])
+    );
+    fireEvent.click(screen.getByRole('checkbox', { name: /TLN/ }));
+    await waitFor(() =>
+      expect(api.subscribeCommunityLive).toHaveBeenLastCalledWith('renewed', ['LYS', 'NCE', 'TLN'])
     );
   });
 
@@ -330,7 +362,7 @@ describe('LiveView', () => {
     });
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     await waitFor(() => expect(api.getCommunityActiveIata).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('live.iataFilter') }));
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(i18n.t('live.iataFilter')) }));
     expect(await screen.findByRole('checkbox', { name: /MRS/ })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /LYS/ })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /NCE/ })).not.toBeInTheDocument();

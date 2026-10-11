@@ -7,6 +7,8 @@
 export const LIVE_IATA_STORAGE_KEY = 'meshloom-live-iata';
 /** Not a region: Community files unplaced observations under it. */
 export const LIVE_PLACEHOLDER_IATA = 'XXX';
+/** The relay refuses a longer list (backend `LIVE_IATA_SELECTION_MAX`). */
+export const LIVE_IATA_SELECTION_MAX = 64;
 
 /** `null` = every region. A non-empty list = these regions only. */
 export type LiveIataSelection = string[] | null;
@@ -20,7 +22,10 @@ export function normalizeIataCode(raw: unknown): string | null {
   return code;
 }
 
-/** Sorted, deduplicated, valid codes; an empty result means every region. */
+/**
+ * Sorted, deduplicated, valid codes. An empty result means every region, and so
+ * does a list longer than the relay accepts (the upstream goes global long before).
+ */
 export function normalizeLiveIataSelection(raw: unknown): LiveIataSelection {
   if (!Array.isArray(raw)) return null;
   const codes = new Set<string>();
@@ -28,7 +33,7 @@ export function normalizeLiveIataSelection(raw: unknown): LiveIataSelection {
     const code = normalizeIataCode(item);
     if (code) codes.add(code);
   }
-  return codes.size ? [...codes].sort() : null;
+  return codes.size && codes.size <= LIVE_IATA_SELECTION_MAX ? [...codes].sort() : null;
 }
 
 /** `undefined` when nothing was saved (or storage is unavailable). */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 
@@ -21,6 +21,9 @@ export function LiveIataMenu({ options, selection, radioIata, onChange }: LiveIa
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
   const radio = radioIata?.trim().toUpperCase() ?? '';
 
   useEffect(() => {
@@ -29,8 +32,12 @@ export function LiveIataMenu({ options, selection, radioIata, onChange }: LiveIa
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      buttonRef.current?.focus();
     };
+    // Focus moves into the panel, on the first box, when it opens.
+    panelRef.current?.querySelector<HTMLElement>('button[role="checkbox"], input')?.focus();
     document.addEventListener('pointerdown', onPointer);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -62,13 +69,14 @@ export function LiveIataMenu({ options, selection, radioIata, onChange }: LiveIa
 
   return (
     <div ref={rootRef} className="relative">
+      {/* Disclosure: the visible text ("Regions" + the selection) is the name. */}
       <button
+        ref={buttonRef}
         type="button"
-        className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5"
+        className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setOpen((value) => !value)}
-        aria-label={t('live.iataFilter')}
         aria-expanded={open}
-        aria-haspopup="menu"
+        aria-controls={open ? panelId : undefined}
         title={t('live.iataHelp')}
       >
         <span className="text-muted-foreground">{t('live.iataFilter')}</span>
@@ -77,7 +85,9 @@ export function LiveIataMenu({ options, selection, radioIata, onChange }: LiveIa
       </button>
       {open && (
         <div
-          role="menu"
+          ref={panelRef}
+          id={panelId}
+          role="group"
           aria-label={t('live.iataMenu')}
           className="absolute left-0 z-50 mt-1 max-h-80 min-w-[12rem] overflow-y-auto rounded-md border border-border bg-background p-2 shadow-md"
         >

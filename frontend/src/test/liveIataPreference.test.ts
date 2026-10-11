@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  LIVE_IATA_SELECTION_MAX,
   LIVE_IATA_STORAGE_KEY,
   effectiveLiveIataSelection,
   getSavedLiveIataSelection,
@@ -32,6 +33,18 @@ describe('Live region preference', () => {
     expect(getSavedLiveIataSelection()).toBeNull();
     setSavedLiveIataSelection([]);
     expect(getSavedLiveIataSelection()).toBeNull();
+  });
+
+  it('a list longer than the relay accepts means every region', () => {
+    const codes = Array.from(
+      { length: LIVE_IATA_SELECTION_MAX + 1 },
+      (_, i) =>
+        `A${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))}`
+    );
+    expect(normalizeLiveIataSelection(codes.slice(0, LIVE_IATA_SELECTION_MAX))).toHaveLength(
+      LIVE_IATA_SELECTION_MAX
+    );
+    expect(normalizeLiveIataSelection(codes)).toBeNull();
   });
 
   it('ignores garbage and the XXX placeholder', () => {

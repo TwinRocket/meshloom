@@ -33,6 +33,7 @@ import {
 import {
   effectiveLiveIataSelection,
   getSavedLiveIataSelection,
+  normalizeLiveIataSelection,
   setSavedLiveIataSelection,
   type LiveIataSelection,
 } from '../utils/liveIataPreference';
@@ -73,6 +74,24 @@ interface LiveViewProps {
 
 /** Community caches its list 30 s and the backend proxy 60 s. */
 const LIVE_ACTIVE_IATA_REFRESH_MS = 5 * 60 * 1000;
+
+/**
+ * Heartbeat (or region change) for this tab's Live session. A relay that forgot
+ * the session (TTL, restart) answers with a new id: keep it, or every beat would
+ * mint one more session that lingers until its TTL.
+ */
+function refreshLiveSession(sessionRef: { current: string | null }, iata: LiveIataSelection): void {
+  const sessionId = sessionRef.current;
+  if (!sessionId) return;
+  void api.subscribeCommunityLive(sessionId, iata).then(
+    (status) => {
+      if (status.session_id && sessionRef.current === sessionId) {
+        sessionRef.current = status.session_id;
+      }
+    },
+    () => {}
+  );
+}
 
 function communityReadyForLive(enabled: boolean, iata: string | undefined): boolean {
   return enabled && typeof iata === 'string' && iata.trim() !== '';
@@ -218,7 +237,6 @@ export function LiveView({
       applyLiveStatus({ close_code: null, opted_out: !communityEnabled });
       return;
     }
-    let sessionId: string | null = null;
     let cancelled = false;
     void api.subscribeCommunityLive(undefined, iataSelectionRef.current).then(
       (status) => {
@@ -226,8 +244,7 @@ export function LiveView({
           if (status.session_id) void api.unsubscribeCommunityLive(status.session_id);
           return;
         }
-        sessionId = status.session_id ?? null;
-        liveSessionRef.current = sessionId;
+        liveSessionRef.current = status.session_id ?? null;
         applyLiveStatus(status);
       },
       () => {
@@ -235,12 +252,13 @@ export function LiveView({
       }
     );
     // The heartbeat carries the regions too, so the relay's union stays right.
-    const beat = window.setInterval(() => {
-      if (sessionId)
-        void api.subscribeCommunityLive(sessionId, iataSelectionRef.current).catch(() => {});
-    }, 30_000);
+    const beat = window.setInterval(
+      () => refreshLiveSession(liveSessionRef, iataSelectionRef.current),
+      30_000
+    );
     return () => {
       cancelled = true;
+      const sessionId = liveSessionRef.current;
       liveSessionRef.current = null;
       window.clearInterval(beat);
       if (sessionId) void api.unsubscribeCommunityLive(sessionId);
@@ -250,9 +268,7 @@ export function LiveView({
   // A new region choice reaches the relay at once, not at the next heartbeat.
   const iataSelectionKey = iataSelection === null ? '*' : iataSelection.join(',');
   useEffect(() => {
-    const sessionId = liveSessionRef.current;
-    if (!sessionId) return;
-    void api.subscribeCommunityLive(sessionId, iataSelectionRef.current).catch(() => {});
+    refreshLiveSession(liveSessionRef, iataSelectionRef.current);
   }, [iataSelectionKey]);
 
   // Community's active regions feed the picker. Nothing is asked while it is off.
@@ -321,8 +337,10 @@ export function LiveView({
   );
 
   const changeIataSelection = useCallback((next: LiveIataSelection) => {
-    setSavedIata(next);
-    setSavedLiveIataSelection(next);
+    // Past LIVE_IATA_SELECTION_MAX codes this is "every region" (the relay refuses more).
+    const normalized = normalizeLiveIataSelection(next);
+    setSavedIata(normalized);
+    setSavedLiveIataSelection(normalized);
   }, []);
 
   useEffect(() => {
