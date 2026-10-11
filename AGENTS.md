@@ -243,8 +243,8 @@ in `app_settings`, edited in the UI.
 The steps from an idea to a change merged on `main`.
 
 1. Outside contributors open or reuse a GitHub issue first (`CONTRIBUTING.md`):
-   a feature must not appear first in a PR. The owners and maintainers of the
-   repository are not bound by this and may open a PR directly.
+   a feature must not appear first in a PR. The repository owners are not bound
+   by this and may open a PR directly.
 2. Create a branch off up-to-date `origin/main`, one branch per lot (`fix/…`,
    `docs/…`, `feat/…`).
 3. Make small, atomic commits. Each commit should pass the tests on its own:
@@ -311,8 +311,10 @@ rotation steps are in `pkg/keys/README.md`.
    - the Raspberry Pi image job, and a dispatch of `nfpm-armhf.yml`. The armhf
      job reruns the repo publication and the manifest once its package is
      attached.
-3. `docker.yml` builds the multi-arch GHCR image (amd64, arm64, armv7): `:edge`
-   on `main`; `:latest`, `:X.Y.Z` and `:X.Y` on tags.
+3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
+   image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
+   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. Tag builds also get a
+   build provenance attestation. Pull requests build without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
    the apt pin. After changing any of them, run
    `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.

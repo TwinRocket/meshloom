@@ -139,7 +139,7 @@ Accept the browser warning, or use [mkcert](https://github.com/FiloSottile/mkcer
 
 ## Portainer GitOps
 
-For a stack that **builds the image from this repo** (not the published one), use [`docker-compose.dev.yaml`](docker-compose.dev.yaml) as the Compose path and load the keys from [`.env.example`](.env.example) into the Portainer Environment section (or a local `.env`). Besides the `MESHCORE_*` variables, the file reads `MESHLOOM_HTTP_PORT` (web port on the host, default 8000), `MESHLOOM_PROXY_PORT` (radio proxy port on the host, default 5001), `MESHLOOM_DATA_PATH` (host folder for the database) and `MESHLOOM_NETWORK` (Docker network name). Do not commit real radio hosts, ports, or VAPID addresses.
+For a stack that **builds the image from this repo** (not the published one), use [`docker-compose.dev.yaml`](docker-compose.dev.yaml) as the Compose path and load the keys from [`.env.example`](.env.example) into the Portainer Environment section (or a local `.env`). Besides the `MESHCORE_*` variables, the file reads `MESHLOOM_HTTP_PORT` (web port on the host, default 8000), `MESHLOOM_PROXY_PORT` (radio proxy port on the host, default 5001), `MESHLOOM_DATA_PATH` (host folder for the database, default `/app/data` on the host: set it) and `MESHLOOM_NETWORK` (Docker network name). Do not commit real radio hosts, ports, or VAPID addresses.
 
 To run the **published image** instead, start from [`docker-compose.example.yml`](docker-compose.example.yml) and pin `MESHLOOM_IMAGE` (see the Update section of the [README](README.md)).
 
@@ -167,10 +167,8 @@ MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 On a package install, add `MESHCORE_LOG_LEVEL=DEBUG` to `/etc/meshloom/meshloom.env`, restart the service and read the logs with `journalctl -u meshloom`. With Docker, add it to `environment:` and use `docker compose logs meshloom`. The add-on has a `log_level` option.
 
-You can also navigate to `/api/debug` (or go to Settings -> About -> "Open debug support snapshot" at the bottom). This debug block contains information about the operating environment, expectations around keys and channels, and radio status. It also includes the most recent logs. **Non-log information reveals no keys, channel names, or other privilege information beyond the names of your bots. The logs, however, may contain channel names or keys (but never your private key).** If you do not wish to include this information, copy up to the `STOP COPYING HERE` marker in the debug body.
+You can also navigate to `/api/debug` (or go to Settings -> About -> "Open debug support snapshot" at the bottom). This debug block describes the operating environment, the radio's status and settings, and whether the channels and contacts on the radio match what Meshloom expects. It ends with the most recent log lines (up to 1000). **Above the logs there are no channel names and no secret keys: contacts and channel keys appear only as SHA-256 hashes. It does show how the radio is connected (serial port, TCP host or Bluetooth address), the radio's own name and public key, and the name and last error of any integration that is failing. The logs may contain channel names or keys (but never your private key).** If you do not want to share the logs, copy only up to the `STOP COPYING HERE` marker.
 
 ## Development Notes
 
 For day-to-day development, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Windows: an intermittent startup error `"Received empty packet: index out of range"` with a failed contact sync has been reported. Its cause is unknown; restarting usually clears it.

@@ -71,12 +71,12 @@ Repeaters must first be added to automatic telemetry tracking (from the repeater
 | `sensor.<repeater_name>_last_snr` | -- | dB | Last signal-to-noise ratio |
 | `sensor.<repeater_name>_packets_received` | -- | count | Total packets received |
 | `sensor.<repeater_name>_packets_sent` | -- | count | Total packets sent |
-| `sensor.<repeater_name>_recv_errors` | -- | count | Receive errors |
+| `sensor.<repeater_name>_rx_errors` | -- | count | Receive errors |
 | `sensor.<repeater_name>_uptime` | Duration | s | Uptime since last reboot |
 
-If the repeater also reports CayenneLPP readings (temperature, humidity, voltage...), Meshloom adds one more sensor per reading, named like the contact ones below (`sensor.<repeater_name>_lpp_<type>_ch<n>`). A GPS reading from a repeater is not published.
+If the repeater also reports CayenneLPP readings (temperature, humidity, voltage...), Meshloom adds one more sensor per reading, named like the contact ones below (for example `sensor.<repeater_name>_temperature_ch_1`). A GPS reading from a repeater is not published.
 
-If Meshloom already has a cached telemetry snapshot for that repeater, it republishes it on startup so HA can populate the sensors immediately instead of waiting for the next collection cycle. Repeater and LPP sensors are marked unavailable in HA if no new value arrives within 10 hours.
+If Meshloom already has a cached telemetry snapshot for that repeater, it republishes it on startup so HA can populate the sensors immediately instead of waiting for the next collection cycle. Repeater and LPP sensors are marked unavailable in HA if no new value arrives within 10 hours, so with a 12- or 24-hour polling interval they show as unavailable between polls.
 
 ### Contact Devices
 
@@ -87,12 +87,12 @@ One HA device per tracked contact, which can expose two kinds of entities.
 - **Advertisements** -- updates passively whenever Meshloom hears an advert carrying GPS coordinates from that contact. No radio commands are sent; it piggybacks on normal mesh traffic.
 - **CayenneLPP telemetry** -- if the contact also reports a GPS reading in its LPP telemetry (and is tracked for contact telemetry collection), that reading updates the tracker too. GPS is routed to the tracker, not exposed as a numeric sensor.
 
-**CayenneLPP sensors** -- if the contact is tracked for telemetry collection and reports LPP readings, a numeric sensor is created per reading, auto-detected from the data (e.g. `sensor.<contact_name>_lpp_temperature_ch1`, `_lpp_voltage_ch1`).
+**CayenneLPP sensors** -- if the contact is tracked for telemetry collection and reports LPP readings, a numeric sensor is created per reading, auto-detected from the data. HA names it after the reading type and channel, for example `sensor.<contact_name>_temperature_ch_1` or `_voltage_ch_1`; a second reading of the same type on the same channel gets a `_2` suffix. In MQTT payloads the same reading is the field `lpp_<type>_ch<n>`.
 
 | Entity | Description |
 |--------|-------------|
 | `device_tracker.<contact_name>` | GPS position (`latitude`/`longitude` attributes, plus `altitude` when a telemetry reading includes it) |
-| `sensor.<contact_name>_lpp_<type>_ch<n>` | CayenneLPP sensor reading (auto-detected; GPS excluded -- see tracker above) |
+| `sensor.<contact_name>_<type>_ch_<n>` | CayenneLPP sensor reading (auto-detected; GPS excluded -- see tracker above) |
 
 ### Message Event Entity
 

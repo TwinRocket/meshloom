@@ -56,7 +56,7 @@ in Meshloom's own settings is read-only here.
 The add-on tells Meshloom the port at startup (`MESHCORE_RADIO_PROXY_PORT`, from
 the `proxy_port` option, `5051` by default), and Meshloom listens on it whatever
 the stored setting says. The proxy itself is off until you enable it in
-**Settings > Proxy**. It has no authentication: anyone who can reach the
+**Settings → Proxy**. It has no authentication: anyone who can reach the
 published port can use the radio. Leave `proxy_port` at `5051`: it has to equal the container
 port the add-on forwards, which is fixed by the manifest. Only the host side of
 the mapping is yours to change, in the Network panel.

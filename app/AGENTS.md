@@ -60,7 +60,7 @@ Services worth knowing before touching a flow:
 | `directory.py`, `observer_reach.py`, `rf_locate.py` | Community directory, observer reach, RF locate |
 | `hashtag_catalogue.py`, `channel_membership.py` | Unlocking unknown GroupText; pending/adopted/refused channels |
 | `install_kind.py`, `update_apply.py`, `oss_updates.py`, `update_window.py` | In-app updater, see "Updates" |
-| `stale_contacts.py` | Housekeeping: stale contacts (`stale_contact_days`, 0 = off), raw-packet retention (`raw_packet_retention_days`, 0 = off), bounded `incremental_vacuum` |
+| `stale_contacts.py` | Hourly housekeeping: stale contacts (`stale_contact_days`, 0 = off), raw-packet retention (`raw_packet_retention_days`, 0 = off), bounded `incremental_vacuum` |
 | `radio_stats.py` | One 60 s loop that samples the local radio (noise floor, battery, airtime, packets). Feeds `GET /health`, the WS `health` frame and the fanout `on_health` hook |
 | `radio_commands.py`, `flood_scope.py` | Radio command helpers, including firmware-compatible flood-scope commands |
 | `region_candidates.py` | Tests proposed region names against packets already stored (no airtime) |
@@ -153,9 +153,9 @@ Security principle (root side never reads anything the app writes): see the root
 
 ## Telemetry polling and alerts
 
-Repeaters and contacts that the user tracks are polled for telemetry (`radio_sync.py`), up to 8 tracked repeaters and 8 tracked contacts (`routers/settings.py`). The polling interval is one of 1, 2, 3, 4, 6, 8 (default), 12 or 24 hours. A ceiling of 24 repeater status checks per day is shared by all tracked repeaters, so the shortest allowed interval grows with their number (`telemetry_interval.py`). Each node keeps its samples for 30 days or 1000 samples, whichever comes first (`repository/repeater_telemetry.py`, `repository/contact_telemetry.py`).
+Repeaters and contacts that the user tracks are polled for telemetry (`radio_sync.py`), up to 8 tracked repeaters and 8 tracked contacts (`routers/settings.py`). The polling interval is one of 1, 2, 3, 4, 6, 8 (default), 12 or 24 hours. Repeaters and contacts each have their own ceiling of 24 checks per day, so the shortest allowed interval grows with the number of tracked nodes in that list (`telemetry_interval.py`); the stored choice is not changed, only clamped. With `telemetry_routed_hourly`, nodes reachable by a direct or routed path are also polled every hour. Each node keeps its samples for 30 days or 1000 samples, whichever comes first (`repository/repeater_telemetry.py`, `repository/contact_telemetry.py`).
 
-After each poll, `telemetry_alerts.note_telemetry_poll()` evaluates the rules. Untracked nodes never alert, and a poll skipped because the radio was busy is not counted as a miss. The rules are:
+After each poll, `telemetry_alerts.note_telemetry_poll()` evaluates the rules. Untracked nodes never alert, and a poll skipped because the radio was busy is not counted as a miss. Tracking a node writes a per-node override with `alerting: false` (`alerting_off_patch`), so its alerts stay off until the user turns them on. The rules are:
 
 - gauges with a threshold and a re-arm margin (hysteresis, not a time window): `battery` (on by default, below 3.5 V), `noise` (on, above -90 dBm), `rssi`, `snr`, `tx_queue` (off by default), and scalar CayenneLPP readings such as `lpp:temperature` (off by default);
 - `silence`: alert after N polls without a usable reply (default 2, between 1 and 4);
