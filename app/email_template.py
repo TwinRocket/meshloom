@@ -1,13 +1,21 @@
-"""HTML notification emails (instance language, Meshloom mark, richer body)."""
+"""HTML notification emails (instance language, Meshloom mark, richer body).
+
+The email loads nothing from the network when it is opened: the mark is a PNG
+from this package, sent as an inline MIME part (``multipart/related``) and
+referenced by ``cid:``. No remote image, no link to a Meshloom site.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from html import escape
+from pathlib import Path
 from typing import Any, Literal
 
-LOGO_URL = "https://meshloom.app/meshloom-mark.svg"
-SITE_URL = "https://meshloom.app"
+# Inline logo: Apprise gives the part ``Content-ID: <LOGO_CID>`` because the
+# attachment name matches the ``cid:`` reference in the HTML (see notify.py).
+LOGO_CID = "meshloom-mark.png"
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / LOGO_CID
 
 AppLanguage = Literal["fr", "en"]
 
@@ -293,7 +301,7 @@ def render_html_email(payload: Mapping[str, Any], lang: AppLanguage) -> str:
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;padding-right:12px;">
-                    <img src="{escape(LOGO_URL, quote=True)}" width="40" height="32" alt="Meshloom" style="display:block;border:0;width:40px;height:auto;" />
+                    <img src="cid:{escape(LOGO_CID, quote=True)}" width="40" height="33" alt="Meshloom" style="display:block;border:0;width:40px;height:auto;" />
                   </td>
                   <td style="vertical-align:middle;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.04em;color:#f4f4f5;">
                     Meshloom
@@ -310,7 +318,7 @@ def render_html_email(payload: Mapping[str, Any], lang: AppLanguage) -> str:
           </tr>
           <tr>
             <td style="padding:16px 24px 22px 24px;border-top:1px solid #2a2d36;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8b8b96;">
-              <a href="{SITE_URL}" style="color:#3ee8ff;text-decoration:none;">{escape(copy["footer"])}</a>
+              {escape(copy["footer"])}
             </td>
           </tr>
         </table>
