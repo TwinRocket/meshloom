@@ -16,7 +16,7 @@ Meshloom takes over radio contacts and channels. A poor fit if you swap radios a
 
 ## Install
 
-On Linux the installer offers a background service (a signed `.deb` or `.rpm` package where one exists for your machine, otherwise a source install) or Docker. On macOS and other systems it offers Docker with a radio on the network, or simply points you to a Meshloom already running elsewhere. Radio transport is configured in the web UI after install. Use `bash -c` so prompts still have a terminal — do not pipe into `bash`.
+On Linux the installer offers a background service (a signed `.deb` or `.rpm` package where one exists for your machine, otherwise a source install; it refuses ARMv6 boards such as the Pi 1 and the original Pi Zero) or Docker. On macOS and other systems it offers Docker with a radio on the network, or simply points you to a Meshloom already running elsewhere. Radio transport is configured in the web UI after install. Use `bash -c` so prompts still have a terminal — do not pipe into `bash`.
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -66,6 +66,7 @@ Home Assistant: update the add-on there (the in-app updater only reports a new v
 ## More
 
 - User docs (source): [`docs/user/`](docs/user/) — published at https://meshloom.app/docs/
+- Security: report a vulnerability privately, see [SECURITY.md](SECURITY.md)
 - API docs once the server is up: http://127.0.0.1:8000/docs
 - Home Assistant — publishing the mesh over MQTT: [README_HA.md](README_HA.md)
 - Home Assistant — running Meshloom as an add-on: [`meshloom/DOCS.md`](meshloom/DOCS.md)

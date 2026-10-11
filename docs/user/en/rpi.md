@@ -12,8 +12,8 @@ The published image is Raspberry Pi OS Lite, 64-bit, with Meshloom already insta
 | Your board | How to install |
 |---|---|
 | Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, Pi 5 | This image. It is the quickest way, and nothing else is needed. |
-| Pi 2, or any Pi already running 32-bit Raspberry Pi OS | The [one-liner](/en/docs/install/). It detects the architecture and installs the 32-bit (armhf) package. |
-| Pi 1, Compute Module 1, original Zero and Zero W | Not supported. These boards use an older processor (ARMv6) and no package is built for it. |
+| Pi 2, or a Pi 3 or later already running 32-bit Raspberry Pi OS | The [one-liner](/en/docs/install/). It detects the architecture and installs the 32-bit (armhf) package. |
+| Pi 1, Compute Module 1, original Zero and Zero W | Not supported. These boards use an older processor (ARMv6) and no package is built for it. The one-liner says so and stops before changing anything. |
 
 Prefer the 64-bit image on any board that can run it: it is faster, and the 32-bit package is built under emulation. A Pi 2 can only run 32-bit, so the one-liner is its route.
 

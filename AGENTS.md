@@ -65,8 +65,8 @@ scripts/build/        publish.sh (release), tag_release.sh (recovery), nFPM, Pi 
 scripts/setup/        install.sh (public one-liner), compose update helper, embed sync
 scripts/test/         upgrade matrix (apt and compose upgrades, run by hand)
 scripts/bench/        backend_perf.py, a manual benchmark
-docs/user/            user docs (en, fr), built by the meshloom.app site from this folder
-                      (docs-site.yml asks that site to rebuild whenever this folder changes on main)
+docs/user/            user docs (en, fr), built by the meshloom.app site from this folder at
+                      the latest X.Y.Z tag (release.yml calls docs-site.yml after publishing)
 .github/workflows/    CI (all-quality, codeql, addon), release, packages, repo publication, image, docs-site
 ```
 
@@ -304,6 +304,10 @@ rotation steps are in `pkg/keys/README.md`.
    - the Raspberry Pi image job, and a dispatch of `nfpm-armhf.yml`. The armhf
      job reruns the repo publication and the manifest once its package is
      attached.
+   - `docs-site.yml`: POSTs the Cloudflare deploy hook
+     (`DOCS_SITE_DEPLOY_HOOK`) so meshloom.app rebuilds its docs from the new
+     tag. A doc change merged on `main` reaches the site only with the next
+     release; `workflow_dispatch` on `docs-site.yml` rebuilds it by hand.
 3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
    image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
    `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. Tag builds also get a

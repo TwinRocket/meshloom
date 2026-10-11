@@ -1,33 +1,41 @@
 name: Docs site
 
 # The user documentation lives here and is published by meshloom.app, an Astro
-# site in another repository that pulls docs/user/ at build time. Merging a doc
-# change here therefore did nothing visible until someone happened to redeploy
-# that site: the fix for "the 32-bit OS cannot install the Meshloom package" sat
-# merged and unpublished for a day while people read the old sentence.
+# site in another repository that pulls docs/user/ at build time, from the
+# latest X.Y.Z tag (scripts/pull-docs.mjs there), never from main.
+#
+# So the site is rebuilt when a release is published, not when docs/user/
+# changes on main: a rebuild then would only pick up the previous tag again,
+# and the docs for an unreleased version must not go out before it does.
+#
+# release.yml calls this workflow once its `publish` job has made the release
+# public. That call is what fires in practice: a release published with the
+# GITHUB_TOKEN does not trigger on.release. The on.release trigger covers a
+# release published by hand. workflow_dispatch rebuilds the site on demand.
 #
 # A Cloudflare deploy hook is a URL that starts a build when it receives a POST.
 # One secret, no cross-repository token, and nothing to keep in step.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs/user/**"
+  release:
+    types: [published]
+  workflow_call:
+    secrets:
+      DOCS_SITE_DEPLOY_HOOK:
+        required: false
   workflow_dispatch:
 
 permissions: {}
-
-concurrency:
-  group: docs-site
-  cancel-in-progress: true
 
 jobs:
   deploy:
     name: Ask meshloom.app to rebuild
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    # Only a POST to the hook: no checkout, no token.
+    permissions: {}
+    concurrency:
+      group: docs-site
+      cancel-in-progress: true
     timeout-minutes: 5
     steps:
       # Absent on a fork, and on this repository until someone creates the hook.
