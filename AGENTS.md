@@ -56,7 +56,7 @@ pkg/keys/             public release key, fingerprint, key procedure (README.md)
 pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update
 pkg/rpi/              Raspberry Pi image and kiosk files
 scripts/quality/      all_quality.sh (gate), extended_quality.sh, e2e.sh, docker_ci.sh
-scripts/build/        publish.sh, nFPM, Pi images, signing and version checks
+scripts/build/        prepare_release.sh + tag_release.sh, nFPM, Pi images, signing and version checks
 scripts/setup/        install.sh (public one-liner), compose update helper, embed sync
 docs/user/            user docs (en, fr), built by the meshloom.app site from this folder
 .github/workflows/    CI, release, packages, repo publication
@@ -224,7 +224,10 @@ in `app_settings`, edited in the UI.
 4. Run `./scripts/quality/all_quality.sh` and get it green locally.
 5. Open a PR that links the issue (`Closes #N`) and states what was left out
    on purpose.
-6. Wait for green CI. `main` has no branch protection, so this is a discipline.
+6. Wait for green CI. `main` is meant to be protected by a ruleset (PR
+   required, no direct push; `X.Y.Z` tags created by admins only). Until the
+   owner enables it, this is a discipline. No workflow pushes `main` or creates
+   a tag, and releases go through a PR too (below).
 7. Merge with a **merge commit** (not squash, not rebase), only after a human
    approves.
 
@@ -237,14 +240,25 @@ Clients and installers trust the public key committed in `pkg/keys` (or embedded
 in `install.sh`), never a key fetched at install time. The procedure and the
 rotation steps are in `pkg/keys/README.md`.
 
-1. `scripts/build/publish.sh` refuses to run unless you are on a clean `main`
-   equal to `origin/main`. It runs the gate, regenerates `LICENSES.md`, bumps the
-   version sources (`pyproject.toml`, `frontend/package.json`,
-   `meshloom/config.yaml`, the `FROM` tag in `meshloom/Dockerfile`), updates
-   `uv.lock` and `CHANGELOG.md`, then commits exactly those files, pushes `main`
-   and pushes the annotated `X.Y.Z` tag. It builds and publishes nothing itself.
-   Do not tag by hand afterwards.
-2. A tag `X.Y.Z` triggers `release.yml`. That workflow runs the quality gate,
+1. A release is a pull request, then a tag. Neither step pushes `main`, and
+   neither builds or publishes anything.
+   - `scripts/build/prepare_release.sh X.Y.Z` needs a clean tree. It creates
+     `release/X.Y.Z` from `origin/main`, runs the gate, regenerates
+     `LICENSES.md`, bumps the version sources (`pyproject.toml`,
+     `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag in
+     `meshloom/Dockerfile`), updates `uv.lock` and `CHANGELOG.md`, commits
+     exactly those files, pushes the branch and opens the PR with `gh`.
+   - Merge the PR (merge commit) and wait for `all-quality` on `main`.
+   - `scripts/build/tag_release.sh X.Y.Z` refuses unless you are on a clean
+     `main` equal to `origin/main`, HEAD carries `X.Y.Z`
+     (`check_version_consistency.sh`) and a CHANGELOG section, the
+     `all-quality` check is green on HEAD and the tag exists neither locally
+     nor on origin. It then creates an annotated, unsigned tag (the artifacts
+     are what the release key signs) and pushes it after confirmation.
+     `--dry-run` runs the checks only. `publish.sh` is retired and only says so.
+2. A tag `X.Y.Z` triggers `release.yml` (`workflow_dispatch` only re-publishes
+   an existing tag: `gh workflow run release.yml --ref X.Y.Z`; the workflow and
+   `create_github_release.sh` never create a tag). That workflow runs the quality gate,
    then `preflight`: `check_version_consistency.sh` and a check that the secret
    matches `pkg/keys`. Then it builds the frontend zip and the nFPM `.deb`/`.rpm`
    for amd64 and arm64, signed by nFPM, and publishes the GitHub release with

@@ -77,12 +77,14 @@ npm run build
 
 | Script | Purpose |
 |--------|---------|
-| `publish.sh` | Local release step: quality gate, `LICENSES.md`, version bump (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), changelog, then a commit of exactly those files, a push of `main` and an annotated `X.Y.Z` tag pushed to origin. It refuses to run off `main`, on a dirty tree, or when `main` differs from `origin/main`. Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
+| `prepare_release.sh` | Release step 1: from `origin/main` on a clean tree, creates `release/X.Y.Z`, runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), adds the changelog section, commits exactly those files, pushes the branch and opens the release PR. It never pushes `main` or tags. |
+| `tag_release.sh` | Release step 2, after the release PR is merged: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes an annotated (unsigned) `X.Y.Z` tag after confirmation (`--dry-run` checks only). Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
+| `publish.sh` | Retired; prints the two steps above and exits 1. |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |
 | `check_version_consistency.sh` | Fails unless the five version sources above equal the tag (Release `preflight`). |
 | `check_signing_keys.sh` | Checks that `pkg/keys/` and the CI signing secret describe the same key. |
 | `package_release_artifact.sh` | Builds the prebuilt-frontend release zip (called by `release.yml`). |
-| `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). |
+| `create_github_release.sh` | Creates the GitHub release with changelog notes (called by `release.yml`). Never creates a tag: fails unless `X.Y.Z` exists on origin and points at the built commit. |
 | `build_nfpm_packages.sh` | Builds Meshloom `.deb` and `.rpm` packages with nFPM. |
 | `check_rpm_signed.py` | Fails unless each `.rpm` carries a signature header. |
 | `neutralize_project_version.py` | Pins the project's own version in the dependency manifests so the Docker dependency layer stays cached across releases. |

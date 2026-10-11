@@ -3,7 +3,7 @@
 # would translate the options Home Assistant writes and every one of them would be
 # silently ignored. One layer adds that translation.
 #
-# The tag is rewritten by scripts/build/publish.sh alongside the add-on's version,
+# The tag is rewritten by scripts/build/prepare_release.sh alongside the add-on's version,
 # so the add-on cannot advertise one release and install another.
 FROM ghcr.io/twinrocket/meshloom:4.18.2
 
