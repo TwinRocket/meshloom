@@ -195,8 +195,7 @@ Defects we know about and have not fixed yet; do not describe them as features.
 
 Do not document these as features. Fix them only in a lot launched for that.
 
-- `MESHCORE_PUBLIC_URL` is not used by production code.
-  `/api/community/iata/{code}/hashtags` ignores `code`.
+- `/api/community/iata/{code}/hashtags` ignores `code`.
 
 ## Environment variables
 
@@ -221,7 +220,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
 | `MESHCORE_MANAGED_PORTS` | `false` | the host owns the proxy port; `PATCH /api/radio/proxy` answers 409 to a port change |
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
-| `MESHCORE_PUBLIC_URL` | empty | **no effect today**: only `_resolve_request_base` (`app/frontend_static.py`) reads it, and only tests call that. The add-on option `public_url` feeds it |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
 | `MESHLOOM_COMMUNITY_LOCKED` | unset | `1` prevents enabling Community from the UI |

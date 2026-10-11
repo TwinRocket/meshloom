@@ -45,7 +45,6 @@ Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIA
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Path of the SQLite database |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Contact address used for push notifications when the field in Settings is empty (see below) |
-| `MESHCORE_PUBLIC_URL` | *(empty)* | Accepted, but no feature uses it today |
 | `MESHCORE_MANAGED_PORTS` | `false` | Set by a host that decides the listening ports itself, such as the Home Assistant add-on. Settings then shows the proxy port as read-only |
 | `MESHCORE_RADIO_PROXY_PORT` | *(not set)* | Port of the radio proxy chosen by the host. Only used with `MESHCORE_MANAGED_PORTS=true`, where it replaces the saved port at every start. The Home Assistant add-on sets it to `5051` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Lets a page from the same origin show Meshloom in a frame. Home Assistant's sidebar does exactly that. By default Meshloom refuses to be framed, which looks like a blank panel while the log shows a healthy `200` |

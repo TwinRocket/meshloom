@@ -45,7 +45,6 @@ Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définis
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Emplacement de la base SQLite |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR` |
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Adresse de contact des notifications push quand le champ des Réglages est vide (voir plus bas) |
-| `MESHCORE_PUBLIC_URL` | *(vide)* | Acceptée, mais aucune fonction ne l’utilise aujourd’hui |
 | `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d’écoute, comme l’add-on Home Assistant. Les Réglages affichent alors le port du proxy en lecture seule |
 | `MESHCORE_RADIO_PROXY_PORT` | *(non défini)* | Port du proxy radio choisi par l’hôte. Utilisée seulement avec `MESHCORE_MANAGED_PORTS=true`, où elle remplace le port enregistré à chaque démarrage. L’add-on Home Assistant la fixe à `5051` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Autorise une page de la même origine à afficher Meshloom dans un cadre. La barre latérale de Home Assistant fait exactement cela. Par défaut, Meshloom refuse d’être mis dans un cadre, ce qui donne un panneau blanc alors que le journal montre un `200` parfaitement sain |
