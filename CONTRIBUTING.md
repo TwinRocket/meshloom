@@ -7,6 +7,7 @@
 - Pull requests must be fully understood and explicitly endorsed by a human before merge. AI assistance is great, and this repo is optimized for it, but we keep quality by keeping our agents on track to write clear code, useful (not useless) tests, good architecture, and big-picture thinking.
 - No pull request should introduce new failing lint, typecheck, test, or build results.
 - Every pull request from a contributor should have an associated issue or discussion thread; a brand new feature appearing first in a PR is an antipattern. The repository owners may open a PR directly.
+- Security vulnerabilities are the exception: never open a public issue or PR for one. Report it privately as described in [SECURITY.md](SECURITY.md).
 - No truly automated radio traffic. Bot replies are already the practical edge of what this project wants to automate; any kind of traffic that would be intervalized or automated is not what this project is about.
 - No ingestion from the internet onto the mesh. This project is a radio client, not a bridge for outside traffic to enter the network. The mesh is strong because it is a radio mesh, not the internet with some weird wireless links.
 
