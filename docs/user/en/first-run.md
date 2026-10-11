@@ -1,80 +1,100 @@
 ---
 title: First launch
-description: Open the interface, check the radio, name the node, and look around.
+description: Open the interface, connect the radio, name the node, and look around.
 level: start
 order: 3
 ---
 
-The server is running. Open the page, bind the radio, then look around.
+The server is running. Now open the page, connect the radio, and look around.
 
 ```
 http://127.0.0.1:8000
 ```
 
-From another device on the same network, use the machine’s IP address with port `8000`.
+From another device on the same network, use the machine's IP address with port `8000`.
 
-## Bind the radio
+## Language of the interface
 
-Transport — USB, TCP, or Bluetooth — is chosen in the web UI, not during install. Until it is set, the status bar stays paused and **Connect** opens **Settings > Radio**.
+The interface opens in French by default. To switch to English, open **Settings > Local Configuration** and change **Language**. The choice applies to this browser only. This guide uses the English names of buttons and menus.
 
-Pick the transport, enter the port, host, or BLE address and PIN, then apply. Details are in [Radio transports](/en/docs/deep/transports/).
+## Connect the radio
 
-The bar then moves through **Radio connecting**, **Radio initializing**, and **Radio OK** when the link is up and synchronization is complete. The first connection takes a moment: the server reads the device configuration, retrieves its contacts and channels, and sets its clock.
+Meshloom does not know yet how to reach your radio. The link (USB, network or Bluetooth) is chosen in the interface, not during installation. Until it is set, a **No radio connected** banner is shown and the status bar says **Radio Paused**.
 
-If the bar says **Radio disconnected**, a **Reconnect** button appears beside it. A server that cannot find the radio retries by itself every few seconds, so reconnecting a cable or powering up the radio is usually enough. If the state does not change: wrong serial port, wrong IP address, or rejected Bluetooth PIN. See [Troubleshooting](/en/docs/deep/troubleshooting/).
+1. Press **Connect a radio** in the banner, or **Connect** in the status bar. This opens **Settings > Radio**.
+2. In **Transport**, choose **Serial** (USB cable), **TCP** (radio on the network) or **Bluetooth**.
+3. Fill in the field that appears: the serial port (leave **Auto-detect** if only one radio is plugged in), the host and port, or the Bluetooth address and PIN.
+4. Press **Save and connect**.
 
-## First identity bind
+[Radio transports](/en/docs/deep/transports/) explains each field.
 
-Meshloom binds the database to the radio’s public key. A new install does this quietly. After upgrading an existing database, a dialog asks you to confirm.
+The status bar then moves through **Radio Connecting**, **Radio Initializing** and **Radio OK**. **Radio OK** means the link is up and everything is synchronized. The first connection takes a moment: Meshloom reads the radio's configuration, retrieves its contacts and channels, and sets its clock.
 
-- **Bind without wiping** if this is the same radio: contacts and messages stay.
-- **New radio** if this is a different device: local mesh contacts and messages are wiped. Channels and server settings stay.
+If the bar says **Radio Disconnected**, a **Reconnect** button appears. Meshloom also retries by itself every few seconds, so plugging the cable back in or powering up the radio is usually enough. If nothing changes, the usual causes are a wrong serial port, a wrong IP address or a wrong Bluetooth PIN. See [Troubleshooting](/en/docs/deep/troubleshooting/).
 
-**Previous key: unknown** means the database predates identity binding, not that the radio changed. If the new key is yours, bind without wiping.
+Click the radio status in the bar for a summary of the connection.
 
-If a different radio is connected, the dialog shows both key prefixes. Bind-without-wipe is not offered: adopting the other identity requires a wipe.
+## First identity check
 
-The status bar also shows the node name, its public key — click it to copy — and the battery level when the radio provides it.
+Meshloom ties its database to the public key of your radio, so that the history of two radios is never mixed. On a new install this happens silently. After upgrading a database that already contains data, a dialog asks you to confirm.
 
-## Name the node
+- Choose **Bind without wipe** if it is the same radio. Contacts and messages stay.
+- Choose **New radio** if it is another device. Mesh contacts and messages are erased. Channels and settings stay.
 
-A node without a name appears to other people under the first characters of its public key. Give it a name.
+**Previous key: Unknown** only means the database is older than this check. It does not mean the radio changed. If the key shown is yours, choose **Bind without wipe**.
 
-Open **Settings**, then **Radio**, the **Identity** group, and the **Radio name** field. This name goes out in every advert and is what other people see in their contact list. Short is better: radio packets have limited space.
+If a radio with a different key is connected, the dialog shows both keys and offers **Cancel** or **Wipe and continue**. Keeping the history is not offered, because that history belongs to the other radio.
 
-The same section contains radio settings: presets, frequency, bandwidth, and the rest. They must match nearby nodes or nobody will hear anybody else. If the node stays silent while other devices nearby are active, this is the first place to look. It is worth knowing the local settings before changing them.
+Once connected, the status bar also shows the node's name, its public key (click it to copy it), and the battery level when the radio reports it.
+
+## Name your node
+
+A node without a name appears to other people as the first characters of its public key. Give yours a name.
+
+1. Open **Settings > Radio**.
+2. In the **Identity** group, fill in **Radio Name**.
+3. Save.
+
+This name goes out with every advert and is what others see in their contact list. Keep it short: radio messages have very little room.
+
+The same page holds the radio parameters (preset, frequency, bandwidth and so on). They must match those of the nodes around you, or nobody will hear anybody. If your node stays silent while others nearby are active, check them first, and note the current values before changing anything.
 
 ## Announce yourself
 
-Farther down in the same section is **Adverts and discovery**. An advert is the small packet a node sends to say that it exists, with its name and public key.
+An advert is a small packet that says "I am here", with the node's name and public key. In **Settings > Radio**, the **Advertising & Discovery** group controls it.
 
-- **Send advert** sends one immediately. The *flood* version travels through repeaters and goes farther. The *zero-hop* version stays local and uses much less airtime.
-- **Periodic advert interval** controls automatic repeats. `0` disables them. The minimum is one hour, and twenty-four hours or more is recommended: adverts sent too often occupy airtime for everyone.
+- **Send Flood Advertisement** goes out through the repeaters and travels far.
+- **Send Zero-Hop Advertisement** stays local and uses much less airtime.
+- **Periodic Advertising Interval** sends adverts automatically. `0` turns this off. The minimum is 1 hour, and 24 hours or more is recommended: too many adverts clog the airwaves for everyone.
 
-The reverse works too. Contacts do not have to be entered by hand: every advert heard creates or updates a contact automatically. An empty list at startup is not a problem; it just means the network has not been heard yet.
+The status bar panel (click the radio status) also has quick **Flood** and **Zero-hop** buttons.
+
+The reverse works too: you do not enter contacts by hand. Every advert Meshloom hears creates or updates a contact. An empty list on the first day just means the network has not been heard yet. You can ignore some kinds of nodes in **Settings > Radio-App Management**, with **Block Discovery of New Node Types** (clients, repeaters, room servers, sensors).
 
 ## Look around
 
-On a phone, the bottom bar offers four destinations: **Conversations**, **Map**, **Tools**, and **Settings**. On a large screen, an icon rail on the left offers **Conversations** and the **Map**, then the tools; **Settings** stays at the bottom of the rail.
+On a phone, the bottom bar has four entries: **Chats**, **Map**, **Tools** and **Settings**. On a large screen, a bar of icons on the left shows the chats, the map and each tool, with **Settings** at the bottom. You can choose which tools stay on that bar, and in which order, in **Settings > Navigation**.
 
-The conversation list is grouped into sections: **Favorites**, **Channels**, **Contacts**, **Repeaters**, and **Room servers**. A **Public** channel exists from the start; it is MeshCore’s default channel, open to everyone.
+The conversation list is split into sections: **Favorites**, **Channels**, **Contacts**, **Repeaters** and **Room Servers**. A **Public** channel exists from the start. It is MeshCore's default channel, open to everyone.
 
-Tools open from the **Tools** screen, or from an icon on the rail:
+The **Tools** screen (or the icon bar) opens:
 
-- **Packet feed** — everything the radio hears, whether it can be decrypted or not.
-- **Control journal** — requests, responses, and group data, kept apart from conversations.
-- **Live** — packets placed on a map as they are heard.
-- **Mesh visualizer** — the paths packets actually took.
-- **Trace** — a route test to one node.
-- **RF locate** — an estimated coverage area, not a GPS point.
-- **Message search** — full-text search across the history.
-- **Discovered channels** — hashtag channels that were heard, to keep or dismiss.
-- **Radio test** — sends a test message and shows who heard it. It is offered only when Meshloom Community is on.
+- **Packet Feed**: every packet the radio hears, whether or not it can be decrypted.
+- **Control journal**: requests, replies and group data, kept apart from conversations.
+- **Live**: packets appear on a map as they are heard.
+- **Mesh Visualizer**: the paths packets actually took.
+- **Trace**: a route test through chosen repeaters.
+- **RF Locate**: an estimated coverage zone, not a GPS point.
+- **Message Search**: search the whole history.
+- **Discovered channels**: hashtag channels Meshloom found on its own, for you to keep or dismiss.
+- **Radio test**: sends a test message and shows who heard it. It only appears when Meshloom Community is on.
 
-The **Add channel/contact** button opens conversation creation: a contact by public key, a channel by key, or a hashtag channel by name.
+The **Add Channel/Contact** button creates a conversation: a contact from its public key, a private channel from its key, a hashtag channel from its name, or several hashtag channels at once.
 
-A new install shows a **Community** banner until an airport IATA code is saved under **Settings > Community**. You can leave Community from that pane. See [Meshloom Community](/en/docs/deep/community/).
+New installs join [Meshloom Community](/en/docs/deep/community/). Until you enter the code of the nearest airport (its three-letter IATA code) in **Settings > Meshloom Community**, a banner reminds you and nothing is published. You can also leave Community from that page.
 
-**Settings > Notifications** is where Web Push lives (this device, defaults, exceptions, VAPID subject). There are no in-tab desktop alerts.
+Other useful pages in **Settings**: **Notifications** (below), **Updates**, **MQTT & Automation** (outputs and bots), **Alerts** (telemetry thresholds), **Database** (size and storage cleanup), **Statistics** and **About**.
 
-To send something: [Messages](/en/docs/messages/).
+**Settings > Notifications** is where you choose what Meshloom tells you about (new contacts, direct messages, new repeaters, found channels, updates), and where: Web Push on this browser, email, or a webhook. Push also works when the browser is closed, but needs HTTPS. Meshloom shows no pop-up alerts inside the open tab. See [Push notifications](/en/docs/deep/push/).
+
+To send your first message: [Messages](/en/docs/messages/).

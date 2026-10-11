@@ -1,76 +1,71 @@
 ---
 title: Image Raspberry Pi
-description: Flasher une carte Lite 64-bit avec Meshloom déjà installé, puis renseigner le Wi-Fi dans Imager.
+description: Écrire une carte avec Meshloom déjà installé, régler le Wi-Fi dans Raspberry Pi Imager, et démarrer.
 level: start
 order: 2.5
 ---
 
-L’image publiée est Raspberry Pi OS Lite 64-bit avec Meshloom déjà installé. Le premier démarrage n’a pas besoin d’Internet.
+L’image publiée est un Raspberry Pi OS Lite 64 bits avec Meshloom déjà installé. Le premier démarrage n’a pas besoin d’Internet.
 
-## Quel Pi
+## Quel Pi ?
 
 | Votre carte | Comment installer |
 |---|---|
-| Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, Pi 5 | Cette image. C’est le chemin le plus rapide et il n’y a rien d’autre à faire. |
-| Pi 2, ou tout Pi tournant déjà sous Raspberry Pi OS 32-bit | La [ligne de commande](/fr/docs/install/). Elle détecte l’architecture et installe le paquet armhf. |
-| Pi 1, Compute Module 1, Zero et Zero W de première génération | Non supportés. Ces cartes sont en ARMv6 et aucun paquet n’est construit pour elles. |
+| Pi 3B / 3B+ / 3A+, Compute Module 3, Zero 2 W, Pi 4, Pi 5 | Cette image. C’est le chemin le plus rapide, et rien d’autre n’est nécessaire. |
+| Pi 2, ou tout Pi qui tourne déjà sous Raspberry Pi OS 32 bits | Le [one-liner](/docs/install/). Il détecte l’architecture et installe le paquet 32 bits (armhf). |
+| Pi 1, Compute Module 1, Zero et Zero W d’origine | Non pris en charge. Ces cartes ont un processeur plus ancien (ARMv6) et aucun paquet n’est construit pour lui. |
 
-Préférez l’image 64-bit sur une carte capable de la faire tourner : elle est plus rapide, et le paquet 32-bit est construit sous émulation. Un Pi 2 ne tourne qu’en 32-bit, la ligne de commande est donc son chemin.
+Préférez l’image 64 bits sur toute carte qui peut la faire tourner : elle est plus rapide, et le paquet 32 bits est construit sous émulation. Un Pi 2 ne tourne qu’en 32 bits, donc le one-liner est son chemin.
 
-Le paquet 32-bit est récent, publié en 4.12.2. Les versions antérieures ne pouvaient pas s’installer sur un système 32-bit.
+Le paquet 32 bits existe depuis la 4.12.2. Les versions précédentes ne s’installaient pas du tout sur un système 32 bits.
 
 ### À quoi s’attendre sur un Pi 2 ou un Pi 3
 
-Personne n’a publié de mesures sur ces cartes : ce qui suit est donc ce que l’on
-sait, pas une promesse.
+Personne n’a publié de mesures pour ces cartes : prenez ce qui suit pour ce qu’on sait, pas pour une promesse.
 
-Les deux ont 1 Go de mémoire, et l’essentiel de ce qui paraît coûteux dans
-Meshloom ne tourne pas sur le Pi : la carte, la vue 3D et le flux de paquets sont
-dessinés par le navigateur depuis lequel vous ouvrez l’interface. Le Pi, lui, fait
-tourner le serveur, le lien radio et une base SQLite.
+Les deux ont 1 Go de mémoire, et l’essentiel de ce qui paraît lourd dans Meshloom ne l’est pas sur le Pi : la carte, la vue 3D et le flux de paquets sont dessinés par le navigateur dans lequel vous ouvrez l’interface. Le Pi fait seulement tourner le serveur, le lien avec la radio et une base SQLite.
 
-La limite la plus probable est la carte SD. La base est écrite à chaque message et
-à chaque paquet observé, ce qu’une carte bon marché fait lentement et qui l’use.
-Si vous comptez laisser un nœud tourner pendant des mois, une bonne carte, ou un
-SSD USB, compte davantage que le modèle de carte.
+La limite la plus probable est la carte SD. La base est écrite à chaque message et à chaque paquet entendu. Une carte bon marché est lente à cela, et s’use. Si vous comptez laisser un nœud tourner des mois, une bonne carte ou un SSD USB compte plus que la carte Pi.
 
-Un Pi 2 est la plus lente des cartes supportées et l’interface s’en ressentira à
-mesure que l’historique grossit. Si vous en testez un, dites-nous à partir de quand
-ça cesse d’être confortable : ce chiffre, personne ne l’a encore.
+Le Pi 2 est la carte prise en charge la plus lente, et l’interface s’en ressentira quand l’historique grossira. Si vous l’essayez, dites-nous où cela cesse d’être confortable : personne n’a encore ce chiffre.
 
-## Flasher
+## Écrire la carte
 
-1. Téléchargez `meshloom-rpi-lite-arm64.img.xz` **et** `meshloom.rpi-imager-manifest` depuis la [release GitHub](https://github.com/TwinRocket/meshloom/releases). Le workflow Release les joint après le `.deb` arm64 (ils peuvent arriver un peu après les paquets).
-2. Ouvrez **Raspberry Pi Imager 2.0.6 ou plus récent**. Les versions 1.9.x n’écrivent pas la personnalisation cloud-init de Trixie : hostname, Wi-Fi et SSH sont ignorés.
-3. Ouvrez le manifeste (double-clic, ou `rpi-imager --repo chemin/vers/meshloom.rpi-imager-manifest`). Ce fichier pose `init_format: cloudinit-rpi`. Ne choisissez **pas** *Use custom* sur le `.img.xz` seul : Imager 2.x suppose alors aucune personnalisation et ignore Wi-Fi, utilisateur et SSH.
-4. Renseignez hostname, utilisateur, clé SSH et Wi-Fi là. Ces secrets ne sont pas dans le téléchargement.
-5. Écrivez la carte, démarrez le Pi.
+Il vous faut un ordinateur avec un lecteur de carte SD et [Raspberry Pi Imager](https://www.raspberrypi.com/software/) **en version 2.0.6 ou plus récente**. Les versions 1.9.x plus anciennes n’appliquent pas les réglages de premier démarrage (cloud-init) de ce système, donc le nom d’hôte, le Wi-Fi et l’SSH seraient ignorés.
 
-Au premier boot, Ethernet et Wi-Fi sont optionnels : la machine démarre même sans câble ni SSID.
+1. Allez sur la [page des versions GitHub](https://github.com/TwinRocket/meshloom/releases) et téléchargez deux fichiers de la dernière version : `meshloom-rpi-lite-arm64.img.xz` **et** `meshloom.rpi-imager-manifest`. Ils sont joints un peu après les paquets : patientez si vous ne les voyez pas encore.
+2. Ouvrez le manifeste plutôt que l’image : double-cliquez sur `meshloom.rpi-imager-manifest`, ou lancez `rpi-imager --repo chemin/vers/meshloom.rpi-imager-manifest`. Ce fichier indique à Imager comment appliquer vos réglages (`init_format: cloudinit-rpi`). N’utilisez **pas** *Use custom* sur le seul `.img.xz` : Imager 2.x suppose alors qu’il n’y a rien à personnaliser et ignore le Wi-Fi, l’utilisateur et l’SSH.
+3. Dans Imager, choisissez votre modèle de Pi, l’entrée Meshloom, puis votre carte.
+4. Renseignez le nom d’hôte, l’utilisateur, votre clé SSH si vous en voulez une, et le Wi-Fi. Ces réglages sont écrits sur la carte par Imager. Ils ne sont pas dans le fichier téléchargé.
+5. Écrivez la carte, insérez-la dans le Pi et mettez-le sous tension.
+
+Ethernet et Wi-Fi sont tous deux facultatifs au premier démarrage : le Pi démarre même si aucun câble n’est branché ou si le réseau Wi-Fi est indisponible.
 
 ## Ouvrir Meshloom
 
-Si un écran est branché, la console affiche :
+Si un écran est branché sur le Pi, il affiche un message « Meshloom is ready » avec les adresses à utiliser :
 
 ```
 http://meshloom.local:8000
-http://<ip-lan>:8000
+http://<adresse-ip>:8000
 ```
 
-Sans écran, utilisez le nom `.local` depuis un autre appareil du même réseau, ou l’adresse que le routeur a donnée au Pi. Puis choisissez la radio sous **Réglages → Radio**.
+Sans écran, utilisez le nom en `.local` depuis un autre appareil du même réseau, ou l’adresse que votre box a donnée au Pi. Le nom en `.local` est le nom d’hôte choisi dans Imager, suivi de `.local` (`meshloom` si vous avez laissé la valeur par défaut). Branchez ensuite la radio et choisissez-la dans **Réglages > Radio** (voir [Premier lancement](/docs/first-run/)).
 
-Sans aucun réseau, ouvrez `http://127.0.0.1:8000` sur le Pi. La messagerie et la radio fonctionnent hors ligne. Carte, Community, Web Push et mises à jour depuis l’interface attendent Internet.
+Sans aucun réseau, ouvrez `http://127.0.0.1:8000` sur le Pi lui-même. La messagerie et la radio fonctionnent hors ligne. Les cartes, Meshloom Community, Web Push et les mises à jour depuis l’application attendent que le Pi puisse joindre Internet.
+
+Les bots, qui exécutent du code sur la machine, sont désactivés sur cette image, comme dans tout paquet Linux. Voir [Un réseau de confiance](/docs/trust/).
 
 ## Mettre à jour
 
-Quand l’image (ou une install paquet Linux) peut appliquer les mises à jour, **Réglages → Mises à jour** propose *Installer maintenant* et une mise à jour automatique optionnelle. Ce chemin ne met à jour que Meshloom, depuis le dépôt Meshloom signé, pas tout le système. Les images à partir de 4.18 surveillent les demandes de mise à jour d’emblée ; sur une image plus ancienne, un `sudo apt update && sudo apt install meshloom` l’active.
+Quand l’image (ou toute installation par paquet Linux) sait se mettre à jour seule, **Réglages > Mises à jour** propose **Installer maintenant** et une mise à jour automatique facultative. Cela ne met à jour que Meshloom, depuis le dépôt Meshloom signé, jamais tout le système d’exploitation. Les images à partir de la 4.18 sont prêtes pour cela dès la sortie. Sur une image plus ancienne, un seul `sudo apt update && sudo apt install meshloom` l’active.
 
-Si Réglages → Mises à jour indique une mise à jour manuelle, suivez la recette affichée, ou relancez l’installeur Linux pour qu’il rétablisse l’assistant manquant :
+Si **Réglages > Mises à jour** indique qu’il faut mettre à jour Meshloom à la main, suivez les étapes qu’il montre, ou relancez l’installeur pour qu’il rétablisse l’assistant manquant :
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
 ```
 
-Les add-ons Home Assistant se mettent à jour dans Home Assistant, pas depuis ce bouton.
+Les add-ons Home Assistant se mettent à jour dans Home Assistant, pas avec ce bouton.
 
-`MESHLOOM_COMMUNITY` n’est pas posé sur l’image. Une base neuve rejoint Community par défaut, comme partout ailleurs.
+Une nouvelle base rejoint Meshloom Community par défaut, comme sur toute autre installation. Rien n’est publié tant que vous n’avez pas saisi un code d’aéroport dans **Réglages > Meshloom Community**.

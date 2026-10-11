@@ -1,13 +1,13 @@
 ---
 title: Install
-description: The Linux one-liner, systemd or Docker, and why /bin/bash -c must stay.
+description: The Linux one-liner, systemd service or Docker, updates, and why /bin/bash -c must stay.
 level: start
 order: 2
 ---
 
-Meshloom is designed for Linux. A machine that stays on is a much better host than a laptop you close: while the server runs, it listens to the mesh and records what it hears.
+The Meshloom server is built for Linux. A machine that stays on makes a much better host than a laptop you close: while the server runs, it listens to the mesh and records what it hears. (A Raspberry Pi works very well. It has its own [ready-made image](/en/docs/rpi/).)
 
-An installation script does the work and asks questions in English or French. Paste this into a terminal:
+An installation script does the work and asks its questions in English or French. Paste this into a terminal:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
@@ -15,39 +15,45 @@ An installation script does the work and asks questions in English or French. Pa
 
 ## Why `/bin/bash -c`
 
-This form is not decoration. The script is interactive: it asks for the language, the installation mode, the installation folder for Docker and, when several serial devices are plugged in, which one to map. With `/bin/bash -c "$(...)"`, the download finishes first, then the script runs with the terminal available for its questions.
+This form is not decoration. The script is interactive: it needs your answers. With `/bin/bash -c "$(...)"`, the download finishes first, then the script runs with the terminal free for its questions.
 
-If you pipe it — `curl … | bash` — the script’s input is occupied by the download. Its questions no longer have a terminal to use, and the installation goes wrong. Keep the `/bin/bash -c`.
+If you pipe it instead (`curl … | bash`), the script's input is busy receiving the download. Its questions have no terminal to use, and the installation goes wrong. Keep the `/bin/bash -c`.
 
 ## What the script asks
 
-The questions, in this order.
+In this order:
 
-**The mode.** A native service managed by systemd, or Docker. The native service starts automatically with the machine and can talk to a USB, network, or Bluetooth radio. Docker runs in a container, which isolates the installation but restricts hardware access: sharing a USB radio with a container requires root-mode Docker on Linux. If that is not available, the script suggests a network radio.
+1. **Language.** English or French. Your choice is remembered for the next run, and the default follows your system language.
+2. **Method.** The script shows what it detected (your system, whether Docker is present) and offers up to three choices:
+   - **Install as a background service.** Meshloom starts with the machine, under systemd. It works with a USB, network or Bluetooth radio. This is the recommended choice on Linux.
+   - **Run with Docker.** Meshloom runs in a container. This keeps the installation separate from the rest of the machine, but limits access to hardware. Sharing a USB radio with the container needs Docker running as root on Linux. Without that (Docker Desktop, rootless Docker), the radio must be on the network.
+   - **Only open Meshloom in a browser.** Installs nothing. Choose it when Meshloom already runs on another machine. The script only reminds you of the address to type.
+3. **Docker only: the folder.** Where to put `docker-compose.yml` and the `data` folder (by default `meshloom` in your home folder, or the folder of an existing install). If several serial devices are plugged in, it also asks which one to share with the container. With a single device, it shares it without asking.
+4. **A summary,** then a confirmation, before anything starts. Some steps need administrator rights, and your password may be requested.
 
-**The radio.** Transport is configured in the web UI after install, not with environment variables. A native systemd install does not ask for a serial port, TCP host, or BLE PIN. Docker may still ask USB versus network, only to emit a Compose `devices:` mapping for a USB radio.
+The radio itself is never configured by the installer. You choose USB, network or Bluetooth in the web interface afterwards (see [First launch](/en/docs/first-run/)). Details for each link are in [Radio transports](/en/docs/deep/transports/).
 
-Details for each transport are in [Radio transports](/en/docs/deep/transports/).
+On a system that is not Linux (macOS, for example), the service choice is not offered. Use Docker with a radio on the network, or the browser-only choice, and install Meshloom on a Linux machine if you want to plug the radio in by USB or Bluetooth.
 
-**Security.** The script asks nothing about security. Bots execute code on the machine and are **enabled by default**; only the Linux package turns them off, in `/etc/meshloom/meshloom.env`. Set `MESHCORE_DISABLE_BOTS=true` to turn them off elsewhere, and `MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD` to require a shared login. See [A trusted network](/en/docs/trust/).
+For a service, the script installs a package from the signed Meshloom repository (`apt` on Debian and Ubuntu, `dnf` on Fedora). If the repository has nothing for your machine, it falls back to the package attached to the GitHub release, and finally to an installation from the source code.
 
-A summary appears before anything starts. Some steps require administrator privileges.
+**Security.** The script asks nothing about security, and the choice matters. Bots run code on the machine and are **on by default**, except in the Linux package (and therefore the Raspberry Pi image), which turns them off in `/etc/meshloom/meshloom.env`. With Docker or from source, add `MESHCORE_DISABLE_BOTS=true` to turn them off, and `MESHCORE_BASIC_AUTH_USERNAME` with `MESHCORE_BASIC_AUTH_PASSWORD` to require a shared login. See [A trusted network](/en/docs/trust/).
 
 ## Open the interface
 
-Once installation is complete, on the machine itself:
+When the installation ends, the script prints the address. On the machine itself:
 
 ```
 http://127.0.0.1:8000
 ```
 
-From another device on the same network, replace `127.0.0.1` with the machine’s IP address and keep port `8000`.
+From another device on the same network, replace `127.0.0.1` with the machine's IP address and keep port `8000`.
 
-Configure the radio transport in the UI next: [First launch](/en/docs/first-run/).
+Next, choose the radio link in the interface: [First launch](/en/docs/first-run/).
 
-Do not confuse two nearby addresses. `http://127.0.0.1:8000/docs` is the technical API documentation generated by the server. It is not this documentation.
+Do not confuse two nearby addresses. `http://127.0.0.1:8000/docs` is the technical documentation of the API, generated by the server. It is not this documentation.
 
-To check or restart a native service:
+To check a service:
 
 ```bash
 sudo systemctl status meshloom
@@ -55,40 +61,43 @@ sudo systemctl status meshloom
 
 ## Update
 
-When in-app updates are available, **Settings → Updates** installs the new Meshloom release. Automatic updates are off until you enable them there. That path upgrades Meshloom only and never runs a full `apt upgrade`.
+Open **Settings > Updates**. The page shows your type of install (Linux package, Docker Compose, Home Assistant add-on...) and a **Check now** button. When a new release exists and your install can update itself, **Install now** installs it. **Automatic updates** are off until you turn them on, and you can limit them to chosen days and hours (they follow the server's clock, not your browser's). This only updates Meshloom and never runs a full `apt upgrade` on the system.
 
-Updates are signed. The installer embeds the Meshloom release key and checks its fingerprint; it never downloads the key, and it never adds an unsigned package source. The Linux package checks the repository signature, and the update helper refuses to run if the Meshloom source is not signature-checked. With Docker, the image is pinned by digest in `.env` next to `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`), and the update helper only moves that pin to a newer release whose digest is signed. It never downgrades.
+Updates are signed. The installer carries the Meshloom release key and checks its fingerprint; it never downloads the key, and it never adds an unsigned package source. The Linux package checks the repository signature, and the update helper refuses to run if the Meshloom source is not signature-checked. With Docker, the image is pinned by digest in the `.env` file next to `docker-compose.yml` (`MESHLOOM_IMAGE=…@sha256:…`). The update helper only moves this pin to a newer release whose digest is signed, and never goes back to an older one.
 
-If Settings → Updates says you must update manually, or asks you to re-run the installer, re-run it: it keeps your data, replaces an older update helper and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. If you edited your `docker-compose.yml` (an extra port, for instance), the installer shows your changes and offers to keep them, which is the default: it then updates only its own lines (image, update helper) and leaves yours alone. If it cannot adapt your file, it leaves it untouched and asks whether to regenerate it. Run the installer as the account that created the stack: `root` if it lives in `/root/meshloom`. By hand:
+If **Settings > Updates** says you must update manually or re-run the installer, run it again. It keeps your data, replaces an old update helper and, for Docker, keeps the previous Compose file as `docker-compose.yml.bak-<date>`. If you edited your `docker-compose.yml` (to add a port, say), the installer shows your changes and offers to keep them, which is the default: it then updates only its own lines (the image and the update helper) and leaves yours alone. If it cannot adapt your file, it leaves it untouched and asks whether to generate a new one. Run the installer with the same account that created the stack: `root` if it lives in `/root/meshloom`.
+
+Two cases update by hand:
+
+- Docker without the update helper (Docker Desktop, rootless Docker, or a folder name with special characters). These stacks follow `latest`.
+- A Linux package, if you prefer the terminal.
 
 ```bash
 sudo apt-get install --only-upgrade meshloom   # Debian / Ubuntu
-sudo dnf install meshloom                      # Fedora
+sudo dnf upgrade --refresh meshloom            # Fedora
 sudo docker compose pull && sudo docker compose up -d   # Docker without the helper
 ```
 
-The database stays in place: `/var/lib/meshloom` for the package, `./data` for Docker. Schema migrations run at startup.
-
-A Raspberry Pi can also start from the [preinstalled image](/en/docs/rpi/) instead of this one-liner.
+Your data stays where it was: `/var/lib/meshloom` for the package, the `data` folder next to `docker-compose.yml` for Docker. Database changes are applied automatically at startup.
 
 ## On Home Assistant
 
-If Home Assistant already runs on the machine that will host Meshloom, install it as an add-on instead. The interface arrives in the sidebar, the database is kept with the rest of Home Assistant's data, and it starts and stops with it.
+If Home Assistant already runs on the machine that will host Meshloom, install Meshloom as an add-on instead. The interface appears in the Home Assistant sidebar, the database is stored with the rest of Home Assistant's data, and Meshloom starts and stops with it.
 
 [![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FTwinRocket%2Fmeshloom)
 
-The button opens the dialog on your own instance with the address filled in; it is a redirector and learns nothing about you. By hand, the address goes under **Settings → Add-ons → Add-on store → ⋮ → Repositories**, then install **Meshloom** from the store.
+The button opens the right dialog on your own Home Assistant, with the address filled in. It is only a redirect and learns nothing about you. To do it by hand, go to **Settings > Add-ons > Add-on store > ⋮ > Repositories**, add the repository address, then install **Meshloom** from the store.
 
 Two things work differently there:
 
-**The radio proxy port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the proxy is the only thing on the network. Its port is changed in the add-on's **Network** panel; the field inside Meshloom shows it and says so, because a value set there would leave the proxy listening where nothing is forwarded.
+**The radio-sharing port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the radio proxy (see [Radio transports](/en/docs/deep/transports/)) is the only thing visible on the network. Change its port in the add-on's **Network** panel. The field inside Meshloom only displays it, because a value typed there would make Meshloom listen where nothing is forwarded.
 
-**Notifications need an address of their own.** The sidebar has no durable public address, so Web Push cannot work through it alone. Giving the instance a real hostname — the Cloudflared add-on does this without opening a port on your router — and opening Meshloom at that address is what makes notifications possible. The add-on's `public_url` option is passed to Meshloom but has no effect yet.
+**Notifications need an address of their own.** The sidebar has no stable public address, so Web Push cannot work through it alone. Give Meshloom a real host name (the Cloudflared add-on can do this without opening a port on your router) and open Meshloom at that address. The add-on's `public_url` option is accepted but does nothing yet.
 
 This is not the same as [publishing the mesh to Home Assistant over MQTT](/en/docs/deep/home-assistant/), which works from any installation and needs no add-on.
 
 ## Other paths
 
-The script covers the common case. The rest — the Docker image `ghcr.io/twinrocket/meshloom`, Portainer, HTTPS, manual systemd setup, environment variables, or a cloned repository for development — is in [Other installation paths](/en/docs/deep/install-paths/).
+The script covers the common case. For the rest (the Docker image `ghcr.io/twinrocket/meshloom`, Portainer, HTTPS, a manual systemd setup, environment variables, or a cloned repository for development) see [Other install paths](/en/docs/deep/install-paths/).
 
 Next: [First launch](/en/docs/first-run/).

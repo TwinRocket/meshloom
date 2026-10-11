@@ -1,91 +1,81 @@
 ---
 title: Sécurité
-description: Ce que Meshloom ne protège pas, et les quelques verrous qui existent vraiment.
+description: Ce que Meshloom ne protège pas, et les quelques verrous qui existent : accès Basic, désactivation des bots, export de clé.
 level: deep
 order: 20
 ---
 
-Meshloom est conçu pour un réseau de confiance. Ce n’est pas une formule prudente : plusieurs choix d’architecture ne sont défendables que sous cette hypothèse. Cette page les nomme, puis décrit les verrous réellement disponibles.
-
-Les décisions listées ci-dessous sont **délibérées**. Elles ne sont pas des oublis à corriger.
+Meshloom est conçu pour un réseau dont vous connaissez les utilisateurs. Plusieurs choix de conception n’ont de sens que sous cette hypothèse. Ces choix sont **délibérés**, ce ne sont pas des oublis.
 
 ## Ce qui n’existe pas
 
-**Pas de comptes utilisateurs.** Aucune session, aucun modèle d’autorisation, aucune permission par fonctionnalité. Quiconque atteint l’interface peut tout faire : lire l’historique, envoyer des messages, modifier la configuration radio, éditer des bots.
+**Pas de comptes utilisateurs.** Il n’y a ni identifiant, ni session, ni rôle, ni permission par fonction. Quiconque atteint le serveur peut lire l’historique, envoyer des messages au nom de votre nœud, changer les réglages de la radio et modifier les bots.
 
-**Pas de restriction d’origine.** Le backend autorise toutes les origines (`allow_origins=["*"]`, avec `allow_credentials=True`). C’est ce qui permet de consulter sa radio depuis n’importe quel appareil du réseau local sans configuration. C’est aussi ce qui fait qu’une page web tierce ouverte dans le même navigateur peut parler à l’API.
+**Aucune restriction sur l’origine des requêtes.** Le serveur accepte les requêtes venant de n’importe quelle page web (`allow_origins=["*"]`, avec `allow_credentials=True`). C’est pratique pour ouvrir l’interface depuis n’importe quel appareil, mais une page web ouverte dans le même navigateur peut aussi appeler l’API.
 
-**Exécution de code arbitraire par les bots.** Le système de bots exécute du Python fourni par l’utilisateur via `exec()`, avec l’ensemble des `__builtins__`. C’est assumé : les bots sont une fonctionnalité de puissance pour l’automatisation. La conséquence directe est que **toute personne sur le réseau peut exécuter du code arbitraire** sur la machine qui héberge Meshloom.
+**Les bots exécutent du Python quelconque.** Un bot est un petit programme Python écrit dans l’interface. Meshloom l’exécute tel quel, avec un accès complet au langage (`exec()` avec tous les `__builtins__`). Quiconque atteint Meshloom peut donc faire exécuter du code sur la machine hôte. C’est voulu.
 
-Ces trois points ne changent rien à la sécurité du mesh lui-même. Le chiffrement des messages MeshCore, les clés de salon et la clé privée du nœud fonctionnent comme prévu. C’est l’accès **à l’application** qui n’est pas cloisonné.
+Rien de tout cela n’affaiblit le chiffrement propre à MeshCore : les messages directs, les clés de canal et la clé privée du nœud restent protégés. Ces points décrivent qui peut utiliser l’application, pas ce qui circule par radio.
+
+## La fenêtre d’avertissement
+
+Tant que les bots sont activés et qu’aucun accès Basic n’est défini, Meshloom affiche une fenêtre d’avertissement plein écran, intitulée « L’exécution non protégée de bots est activée ». Elle propose deux issues :
+
+- **Désactiver les bots jusqu’au redémarrage du serveur** coupe le système de bots tout de suite. Il revient au prochain redémarrage, sauf si vous le désactivez définitivement (voir plus bas).
+- Cochez la case de reconnaissance, puis **Ne plus m’avertir sur cet appareil**. Ce choix est retenu par ce navigateur seulement : un autre navigateur ou un téléphone verra de nouveau l’avertissement.
 
 ## Authentification HTTP Basic
-
-Une porte grossière existe :
 
 ```text
 MESHCORE_BASIC_AUTH_USERNAME=...
 MESHCORE_BASIC_AUTH_PASSWORD=...
 ```
 
-Les deux variables doivent être définies ensemble ; l’une sans l’autre provoque une erreur de validation au démarrage. L’authentification s’applique à toute l’application, y compris au point d’entrée WebSocket.
-
-Deux limites à garder en tête. Ce n’est pas un modèle d’utilisateurs : c’est un couple d’identifiants unique, sans rôles ni périmètres. Et HTTP Basic transmet les identifiants en clair — il faut donc HTTPS, plus une posture réseau saine. Voir [HTTPS](/docs/deep/https/).
-
-L’installeur Linux propose de configurer ces identifiants, et peut être rejoué plus tard pour les changer.
+Définissez les deux ou aucune : le serveur refuse de démarrer avec une seule. L’accès Basic protège les pages, l’API et la connexion en direct (WebSocket). C’est un identifiant partagé unique, sans rôles. Sans HTTPS, le mot de passe circule en clair : associez-le à [HTTPS](/docs/deep/https/).
 
 ## Désactiver les bots
 
-Deux niveaux, selon la durée souhaitée.
+`MESHCORE_DISABLE_BOTS=true` coupe le système de bots au démarrage. Aucun bot ne tourne, le serveur répond `403` à toute tentative de modifier les bots, et l’interface présente la fonction comme indisponible. Le paquet Linux le définit déjà dans `/etc/meshloom/meshloom.env`.
 
-`MESHCORE_DISABLE_BOTS=true` désactive le système entièrement au démarrage. Aucune exécution de bot, `403` sur les modifications de configuration de bots, et un message d’indisponibilité dans l’interface. C’est le réglage à poser si l’instance n’a pas besoin de bots, et l’installeur Linux le propose.
+Le bouton **Désactiver les bots jusqu’au redémarrage du serveur** de la fenêtre d’avertissement fait la même chose temporairement, sans toucher à l’environnement. Les bots et les autres sorties sont décrits dans [Fanout](/docs/deep/fanout/).
 
-`POST /api/fanout/bots/disable-until-restart` arrête les modules bots et les maintient désactivés jusqu’au redémarrage du processus. Utile pour couper court sans toucher à l’environnement ni redémarrer immédiatement.
+## La clé privée du nœud
 
-Détails du modèle d’exécution dans [Fanout](/docs/deep/fanout/).
+La clé privée de la radio est lue une fois au démarrage et gardée dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais sur le disque.
 
-## Clé privée du nœud
-
-À la connexion, Meshloom exporte la clé privée de la radio et la garde **en mémoire uniquement**. Elle n’est jamais écrite sur disque. C’est ce qui permet le déchiffrement des messages directs côté serveur, y compris pour des contacts absents de la mémoire de la radio.
-
-L’export par l’API est **désactivé par défaut** :
+La relire par l’API est désactivé par défaut :
 
 ```text
 MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
 ```
 
-Mis à `true`, il active `GET /api/radio/private-key`, qui renvoie la clé en hexadécimal, pour une sauvegarde ou une migration. À n’activer que sur un réseau de confiance, et seulement quand vous avez besoin de récupérer la clé. Comme il n’y a pas de comptes utilisateurs, cet endpoint est aussi accessible que le reste de l’API.
+À `true`, `GET /api/radio/private-key` renvoie la clé en hexadécimal, et l’export de configuration de **Réglages > Radio** peut l’inclure. N’activez cela que sur un réseau de confiance, uniquement pour une sauvegarde ou un déménagement vers une autre machine, puis désactivez-le. L’import d’une clé (**Définir la clé privée**, en écriture seule) reste toujours disponible et n’affiche jamais la clé. Une clé qui ne correspond pas à la radio à laquelle la base est liée est refusée tant que vous n’avez pas confirmé le changement d’identité (voir [Premier lancement](/docs/first-run/)).
 
-L’**import** par `PUT /api/radio/private-key` est toujours disponible, quel que soit ce réglage. Cette asymétrie est volontaire : l’import est en écriture seule et n’expose aucun matériel de clé.
+## Proxy radio
 
-La fonction d’export/import de configuration radio de l’interface s’appuie sur ces deux endpoints. Quand l’export est désactivé, la configuration exportée omet la clé privée et affiche un avertissement.
+**Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et l’accès Basic ne le couvre pas. Ne l’activez que sur un réseau de confiance.
 
-## Instantané de débogage
+## Instantané de support
 
-Le bloc `/api/debug` est fait pour être collé dans un rapport de bug, donc il faut savoir ce qu’il contient.
+**Réglages > À propos > Ouvrir l’instantané de support de débogage** (`/api/debug`) est fait pour être collé dans un rapport de bug. Hors des logs, il contient versions, réglages et compteurs, jamais la clé privée ; les clés des contacts et des canaux n’apparaissent que sous forme d’empreintes à sens unique. Les logs récents peuvent contenir des noms ou des clés de canal, mais jamais la clé privée. Arrêtez la copie à la ligne `STOP COPYING HERE` pour laisser les logs de côté.
 
-Les informations hors logs ne divulguent aucune clé, aucun nom de salon, ni aucune autre information privilégiée, au-delà des **noms de vos bots**. Les logs récents inclus dans le bloc, en revanche, peuvent contenir des noms de salons ou des clés de salon. Ils ne contiennent jamais votre clé privée.
+## Ce qui sort de votre machine
 
-Pour partager sans les logs, copiez seulement jusqu’au marqueur `STOP COPYING HERE`.
+Ce que chaque sortie envoie dépend de la portée que vous lui donnez dans **Réglages > MQTT et automatisation**.
 
-## Ce que le fanout laisse sortir
+- **MQTT Community** ne transporte que des paquets radio bruts, jamais le texte lisible des conversations.
+- **MQTT privé, webhooks, Apprise et SQS** peuvent transporter le texte complet des messages, selon les canaux et contacts sélectionnés.
+- **Envoi vers la carte** transmet la position des répéteurs et des serveurs de salon à un service de carte (map.meshcore.io ou un autre que vous choisissez).
+- **MQTT Home Assistant** publie vos appareils vers le broker que vous configurez.
 
-Chaque intégration a une portée, et cette portée décide ce qui quitte la machine. Deux cas valent une vérification explicite.
-
-Le MQTT **communautaire** est verrouillé sur les paquets bruts uniquement, sans messages décodés. Le contenu de vos conversations ne part pas par ce canal.
-
-Le MQTT **privé**, les webhooks, Apprise et SQS peuvent en revanche transporter le texte intégral des messages, selon la portée choisie. Ce sont vos destinations, donc c’est à vous de savoir où elles pointent.
-
-Une sortie Internet est exigée pour les [notifications push](/docs/deep/push/) et, une fois rejoint, pour [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms hashtag). Même une install qui refuse les deux vérifie encore les mises à jour (GitHub, puis le miroir de versions de Community) toutes les cinq minutes ; elle fonctionne sans cet accès. Les payloads push transitent par le service du navigateur.
+Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/deep/push/) et, une fois rejoint, [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms de canaux hashtag). Même sans les deux, Meshloom vérifie les nouvelles versions toutes les cinq minutes (GitHub d’abord, puis le miroir Community). Il continue de fonctionner si cette vérification échoue.
 
 ## Une posture raisonnable
 
-Rien de tout cela n’a besoin d’être compliqué :
+- Gardez Meshloom sur un réseau dont vous connaissez les utilisateurs.
+- Ne l’exposez jamais directement à Internet. Pour un accès à distance, utilisez un VPN ou un tunnel qui ajoute sa propre authentification.
+- Définissez `MESHCORE_DISABLE_BOTS=true` si vous n’avez pas besoin de bots.
+- Laissez l’export de la clé privée désactivé, sauf pendant une sauvegarde.
+- Mettez toujours l’accès Basic derrière HTTPS.
 
-- Garder l’instance sur un réseau où vous connaissez tout le monde.
-- Ne pas l’exposer directement sur Internet. Si un accès distant est nécessaire, passer par un VPN ou un tunnel, pas par une redirection de port.
-- Mettre `MESHCORE_DISABLE_BOTS=true` si vous n’utilisez pas de bots.
-- Laisser l’export de clé privée désactivé sauf le temps d’une sauvegarde.
-- Si Basic auth est activée, la faire précéder de HTTPS.
-
-Le raisonnement complet, en langage plus simple, est sur [Un réseau de confiance](/docs/trust/).
+La version courte est dans [Un réseau de confiance](/docs/trust/).
