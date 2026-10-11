@@ -5,32 +5,55 @@ level: deep
 order: 17
 ---
 
-Meshloom Community est un réseau d’observateurs optionnel. Quand il est activé, ce serveur peut publier les **paquets bruts** entendus vers les hôtes Stats officiels, utiliser l’annuaire communautaire (noms de sauts, locate, portée observateurs), et partager les **noms de salons hashtag** dans une liste globale unique (les noms ne sont pas regroupés par aéroport).
+Meshloom Community est un réseau d’observateurs optionnel. Quand il est activé, votre serveur peut :
 
-Ce n’est pas une ligne Fanout à créer dans Réglages > Fanout. On rejoint et on quitte depuis **Réglages > Community** (`#settings/community`).
+- publier les **paquets bruts** que votre radio entend vers les serveurs Meshloom Stats officiels ;
+- utiliser l’**annuaire communautaire**, qui donne des noms aux sauts, alimente la localisation RF et les compteurs « entendu par », ainsi que la page Live et le test radio ;
+- partager et chercher les noms de **salons hashtag** dans une liste globale unique.
 
-## Défaut des installs neuves
+Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatisation**. On rejoint et on quitte depuis **Réglages → Meshloom Community**.
 
-Une **base toute neuve** seed Community activé, sauf si vous posez `MESHLOOM_COMMUNITY=0` (ou `false` / `off`) avant le premier démarrage. Les bases existantes ne sont jamais basculées par cette variable : elles gardent ce qui est déjà stocké.
+## Rejoindre
 
-Tant qu’un code IATA d’aéroport n’est pas enregistré, une bannière reste affichée. La publication des paquets, le Live et la publication des noms hashtag attendent ce code. L’annuaire (noms de sauts, locate, « entendu par ») n’en a pas besoin. Un opérateur qui coupe Community peut masquer la bannière définitivement dans ce navigateur.
+1. Ouvrez **Réglages → Meshloom Community**.
+2. Saisissez le **code IATA** de l’aéroport le plus proche : trois lettres, par exemple `CDG`. Si vous ne le connaissez pas, tapez une ville dans **Trouver un aéroport**.
+3. Enregistrez le code.
 
-Tant que `MESHLOOM_COMMUNITY_IATA` est posée, son code à 3 lettres remplace à chaque lecture celui enregistré dans l’interface ; `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les hôtes. `MESHLOOM_COMMUNITY_LOCKED=1` empêche l’interface d’activer Community.
+Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié.
 
-## Ce qui quitte la machine
+Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live et la publication des noms hashtag attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Si vous avez désactivé Community, vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
 
-Avec Community activé et un IATA posé :
+## Installations neuves
 
-- Les **paquets bruts** entendus sont publiés vers les hôtes MQTT Stats officiels. Le texte décodé des conversations ne passe pas par ce chemin.
-- Les noms de sauts, le RF locate et les compteurs « entendu par » utilisent l’annuaire communautaire. Community coupé, il n’y a plus d’annuaire du tout. Cela ne veut pas dire zéro trafic sortant : la vérification des mises à jour interroge toujours GitHub, puis le miroir de versions de Community (`/v1/meshloom/latest`) en secours ; la recherche IATA des Réglages interroge `api.fx-port.com` ; Web Push et les modules fanout que vous configurez ont leurs propres hôtes.
-- Les **noms hashtag** des salons hashtag locaux (jusqu’à 50), et les noms trouvés par le chercheur de salons, peuvent être publiés dans la liste globale. La publication exige un code IATA posé. Les clés ne sont pas partagées.
+Une **base de données toute neuve** démarre avec Community activé, sauf si `MESHLOOM_COMMUNITY=0` (ou `false` / `off`) est défini avant le premier démarrage. Les bases existantes ne sont jamais basculées par cette variable : elles gardent ce qu’elles ont enregistré.
 
-Un seul opt-out arrête la publication **et** les appels d’annuaire communautaires. Il n’arrête pas la vérification des mises à jour.
+Trois autres variables s’adressent à ceux qui font tourner Meshloom pour d’autres personnes :
+
+- `MESHLOOM_COMMUNITY_IATA` remplace le code enregistré dans l’interface tant qu’elle est définie : modifier le code dans les Réglages n’a alors aucun effet.
+- `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les deux serveurs Community.
+- `MESHLOOM_COMMUNITY_LOCKED=1` empêche l’interface d’activer Community.
+
+Voir [Variables et réglages](/docs/deep/environment/).
+
+## Ce qui quitte votre machine
+
+Avec Community activé et un code enregistré, votre serveur envoie :
+
+- Les **paquets bruts**, tels qu’ils circulent par les ondes, avec la force du signal, le nom de votre radio et sa clé publique. Les messages des salons privés et les messages directs restent chiffrés. Le texte de vos conversations ne passe jamais par ce chemin.
+- Des **requêtes d’annuaire.** Pour nommer un saut ou dessiner une zone de localisation RF, votre serveur interroge Community sur les nœuds concernés. Le navigateur ne parle jamais à Community lui-même : c’est votre serveur qui relaie. Les sauts d’un seul octet ne sont jamais envoyés.
+- Les **noms de salons hashtag.** Quand vous créez ou adoptez un salon hashtag, ou quand Meshloom en trouve un, son nom (50 au plus à la fois) est ajouté à la liste globale. Les noms ne sont pas regroupés par aéroport. Les clés ne sont pas partagées.
+- Des **recherches de canaux.** Pour reconnaître un canal inconnu, Meshloom envoie l’identifiant d’un octet du canal pour demander quels noms peuvent correspondre. Si rien ne correspond, il peut aussi envoyer un paquet chiffré de ce canal (une fois par identifiant tant que Meshloom tourne), pour que la communauté essaie d’en retrouver le nom. Seuls les canaux que vous ne pouvez pas lire sont concernés.
+
+La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
+
+**Community désactivé ne veut pas dire zéro trafic réseau.** Le désactiver arrête la publication et toutes les requêtes d’annuaire. Ceci continue :
+
+- la vérification des nouvelles versions de Meshloom interroge GitHub, puis, en secours, un miroir de Community (`/v1/meshloom/latest`) ;
+- la recherche d’aéroport dans les Réglages interroge `api.fx-port.com`, par l’intermédiaire de votre serveur ;
+- Web Push et les intégrations que vous configurez appellent leurs propres serveurs.
 
 ## Dans l’interface
 
-**Réglages > Community** : rejoindre ou quitter, chercher ou saisir un code IATA, voir les stats de contribution.
-
-Le chercheur de salons fonctionne toujours hors ligne. Il essaie d’abord une liste MeshCore embarquée contre les échantillons GroupText stockés non déchiffrés, puis les noms Community quand Community est activé et qu’un code IATA est posé.
+**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de chercher ou de saisir le code IATA, de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
 
 Voir [Variables et réglages](/docs/deep/environment/) et [Sécurité](/docs/deep/security/).
