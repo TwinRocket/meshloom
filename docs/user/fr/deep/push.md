@@ -1,112 +1,115 @@
 ---
 title: Notifications push
-description: Des notifications même quand l’onglet est fermé. HTTPS obligatoire.
+description: Des notifications même quand l’onglet est fermé. HTTPS requis.
 level: deep
 order: 18
 ---
 
-Le push web permet à Meshloom de notifier un navigateur pour un message entrant, même quand l’onglet est fermé. Ce n’est pas un module [fanout](/docs/deep/fanout/) : chaque navigateur a son propre abonnement, tandis que les règles (défauts et exceptions) sont partagées par toute l’installation.
+Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. C’est distinct du [fanout](/docs/deep/fanout/) : chaque navigateur a son propre abonnement, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation.
 
-Il n’y a plus de notifications de bureau dans l’onglet. Seul le Web Push est exposé.
+Il n’y a pas de fenêtres contextuelles venant de l’onglet ouvert lui-même. Web Push est la seule manière dont Meshloom notifie un navigateur.
 
-## Deux prérequis non négociables
+Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**. Le push est activé par défaut. L’e-mail et le webhook sont désactivés par défaut, et ne fonctionnent qu’une fois une destination configurée. Voir « Choisir ce qui notifie » plus bas.
 
-**HTTPS.** Un service worker ne s’enregistre que sur un contexte sécurisé. Un certificat auto-signé suffit. Voir [HTTPS](/docs/deep/https/).
+## Ce qu’il vous faut
 
-**Un accès Internet sortant depuis le serveur.** Les notifications ne partent pas de Meshloom vers le navigateur : elles passent par le service de push du navigateur — Google FCM pour Chrome et Android, Mozilla autopush pour Firefox, APNs pour Safari et iOS. Le serveur doit pouvoir les joindre.
+**HTTPS.** Les navigateurs n’autorisent le composant d’arrière-plan qui reçoit les notifications (le service worker) que sur une page sécurisée. Un certificat fabriqué par vous peut convenir ; voir [HTTPS](/docs/deep/https/).
 
-[Meshloom Community](/docs/deep/community/) exige aussi une sortie Internet une fois activé. Sans Community ni push, le reste peut tourner sur un réseau isolé.
+**Un accès à Internet depuis le serveur.** Les notifications passent par des services tenus par les éditeurs de navigateurs : Google (FCM), Mozilla ou Apple (APNs).
 
-## Clés VAPID
+## L’adresse de contact (VAPID)
 
-La paire de clés VAPID est générée automatiquement au premier démarrage, sur la courbe P-256, et stockée dans la table `app_settings`. Il n’y a rien à créer à la main. La clé publique est exposée par `GET /api/push/vapid-public-key`, ce dont le navigateur a besoin pour s’abonner.
+Meshloom signe chaque notification avec une paire de clés créée au premier démarrage. La signature porte aussi une adresse de contact, appelée sujet VAPID.
 
-Le sujet des jetons — la revendication `sub` — se règle dans **Réglages → Notifications**. La valeur est stockée dans `app_settings.vapid_subject`. Si ce champ est vide, Meshloom retombe sur `MESHCORE_VAPID_SUBJECT` (`mailto:noreply@meshcore.local` par défaut).
+Réglez-la dans **Réglages → Notifications**, champ **Sujet VAPID**. Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise la variable d’environnement `MESHCORE_VAPID_SUBJECT`, dont la valeur par défaut est `mailto:noreply@meshcore.local`.
 
-**Apple exige un vrai `mailto:` ou `https:`.** APNs rejette un sujet qui n’est pas une URI de contact, et le défaut `.local` produit `403 BadJwtToken`. Toute installation qui doit notifier un iPhone, un iPad ou Safari doit donc fixer une adresse réelle dans l’interface, ou à défaut dans l’environnement :
+**Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans l’interface, ou en repli dans l’environnement :
 
 ```text
 MESHCORE_VAPID_SUBJECT=mailto:you@example.com
 ```
 
-Voir la [documentation Apple sur le Web Push](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). Google FCM accepte le défaut, ce qui explique que le problème passe inaperçu jusqu’au premier appareil Apple.
+Voir la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). D’autres services de push peuvent accepter la valeur par défaut : le problème n’apparaît donc souvent qu’avec le premier appareil Apple.
 
-## Abonnements par navigateur, règles globales
+## Abonner un navigateur
 
-Un **abonnement** est propre à un navigateur. Il est créé quand ce navigateur s’enregistre, stocké dans `push_subscriptions` avec son point de terminaison, une étiquette d’appareil et son état de livraison. L’étiquette est générée automatiquement depuis le User-Agent, par exemple « Chrome on macOS ».
+Dans **Réglages → Notifications**, choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
 
-Les **règles**, elles, sont uniques pour l’instance : défauts globaux plus exceptions par conversation (`push_defaults` et `push_conversation_overrides`). Conséquence : une exception posée depuis un téléphone s’applique à tous les navigateurs abonnés. S’abonner ou se désabonner ne change que la réception sur cet appareil.
+L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés.
 
-Une ancienne liste d’opt-in (`push_conversations`) a été importée à la migration : chaque conversation alors activée est devenue une exception `true`. Les cinq défauts sont eux-mêmes passés à ON pour les bases existantes.
+## Choisir ce qui notifie
 
-## Qui est notifié, par défaut
+### Les événements
 
-Les bascules vivent dans **Réglages → Notifications** (`#settings/notifications`). Toutes sont ON au départ.
+**Réglages → Notifications → Notifications par défaut** a une ligne par événement, avec trois colonnes : **Push**, **E-mail** et **Webhook**. Le push est activé pour chaque événement au départ.
 
-| Bascule | Effet |
-|---------|-------|
-| Nouveaux contacts | Première apparition d’un compagnon (type 1) |
-| Messages directs | Messages `PRIV`, y compris les publications de serveur de salon |
-| Publicités répéteur | Première apparition d’un répéteur (type 2) |
-| Publicités compagnon | Première apparition d’un compagnon (type 1) |
-| Publicités capteur | Première apparition d’un capteur (type 4) |
+| Événement | Quand il se déclenche |
+|-----------|-----------------------|
+| Nouveaux contacts | Un compagnon (la radio d’une personne) est vu pour la première fois |
+| Messages directs | Un message direct arrive, y compris les messages de serveurs de salon |
+| Publicités répéteur | Un répéteur est vu pour la première fois |
+| Publicités compagnon | Un compagnon est vu pour la première fois |
+| Publicités capteur | Un capteur est vu pour la première fois |
+| Canaux trouvés | Meshloom trouve un nouveau canal hashtag |
+| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils se règlent sur la page **Alertes** |
+| Mises à jour Meshloom | Une nouvelle version de Meshloom est disponible |
 
 Pour un compagnon, **Nouveaux contacts** ou **Publicités compagnon** suffit.
 
-Les alertes de première apparition partent seulement quand une **nouvelle ligne contact** est insérée en base, après le réglage radio. Un nœud déjà connu, une promotion de préfixe, un nœud inconnu (type 0) ou un serveur de salon (type 3) ne déclenchent jamais cette alerte. Ce n’est pas un événement WebSocket.
+Les alertes « vu pour la première fois » ne se déclenchent que lorsqu’un **nouveau contact** est ajouté, après la fin du démarrage de la radio. Un nœud déjà connu, un nœud de type inconnu ou un serveur de salon ne les déclenchent jamais.
 
-Pour les salons, sans exception :
+### Les conversations
 
-- le canal Public et les canaux `#` (hashtag) sont ON ;
-- un canal à clé privée est OFF.
+Pour les messages de salon, sans exception :
 
-Une exception par conversation prime sur ces défauts.
+- les salons publics et les salons `#` (hashtag) notifient par push ;
+- les salons à clé privée ne notifient pas.
 
-**Coupe-circuit mute.** Le bouton dédié dans l’en-tête d’un canal (cloche barrée) coupe le push pour ce canal, indépendamment des défauts et des exceptions. Ce n’est pas la même action que la cloche d’exception.
+Les messages directs suivent la ligne **Messages directs**. Les notifications par e-mail ou webhook pour un salon n’existent que si vous les activez pour ce salon.
 
-## Depuis l’interface
+### La cloche, pour une conversation
 
-**Réglages → Notifications** : abonner ce navigateur, lister les appareils (test / désabonnement), basculer les défauts, retirer les exceptions, et éditer le sujet VAPID.
+Dans l’en-tête d’une conversation, la cloche ouvre un menu avec trois cases : **Push**, **E-mail** et **Webhook**. En cocher une crée une **exception** aux valeurs par défaut, pour cette conversation seulement. Si votre navigateur n’est pas encore abonné, cocher **Push** l’abonne. **E-mail** et **Webhook** sont grisés tant qu’aucune destination n’existe ; un lien mène aux réglages.
 
-**Cloche dans l’en-tête** d’une conversation (contacts, salons, serveurs de salon — pas le tableau de bord répéteur). C’est un interrupteur simple. Premier clic sans abonnement : le navigateur s’abonne, sans inverser l’exception. Les clics suivants forcent ON ou OFF pour cette conversation. La cloche n’apparaît que sur un contexte sécurisé.
+Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, où on peut les retirer.
 
-## Endpoints
+### Mettre un salon en sourdine
 
-| Méthode | Endpoint | Effet |
-|---------|----------|-------|
-| GET | `/api/push/vapid-public-key` | Clé publique pour `PushManager.subscribe()` |
+Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (de 15 minutes à 24 heures, ou indéfiniment). Il masque aussi le compteur de non lus. Il l’emporte sur les valeurs par défaut et les exceptions, et ce n’est pas le même contrôle que la cloche.
+
+### Destinations e-mail et webhook
+
+Dans **Réglages → Notifications → Destinations de livraison**, saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
+
+## En coulisses
+
+### Service worker et nettoyage
+
+`sw.js` affiche les notifications reçues et, au clic, met au premier plan ou ouvre la bonne conversation. Si un service de push répond `403`, `404` ou `410` pour un abonnement, Meshloom le supprime. Il faut alors réabonner le navigateur.
+
+### Points d’accès
+
+| Méthode | Point d’accès | Effet |
+|---------|---------------|-------|
+| GET | `/api/push/vapid-public-key` | Clé publique utilisée pour s’abonner |
 | POST | `/api/push/subscribe` | Enregistre ou met à jour un abonnement |
 | GET | `/api/push/subscriptions` | Liste les abonnements |
 | PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue |
 | DELETE | `/api/push/subscriptions/{id}` | Supprime un abonnement |
 | POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test |
-| GET | `/api/push/preferences` | Défauts, exceptions et sujet VAPID |
-| PATCH | `/api/push/preferences` | Met à jour les défauts et/ou le sujet VAPID |
-| PUT | `/api/push/preferences/conversations/{key}` | Pose (`true` / `false`) ou retire (`null`) une exception |
+| GET | `/api/push/preferences` | Valeurs par défaut, exceptions et sujet VAPID |
+| PATCH | `/api/push/preferences` | Modifie les valeurs par défaut et/ou le sujet VAPID |
+| PUT | `/api/push/preferences/conversations/{key}` | Crée ou efface une exception pour une conversation |
 
-`GET` / `POST /api/push/conversations` n’existent plus.
-
-Les abonnements sont uniques par point de terminaison, donc un réenregistrement met à jour la ligne existante au lieu d’en créer une seconde.
-
-## Le service worker
-
-Le fichier `sw.js` est servi par le frontend. Il gère deux événements : l’arrivée d’une notification, qu’il affiche, et le clic sur cette notification, qui donne le focus à un onglet existant ou en ouvre un, puis navigue vers la bonne conversation en s’appuyant sur le fragment d’URL transporté dans le payload.
-
-L’enregistrement n’est tenté que sur un contexte sécurisé. Sur une page en HTTP simple servie depuis une IP du réseau local, l’icône de cloche n’apparaît simplement pas.
-
-## Nettoyage des abonnements morts
-
-Un navigateur désinstallé, un profil effacé, une autorisation révoquée : le service de push répond alors `404` ou `410`. Meshloom supprime immédiatement l’abonnement correspondant. Il n’y a pas de purge à faire à la main.
+Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant. Les anciennes routes `/api/push/conversations` n’existent plus.
 
 ## Quand rien n’arrive
 
-Dans l’ordre :
+1. Vérifiez que la page est servie en HTTPS (ou depuis `localhost`).
+2. Vérifiez l’autorisation de notifications dans votre navigateur et votre système.
+3. Envoyez un test depuis **Réglages → Notifications**.
+4. Vérifiez les valeurs par défaut et les exceptions, visibles aussi sur `/api/push/preferences`. Un salon à clé privée reste muet sans exception qui l’active. Un salon en sourdine reste muet quels que soient les réglages.
+5. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
+6. Vérifiez que le serveur peut joindre Internet.
 
-1. Vérifier que la page est bien en HTTPS, ou sur `localhost`. Sans ça, aucune souscription n’existe.
-2. Vérifier l’autorisation de notification au niveau du navigateur et du système d’exploitation.
-3. Envoyer une notification de test depuis Réglages → Notifications. Un test qui échoue isole le problème côté transport, pas côté logique de message.
-4. Vérifier les défauts et les exceptions : `GET /api/push/preferences`. Un canal à clé privée reste silencieux sans exception ON. Un canal muté reste silencieux même si le push est activé.
-5. Sur un appareil Apple, vérifier le sujet VAPID dans l’interface (ou `MESHCORE_VAPID_SUBJECT` si le champ est vide). Un `403 BadJwtToken` dans les logs du serveur pointe directement là.
-6. Vérifier que le serveur sort bien sur Internet.
-
-Les logs du serveur en niveau `DEBUG` détaillent les réponses des services de push. Voir [Dépannage](/docs/deep/troubleshooting/).
+Au niveau de journal `DEBUG`, les réponses des services de push sont écrites dans le journal. Voir [Dépannage](/docs/deep/troubleshooting/).

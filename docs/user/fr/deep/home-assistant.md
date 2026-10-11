@@ -1,110 +1,99 @@
 ---
 title: Home Assistant
-description: MQTT Discovery, appareils créés, automatisations, et les sujets qui restent inconnus.
+description: MQTT Discovery, appareils, automatisations, et les sujets qui posent problème.
 level: deep
 order: 17
 ---
 
-Meshloom publie les données du mesh vers Home Assistant par MQTT Discovery. Les appareils et entités apparaissent automatiquement. Il n’y a **pas** de composant personnalisé à installer, ni de dépôt HACS.
+Meshloom peut publier ce qu’il sait de votre mesh vers Home Assistant grâce à MQTT Discovery. Les appareils et les entités (les capteurs et interrupteurs que montre Home Assistant) apparaissent tout seuls. Aucun composant personnalisé ni HACS n’est nécessaire.
 
-## Prérequis
+Ce n’est pas la même chose que l’add-on Home Assistant, qui fait tourner Meshloom lui-même dans Home Assistant (voir [Installation](/docs/install/)). Le lien MQTT décrit ici fonctionne avec n’importe quelle installation.
 
-- Home Assistant avec l’[intégration MQTT](https://www.home-assistant.io/integrations/mqtt/) configurée
-- Un broker MQTT joignable par HA et par Meshloom, Mosquitto par exemple
-- Meshloom connecté à une radio
+## Ce qu’il vous faut
+
+- Home Assistant avec l’[intégration MQTT](https://www.home-assistant.io/integrations/mqtt/) configurée.
+- Un broker MQTT que Home Assistant et Meshloom peuvent tous deux joindre.
+- Meshloom connecté à une radio.
 
 ## Mise en place
 
-1. Dans Meshloom, aller dans **Réglages > Intégrations > Ajouter > Home Assistant MQTT Discovery**.
-2. Saisir l’hôte et le port du broker, le même que celui de HA.
-3. Optionnellement, identifiants et réglages TLS.
-4. Sélectionner les contacts à suivre en GPS et les répéteurs à suivre en télémétrie.
-5. Configurer la portée des messages qui déclenchent des événements, en bas du formulaire.
-6. Enregistrer et activer.
+1. Dans Meshloom, ouvrez **Réglages → MQTT et automatisation**, choisissez **Ajouter une intégration**, puis **MQTT Discovery Home Assistant**.
+2. Saisissez l’adresse et le port du broker (port 1883 par défaut). Ajoutez un nom d’utilisateur, un mot de passe et TLS si votre broker les exige. Le préfixe de sujet est `meshcore`, sauf si vous le changez.
+3. Dans **Contacts suivis GPS**, choisissez les contacts que vous voulez voir sur la carte de Home Assistant.
+4. Dans **Répéteurs suivis en télémétrie**, choisissez les répéteurs dont vous voulez les capteurs. Seuls les répéteurs qui collectent déjà leur télémétrie automatiquement apparaissent dans cette liste. Pour en ajouter un, ouvrez le tableau de bord du répéteur et cochez l’option de suivi tout en bas. Les répéteurs suivis sont listés dans **Réglages → Gestion radio-application**.
+5. Dans **Événements de message**, choisissez quels messages déclenchent un événement.
+6. Choisissez **Enregistrer et activer**.
 
-Les appareils apparaissent dans HA sous **Paramètres > Appareils et services > MQTT** en quelques secondes.
+Les appareils apparaissent dans Home Assistant sous **Paramètres → Appareils et services → MQTT**. Le formulaire liste aussi ce qui sera créé et les sujets exacts.
 
-## Comment les identifiants MeshCore deviennent des identifiants HA
+## Noms et identifiants
 
-Meshloom dérive un identifiant court et stable depuis la clé publique de chaque nœud :
+Meshloom identifie un nœud par les 12 premiers caractères de sa clé publique, en minuscules :
 
-- clé publique complète : `ae92577bae6c4f1d...`
-- `node_id` : `ae92577bae6c`, soit les **12 premiers caractères hexadécimaux**, en minuscules
-- sujet MQTT correspondant : `meshcore/ae92577bae6c/gps`
+- clé publique : `ae92577bae6c4f1d...`
+- identifiant du nœud : `ae92577bae6c`
+- sujet de sa position : `meshcore/ae92577bae6c/gps`
 
-Ce `node_id` apparaît dans les sujets de découverte sous `homeassistant/...` et dans les sujets d’état sous votre préfixe, généralement `meshcore/...`.
+Home Assistant construit le nom de ses entités à partir du nom des appareils et des capteurs, pas à partir de cet identifiant.
 
-Les **identifiants d’entité HA sont différents**. HA les génère depuis le nom de l’appareil et le nom de l’entité, pas depuis le `node_id`. Une radio nommée « MyRadio » produit `binary_sensor.myradio_connected` et `event.myradio_messages`. Un contact nommé « Alice » produit `device_tracker.alice`. Vos identifiants réels se lisent dans **Paramètres > Appareils et services > MQTT**, et vous pouvez les renommer dans HA sans casser l’intégration.
+## Ce qui apparaît dans Home Assistant
 
-L’interface de l’intégration Meshloom affiche aussi ces identifiants, dans les blocs `What gets created in Home Assistant` et `Published topic summary`.
+### Votre radio
 
-## Ce qui est créé
-
-### Radio locale
-
-Toujours créée. Mise à jour toutes les 60 secondes.
-
-| Entité | Type | Description |
-|--------|------|-------------|
-| `binary_sensor.<radio>_connected` | Connectivité | Radio en ligne ou hors ligne |
-| `sensor.<radio>_noise_floor` | Puissance de signal | Plancher de bruit en dBm |
-
-### Répéteurs
-
-Un appareil par répéteur suivi, sélectionné dans l’intégration HA. Mise à jour à chaque collecte de télémétrie : cycle automatique (environ 8 heures, réglable) ou récupération manuelle depuis le tableau de bord du répéteur.
-
-**Un répéteur doit d’abord être ajouté à la liste de suivi de télémétrie automatique dans les paramètres radio de Meshloom.** Seuls les répéteurs suivis apparaissent dans le sélecteur de l’intégration HA.
-
-| Entité | Unité | Description |
-|--------|-------|-------------|
-| `sensor.<répéteur>_battery_voltage` | V | Niveau de batterie |
-| `sensor.<répéteur>_noise_floor` | dBm | Plancher de bruit local |
-| `sensor.<répéteur>_last_rssi` | dBm | Dernière puissance reçue |
-| `sensor.<répéteur>_last_snr` | dB | Dernier rapport signal/bruit |
-| `sensor.<répéteur>_packets_received` | compte | Paquets reçus |
-| `sensor.<répéteur>_packets_sent` | compte | Paquets envoyés |
-| `sensor.<répéteur>_uptime` | s | Temps depuis le dernier redémarrage |
-
-Si Meshloom a déjà un snapshot de télémétrie en cache pour ce répéteur, il le republie au démarrage. HA remplit les capteurs immédiatement au lieu d’attendre la prochaine collecte.
-
-### Contacts
-
-Un appareil HA par contact suivi, avec deux sortes d’entités possibles.
-
-**Traceur GPS** — un `device_tracker`, alimenté par deux sources. Les **publicités** le mettent à jour passivement dès que Meshloom entend une publicité portant des coordonnées de ce contact ; aucune commande radio n’est émise, ça se greffe sur le trafic normal. La **télémétrie CayenneLPP** le met aussi à jour quand le contact rapporte une position et qu’il est suivi en collecte de télémétrie. Le GPS va toujours au traceur, jamais dans un capteur numérique.
-
-**Capteurs CayenneLPP** — si le contact est suivi en télémétrie et rapporte des relevés LPP, un capteur numérique est créé par relevé, détecté automatiquement depuis les données.
+Un appareil portant le nom de votre radio. Il se rafraîchit toutes les 60 secondes.
 
 | Entité | Description |
 |--------|-------------|
-| `device_tracker.<contact>` | Position GPS : attributs `latitude`, `longitude`, plus `altitude` quand un relevé en contient |
-| `sensor.<contact>_lpp_<type>_ch<n>` | Relevé CayenneLPP détecté automatiquement, GPS exclu |
+| `binary_sensor.<radio>_connected` | Indique si la radio est connectée |
+| `sensor.<radio>_noise_floor` | Bruit radio de fond, en dBm |
+| `sensor.<radio>_battery` | Batterie, en V |
+| `sensor.<radio>_uptime` | Temps écoulé depuis le démarrage de la radio, en s |
+| `sensor.<radio>_last_rssi` et `_last_snr` | Force et qualité du dernier paquet reçu |
+| `sensor.<radio>_tx_airtime` et `_rx_airtime` | Temps passé à émettre et à recevoir, en s |
+| `sensor.<radio>_packets_received` et `_packets_sent` | Compteurs de paquets |
 
-### Entité d’événement pour les messages
+### Répéteurs
 
-Une seule entité d’événement, rattachée à la radio : `event.<radio>_messages`. Elle se déclenche pour chaque message correspondant à la portée configurée.
+Un appareil par répéteur choisi. Ses capteurs se mettent à jour quand la télémétrie est collectée : automatiquement toutes les 8 heures par défaut (réglable dans **Gestion radio-application**), ou quand vous actualisez le tableau de bord du répéteur.
+
+| Entité | Unité | Description |
+|--------|-------|-------------|
+| `sensor.<repeater>_battery_voltage` | V | Niveau de batterie |
+| `sensor.<repeater>_noise_floor` | dBm | Bruit de fond au niveau du répéteur |
+| `sensor.<repeater>_last_rssi` | dBm | Force du dernier paquet reçu |
+| `sensor.<repeater>_last_snr` | dB | Qualité du dernier paquet reçu |
+| `sensor.<repeater>_packets_received` | nombre | Paquets reçus |
+| `sensor.<repeater>_packets_sent` | nombre | Paquets envoyés |
+| `sensor.<repeater>_rx_errors` | nombre | Erreurs de réception |
+| `sensor.<repeater>_uptime` | s | Temps écoulé depuis le dernier redémarrage |
+
+Si le répéteur a des capteurs d’environnement (format CayenneLPP), Meshloom ajoute un capteur par mesure, comme la température ou l’humidité.
+
+### Contacts
+
+| Entité | Description |
+|--------|-------------|
+| `device_tracker.<contact>` | Position, avec `latitude`, `longitude` et parfois `altitude`. Elle se met à jour quand une annonce avec des coordonnées GPS est entendue, ou quand la télémétrie du contact contient une position |
+| `sensor.<contact>_...` | Un capteur par mesure CayenneLPP d’un contact dont la télémétrie est suivie |
+
+### Événements de messages
+
+`event.<radio>_messages` se déclenche pour chaque message qui correspond à la portée choisie.
 
 | Attribut | Exemple | Description |
 |----------|---------|-------------|
 | `event_type` | `message_received` | Toujours `message_received` |
-| `sender_name` | `Alice` | Nom affiché de l’expéditeur |
+| `sender_name` | `Alice` | Nom affiché |
 | `sender_key` | `aabbccdd...` | Clé publique de l’expéditeur |
-| `text` | `hello` | Corps du message |
+| `text` | `hello` | Texte du message |
 | `message_type` | `PRIV` ou `CHAN` | Message direct ou salon |
-| `channel_name` | `#general` | Nom du salon, `null` pour un DM |
-| `conversation_key` | `aabbccdd...` | Clé du contact (DM) ou du salon |
-| `outgoing` | `false` | Si c’est vous qui avez envoyé |
+| `channel_name` | `#general` | Nom du salon, ou vide pour un message direct |
+| `conversation_key` | `aabbccdd...` | Clé du contact ou du salon |
+| `outgoing` | `false` | Indique si c’est vous qui l’avez envoyé |
 
-## Ce qui apparaît quand
+## Exemples d’automatisations
 
-- Toujours : l’appareil radio locale et ses entités.
-- À la sélection dans l’intégration : appareils de répéteurs suivis et traceurs de contacts suivis.
-- Seulement après données : un traceur de contact a besoin d’une publicité avec GPS, ou d’un relevé GPS en télémétrie collectée. Les capteurs de répéteur ont besoin d’une télémétrie, avec rejeu du cache au démarrage quand il existe.
-- L’entité d’événement de messages est créée dès que l’intégration est active sur une radio connectée.
-
-## Quelques automatisations
-
-### Batterie de répéteur basse
+### Batterie de répéteur faible
 
 ```yaml
 automation:
@@ -122,9 +111,7 @@ automation:
             is at {{ states('sensor.hilltop_battery_voltage') }}V
 ```
 
-En interface : Paramètres > Automatisations > Créer > déclencheur d’état numérique sur le capteur, sous `3.8`, action notification.
-
-### Radio hors ligne depuis 5 minutes
+### Radio hors ligne depuis cinq minutes
 
 ```yaml
 automation:
@@ -143,9 +130,7 @@ automation:
 
 ### Message dans un salon précis
 
-Deux approches. La première ne demande aucun template : régler la portée des messages de l’intégration sur « Only listed channels » et sélectionner le salon. Chaque déclenchement vient alors de ce salon, et un simple déclencheur d’état sur `event.<radio>_messages` suffit.
-
-La seconde garde la portée sur tous les messages et filtre dans l’automatisation :
+Réglez la portée sur **Uniquement les canaux/contacts listés** et cochez le salon, ou filtrez tous les événements :
 
 ```yaml
 automation:
@@ -166,75 +151,47 @@ automation:
             {{ trigger.to_state.attributes.text }}
 ```
 
-### DM d’un contact précis
+## Quand cela ne marche pas
 
-```yaml
-automation:
-  - alias: "DM from Alice"
-    trigger:
-      - platform: state
-        entity_id: event.myradio_messages
-    condition:
-      - condition: template
-        value_template: >-
-          {{ trigger.to_state.attributes.message_type == 'PRIV'
-             and trigger.to_state.attributes.sender_name == 'Alice' }}
-    action:
-      - service: notify.mobile_app_your_phone
-        data:
-          title: "DM from Alice"
-          message: "{{ trigger.to_state.attributes.text }}"
-```
-
-### Suivre un contact sur la carte HA
-
-Aucune automatisation. Une fois le contact sélectionné pour le suivi GPS, son `device_tracker` apparaît sur la carte HA dès qu’une position est publiée.
-
-## Dépannage
-
-**Aucun appareil n’apparaît.** Vérifier que l’intégration MQTT de HA est configurée et indique « Connecté ». Vérifier que l’intégration Meshloom affiche un point vert. Vérifier que les deux utilisent le même broker. Puis observer directement les sujets de découverte :
+Si aucun appareil n’apparaît, vérifiez que l’intégration MQTT de Home Assistant est connectée, que Meshloom affiche l’intégration comme connectée, et que les deux utilisent le même broker. Regardez ce que Meshloom annonce :
 
 ```text
 mosquitto_sub -h <broker> -t 'homeassistant/#' -v
 ```
 
-**Appareils périmés ou en double.** Par exemple une « MeshCore Radio » générique à côté de votre radio nommée. Il faut effacer les messages retenus en publiant un payload vide :
+Meshloom n’annonce ses appareils qu’une fois qu’il connaît l’identité de la radio : la radio doit donc être connectée.
+
+Les appareils périmés ou en double se suppriment en envoyant un message vide et retenu sur leur sujet de découverte :
 
 ```text
 mosquitto_pub -h <broker> -t 'homeassistant/binary_sensor/meshcore_unknown/connected/config' -r -n
 mosquitto_pub -h <broker> -t 'homeassistant/sensor/meshcore_unknown/noise_floor/config' -r -n
 ```
 
-**Capteurs de répéteur en « Unknown » ou « Unavailable ».** La télémétrie ne se met à jour qu’à la collecte. Forcer une récupération manuelle en ouvrant le tableau de bord du répéteur dans Meshloom et en cliquant « Status », ou attendre le cycle automatique. Si Meshloom a un cache, il le republie au démarrage ; si les capteurs restent inconnus, c’est généralement qu’aucune télémétrie n’a jamais été collectée pour ce répéteur.
+Certaines entités affichent `Inconnu` ou `Indisponible` un moment, ce qui est normal :
 
-**Traceur de contact en « Unknown ».** La position ne se met à jour que quand Meshloom entend une publicité de ce nœud contenant des coordonnées. Un nœud qui ne diffuse pas de GPS, ou qui n’a pas publié récemment, reste inconnu.
+- Les capteurs de répéteur restent `Inconnu` tant que Meshloom n’a pas collecté de télémétrie, et passent à `Indisponible` si rien n’arrive pendant 10 heures.
+- Le suivi d’un contact reste inconnu tant qu’une annonce avec position, ou un relevé de télémétrie, n’est pas arrivé.
+- Les entités de la radio passent à `Indisponible` après 120 secondes sans nouvelle, par exemple quand Meshloom s’arrête.
 
-**Entité « Unavailable ».** Les entités de santé radio ont une expiration de 120 secondes. Si Meshloom cesse d’envoyer ses mises à jour — arrêt, ou perte du broker — HA les marque indisponibles au bout de deux minutes.
+Désactiver ou supprimer l’intégration retire ses entités de Home Assistant.
 
-## Retirer l’intégration
+## Sujets
 
-Désactiver ou supprimer l’intégration dans Meshloom publie des messages retenus vides sur tous les sujets de découverte. HA retire les appareils et entités tout seul.
+Home Assistant lit ces sujets. Vous pouvez aussi les utiliser depuis d’autres outils.
 
-## Référence des sujets MQTT
+| Sujet | Contenu | Quand |
+|-------|---------|-------|
+| `meshcore/{node_id}/health` | `{"connected": true, "noise_floor_dbm": -110, ...}` avec les capteurs de la radio ci-dessus | Toutes les 60 s |
+| `meshcore/{node_id}/telemetry` | `{"battery_volts": 4.1, ...}` | Quand la télémétrie est collectée |
+| `meshcore/{node_id}/gps` | `{"latitude": 48.85, "longitude": 2.35, ...}` | Quand une position est entendue |
+| `meshcore/{node_id}/events/message` | `{"event_type": "message_received", ...}` | À chaque message dans la portée |
 
-Sujets d’état, où les données sont publiées :
+Le préfixe `meshcore` est celui que vous avez saisi dans le formulaire. Les messages de découverte utilisent toujours le préfixe `homeassistant/` :
 
-| Sujet | Contenu | Fréquence |
-|-------|---------|-----------|
-| `meshcore/{node_id}/health` | `{"connected": bool, "noise_floor_dbm": int}` | 60 s |
-| `meshcore/{node_id}/telemetry` | `{"battery_volts": float, ...}` | ~8 h ou manuel |
-| `meshcore/{node_id}/gps` | `{"latitude": float, "longitude": float, ...}` | à chaque publicité |
-| `meshcore/{node_id}/events/message` | `{"event_type": "message_received", ...}` | à chaque message |
-
-Sujets de découverte, sous `homeassistant/` :
-
-| Motif | Type d’entité |
-|-------|---------------|
-| `homeassistant/binary_sensor/meshcore_<node_id>/connected/config` | Connectivité radio |
-| `homeassistant/sensor/meshcore_<node_id>/noise_floor/config` | Plancher de bruit |
-| `homeassistant/sensor/meshcore_<node_id>/battery_voltage/config` | Batterie de répéteur |
-| `homeassistant/sensor/meshcore_<node_id>/*/config` | Autres capteurs de répéteur |
-| `homeassistant/device_tracker/meshcore_<node_id>/config` | Traceur GPS de contact |
-| `homeassistant/event/meshcore_<node_id>/messages/config` | Entité d’événement messages |
-
-Le `{node_id}` est toujours les 12 premiers caractères de la clé publique du nœud, en minuscules.
+| Motif | Entité |
+|-------|--------|
+| `homeassistant/binary_sensor/meshcore_<node_id>/connected/config` | Connexion de la radio |
+| `homeassistant/sensor/meshcore_<node_id>/<nom>/config` | Capteurs de la radio, des répéteurs et des contacts |
+| `homeassistant/device_tracker/meshcore_<node_id>/config` | Position d’un contact |
+| `homeassistant/event/meshcore_<node_id>/messages/config` | Événements de messages |

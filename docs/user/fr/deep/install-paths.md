@@ -1,66 +1,102 @@
 ---
 title: Autres chemins d’installation
-description: Paquet systemd, Docker, Portainer, et un checkout pour développer.
+description: Docker, systemd, Portainer, et un dépôt cloné pour le développement.
 level: deep
 order: 12
 ---
 
-Le one-liner de la page [Installer](/docs/install/) couvre le cas courant. Cette page décrit ce qu’il fait réellement, et les trois autres chemins : Docker à la main, Portainer, et un checkout du dépôt.
+L’installateur en une ligne décrit dans [Installation](/docs/install/) couvre le cas courant. Cette page explique ce qu’il fait, puis traite Docker à la main, Portainer, et l’exécution depuis une copie du code.
 
-## Ce que fait le one-liner
+## Ce que fait l’installateur
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://get.meshloom.app)"
 ```
 
-Le `/bin/bash -c` n’est pas décoratif. Le script pose des questions, et un `curl | bash` prive ces questions de terminal. Sur Linux, il demande service systemd natif ou Docker. Docker peut demander USB ou réseau uniquement pour émettre un mapping Compose `devices:`. Le transport radio se configure dans l’interface.
+Utilisez `/bin/bash -c` plutôt qu’un tube vers `bash` : le script pose des questions et a besoin de votre terminal. Il demande une langue (français ou anglais), puis comment Meshloom doit fonctionner :
 
-En systemd natif, il installe le paquet `meshloom` via `apt-get` ou `dnf` quand il est disponible. Cette installation pose trois choses :
+- **Installer comme service en arrière-plan** (Linux uniquement, recommandé). Il démarre avec la machine.
+- **Lancer avec Docker.** Meshloom tourne dans un conteneur.
+- **Seulement ouvrir Meshloom dans un navigateur.** Rien n’est installé. À choisir si Meshloom fonctionne déjà sur une autre machine.
 
-- l’unité systemd, nommée `meshloom`
-- le fichier d’environnement `/etc/meshloom/meshloom.env`
-- le répertoire de données `/var/lib/meshloom`
+Vous ne choisissez jamais la connexion à la radio ici. USB, réseau ou Bluetooth se choisit plus tard dans l’interface web (voir [Transports radio](/docs/deep/transports/)). La seule question sur la radio que l’installateur peut poser concerne Docker et l’USB : s’il trouve un seul port série, il le relie au conteneur ; s’il en trouve plusieurs, il demande lequel.
 
-Si le paquet n’est pas disponible pour la plateforme, le script retombe sur une installation depuis les sources : il clone la dernière version dans un dossier (par défaut `~/meshloom`) et lance `install_service.sh`. Cette installation se met à jour par `git pull` et un redémarrage du service, pas depuis Réglages → Mises à jour.
+### En service en arrière-plan
 
-L’état du service se lit comme n’importe quel autre :
+L’installateur choisit la première méthode qui fonctionne sur votre machine :
+
+1. **Un paquet signé du dépôt Meshloom** (`apt` ou `dnf`), s’il en existe un pour votre processeur.
+2. **Un paquet téléchargé depuis la page des versions**, installé avec `apt` ou `dnf`.
+3. **Une copie du code** : s’il n’y a pas de paquet pour votre système, il copie le code de la dernière version avec `git` dans un dossier (par défaut `~/meshloom`) et lance `install_service.sh` depuis ce dossier.
+
+Une installation par paquet crée :
+
+- un service systemd nommé `meshloom`, exécuté par un utilisateur dédié `meshloom` qui peut utiliser les périphériques série et Bluetooth ;
+- le programme dans `/opt/meshloom` ;
+- le fichier de réglages `/etc/meshloom/meshloom.env`, où les bots sont **désactivés** par défaut ;
+- la base de données et vos données dans `/var/lib/meshloom`.
+
+Vérifiez avec :
 
 ```bash
 sudo systemctl status meshloom
 ```
 
-## install_service.sh depuis un clone
+Meshloom écoute sur le port 8000 de tous les réseaux de la machine.
 
-Depuis un dépôt déjà cloné, l’installeur de checkout reste utilisable. Il tourne sous votre utilisateur courant, depuis le répertoire du dépôt. Le nom d’unité est le même : `meshloom`.
+Une installation par copie du code s’exécute sous votre propre utilisateur depuis ce dossier, et sa base est `data/meshcore.db` dans le dossier. Elle ne se met pas à jour depuis l’interface : mettez-la à jour à la main (voir plus bas).
+
+### Avec Docker
+
+L’installateur demande où ranger le fichier Compose (par défaut `~/meshloom`), puis y écrit :
+
+- `docker-compose.yml`, avec le port 8000, un dossier `./data` pour la base et, s’ils sont trouvés, la radio USB et la connexion système du Bluetooth (D-Bus) ;
+- `.env`, qui contient `MESHLOOM_IMAGE`, l’image à lancer.
+
+Sur une nouvelle installation avec une radio USB, Meshloom tourne dans le conteneur sous l’utilisateur 10001 plutôt que root (`MESHLOOM_RUN_AS_USER`, voir plus bas). Retirez cette ligne si vous passez au Bluetooth ou si la radio ne répond plus.
+
+Un `docker-compose.yml` existant est d’abord sauvegardé. Si vous l’aviez modifié, l’installateur propose de conserver vos modifications.
+
+## Lancer `install_service.sh` soi-même
+
+Depuis une copie du code :
 
 ```bash
 bash scripts/setup/install_service.sh
 ```
 
-Le script est rejouable. Relancez-le après avoir récupéré une nouvelle version : si le service tourne déjà, il l’arrête, réécrit le fichier d’unité, recharge systemd, puis le redémarre. Il ne configure ni les bots ni l’authentification : posez vous-même `MESHCORE_DISABLE_BOTS` et `MESHCORE_BASIC_AUTH_*` dans l’environnement. Le transport radio se configure dans l’interface, pas dans le fichier d’unité.
+Il faut `uv` et Python 3.11 ou plus récent. Le script demande s’il faut construire l’interface avec Node.js 20 et npm 9 ou plus récents, ou en télécharger une toute prête. Il écrit ensuite `/etc/systemd/system/meshloom.service`, le démarre sous votre utilisateur, et donne à cet utilisateur l’accès aux périphériques série et Bluetooth.
 
-## Docker
+On peut le rejouer après une mise à jour du code : il arrête le service, réécrit l’unité, recharge systemd et le redémarre. Il ne configure ni les bots ni un mot de passe. Pour définir des variables, voir [Variables et réglages](/docs/deep/environment/).
 
-L’image est publiée sur `ghcr.io/twinrocket/meshloom`. Le dépôt fournit `docker-compose.example.yml` comme point de départ. Les éléments qui comptent :
+Pour mettre à jour une telle installation, récupérez le nouveau code, puis relancez le script. Il installe les dépendances, reconstruit ou télécharge l’interface, et redémarre le service. Une copie faite par l’installateur est figée sur une version : remplacez `X.Y.Z` par le numéro de la dernière version, affiché sur la [page des versions](https://github.com/TwinRocket/meshloom/releases).
 
-- le volume `./data:/app/data`, qui contient la base SQLite
-- un mapping `devices:` optionnel pour l’USB (TCP et BLE se configurent dans l’interface)
-- `MESHCORE_DATABASE_PATH: data/meshcore.db`
-- `restart: unless-stopped`
+```bash
+cd ~/meshloom
+git fetch --depth 1 origin tag X.Y.Z
+git checkout X.Y.Z
+bash scripts/setup/install_service.sh
+```
 
-- `image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}` : épinglez une version dans un fichier `.env` voisin, idéalement par empreinte (`MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:…` ; l’asset signé `OCI-DIGESTS` de chaque version la donne)
+Si vous avez cloné vous-même la branche `main`, `git pull` remplace les deux lignes `git`.
 
-Le conteneur tourne en root par défaut. Pour le faire tourner sous l’uid 10001, posez `MESHLOOM_RUN_AS_USER: "10001"` : l’entrypoint donne `./data` à cet uid et ajoute les groupes des ports série mappés ; si la radio reste inaccessible, il reste en root et l’écrit dans les logs. À éviter en Bluetooth.
+## Docker à la main
 
-Une pile écrite à la main n’a pas de mise à jour depuis l’interface. Le mode Docker de l’installeur ajoute sur l’hôte un assistant root qui épingle l’image par empreinte signée dans `.env` et applique les mises à jour demandées depuis Réglages → Mises à jour ; il ne modifie jamais `docker-compose.yml`.
+L’image est `ghcr.io/twinrocket/meshloom`. Le dépôt contient `docker-compose.example.yml`. Ses éléments principaux :
 
-BLE en conteneur demande des ajustements manuels supplémentaires. Voir [Transports radio](/docs/deep/transports/).
+- `image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}`. Sans fichier `.env`, elle suit `:latest`. Pour rester sur une version précise, écrivez la ligne `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:...` dans un fichier `.env` à côté. Chaque version publie ses empreintes dans un fichier `OCI-DIGESTS` signé.
+- `ports: "8000:8000"`.
+- `./data:/app/data`, pour la base de données.
+- `devices:`, pour donner une radio USB au conteneur. Le fichier contient un chemin d’exemple qui n’existe pas sur votre machine : remplacez-le par le chemin de votre radio, ou supprimez les deux lignes si votre radio est en réseau ou en Bluetooth, sinon le conteneur ne démarre pas. La radio elle-même se choisit dans l’interface web.
+- `MESHCORE_DATABASE_PATH: data/meshcore.db`, et `restart: unless-stopped`.
+
+Le conteneur tourne par défaut sous root. Pour le faire tourner sous l’utilisateur numéro 10001, définissez `MESHLOOM_RUN_AS_USER: "10001"`. Au démarrage, le conteneur confie `./data` à cet utilisateur et lui donne les groupes des périphériques série. Si la radio reste inaccessible ainsi, Meshloom reste sous root et écrit un avertissement dans son journal. À ne pas utiliser avec le Bluetooth, qui demande une mise en place manuelle plus poussée, décrite dans [Transports radio](/docs/deep/transports/).
+
+Un fichier Compose écrit à la main ne peut pas être mis à jour depuis l’interface. Le mode Docker de l’installateur ajoute un petit assistant qui tourne sous root sur l’hôte : il fige l’image par son empreinte signée dans `.env` et installe les mises à jour quand vous le demandez dans **Réglages → Mises à jour**. Il ne modifie jamais `docker-compose.yml`. Docker Desktop et Docker sans root n’ont pas cet assistant : la pile suit `:latest`.
 
 ## Portainer
 
-Pour une stack qui construit depuis le dépôt, utilisez [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) comme chemin de Compose, et chargez les clés de [`.env.example`](https://github.com/TwinRocket/meshloom/blob/main/.env.example) dans la section Environment de Portainer, ou dans un `.env` local.
-
-Les clés attendues sont peu nombreuses :
+Le fichier [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) du dépôt est prévu pour une pile qui **construit l’image depuis le dépôt**. Dans Portainer, faites-y pointer la pile et chargez les variables de `.env.example` :
 
 ```text
 MESHLOOM_HTTP_PORT=8123
@@ -71,20 +107,20 @@ MESHCORE_VAPID_SUBJECT=mailto:you@example.com
 # MESHLOOM_COMMUNITY=0
 ```
 
-`MESHCORE_VAPID_SUBJECT` n’est qu’un repli si le sujet VAPID de Réglages → Notifications est vide. Ne validez pas de vraies adresses VAPID dans le dépôt. L’hôte et le port radio se règlent dans l’interface. Un volume de données vide rejoint Community sauf `MESHLOOM_COMMUNITY=0`. Voir [Meshloom Community](/docs/deep/community/).
+Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Si vous ne voulez pas d’une construction sur le serveur, utilisez plutôt `docker-compose.example.yml`.
 
-## Depuis un checkout
+`MESHCORE_VAPID_SUBJECT` n’est utilisé que si le contact de **Réglages → Notifications** est vide. Ne mettez pas d’adresse réelle dans un dépôt public. L’adresse et le port de la radio se règlent dans l’interface web. Un nouveau dossier de données vide rejoint Community, sauf si `MESHLOOM_COMMUNITY=0`. Voir [Meshloom Community](/docs/deep/community/).
 
-Pour développer, ou pour faire tourner une version non publiée. Le backend passe par `uv`.
+## Depuis une copie du code, pour le développement
 
 ```bash
 uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-`uv sync` n’est pas optionnel : c’est lui qui crée le `.venv` contenant les dépendances. Ne tentez pas de les installer avec `apt` ou `dnf` — la plupart ne sont pas empaquetées, et elles n’ont rien à faire sur le Python système. Si `uv run uvicorn` échoue sur `ModuleNotFoundError: No module named 'meshcore'`, la cause est presque toujours là. Voir [Dépannage](/docs/deep/troubleshooting/).
+`uv sync` crée le `.venv` propre au projet. N’installez pas ces dépendances avec `apt` ni `dnf`. Si `uv run uvicorn` s’arrête sur `ModuleNotFoundError: No module named 'meshcore'`, commencez ici. Voir [Dépannage](/docs/deep/troubleshooting/).
 
-Le frontend est séparé en développement :
+Pour travailler sur l’interface :
 
 ```bash
 cd frontend
@@ -92,47 +128,37 @@ npm install
 npm run dev
 ```
 
-Le serveur Vite écoute sur `http://localhost:5173` et relaie `/api` vers le port 8000. Faire tourner les deux en parallèle donne le rechargement à chaud.
-
-En production, c’est le backend FastAPI qui sert le frontend compilé. Il faut donc construire avant :
+Le serveur de développement écoute sur `http://localhost:5173` et transmet les appels `/api` au port 8000. Pour la production, construisez l’interface une fois, puis démarrez le serveur :
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Si `frontend/dist` est absent, le backend cherche `frontend/prebuilt`, présent par exemple dans l’archive zip de release. Si aucun des deux n’existe, le démarrage journalise une erreur explicite et continue à servir les routes API sans monter le frontend.
-
-La suite de vérifications du dépôt se lance depuis la racine :
+Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une interface toute prête que `scripts/setup/fetch_prebuilt_frontend.py` télécharge). Si aucun des deux n’existe, il ne sert que l’API. Lancez les contrôles de qualité du dépôt depuis sa racine :
 
 ```bash
 ./scripts/quality/all_quality.sh
 ```
 
-Le reste des conventions de contribution est dans [CONTRIBUTING.md](https://github.com/TwinRocket/meshloom/blob/main/CONTRIBUTING.md).
-
 ## Base de données et mises à jour
 
-La base SQLite est le seul état persistant qui compte. Son emplacement dépend du chemin d’installation :
+| Installation | Base de données |
+|--------------|-----------------|
+| Paquet Linux | `/var/lib/meshloom/meshcore.db` |
+| Docker | `./data`, monté sur `/app/data` |
+| Copie du code | `data/meshcore.db` dans le dossier |
 
-| Installation | Emplacement de la base |
-|--------------|------------------------|
-| Paquet systemd | `/var/lib/meshloom` |
-| Docker | `./data` (volume monté sur `/app/data`) |
-| Checkout | `data/meshcore.db`, relatif au dépôt |
+`MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
-`MESHCORE_DATABASE_PATH` permet de la déplacer.
-
-Les mises à jour ne touchent pas la base. Les migrations de schéma s’appliquent au démarrage, dans l’ordre, en s’appuyant sur le `user_version` de SQLite.
-
-Réglages → Mises à jour applique une mise à jour de Meshloom seul, depuis une source signée, quand l’assistant est présent. Sinon :
+**Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Une copie du code se met à jour comme décrit plus haut. Ailleurs, mettez à jour à la main :
 
 ```bash
 sudo apt-get install --only-upgrade meshloom
-sudo dnf install meshloom
+sudo dnf upgrade meshloom
 sudo docker compose pull && sudo docker compose up -d
 ```
 
-## Après le démarrage
+La première ligne vaut pour Debian, Ubuntu et Raspberry Pi OS, la deuxième pour Fedora et les systèmes proches, la troisième pour Docker.
 
-L’interface écoute sur `http://127.0.0.1:8000` par défaut. Sur le même hôte et le même port, FastAPI sert aussi une documentation d’API interactive sur `/docs`. C’est du Swagger généré depuis le code, pas ce site.
+Lancé à la main sans `--host`, Meshloom ne répond que sur la machine elle-même, à `http://127.0.0.1:8000`. La page `/docs` documente l’interface de programmation (API). Ce n’est pas ce site.

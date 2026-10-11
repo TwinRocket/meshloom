@@ -5,106 +5,117 @@ level: deep
 order: 14
 ---
 
-Meshloom a deux surfaces de configuration, et elles ne se recouvrent pas.
+Meshloom se configure à deux endroits, et ils ne se recouvrent pas.
 
-L’**environnement** décide de ce qui doit être connu avant que quoi que ce soit tourne : où écrire la base, si les bots sont autorisés, si une authentification s’applique, quels contournements de diagnostic sont actifs. Ces variables sont lues au démarrage. Les changer implique de redémarrer le service.
+L’**environnement** contient ce qui doit être connu avant que quoi que ce soit démarre : où écrire la base de données, si les bots sont autorisés, si un mot de passe protège la page, et quels interrupteurs de diagnostic sont actifs. Le modifier impose un redémarrage.
 
-Les **réglages d’exécution** vivent dans la table `app_settings` de la base et se modifient à chaud depuis l’interface ou via `GET` / `PATCH /api/settings`. Le transport radio est un réglage d’exécution, pas une variable d’environnement. Voir [Transports radio](/docs/deep/transports/).
+Les **réglages** vivent dans la base de données. On les change dans l’interface web et ils s’appliquent tout de suite. La connexion à la radio en fait partie : c’est un réglage, pas une variable d’environnement. Voir [Transports radio](/docs/deep/transports/).
 
 ## Où écrire les variables
 
-| Installation | Emplacement |
-|--------------|-------------|
-| Paquet systemd | `/etc/meshloom/meshloom.env` |
-| Docker | bloc `environment:` du Compose, ou un `.env` |
-| Checkout | l’environnement du shell qui lance `uv run uvicorn` |
+| Installation | Où | Après un changement |
+|--------------|----|---------------------|
+| Paquet Linux (`.deb` / `.rpm`) | `/etc/meshloom/meshloom.env`, propriété de root : à modifier avec `sudo` | `sudo systemctl restart meshloom` |
+| Service installé depuis un dépôt cloné | Pas de fichier. Ajoutez des lignes `Environment=NOM=valeur` sous `[Service]` avec `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
+| Docker | bloc `environment:` du fichier Compose, ou un `.env` à côté | `docker compose up -d` |
+| Dépôt cloné lancé à la main | L’environnement du shell qui lance `uv run uvicorn` | Relancer la commande |
 
-Pour l’installation par paquet, `bash scripts/setup/install_service.sh` peut être rejoué pour réécrire ce fichier sans l’éditer à la main.
+Rejouer `install_service.sh` réécrit l’unité systemd principale d’une installation depuis les sources. Un fichier complémentaire créé avec `systemctl edit` est conservé, et `meshloom.env` n’est pas concerné.
 
 ## Connexion radio
 
-Le transport se configure dans l’interface et est stocké dans `app_settings` :
+La connexion se choisit dans **Réglages → Radio** et se stocke dans la base :
 
-| Colonne | Défaut | Description |
+| Réglage | Défaut | Description |
 |---------|--------|-------------|
-| `radio_transport` | *(non défini / en pause)* | `serial`, `tcp` ou `ble` |
-| `radio_serial_port` | vide | Port série ; vide = auto-détection |
-| `radio_serial_baudrate` | `115200` | Débit série |
-| `radio_tcp_host` | vide | Hôte TCP de la radio |
+| `radio_transport` | *(non défini : en pause)* | `serial`, `tcp` ou `ble` |
+| `radio_serial_port` | vide | Port série. Vide = détection automatique |
+| `radio_serial_baudrate` | `115200` | Vitesse série |
+| `radio_tcp_host` | vide | Adresse de la radio sur le réseau |
 | `radio_tcp_port` | `5000` | Port TCP |
-| `radio_ble_address` | vide | Adresse BLE de la radio |
-| `radio_ble_pin` | vide | Code PIN BLE, obligatoire avec BLE |
+| `radio_ble_address` | vide | Adresse Bluetooth de la radio |
+| `radio_ble_pin` | vide | Code PIN Bluetooth, obligatoire en Bluetooth |
 
-Tant que `radio_transport` n’est pas défini, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS` pour choisir un transport.
+Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS`. Une base neuve les ignore. Une base existante sans connexion enregistrée les recopie une seule fois, pour reprendre une ancienne configuration, puis ne les lit plus jamais.
 
 ## Serveur et données
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Emplacement de la base SQLite |
-| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Repli du sujet VAPID si `app_settings.vapid_subject` est vide |
-| `MESHCORE_PUBLIC_URL` | *(vide)* | Acceptée mais sans effet aujourd'hui : aucun chemin de production ne la lit (le manifeste web utilise des URL relatives) |
-| `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d'écoute, comme l'add-on Home Assistant. Le port du proxy vient alors de l'hôte, et le champ dans les réglages le dit au lieu d'accepter une valeur sans effet |
-| `MESHCORE_RADIO_PROXY_PORT` | *(vide)* | Port d'écoute du proxy radio, choisi par l'hôte. Utilisée seulement avec `MESHCORE_MANAGED_PORTS=true`, où elle remplace le port enregistré à chaque démarrage. L'add-on Home Assistant la fixe au port qu'il redirige (`5051`) |
-| `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Autorise une page de la même origine à afficher Meshloom dans un cadre. L'ingress de Home Assistant fait exactement cela, et les en-têtes par défaut le refusent — ce qui se voit comme un panneau blanc avec un 200 parfaitement sain dans le journal |
-| `MESHLOOM_COMMUNITY` | *(on pour une base neuve)* | Seed Community sur une base toute neuve. Absent ou `1` = on ; `0` / `false` / `off` = opt-out. Les bases existantes ne sont jamais basculées |
-| `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code IATA à 3 lettres. Tant qu'elle est posée, elle remplace à chaque lecture le code enregistré dans l'interface : un changement fait dans les Réglages ne prend pas effet |
-| `MESHLOOM_COMMUNITY_BROKER_HOST` | *(vide)* | Remplace à chaque lecture l'hôte MQTT Community (défaut `mqtt.meshloom.app`) tant qu'elle est posée |
-| `MESHLOOM_COMMUNITY_API_BASE` | *(vide)* | Remplace à chaque lecture l'origine de l'API Community (défaut `https://api.meshloom.app`) tant qu'elle est posée |
-| `MESHLOOM_COMMUNITY_LOCKED` | `false` | À `1`, l’interface ne peut pas activer Community |
+| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR` |
+| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Adresse de contact des notifications push quand le champ des Réglages est vide (voir plus bas) |
+| `MESHCORE_PUBLIC_URL` | *(vide)* | Acceptée, mais aucune fonction ne l’utilise aujourd’hui |
+| `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d’écoute, comme l’add-on Home Assistant. Les Réglages affichent alors le port du proxy en lecture seule |
+| `MESHCORE_RADIO_PROXY_PORT` | *(non défini)* | Port du proxy radio choisi par l’hôte. Utilisée seulement avec `MESHCORE_MANAGED_PORTS=true`, où elle remplace le port enregistré à chaque démarrage. L’add-on Home Assistant la fixe à `5051` |
+| `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Autorise une page de la même origine à afficher Meshloom dans un cadre. La barre latérale de Home Assistant fait exactement cela. Par défaut, Meshloom refuse d’être mis dans un cadre, ce qui donne un panneau blanc alors que le journal montre un `200` parfaitement sain |
 
-Le sujet VAPID se règle d’abord dans **Réglages → Notifications**. `MESHCORE_VAPID_SUBJECT` n’est utilisé que si ce champ est vide. Apple exige un `mailto:` ou un `https:` réel : APNs rejette le domaine `.local` par défaut avec `403 BadJwtToken`. Google FCM l’accepte. Voir [Notifications push](/docs/deep/push/) et la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
+Le contact VAPID se règle de préférence dans **Réglages → Notifications**. `MESHCORE_VAPID_SUBJECT` n’est utilisé que si ce champ est vide. Apple exige une adresse `mailto:` ou `https:` réelle et rejette le `.local` par défaut avec `403 BadJwtToken`. Voir [Notifications push](/docs/deep/push/) et la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
+
+## Meshloom Community
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `MESHLOOM_COMMUNITY` | *(activé)* | Ne concerne qu’une base toute neuve. Absente ou `1` : démarre avec Community activé. `0`, `false`, `off` ou `no` : démarre désactivé. Les bases existantes ne sont jamais basculées |
+| `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code d’aéroport à trois lettres. Tant qu’elle est définie, elle remplace le code enregistré dans l’interface |
+| `MESHLOOM_COMMUNITY_BROKER_HOST` | *(vide)* | Remplace le serveur de publication de Community (par défaut `mqtt.meshloom.app`) tant qu’elle est définie |
+| `MESHLOOM_COMMUNITY_API_BASE` | *(vide)* | Remplace l’adresse de l’API Community (par défaut `https://api.meshloom.app`) tant qu’elle est définie |
+| `MESHLOOM_COMMUNITY_LOCKED` | *(vide)* | Seule la valeur `1` compte : l’interface ne peut alors pas activer Community |
+
+Voir [Meshloom Community](/docs/deep/community/).
 
 ## Sécurité
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Désactive entièrement le système de bots au démarrage |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Identifiant HTTP Basic pour toute l’application |
+| `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Le paquet Linux la met à `true` dans `meshloom.env` |
+| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Autorise `GET /api/radio/private-key` |
 
-Les deux variables d’authentification doivent être définies ensemble. L’une sans l’autre est une erreur de validation au démarrage. La portée exacte de chacune de ces options est décrite dans [Sécurité](/docs/deep/security/).
+Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
+
+## Installation et mises à jour
+
+L’installateur les définit pour vous. On les modifie rarement à la main.
+
+| Variable | Description |
+|----------|-------------|
+| `MESHLOOM_INSTALL_KIND` | Comment Meshloom a été installé : `package`, `compose`, `addon`, `container` ou `source`. Cela décide si **Réglages → Mises à jour** peut installer une mise à jour |
+| `MESHLOOM_UPDATE_HELPER` | `compose` pour une pile Docker gérée par l’assistant de mise à jour, `none` pour désactiver l’installation depuis l’interface |
+| `MESHLOOM_RUN_AS_USER` | Docker uniquement. Un nombre comme `10001` fait tourner Meshloom sous cet utilisateur plutôt que root. Voir [Autres chemins d’installation](/docs/deep/install-paths/) |
+| `MESHLOOM_IMAGE` | Docker uniquement. L’image que Compose démarre, idéalement figée par son empreinte |
 
 ## Diagnostic et contournements
 
-Ces variables existent pour diagnostiquer ou contourner des radios qui se comportent mal. Aucune n’est nécessaire en fonctionnement normal.
+Ces variables servent à diagnostiquer ou contourner des radios qui se comportent mal. Aucune n’est nécessaire en fonctionnement normal.
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Fait passer l’audit radio d’un contrôle horaire à un sondage `get_msg()` toutes les 10 secondes |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Désactive la réutilisation des slots de salon et force `set_channel(...)` avant chaque envoi |
-| `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Charge les contacts en mode autoevict, la radio évinçant elle-même les plus anciens |
-| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | Saute la synchronisation contacts/salons, la publicité de démarrage et les boucles périodiques |
-| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | Très expérimental : tente un débordement d’horloge sur 32 bits quand la RTC est bloquée dans le futur |
+| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Fait vérifier les messages en attente sur la radio toutes les 10 secondes au lieu de toutes les heures |
+| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Réécrit le salon dans la radio avant chaque envoi vers un salon |
+| `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Laisse la radio supprimer elle-même ses plus anciens contacts quand sa table est pleine |
+| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | Après la connexion, saute la synchronisation des contacts et des salons, l’annonce de démarrage, la lecture des messages en attente sur la radio, et les tâches périodiques (synchronisation, annonces, audit, télémétrie) |
+| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | Très expérimental : tente un débordement d’horloge sur 32 bits |
 
-Trois précisions.
+L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon. La variable « skip » est une sortie de secours pour le diagnostic : les gestionnaires d’événements, l’export de clé, la synchronisation d’horloge et la récupération automatique des messages continuent. La dernière est un dernier recours pour une radio dont l’horloge est coincée dans le futur, et peut ne pas être sûre sur toutes les cartes.
 
-`MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` ne crée pas une tâche : elle change la fréquence d’une tâche qui tourne toujours. Par défaut, cet audit passe une fois par heure et vérifie deux choses — si des messages sont restés sur la radio sans remonter par abonnement d’événement, et si les attentes de l’application sur les slots de salon correspondent encore à la réalité de la radio. En cas d’écart, une erreur apparaît dans l’interface et dans les logs.
+## Réglages stockés dans la base
 
-`MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` retarde chaque envoi de salon d’environ 500 ms. À réserver aux cas où un autre client modifie les slots sous les pieds de Meshloom.
+On les change dans l’interface web. Rien de tout cela ne se définit par l’environnement.
 
-`MESHCORE_SKIP_POST_CONNECT_SYNC` est une trappe de sortie de diagnostic. L’enregistrement des gestionnaires, l’export de clé, la synchronisation d’horloge et la récupération automatique des messages continuent ; c’est la prise en main des contacts et des salons qui est mise de côté. Utile quand l’état de la radio doit rester intact. Pas pour un usage normal.
+| Où | Ce que cela commande |
+|----|----------------------|
+| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure) |
+| **Base de données** | `auto_decrypt_dm_on_advert` |
+| **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
+| **Alertes** | `telemetry_alert_rules` |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook) |
+| **Mises à jour** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
+| **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche |
+| Canaux découverts | `rejected_channels` : les canaux que vous avez refusés |
+| Hors interface | `raw_packet_retention_days` : supprime automatiquement les paquets illisibles plus vieux que ce nombre de jours (`0` garde tout). À régler par `PATCH /api/settings` |
 
-`__CLOWNTOWN_DO_CLOCK_WRAPAROUND` est un dernier recours pour un nœud dont l’horloge est coincée dans le futur, sans mode rescue ni temps GPS disponibles. Elle repose sur un comportement dépendant de la carte et peut ne pas être sûre ni efficace sur toutes les cibles MeshCore.
+La paire de clés VAPID (`vapid_private_key` et `vapid_public_key`) est créée au premier démarrage. L’interface est la façon prévue de modifier les réglages ; certains peuvent aussi être lus et modifiés avec `GET` et `PATCH /api/settings`.
 
-## Réglages d’exécution en base
-
-Ce qui suit vit dans `app_settings` et se pilote depuis l’interface ou `PATCH /api/settings`. Ce n’est pas configurable par l’environnement.
-
-- `radio_transport`, `radio_serial_port`, `radio_serial_baudrate`, `radio_tcp_host`, `radio_tcp_port`, `radio_ble_address`, `radio_ble_pin`
-- `max_radio_contacts` — capacité de contacts visée sur la radio, base de calcul des remplissages et déchargements
-- `auto_decrypt_dm_on_advert` — déchiffrement historique des messages directs quand une clé devient connue
-- `advert_interval`, `last_advert_time` — publicité périodique, `0` désactive
-- `flood_scope`, `known_regions` — portée de flood régionale et liste de régions candidates au décodage
-- `blocked_keys`, `blocked_names`, `discovery_blocked_types` — listes de blocage
-- `tracked_telemetry_repeaters`, `tracked_telemetry_contacts`, `telemetry_interval_hours` — collecte de télémétrie
-- `auto_resend_channel` — renvoi automatique de salon
-- `last_message_times` — horodatages de tri côté serveur
-- `push_defaults`, `push_conversation_overrides`, `vapid_subject` — règles et sujet VAPID du push web (l’ancien `push_conversations` n’est plus la surface de préférence)
-- `vapid_private_key`, `vapid_public_key` — paire VAPID générée au premier démarrage
-
-Les intégrations MQTT, bots, webhooks, Apprise et SQS ne sont pas dans `app_settings` : elles vivent dans la table `fanout_configs` et se gèrent via `/api/fanout`. L’état Community est stocké sur `app_settings` mais n’est pas dans `GET` / `PATCH /api/settings` : utiliser `/api/community`. Voir [Fanout](/docs/deep/fanout/) et [Meshloom Community](/docs/deep/community/).
-
-Les conséquences radio de `max_radio_contacts`, `flood_scope` et `path_hash_mode` sont détaillées dans [Radio, contacts et salons](/docs/deep/radio/).
+Les intégrations (MQTT, bots, webhooks, Apprise, SQS) sont stockées à part, dans `fanout_configs`. Meshloom Community a son propre point d’accès, `/api/community`. Voir [Fanout](/docs/deep/fanout/), [Meshloom Community](/docs/deep/community/) et [Radio, contacts et salons](/docs/deep/radio/).
