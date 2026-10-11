@@ -13,7 +13,7 @@ Chaque destination est une **intégration**. Pour en ajouter une :
 2. Choisissez **Ajouter une intégration** et sélectionnez un type.
 3. Remplissez le formulaire, puis choisissez **Enregistrer et activer** (ou **Enregistrer et désactiver** pour la garder de côté).
 
-La page affiche un avertissement : les intégrations sont une fonctionnalité expérimentale en bêta ouverte. Chaque intégration montre son état : connectée, déconnectée ou en erreur. En cas d’erreur, **Voir la dernière erreur** affiche le dernier message.
+La page affiche un avertissement : les intégrations sont une fonctionnalité expérimentale en bêta ouverte. Chaque intégration montre son état, par exemple **Connecté**, **Déconnecté** ou **Erreur**. En cas d’erreur, **Voir la dernière erreur** affiche le dernier message.
 
 [Meshloom Community](/docs/deep/community/) n’est pas une intégration. C’est une adhésion à part, avec sa propre page.
 
@@ -42,22 +42,22 @@ Les messages partent **déchiffrés**, en clair, y compris ceux que vous envoyez
 
 ### MQTT communautaire
 
-Il envoie les paquets bruts à un collecteur tenu par une communauté, comme LetsMesh ou MeshRank, pour que votre radio serve aussi d’observateur. Seuls les paquets bruts partent, jamais les messages déchiffrés. Le serveur par défaut est celui de LetsMesh US, en WebSockets. Un code de région (IATA) est obligatoire ; une adresse e-mail est facultative (elle permet au collecteur de relier le nœud à vous). Votre radio signe le laissez-passer de connexion avec sa clé.
+Il envoie les paquets bruts à un collecteur tenu par une communauté, comme LetsMesh ou MeshRank, pour que votre radio serve aussi d’observateur. Seuls les paquets bruts partent, jamais les messages déchiffrés. Le serveur par défaut est celui de LetsMesh US, en WebSockets. Un code de région (IATA) est obligatoire ; une adresse e-mail est facultative (elle permet au collecteur de relier le nœud à vous). Avec LetsMesh, votre radio signe le laissez-passer de connexion avec sa clé ; MeshRank n’en demande pas. En plus des paquets, le collecteur reçoit toutes les cinq minutes un message d’état : nom de la radio, modèle, version de firmware et paramètres radio.
 
 C’est autre chose que le [Meshloom Community](/docs/deep/community/) officiel. Les deux peuvent fonctionner en même temps.
 
 ### Envoi vers la carte
 
-Il envoie les annonces des répéteurs et des serveurs de salon vers map.meshcore.io. Il a besoin de la clé privée de la radio pour les signer : le firmware de la radio doit donc autoriser l’export de la clé. Un même nœud est envoyé au plus une fois par heure.
+Il envoie vers map.meshcore.io les annonces des répéteurs et des serveurs de salon qui diffusent leur position. Il a besoin de la clé privée de la radio pour les signer : le firmware de la radio doit donc autoriser l’export de la clé. Un même nœud est envoyé au plus une fois par heure.
 
-**Il démarre en mode simulation (dry-run).** En mode simulation, Meshloom écrit seulement dans son journal ce qu’il enverrait. Rien n’arrive sur la carte tant que vous n’avez pas décoché **Mode simulation** dans le formulaire. Un périmètre géographique facultatif limite les envois aux nœuds situés dans un rayon autour de votre radio.
+**Il démarre en mode simulation (dry-run).** En mode simulation, Meshloom écrit seulement dans son journal ce qu’il enverrait. Rien n’arrive sur la carte tant que vous n’avez pas décoché **Mode simulation (journal uniquement, pas d’envoi)** dans le formulaire. Un périmètre géographique facultatif limite les envois aux nœuds situés dans un rayon autour de votre radio.
 
 ## Choisir ce qui part : la portée
 
 Chaque intégration a une **portée** : quels messages elle reçoit, et si elle reçoit aussi les paquets bruts.
 
 - **Messages** : tous, aucun, seulement les salons et contacts que vous listez, ou tous sauf ceux que vous listez. Avec « seulement », les salons et contacts ajoutés plus tard ne sont pas inclus automatiquement.
-- **Paquets bruts** : oui ou non. Seuls MQTT privé et Amazon SQS vous laissent le choix.
+- **Transférer les paquets bruts** : oui ou non. Seuls MQTT privé et Amazon SQS vous laissent le choix.
 
 Certains types ont une portée imposée :
 
@@ -71,7 +71,7 @@ La portée ne filtre que les messages et les paquets bruts. Les contacts, la té
 
 Déchiffrer d’anciens paquets plus tard, après l’ajout d’une clé, ne déclenche jamais les intégrations. Ajouter une clé ne rejoue pas une semaine de notifications.
 
-Ce que contient un message : son type (direct ou salon), la clé de la conversation, le texte, l’expéditeur, l’état d’accusé de réception, les chemins empruntés et les heures. Un paquet brut a deux identifiants. `id` identifie le paquet stocké, et un paquet réentendu par une autre route le partage. `observation_id` est unique à chaque arrivée par les ondes : c’est lui qu’il faut utiliser pour compter.
+Ce que contient un message : son type (direct ou salon), la clé de la conversation, le texte, l’expéditeur, l’état d’accusé de réception, les chemins empruntés et les heures. Un paquet brut a deux identifiants. `id` identifie le paquet stocké, et un paquet réentendu par une autre route le partage. `observation_id` est unique à chaque arrivée par les ondes : c’est lui qu’il faut utiliser pour compter. Sa numérotation repart du début quand Meshloom redémarre.
 
 ## Bots
 

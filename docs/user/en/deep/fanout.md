@@ -13,7 +13,7 @@ Each destination is an **integration**. To add one:
 2. Choose **Add Integration** and pick a type.
 3. Fill in the form, then choose **Save as Enabled** (or **Save as Disabled** to keep it for later).
 
-The page carries a notice that integrations are an experimental feature in open beta. Each integration shows its state: connected, disconnected or error. For an error, **View latest error** shows the last message.
+The page carries a notice that integrations are an experimental feature in open beta. Each integration shows its state, such as **Connected**, **Disconnected** or **Error**. For an error, **View latest error** shows the last message.
 
 [Meshloom Community](/en/docs/deep/community/) is not an integration. It is a separate membership with its own page.
 
@@ -42,22 +42,22 @@ Messages leave **decrypted**, in plain text, including those you send. Only poin
 
 ### Community MQTT
 
-This sends raw packets to a collector run by a community, such as LetsMesh or MeshRank, so your radio also acts as an observer. Only raw packets leave, never decrypted messages. The default is the LetsMesh US server, over WebSockets. A region code (IATA) is required, and an e-mail address is optional (it lets the collector link the node to you). Your radio signs the connection pass with its key.
+This sends raw packets to a collector run by a community, such as LetsMesh or MeshRank, so your radio also acts as an observer. Only raw packets leave, never decrypted messages. The default is the LetsMesh US server, over WebSockets. A region code (IATA) is required, and an e-mail address is optional (it lets the collector link the node to you). With LetsMesh, your radio signs the connection pass with its key; MeshRank needs no pass. Besides the packets, the collector receives a status message every five minutes: radio name, model, firmware version and radio settings.
 
 This is a different thing from the official [Meshloom Community](/en/docs/deep/community/). Both can run at the same time.
 
 ### Map Upload
 
-It sends the adverts of repeaters and room servers to map.meshcore.io. It needs the radio's private key to sign them, so the radio firmware must allow key export. A given node is sent at most once per hour.
+It sends the adverts of repeaters and room servers that share a position to map.meshcore.io. It needs the radio's private key to sign them, so the radio firmware must allow key export. A given node is sent at most once per hour.
 
-**It starts in dry-run mode.** In dry-run, Meshloom only writes what it would send to its log. Nothing reaches the map until you untick **Dry Run** in the form. An optional geofence restricts uploads to nodes within a radius of your own radio.
+**It starts in dry-run mode.** In dry-run, Meshloom only writes what it would send to its log. Nothing reaches the map until you untick **Dry Run (log only, no uploads)** in the form. An optional geofence restricts uploads to nodes within a radius of your own radio.
 
 ## Choosing what is sent: the scope
 
 Each integration has a **scope**: which messages it receives, and whether it also receives raw packets.
 
 - **Messages**: all, none, only the channels and contacts you list, or all except the ones you list. With "only", channels and contacts added later are not included automatically.
-- **Raw packets**: yes or no. Only Private MQTT and Amazon SQS give you the choice.
+- **Forward raw packets**: on or off. Only Private MQTT and Amazon SQS give you the choice.
 
 Some types have a fixed scope:
 
@@ -71,7 +71,7 @@ The scope filters only messages and raw packets. Contacts, repeater telemetry an
 
 Decrypting old packets later, after you add a key, never triggers integrations. Adding a key does not replay a week of notifications.
 
-What a message contains: its type (direct or channel), the conversation key, the text, the sender, whether it was acknowledged, the paths it took and the times. A raw packet has two identifiers. `id` identifies the stored packet, and a packet heard again by another route shares it. `observation_id` is unique for each arrival over the air: use it to count.
+What a message contains: its type (direct or channel), the conversation key, the text, the sender, whether it was acknowledged, the paths it took and the times. A raw packet has two identifiers. `id` identifies the stored packet, and a packet heard again by another route shares it. `observation_id` is unique for each arrival over the air: use it to count. Its numbering starts again when Meshloom restarts.
 
 ## Bots
 

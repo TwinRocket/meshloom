@@ -19,7 +19,7 @@ Use `/bin/bash -c` rather than piping into `bash`: the script asks questions and
 - **Run with Docker.** Meshloom runs in a container.
 - **Only open Meshloom in a browser.** Nothing is installed. Choose it if Meshloom already runs on another machine.
 
-You never choose the radio connection here. USB, network or Bluetooth is picked later in the web interface (see [Radio transports](/en/docs/deep/transports/)). The only radio question the installer may ask concerns Docker and USB: if it finds a radio on a USB port, it maps it into the container.
+You never choose the radio connection here. USB, network or Bluetooth is picked later in the web interface (see [Radio transports](/en/docs/deep/transports/)). The only radio question the installer may ask concerns Docker and USB: if it finds one serial device, it maps it into the container; if it finds several, it asks which one.
 
 ### As a background service
 
@@ -27,7 +27,7 @@ The installer picks the first method that works on your machine:
 
 1. **A signed package from the Meshloom repository** (`apt` or `dnf`), if one exists for your processor.
 2. **A package downloaded from the release page**, installed with `apt` or `dnf`.
-3. **A copy of the code**: if there is no package for your system, it downloads the latest release into a folder (by default `~/meshloom`) and runs `install_service.sh` from it.
+3. **A copy of the code**: if there is no package for your system, it copies the code of the latest release with `git` into a folder (by default `~/meshloom`) and runs `install_service.sh` from it.
 
 A package installation creates:
 
@@ -50,8 +50,10 @@ A copy-of-the-code installation runs as your own user from that folder, and its 
 
 The installer asks where to keep the Compose file (by default `~/meshloom`), then writes there:
 
-- `docker-compose.yml`, with port 8000, a `./data` folder for the database and, if a USB radio was found, the device mapping;
+- `docker-compose.yml`, with port 8000, a `./data` folder for the database and, if found, the USB radio and the Bluetooth system connection (D-Bus);
 - `.env`, which holds `MESHLOOM_IMAGE`, the image to run.
+
+On a new installation with a USB radio, Meshloom runs in the container as user 10001 instead of root (`MESHLOOM_RUN_AS_USER`, see below). Remove that line if you switch to Bluetooth or if the radio stops answering.
 
 An existing `docker-compose.yml` is backed up first. If you edited it, the installer offers to keep your edits.
 
@@ -67,15 +69,16 @@ It needs `uv` and Python 3.11 or newer. It asks whether to build the interface w
 
 You can run it again after updating the code: it stops the service, rewrites the unit, reloads systemd and starts it again. It does not set up bots or a password. To set variables, see [Variables and settings](/en/docs/deep/environment/).
 
-To update such an installation:
+To update such an installation, fetch the new code, then run the script again. It installs the dependencies, rebuilds or downloads the interface, and restarts the service. A copy made by the installer is pinned to a release: replace `X.Y.Z` with the number of the latest version, shown on the [release page](https://github.com/TwinRocket/meshloom/releases).
 
 ```bash
 cd ~/meshloom
-git pull
-uv sync
-cd frontend && npm install && npm run build && cd ..
-sudo systemctl restart meshloom
+git fetch --depth 1 origin tag X.Y.Z
+git checkout X.Y.Z
+bash scripts/setup/install_service.sh
 ```
+
+If you cloned the `main` branch yourself, `git pull` replaces the two `git` lines.
 
 ## Docker by hand
 
@@ -84,7 +87,7 @@ The image is `ghcr.io/twinrocket/meshloom`. The repository contains `docker-comp
 - `image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}`. Without a `.env` file it follows `:latest`. To stay on a given release, write the line `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:...` in a `.env` file next to it. Every release publishes its digests in a signed `OCI-DIGESTS` file.
 - `ports: "8000:8000"`.
 - `./data:/app/data`, for the database.
-- `devices:`, only to give the container a USB radio. A network or Bluetooth radio is configured in the web interface.
+- `devices:`, to give the container a USB radio. The file contains an example path that does not exist on your machine: replace it with the path of your radio, or delete the two lines if your radio is on the network or on Bluetooth, otherwise the container does not start. The radio itself is chosen in the web interface.
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`, and `restart: unless-stopped`.
 
 The container runs as root by default. To run it as user number 10001 instead, set `MESHLOOM_RUN_AS_USER: "10001"`. At startup, the container hands `./data` to that user and gives it the groups of the serial devices. If the radio still cannot be opened that way, Meshloom stays root and writes a warning in its log. Do not use it with Bluetooth. Bluetooth needs more manual setup, described in [Radio transports](/en/docs/deep/transports/).
@@ -148,7 +151,7 @@ The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a
 
 `MESHCORE_DATABASE_PATH` moves it. An update never replaces your database: the structure is upgraded at startup, step by step.
 
-**Settings → Updates** shows the update status and can check for a new version (**Check now**). Where it is supported, it installs the update from a signed source, either on request (**Install now**) or by itself inside a time window and on the days you choose. This works for a Linux package and for a Docker stack managed by the helper. Elsewhere, update by hand:
+**Settings → Updates** shows the update status and can check for a new version (**Check now**). Where it is supported, it installs the update from a signed source, either on request (**Install now**) or by itself inside a time window and on the days you choose. This works for a Linux package and for a Docker stack managed by the helper. A copy of the code is updated as described above. Elsewhere, update by hand:
 
 ```bash
 sudo apt-get install --only-upgrade meshloom
@@ -158,4 +161,4 @@ sudo docker compose pull && sudo docker compose up -d
 
 The first line is for Debian, Ubuntu and Raspberry Pi OS, the second for Fedora and similar systems, the third for Docker.
 
-The default address is `http://127.0.0.1:8000`. The page at `/docs` documents the programming interface (API). It is not this website.
+Started by hand without `--host`, Meshloom answers only on the machine itself, at `http://127.0.0.1:8000`. The page at `/docs` documents the programming interface (API). It is not this website.

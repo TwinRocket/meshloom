@@ -9,13 +9,13 @@ Web Push can tell your browser about an incoming message while Meshloom's tab is
 
 There are no pop-ups from the open tab itself. Web Push is the only way Meshloom notifies a browser.
 
-The same rules can also send an **e-mail** or call a **webhook**. Push is on by default; e-mail and webhook are off until you configure a destination. See "Choosing what notifies" below.
+The same rules can also send an **e-mail** or call a **webhook**. Push is on by default. E-mail and webhook are off by default, and only work once you have set up a destination. See "Choosing what notifies" below.
 
 ## What you need
 
 **HTTPS.** Browsers only allow the background component that receives notifications (the service worker) on a secure page. A certificate you made yourself can work; see [HTTPS](/en/docs/deep/https/).
 
-**Internet access from the server.** Notifications go through services run by browser makers: Google (FCM), Mozilla, or Apple (APNs). [Meshloom Community](/en/docs/deep/community/) also needs access when it is on.
+**Internet access from the server.** Notifications go through services run by browser makers: Google (FCM), Mozilla, or Apple (APNs).
 
 ## The contact address (VAPID)
 

@@ -25,7 +25,7 @@ Until a code is saved, a banner stays on screen. Publishing packets, the Live pa
 
 ## New installs
 
-A **brand-new database** starts with Community on, unless `MESHLOOM_COMMUNITY=0` (or `false` / `off`) is set before the first start. Existing databases are never switched by that variable: they keep what they stored.
+A **brand-new database** starts with Community on, unless `MESHLOOM_COMMUNITY=0` (or `false`, `off`, `no`) is set before the first start. Existing databases are never switched by that variable: they keep what they stored.
 
 Three other variables are meant for people who run Meshloom for others:
 
@@ -40,6 +40,7 @@ See [Variables and settings](/en/docs/deep/environment/).
 With Community on and a code saved, your server sends:
 
 - **Raw packets**, exactly as they travel over the air, together with the signal strength, your radio's name and its public key. Messages for private channels and direct messages stay encrypted. The text of your conversations never goes through this path.
+- **A status message**, when the connection opens and then every five minutes: your radio's name, public key, model, firmware version and radio settings (frequency, bandwidth, spreading factor, coding rate), the Meshloom version, and the radio's counters when it provides them.
 - **Directory requests.** To name a hop or draw an RF locate zone, your server asks Community about the nodes involved. The browser never talks to Community itself: your server relays. One-byte hops are never sent.
 - **Hashtag channel names.** When you create or adopt a hashtag channel, or when Meshloom finds one, its name (up to 50 at a time) is added to the global list. Names are not grouped by airport. Keys are not shared.
 - **Channel look-ups.** To recognize an unknown channel, Meshloom sends the one-byte identifier of the channel to ask which names match. If nothing matches, it may also send one encrypted packet of that channel (once per identifier while Meshloom runs), so the community can try to find its name. Only channels you cannot read are concerned.
@@ -50,7 +51,8 @@ Your radio's private key never leaves your machine. It is only used to sign the 
 
 - the check for new Meshloom versions asks GitHub, then, as a fallback, a Community mirror (`/v1/meshloom/latest`);
 - the airport search in Settings asks `api.fx-port.com`, through your server;
-- Web Push and the integrations you set up call their own servers.
+- Web Push and the integrations you set up call their own servers;
+- the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
 ## In the interface
 

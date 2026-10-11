@@ -22,7 +22,7 @@ Two limits matter:
 
 A few options help you read the map:
 
-- A **Since** filter shows only the nodes heard after a given time: last hour, 24 hours, 3 days, 7 days, a date you choose, or **All**. By default the map shows the last 7 days, so a node that has been silent for longer does not appear until you pick **All**.
+- A **Since** filter shows only the nodes heard after a given time: last hour, 24 hours, 3 days, 7 days, a date you choose (**Custom**), or **All**. By default the map shows the last 7 days, so a node that has been silent for longer does not appear until you pick **All**. The browser remembers your choice.
 - **Internet relays** is a tick box that adds relays known to Meshloom Community. It only appears when Community is on.
 - The background can be switched between light, dark, topographic and satellite.
 
@@ -61,7 +61,7 @@ Packets that could not be decrypted are not necessarily lost. They are what make
 
 **Live** draws packets on a map as they are heard. It shows packets heard by Meshloom Community observers as well as by your own radio, so you see activity far beyond your own range. You can filter by region code, hide packet types, keep only the traces whose route is certain, and choose a sound theme.
 
-It needs Meshloom Community to be on and an airport code (IATA) to be saved. Without them the page explains what is missing.
+Your own radio's packets always appear. The packets of Community observers need Meshloom Community to be on and an airport code (IATA) to be saved; without them, a banner explains what is missing. If Community refuses the connection because the server's clock is wrong, the banner says so: set the server's time right, then choose **Retry**.
 
 ## The control journal
 
@@ -75,7 +75,7 @@ It starts from what your own radio heard. With Meshloom Community on, it also us
 
 ## Discovered channels
 
-Meshloom tries to recognize hashtag channels it hears but has no key for. It first tries a built-in list of well-known names. With Community on, it also asks Community for names that could match.
+Meshloom tries to recognize hashtag channels it hears but has no key for. It first tries a built-in list of well-known names. With Community on and an airport code saved, it also asks Community for names that could match. When it finds one, it sends a "Found channels" notification (see [Push notifications](/en/docs/deep/push/)).
 
 A channel found this way does not enter your conversations by itself. It appears in **Discovered channels**, where you choose **Adopt** to add it to your chats or **Refuse** to dismiss it. Refused channels are kept in a list, so you can reverse your decision.
 

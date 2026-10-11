@@ -39,7 +39,7 @@ Au démarrage, il vide les emplacements de salon de la radio. Ensuite, un envoi 
 Deux exceptions à cette réutilisation :
 
 - Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
-- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi prend alors environ 500 ms de plus.
+- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
 
 ## L’audit horaire
 
@@ -49,7 +49,7 @@ S’il trouve un écart, il affiche une erreur et oublie ce qu’il croyait savo
 
 ## Largeur des sauts : `path_hash_mode`
 
-Chaque répéteur d’une route est identifié par quelques octets. Un identifiant plus long limite les confusions entre répéteurs, mais moins de répéteurs tiennent dans un paquet. Le réglage s’appelle **Mode de hachage de chemin**, dans **Réglages → Radio**, parmi les paramètres radio :
+Chaque répéteur d’une route est identifié par quelques octets. Un identifiant plus long limite les confusions entre répéteurs, mais moins de répéteurs tiennent dans un paquet. Le réglage s’appelle **Mode de hachage de chemin**, dans l’onglet **Configuration** de **Réglages → Radio** :
 
 | Valeur | Largeur par saut | Route la plus longue |
 |--------|------------------|----------------------|
@@ -68,7 +68,7 @@ Un message envoyé en flood traverse tous les répéteurs à portée. Une **rég
 - **Réglages → Radio → Messagerie → Portée flood / région** est la région utilisée pour tous vos envois. Vide, il n’y a pas de région (flood simple).
 - Un salon peut utiliser une autre région, ou aucune, avec le bouton en forme de globe dans son en-tête. Le changement s’applique aux envois vers ce salon, puis le réglage habituel est rétabli. Forcer « aucune région » quand la radio a une région par défaut demande un firmware en version 12 ou plus récente.
 
-Pour les messages reçus, la région n’est pas écrite en clair dans le paquet : c’est un code calculé avec la clé de la région. Meshloom essaie chaque nom de **Régions connues** pour trouver celui qui correspond. Une région absente de la liste laisse un message marqué comme régional mais sans nom. Enregistrer à nouveau la liste ré-étiquette les messages dont le paquet est encore stocké.
+Pour les messages reçus, la région n’est pas écrite en clair dans le paquet : c’est un code calculé avec la clé de la région. Meshloom essaie chaque nom de **Régions connues (pour le décodage)** pour trouver celui qui correspond. Une région absente de la liste laisse un message marqué comme régional mais sans nom. Quand vous modifiez la liste, Meshloom ré-étiquette les messages dont le paquet est encore stocké.
 
 **Découvrir les régions** demande aux répéteurs proches quelles régions ils relaient, et propose de les ajouter à la liste. Seuls les répéteurs à portée directe répondent, et seules les régions qu’ils autorisent sont signalées.
 
@@ -90,12 +90,12 @@ Un message direct part tout de suite. Si un accusé est attendu et ne vient pas,
 
 ## Annonces et position
 
-Une annonce dit aux autres que vous existez. **Réglages → Radio → Annonces et découverte** propose :
+Une annonce dit aux autres que vous existez. L’onglet **Annonces** de **Réglages → Radio** propose :
 
 - **Intervalle d’annonce périodique**, en heures. `0` la désactive. Le minimum est d’une heure (24 ou plus est recommandé), et une valeur plus courte est relevée à une heure.
 - **Envoyer une annonce flood**, qui passe par les répéteurs, et **Envoyer une annonce zéro saut**, qui reste locale et consomme moins de temps d’antenne.
 
-La position dans les annonces n’a que deux choix : désactivée, ou **Inclure la position du nœud**. Le firmware compagnon ne distingue pas une position enregistrée d’un relevé GPS en direct.
+La position dans les annonces se règle avec **Source de position des annonces**, dans l’onglet **Configuration**. Elle n’a que deux choix : **Désactivée**, ou **Inclure la position du nœud**. Le firmware compagnon ne distingue pas une position enregistrée d’un relevé GPS en direct.
 
 ## Proxy radio
 

@@ -19,7 +19,7 @@ Utilisez `/bin/bash -c` plutôt qu’un tube vers `bash` : le script pose des qu
 - **Lancer avec Docker.** Meshloom tourne dans un conteneur.
 - **Seulement ouvrir Meshloom dans un navigateur.** Rien n’est installé. À choisir si Meshloom fonctionne déjà sur une autre machine.
 
-Vous ne choisissez jamais la connexion à la radio ici. USB, réseau ou Bluetooth se choisit plus tard dans l’interface web (voir [Transports radio](/docs/deep/transports/)). La seule question sur la radio que l’installateur peut poser concerne Docker et l’USB : s’il trouve une radio sur un port USB, il la relie au conteneur.
+Vous ne choisissez jamais la connexion à la radio ici. USB, réseau ou Bluetooth se choisit plus tard dans l’interface web (voir [Transports radio](/docs/deep/transports/)). La seule question sur la radio que l’installateur peut poser concerne Docker et l’USB : s’il trouve un seul port série, il le relie au conteneur ; s’il en trouve plusieurs, il demande lequel.
 
 ### En service en arrière-plan
 
@@ -27,7 +27,7 @@ L’installateur choisit la première méthode qui fonctionne sur votre machine 
 
 1. **Un paquet signé du dépôt Meshloom** (`apt` ou `dnf`), s’il en existe un pour votre processeur.
 2. **Un paquet téléchargé depuis la page des versions**, installé avec `apt` ou `dnf`.
-3. **Une copie du code** : s’il n’y a pas de paquet pour votre système, il télécharge la dernière version dans un dossier (par défaut `~/meshloom`) et lance `install_service.sh` depuis ce dossier.
+3. **Une copie du code** : s’il n’y a pas de paquet pour votre système, il copie le code de la dernière version avec `git` dans un dossier (par défaut `~/meshloom`) et lance `install_service.sh` depuis ce dossier.
 
 Une installation par paquet crée :
 
@@ -50,8 +50,10 @@ Une installation par copie du code s’exécute sous votre propre utilisateur de
 
 L’installateur demande où ranger le fichier Compose (par défaut `~/meshloom`), puis y écrit :
 
-- `docker-compose.yml`, avec le port 8000, un dossier `./data` pour la base et, si une radio USB a été trouvée, la liaison du périphérique ;
+- `docker-compose.yml`, avec le port 8000, un dossier `./data` pour la base et, s’ils sont trouvés, la radio USB et la connexion système du Bluetooth (D-Bus) ;
 - `.env`, qui contient `MESHLOOM_IMAGE`, l’image à lancer.
+
+Sur une nouvelle installation avec une radio USB, Meshloom tourne dans le conteneur sous l’utilisateur 10001 plutôt que root (`MESHLOOM_RUN_AS_USER`, voir plus bas). Retirez cette ligne si vous passez au Bluetooth ou si la radio ne répond plus.
 
 Un `docker-compose.yml` existant est d’abord sauvegardé. Si vous l’aviez modifié, l’installateur propose de conserver vos modifications.
 
@@ -67,15 +69,16 @@ Il faut `uv` et Python 3.11 ou plus récent. Le script demande s’il faut const
 
 On peut le rejouer après une mise à jour du code : il arrête le service, réécrit l’unité, recharge systemd et le redémarre. Il ne configure ni les bots ni un mot de passe. Pour définir des variables, voir [Variables et réglages](/docs/deep/environment/).
 
-Pour mettre à jour une telle installation :
+Pour mettre à jour une telle installation, récupérez le nouveau code, puis relancez le script. Il installe les dépendances, reconstruit ou télécharge l’interface, et redémarre le service. Une copie faite par l’installateur est figée sur une version : remplacez `X.Y.Z` par le numéro de la dernière version, affiché sur la [page des versions](https://github.com/TwinRocket/meshloom/releases).
 
 ```bash
 cd ~/meshloom
-git pull
-uv sync
-cd frontend && npm install && npm run build && cd ..
-sudo systemctl restart meshloom
+git fetch --depth 1 origin tag X.Y.Z
+git checkout X.Y.Z
+bash scripts/setup/install_service.sh
 ```
+
+Si vous avez cloné vous-même la branche `main`, `git pull` remplace les deux lignes `git`.
 
 ## Docker à la main
 
@@ -84,7 +87,7 @@ L’image est `ghcr.io/twinrocket/meshloom`. Le dépôt contient `docker-compose
 - `image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:latest}`. Sans fichier `.env`, elle suit `:latest`. Pour rester sur une version précise, écrivez la ligne `MESHLOOM_IMAGE=ghcr.io/twinrocket/meshloom:X.Y.Z@sha256:...` dans un fichier `.env` à côté. Chaque version publie ses empreintes dans un fichier `OCI-DIGESTS` signé.
 - `ports: "8000:8000"`.
 - `./data:/app/data`, pour la base de données.
-- `devices:`, uniquement pour donner une radio USB au conteneur. Une radio réseau ou Bluetooth se configure dans l’interface web.
+- `devices:`, pour donner une radio USB au conteneur. Le fichier contient un chemin d’exemple qui n’existe pas sur votre machine : remplacez-le par le chemin de votre radio, ou supprimez les deux lignes si votre radio est en réseau ou en Bluetooth, sinon le conteneur ne démarre pas. La radio elle-même se choisit dans l’interface web.
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`, et `restart: unless-stopped`.
 
 Le conteneur tourne par défaut sous root. Pour le faire tourner sous l’utilisateur numéro 10001, définissez `MESHLOOM_RUN_AS_USER: "10001"`. Au démarrage, le conteneur confie `./data` à cet utilisateur et lui donne les groupes des périphériques série. Si la radio reste inaccessible ainsi, Meshloom reste sous root et écrit un avertissement dans son journal. À ne pas utiliser avec le Bluetooth, qui demande une mise en place manuelle plus poussée, décrite dans [Transports radio](/docs/deep/transports/).
@@ -148,7 +151,7 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
-**Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Ailleurs, mettez à jour à la main :
+**Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Une copie du code se met à jour comme décrit plus haut. Ailleurs, mettez à jour à la main :
 
 ```bash
 sudo apt-get install --only-upgrade meshloom
@@ -158,4 +161,4 @@ sudo docker compose pull && sudo docker compose up -d
 
 La première ligne vaut pour Debian, Ubuntu et Raspberry Pi OS, la deuxième pour Fedora et les systèmes proches, la troisième pour Docker.
 
-L’adresse par défaut est `http://127.0.0.1:8000`. La page `/docs` documente l’interface de programmation (API). Ce n’est pas ce site.
+Lancé à la main sans `--host`, Meshloom ne répond que sur la machine elle-même, à `http://127.0.0.1:8000`. La page `/docs` documente l’interface de programmation (API). Ce n’est pas ce site.

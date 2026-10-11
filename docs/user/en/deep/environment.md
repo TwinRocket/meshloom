@@ -36,7 +36,7 @@ The connection is chosen in **Settings → Radio** and stored in the database:
 | `radio_ble_address` | empty | Bluetooth address of the radio |
 | `radio_ble_pin` | empty | Bluetooth PIN, required with Bluetooth |
 
-Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` or `MESHCORE_BLE_ADDRESS`: they no longer choose anything.
+Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` or `MESHCORE_BLE_ADDRESS`. A new database ignores them. An existing database without a saved connection copies them once, to carry over an old setup, and never reads them again.
 
 ## Server and data
 
@@ -56,11 +56,11 @@ The VAPID contact is best set in **Settings → Notifications**. `MESHCORE_VAPID
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MESHLOOM_COMMUNITY` | *(on)* | Applies to a brand-new database only. Unset or `1` starts with Community on. `0`, `false` or `off` starts with it off. Existing databases are never switched |
+| `MESHLOOM_COMMUNITY` | *(on)* | Applies to a brand-new database only. Unset or `1` starts with Community on. `0`, `false`, `off` or `no` starts with it off. Existing databases are never switched |
 | `MESHLOOM_COMMUNITY_IATA` | *(empty)* | Three-letter airport code. While set, it replaces the code saved in the interface |
 | `MESHLOOM_COMMUNITY_BROKER_HOST` | *(empty)* | Replaces the Community publishing server (default `mqtt.meshloom.app`) while set |
 | `MESHLOOM_COMMUNITY_API_BASE` | *(empty)* | Replaces the Community API address (default `https://api.meshloom.app`) while set |
-| `MESHLOOM_COMMUNITY_LOCKED` | `false` | When `1`, the interface cannot turn Community on |
+| `MESHLOOM_COMMUNITY_LOCKED` | *(empty)* | Only the value `1` counts: the interface then cannot turn Community on |
 
 See [Meshloom Community](/en/docs/deep/community/).
 
@@ -95,10 +95,10 @@ These exist to diagnose or work around radios that misbehave. None is needed in 
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Makes the radio audit check for waiting messages every 10 seconds instead of every hour |
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Rewrites the channel into the radio before every channel send |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Lets the radio drop its oldest contacts when its table is full |
-| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | Skips the contact and channel sync after connecting, the startup advert and the periodic jobs |
+| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | After connecting, skips the contact and channel sync, the startup advert, reading the messages waiting on the radio, and the periodic jobs (sync, adverts, audit, telemetry) |
 | `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | Very experimental: tries a 32-bit clock wraparound |
 
-The audit always runs; the poll variable only changes how often. Forcing the channel rewrite adds about 500 ms to each channel send. The skip variable is a diagnostic exit: event handlers, key export, clock sync and automatic message fetching still run. The last variable is a last resort for a radio whose clock is stuck in the future, and may not be safe on every board.
+The audit always runs; the poll variable only changes how often. Forcing the channel rewrite makes each channel send a little slower. The skip variable is a diagnostic exit: event handlers, key export, clock sync and automatic message fetching still run. The last variable is a last resort for a radio whose clock is stuck in the future, and may not be safe on every board.
 
 ## Settings stored in the database
 
@@ -106,7 +106,7 @@ You change these in the web interface. Nothing here is set through the environme
 
 | Where | What it controls |
 |-------|------------------|
-| **Radio** | The connection (see above). **Messaging**: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising & Discovery**: `advert_interval` (set in hours in the interface, stored in seconds, never below 1 hour) |
+| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour) |
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |

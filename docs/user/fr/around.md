@@ -22,7 +22,7 @@ Deux limites à garder en tête :
 
 Quelques options aident à lire la carte :
 
-- Le filtre **Depuis** n’affiche que les nœuds entendus après un moment donné : dernière heure, 24 heures, 3 jours, 7 jours, une date de votre choix, ou **Tous**. Par défaut, la carte montre les 7 derniers jours : un nœud silencieux depuis plus longtemps n’apparaît qu’après avoir choisi **Tous**.
+- Le filtre **Depuis** n’affiche que les nœuds entendus après un moment donné : dernière heure, 24 heures, 3 jours, 7 jours, une date de votre choix (**Perso**), ou **Tous**. Par défaut, la carte montre les 7 derniers jours : un nœud silencieux depuis plus longtemps n’apparaît qu’après avoir choisi **Tous**. Le navigateur retient votre choix.
 - **Relais internet** est une case à cocher qui ajoute les relais connus de Meshloom Community. Elle n’apparaît que si Community est activé.
 - Le fond de carte peut être clair, sombre, topographique ou satellite.
 
@@ -61,7 +61,7 @@ Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant. Ce 
 
 **Live** dessine les paquets sur une carte au moment où ils sont entendus. Il montre les paquets entendus par les observateurs de Meshloom Community comme ceux de votre propre radio : on voit donc de l’activité bien au-delà de sa portée. On peut filtrer par code de région, masquer des types de paquets, ne garder que les traces dont la route est certaine, et choisir un thème sonore.
 
-Il faut que Meshloom Community soit activé et qu’un code d’aéroport (IATA) soit enregistré. Sans eux, la page explique ce qui manque.
+Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs de Community demandent que Meshloom Community soit activé et qu’un code d’aéroport (IATA) soit enregistré ; sinon, un bandeau explique ce qui manque. Si Community refuse la connexion parce que l’horloge du serveur est fausse, le bandeau le dit : remettez le serveur à l’heure, puis choisissez **Réessayer**.
 
 ## Le journal de contrôle
 
@@ -75,7 +75,7 @@ Elle part de ce que votre propre radio a entendu. Avec Meshloom Community activ�
 
 ## Les canaux découverts
 
-Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé, il demande aussi à Community des noms qui pourraient correspondre.
+Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications push](/docs/deep/push/)).
 
 Un salon trouvé ainsi n’entre pas tout seul dans vos discussions. Il apparaît dans **Canaux découverts**, où **Adopter** l’ajoute à vos discussions et **Refuser** l’écarte. Les canaux refusés sont conservés dans une liste, ce qui permet de revenir sur sa décision.
 

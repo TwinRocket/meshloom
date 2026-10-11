@@ -36,7 +36,7 @@ La connexion se choisit dans **Réglages → Radio** et se stocke dans la base :
 | `radio_ble_address` | vide | Adresse Bluetooth de la radio |
 | `radio_ble_pin` | vide | Code PIN Bluetooth, obligatoire en Bluetooth |
 
-Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS` : elles ne choisissent plus rien.
+Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS`. Une base neuve les ignore. Une base existante sans connexion enregistrée les recopie une seule fois, pour reprendre une ancienne configuration, puis ne les lit plus jamais.
 
 ## Serveur et données
 
@@ -56,11 +56,11 @@ Le contact VAPID se règle de préférence dans **Réglages → Notifications**.
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHLOOM_COMMUNITY` | *(activé)* | Ne concerne qu’une base toute neuve. Absente ou `1` : démarre avec Community activé. `0`, `false` ou `off` : démarre désactivé. Les bases existantes ne sont jamais basculées |
+| `MESHLOOM_COMMUNITY` | *(activé)* | Ne concerne qu’une base toute neuve. Absente ou `1` : démarre avec Community activé. `0`, `false`, `off` ou `no` : démarre désactivé. Les bases existantes ne sont jamais basculées |
 | `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code d’aéroport à trois lettres. Tant qu’elle est définie, elle remplace le code enregistré dans l’interface |
 | `MESHLOOM_COMMUNITY_BROKER_HOST` | *(vide)* | Remplace le serveur de publication de Community (par défaut `mqtt.meshloom.app`) tant qu’elle est définie |
 | `MESHLOOM_COMMUNITY_API_BASE` | *(vide)* | Remplace l’adresse de l’API Community (par défaut `https://api.meshloom.app`) tant qu’elle est définie |
-| `MESHLOOM_COMMUNITY_LOCKED` | `false` | À `1`, l’interface ne peut pas activer Community |
+| `MESHLOOM_COMMUNITY_LOCKED` | *(vide)* | Seule la valeur `1` compte : l’interface ne peut alors pas activer Community |
 
 Voir [Meshloom Community](/docs/deep/community/).
 
@@ -95,10 +95,10 @@ Ces variables servent à diagnostiquer ou contourner des radios qui se comporten
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Fait vérifier les messages en attente sur la radio toutes les 10 secondes au lieu de toutes les heures |
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Réécrit le salon dans la radio avant chaque envoi vers un salon |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Laisse la radio supprimer elle-même ses plus anciens contacts quand sa table est pleine |
-| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | Saute la synchronisation des contacts et des salons après la connexion, l’annonce de démarrage et les tâches périodiques |
+| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | Après la connexion, saute la synchronisation des contacts et des salons, l’annonce de démarrage, la lecture des messages en attente sur la radio, et les tâches périodiques (synchronisation, annonces, audit, télémétrie) |
 | `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | Très expérimental : tente un débordement d’horloge sur 32 bits |
 
-L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ajoute environ 500 ms à chaque envoi vers un salon. La variable « skip » est une sortie de secours pour le diagnostic : les gestionnaires d’événements, l’export de clé, la synchronisation d’horloge et la récupération automatique des messages continuent. La dernière est un dernier recours pour une radio dont l’horloge est coincée dans le futur, et peut ne pas être sûre sur toutes les cartes.
+L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon. La variable « skip » est une sortie de secours pour le diagnostic : les gestionnaires d’événements, l’export de clé, la synchronisation d’horloge et la récupération automatique des messages continuent. La dernière est un dernier recours pour une radio dont l’horloge est coincée dans le futur, et peut ne pas être sûre sur toutes les cartes.
 
 ## Réglages stockés dans la base
 
@@ -106,7 +106,7 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 
 | Où | Ce que cela commande |
 |----|----------------------|
-| **Radio** | La connexion (voir plus haut). **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Annonces et découverte** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes, jamais moins d’une heure) |
+| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure) |
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |

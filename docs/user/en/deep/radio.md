@@ -39,7 +39,7 @@ At startup it empties the channel slots of the radio. Afterwards, sending to a c
 Two exceptions to this reuse:
 
 - With a **network (TCP) radio**, every channel send rewrites the channel into the radio, because another program may be using the same radio.
-- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` does the same on every connection type. Use it if the slots seem unstable or if another app changes them. Each send then takes about 500 ms longer.
+- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` does the same on every connection type. Use it if the slots seem unstable or if another app changes them. Each channel send then takes a little longer.
 
 ## The hourly audit
 
@@ -49,7 +49,7 @@ If it finds a difference, it shows an error and forgets what it believed about t
 
 ## Hop width: `path_hash_mode`
 
-Every repeater on a route is identified by a few bytes. A longer identifier means fewer mix-ups between repeaters, but fewer repeaters fit in a packet. The setting is **Path Hash Mode** in **Settings → Radio**, under the radio parameters:
+Every repeater on a route is identified by a few bytes. A longer identifier means fewer mix-ups between repeaters, but fewer repeaters fit in a packet. The setting is **Path Hash Mode**, in the **Configuration** tab of **Settings → Radio**:
 
 | Value | Width per hop | Longest route |
 |-------|---------------|---------------|
@@ -68,7 +68,7 @@ A message sent by flood travels through every repeater in range. A **region** li
 - **Settings → Radio → Messaging → Flood Scope / Region** is the region used for all your sends. Empty means no region (plain flood).
 - A channel can use another region, or no region at all, with the globe button in its header. The change applies to the sends to that channel, and then the usual setting is restored. Forcing "no region" when the radio has a default region needs firmware version 12 or newer.
 
-For incoming messages, the region is not written in clear in the packet: it is a code computed with the region's key. Meshloom checks each name in **Known Regions** to find the one that matches. A region missing from the list leaves a message marked as regional but unnamed. Saving the list again re-labels the messages whose packet is still stored.
+For incoming messages, the region is not written in clear in the packet: it is a code computed with the region's key. Meshloom checks each name in **Known Regions (for decoding)** to find the one that matches. A region missing from the list leaves a message marked as regional but unnamed. When you change the list, Meshloom re-labels the messages whose packet is still stored.
 
 **Discover Regions** asks nearby repeaters which regions they forward, and offers to add them to the list. Only repeaters in direct range answer, and only regions they allow are reported.
 
@@ -90,12 +90,12 @@ A direct message is sent at once. If a receipt is expected and does not come, Me
 
 ## Adverts and location
 
-An advert tells others that you exist. **Settings → Radio → Advertising & Discovery** has:
+An advert tells others that you exist. The **Advertising** tab of **Settings → Radio** has:
 
 - **Periodic Advertising Interval**, in hours. `0` turns it off. The minimum is 1 hour (24 or more is recommended), and a shorter value is raised to 1 hour.
 - **Send Flood Advertisement**, which goes through repeaters, and **Send Zero-Hop Advertisement**, which stays local and uses less airtime.
 
-The location in the adverts has only two choices: off, or **Include Node Location**. Companion firmware does not tell a saved position from a live GPS reading.
+The location in the adverts is set by **Advert Location Source**, in the **Configuration** tab. It has only two choices: **Off**, or **Include Node Location**. Companion firmware does not tell a saved position from a live GPS reading.
 
 ## Radio proxy
 

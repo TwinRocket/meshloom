@@ -9,13 +9,13 @@ Web Push peut prévenir votre navigateur d’un message entrant alors que l’on
 
 Il n’y a pas de fenêtres contextuelles venant de l’onglet ouvert lui-même. Web Push est la seule manière dont Meshloom notifie un navigateur.
 
-Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**. Le push est activé par défaut ; l’e-mail et le webhook sont désactivés tant que vous n’avez pas configuré de destination. Voir « Choisir ce qui notifie » plus bas.
+Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**. Le push est activé par défaut. L’e-mail et le webhook sont désactivés par défaut, et ne fonctionnent qu’une fois une destination configurée. Voir « Choisir ce qui notifie » plus bas.
 
 ## Ce qu’il vous faut
 
 **HTTPS.** Les navigateurs n’autorisent le composant d’arrière-plan qui reçoit les notifications (le service worker) que sur une page sécurisée. Un certificat fabriqué par vous peut convenir ; voir [HTTPS](/docs/deep/https/).
 
-**Un accès à Internet depuis le serveur.** Les notifications passent par des services tenus par les éditeurs de navigateurs : Google (FCM), Mozilla ou Apple (APNs). [Meshloom Community](/docs/deep/community/) a aussi besoin d’un accès quand il est activé.
+**Un accès à Internet depuis le serveur.** Les notifications passent par des services tenus par les éditeurs de navigateurs : Google (FCM), Mozilla ou Apple (APNs).
 
 ## L’adresse de contact (VAPID)
 
