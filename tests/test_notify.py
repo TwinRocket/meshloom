@@ -1,10 +1,12 @@
 import json
+import re
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.email_template import (
-    LOGO_URL,
+    LOGO_CID,
+    LOGO_PATH,
     email_subject,
     enrich_notification_payload,
     render_html_email,
@@ -184,7 +186,7 @@ def test_telemetry_email_is_html_and_french_by_default():
     assert "Une alerte a été déclenchée concernant : HillRepeater" in plain
     assert "Tension de la batterie : 3.46 V" in plain
     assert "Seuil réglé : inférieur à 3.5 V" in plain
-    assert LOGO_URL in html
+    assert f'src="cid:{LOGO_CID}"' in html
     assert "HillRepeater" in html
     assert "inférieur à 3.5 V" in html
     assert email_subject(payload, "fr").startswith("Batterie faible")
@@ -249,6 +251,104 @@ async def test_send_email_uses_html_body_format(monkeypatch):
     )
     await send_email_alert(dest, TEST_ALERT_PAYLOAD)
     assert "<!DOCTYPE html>" in str(captured["body"])
-    assert LOGO_URL in str(captured["body"])
+    assert f"cid:{LOGO_CID}" in str(captured["body"])
     assert "Tension de la batterie : 3.46 V" in str(captured["body"])
     assert "Test repeater" in str(captured["body"])
+
+
+_EVENTS_FOR_EMAIL = [
+    TEST_ALERT_PAYLOAD,
+    {"event": "first_seen", "name": "Hill", "contact_type": 2},
+    {"event": "channel_found", "name": "#meshcore"},
+    {"event": "oss_update", "current": "4.20.0", "latest": "4.21.0"},
+    {"event": "message", "type": "CHAN", "sender_name": "Bob", "text": "hi"},
+]
+
+
+@pytest.mark.parametrize("payload", _EVENTS_FOR_EMAIL)
+@pytest.mark.parametrize("lang", ["fr", "en"])
+def test_html_email_references_no_remote_resource(payload, lang):
+    """Opening an alert email must fetch nothing: no URL at all in the HTML."""
+    html = render_html_email(payload, lang)
+    assert "meshloom.app" not in html
+    assert "http://" not in html and "https://" not in html
+    assert "href=" not in html
+    assert re.findall(r'src="([^"]+)"', html) == [f"cid:{LOGO_CID}"]
+
+
+def test_logo_asset_is_a_small_png_shipped_in_the_package():
+    data = LOGO_PATH.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(data) < 16_000
+    assert LOGO_PATH.parent.parent.name == "app"
+
+
+class _CapturingSMTP:
+    """Stands in for smtplib.SMTP: keeps the message Apprise would send."""
+
+    sent: list[str] = []
+
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    def ehlo(self, *_args):
+        return (250, b"ok")
+
+    def starttls(self, *_args, **_kwargs):
+        return (220, b"ok")
+
+    def login(self, *_args):
+        return (235, b"ok")
+
+    def sendmail(self, _from, _to, message):
+        self.sent.append(message)
+        return {}
+
+    def quit(self):
+        return (221, b"bye")
+
+    def close(self):
+        return None
+
+
+def test_email_embeds_the_logo_inline_as_multipart_related(monkeypatch):
+    """The real Apprise MIME: related(alternative(text, html), inline PNG cid)."""
+    import email
+    import smtplib
+    from email import policy
+
+    from app.notify import _send_email_sync, build_email_apprise_url
+
+    _CapturingSMTP.sent = []
+    monkeypatch.setattr(smtplib, "SMTP", _CapturingSMTP)
+    url = build_email_apprise_url(
+        {
+            "mode": "none",
+            "host": "smtp.example",
+            "port": 25,
+            "from": "meshloom@example.com",
+            "to": "ops@example.com",
+        }
+    )
+    assert "inline=yes" in url
+    assert _send_email_sync(url, "Alert", render_html_email(TEST_ALERT_PAYLOAD, "fr")) is True
+    assert len(_CapturingSMTP.sent) == 1
+    raw = _CapturingSMTP.sent[0]
+
+    message = email.message_from_string(raw, policy=policy.default)
+    assert message.get_content_type() == "multipart/related"
+    parts = list(message.iter_parts())
+    assert [p.get_content_type() for p in parts] == ["multipart/alternative", "image/png"]
+    alternative, logo = parts
+    assert [p.get_content_type() for p in alternative.iter_parts()] == [
+        "text/plain",
+        "text/html",
+    ]
+    assert logo["Content-ID"] == f"<{LOGO_CID}>"
+    assert logo.get_content_disposition() == "inline"
+    assert logo.get_content() == LOGO_PATH.read_bytes()
+
+    html = alternative.get_body(preferencelist=("html",)).get_content()
+    assert f'src="cid:{LOGO_CID}"' in html
+    assert "meshloom.app" not in raw
+    assert "http://" not in raw and "https://" not in raw

@@ -1,0 +1,775 @@
+"""Opted out of Community means no connection to Community or to the airport search.
+
+Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
+``aiomqtt.Client`` for the whole test. With Community off, every route under
+``/api/community``, ``/api/directory`` and ``/api/tools`` is called (found
+dynamically from ``app.routes``), plus the hashtag catalogue and the update
+check with GitHub answering 503. Any request to ``*.meshloom.app``,
+``api.fx-port.com`` or the effective Community API base fails the test.
+
+The transition tests cover the opt-out itself (on → off) and an IATA change:
+the retained MQTT status is cleared before the DISCONNECT, the Live socket is
+closed, requests in flight are cancelled, and nothing leaves afterwards.
+
+The one exception, ``TestRetainedStatusClear``: when the broker was unreachable
+at the opt-out, one bounded reconnect clears the retained status, and that
+connection carries only the empty retained payload. Nothing else connects,
+and nothing at all once it succeeded or gave up.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import time
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, patch
+from urllib.parse import urlsplit
+
+import httpx
+import pytest
+from fastapi import HTTPException
+from fastapi.routing import APIRoute
+
+from app.decoder import encrypt_group_text
+from app.fanout.manager import SYSTEM_MESHLOOM_STATS_ID, fanout_manager
+from app.fanout.meshloom_stats import MeshloomStatsPublisher
+from app.packet_processor import process_raw_packet
+from app.services import community_status_clear, meshloom_community
+from app.services.community_live import (
+    get_live_relay,
+    reset_community_live_for_tests,
+    subscribe_live,
+)
+from app.services.hashtag_catalogue import run_catalogue_pass
+from app.services.meshloom_community import (
+    AIRPORT_SEARCH_URL,
+    community_breaker,
+    fetch_meshloom_latest,
+    get_community_effective,
+    note_sample_quota,
+    sample_quota_blocked,
+    schedule_hashtag_names_publish,
+    search_community_airports,
+    stats_json,
+    update_community,
+    upload_hashtag_sample,
+)
+from app.services.oss_updates import fetch_github_latest as _real_fetch_github_latest
+from app.services.oss_updates import refresh_oss_update_cache
+
+_RealAsyncClient = httpx.AsyncClient
+_real_fetch_meshloom_latest = fetch_meshloom_latest
+
+# An API base that is neither the default nor a placeholder, so "the effective
+# api_base" is checked on its own and not only through *.meshloom.app.
+EGRESS_API_BASE = "https://stats.egress-check.net"
+PUBKEY = bytes(range(32))
+PUBKEY_HEX = PUBKEY.hex().upper()
+FX_PORT_HOST = urlsplit(AIRPORT_SEARCH_URL).hostname
+
+
+def _forbidden(host: str | None) -> bool:
+    host = (host or "").lower()
+    return (
+        host == "meshloom.app"
+        or host.endswith(".meshloom.app")
+        or host == FX_PORT_HOST
+        or host == urlsplit(EGRESS_API_BASE).hostname
+    )
+
+
+class EgressRecorder:
+    """Records every outbound connection attempt, in order."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[Any, ...]] = []
+        self.http_gate: asyncio.Event | None = None
+        self.mqtt_connects = True
+        self.ws_connects = True
+        self.sockets: list[FakeLiveSocket] = []
+        self.mqtt_clients: list[FakeMqttClient] = []
+
+    def hosts(self, since: int = 0) -> list[str]:
+        out: list[str] = []
+        for event in self.events[since:]:
+            if event[0] in {"http", "ws_connect", "mqtt_connect"}:
+                out.append(event[1])
+        return out
+
+    def forbidden(self, since: int = 0) -> list[str]:
+        return [h for h in self.hosts(since) if _forbidden(h)]
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        self.events.append(("http", request.url.host, request.url.path))
+        if request.url.host == "github.com":
+            return httpx.Response(503)
+        if self.http_gate is not None:
+            await self.http_gate.wait()
+        return httpx.Response(503)
+
+
+class FakeLiveSocket:
+    def __init__(self, recorder: EgressRecorder) -> None:
+        self.recorder = recorder
+        self.closed = asyncio.Event()
+
+    async def __aenter__(self) -> FakeLiveSocket:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.close()
+
+    def __aiter__(self) -> FakeLiveSocket:
+        return self
+
+    async def __anext__(self) -> object:
+        await self.closed.wait()
+        raise StopAsyncIteration
+
+    async def close(self) -> None:
+        if not self.closed.is_set():
+            self.recorder.events.append(("ws_close",))
+        self.closed.set()
+
+
+class FakeMqttClient:
+    def __init__(self, recorder: EgressRecorder, **kwargs: Any) -> None:
+        self.recorder = recorder
+        self.kwargs = kwargs
+        recorder.mqtt_clients.append(self)
+
+    async def __aenter__(self) -> FakeMqttClient:
+        self.recorder.events.append(("mqtt_connect", self.kwargs.get("hostname")))
+        if not self.recorder.mqtt_connects:
+            raise RuntimeError("MQTT is not allowed here")
+        return self
+
+    async def __aexit__(self, *_exc: object) -> bool:
+        self.recorder.events.append(("mqtt_disconnect",))
+        return False
+
+    async def publish(self, topic: str, payload: Any = None, qos: int = 0, retain: bool = False):
+        self.recorder.events.append(("mqtt_publish", topic, payload, retain, qos))
+
+
+@pytest.fixture
+def egress(monkeypatch):
+    recorder = EgressRecorder()
+
+    class RecordingAsyncClient(_RealAsyncClient):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["transport"] = httpx.MockTransport(recorder.handle)
+            super().__init__(*args, **kwargs)
+
+    def ws_connect(url: str, **_kwargs: Any) -> FakeLiveSocket:
+        recorder.events.append(("ws_connect", urlsplit(url).hostname))
+        if not recorder.ws_connects:
+            raise RuntimeError("Live is not allowed here")
+        socket = FakeLiveSocket(recorder)
+        recorder.sockets.append(socket)
+        return socket
+
+    def mqtt_client(**kwargs: Any) -> FakeMqttClient:
+        return FakeMqttClient(recorder, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", RecordingAsyncClient)
+    monkeypatch.setattr("websockets.connect", ws_connect)
+    monkeypatch.setattr("app.fanout.mqtt_base.aiomqtt.Client", mqtt_client)
+    # conftest stubs both release lookups; this file wants the real ones.
+    monkeypatch.setattr("app.services.oss_updates.fetch_github_latest", _real_fetch_github_latest)
+    monkeypatch.setattr(
+        "app.services.oss_updates.fetch_meshloom_latest", _real_fetch_meshloom_latest
+    )
+    monkeypatch.setenv("MESHLOOM_COMMUNITY_API_BASE", EGRESS_API_BASE)
+    with (
+        patch("app.keystore.get_public_key", return_value=PUBKEY),
+        patch("app.keystore.get_private_key", return_value=b"\x02" * 64),
+        patch("app.keystore.has_private_key", return_value=True),
+        patch.object(meshloom_community, "mint_stats_jwt", return_value="jwt"),
+        patch("app.fanout.meshloom_stats._generate_jwt_token", return_value="jwt"),
+        patch("app.fanout.community_mqtt._generate_jwt_token", return_value="jwt"),
+        patch.object(
+            MeshloomStatsPublisher,
+            "_fetch_device_info",
+            AsyncMock(return_value={"model": "t", "firmware_version": "v1"}),
+        ),
+        patch.object(MeshloomStatsPublisher, "_fetch_stats", AsyncMock(return_value=None)),
+        patch("app.fanout.mqtt_base._broadcast_health"),
+        patch("app.websocket.broadcast_success"),
+        patch("app.websocket.broadcast_error"),
+        patch("app.websocket.broadcast_health"),
+        patch("app.websocket.ws_manager.broadcast", new_callable=AsyncMock),
+    ):
+        reset_community_live_for_tests()
+        yield recorder
+        if recorder.http_gate is not None:
+            recorder.http_gate.set()
+
+
+@pytest.fixture
+async def cleanup_community():
+    yield
+    await fanout_manager.remove_config(SYSTEM_MESHLOOM_STATS_ID)
+    await get_live_relay().shutdown()
+    reset_community_live_for_tests()
+
+
+async def _until(predicate, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError("condition not reached in time")
+        await asyncio.sleep(0.01)
+
+
+def _status_topic(iata: str) -> str:
+    return f"meshcore/{iata}/{PUBKEY_HEX}/status"
+
+
+def _clear(iata: str) -> tuple[Any, ...]:
+    return ("mqtt_publish", _status_topic(iata), b"", True, 1)
+
+
+def _status_of(event: tuple[Any, ...]) -> str | None:
+    if len(event) < 3 or event[0] != "mqtt_publish" or not isinstance(event[2], str):
+        return None
+    return json.loads(event[2]).get("status")
+
+
+def _online_published(recorder: EgressRecorder, iata: str) -> bool:
+    return any(_status_of(e) == "online" and e[1] == _status_topic(iata) for e in recorder.events)
+
+
+def _offline_at(events: list[tuple[Any, ...]], iata: str) -> int:
+    return next(
+        i
+        for i, e in enumerate(events)
+        if e[0] == "mqtt_publish" and e[1] == _status_topic(iata) and _status_of(e) == "offline"
+    )
+
+
+def _open_mqtt_connections(recorder: EgressRecorder) -> int:
+    connects = sum(1 for e in recorder.events if e[0] == "mqtt_connect")
+    return connects - recorder.events.count(("mqtt_disconnect",))
+
+
+async def _store_unknown_group_text() -> None:
+    key = bytes(16)
+    payload = encrypt_group_text(key, int(time.time()), "Bob: unknown channel", 0)
+    with (
+        patch("app.packet_processor.broadcast_event"),
+        patch("app.services.hashtag_catalogue.schedule_unknown_group_text_resolve"),
+    ):
+        await process_raw_packet(bytes([0x15, 0x00]) + payload, timestamp=int(time.time()))
+
+
+_PATH_PARAMS = {
+    "code": "CDG",
+    "session_id": "session-1",
+    "pubkey": "ab" * 32,
+    "packet_hash": "AB" * 8,
+}
+_QUERY = {
+    "/api/community/airports": {"q": "Lyon", "locale": "fr"},
+    "/api/directory/nodes/search": {"q": "hill"},
+}
+_BODIES: dict[tuple[str, str], Any] = {
+    ("PATCH", "/api/community"): {"iata": "LYS"},
+    ("PUT", "/api/community/me/iata"): {"iata": "LYS"},
+    ("PUT", "/api/community/me/hashtags"): {"names": ["meshcore"]},
+    ("POST", "/api/community/live/subscribe"): {},
+    ("POST", "/api/directory/resolve-hops"): {"hops": ["abcd", "abcdef"]},
+    ("POST", "/api/directory/packets/reach-counts"): {"hashes": ["AB" * 8]},
+    ("POST", "/api/tools/mesh-test"): {"flood_scope": "#test"},
+}
+_SWEPT_PREFIXES = ("/api/community", "/api/directory", "/api/tools")
+
+
+def _walk_routes(routes: list[Any], prefix: str = "") -> list[tuple[str, APIRoute]]:
+    """Every APIRoute with its full path, through included routers."""
+    out: list[tuple[str, APIRoute]] = []
+    for route in routes:
+        if isinstance(route, APIRoute):
+            out.append((prefix + route.path, route))
+        context = getattr(route, "include_context", None)  # FastAPI's lazy include
+        if context is not None:
+            out.extend(_walk_routes(context.included_router.routes, prefix + context.prefix))
+    return out
+
+
+def _swept_routes() -> list[tuple[str, str]]:
+    from app.main import app
+
+    out: list[tuple[str, str]] = []
+    for path, route in _walk_routes(app.routes):
+        if not path.startswith(_SWEPT_PREFIXES):
+            continue
+        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
+            out.append((method, path))
+    return out
+
+
+class TestCommunityOffNoEgress:
+    def test_sweep_finds_the_community_routes(self):
+        routes = _swept_routes()
+        paths = {path for _method, path in routes}
+        assert "/api/community/airports" in paths
+        assert "/api/directory/packets/{packet_hash}/reach" in paths
+        assert "/api/tools/mesh-test" in paths
+        assert len(routes) >= 20
+
+    @pytest.mark.asyncio
+    async def test_no_community_or_airport_egress_when_off(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.main import app
+
+        # The state an opt-out leaves behind: off, IATA still stored.
+        await update_community(enabled=False, iata="CDG")
+        assert (await get_community_effective()).enabled is False
+
+        async with _RealAsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            for method, template in _swept_routes():
+                path = re.sub(r"\{(\w+)\}", lambda m: _PATH_PARAMS[m.group(1)], template)
+                response = await client.request(
+                    method,
+                    path,
+                    params=_QUERY.get(template),
+                    json=_BODIES.get((method, template)),
+                )
+                # 422 would mean the handler never ran: add a body to _BODIES.
+                assert response.status_code != 422, (method, template, response.text)
+                assert not egress.forbidden(), (method, template, egress.events)
+
+            # The update check from the UI: GitHub only.
+            response = await client.post("/api/updates/refresh")
+            assert response.status_code == 200, response.text
+            assert not egress.forbidden(), egress.events
+
+        # A restart while opted out: the fanout manager starts no publisher.
+        await fanout_manager.load_from_db()
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+
+        # Background Community work.
+        await _store_unknown_group_text()
+        await run_catalogue_pass()
+        await schedule_hashtag_names_publish(["meshcore"])
+        assert await upload_hashtag_sample("ab", "ab" * 40) is False
+        await fanout_manager.sync_system_modules()
+        await subscribe_live()
+        await asyncio.sleep(0.05)
+
+        # The update check, with GitHub down: no fallback to the Community mirror.
+        assert await refresh_oss_update_cache() is None
+        assert await fetch_meshloom_latest() is None
+        assert await search_community_airports("Lyon") == []
+
+        assert egress.forbidden() == [], egress.events
+        assert set(egress.hosts()) <= {"github.com"}, egress.events
+        assert ("http", "github.com", "/TwinRocket/meshloom/releases/latest") in egress.events
+
+
+class TestOptOutTransition:
+    @pytest.mark.asyncio
+    async def test_on_to_off_tears_everything_down(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        socket = egress.sockets[-1]
+
+        egress.http_gate = asyncio.Event()
+        in_flight = asyncio.create_task(stats_json("GET", "/v1/community/stats", auth=False))
+        await _until(
+            lambda: any(
+                e[:3] == ("http", "stats.egress-check.net", "/v1/community/stats")
+                for e in egress.events
+            )
+        )
+
+        breaker = community_breaker()
+        for _ in range(breaker.threshold):
+            breaker.record_failure()
+        note_sample_quota()
+
+        await update_community(enabled=False)
+        mark = len(egress.events)
+
+        # Retained status cleared, and before the DISCONNECT.
+        events = egress.events
+        assert _clear("CDG") in events
+        assert events.index(_clear("CDG")) < events.index(("mqtt_disconnect",))
+        # "offline" first, so a failed clear never leaves "online" behind.
+        assert _offline_at(events, "CDG") < events.index(_clear("CDG"))
+        # Live closed, request in flight cancelled into the opt-out 403.
+        assert socket.closed.is_set()
+        assert get_live_relay().connected is False
+        with pytest.raises(HTTPException) as exc:
+            await in_flight
+        assert exc.value.status_code == 403
+        # Client state reset.
+        assert breaker.failures == 0
+        assert sample_quota_blocked() is False
+        assert get_live_relay()._queue.empty()
+
+        # Nothing leaves afterwards.
+        with pytest.raises(HTTPException):
+            await stats_json("GET", "/v1/community/stats", auth=False)
+        assert await fetch_meshloom_latest() is None
+        assert await search_community_airports("Lyon") == []
+        await subscribe_live()
+        await fanout_manager.sync_system_modules()
+        await asyncio.sleep(0.05)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_iata_change_clears_the_old_status_topic(
+        self, test_db, egress, cleanup_community
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+
+        await update_community(iata="LYS")
+        await _until(lambda: _online_published(egress, "LYS"))
+
+        events = egress.events
+        clear_at = events.index(_clear("CDG"))
+        first_disconnect = events.index(("mqtt_disconnect",))
+        lys_online = next(
+            i
+            for i, e in enumerate(events)
+            if _status_of(e) == "online" and e[1] == _status_topic("LYS")
+        )
+        assert clear_at < first_disconnect < lys_online
+        assert _clear("LYS") not in events
+
+    @pytest.mark.asyncio
+    async def test_reload_without_iata_change_keeps_the_status(
+        self, test_db, egress, cleanup_community
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await update_community(iata="CDG")
+        await _until(lambda: egress.events.count(("mqtt_disconnect",)) >= 1)
+        assert _clear("CDG") not in egress.events
+
+    @pytest.mark.asyncio
+    async def test_opt_out_and_opt_in_racing_leave_one_publisher(
+        self, test_db, egress, cleanup_community
+    ):
+        """Two tabs: off then on at once. The teardown must not undo the opt-in."""
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+
+        # Slow the teardown's first step so the opt-in lands in the middle of it.
+        real_cancel = meshloom_community._cancel_inflight_requests
+
+        async def slow_cancel() -> None:
+            await asyncio.sleep(0.2)
+            await real_cancel()
+
+        with patch.object(meshloom_community, "_cancel_inflight_requests", slow_cancel):
+            opt_out = asyncio.create_task(update_community(enabled=False))
+            await asyncio.sleep(0.05)
+            await update_community(enabled=True)
+            await opt_out
+
+        assert (await get_community_effective()).enabled is True
+        await _until(lambda: _open_mqtt_connections(egress) == 1)
+        assert SYSTEM_MESHLOOM_STATS_ID in fanout_manager._modules
+        # Live reopened for the sessions that are still there.
+        await _until(lambda: get_live_relay().connected)
+        await asyncio.sleep(0.05)
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_overlapping_syncs_start_one_publisher(self, test_db, egress, cleanup_community):
+        """A publisher overwritten in the module table would never be stopped."""
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+
+        await asyncio.gather(*(fanout_manager.sync_system_modules() for _ in range(3)))
+        await _until(lambda: _open_mqtt_connections(egress) == 1)
+
+        await update_community(enabled=False)
+        await asyncio.sleep(0.05)
+        assert _open_mqtt_connections(egress) == 0
+
+    @pytest.mark.asyncio
+    async def test_iata_change_reopens_live(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        first = egress.sockets[-1]
+
+        await update_community(iata="LYS")
+        await _until(lambda: len(egress.sockets) == 2 and get_live_relay().connected)
+        assert first.closed.is_set()
+
+    @pytest.mark.asyncio
+    async def test_publisher_never_reconnects_once_opted_out(
+        self, test_db, egress, cleanup_community
+    ):
+        """Safety net for a stop that abandoned its loop: no reconnect after opt-out."""
+        await update_community(enabled=False, iata="CDG")
+        publisher = MeshloomStatsPublisher()
+        settings = SimpleNamespace(community_mqtt_enabled=True, community_mqtt_iata="CDG")
+        publisher._settings = settings
+        assert await publisher._pre_connect(settings) is False
+        assert settings.community_mqtt_enabled is False
+        assert publisher._is_configured() is False
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    async def test_live_close_is_bounded(self, test_db, egress, cleanup_community, monkeypatch):
+        from app.services import community_live
+
+        monkeypatch.setattr(community_live, "CLOSE_TIMEOUT_S", 0.05)
+        await update_community(enabled=True, iata="CDG")
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        socket = egress.sockets[-1]
+
+        async def hang() -> None:
+            await asyncio.sleep(3600)
+
+        socket.close = hang  # type: ignore[method-assign]
+        started = time.monotonic()
+        await update_community(enabled=False)
+        assert time.monotonic() - started < 2
+        assert get_live_relay()._reader_task is None
+
+
+def _stats_publisher() -> MeshloomStatsPublisher:
+    module = fanout_manager._modules[SYSTEM_MESHLOOM_STATS_ID][0]
+    return module._publisher  # type: ignore[attr-defined]
+
+
+async def _pending() -> list[dict[str, Any]]:
+    from app.repository.settings import AppSettingsRepository
+
+    return await AppSettingsRepository.get_community_status_clear()
+
+
+async def _pending_topics() -> list[str]:
+    return [f"meshcore/{e['iata']}/{e['pubkey']}/status" for e in await _pending()]
+
+
+async def _until_async(predicate, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not await predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError("condition not reached in time")
+        await asyncio.sleep(0.01)
+
+
+async def _nothing_pending() -> bool:
+    return await _pending() == []
+
+
+@pytest.fixture
+def fast_retries(monkeypatch):
+    """Retries a few ms apart instead of minutes to hours."""
+
+    def set_delays(delay: float) -> None:
+        monkeypatch.setattr(
+            community_status_clear,
+            "CLEAR_RETRY_DELAYS_S",
+            (delay,) * community_status_clear.CLEAR_MAX_ATTEMPTS,
+        )
+
+    set_delays(0.05)
+    monkeypatch.setattr(community_status_clear, "WORKER_POLL_S", 0.01)
+    return set_delays
+
+
+async def _opt_out_with_broker_down(egress: EgressRecorder, iata: str = "CDG") -> int:
+    """Opt out while the broker is unreachable; return the event index after it."""
+    await update_community(enabled=True, iata=iata)
+    await _until(lambda: _online_published(egress, iata))
+    egress.mqtt_connects = False
+    _stats_publisher().connected = False  # the broker went away
+    await update_community(enabled=False)
+    return len(egress.events)
+
+
+def _clear_connections(egress: EgressRecorder, since: int) -> list[tuple[Any, ...]]:
+    return [e for e in egress.events[since:] if e[0] == "mqtt_connect"]
+
+
+class TestRetainedStatusClear:
+    """The single exception after an opt-out: one bounded clear of the retained status."""
+
+    @pytest.mark.asyncio
+    async def test_cleared_at_opt_out_leaves_nothing_pending(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await update_community(enabled=False)
+        mark = len(egress.events)
+
+        assert _clear("CDG") in egress.events
+        assert await _pending() == []
+        await community_status_clear.start_status_clear_worker()
+        await asyncio.sleep(0.2)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_unreachable_broker_gets_one_clear_and_nothing_after(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(0.3)
+        mark = await _opt_out_with_broker_down(egress)
+        assert _clear("CDG") not in egress.events
+        # Persisted before anything else, so a restart cannot lose it.
+        assert await _pending_topics() == [_status_topic("CDG")]
+
+        egress.mqtt_connects = True  # the broker is back
+        await _until_async(_nothing_pending)
+        # One connection, the empty retained payload, DISCONNECT. Nothing else.
+        assert egress.events[mark:] == [
+            ("mqtt_connect", "mqtt.meshloom.app"),
+            _clear("CDG"),
+            ("mqtt_disconnect",),
+        ]
+        client = egress.mqtt_clients[-1]
+        assert "will" not in client.kwargs
+        assert client.kwargs["username"] == f"v1_{PUBKEY_HEX}"
+
+        # Nothing after success, even with the worker started again.
+        done = len(egress.events)
+        await community_status_clear.start_status_clear_worker()
+        await stats_json_forbidden()
+        await fanout_manager.sync_system_modules()
+        await subscribe_live()
+        await asyncio.sleep(0.2)
+        assert egress.events[done:] == []
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_the_last_attempt(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(0.0)
+        mark = await _opt_out_with_broker_down(egress)
+        await _until_async(_nothing_pending)
+
+        attempts = _clear_connections(egress, mark)
+        assert len(attempts) == community_status_clear.CLEAR_MAX_ATTEMPTS
+        assert set(egress.hosts(mark)) == {"mqtt.meshloom.app"}
+        assert not [e for e in egress.events[mark:] if e[0] == "mqtt_publish"]
+
+        # Abandoned: nothing more, even after a restart.
+        egress.mqtt_connects = True
+        done = len(egress.events)
+        await community_status_clear.start_status_clear_worker()
+        await asyncio.sleep(0.2)
+        assert egress.events[done:] == []
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_24_hours_without_connecting(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        mark = await _opt_out_with_broker_down(egress)
+        await community_status_clear.stop_status_clear_worker()
+        entries = await _pending()
+        entries[0]["since"] -= community_status_clear.CLEAR_GIVE_UP_AFTER_S
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.set_community_status_clear(entries)
+
+        egress.mqtt_connects = True
+        await community_status_clear.start_status_clear_worker()
+        await _until_async(_nothing_pending)
+        await asyncio.sleep(0.2)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_a_pending_clear_survives_a_restart(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(3600.0)
+        mark = await _opt_out_with_broker_down(egress)
+        await community_status_clear.stop_status_clear_worker()  # shutdown
+        assert await _pending_topics() == [_status_topic("CDG")]
+        assert egress.events[mark:] == []
+
+        # Restart, delay already elapsed: the lifespan resumes the clear.
+        fast_retries(0.0)
+        egress.mqtt_connects = True
+        await community_status_clear.start_status_clear_worker()
+        await _until_async(_nothing_pending)
+        assert egress.events[mark:] == [
+            ("mqtt_connect", "mqtt.meshloom.app"),
+            _clear("CDG"),
+            ("mqtt_disconnect",),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_waits_for_the_radio_key_without_spending_attempts(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(0.0)
+        mark = await _opt_out_with_broker_down(egress)
+        egress.mqtt_connects = True
+        with patch("app.keystore.get_private_key", return_value=None):
+            await asyncio.sleep(0.2)
+            assert egress.events[mark:] == []
+            assert (await _pending())[0]["attempts"] == 0
+        await _until_async(_nothing_pending)
+        assert _clear("CDG") in egress.events[mark:]
+
+    @pytest.mark.asyncio
+    async def test_old_iata_is_cleared_with_a_token_for_that_iata(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        from app.fanout import community_mqtt
+
+        fast_retries(0.3)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        _stats_publisher().connected = False  # CDG could not be cleared
+        await update_community(iata="LYS")
+        await _until(lambda: _online_published(egress, "LYS"))
+        assert _clear("CDG") not in egress.events
+        assert await _pending_topics() == [_status_topic("CDG")]
+
+        await _until_async(_nothing_pending)
+        assert _clear("CDG") in egress.events
+        assert _clear("LYS") not in egress.events
+        token_iatas = [
+            c.kwargs.get("iata") for c in community_mqtt._generate_jwt_token.call_args_list
+        ]
+        assert "CDG" in token_iatas
+        # The LYS publisher is untouched: still one open connection.
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_opting_back_in_drops_the_pending_clear(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(3600.0)
+        await _opt_out_with_broker_down(egress)
+        assert await _pending_topics() == [_status_topic("CDG")]
+
+        egress.mqtt_connects = True
+        await update_community(enabled=True)
+        await _until(lambda: sum(_status_of(e) == "online" for e in egress.events) >= 2)
+        assert await _pending() == []
+        fast_retries(0.0)
+        await community_status_clear.start_status_clear_worker()
+        await asyncio.sleep(0.2)
+        assert _clear("CDG") not in egress.events
+
+
+async def stats_json_forbidden() -> None:
+    with pytest.raises(HTTPException):
+        await stats_json("GET", "/v1/community/stats", auth=False)

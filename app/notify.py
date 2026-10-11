@@ -81,17 +81,28 @@ def build_email_apprise_url(email: Mapping[str, Any]) -> str:
     if port not in (None, ""):
         params["port"] = str(port)
     params.update(extra)
+    # Embed image attachments referenced by cid: (the logo) as inline parts of
+    # a multipart/related message, instead of downloadable attachments.
+    params["inline"] = "yes"
     return f"{scheme}://_?{urlencode(params)}"
 
 
 def _send_email_sync(url: str, title: str, body: str) -> bool:
     import apprise as apprise_lib
     from apprise import NotifyFormat
+    from apprise.attachment.file import AttachFile
+
+    from app.email_template import LOGO_CID, LOGO_PATH
 
     notifier = apprise_lib.Apprise()
     if not notifier.add(url):
         return False
-    return bool(notifier.notify(title=title, body=body, body_format=NotifyFormat.HTML))
+    # The logo travels inside the email (cid:), so opening it fetches nothing.
+    attach = apprise_lib.AppriseAttachment()
+    attach.add(AttachFile(str(LOGO_PATH), name=LOGO_CID, mimetype="image/png"))
+    return bool(
+        notifier.notify(title=title, body=body, body_format=NotifyFormat.HTML, attach=attach)
+    )
 
 
 async def send_email_alert(dest: NotificationDestinations, payload: Mapping[str, Any]) -> None:

@@ -36,6 +36,7 @@ import {
 } from '../utils/meshTest';
 import { cn } from '../lib/utils';
 import { LazyBoundary } from './LazyBoundary';
+import { useCommunityEnabled } from '../stores/communityStore';
 
 /**
  * Send one flood, then listen for ten minutes to see who heard it.
@@ -60,6 +61,7 @@ interface MeshTestViewProps {
   floodScope?: string;
   radioConnected: boolean;
   onOpenRadioSettings?: () => void;
+  onOpenCommunitySettings?: () => void;
 }
 
 /** mm:ss rather than "3 minutes ago": the ten-minute window is what is being read. */
@@ -81,7 +83,51 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function MeshTestView({
+/**
+ * The radio test reads who heard the packet from Community. With Community off it
+ * says so, rather than polling a reach endpoint that only ever answers "nobody".
+ */
+export function MeshTestView(props: MeshTestViewProps) {
+  const communityEnabled = useCommunityEnabled();
+  if (communityEnabled === false) {
+    return (
+      <MeshTestCommunityOff
+        onBackToTools={props.onBackToTools}
+        onOpenCommunitySettings={props.onOpenCommunitySettings}
+      />
+    );
+  }
+  return <MeshTestRunView {...props} />;
+}
+
+function MeshTestCommunityOff({
+  onBackToTools,
+  onOpenCommunitySettings,
+}: Pick<MeshTestViewProps, 'onBackToTools' | 'onOpenCommunitySettings'>) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col bg-background"
+      data-testid="mesh-test-community-off"
+    >
+      <ToolPaneHeader title={t('meshTest.title')} onBack={onBackToTools} />
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <RadioTower className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm font-medium">{t('community.offTitle')}</p>
+        <p className="max-w-sm text-[0.8125rem] text-muted-foreground">
+          {t('meshTest.communityOff')}
+        </p>
+        {onOpenCommunitySettings && (
+          <Button type="button" variant="outline" size="sm" onClick={onOpenCommunitySettings}>
+            {t('community.openSettings')}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MeshTestRunView({
   onBackToTools,
   contacts,
   knownRegions,

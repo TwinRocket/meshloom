@@ -16,7 +16,7 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 ## Joining
 
 1. Open **Settings → Meshloom Community**.
-2. Enter the **IATA code** of the nearest airport: three letters, such as `CDG`. If you do not know it, type a city in **Find an airport**.
+2. Enter the **IATA code** of the nearest airport: three letters, such as `CDG`. If you do not know it, look it up with **Browse IATA airport codes**: the airport search (**Find an airport**) is a Community feature, so it only appears once you have joined, to change the code.
 3. Save the code.
 
 The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed.
@@ -31,7 +31,6 @@ Three other variables are meant for people who run Meshloom for others:
 
 - `MESHLOOM_COMMUNITY_IATA` replaces the code saved in the interface for as long as it is set, so changing the code in Settings has no effect.
 - `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` do the same for the two Community servers.
-- `MESHLOOM_COMMUNITY_LOCKED=1` stops the interface from turning Community on.
 
 See [Variables and settings](/en/docs/deep/environment/).
 
@@ -47,15 +46,25 @@ With Community on and a code saved, your server sends:
 
 Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
-**Community off does not mean no network traffic at all.** Turning Community off stops publishing and every directory request. These still happen:
+**Turning Community off cuts every connection to Community** (`*.meshloom.app`, or the hosts set by `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE`) and the airport search, at once and without a restart, with the single exception described in the first point:
 
-- the check for new Meshloom versions asks GitHub, then, as a fallback, a Community mirror (`/v1/meshloom/latest`);
-- the airport search in Settings asks `api.fx-port.com`, through your server;
+- your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. If the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone, and that `offline` would stay. This is the **only connection made after you leave**: Meshloom reconnects to the broker, alone, to delete that leftover status and nothing else (no packets, no status, no other request). It tries at most 6 times over about 13 hours (after 1 minute, then 5 minutes, 15 minutes, 1 hour, 4 hours and 8 hours), survives a restart, and gives up for good after 24 hours. Once the status is deleted, or once it gives up, nothing connects to Community any more;
+- the Live feed closes, and Community requests still in flight are cancelled;
+- the "heard by" counts and the radio test say Community is off instead of showing an empty result.
+
+Changing the IATA code clears the status left under the old code the same way, with the same single retry if the broker cannot be reached. Stopping or restarting Meshloom marks the node `offline`. Joining again with the same code cancels a pending retry: the status is yours to publish again.
+
+**Community off does not mean no network traffic at all.** These still happen:
+
+- the check for new Meshloom versions asks GitHub only, once every 6 hours. With Community on it runs every 5 minutes and falls back to a Community mirror (`/v1/meshloom/latest`) when GitHub cannot be reached;
 - Web Push and the integrations you set up call their own servers;
+- alert emails leave through the mail server you set up. The Meshloom logo is inside the email, so opening one loads nothing from `meshloom.app`;
 - the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
+
+The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself.
 
 ## In the interface
 
-**Settings → Meshloom Community** lets you join or leave, search for or type the IATA code, see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals.
+**Settings → Meshloom Community** lets you join or leave, type the IATA code (or search for it once joined), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals.
 
 See [Variables and settings](/en/docs/deep/environment/) and [Security](/en/docs/deep/security/).

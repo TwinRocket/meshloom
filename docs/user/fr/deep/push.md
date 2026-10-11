@@ -81,6 +81,8 @@ Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (d
 
 Dans **Réglages → Notifications → Destinations de livraison**, saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
 
+L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage dans le message (image intégrée) : ouvrir l’e-mail ne charge rien depuis Internet, et il ne contient aucun lien.
+
 ## En coulisses
 
 ### Service worker et nettoyage

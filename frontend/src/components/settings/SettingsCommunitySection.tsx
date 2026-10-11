@@ -16,6 +16,7 @@ import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { formatNumber } from '../../utils/formatNumber';
+import { setCommunityStatus, useCommunityStatus } from '../../stores/communityStore';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
@@ -186,10 +187,22 @@ export function SettingsCommunitySection({
     (next: CommunityStatus) => {
       setStatus(next);
       setIataDraft(next.iata);
+      setCommunityStatus(next);
       onStatusChange?.(next);
     },
     [onStatusChange]
   );
+
+  // Follow a change made elsewhere (another tab, the API): the store re-reads
+  // on every Community broadcast. Our own actions write the store first, so
+  // this only fires for outside changes; it waits for an action in progress.
+  const storeStatus = useCommunityStatus();
+  useEffect(() => {
+    if (!storeStatus || busy !== null || storeStatus === status) return;
+    if (storeStatus.iata !== status?.iata) setIataDraft(storeStatus.iata);
+    if (!storeStatus.enabled) setBindResult(null);
+    setStatus(storeStatus);
+  }, [storeStatus, busy, status]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -240,10 +253,6 @@ export function SettingsCommunitySection({
       toast.error(t('settings.community.iataChangeCap'));
       return;
     }
-    if (err instanceof ApiError && err.status === 403) {
-      toast.error(t('settings.community.lockedEnable'));
-      return;
-    }
     toast.error(formatApiError(err, t));
   };
 
@@ -271,7 +280,6 @@ export function SettingsCommunitySection({
   };
 
   const handleEnableChange = async (enabled: boolean) => {
-    if (enabled && status?.locked) return;
     setBusy('enable');
     try {
       applyStatus(await api.updateCommunity({ enabled }));
@@ -351,17 +359,11 @@ export function SettingsCommunitySection({
         <p className="text-[0.8125rem] text-muted-foreground">{t('settings.community.intro')}</p>
       </div>
 
-      {status.locked && (
-        <p className="mt-3 text-[0.8125rem] text-muted-foreground">
-          {t('settings.community.locked')}
-        </p>
-      )}
-
       <div className="mt-4 flex items-start gap-3 rounded-md border border-border/60 p-3">
         <Checkbox
           id="community-enable"
           checked={status.enabled}
-          disabled={busy !== null || (status.locked && !status.enabled)}
+          disabled={busy !== null}
           onCheckedChange={(checked) => {
             void handleEnableChange(checked === true);
           }}
@@ -397,11 +399,10 @@ export function SettingsCommunitySection({
             />
             <IataHelp />
           </div>
-          <IataAirportSearch disabled={busy !== null || status.locked} onPick={setIataDraft} />
           <Button
             type="button"
             onClick={() => void handleJoin()}
-            disabled={busy !== null || status.locked || !iataValid}
+            disabled={busy !== null || !iataValid}
           >
             {busy === 'join' ? t('settings.community.joining') : t('settings.community.joinCta')}
           </Button>

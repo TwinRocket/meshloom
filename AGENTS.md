@@ -97,7 +97,14 @@ How a radio message travels through the program, in and out.
 - **Community.** `app/services/meshloom_community.py` is the HTTP client. It has a
   circuit breaker, and a timeout or 5xx becomes a 503 for the browser.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
-  module. Details are in `app/AGENTS.md`.
+  module. Opted out means no connection at all to the Community hosts or to
+  the airport search: every egress goes through the guard in
+  `meshloom_community.py`, and an opt-out runs `community_teardown()`.
+  The one exception is `app/services/community_status_clear.py`: when the
+  opt-out could not clear the retained MQTT status, it reconnects to the
+  broker only to publish the empty retained payload, bounded in attempts and
+  to 24 h, persisted across restarts, then never again.
+  Details are in `app/AGENTS.md`.
 
 ## Commands
 
@@ -222,7 +229,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
 | `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
 | `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
-| `MESHLOOM_COMMUNITY_LOCKED` | unset | `1` prevents enabling Community from the UI |
 | `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source`. Set by `meshloom.env` (`package`) and by the add-on (`addon`) |
 | `MESHLOOM_UPDATE_HELPER` | unset | `compose` marks a compose install with its helper; `none` forces "apply not supported" (`app/services/install_kind.py`) |
 | `MESHLOOM_UPDATE_STATUS_PATH` | unset | where the compose helper's read-only status file is mounted (`app/services/update_apply.py`). Without it the package path `/var/lib/meshloom-update/status.json` is used |

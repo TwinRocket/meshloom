@@ -52,6 +52,8 @@ AUTH_FATAL_CODES = frozenset(
 
 CLOSE_JWT_EXPIRED = 4001
 CLOSE_INACTIVE = 4002
+# close_stats(): longest wait for the upstream close handshake.
+CLOSE_TIMEOUT_S = 5.0
 CLOSE_SLOT_BUSY = 4003
 CLOSE_RATE_LIMIT = 4004
 CLOSE_SUPERSEDED = 4005
@@ -547,6 +549,20 @@ class CommunityLiveRelay:
                 self._idle_close_task = None
         await self.close_stats()
 
+    def drain_queue(self) -> int:
+        """Drop frames waiting for fan-out (opt-out). Returns how many were dropped."""
+        dropped = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return dropped
+            if item is None:
+                # The fan-out stop sentinel is not a frame: keep it.
+                self._queue.put_nowait(None)
+                return dropped
+            dropped += 1
+
     async def shutdown(self) -> None:
         await self.release_all_consumers()
         await self._stop_fanout()
@@ -562,15 +578,17 @@ class CommunityLiveRelay:
             self._reader_task = None
         if ws is not None:
             try:
-                await ws.close()
-            except Exception:
+                # Bounded: a close handshake that hangs must not keep the
+                # reader below from being cancelled (opt-out teardown).
+                await asyncio.wait_for(ws.close(), timeout=CLOSE_TIMEOUT_S)
+            except Exception:  # TimeoutError included
                 logger.debug("Community live socket close failed", exc_info=True)
         if task is not None and not task.done():
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            # Bounded too: the reader's own socket exit may wait on the peer.
+            done, _pending = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_S)
+            if not done:
+                logger.warning("Community live reader did not stop in time; abandoning it")
 
     async def _idle_close(self) -> None:
         try:
@@ -640,7 +658,7 @@ class CommunityLiveRelay:
     async def _run(self, generation: int) -> None:
         from app.services.meshloom_community import (
             classify_auth_rejection,
-            get_community_effective,
+            community_egress_state,
             mint_stats_jwt,
         )
 
@@ -653,7 +671,7 @@ class CommunityLiveRelay:
                 if not self._has_consumers() or self._auth_error is not None:
                     return
                 try:
-                    state = await get_community_effective()
+                    state = await community_egress_state()
                 except Exception:
                     if generation != self._generation:
                         return
@@ -661,7 +679,7 @@ class CommunityLiveRelay:
                     await self._sleep_backoff(generation, delay)
                     delay = min(RECONNECT_MAX_S, delay * RECONNECT_FACTOR)
                     continue
-                if not state.enabled:
+                if state is None:
                     opted_out = True
                     return
                 if not state.iata:

@@ -117,6 +117,7 @@
     "observerReachMaxDistance": "Distance max",
     "observerReachDistanceUnavailable": "Distance indisponible",
     "observerReachEmpty": "Aucun nœud n’a publié avoir entendu ce paquet sur Meshloom Community.",
+    "observerReachCommunityOff": "La liste de qui a entendu ce paquet vient de Meshloom Community. Activez Community pour la voir.",
     "observerReachHops": "{{count}} sauts",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Voir les sauts de {{name}}",
@@ -929,8 +930,6 @@
       "enableHelp": "Quand c’est désactivé, ce serveur ne publie pas vers Meshloom Community.",
       "disableHelp": "Arrêter Meshloom Community arrête la publication, et arrête aussi l’annuaire en ligne : plus de noms de sauts, plus d’ancres locate, plus de compteur « entendu par ».",
       "left": "Meshloom Community arrêté",
-      "locked": "L’opérateur a verrouillé Meshloom Community. L’activation est désactivée.",
-      "lockedEnable": "L’activation de Meshloom Community est verrouillée par l’opérateur.",
       "iata": "Code IATA",
       "iataHelp": "Le code IATA est le code à 3 lettres de l’aéroport le plus proche (A–Z). C’est une étiquette de région approximative. La concordance signifie seulement que le code est cohérent avec la position de votre radio — jamais un emplacement vérifié.",
       "iataPlaceholder": "CDG",
@@ -959,7 +958,7 @@
       "privacyPackets": "Dès qu’un code d’aéroport est enregistré, ce serveur envoie à Community les paquets que votre radio entend, tels qu’ils ont circulé sur les ondes, avec la force du signal. Les messages privés restent chiffrés. Les messages des canaux publics et des canaux hashtag sont lisibles par quiconque connaît le nom du canal, sur les ondes comme sur Community.",
       "privacyRadio": "Community reçoit aussi le nom, le modèle, le firmware, les réglages radio et l’état (batterie, durée de fonctionnement) de votre radio. Quand vous enregistrez le code d’aéroport, il reçoit aussi la position GPS de la radio, si elle en a une, pour vérifier que le code correspond.",
       "privacyHashtags": "Quand Community est activé et qu’un code d’aéroport est enregistré, Meshloom ajoute les noms des canaux hashtag que vous utilisez à une liste unique, partagée avec tous les utilisateurs de Meshloom, pour que d’autres trouvent ces salons publics. Il n’y ajoute jamais les messages ni les noms des canaux privés.",
-      "privacyDirectory": "Community désactivé, ce serveur ne publie rien vers Community et il n’y a pas d’annuaire : plus de noms de sauts, plus d’ancres locate, plus de compteur « entendu par ». Certaines connexions restent : Meshloom vérifie s’il existe une nouvelle version sur GitHub, ou sur la page des versions de Community si GitHub ne répond pas, sans envoyer vos données. La recherche d’aéroport envoie ce que vous tapez à un service extérieur (FX-Port), et les intégrations que vous configurez contactent leurs propres serveurs.",
+      "privacyDirectory": "Community désactivé, ce serveur n’établit aucune connexion avec Community : rien n’est publié, et il n’y a ni annuaire (plus de noms de sauts, plus d’ancres locate, plus de compteur « entendu par »), ni flux Live, ni recherche d’aéroport. Une exception : si l’état de votre radio n’a pas pu être effacé de Community au moment de votre départ, ce serveur se reconnecte uniquement pour l’effacer, en quelques essais au plus sur 24 heures, puis plus jamais. Certaines connexions restent : toutes les 6 heures, Meshloom vérifie sur GitHub s’il existe une nouvelle version, sans envoyer vos données, et les intégrations que vous configurez contactent leurs propres serveurs. Community activé, la vérification se rabat sur la page des versions de Community si GitHub ne répond pas, et la recherche d’aéroport envoie ce que vous tapez à un service extérieur (FX-Port).",
       "meTitle": "Votre contribution",
       "meHashes24h": "Hachages uniques (24 h)",
       "meHashes7d": "Hachages uniques (7 j)",
@@ -2682,6 +2681,7 @@
   "meshTest": {
     "title": "Test radio",
     "loading": "Chargement du test radio...",
+    "communityOff": "Le test radio lit sur Meshloom Community qui a entendu votre paquet. Activez Community pour l’utiliser.",
     "run": "Lancer le test",
     "runHelp": "Envoyer un flood et voir qui l’entend",
     "sending": "Envoi…",
@@ -2713,6 +2713,10 @@
     "mapEmpty": "Aucune position à afficher pour l’instant.",
     "mapAria": "Carte des oreilles qui ont entendu le test",
     "origin": "Cette radio"
+  },
+  "community": {
+    "offTitle": "Meshloom Community est désactivé",
+    "openSettings": "Ouvrir les réglages Community"
   },
   "settingsIndex": {
     "title": "Réglages",

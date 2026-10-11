@@ -16,7 +16,7 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 ## Rejoindre
 
 1. Ouvrez **Réglages → Meshloom Community**.
-2. Saisissez le **code IATA** de l’aéroport le plus proche : trois lettres, par exemple `CDG`. Si vous ne le connaissez pas, tapez une ville dans **Trouver un aéroport**.
+2. Saisissez le **code IATA** de l’aéroport le plus proche : trois lettres, par exemple `CDG`. Si vous ne le connaissez pas, cherchez-le avec **Voir les codes IATA des aéroports** : la recherche d’aéroport (**Trouver un aéroport**) fait partie de Community, elle n’apparaît donc qu’une fois inscrit, pour changer de code.
 3. Enregistrez le code.
 
 Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié.
@@ -31,7 +31,6 @@ Trois autres variables s’adressent à ceux qui font tourner Meshloom pour d’
 
 - `MESHLOOM_COMMUNITY_IATA` remplace le code enregistré dans l’interface tant qu’elle est définie : modifier le code dans les Réglages n’a alors aucun effet.
 - `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les deux serveurs Community.
-- `MESHLOOM_COMMUNITY_LOCKED=1` empêche l’interface d’activer Community.
 
 Voir [Variables et réglages](/docs/deep/environment/).
 
@@ -47,15 +46,25 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 
 La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
 
-**Community désactivé ne veut pas dire zéro trafic réseau.** Le désactiver arrête la publication et toutes les requêtes d’annuaire. Ceci continue :
+**Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`, ou les serveurs définis par `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE`) ainsi que la recherche d’aéroport, immédiatement et sans redémarrage, avec la seule exception décrite au premier point :
 
-- la vérification des nouvelles versions de Meshloom interroge GitHub, puis, en secours, un miroir de Community (`/v1/meshloom/latest`) ;
-- la recherche d’aéroport dans les Réglages interroge `api.fx-port.com`, par l’intermédiaire de votre serveur ;
+- l’état de votre nœud sur le broker passe à `offline` puis est effacé, avant la fermeture de la connexion MQTT, pour qu’il ne reste pas affiché en ligne. Si le broker est injoignable à ce moment-là, rien ne peut être envoyé : le broker marque alors lui-même le nœud `offline` quand il s’aperçoit que la connexion est perdue, et cet `offline` resterait. C’est la **seule connexion faite après votre départ** : Meshloom se reconnecte au broker, seul, pour effacer cet état restant et rien d’autre (ni paquet, ni état, ni autre requête). Il essaie 6 fois au plus en 13 heures environ (après 1 minute, puis 5 minutes, 15 minutes, 1 heure, 4 heures et 8 heures), tient compte d’un redémarrage entre-temps, et abandonne définitivement au bout de 24 heures. Une fois l’état effacé, ou l’abandon acté, plus rien ne se connecte à Community ;
+- le flux Live se ferme, et les requêtes Community encore en cours sont annulées ;
+- les compteurs « entendu par » et le test radio indiquent que Community est désactivé au lieu d’afficher un résultat vide.
+
+Changer le code IATA efface de la même façon l’état laissé sous l’ancien code, avec la même reprise unique si le broker est injoignable. Arrêter ou redémarrer Meshloom marque le nœud `offline`. Rejoindre de nouveau avec le même code annule une reprise en attente : l’état redevient le vôtre.
+
+**Community désactivé ne veut pas dire zéro trafic réseau.** Ceci continue :
+
+- la vérification des nouvelles versions de Meshloom interroge GitHub seulement, une fois toutes les 6 heures. Avec Community activé, elle a lieu toutes les 5 minutes et se rabat sur un miroir de Community (`/v1/meshloom/latest`) quand GitHub ne répond pas ;
 - Web Push et les intégrations que vous configurez appellent leurs propres serveurs ;
+- les e-mails d’alerte partent par le serveur de messagerie que vous avez configuré. Le logo de Meshloom est inclus dans l’e-mail : l’ouvrir ne charge rien depuis `meshloom.app` ;
 - les fonds de carte sont chargés par votre navigateur chez leurs fournisseurs (OpenStreetMap, CARTO, OpenTopoMap, Esri).
+
+La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre serveur) fait partie de Community : désactivé, elle n’est jamais appelée, et vous saisissez vous-même le code à trois lettres.
 
 ## Dans l’interface
 
-**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de chercher ou de saisir le code IATA, de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
+**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de saisir le code IATA (ou de le chercher une fois inscrit), de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
 
 Voir [Variables et réglages](/docs/deep/environment/) et [Sécurité](/docs/deep/security/).

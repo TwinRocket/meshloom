@@ -149,13 +149,23 @@ class FanoutManager:
         await self.sync_system_modules()
 
     async def sync_system_modules(self) -> None:
-        """Start or stop the Meshloom Stats publisher from community state."""
-        from app.fanout.meshloom_stats import MeshloomStatsModule
-        from app.services.meshloom_community import get_community_effective
+        """Start or stop the Meshloom Stats publisher from community state.
 
-        state = await get_community_effective()
+        Serialised: two overlapping syncs would each start a publisher, and the
+        one overwritten in ``_modules`` would keep its Community connection
+        open, out of reach of any later stop.
+        """
+        lock = self._restart_locks.setdefault(SYSTEM_MESHLOOM_STATS_ID, asyncio.Lock())
+        async with lock:
+            await self._sync_system_modules_locked()
+
+    async def _sync_system_modules_locked(self) -> None:
+        from app.fanout.meshloom_stats import MeshloomStatsModule
+        from app.services.meshloom_community import community_egress_state
+
+        state = await community_egress_state()
         existing = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
-        if not state.enabled:
+        if state is None:
             if existing is not None:
                 await self.remove_config(SYSTEM_MESHLOOM_STATS_ID)
             return
@@ -172,6 +182,20 @@ class FanoutManager:
         except Exception as exc:
             logger.exception("Failed to start Meshloom Stats publisher")
             self._set_module_error(SYSTEM_MESHLOOM_STATS_ID, _format_error_detail(exc))
+
+    def retire_system_status(self) -> FanoutModule | None:
+        """Make the running Stats publisher clear its retained status when it stops.
+
+        Returns that module, so the caller can read ``retired_status_topic``
+        once it has stopped (None: no publisher was running).
+        """
+        entry = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
+        if entry is None:
+            return None
+        retire = getattr(entry[0], "retire_status", None)
+        if callable(retire):
+            retire()
+        return entry[0]
 
     async def reload_system_module(self, config_id: str) -> None:
         if config_id != SYSTEM_MESHLOOM_STATS_ID:

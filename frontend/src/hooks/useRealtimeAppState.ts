@@ -15,6 +15,7 @@ import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
+import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { applyCommunityPacketObserverTick } from './useVisibleObserverReach';
 import { emitStatusDotPulse } from '../utils/statusDotPulse';
 import type {
@@ -251,6 +252,8 @@ export function useRealtimeAppState({
         clearRawPackets();
         reconcileOnReconnect();
         refreshUnreads();
+        // A Community change made while the socket was down sent us nothing.
+        void refreshCommunityStatus();
         const generation = ++reconnectGenerationRef.current;
         const tracker: SnapshotTracker = { contacts: new Set(), channels: new Set() };
         activeSnapshotsRef.current.add(tracker);
@@ -379,6 +382,8 @@ export function useRealtimeAppState({
       },
       onCommunityLive: (status: CommunityLiveStatus) => {
         applyLiveStatus(status);
+        // The relay reports the Community switch too: follow a change made elsewhere.
+        noteCommunityLiveOptedOut(status.opted_out);
       },
       onMessageAcked: (
         messageId: number,

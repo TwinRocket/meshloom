@@ -300,7 +300,6 @@ describe('SettingsModal', () => {
     });
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',
@@ -768,7 +767,6 @@ describe('SettingsModal', () => {
   it('renders Meshloom Community settings with a join CTA when community is off', async () => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',
@@ -805,30 +803,6 @@ describe('SettingsModal', () => {
     expect(
       screen.queryByRole('button', { name: i18n.t('settings.community.joinCta') })
     ).not.toBeInTheDocument();
-  });
-
-  it('disables Meshloom Community enable when the operator locked it', async () => {
-    vi.spyOn(api, 'getCommunity').mockResolvedValue({
-      enabled: false,
-      locked: true,
-      iata: '',
-      broker_host: '',
-      api_base: '',
-      publisher_configured: false,
-      publisher_connected: false,
-      env_seeded: false,
-    });
-
-    renderModal({
-      externalSidebarNav: true,
-      desktopSection: 'community',
-    });
-
-    expect(await screen.findByText(i18n.t('settings.community.locked'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
-    ).toBeDisabled();
   });
 
   it('renders selected section from external sidebar nav on desktop mode', async () => {
@@ -1583,7 +1557,6 @@ describe('SettingsModal', () => {
   it('routes the directory through Community and offers no origin to point at', async () => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: 'LYS',
       broker_host: 'mqtt.meshloom.app',
       api_base: 'https://api.meshloom.app',

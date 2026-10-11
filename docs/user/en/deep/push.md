@@ -81,6 +81,8 @@ On a channel, the mute button silences everything for a time you choose (15 minu
 
 In **Settings → Notifications → Delivery destinations**, enter an SMTP server (host, port, encryption, user, password, sender and recipient) and/or a webhook address with an optional HMAC secret. Secrets are not shown again after saving. Each destination has a test button. This webhook is for Meshloom notifications. It is not the message webhook of fanout.
 
+The e-mail is HTML, with a plain-text copy. The Meshloom logo travels inside the message (an inline image), so opening the e-mail loads nothing from the Internet and contains no link.
+
 ## Behind the scenes
 
 ### Service worker and cleanup

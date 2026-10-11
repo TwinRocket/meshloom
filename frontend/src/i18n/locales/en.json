@@ -117,6 +117,7 @@
     "observerReachMaxDistance": "Max distance",
     "observerReachDistanceUnavailable": "Distance unavailable",
     "observerReachEmpty": "No node has published hearing this packet to Meshloom Community.",
+    "observerReachCommunityOff": "Who heard this packet comes from Meshloom Community. Turn Community on to see it.",
     "observerReachHops": "{{count}} hops",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Show hops for {{name}}",
@@ -929,8 +930,6 @@
       "enableHelp": "When off, this server does not publish to Meshloom Community.",
       "disableHelp": "Stopping Meshloom Community stops publish, and also stops the online directory: no hop names, no locate anchors, no heard-by counts.",
       "left": "Meshloom Community stopped",
-      "locked": "The operator locked Meshloom Community. Enable is disabled.",
-      "lockedEnable": "Meshloom Community enable is locked by the operator.",
       "iata": "IATA code",
       "iataHelp": "The IATA code is the 3-letter code of the nearest airport (A–Z). It is a coarse region label. Concordance only means it is consistent with your radio position — never a verified location.",
       "iataPlaceholder": "CDG",
@@ -959,7 +958,7 @@
       "privacyPackets": "Once an airport code is saved, this server sends Community the packets your radio hears, exactly as they went over the air, with their signal strength. Private messages stay encrypted. Messages on public and hashtag channels can be read by anyone who knows the channel name, on the air as on Community.",
       "privacyRadio": "Community also receives your radio's name, model, firmware, radio settings and status (battery, uptime). When you save the airport code, it also receives the radio's GPS position, if one is set, to check that the code matches.",
       "privacyHashtags": "When Community is on and an airport code is saved, Meshloom adds the names of the hashtag channels you use to one list shared with every Meshloom user, so others can find these public rooms. It never adds messages or the names of private channels.",
-      "privacyDirectory": "With Community off, this server publishes nothing to Community and there is no directory: no hop names, no locate anchors, no heard-by counts. Some connections remain: Meshloom checks for new versions on GitHub, or on the Community release page if GitHub cannot be reached, without sending your data. The airport search sends what you type to an outside service (FX-Port), and the integrations you set up contact their own servers.",
+      "privacyDirectory": "With Community off, this server makes no connection to Community: nothing is published, and there is no directory (no hop names, no locate anchors, no heard-by counts), no Live feed and no airport search. One exception: if your radio's status could not be deleted from Community when you left, this server reconnects only to delete it, a few tries at most within 24 hours, then never again. Some connections remain: every 6 hours Meshloom checks GitHub for a new version, without sending your data, and the integrations you set up contact their own servers. With Community on, the version check falls back to the Community release page when GitHub cannot be reached, and the airport search sends what you type to an outside service (FX-Port).",
       "meTitle": "Your contribution",
       "meHashes24h": "Unique hashes (24h)",
       "meHashes7d": "Unique hashes (7d)",
@@ -2682,6 +2681,7 @@
   "meshTest": {
     "title": "Radio test",
     "loading": "Loading radio test...",
+    "communityOff": "The radio test reads who heard your packet from Meshloom Community. Turn Community on to use it.",
     "run": "Run the test",
     "runHelp": "Send one flood and watch who hears it",
     "sending": "Sending…",
@@ -2713,6 +2713,10 @@
     "mapEmpty": "No position to show yet.",
     "mapAria": "Map of observers that heard the test",
     "origin": "This radio"
+  },
+  "community": {
+    "offTitle": "Meshloom Community is off",
+    "openSettings": "Open Community settings"
   },
   "settingsIndex": {
     "title": "Settings",

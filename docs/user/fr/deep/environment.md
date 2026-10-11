@@ -59,7 +59,6 @@ Le contact VAPID se règle de préférence dans **Réglages → Notifications**.
 | `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code d’aéroport à trois lettres. Tant qu’elle est définie, elle remplace le code enregistré dans l’interface |
 | `MESHLOOM_COMMUNITY_BROKER_HOST` | *(vide)* | Remplace le serveur de publication de Community (par défaut `mqtt.meshloom.app`) tant qu’elle est définie |
 | `MESHLOOM_COMMUNITY_API_BASE` | *(vide)* | Remplace l’adresse de l’API Community (par défaut `https://api.meshloom.app`) tant qu’elle est définie |
-| `MESHLOOM_COMMUNITY_LOCKED` | *(vide)* | Seule la valeur `1` compte : l’interface ne peut alors pas activer Community |
 
 Voir [Meshloom Community](/docs/deep/community/).
 

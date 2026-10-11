@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { configure } from '@testing-library/react';
+import { afterEach } from 'vitest';
 import i18n, { i18nReady } from '../i18n';
 
 await i18nReady;
@@ -52,3 +53,10 @@ if (typeof globalThis.matchMedia === 'undefined') {
     }),
   });
 }
+
+// The Community store is module state: start every test from "unknown". Imported
+// lazily so a test file's vi.mock('../api') still applies to the store.
+afterEach(async () => {
+  const { resetCommunityStoreForTests } = await import('../stores/communityStore');
+  resetCommunityStoreForTests();
+});
