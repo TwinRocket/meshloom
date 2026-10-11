@@ -293,6 +293,8 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         self._last_status_topic: str | None = None
         self._last_status_identity: tuple[str, str] = ("", "")
         self._retire_status_on_stop: bool = False
+        # Set once the empty retained payload got its PUBACK on that topic.
+        self.retired_status_topic: str | None = None
 
     def retire_status(self) -> None:
         """Make the next ``stop()`` clear the retained status before DISCONNECT.
@@ -317,6 +319,7 @@ class CommunityMqttPublisher(BaseMqttPublisher):
             # An empty retained payload deletes the retained message (MQTT
             # 3.1.1 3.3.1.3). If this step fails, "offline" stays, not "online".
             await client.publish(topic, b"", qos=1, retain=True)
+            self.retired_status_topic = topic
         self._last_status_topic = None
 
     async def start(self, settings: object) -> None:
@@ -327,6 +330,7 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         self._last_stats_fetch = 0.0
         self._last_status_publish = 0.0
         self._retire_status_on_stop = False
+        self.retired_status_topic = None
         await super().start(settings)
 
     def _on_not_configured(self) -> None:

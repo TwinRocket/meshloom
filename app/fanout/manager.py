@@ -183,14 +183,19 @@ class FanoutManager:
             logger.exception("Failed to start Meshloom Stats publisher")
             self._set_module_error(SYSTEM_MESHLOOM_STATS_ID, _format_error_detail(exc))
 
-    def retire_system_status(self) -> None:
-        """Make the running Stats publisher clear its retained status when it stops."""
+    def retire_system_status(self) -> FanoutModule | None:
+        """Make the running Stats publisher clear its retained status when it stops.
+
+        Returns that module, so the caller can read ``retired_status_topic``
+        once it has stopped (None: no publisher was running).
+        """
         entry = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
         if entry is None:
-            return
+            return None
         retire = getattr(entry[0], "retire_status", None)
         if callable(retire):
             retire()
+        return entry[0]
 
     async def reload_system_module(self, config_id: str) -> None:
         if config_id != SYSTEM_MESHLOOM_STATS_ID:

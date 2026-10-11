@@ -2,7 +2,9 @@
 
 Community is on for new installs and one opt-out. Off means no connection at
 all to the Community hosts (HTTP API, Live WS, MQTT broker, release mirror)
-nor to the airport search. This module is the egress guard: every one of
+nor to the airport search. One exception: if the opt-out could not clear the
+retained MQTT status, ``community_status_clear`` reconnects to the broker only
+to clear it, bounded in time and attempts, then never again. This module is the egress guard: every one of
 those connections checks ``community_egress_state()`` first, and HTTP goes
 through ``_community_http()`` so ``community_teardown()`` can cancel what is
 in flight. Env names are MESHLOOM_* only — do not invent MESHCORE_COMMUNITY
@@ -361,13 +363,15 @@ async def _update_community_locked(
     reset_observer_reach_cache()
     state = await get_community_effective()
     if before.enabled and not state.enabled:
-        await community_teardown()
+        await community_teardown(before)
         return state
     if before.enabled and state.enabled and _status_topic_moved(before, state):
         # The old meshcore/{IATA}/{PUBKEY}/status (or old broker) would keep
         # its retained "online" forever: clear it on the way out.
-        _retire_publisher_status()
-    await _reload_system_publisher()
+        await _retire_status_and_reload(before)
+    else:
+        await _reload_system_publisher()
+    await _forget_pending_clear(state)
     from app.services.community_live import get_live_relay, sync_community_live
 
     if before.enabled and state.enabled and _live_target_moved(before, state):
@@ -426,16 +430,44 @@ async def _run_steps(steps: list[tuple[str, Callable[[], Awaitable[object]]]]) -
         await _run_steps(steps[1:])
 
 
-def _retire_publisher_status() -> None:
+async def _retire_status_and_reload(before: CommunityEffective | None) -> None:
+    """Clear the retained status of ``before`` (before DISCONNECT), then reload.
+
+    The topic is first saved as "clear pending"; it is forgotten once the
+    publisher's empty retained payload is acknowledged. Otherwise (broker
+    unreachable, publisher not connected) ``community_status_clear`` makes its
+    single bounded retry, the only Community connection after an opt-out.
+    """
     from app.fanout.manager import fanout_manager
+    from app.services import community_status_clear
 
-    fanout_manager.retire_system_status()
-
-
-async def _stop_publisher() -> None:
-    """Clear the retained status (before DISCONNECT), then stop the publisher."""
-    _retire_publisher_status()
+    target = community_status_clear.target_for(before) if before is not None else None
+    if target is not None:
+        try:
+            await community_status_clear.mark_pending(target)
+        except Exception:
+            logger.warning("Could not save the pending Community status clear", exc_info=True)
+    module = fanout_manager.retire_system_status()
     await _reload_system_publisher()
+    if target is None:
+        return
+    try:
+        if getattr(module, "retired_status_topic", None) == target.topic:
+            await community_status_clear.resolve(target)
+        else:
+            community_status_clear.schedule()
+    except Exception:
+        logger.warning("Could not update the pending Community status clear", exc_info=True)
+
+
+async def _forget_pending_clear(state: CommunityEffective) -> None:
+    """On again on a topic with a clear pending: the publisher owns it now."""
+    from app.services import community_status_clear
+
+    try:
+        await community_status_clear.drop_current(state)
+    except Exception:
+        logger.warning("Could not update the pending Community status clear", exc_info=True)
 
 
 async def _close_live() -> None:
@@ -461,7 +493,7 @@ async def _reset_client_state() -> None:
     get_live_relay().drain_queue()
 
 
-async def community_teardown() -> None:
+async def community_teardown(before: CommunityEffective | None = None) -> None:
     """Cut every Community connection after an opt-out.
 
     Order: cancel Community requests in flight and close the Live relay
@@ -470,6 +502,10 @@ async def community_teardown() -> None:
     the publisher, which may wait on the broker, then reset the breaker, the
     sample quota and the Live queue. Each step is bounded and runs even when
     the previous one failed.
+
+    ``before`` is the state that was on. If its status topic could not be
+    cleared here, ``community_status_clear`` retries that clear alone, bounded
+    in time and attempts: the one exception to "nothing after the opt-out".
     """
     global _egress_generation
     _egress_generation += 1
@@ -477,7 +513,7 @@ async def community_teardown() -> None:
         [
             ("in-flight requests", _cancel_inflight_requests),
             ("Live relay", _close_live),
-            ("MQTT publisher", _stop_publisher),
+            ("MQTT publisher", lambda: _retire_status_and_reload(before)),
             ("client state reset", _reset_client_state),
         ]
     )

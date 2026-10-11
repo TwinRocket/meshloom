@@ -139,6 +139,11 @@ class MeshloomStatsModule(FanoutModule):
         """Clear the retained status topic on the next stop (opt-out, IATA change)."""
         self._publisher.retire_status()
 
+    @property
+    def retired_status_topic(self) -> str | None:
+        """Status topic the last stop cleared (empty retained payload acknowledged)."""
+        return self._publisher.retired_status_topic
+
     async def on_raw(self, data: dict) -> None:
         if not self._publisher.connected or self._publisher._settings is None:
             return

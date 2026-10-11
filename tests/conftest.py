@@ -122,6 +122,15 @@ def _reset_community_breaker():
 
 
 @pytest.fixture(autouse=True)
+async def _stop_community_status_clear():
+    """The retained-status clear worker must not outlive the test that started it."""
+    from app.services.community_status_clear import stop_status_clear_worker
+
+    yield
+    await stop_status_clear_worker()
+
+
+@pytest.fixture(autouse=True)
 def _reset_radio_ingest_gate():
     """Keep the process-wide ingest gate open between tests."""
     from app.radio import radio_manager

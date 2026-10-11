@@ -194,3 +194,25 @@ class TestRetireStatus:
         assert task is not None
         task.cancel()
         await asyncio.wait({task}, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_retired_status_topic_is_set_only_once_the_clear_is_acknowledged():
+    """The opt-out reads it to decide whether a later clear is still needed."""
+    events: list[tuple] = []
+    pub = await _start(events)
+    pub.retire_status()
+    await pub.stop()
+    assert pub.retired_status_topic == f"meshcore/CDG/{PUBKEY_HEX}/status"
+
+    hung: list[tuple] = []
+    pub = await _start(hung, hang_empty_publish=True)
+    pub.retire_status()
+    with patch.object(mqtt_base, "BEFORE_DISCONNECT_TIMEOUT_S", 0.05):
+        await pub.stop()
+    assert pub.retired_status_topic is None
+
+    plain: list[tuple] = []
+    pub = await _start(plain)
+    await pub.stop()  # no retire: offline only
+    assert pub.retired_status_topic is None
