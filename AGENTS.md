@@ -37,6 +37,7 @@ The rules that keep changes safe: check the code rather than trust the docs, res
 - Prefer fewer, stronger modules over thin wrappers. Use typed contracts (Pydantic
   models, TS types) at API, WebSocket and repository boundaries. Keep refactors
   behaviour-preserving, with tests around the moved seam.
+- **Keep the docs in sync with every change.** Any change (code, config, CI, scripts, infra) comes with a check of the docs that describe it: `AGENTS.md`, `README.md`, `README_ADVANCED.md`, `README_HA.md`, `CONTRIBUTING.md`, `docs/user/` (including its copy on the website), the shared contracts, ADRs and header comments. If they no longer match, fix them in the same pull request, and say in the PR body which docs were checked or updated.
 
 ## Repository map
 
