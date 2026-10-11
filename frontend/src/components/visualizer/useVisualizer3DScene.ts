@@ -376,7 +376,7 @@ export function useVisualizer3DScene({
           const labelDiv = document.createElement('div');
           labelDiv.style.color = node.isAmbiguous ? COLORS.ambiguous : '#e5e7eb';
           labelDiv.style.fontSize = '0.6875rem';
-          labelDiv.style.fontFamily = 'sans-serif';
+          labelDiv.style.fontFamily = "sans-serif, 'Meshloom Marks'";
           labelDiv.style.textAlign = 'center';
           labelDiv.style.whiteSpace = 'nowrap';
           labelDiv.style.textShadow = '0 0 4px #000, 0 0 2px #000';

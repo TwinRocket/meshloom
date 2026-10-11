@@ -104,6 +104,8 @@ Region filter: `LiveViewFilters.iata` is a `Set` (empty = every region), picked 
 ### Styling
 Use rem-based text sizes (`text-[0.8125rem]`, not `text-[13px]`), because the font-scale setting depends on them. The "Canonical style reference" inside `ThemePreview` (`components/settings/SettingsLocalSection.tsx`) is the catalogue of patterns to copy.
 
+Fonts come from the system, except `'Meshloom Marks'` (`src/assets/fonts/meshloom-marks.woff2`, declared in `index.css`). It is a subset of Noto Sans for the stacked combining marks that no Windows font covers (U+1AB0–1AFF, U+1DC0–1DFF), and it is fetched only when an earlier font misses a character. Any new `font-family` that can show a contact or node name must end with it, as `body`, Tailwind's `font-sans`/`font-mono`, `.leaflet-container` and the 3D visualizer labels already do. Its OFL licence goes into `LICENSES.md` through `scripts/build/collect_licenses.sh`.
+
 ## Editing checklist
 
 1. When an API or WS payload changes, update `types.ts`, `wsEvents.ts` and its handlers, and the tests (`src/test/fixtures/websocket_events.json` holds WS samples).
