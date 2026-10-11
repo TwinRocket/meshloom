@@ -68,7 +68,7 @@ Ce que chaque sortie envoie dépend de la portée que vous lui donnez dans **Ré
 - **Envoi vers la carte** transmet les annonces des répéteurs et des serveurs de salon, avec leur position, à un service de carte (map.meshcore.io ou un autre que vous choisissez).
 - **Home Assistant** publie vos appareils vers le serveur MQTT (broker) que vous configurez.
 
-Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/deep/push/) et, une fois rejoint, [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms de canaux hashtag). Même sans les deux, Meshloom vérifie les nouvelles versions sur GitHub une fois toutes les 6 heures (avec Community activé : toutes les cinq minutes, avec le miroir Community en secours). Il continue de fonctionner si cette vérification échoue.
+Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/deep/push/) et, une fois rejoint, [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms de canaux hashtag). Même sans les deux, Meshloom vérifie les nouvelles versions sur GitHub une fois toutes les 6 heures (avec Community activé : toutes les cinq minutes, avec le miroir Community en secours). Il continue de fonctionner si cette vérification échoue. Après avoir quitté Community, celui-ci n’est plus contacté qu’une fois, et seulement si l’état de votre nœud n’a pas pu être effacé du broker à ce moment-là : une reconnexion unique l’efface, en quelques essais au plus sur 24 heures, puis plus rien (voir [Meshloom Community](/docs/deep/community/)). Les e-mails d’alerte contiennent le logo de Meshloom : en ouvrir un ne charge rien depuis Internet.
 
 ## Une posture raisonnable
 

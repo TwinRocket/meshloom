@@ -100,6 +100,10 @@ How a radio message travels through the program, in and out.
   module. Opted out means no connection at all to the Community hosts or to
   the airport search: every egress goes through the guard in
   `meshloom_community.py`, and an opt-out runs `community_teardown()`.
+  The one exception is `app/services/community_status_clear.py`: when the
+  opt-out could not clear the retained MQTT status, it reconnects to the
+  broker only to publish the empty retained payload, bounded in attempts and
+  to 24 h, persisted across restarts, then never again.
   Details are in `app/AGENTS.md`.
 
 ## Commands

@@ -46,18 +46,19 @@ With Community on and a code saved, your server sends:
 
 Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
-**Turning Community off cuts every connection to Community** (`*.meshloom.app`, or the hosts set by `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE`) and the airport search, at once and without a restart:
+**Turning Community off cuts every connection to Community** (`*.meshloom.app`, or the hosts set by `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE`) and the airport search, at once and without a restart, with the single exception described in the first point:
 
-- your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. If the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone;
+- your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. If the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone, and that `offline` would stay. This is the **only connection made after you leave**: Meshloom reconnects to the broker, alone, to delete that leftover status and nothing else (no packets, no status, no other request). It tries at most 6 times over about 13 hours (after 1 minute, then 5 minutes, 15 minutes, 1 hour, 4 hours and 8 hours), survives a restart, and gives up for good after 24 hours. Once the status is deleted, or once it gives up, nothing connects to Community any more;
 - the Live feed closes, and Community requests still in flight are cancelled;
 - the "heard by" counts and the radio test say Community is off instead of showing an empty result.
 
-Changing the IATA code clears the status left under the old code the same way. Stopping or restarting Meshloom marks the node `offline`.
+Changing the IATA code clears the status left under the old code the same way, with the same single retry if the broker cannot be reached. Stopping or restarting Meshloom marks the node `offline`. Joining again with the same code cancels a pending retry: the status is yours to publish again.
 
 **Community off does not mean no network traffic at all.** These still happen:
 
 - the check for new Meshloom versions asks GitHub only, once every 6 hours. With Community on it runs every 5 minutes and falls back to a Community mirror (`/v1/meshloom/latest`) when GitHub cannot be reached;
 - Web Push and the integrations you set up call their own servers;
+- alert emails leave through the mail server you set up. The Meshloom logo is inside the email, so opening one loads nothing from `meshloom.app`;
 - the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
 The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself.
