@@ -16,7 +16,7 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 ## Rejoindre
 
 1. Ouvrez **Réglages → Meshloom Community**.
-2. Saisissez le **code IATA** de l’aéroport le plus proche : trois lettres, par exemple `CDG`. Si vous ne le connaissez pas, tapez une ville dans **Trouver un aéroport**.
+2. Saisissez le **code IATA** de l’aéroport le plus proche : trois lettres, par exemple `CDG`. Si vous ne le connaissez pas, cherchez-le avec **Voir les codes IATA des aéroports** : la recherche d’aéroport (**Trouver un aéroport**) fait partie de Community, elle n’apparaît donc qu’une fois inscrit, pour changer de code.
 3. Enregistrez le code.
 
 Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié.
@@ -48,11 +48,11 @@ La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquem
 
 **Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`, ou les serveurs définis par `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE`) ainsi que la recherche d’aéroport, immédiatement et sans redémarrage :
 
-- l’état `online` de votre nœud est effacé sur le broker avant la fermeture de la connexion MQTT, pour qu’il ne reste pas affiché en ligne ;
+- l’état de votre nœud sur le broker passe à `offline` puis est effacé, avant la fermeture de la connexion MQTT, pour qu’il ne reste pas affiché en ligne. Si le broker est injoignable à ce moment-là, rien ne peut être envoyé : le broker marque alors lui-même le nœud `offline` quand il s’aperçoit que la connexion est perdue ;
 - le flux Live se ferme, et les requêtes Community encore en cours sont annulées ;
 - les compteurs « entendu par » et le test radio indiquent que Community est désactivé au lieu d’afficher un résultat vide.
 
-Changer le code IATA efface de la même façon l’état laissé sous l’ancien code.
+Changer le code IATA efface de la même façon l’état laissé sous l’ancien code. Arrêter ou redémarrer Meshloom marque le nœud `offline`.
 
 **Community désactivé ne veut pas dire zéro trafic réseau.** Ceci continue :
 
@@ -64,6 +64,6 @@ La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre s
 
 ## Dans l’interface
 
-**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de chercher ou de saisir le code IATA, de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
+**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de saisir le code IATA (ou de le chercher une fois inscrit), de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
 
 Voir [Variables et réglages](/docs/deep/environment/) et [Sécurité](/docs/deep/security/).

@@ -16,7 +16,7 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 ## Joining
 
 1. Open **Settings → Meshloom Community**.
-2. Enter the **IATA code** of the nearest airport: three letters, such as `CDG`. If you do not know it, type a city in **Find an airport**.
+2. Enter the **IATA code** of the nearest airport: three letters, such as `CDG`. If you do not know it, look it up with **Browse IATA airport codes**: the airport search (**Find an airport**) is a Community feature, so it only appears once you have joined, to change the code.
 3. Save the code.
 
 The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed.
@@ -48,11 +48,11 @@ Your radio's private key never leaves your machine. It is only used to sign the 
 
 **Turning Community off cuts every connection to Community** (`*.meshloom.app`, or the hosts set by `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE`) and the airport search, at once and without a restart:
 
-- your node's `online` status is cleared on the broker before the MQTT connection closes, so it does not stay listed as online;
+- your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. If the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone;
 - the Live feed closes, and Community requests still in flight are cancelled;
 - the "heard by" counts and the radio test say Community is off instead of showing an empty result.
 
-Changing the IATA code clears the status left under the old code the same way.
+Changing the IATA code clears the status left under the old code the same way. Stopping or restarting Meshloom marks the node `offline`.
 
 **Community off does not mean no network traffic at all.** These still happen:
 
@@ -64,6 +64,6 @@ The airport search (`api.fx-port.com`, through your server) is part of Community
 
 ## In the interface
 
-**Settings → Meshloom Community** lets you join or leave, search for or type the IATA code, see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals.
+**Settings → Meshloom Community** lets you join or leave, type the IATA code (or search for it once joined), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals.
 
 See [Variables and settings](/en/docs/deep/environment/) and [Security](/en/docs/deep/security/).

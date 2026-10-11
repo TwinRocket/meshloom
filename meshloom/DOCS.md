@@ -82,6 +82,15 @@ reachable by anything that can route to that machine, so set
 `basic_auth_username` / `basic_auth_password` unless the tunnel authenticates for
 you.
 
+## Meshloom Community
+
+A new install starts with Meshloom Community on; the add-on has no option for
+it. Community receives the raw packets your radio hears, and in return names
+hops, draws RF locate zones and feeds the Live page. To leave, untick it in
+**Settings → Meshloom Community**: every connection to Community stops at once,
+without a restart, and the update check then asks GitHub only, every 6 hours.
+Details: <https://meshloom.app/en/docs/deep/community/>.
+
 ## Where the data lives
 
 The database, keys and settings are kept in the add-on's own configuration
