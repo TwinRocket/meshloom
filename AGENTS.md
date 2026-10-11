@@ -130,7 +130,7 @@ Targeted runs:
 ```bash
 PYTHONPATH=. uv run pytest tests/test_x.py -q
 uv run pyright app/
-cd frontend && npm run test:run && npm run lint && npm run build
+cd frontend && npm run test:run && npm run lint && npm run typecheck && npm run build
 uv run python scripts/setup/sync_installer_embeds.py --check   # install.sh embeds in sync
 scripts/build/check_signing_keys.sh                              # pkg/keys consistent
 scripts/build/check_version_consistency.sh X.Y.Z                 # release version sources
@@ -192,6 +192,13 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
     the `.deb`/`.rpm` sets it by default in `/etc/meshloom/meshloom.env`.
   - The radio proxy listens on `0.0.0.0:5001` by default, without
     authentication.
+- **Deployments that never delete files.** A Portainer GitOps stack on
+  `docker-compose.dev.yaml` copies each new commit over its old tree and never
+  removes a file deleted upstream. Hence: `npm run build` type-checks only what
+  `src/main.tsx` reaches (`frontend/tsconfig.build.json`), and a file nothing
+  imports is ignored. Never rename or delete a file that is discovered on
+  disk: `app/migrations/_NNN_*.py` (the runner refuses two files with one
+  number) and `frontend/src/i18n/locales/slices/*.json` (`import.meta.glob`).
 - **The `meshcore` reader can raise `IndexError`** on a truncated advert in
   `LOG_DATA`. This is a library parsing gap. One packet's task fails and later
   packets still process.

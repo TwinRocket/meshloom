@@ -140,6 +140,8 @@ Accept the browser warning, or use [mkcert](https://github.com/FiloSottile/mkcer
 
 For a stack that **builds the image from this repo** (not the published one), use [`docker-compose.dev.yaml`](docker-compose.dev.yaml) as the Compose path and load the keys from [`.env.example`](.env.example) into the Portainer Environment section (or a local `.env`). Besides the `MESHCORE_*` variables, the file reads `MESHLOOM_HTTP_PORT` (web port on the host, default 8000), `MESHLOOM_PROXY_PORT` (radio proxy port on the host, default 5001), `MESHLOOM_DATA_PATH` (host folder for the database, default `/app/data` on the host: set it) and `MESHLOOM_NETWORK` (Docker network name). Do not commit real radio hosts, ports, or VAPID addresses.
 
+Portainer updates such a stack by copying each new commit over the previous files, and **never deletes a file removed from the repository**. The build tolerates those leftovers (the frontend type check covers only the files the app imports; the migration runner refuses two migrations with one number). If a build still fails after an update while CI is green, recreate the stack so it starts from a clean copy, and redeploy.
+
 To run the **published image** instead, start from [`docker-compose.example.yml`](docker-compose.example.yml) and pin `MESHLOOM_IMAGE` (see the Update section of the [README](README.md)).
 
 ## Systemd Service
