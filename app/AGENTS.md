@@ -75,6 +75,7 @@ Services worth knowing before touching a flow:
 Migrations change the shape of the database when the program is upgraded.
 
 - One file per version: `app/migrations/_NNN_description.py`. The runner discovers files by numeric prefix and runs pending ones in order.
+- Never rename or delete a migration. Some deployments (Portainer GitOps) keep files deleted upstream, so the old name would stay on disk and run too. The runner refuses to start when two files share a number (`_refuse_duplicate_numbers`).
 - Each migration runs in one transaction with the `user_version` bump. `conn.commit()` inside a migration is deferred to the runner. A migration that cannot run in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs). Example: `idx_messages_chan_unattributed_sender` (migration 086).
 - Tests: `tests/test_migrations/`.
