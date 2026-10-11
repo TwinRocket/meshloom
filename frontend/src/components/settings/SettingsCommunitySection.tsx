@@ -499,7 +499,8 @@ export function SettingsCommunitySection({
           <li>{t('settings.community.privacyAccount')}</li>
           <li>{t('settings.community.privacyPrivateKey')}</li>
           <li>{t('settings.community.privacyRotate')}</li>
-          <li>{t('settings.community.privacyStop')}</li>
+          <li>{t('settings.community.privacyPackets')}</li>
+          <li>{t('settings.community.privacyRadio')}</li>
           <li>{t('settings.community.privacyHashtags')}</li>
           <li>{t('settings.community.privacyDirectory')}</li>
         </ul>
