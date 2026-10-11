@@ -360,9 +360,11 @@ async def _oss_update_loop() -> None:
 
 async def start_oss_update_polling() -> None:
     """Start the catalogue poll (300 s, or 6 h opted out). Fetches once on start."""
-    global _poll_task
+    global _poll_task, _poll_wake
     if _poll_task is not None and not _poll_task.done():
         return
+    # Created before the first check so a nudge during it is not lost.
+    _poll_wake = asyncio.Event()
     _poll_task = asyncio.create_task(_oss_update_loop())
 
 

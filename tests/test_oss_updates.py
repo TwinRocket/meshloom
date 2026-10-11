@@ -536,3 +536,37 @@ class TestPollCadence:
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    async def test_turning_community_on_during_the_first_check_is_not_lost(self):
+        """The opt-in can land while the first check runs, before any sleep."""
+        import asyncio
+
+        from app.services import oss_updates
+
+        oss_updates.reset_oss_update_cache()
+        calls = 0
+
+        async def refresh() -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                oss_updates.nudge_oss_update_poll()
+
+        with (
+            patch(
+                "app.services.meshloom_community.get_community_effective",
+                new=AsyncMock(return_value=_OPTED_OUT),
+            ),
+            patch("app.services.oss_updates.refresh_oss_update_cache", new=refresh),
+            patch("app.services.oss_updates._maybe_auto_apply", new=AsyncMock()),
+        ):
+            await oss_updates.start_oss_update_polling()
+            try:
+                for _ in range(100):
+                    if calls >= 2:
+                        break
+                    await asyncio.sleep(0.01)
+                assert calls >= 2
+            finally:
+                await oss_updates.stop_oss_update_polling()
