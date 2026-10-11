@@ -33,7 +33,7 @@ A Pi 2 is the slowest supported board, and the interface will feel it when the h
 
 You need a computer with an SD card reader and [Raspberry Pi Imager](https://www.raspberrypi.com/software/), **version 2.0.6 or newer**. Older 1.9.x versions do not apply the first-boot settings (cloud-init) used by this OS, so the host name, Wi-Fi and SSH choices would be ignored.
 
-1. Go to the [GitHub releases page](https://github.com/TwinRocket/meshloom/releases) and download two files from the latest release: `meshloom-rpi-lite-arm64.img.xz` **and** `meshloom.rpi-imager-manifest`. They are attached a little after the packages, so wait if you do not see them yet.
+1. Go to the [GitHub releases page](https://github.com/TwinRocket/meshloom/releases) and download `meshloom.rpi-imager-manifest` from the latest release. It is attached a little after the packages, so wait if you do not see it yet. You do not need to download the image (`meshloom-rpi-lite-arm64.img.xz`): the manifest points to it, and Imager downloads it from the same release.
 2. Open the manifest instead of the image: double-click `meshloom.rpi-imager-manifest`, or run `rpi-imager --repo path/to/meshloom.rpi-imager-manifest`. This file tells Imager how to apply your settings (`init_format: cloudinit-rpi`). Do **not** use *Use custom* on the `.img.xz` alone: Imager 2.x then assumes there is nothing to customise and skips Wi-Fi, user and SSH.
 3. In Imager, choose your Pi model, then Meshloom, then your card.
 4. Fill in the host name, the user, your SSH key if you want one, and the Wi-Fi. These settings are written to the card by Imager. They are not inside the download.

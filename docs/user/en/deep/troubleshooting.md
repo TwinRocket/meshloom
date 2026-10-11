@@ -45,8 +45,8 @@ Variables such as `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` and `MESHCORE_BLE_
 
 Meshloom ties its database to the public key of your radio, so that it never mixes the history of two radios.
 
-- **This radio is not bound to this instance** appears after an upgrade when the database already holds contacts or messages, even if the radio is the same. **Previous key: Unknown** only means the database is older than this check, not that the radio changed. If it is your radio, choose **Bind without wipe**: the history stays. If it is a different radio, choose **New radio**: mesh contacts and messages are erased.
-- **This radio does not match the stored identity** means a radio with another key is connected. Choose **Cancel** to keep the stored identity (then reconnect the original radio), or **Wipe and continue** to adopt the new one and erase mesh contacts and messages. There is no option to keep the history, because it belongs to the other radio.
+- **This radio is not bound to this instance** appears after an upgrade when the database already holds contacts or messages, even if the radio is the same. **Previous key: Unknown** only means the database is older than this check, not that the radio changed. If it is your radio, choose **Bind without wipe**: the history stays. If it is a different radio, choose **New radio**: mesh contacts, messages, stored packets and telemetry history are erased.
+- **This radio does not match the stored identity** means a radio with another key is connected. Choose **Cancel** to keep the stored identity (then reconnect the original radio), or **Wipe and continue** to adopt the new one and erase the same data. There is no option to keep the history, because it belongs to the other radio.
 
 In both cases the channels and Meshloom's settings stay.
 

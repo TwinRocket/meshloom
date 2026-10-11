@@ -21,7 +21,7 @@ After you send, the message shows how its delivery is going:
 
 A receipt takes time. The message has to cross every repeater on the way, and the confirmation has to come back. Over several hops, a few tens of seconds is normal.
 
-Meshloom decrypts incoming direct messages on the server, with the private key the radio gives it at startup. This works even when the contact is no longer loaded in the radio's memory.
+Meshloom decrypts incoming direct messages on the server, with the private key it reads from the radio when it connects. This works even when the contact is no longer loaded in the radio's memory. It needs a radio firmware that allows reading the key.
 
 ## Channels
 
@@ -35,7 +35,7 @@ Channel messages often come back several times: each repeater that relays one ca
 
 Right after you send a channel message, a **Resend** button stays available for 30 seconds, in case it clearly reached nobody. Resend repeats the exact same message, so only repeaters that have not seen it yet pass it on. **Resend as new** sends it as a new message, which receivers may see as a duplicate. If you would rather not do this by hand, **Auto-Resend Unheard Channel Messages** in **Settings > Radio** (off by default) resends a channel message once if no echo comes back within 2 seconds.
 
-Sending is blocked when your text is too long for one radio packet, and the composer says "too long". Meshloom does not cut a message for you.
+A message holds at most 156 bytes, which is about 156 characters without accents (an accented character takes two). On a channel, your node's name is sent with each message and takes part of that space. Sending is blocked when your text is too long, and the composer says "too long". Meshloom does not cut a message for you.
 
 ## Replying, reacting and sharing
 
@@ -49,11 +49,11 @@ The name, with its leading `#`, goes through a hash function (SHA-256, a recipe 
 
 Some consequences:
 
-- **The name is hashed exactly as written.** One extra capital letter, space or accent gives a different key, so a different channel. By default Meshloom prevents these near misses, as the official MeshCore app does: it trims spaces at both ends, writes the name in lower case, and accepts only letters, numbers and hyphens. The option **Permit capitals, whitespace, and extended characters** lets you join a channel created elsewhere with an unusual name: the name is then hashed as typed, except for spaces at both ends. Not every app removes those outer spaces, so avoid them in a channel name.
+- **The name is hashed exactly as written.** One extra capital letter, space or accent gives a different key, so a different channel. By default Meshloom prevents these near misses, as the official MeshCore app does: it trims spaces at both ends, writes the name in lower case, and accepts only unaccented letters, digits and hyphens. The option **Permit capitals, whitespace, and extended characters** lets you join a channel created elsewhere with an unusual name: the name is then hashed as typed, except for spaces at both ends. Not every app removes those outer spaces, so avoid them in a channel name.
 - **The name must be short.** 30 bytes at most including the `#` by default (the same as the official app), and 32 with the option (the radio's limit). An accented character can take more than one byte.
 - **A name that is easy to guess is an open channel.** Anyone can type `#meteo`. A hashtag channel organizes conversations, it does not hide them.
 
-You can also add many at once: the **Bulk Add Channel** tab takes a list of names, separated by lines, spaces or commas. Meshloom also finds some hashtag channels by itself: they wait in **Discovered channels**, where you keep or dismiss them.
+You can also add many at once: the **Bulk Add Channel** tab takes a list of names, separated by lines, spaces or commas. Meshloom also finds some hashtag channels by itself: they wait in **Discovered channels**, where you **Adopt** or **Refuse** each one.
 
 ## Adding a key later
 

@@ -25,7 +25,7 @@ Tant que les bots sont activés et qu’aucun mot de passe n’est défini, Mesh
 
 Deux protections existent :
 
-- Les bots sont **activés par défaut**, sauf dans le paquet Linux et l’image Raspberry Pi, qui les coupent (`MESHCORE_DISABLE_BOTS=true` dans `/etc/meshloom/meshloom.env`). L’installeur ne pose aucune question à ce sujet, et les installations Docker gardent les bots actifs.
+- Les bots sont **activés par défaut**, sauf dans le paquet Linux et l’image Raspberry Pi, qui les coupent (`MESHCORE_DISABLE_BOTS=true` dans `/etc/meshloom/meshloom.env`). L’installeur ne pose aucune question à ce sujet. Les installations Docker et l’add-on Home Assistant gardent les bots actifs (l’add-on a une option `disable_bots`).
 - Définir `MESHCORE_DISABLE_BOTS=true` coupe tout le système de bots au démarrage. Aucun bot ne tourne, les modifications de bots sont refusées, et l’interface présente la fonction comme désactivée.
 
 Si des personnes que vous ne connaissez pas toutes peuvent atteindre l’instance, gardez les bots désactivés.

@@ -25,7 +25,7 @@ While bots are enabled and no password is set, Meshloom opens a warning dialog (
 
 Two protections exist:
 
-- Bots are **on by default**, except in the Linux package and the Raspberry Pi image, which turn them off (`MESHCORE_DISABLE_BOTS=true` in `/etc/meshloom/meshloom.env`). The installer asks nothing about this, and Docker installs keep bots on.
+- Bots are **on by default**, except in the Linux package and the Raspberry Pi image, which turn them off (`MESHCORE_DISABLE_BOTS=true` in `/etc/meshloom/meshloom.env`). The installer asks nothing about this. Docker installs and the Home Assistant add-on keep bots on (the add-on has a `disable_bots` option).
 - Setting `MESHCORE_DISABLE_BOTS=true` turns the whole bot system off at startup. No bot runs, changes to bots are refused, and the interface shows the feature as disabled.
 
 If people you do not all know can reach the instance, keep bots disabled.

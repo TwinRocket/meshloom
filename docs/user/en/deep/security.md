@@ -41,7 +41,7 @@ The **Disable Bots Until Server Restart** button of the warning dialog does the 
 
 ## The node's private key
 
-The radio's private key is read once at startup and kept in the server's memory only. Meshloom never writes it to disk.
+Meshloom reads the radio's private key each time it connects to the radio, if the radio's firmware allows it, and keeps it in the server's memory only. Meshloom never writes it to disk. If the firmware refuses, Meshloom works without it, but it can no longer decrypt direct messages on the server.
 
 Reading it back through the API is disabled by default:
 
@@ -63,10 +63,10 @@ When set to `true`, `GET /api/radio/private-key` returns the key as hexadecimal 
 
 What each output sends depends on the scope you give it in **Settings > MQTT & Automation**.
 
-- **Community MQTT** only ever carries raw radio packets, never readable conversation text.
-- **Private MQTT, webhooks, Apprise and SQS** can carry the full text of messages, according to the channels and contacts you select.
-- **Map upload** sends the position of repeaters and room servers to a map service (map.meshcore.io or one you choose).
-- **Home Assistant MQTT** publishes your devices to the broker you configure.
+- **Community Sharing** only ever carries raw radio packets to a community MQTT server, never readable conversation text.
+- **Private MQTT**, **Webhook**, **Apprise** and **Amazon SQS** can carry the full text of messages, according to the channels and contacts you select.
+- **Map Upload** sends the adverts of repeaters and room servers, with their position, to a map service (map.meshcore.io or one you choose).
+- **Home Assistant** publishes your devices to the MQTT server (broker) you configure.
 
 Some features need Internet access: [push notifications](/en/docs/deep/push/), and [Meshloom Community](/en/docs/deep/community/) when joined (raw-packet publishing, directory, sharing of hashtag channel names). Even with both off, Meshloom checks for new releases every five minutes (GitHub first, then the Community mirror). It keeps working if that check fails.
 

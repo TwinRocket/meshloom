@@ -39,7 +39,7 @@ Cliquez sur l’état de la radio dans la barre pour voir un résumé de la conn
 Meshloom lie sa base à la clé publique de votre radio, pour ne jamais mélanger l’historique de deux radios. Sur une installation neuve, cela se fait sans bruit. Après la mise à jour d’une base qui contient déjà des données, une fenêtre demande de confirmer.
 
 - Choisissez **Lier sans effacer** s’il s’agit de la même radio. Contacts et messages restent.
-- Choisissez **Nouvelle radio** s’il s’agit d’un autre appareil. Les contacts et messages du mesh sont effacés. Les canaux et les réglages restent.
+- Choisissez **Nouvelle radio** s’il s’agit d’un autre appareil. Les contacts et messages du mesh, les paquets stockés et l’historique de télémétrie sont effacés. Les canaux et les réglages restent.
 
 **Clé précédente : Inconnue** signifie seulement que la base est antérieure à cette vérification, pas que la radio a changé. Si la clé affichée est la vôtre, choisissez **Lier sans effacer**.
 
@@ -55,7 +55,7 @@ Un nœud sans nom apparaît chez les autres sous les premiers caractères de sa 
 2. Dans le groupe **Identité**, renseignez **Nom de la radio**.
 3. Enregistrez.
 
-Ce nom part avec chaque annonce et c’est lui que les autres voient dans leur liste de contacts. Restez bref : les messages radio ont très peu de place.
+Ce nom part avec chaque annonce et c’est lui que les autres voient dans leur liste de contacts. Restez bref : sur un canal, votre nom part avec chaque message et occupe une partie de ses 156 octets.
 
 La même page contient les paramètres radio (préréglage, fréquence, bande passante, etc.). Ils doivent correspondre à ceux des nœuds autour de vous, sinon personne n’entend personne. Si votre nœud reste muet alors que d’autres, tout près, sont actifs, regardez-les en premier, et notez les valeurs actuelles avant de rien changer.
 
@@ -86,7 +86,7 @@ L’écran **Outils** (ou la barre d’icônes) ouvre :
 - **Trace** : un test de route à travers des répéteurs choisis.
 - **Localisation RF** : une zone de couverture estimée, pas un point GPS.
 - **Recherche de messages** : recherche dans tout l’historique.
-- **Canaux découverts** : les canaux hashtag que Meshloom a trouvés seul, à garder ou à écarter.
+- **Canaux découverts** : les canaux hashtag que Meshloom a trouvés seul. Vous choisissez **Adopter** ou **Refuser** pour chacun.
 - **Test radio** : envoie un message de test et montre qui l’a entendu. Il n’apparaît que si Meshloom Community est actif.
 
 Le bouton **Ajouter canal/contact** crée une conversation : un contact à partir de sa clé publique, un salon privé à partir de sa clé, un salon hashtag à partir de son nom, ou plusieurs salons hashtag d’un coup.
@@ -95,6 +95,6 @@ Les nouvelles installations rejoignent [Meshloom Community](/docs/deep/community
 
 Autres pages utiles dans **Réglages** : **Notifications** (ci-dessous), **Mises à jour**, **MQTT et automatisation** (sorties et bots), **Alertes** (seuils de télémétrie), **Base de données** (taille et nettoyage du stockage), **Statistiques** et **À propos**.
 
-**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs, canaux trouvés, mises à jour), et par quel moyen : Web Push sur ce navigateur, e-mail ou webhook. Le push fonctionne aussi navigateur fermé, mais il exige HTTPS. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications push](/docs/deep/push/).
+**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs ou capteurs, canaux trouvés, alertes télémétrie, mises à jour), et par quel moyen : Web Push sur ce navigateur, e-mail ou webhook. Le push fonctionne aussi navigateur fermé, mais il exige HTTPS. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications push](/docs/deep/push/).
 
 Pour envoyer votre premier message : [Messages](/docs/messages/).

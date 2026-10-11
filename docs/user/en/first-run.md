@@ -39,7 +39,7 @@ Click the radio status in the bar for a summary of the connection.
 Meshloom ties its database to the public key of your radio, so that the history of two radios is never mixed. On a new install this happens silently. After upgrading a database that already contains data, a dialog asks you to confirm.
 
 - Choose **Bind without wipe** if it is the same radio. Contacts and messages stay.
-- Choose **New radio** if it is another device. Mesh contacts and messages are erased. Channels and settings stay.
+- Choose **New radio** if it is another device. Mesh contacts, messages, stored packets and telemetry history are erased. Channels and settings stay.
 
 **Previous key: Unknown** only means the database is older than this check. It does not mean the radio changed. If the key shown is yours, choose **Bind without wipe**.
 
@@ -55,7 +55,7 @@ A node without a name appears to other people as the first characters of its pub
 2. In the **Identity** group, fill in **Radio Name**.
 3. Save.
 
-This name goes out with every advert and is what others see in their contact list. Keep it short: radio messages have very little room.
+This name goes out with every advert and is what others see in their contact list. Keep it short: on a channel, your name is sent with every message and uses part of its 156 bytes.
 
 The same page holds the radio parameters (preset, frequency, bandwidth and so on). They must match those of the nodes around you, or nobody will hear anybody. If your node stays silent while others nearby are active, check them first, and note the current values before changing anything.
 
@@ -86,7 +86,7 @@ The **Tools** screen (or the icon bar) opens:
 - **Trace**: a route test through chosen repeaters.
 - **RF Locate**: an estimated coverage zone, not a GPS point.
 - **Message Search**: search the whole history.
-- **Discovered channels**: hashtag channels Meshloom found on its own, for you to keep or dismiss.
+- **Discovered channels**: hashtag channels Meshloom found on its own. You **Adopt** or **Refuse** each one.
 - **Radio test**: sends a test message and shows who heard it. It only appears when Meshloom Community is on.
 
 The **Add Channel/Contact** button creates a conversation: a contact from its public key, a private channel from its key, a hashtag channel from its name, or several hashtag channels at once.
@@ -95,6 +95,6 @@ New installs join [Meshloom Community](/en/docs/deep/community/). Until you ente
 
 Other useful pages in **Settings**: **Notifications** (below), **Updates**, **MQTT & Automation** (outputs and bots), **Alerts** (telemetry thresholds), **Database** (size and storage cleanup), **Statistics** and **About**.
 
-**Settings > Notifications** is where you choose what Meshloom tells you about (new contacts, direct messages, new repeaters, found channels, updates), and where: Web Push on this browser, email, or a webhook. Push also works when the browser is closed, but needs HTTPS. Meshloom shows no pop-up alerts inside the open tab. See [Push notifications](/en/docs/deep/push/).
+**Settings > Notifications** is where you choose what Meshloom tells you about (new contacts, direct messages, new repeaters or sensors, found channels, telemetry alerts, updates), and where: Web Push on this browser, email, or a webhook. Push also works when the browser is closed, but needs HTTPS. Meshloom shows no pop-up alerts inside the open tab. See [Push notifications](/en/docs/deep/push/).
 
 To send your first message: [Messages](/en/docs/messages/).

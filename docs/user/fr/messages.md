@@ -21,7 +21,7 @@ Après l’envoi, le message montre l’avancement de sa livraison :
 
 Un accusé prend du temps. Le message doit traverser tous les répéteurs à l’aller, et la confirmation doit revenir. Sur plusieurs sauts, quelques dizaines de secondes sont normales.
 
-Meshloom déchiffre les messages directs entrants sur le serveur, avec la clé privée que la radio lui donne au démarrage. Cela marche même quand le contact n’est plus chargé dans la mémoire de la radio.
+Meshloom déchiffre les messages directs entrants sur le serveur, avec la clé privée qu’il lit dans la radio à la connexion. Cela marche même quand le contact n’est plus chargé dans la mémoire de la radio. Il faut pour cela un firmware de radio qui autorise la lecture de la clé.
 
 ## Canaux
 
@@ -35,7 +35,7 @@ Les messages d’un canal reviennent souvent plusieurs fois : chaque répéteur 
 
 Juste après l’envoi d’un message de canal, un bouton **Renvoyer** reste disponible pendant 30 secondes, au cas où il n’aurait visiblement atteint personne. Renvoyer répète exactement le même message : seuls les répéteurs qui ne l’ont pas encore vu le relaient. **Renvoyer comme nouveau** l’envoie comme un nouveau message, que les destinataires peuvent voir en double. Si vous préférez ne pas le faire à la main, **Renvoyer automatiquement les messages de canal non entendus** dans **Réglages > Radio** (désactivé par défaut) renvoie une fois un message de canal si aucun écho n’est revenu au bout de 2 secondes.
 
-L’envoi est bloqué quand le texte est trop long pour un paquet radio, et le champ de saisie indique « trop long ». Meshloom ne coupe pas un message à votre place.
+Un message contient au plus 156 octets, soit environ 156 caractères sans accents (un caractère accentué en occupe deux). Sur un canal, le nom de votre nœud part avec chaque message et prend une partie de cette place. L’envoi est bloqué quand le texte est trop long, et le champ de saisie indique « trop long ». Meshloom ne coupe pas un message à votre place.
 
 ## Répondre, réagir et partager
 
@@ -49,11 +49,11 @@ Le nom, avec son `#` initial, passe dans une fonction de hachage (SHA-256, une r
 
 Quelques conséquences :
 
-- **Le nom est haché exactement tel qu’écrit.** Une majuscule, un espace ou un accent en trop donne une autre clé, donc un autre canal. Par défaut, Meshloom évite ces fautes, comme l’application officielle MeshCore : il retire les espaces aux deux bouts, met le nom en minuscules, et n’accepte que lettres, chiffres et tirets. L’option **Autoriser majuscules, espaces et caractères étendus** permet de rejoindre un canal créé ailleurs avec un nom inhabituel : le nom est alors haché tel quel, sauf les espaces aux deux extrémités. Toutes les applications ne retirent pas ces espaces extérieurs, évitez-les dans un nom de canal.
+- **Le nom est haché exactement tel qu’écrit.** Une majuscule, un espace ou un accent en trop donne une autre clé, donc un autre canal. Par défaut, Meshloom évite ces fautes, comme l’application officielle MeshCore : il retire les espaces aux deux bouts, met le nom en minuscules, et n’accepte que des lettres sans accent, des chiffres et des tirets. L’option **Autoriser majuscules, espaces et caractères étendus** permet de rejoindre un canal créé ailleurs avec un nom inhabituel : le nom est alors haché tel quel, sauf les espaces aux deux extrémités. Toutes les applications ne retirent pas ces espaces extérieurs, évitez-les dans un nom de canal.
 - **Le nom doit être court.** 30 octets au plus, `#` compris, par défaut (comme l’application officielle), et 32 avec l’option (la limite de la radio). Un caractère accentué peut occuper plusieurs octets.
 - **Un nom facile à deviner est un canal ouvert.** N’importe qui peut taper `#meteo`. Un canal hashtag organise les conversations, il ne les cache pas.
 
-Vous pouvez aussi en ajouter plusieurs d’un coup : l’onglet **Ajout groupé** accepte une liste de noms, séparés par des retours à la ligne, des espaces ou des virgules. Meshloom trouve aussi certains canaux hashtag tout seul : ils attendent dans **Canaux découverts**, où vous les gardez ou les écartez.
+Vous pouvez aussi en ajouter plusieurs d’un coup : l’onglet **Ajout groupé** accepte une liste de noms, séparés par des retours à la ligne, des espaces ou des virgules. Meshloom trouve aussi certains canaux hashtag tout seul : ils attendent dans **Canaux découverts**, où vous choisissez **Adopter** ou **Refuser** pour chacun.
 
 ## Ajouter une clé plus tard
 

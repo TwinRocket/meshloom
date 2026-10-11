@@ -41,7 +41,7 @@ Le bouton **Désactiver les bots jusqu’au redémarrage du serveur** de la fen�
 
 ## La clé privée du nœud
 
-La clé privée de la radio est lue une fois au démarrage et gardée dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais sur le disque.
+Meshloom lit la clé privée de la radio à chaque connexion à la radio, si le firmware de la radio le permet, et la garde dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais sur le disque. Si le firmware refuse, Meshloom fonctionne sans elle, mais ne peut plus déchiffrer les messages directs sur le serveur.
 
 La relire par l’API est désactivé par défaut :
 
@@ -63,10 +63,10 @@ MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
 
 Ce que chaque sortie envoie dépend de la portée que vous lui donnez dans **Réglages > MQTT et automatisation**.
 
-- **MQTT Community** ne transporte que des paquets radio bruts, jamais le texte lisible des conversations.
-- **MQTT privé, webhooks, Apprise et SQS** peuvent transporter le texte complet des messages, selon les canaux et contacts sélectionnés.
-- **Envoi vers la carte** transmet la position des répéteurs et des serveurs de salon à un service de carte (map.meshcore.io ou un autre que vous choisissez).
-- **MQTT Home Assistant** publie vos appareils vers le broker que vous configurez.
+- **Partage communautaire** ne transporte vers un serveur MQTT communautaire que des paquets radio bruts, jamais le texte lisible des conversations.
+- **MQTT privé**, **Webhook**, **Apprise** et **Amazon SQS** peuvent transporter le texte complet des messages, selon les canaux et contacts sélectionnés.
+- **Envoi vers la carte** transmet les annonces des répéteurs et des serveurs de salon, avec leur position, à un service de carte (map.meshcore.io ou un autre que vous choisissez).
+- **Home Assistant** publie vos appareils vers le serveur MQTT (broker) que vous configurez.
 
 Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/deep/push/) et, une fois rejoint, [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms de canaux hashtag). Même sans les deux, Meshloom vérifie les nouvelles versions toutes les cinq minutes (GitHub d’abord, puis le miroir Community). Il continue de fonctionner si cette vérification échoue.
 

@@ -45,8 +45,8 @@ Les variables `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` et `MESHCORE_BLE_ADDRE
 
 Meshloom lie sa base à la clé publique de votre radio, pour ne jamais mélanger l’historique de deux radios.
 
-- **Cette radio n’est pas liée à cette instance** apparaît après une mise à jour quand la base contient déjà des contacts ou des messages, même si la radio est la même. **Clé précédente : Inconnue** signifie seulement que la base est antérieure à cette vérification, pas que la radio a changé. Si c’est votre radio, choisissez **Lier sans effacer** : l’historique reste. Si c’est une autre radio, choisissez **Nouvelle radio** : les contacts et messages du mesh sont effacés.
-- **Cette radio ne correspond pas à l’identité enregistrée** signifie qu’une radio avec une autre clé est connectée. Choisissez **Annuler** pour garder l’identité enregistrée (puis reconnectez la radio d’origine), ou **Effacer et continuer** pour adopter la nouvelle et effacer les contacts et messages du mesh. Conserver l’historique n’est pas proposé, car il appartient à l’autre radio.
+- **Cette radio n’est pas liée à cette instance** apparaît après une mise à jour quand la base contient déjà des contacts ou des messages, même si la radio est la même. **Clé précédente : Inconnue** signifie seulement que la base est antérieure à cette vérification, pas que la radio a changé. Si c’est votre radio, choisissez **Lier sans effacer** : l’historique reste. Si c’est une autre radio, choisissez **Nouvelle radio** : les contacts et messages du mesh, les paquets stockés et l’historique de télémétrie sont effacés.
+- **Cette radio ne correspond pas à l’identité enregistrée** signifie qu’une radio avec une autre clé est connectée. Choisissez **Annuler** pour garder l’identité enregistrée (puis reconnectez la radio d’origine), ou **Effacer et continuer** pour adopter la nouvelle et effacer les mêmes données. Conserver l’historique n’est pas proposé, car il appartient à l’autre radio.
 
 Dans les deux cas, les canaux et les réglages de Meshloom restent.
 

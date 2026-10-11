@@ -37,7 +37,7 @@ Sur un système qui n’est pas Linux (macOS, par exemple), le choix du service 
 
 Pour un service, le script installe un paquet depuis le dépôt Meshloom signé (`apt` sur Debian et Ubuntu, `dnf` sur Fedora). Si le dépôt n’a rien pour votre machine, il se rabat sur le paquet joint à la version GitHub, puis, en dernier recours, sur une installation depuis le code source.
 
-**La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les bots exécutent du code sur la machine et sont **activés par défaut**, sauf dans le paquet Linux (donc l’image Raspberry Pi), qui les coupe dans `/etc/meshloom/meshloom.env`. Avec Docker ou depuis les sources, ajoutez `MESHCORE_DISABLE_BOTS=true` pour les désactiver, et `MESHCORE_BASIC_AUTH_USERNAME` avec `MESHCORE_BASIC_AUTH_PASSWORD` pour imposer un identifiant partagé. Voir [Un réseau de confiance](/docs/trust/).
+**La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les bots exécutent du code sur la machine et sont **activés par défaut**, sauf dans le paquet Linux (donc l’image Raspberry Pi), qui les coupe dans `/etc/meshloom/meshloom.env`. Avec Docker ou depuis les sources, ajoutez `MESHCORE_DISABLE_BOTS=true` pour les désactiver (dans l’add-on Home Assistant, activez son option `disable_bots`), et `MESHCORE_BASIC_AUTH_USERNAME` avec `MESHCORE_BASIC_AUTH_PASSWORD` pour imposer un identifiant partagé. Voir [Un réseau de confiance](/docs/trust/).
 
 ## Ouvrir l’interface
 
