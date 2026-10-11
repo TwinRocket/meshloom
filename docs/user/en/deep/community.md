@@ -21,7 +21,7 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 
 The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed.
 
-Until a code is saved, a banner stays on screen. Publishing packets, the Live page and publishing hashtag names wait for that code. The directory (hop names, RF locate, "heard by") does not need it. If you have turned Community off, you can dismiss the banner for good in that browser with **Don't show again**.
+Until a code is saved, a banner stays on screen. Publishing packets, the Live page, publishing hashtag names and channel look-ups wait for that code. The directory (hop names, RF locate, "heard by") does not need it. If you have turned Community off, you can dismiss the banner for good in that browser with **Don't show again**.
 
 ## New installs
 
@@ -42,7 +42,7 @@ With Community on and a code saved, your server sends:
 - **Raw packets**, exactly as they travel over the air, together with the signal strength, your radio's name and its public key. Messages for private channels and direct messages stay encrypted. The text of your conversations never goes through this path.
 - **A status message**, when the connection opens and then every five minutes: your radio's name, public key, model, firmware version and radio settings (frequency, bandwidth, spreading factor, coding rate), the Meshloom version, and the radio's counters when it provides them.
 - **Directory requests.** To name a hop or draw an RF locate zone, your server asks Community about the nodes involved. The browser never talks to Community itself: your server relays. One-byte hops are never sent.
-- **Hashtag channel names.** When you create or adopt a hashtag channel, or when Meshloom finds one, its name (up to 50 at a time) is added to the global list. Names are not grouped by airport. Keys are not shared.
+- **Hashtag channel names.** When you create or adopt a hashtag channel, or when Meshloom finds one, its name (up to 50 at a time) is added to the global list. Names are not grouped by airport. Keys are not shared. A channel whose key does not come from its name is private: its name is never shared, even when it starts with `#`.
 - **Channel look-ups.** To recognize an unknown channel, Meshloom sends the one-byte identifier of the channel to ask which names match. If nothing matches, it may also send one encrypted packet of that channel (once per identifier while Meshloom runs), so the community can try to find its name. Only channels you cannot read are concerned.
 
 Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.

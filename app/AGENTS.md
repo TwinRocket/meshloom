@@ -128,6 +128,7 @@ How Meshloom talks to the optional Meshloom Community service.
 - `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
 - Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).
 - The hashtag catalogue is global: `GET /community/hashtags` proxies `GET /v1/hashtags`. There is no per-IATA catalogue (`/community/iata/{code}/hashtags` was removed; Community answers 410 on its old `/v1/iata/{code}/hashtags`).
+- Hashtag names go out (`PUT /v1/me/hashtags`) only with Community on and an IATA saved, and only for a `#` channel whose key is `SHA256(name)[:16]` (`is_public_hashtag_channel`); a `#` name on a channel with its own secret is private and never published. Resolve and sample uploads (`services/hashtag_catalogue.py`) also wait for the IATA.
 - Hashtag keys hash the exact name everywhere; the official-app normalisation is UI input only (see root `AGENTS.md`, "Hashtag rule").
 
 ### Live relay (`services/community_live.py`)
