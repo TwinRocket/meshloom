@@ -13,7 +13,7 @@ Creates a draft GitHub release (invisible to Stats / Meshloom clients),
 uploads each asset one at a time with logs and retries, then publishes.
 
 Never creates or pushes a tag: the X.Y.Z tag must already exist on origin
-(scripts/build/tag_release.sh) and point at the checked-out commit.
+(scripts/build/publish.sh) and point at the checked-out commit.
 
 Options:
   --version VERSION         Release version / tag (required)
@@ -139,7 +139,7 @@ fi
 
 [ -f "$NOTES_FILE" ] || release_die "Notes file not found: $NOTES_FILE"
 
-# Tags are cut by a human (scripts/build/tag_release.sh) and protected by a
+# Tags are cut by an admin (scripts/build/publish.sh) and protected by a
 # ruleset; CI only publishes an existing one. The assets were built from the
 # checked-out commit, so the tag has to point at it.
 set +e
@@ -148,7 +148,7 @@ LS_REMOTE_STATUS=$?
 set -e
 case "$LS_REMOTE_STATUS" in
     0) ;;
-    2) release_die "Tag $VERSION does not exist on origin. CI never creates tags: run scripts/build/tag_release.sh $VERSION first." ;;
+    2) release_die "Tag $VERSION does not exist on origin. CI never creates tags: they come from scripts/build/publish.sh (or tag_release.sh to recover)." ;;
     *) release_die "Could not query origin's tags (git ls-remote exited $LS_REMOTE_STATUS)." ;;
 esac
 # An annotated tag lists its peeled commit as "<sha> refs/tags/X^{}"; a
