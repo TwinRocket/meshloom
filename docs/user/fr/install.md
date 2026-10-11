@@ -35,7 +35,7 @@ L’installeur ne configure jamais la radio elle-même. Vous choisissez USB, ré
 
 Sur un système qui n’est pas Linux (macOS, par exemple), le choix du service n’est pas proposé. Utilisez Docker avec une radio sur le réseau, ou le choix « navigateur seulement », et installez Meshloom sur une machine Linux si vous voulez brancher la radio en USB ou en Bluetooth.
 
-Pour un service, le script installe un paquet depuis le dépôt Meshloom signé (`apt` sur Debian et Ubuntu, `dnf` sur Fedora). Si le dépôt n’a rien pour votre machine, il se rabat sur le paquet joint à la version GitHub, puis, en dernier recours, sur une installation depuis le code source.
+Pour un service, le script installe un paquet depuis le dépôt Meshloom signé (`apt` sur Debian et Ubuntu, `dnf` sur Fedora). Si le dépôt n’a rien pour votre machine, il se rabat sur le paquet joint à la version GitHub, puis, en dernier recours, sur une installation depuis le code source. Sur une carte ARMv6 (Raspberry Pi 1, Zero et Zero W d’origine), il s’arrête aussitôt : Meshloom n’y fonctionne pas. Voir [Image Raspberry Pi](/docs/rpi/).
 
 **La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les bots exécutent du code sur la machine et sont **activés par défaut**, sauf dans le paquet Linux (donc l’image Raspberry Pi), qui les coupe dans `/etc/meshloom/meshloom.env`. Avec Docker ou depuis les sources, ajoutez `MESHCORE_DISABLE_BOTS=true` pour les désactiver (dans l’add-on Home Assistant, activez son option `disable_bots`), et `MESHCORE_BASIC_AUTH_USERNAME` avec `MESHCORE_BASIC_AUTH_PASSWORD` pour imposer un identifiant partagé. Voir [Un réseau de confiance](/docs/trust/).
 

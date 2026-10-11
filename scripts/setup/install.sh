@@ -209,6 +209,14 @@ t() {
         fr:asset_bad) echo "L'adresse du paquet publié n'est pas celle attendue. Rien n'a été installé." ;;
         en:using_clone) echo "No ready-made package for this system; installing from source." ;;
         fr:using_clone) echo "Aucun paquet prêt pour ce système ; installation depuis les sources." ;;
+        en:armv6_title) echo "Unsupported hardware" ;;
+        fr:armv6_title) echo "Matériel non pris en charge" ;;
+        en:armv6_body) echo "This machine has an ARMv6 processor (Raspberry Pi 1, Compute Module 1, original Zero or Zero W). Meshloom does not run on it. Nothing was changed on this system." ;;
+        fr:armv6_body) echo "Cette machine a un processeur ARMv6 (Raspberry Pi 1, Compute Module 1, Zero ou Zero W d'origine). Meshloom ne fonctionne pas dessus. Rien n'a été modifié sur ce système." ;;
+        en:armv6_supported) echo "Supported Raspberry Pi boards: Pi 2, Pi 3, Pi 4, Pi 5, Zero 2 W, Compute Module 3 and later." ;;
+        fr:armv6_supported) echo "Raspberry Pi pris en charge : Pi 2, Pi 3, Pi 4, Pi 5, Zero 2 W, Compute Module 3 et suivants." ;;
+        en:armv6_more) echo "Details: https://meshloom.app/en/docs/rpi/" ;;
+        fr:armv6_more) echo "Détails : https://meshloom.app/docs/rpi/" ;;
         en:prompt_dir) echo "Installation folder" ;;
         fr:prompt_dir) echo "Dossier d'installation" ;;
         en:missing) echo "Missing on this machine" ;;
@@ -480,6 +488,31 @@ log_note() {
 }
 
 # ── detection ─────────────────────────────────────────────────────────────────
+
+# ARMv6 (Pi 1, Compute Module 1, original Zero and Zero W) has no package, no
+# Docker image (the image stops at armv7), and the source install, its old
+# fallback, is not supported there either and starts by changing the system.
+# Refuse before anything else runs: no prompt, no file written, no sudo. The
+# language comes from MESHLOOM_LANG, a saved choice or the locale, read only.
+refuse_unsupported_hardware() {
+    case "$(uname -m)" in
+        armv6*) ;;
+        *) return 0 ;;
+    esac
+    if ! load_saved_language; then
+        case "$(printf '%s%s%s' "${LC_ALL:-}" "${LC_MESSAGES:-}" "${LANG:-}" | tr 'A-Z' 'a-z')" in
+            *fr*) ML_LANG="fr" ;;
+            *) ML_LANG="en" ;;
+        esac
+    fi
+    {
+        printf '\n%s\n\n' "$(t armv6_title)"
+        printf '%s\n\n' "$(t armv6_body)"
+        printf '%s\n' "$(t armv6_supported)"
+        printf '%s\n' "$(t armv6_more)"
+    } >&2
+    exit 1
+}
 
 detect_os() {
     case "$(uname -s)" in
@@ -803,8 +836,8 @@ host_arch() {
         # 32-bit Raspberry Pi OS on a Pi 2, 3 or 4. Not armv6l: a Pi 1 and the
         # original Zero are ARMv6, and Raspberry Pi OS calls that armhf too, but
         # the package carries an interpreter built for ARMv7. Installing it there
-        # would succeed and then die on an illegal instruction, which is a worse
-        # answer than sending it to the source install.
+        # would succeed and then die on an illegal instruction. The installer
+        # never gets here on ARMv6: refuse_unsupported_hardware stops it first.
         armv7l | armhf) echo "armhf" ;;
         *) echo "unknown" ;;
     esac
@@ -2566,6 +2599,7 @@ show_browser_only() {
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+refuse_unsupported_hardware
 ui_init
 choose_language
 detect_os
