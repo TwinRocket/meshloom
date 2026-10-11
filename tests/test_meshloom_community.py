@@ -459,6 +459,21 @@ class TestCommunityHashtagProxies:
         assert "/api/community/iata/{code}/hashtags" not in paths
 
     @pytest.mark.asyncio
+    async def test_old_per_iata_hashtags_path_is_404_without_calling_community(self, client):
+        """A browser tab still running a 4.13.2-or-older frontend asks this path.
+
+        It gets a plain 404 (its finder swallows the error) and Community is
+        never contacted, so its 410 tombstone sees no traffic from new servers.
+        """
+        stats = AsyncMock()
+        with patch("app.routers.community.stats_json", new=stats):
+            async with client:
+                response = await client.get("/api/community/iata/LYS/hashtags")
+
+        assert response.status_code == 404
+        stats.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_put_me_hashtags_is_authenticated(self):
         payload = {"hashtags": [{"name": "meshcore", "hash_byte": "d9"}]}
         with patch(
