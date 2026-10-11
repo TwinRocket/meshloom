@@ -5,96 +5,111 @@ level: deep
 order: 18
 ---
 
-Web push can notify a browser about an incoming message while its tab is closed. It is separate from [fanout](/en/docs/deep/fanout/): each browser has its own subscription, while the rules (defaults and exceptions) are shared by the whole install.
+Web Push can tell your browser about an incoming message while Meshloom's tab is closed. It is separate from [fanout](/en/docs/deep/fanout/): each browser has its own subscription, while the rules (what to notify, and for which conversations) are shared by the whole installation.
 
-There are no in-tab desktop notifications. Web Push is the only notification surface.
+There are no pop-ups from the open tab itself. Web Push is the only way Meshloom notifies a browser.
 
-## Two requirements
+The same rules can also send an **e-mail** or call a **webhook**. Push is on by default; e-mail and webhook are off until you configure a destination. See "Choosing what notifies" below.
 
-**HTTPS.** A service worker requires a secure context. A self-signed certificate is enough; see [HTTPS](/en/docs/deep/https/).
+## What you need
 
-**Outbound Internet from the server.** Push services are external: Google FCM, Mozilla autopush, or APNs. [Meshloom Community](/en/docs/deep/community/) also needs egress when it is on.
+**HTTPS.** Browsers only allow the background component that receives notifications (the service worker) on a secure page. A certificate you made yourself can work; see [HTTPS](/en/docs/deep/https/).
 
-## VAPID keys
+**Internet access from the server.** Notifications go through services run by browser makers: Google (FCM), Mozilla, or Apple (APNs). [Meshloom Community](/en/docs/deep/community/) also needs access when it is on.
 
-The P-256 key pair is generated at first startup and stored in `app_settings`. The public key is exposed through `GET /api/push/vapid-public-key`.
+## The contact address (VAPID)
 
-The token subject is edited in **Settings → Notifications** and stored as `app_settings.vapid_subject`. When that field is empty, Meshloom falls back to `MESHCORE_VAPID_SUBJECT` (default `mailto:noreply@meshcore.local`).
+Meshloom signs each notification with a key pair created on first start. The signature also carries a contact address, called the VAPID subject.
 
-**Apple requires a real `mailto:` or `https:` contact.** APNs rejects a subject that is not a contact URI, and the `.local` default yields `403 BadJwtToken`. Set a real address in the UI, or as an environment fallback:
+Set it in **Settings → Notifications**, in the **VAPID subject** field. It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses the environment variable `MESHCORE_VAPID_SUBJECT`, whose default is `mailto:noreply@meshcore.local`.
+
+**Apple requires a real address.** APNs rejects a subject that is not a genuine contact and the `.local` default, answering `403 BadJwtToken`. Set a real address in the interface, or as a fallback in the environment:
 
 ```text
 MESHCORE_VAPID_SUBJECT=mailto:you@example.com
 ```
 
-See [Apple's web push documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). Google FCM accepts the default, so the problem often appears only on the first Apple device.
+See [Apple's documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). Other push services may accept the default, so the problem often only shows up with the first Apple device.
 
-## Browser subscriptions and global rules
+## Subscribing a browser
 
-A browser subscription is stored in `push_subscriptions` with its endpoint, device label, and delivery state. Defaults and per-conversation exceptions live once per instance (`push_defaults` and `push_conversation_overrides`). Enabling an exception on one phone applies it to every subscribed browser. Subscribing or unsubscribing only controls whether that browser receives them.
+In **Settings → Notifications**, choose **Subscribe This Browser**. The list of registered devices then shows each browser, with a **Test** button and a way to unsubscribe.
 
-Migration imported the old opt-in list (`push_conversations`) as explicit `true` overrides. The five defaults themselves were turned ON for existing databases.
+A browser's subscription only decides whether that browser receives notifications. The rules are shared: if you switch on a conversation from your phone, it is on for every subscribed browser.
 
-## What fires by default
+## Choosing what notifies
 
-Toggles live in **Settings → Notifications** (`#settings/notifications`). All start ON.
+### Events
 
-| Toggle | Effect |
-|--------|--------|
-| New contacts | First-seen companion (type 1) |
-| Direct messages | Incoming `PRIV`, including room-server posts |
-| Repeater advertisements | First-seen repeater (type 2) |
-| Companion advertisements | First-seen companion (type 1) |
-| Sensor advertisements | First-seen sensor (type 4) |
+**Settings → Notifications → Default notifications** has one row per event, with three columns: **Push**, **Email** and **Webhook**. Push is on for every event at the start.
+
+| Event | When it fires |
+|-------|---------------|
+| New contacts | A companion (a person's radio) is seen for the first time |
+| Direct messages | A direct message arrives, including posts from room servers |
+| Repeater advertisements | A repeater is seen for the first time |
+| Companion advertisements | A companion is seen for the first time |
+| Sensor advertisements | A sensor is seen for the first time |
+| Found channels | Meshloom finds a new hashtag channel |
+| Telemetry alerts | A tracked repeater or contact crosses an alert threshold. The thresholds are set on the **Alerts** page |
+| Meshloom updates | A new Meshloom version is available |
 
 For a companion, **New contacts** or **Companion advertisements** is enough.
 
-First-seen alerts fire only when a **new contact row** is inserted, after radio setup. An already-known node, a prefix promotion, an unknown node (type 0), or a room server (type 3) never trigger this alert. It is not a WebSocket event.
+"First seen" alerts only fire when a **new contact** is added, after the radio has finished its start-up. A node you already know, an unknown node and a room server never trigger them.
 
-For channels, with no exception:
+### Conversations
 
-- Public and `#` (hashtag) channels are ON;
-- private-key channels are OFF.
+For channel messages, without an exception:
 
-A per-conversation exception wins over those defaults.
+- public channels and `#` (hashtag) channels notify by push;
+- channels with a private key do not.
 
-**Mute circuit breaker.** The dedicated header button (bell-off) silences push for that channel, independently of defaults and exceptions. It is not the same control as the exception bell.
+Direct messages follow the **Direct messages** row. E-mail and webhook notifications for a channel only exist if you switch them on for that channel.
 
-## In the interface
+### The bell, for one conversation
 
-**Settings → Notifications**: subscribe this browser, list devices (test / unsubscribe), toggle defaults, remove exceptions, and edit the VAPID subject.
+In the header of a conversation, the bell opens a menu with three tick boxes: **Push**, **Email** and **Webhook**. Ticking one makes an **exception** to the defaults for that conversation only. If your browser is not subscribed yet, ticking **Push** subscribes it. **Email** and **Webhook** are greyed out until a destination exists; a link takes you to the settings.
 
-**Header bell** on a conversation (contacts, channels, and room servers — not the repeater dashboard). It is a simple toggle. First click with no subscription: the browser subscribes and does not invert the exception. Later clicks force that conversation ON or OFF. The bell appears only on a secure context.
+Exceptions are listed in **Settings → Notifications → Conversation exceptions**, where you can remove them.
 
-## Endpoints
+### Muting a channel
+
+On a channel, the mute button silences everything for a time you choose (15 minutes up to 24 hours, or indefinitely). It also hides the unread counter. It overrides defaults and exceptions, and it is not the same control as the bell.
+
+### E-mail and webhook destinations
+
+In **Settings → Notifications → Delivery destinations**, enter an SMTP server (host, port, encryption, user, password, sender and recipient) and/or a webhook address with an optional HMAC secret. Secrets are not shown again after saving. Each destination has a test button. This webhook is for Meshloom notifications. It is not the message webhook of fanout.
+
+## Behind the scenes
+
+### Service worker and cleanup
+
+`sw.js` shows incoming notifications and, when you click one, focuses or opens the right conversation. If a push service answers `403`, `404` or `410` for a subscription, Meshloom deletes it. After that, subscribe the browser again.
+
+### Endpoints
 
 | Method | Endpoint | Effect |
 |--------|----------|--------|
-| GET | `/api/push/vapid-public-key` | Public key for `PushManager.subscribe()` |
+| GET | `/api/push/vapid-public-key` | Public key used to subscribe |
 | POST | `/api/push/subscribe` | Register or update a subscription |
 | GET | `/api/push/subscriptions` | List subscriptions |
-| PATCH | `/api/push/subscriptions/{id}` | Change label or language |
+| PATCH | `/api/push/subscriptions/{id}` | Change the label or the language |
 | DELETE | `/api/push/subscriptions/{id}` | Delete a subscription |
 | POST | `/api/push/subscriptions/{id}/test` | Send a test notification |
-| GET | `/api/push/preferences` | Defaults, exceptions, and VAPID subject |
-| PATCH | `/api/push/preferences` | Update defaults and/or VAPID subject |
-| PUT | `/api/push/preferences/conversations/{key}` | Set (`true` / `false`) or clear (`null`) an exception |
+| GET | `/api/push/preferences` | Defaults, exceptions and VAPID subject |
+| PATCH | `/api/push/preferences` | Change defaults and/or the VAPID subject |
+| PUT | `/api/push/preferences/conversations/{key}` | Set or clear an exception for a conversation |
 
-`GET` / `POST /api/push/conversations` no longer exist.
-
-Subscriptions are unique by endpoint, so re-registering updates the existing row.
-
-## Service worker and cleanup
-
-`sw.js` displays incoming notifications and focuses or opens the correct conversation when one is clicked. Registration is attempted only on secure contexts. A `404` or `410` from a push service means the subscription is stale; Meshloom deletes it immediately.
+A subscription is unique by its address, so registering again updates the existing one. The old `/api/push/conversations` routes no longer exist.
 
 ## When nothing arrives
 
-1. Check HTTPS or `localhost`.
-2. Check browser and OS notification permission.
+1. Check that the page is served over HTTPS (or `localhost`).
+2. Check the notification permission in your browser and your system.
 3. Send a test from **Settings → Notifications**.
-4. Check defaults and exceptions via `GET /api/push/preferences`. A private-key channel stays silent without an ON exception. A muted channel stays silent even when push is enabled.
-5. On Apple, check the VAPID subject in the UI (or `MESHCORE_VAPID_SUBJECT` if that field is empty) and server logs for `403 BadJwtToken`.
-6. Check outbound Internet access.
+4. Check the defaults and exceptions, also visible at `/api/push/preferences`. A private-key channel stays silent unless an exception turns it on. A muted channel stays silent whatever the settings.
+5. On Apple devices, check the VAPID subject (see above) and look for `403 BadJwtToken` in the server's log.
+6. Check that the server can reach the Internet.
 
-`DEBUG` logs include push-service responses. See [Troubleshooting](/en/docs/deep/troubleshooting/).
+At `DEBUG` log level, the answers of the push services are logged. See [Troubleshooting](/en/docs/deep/troubleshooting/).
