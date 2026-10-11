@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Step 1 of 2 of a release: open the release pull request.
 #
-# From an up-to-date origin/main, creates the branch release/X.Y.Z, runs the
+# From an up-to-date origin/main, creates the branch release/X.Y.Z (carrying an
+# uncommitted CHANGELOG.md edit, if any: write the notes, then run this), runs the
 # quality gate, regenerates LICENSES.md, bumps the four version sources
 # (pyproject.toml, frontend/package.json, meshloom/config.yaml, the FROM tag of
 # meshloom/Dockerfile) and uv.lock, adds the CHANGELOG section, commits exactly
@@ -40,6 +41,9 @@ Options:
   --version VERSION         Release version (same as the positional argument);
                             prompts if omitted
   --notes-file PATH         Changelog bullets if CHANGELOG.md has no [$VERSION] yet
+
+An uncommitted CHANGELOG.md edit (e.g. the [X.Y.Z] section written by hand) is
+carried onto the release branch; any other local change is refused.
   --skip-quality            Skip ./scripts/quality/all_quality.sh
   --skip-licenses           Skip regenerating LICENSES.md
   --help                    Show this message
@@ -103,10 +107,11 @@ VERSION="$(release_trim "$VERSION")"
 release_validate_version "$VERSION"
 BRANCH="release/$VERSION"
 
-# The release branch starts from origin/main as it is now, on a clean tree, so
-# the PR carries the release commit and nothing else.
-if [ -n "$(git status --porcelain)" ]; then
-    release_die "The working tree is not clean; commit or stash first."
+# The release branch starts from origin/main as it is now, so the PR carries the
+# release commit and nothing else. The one local change allowed is an uncommitted
+# CHANGELOG.md edit (the release notes), which is carried onto the branch.
+if ! release_tree_clean_but_changelog; then
+    release_die "The working tree has changes other than CHANGELOG.md; commit or stash them first."
 fi
 git fetch --quiet origin main
 if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null \
@@ -117,7 +122,7 @@ if git rev-parse -q --verify "refs/heads/$BRANCH" >/dev/null \
     || git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
     release_die "Branch $BRANCH already exists (locally or on origin); delete it or reuse its PR."
 fi
-git switch --quiet -c "$BRANCH" --no-track origin/main
+release_switch_carrying_changelog "$BRANCH" origin/main
 echo -e "${GREEN}On $BRANCH, from origin/main $(git rev-parse --short HEAD).${NC}"
 echo
 

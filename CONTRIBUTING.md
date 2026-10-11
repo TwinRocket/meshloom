@@ -77,7 +77,7 @@ npm run build
 
 | Script | Purpose |
 |--------|---------|
-| `prepare_release.sh` | Release step 1: from `origin/main` on a clean tree, creates `release/X.Y.Z`, runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), adds the changelog section, commits exactly those files, pushes the branch and opens the release PR. It never pushes `main` or tags. |
+| `prepare_release.sh` | Release step 1: from `origin/main`, creates `release/X.Y.Z` (an uncommitted `CHANGELOG.md` edit is carried onto it; any other local change is refused), runs the quality gate, regenerates `LICENSES.md`, bumps the version (`pyproject.toml`, `uv.lock`, `frontend/package.json`, `meshloom/config.yaml`, `meshloom/Dockerfile`), adds the changelog section, commits exactly those files, pushes the branch and opens the release PR. It never pushes `main` or tags. |
 | `tag_release.sh` | Release step 2, after the release PR is merged: on a clean `main` equal to `origin/main`, checks the version sources, the CHANGELOG section, the `all-quality` check on HEAD and that the tag is new, then pushes an annotated (unsigned) `X.Y.Z` tag after confirmation (`--dry-run` checks only). Everything else (frontend zip, packages, GitHub release, signing, image) is done by CI on that tag. |
 | `publish.sh` | Retired; prints the two steps above and exits 1. |
 | `release_common.sh` | Shared shell helpers (version validation, formatting) sourced by other build scripts. |

@@ -263,7 +263,7 @@ def test_release_workflow_dispatch_only_republishes_a_tag() -> None:
 
 def test_prepare_release_never_touches_main_or_tags() -> None:
     prepare = (BUILD / "prepare_release.sh").read_text(encoding="utf-8")
-    assert 'git switch --quiet -c "$BRANCH" --no-track origin/main' in prepare
+    assert 'release_switch_carrying_changelog "$BRANCH" origin/main' in prepare
     assert 'git push --set-upstream origin "$BRANCH"' in prepare
     assert "gh pr create" in prepare and "--body-file" in prepare
     assert "git tag" not in prepare
@@ -288,3 +288,55 @@ def test_docker_pr_build_runs_but_pushes_nothing() -> None:
     assert "|| 'type=cacheonly'" in build
     merge = docker[docker.index("\n  merge:\n") :]
     assert "if: github.event_name != 'pull_request'" in merge.split("steps:")[0]
+
+
+def _carry(
+    repo: Path, env: dict[str, str], branch: str = "release/9.8.8"
+) -> subprocess.CompletedProcess[str]:
+    script = (
+        f'source "{BUILD / "release_common.sh"}"; '
+        "release_tree_clean_but_changelog || { echo DIRTY; exit 3; }; "
+        f'release_switch_carrying_changelog "{branch}" origin/main'
+    )
+    return subprocess.run(
+        ["bash", "-c", script], cwd=repo, env=env, capture_output=True, text=True, check=False
+    )
+
+
+def test_prepare_carries_an_uncommitted_changelog_onto_the_release_branch(release_repo) -> None:
+    repo, _, env = release_repo
+    notes = "# Changelog\n\n## [9.8.8] - 2026-10-12\n\n* Hand-written notes\n\n"
+    old = (repo / "CHANGELOG.md").read_text()
+    (repo / "CHANGELOG.md").write_text(notes + old.removeprefix("# Changelog\n\n"))
+    result = _carry(repo, env)
+    assert result.returncode == 0, result.stderr
+    assert _git(repo, env, "rev-parse", "--abbrev-ref", "HEAD") == "release/9.8.8"
+    assert "## [9.8.8]" in (repo / "CHANGELOG.md").read_text()
+    assert _git(repo, env, "status", "--porcelain") == "M CHANGELOG.md"
+
+
+def test_prepare_refuses_local_changes_other_than_the_changelog(release_repo) -> None:
+    repo, _, env = release_repo
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## [9.8.8] - 2026-10-12\n\n* Notes\n")
+    (repo / "stray.txt").write_text("unreviewed\n")
+    result = _carry(repo, env)
+    assert result.returncode == 3 and "DIRTY" in result.stdout
+    assert _git(repo, env, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+
+
+def test_prepare_keeps_the_changelog_edit_when_it_does_not_apply(release_repo) -> None:
+    repo, _, env = release_repo
+    # origin/main rewrote CHANGELOG.md after the local clone was taken.
+    _git(repo, env, "switch", "-q", "-c", "upstream")
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\nRewritten upstream\n")
+    _git(repo, env, "commit", "-q", "-am", "rewrite")
+    _git(repo, env, "push", "-q", "origin", "upstream:main")
+    _git(repo, env, "switch", "-q", "main")
+    _git(repo, env, "fetch", "-q", "origin")
+    edit = (repo / "CHANGELOG.md").read_text().replace("* A fix", "* A fix\n* Another one")
+    (repo / "CHANGELOG.md").write_text(edit)
+    result = _carry(repo, env)
+    assert result.returncode != 0
+    assert "saved in" in result.stderr
+    backup = Path(result.stderr.split("saved in ")[1].split(";")[0])
+    assert backup.read_text() == edit

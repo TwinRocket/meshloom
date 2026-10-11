@@ -242,7 +242,7 @@ rotation steps are in `pkg/keys/README.md`.
 
 1. A release is a pull request, then a tag. Neither step pushes `main`, and
    neither builds or publishes anything.
-   - `scripts/build/prepare_release.sh X.Y.Z` needs a clean tree. It creates
+   - `scripts/build/prepare_release.sh X.Y.Z` refuses local changes, except an uncommitted `CHANGELOG.md` edit (the release notes), which it carries onto the branch. It creates
      `release/X.Y.Z` from `origin/main`, runs the gate, regenerates
      `LICENSES.md`, bumps the version sources (`pyproject.toml`,
      `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag in
