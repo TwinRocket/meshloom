@@ -26,6 +26,7 @@ from fastapi import HTTPException
 
 from app.background_tasks import spawn
 from app.data.meshcore_channels import hashtag_room_name
+from app.loop_lock import LoopBoundLock
 from app.models import CommunityAirportHit, CommunityStatus
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,10 @@ _sample_quota_until = 0.0
 # before the opt-out must not leave afterwards.
 _egress_generation = 0
 _inflight: set[asyncio.Future[httpx.Response]] = set()
+# One Community state change at a time: an opt-in sent while the opt-out
+# teardown still runs would otherwise be undone by it (Live closed, publisher
+# stopped while the database says on).
+_update_lock = LoopBoundLock()
 
 
 class CommunityUpstreamError(HTTPException):
@@ -302,6 +307,19 @@ async def update_community(
     broker_host: str | None = None,
     api_base: str | None = None,
 ) -> CommunityEffective:
+    async with _update_lock:
+        return await _update_community_locked(
+            enabled=enabled, iata=iata, broker_host=broker_host, api_base=api_base
+        )
+
+
+async def _update_community_locked(
+    *,
+    enabled: bool | None,
+    iata: str | None,
+    broker_host: str | None,
+    api_base: str | None,
+) -> CommunityEffective:
     from app.repository.settings import AppSettingsRepository
 
     row = await get_community_record()
@@ -350,14 +368,22 @@ async def update_community(
         # its retained "online" forever: clear it on the way out.
         _retire_publisher_status()
     await _reload_system_publisher()
-    from app.services.community_live import sync_community_live
+    from app.services.community_live import get_live_relay, sync_community_live
 
+    if before.enabled and state.enabled and _live_target_moved(before, state):
+        # A running Live socket would otherwise stay on the old IATA or the
+        # old API host until it drops; sessions are kept, so it reopens.
+        await get_live_relay().close_stats()
     await sync_community_live(state.enabled)
     if state.enabled and not before.enabled:
         from app.services.oss_updates import nudge_oss_update_poll
 
         nudge_oss_update_poll()
     return state
+
+
+def _live_target_moved(before: CommunityEffective, after: CommunityEffective) -> bool:
+    return before.iata != after.iata or before.api_base != after.api_base
 
 
 def _status_topic_moved(before: CommunityEffective, after: CommunityEffective) -> bool:
@@ -438,18 +464,20 @@ async def _reset_client_state() -> None:
 async def community_teardown() -> None:
     """Cut every Community connection after an opt-out.
 
-    Order: clear the retained MQTT status (published before the DISCONNECT),
-    stop the publisher, close the Live relay, cancel Community requests in
-    flight, then reset the breaker, the sample quota and the Live queue.
-    Each step is bounded and runs even when the previous one failed.
+    Order: cancel Community requests in flight and close the Live relay
+    first (both are quick, and nothing more comes back from Community), then
+    clear the retained MQTT status (published before the DISCONNECT) and stop
+    the publisher, which may wait on the broker, then reset the breaker, the
+    sample quota and the Live queue. Each step is bounded and runs even when
+    the previous one failed.
     """
     global _egress_generation
     _egress_generation += 1
     await _run_steps(
         [
-            ("MQTT publisher", _stop_publisher),
-            ("Live relay", _close_live),
             ("in-flight requests", _cancel_inflight_requests),
+            ("Live relay", _close_live),
+            ("MQTT publisher", _stop_publisher),
             ("client state reset", _reset_client_state),
         ]
     )
@@ -668,11 +696,6 @@ async def community_status() -> CommunityStatus:
     )
 
 
-def _require_enabled(state: CommunityEffective) -> None:
-    if not state.enabled:
-        raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
-
-
 async def community_egress_state() -> CommunityEffective | None:
     """The effective config when Community connections are allowed, else None.
 
@@ -768,8 +791,9 @@ async def stats_request(
     open this raises 503 without touching the network.
     """
     generation = _egress_generation
-    state = await get_community_effective()
-    _require_enabled(state)
+    state = await community_egress_state()
+    if state is None:
+        raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
     headers: dict[str, str] = {}
     if auth:
         # jwt.md: API `iata` is required for `/v1/me/*` and sample upserts,

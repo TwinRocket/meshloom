@@ -63,6 +63,22 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
             return False
         return get_public_key() is not None and has_private_key()
 
+    async def _pre_connect(self, settings: object) -> bool:
+        """Re-check the Community egress guard before every (re)connect.
+
+        ``stop()`` normally ends the loop on opt-out. If a stop ever abandons
+        the loop (a DISCONNECT that hangs past ``STOP_TIMEOUT_S``), this keeps
+        the loop from reconnecting to the broker afterwards.
+        """
+        from app.services.meshloom_community import community_egress_state
+
+        if await community_egress_state() is None:
+            if self._settings is not None:
+                self._settings.community_mqtt_enabled = False
+            self.connected = False
+            return False
+        return await super()._pre_connect(settings)
+
     def _on_not_configured(self) -> None:
         # No IATA nag — LetsMesh mqtt_community already owns that prompt.
         return

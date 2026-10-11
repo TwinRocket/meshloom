@@ -52,6 +52,8 @@ AUTH_FATAL_CODES = frozenset(
 
 CLOSE_JWT_EXPIRED = 4001
 CLOSE_INACTIVE = 4002
+# close_stats(): longest wait for the upstream close handshake.
+CLOSE_TIMEOUT_S = 5.0
 CLOSE_SLOT_BUSY = 4003
 CLOSE_RATE_LIMIT = 4004
 CLOSE_SUPERSEDED = 4005
@@ -576,15 +578,17 @@ class CommunityLiveRelay:
             self._reader_task = None
         if ws is not None:
             try:
-                await ws.close()
-            except Exception:
+                # Bounded: a close handshake that hangs must not keep the
+                # reader below from being cancelled (opt-out teardown).
+                await asyncio.wait_for(ws.close(), timeout=CLOSE_TIMEOUT_S)
+            except Exception:  # TimeoutError included
                 logger.debug("Community live socket close failed", exc_info=True)
         if task is not None and not task.done():
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            # Bounded too: the reader's own socket exit may wait on the peer.
+            done, _pending = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_S)
+            if not done:
+                logger.warning("Community live reader did not stop in time; abandoning it")
 
     async def _idle_close(self) -> None:
         try:

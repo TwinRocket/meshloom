@@ -15,8 +15,10 @@ closed, requests in flight are cancelled, and nothing leaves afterwards.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlsplit
@@ -224,11 +226,27 @@ def _clear(iata: str) -> tuple[Any, ...]:
     return ("mqtt_publish", _status_topic(iata), b"", True, 1)
 
 
+def _status_of(event: tuple[Any, ...]) -> str | None:
+    if len(event) < 3 or event[0] != "mqtt_publish" or not isinstance(event[2], str):
+        return None
+    return json.loads(event[2]).get("status")
+
+
 def _online_published(recorder: EgressRecorder, iata: str) -> bool:
-    return any(
-        e[0] == "mqtt_publish" and e[1] == _status_topic(iata) and e[2] != b""
-        for e in recorder.events
+    return any(_status_of(e) == "online" and e[1] == _status_topic(iata) for e in recorder.events)
+
+
+def _offline_at(events: list[tuple[Any, ...]], iata: str) -> int:
+    return next(
+        i
+        for i, e in enumerate(events)
+        if e[0] == "mqtt_publish" and e[1] == _status_topic(iata) and _status_of(e) == "offline"
     )
+
+
+def _open_mqtt_connections(recorder: EgressRecorder) -> int:
+    connects = sum(1 for e in recorder.events if e[0] == "mqtt_connect")
+    return connects - recorder.events.count(("mqtt_disconnect",))
 
 
 async def _store_unknown_group_text() -> None:
@@ -321,6 +339,15 @@ class TestCommunityOffNoEgress:
                 assert response.status_code != 422, (method, template, response.text)
                 assert not egress.forbidden(), (method, template, egress.events)
 
+            # The update check from the UI: GitHub only.
+            response = await client.post("/api/updates/refresh")
+            assert response.status_code == 200, response.text
+            assert not egress.forbidden(), egress.events
+
+        # A restart while opted out: the fanout manager starts no publisher.
+        await fanout_manager.load_from_db()
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+
         # Background Community work.
         await _store_unknown_group_text()
         await run_catalogue_pass()
@@ -371,6 +398,8 @@ class TestOptOutTransition:
         events = egress.events
         assert _clear("CDG") in events
         assert events.index(_clear("CDG")) < events.index(("mqtt_disconnect",))
+        # "offline" first, so a failed clear never leaves "online" behind.
+        assert _offline_at(events, "CDG") < events.index(_clear("CDG"))
         # Live closed, request in flight cancelled into the opt-out 403.
         assert socket.closed.is_set()
         assert get_live_relay().connected is False
@@ -408,7 +437,7 @@ class TestOptOutTransition:
         lys_online = next(
             i
             for i, e in enumerate(events)
-            if e[0] == "mqtt_publish" and e[1] == _status_topic("LYS") and e[2] != b""
+            if _status_of(e) == "online" and e[1] == _status_topic("LYS")
         )
         assert clear_at < first_disconnect < lys_online
         assert _clear("LYS") not in events
@@ -422,3 +451,91 @@ class TestOptOutTransition:
         await update_community(iata="CDG")
         await _until(lambda: egress.events.count(("mqtt_disconnect",)) >= 1)
         assert _clear("CDG") not in egress.events
+
+    @pytest.mark.asyncio
+    async def test_opt_out_and_opt_in_racing_leave_one_publisher(
+        self, test_db, egress, cleanup_community
+    ):
+        """Two tabs: off then on at once. The teardown must not undo the opt-in."""
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+
+        # Slow the teardown's first step so the opt-in lands in the middle of it.
+        real_cancel = meshloom_community._cancel_inflight_requests
+
+        async def slow_cancel() -> None:
+            await asyncio.sleep(0.2)
+            await real_cancel()
+
+        with patch.object(meshloom_community, "_cancel_inflight_requests", slow_cancel):
+            opt_out = asyncio.create_task(update_community(enabled=False))
+            await asyncio.sleep(0.05)
+            await update_community(enabled=True)
+            await opt_out
+
+        assert (await get_community_effective()).enabled is True
+        await _until(lambda: _open_mqtt_connections(egress) == 1)
+        assert SYSTEM_MESHLOOM_STATS_ID in fanout_manager._modules
+        # Live reopened for the sessions that are still there.
+        await _until(lambda: get_live_relay().connected)
+        await asyncio.sleep(0.05)
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_overlapping_syncs_start_one_publisher(self, test_db, egress, cleanup_community):
+        """A publisher overwritten in the module table would never be stopped."""
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+
+        await asyncio.gather(*(fanout_manager.sync_system_modules() for _ in range(3)))
+        await _until(lambda: _open_mqtt_connections(egress) == 1)
+
+        await update_community(enabled=False)
+        await asyncio.sleep(0.05)
+        assert _open_mqtt_connections(egress) == 0
+
+    @pytest.mark.asyncio
+    async def test_iata_change_reopens_live(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        first = egress.sockets[-1]
+
+        await update_community(iata="LYS")
+        await _until(lambda: len(egress.sockets) == 2 and get_live_relay().connected)
+        assert first.closed.is_set()
+
+    @pytest.mark.asyncio
+    async def test_publisher_never_reconnects_once_opted_out(
+        self, test_db, egress, cleanup_community
+    ):
+        """Safety net for a stop that abandoned its loop: no reconnect after opt-out."""
+        await update_community(enabled=False, iata="CDG")
+        publisher = MeshloomStatsPublisher()
+        settings = SimpleNamespace(community_mqtt_enabled=True, community_mqtt_iata="CDG")
+        publisher._settings = settings
+        assert await publisher._pre_connect(settings) is False
+        assert settings.community_mqtt_enabled is False
+        assert publisher._is_configured() is False
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    async def test_live_close_is_bounded(self, test_db, egress, cleanup_community, monkeypatch):
+        from app.services import community_live
+
+        monkeypatch.setattr(community_live, "CLOSE_TIMEOUT_S", 0.05)
+        await update_community(enabled=True, iata="CDG")
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        socket = egress.sockets[-1]
+
+        async def hang() -> None:
+            await asyncio.sleep(3600)
+
+        socket.close = hang  # type: ignore[method-assign]
+        started = time.monotonic()
+        await update_community(enabled=False)
+        assert time.monotonic() - started < 2
+        assert get_live_relay()._reader_task is None

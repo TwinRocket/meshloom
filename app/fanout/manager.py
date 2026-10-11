@@ -149,7 +149,17 @@ class FanoutManager:
         await self.sync_system_modules()
 
     async def sync_system_modules(self) -> None:
-        """Start or stop the Meshloom Stats publisher from community state."""
+        """Start or stop the Meshloom Stats publisher from community state.
+
+        Serialised: two overlapping syncs would each start a publisher, and the
+        one overwritten in ``_modules`` would keep its Community connection
+        open, out of reach of any later stop.
+        """
+        lock = self._restart_locks.setdefault(SYSTEM_MESHLOOM_STATS_ID, asyncio.Lock())
+        async with lock:
+            await self._sync_system_modules_locked()
+
+    async def _sync_system_modules_locked(self) -> None:
         from app.fanout.meshloom_stats import MeshloomStatsModule
         from app.services.meshloom_community import community_egress_state
 
