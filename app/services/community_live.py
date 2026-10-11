@@ -486,6 +486,8 @@ class CommunityLiveRelay:
         return bool(expired)
 
     def _has_consumers(self) -> bool:
+        # Only reached while not connected (see _live_state and _run): the
+        # next connect attempt reads the pruned union itself.
         self._prune(time.monotonic())
         return bool(self._sessions)
 
@@ -558,7 +560,9 @@ class CommunityLiveRelay:
         async with self._lock:
             self._prune(time.monotonic())
             if not self._sessions or self._auth_error is not None or not self._connected:
-                # Not connected: the next connect attempt reads the new union itself.
+                # Not connected: the next connect attempt reads the new union
+                # itself, and a handshake already in flight checks it again
+                # once open (see _run).
                 return
             if self._desired_filter(state.iata) == self._active_filter:
                 return
@@ -631,11 +635,11 @@ class CommunityLiveRelay:
     async def unsubscribe(self, session_id: str) -> dict[str, Any]:
         async with self._lock:
             removed = self._sessions.pop(session_id, None) is not None
-            self._prune(time.monotonic())
+            expired = self._prune(time.monotonic())
             empty = not self._sessions
             if empty and self._idle_close_task is None:
                 self._idle_close_task = asyncio.create_task(self._idle_close())
-            elif removed and not empty:
+            elif (removed or expired) and not empty:
                 self._schedule_filter_check()
         from app.services.meshloom_community import community_enabled
 
@@ -863,6 +867,11 @@ class CommunityLiveRelay:
                         self._close_code = None
                         opened_at = time.monotonic()
                         auth_failures = 0
+                        # A region change that landed during the handshake was
+                        # dropped by its debounced check (not connected yet):
+                        # this socket opened with the older union, check again.
+                        if self._desired_filter(state.iata) != wanted:
+                            self._schedule_filter_check()
                         await self._broadcast_status(opted_out=False)
                         async for message in ws:
                             if generation != self._generation:

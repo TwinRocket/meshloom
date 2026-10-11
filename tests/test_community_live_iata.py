@@ -52,13 +52,17 @@ def _reset_relay():
 class Upstream:
     """Records every connect URL; each socket stays open until closed."""
 
-    def __init__(self, *, refuse_filtered: bool = False) -> None:
+    def __init__(self, *, refuse_filtered: bool = False, first_delay: float = 0.0) -> None:
         self.urls: list[str] = []
         self.sockets: list[FakeStatsSocket] = []
         self.refuse_filtered = refuse_filtered
+        self.first_delay = first_delay
 
     async def connect(self, url: str, _token: str) -> FakeStatsSocket:
         self.urls.append(url)
+        if self.first_delay and len(self.urls) == 1:
+            # A slow Community: the handshake outlasts the filter debounce.
+            await asyncio.sleep(self.first_delay)
         if self.refuse_filtered and "?iata=" in url:
             raise _HttpFail(400)
         socket = FakeStatsSocket([])
@@ -133,6 +137,8 @@ class TestFilterHelpers:
         assert CommunityLiveSubscribeRequest(iata=["nce", "NCE", "lys"]).iata == ["NCE", "LYS"]
         with pytest.raises(ValidationError):
             CommunityLiveSubscribeRequest(iata=["NICE"])
+        with pytest.raises(ValidationError):
+            CommunityLiveSubscribeRequest(iata=["xxx"])
         with pytest.raises(ValidationError):
             CommunityLiveSubscribeRequest(iata=[f"A{i:02d}" for i in range(65)])
 
@@ -300,6 +306,40 @@ class TestRelayFilter:
             relay._sessions[gone["session_id"]] = (seen - 1000, selection)
             keep = next(sid for sid in relay._sessions if sid != gone["session_id"])
             await relay.subscribe(keep, ["TLN"])
+            await _wait_until(lambda: len(upstream.urls) >= 2 and relay.connected)
+            await relay.close_stats()
+        assert upstream.urls[-1] == f"{BASE}?iata=LYS,TLN"
+
+    async def test_change_during_a_slow_handshake_is_applied_once_open(self):
+        relay = CommunityLiveRelay()
+        upstream = Upstream(first_delay=0.3)
+        with ExitStack() as stack:
+            _enter(stack, relay, upstream)
+            first = await relay.subscribe(None, ["NCE"])
+            await _wait_until(lambda: len(upstream.urls) == 1)
+            # The debounced check fires (0.05 s) while the handshake is in flight.
+            await relay.subscribe(first["session_id"], ["NCE", "TLN"])
+            await asyncio.sleep(0.15)
+            assert relay.connected is False
+            await _wait_until(lambda: len(upstream.urls) >= 2 and relay.connected)
+            assert relay.snapshot(opted_out=False)["upstream_iata"] == ["LYS", "NCE", "TLN"]
+            await relay.close_stats()
+        assert upstream.urls == [f"{BASE}?iata=LYS,NCE", f"{BASE}?iata=LYS,NCE,TLN"]
+
+    async def test_unsubscribe_that_prunes_an_expired_session_rechecks(self):
+        relay = CommunityLiveRelay()
+        upstream = Upstream()
+        with ExitStack() as stack:
+            _enter(stack, relay, upstream)
+            gone = await relay.subscribe(None, ["NCE"])
+            await relay.subscribe(None, ["TLN"])
+            await _wait_until(lambda: relay.connected)
+            await asyncio.sleep(0.15)  # the subscribe's own check has run
+            assert len(upstream.urls) == 1
+            seen, selection = relay._sessions[gone["session_id"]]
+            relay._sessions[gone["session_id"]] = (seen - 1000, selection)
+            # An unknown id: nothing removed, but the expired session is pruned.
+            await relay.unsubscribe("unknown")
             await _wait_until(lambda: len(upstream.urls) >= 2 and relay.connected)
             await relay.close_stats()
         assert upstream.urls[-1] == f"{BASE}?iata=LYS,TLN"
