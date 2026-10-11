@@ -1,8 +1,9 @@
-"""Release flow: a release PR, then a tag pushed by a human. CI never pushes main
-or creates a tag, so both can be protected by rulesets.
+"""Release flow: an admin runs scripts/build/publish.sh X.Y.Z, which pushes the
+release commit to main, then the X.Y.Z tag. CI never pushes main or creates a
+tag; tag_release.sh only recovers a run that pushed main but not the tag.
 
-The guards of tag_release.sh and create_github_release.sh run for real against a
-throwaway repository and a bare `origin`; `gh` is a stub on PATH.
+publish.sh, tag_release.sh and create_github_release.sh run for real against a
+throwaway repository and a bare `origin`; `gh` and `uv` are stubs on PATH.
 """
 
 from __future__ import annotations
@@ -29,6 +30,11 @@ def _env(tmp_path: Path, check_state: str = "completed/success") -> dict[str, st
     # tag_release.sh asks `gh api ... --jq ...` for "<status>/<conclusion>".
     gh.write_text('#!/bin/sh\n[ -z "$GH_STUB_FAIL" ] || exit 1\necho "$GH_STUB_STATE"\n')
     gh.chmod(0o755)
+    # publish.sh runs `uv sync` to refresh uv.lock: the stub only touches it, so the
+    # tests can see that the lock is part of the release commit.
+    uv = stub_dir / "uv"
+    uv.write_text('#!/bin/sh\n[ "$1" = sync ] && echo "# synced" >> uv.lock\nexit 0\n')
+    uv.chmod(0o755)
     return {
         **os.environ,
         "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
@@ -68,6 +74,7 @@ def release_repo(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     _git(repo, env, "init", "-q", "-b", "main")
     (repo / "scripts" / "build").mkdir(parents=True)
     for name in (
+        "publish.sh",
         "tag_release.sh",
         "release_common.sh",
         "check_version_consistency.sh",
@@ -75,6 +82,7 @@ def release_repo(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     ):
         shutil.copy2(BUILD / name, repo / "scripts" / "build" / name)
     _write_versions(repo, VERSION)
+    (repo / "uv.lock").write_text("version = 1\n")
     (repo / "CHANGELOG.md").write_text(f"# Changelog\n\n## [{VERSION}] - 2026-10-11\n\n* A fix\n")
     _git(repo, env, "add", "-A")
     _git(repo, env, "commit", "-q", "-m", f"Updating changelog + build for {VERSION}")
@@ -261,23 +269,6 @@ def test_release_workflow_dispatch_only_republishes_a_tag() -> None:
     assert 'if [ "$REF_TYPE" != "tag" ]' in release
 
 
-def test_prepare_release_never_touches_main_or_tags() -> None:
-    prepare = (BUILD / "prepare_release.sh").read_text(encoding="utf-8")
-    assert 'release_switch_carrying_changelog "$BRANCH" origin/main' in prepare
-    assert 'git push --set-upstream origin "$BRANCH"' in prepare
-    assert "gh pr create" in prepare and "--body-file" in prepare
-    assert "git tag" not in prepare
-    assert "git push origin main" not in prepare
-
-
-def test_retired_publish_script_points_at_the_new_flow() -> None:
-    result = subprocess.run(
-        ["bash", str(BUILD / "publish.sh")], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 1
-    assert "prepare_release.sh" in result.stderr and "tag_release.sh" in result.stderr
-
-
 def test_docker_pr_build_runs_but_pushes_nothing() -> None:
     docker = (WORKFLOWS / "docker.yml").read_text(encoding="utf-8")
     build = docker[docker.index("\n  build:\n") : docker.index("\n  merge:\n")]
@@ -290,53 +281,198 @@ def test_docker_pr_build_runs_but_pushes_nothing() -> None:
     assert "if: github.event_name != 'pull_request'" in merge.split("steps:")[0]
 
 
-def _carry(
-    repo: Path, env: dict[str, str], branch: str = "release/9.8.8"
-) -> subprocess.CompletedProcess[str]:
-    script = (
-        f'source "{BUILD / "release_common.sh"}"; '
-        "release_tree_clean_but_changelog || { echo DIRTY; exit 3; }; "
-        f'release_switch_carrying_changelog "{branch}" origin/main'
-    )
-    return subprocess.run(
-        ["bash", "-c", script], cwd=repo, env=env, capture_output=True, text=True, check=False
-    )
+# publish.sh: the one command that cuts a release.
+
+NEXT = "9.8.8"
+NOTES = f"## [{NEXT}] - 2026-10-12\n\n* Hand-written notes\n\n"
+RELEASE_FILES = {
+    "CHANGELOG.md",
+    "frontend/package.json",
+    "meshloom/Dockerfile",
+    "meshloom/config.yaml",
+    "pyproject.toml",
+    "uv.lock",
+}
 
 
-def test_prepare_carries_an_uncommitted_changelog_onto_the_release_branch(release_repo) -> None:
-    repo, _, env = release_repo
-    notes = "# Changelog\n\n## [9.8.8] - 2026-10-12\n\n* Hand-written notes\n\n"
+def _write_notes(repo: Path) -> None:
+    """The usual flow: the [X.Y.Z] section is written by hand, not committed."""
     old = (repo / "CHANGELOG.md").read_text()
-    (repo / "CHANGELOG.md").write_text(notes + old.removeprefix("# Changelog\n\n"))
-    result = _carry(repo, env)
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\n" + NOTES + old.removeprefix("# Changelog\n\n")
+    )
+
+
+def _publish(
+    repo: Path, env: dict[str, str], *args: str, stdin: str = ""
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "bash",
+            str(repo / "scripts" / "build" / "publish.sh"),
+            *args,
+            "--skip-quality",
+            "--skip-licenses",
+        ],
+        cwd=repo,
+        env=env,
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _reject_pushes_to(origin: Path, ref_prefix: str) -> None:
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text(
+        "#!/bin/sh\n"
+        "while read -r old new ref; do\n"
+        f'  case "$ref" in {ref_prefix}*) echo "rejected $ref" >&2; exit 1 ;; esac\n'
+        "done\n"
+    )
+    hook.chmod(0o755)
+
+
+def test_publish_commits_the_uncommitted_changelog_pushes_main_then_the_tag(
+    release_repo,
+) -> None:
+    repo, _, env = release_repo
+    _write_notes(repo)
+    result = _publish(repo, env, NEXT)
     assert result.returncode == 0, result.stderr
-    assert _git(repo, env, "rev-parse", "--abbrev-ref", "HEAD") == "release/9.8.8"
-    assert "## [9.8.8]" in (repo / "CHANGELOG.md").read_text()
-    assert _git(repo, env, "status", "--porcelain") == "M CHANGELOG.md"
+    assert f"CHANGELOG.md already has [{NEXT}]; leaving it as-is." in result.stdout
+
+    head = _git(repo, env, "rev-parse", "HEAD")
+    assert _git(repo, env, "ls-remote", "origin", "refs/heads/main").split()[0] == head
+    assert _git(repo, env, "log", "-1", "--format=%s") == f"Updating changelog + build for {NEXT}"
+    changed = _git(repo, env, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
+    assert set(changed.splitlines()) == RELEASE_FILES
+    assert _git(repo, env, "status", "--porcelain") == ""
+    assert "* Hand-written notes" in _git(repo, env, "show", "HEAD:CHANGELOG.md")
+    for path in ("pyproject.toml", "frontend/package.json", "meshloom/config.yaml"):
+        assert NEXT in _git(repo, env, "show", f"HEAD:{path}"), path
+    assert f"meshloom:{NEXT}" in _git(repo, env, "show", "HEAD:meshloom/Dockerfile")
+
+    # An annotated, unsigned tag on the pushed commit, carrying the notes.
+    assert _git(repo, env, "cat-file", "-t", NEXT) == "tag"
+    body = _git(repo, env, "cat-file", "-p", NEXT)
+    assert "BEGIN PGP SIGNATURE" not in body and "* Hand-written notes" in body
+    remote = _git(repo, env, "ls-remote", "origin", f"refs/tags/{NEXT}^{{}}")
+    assert remote.split()[0] == head
 
 
-def test_prepare_refuses_local_changes_other_than_the_changelog(release_repo) -> None:
+def test_publish_writes_the_changelog_section_from_a_notes_file(release_repo) -> None:
     repo, _, env = release_repo
-    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## [9.8.8] - 2026-10-12\n\n* Notes\n")
-    (repo / "stray.txt").write_text("unreviewed\n")
-    result = _carry(repo, env)
-    assert result.returncode == 3 and "DIRTY" in result.stdout
-    assert _git(repo, env, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+    notes = repo.parent / "notes.txt"
+    notes.write_text("A new feature\n- A fix\n")
+    result = _publish(repo, env, "--version", NEXT, "--notes-file", str(notes))
+    assert result.returncode == 0, result.stderr
+    changelog = _git(repo, env, "show", "HEAD:CHANGELOG.md")
+    assert f"## [{NEXT}] - " in changelog
+    assert "* A new feature\n* A fix" in changelog
+    assert f"refs/tags/{NEXT}" in _remote_tags(repo, env)
 
 
-def test_prepare_keeps_the_changelog_edit_when_it_does_not_apply(release_repo) -> None:
+def test_publish_refuses_off_main(release_repo) -> None:
     repo, _, env = release_repo
-    # origin/main rewrote CHANGELOG.md after the local clone was taken.
+    _git(repo, env, "switch", "-q", "-c", "feature")
+    head = _git(repo, env, "rev-parse", "HEAD")
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert "Releases are cut from main; you are on 'feature'" in result.stderr
+    assert _git(repo, env, "rev-parse", "HEAD") == head
+    assert _remote_tags(repo, env) == ""
+
+
+def test_publish_refuses_main_behind_origin(release_repo) -> None:
+    repo, _, env = release_repo
     _git(repo, env, "switch", "-q", "-c", "upstream")
-    (repo / "CHANGELOG.md").write_text("# Changelog\n\nRewritten upstream\n")
-    _git(repo, env, "commit", "-q", "-am", "rewrite")
+    _git(repo, env, "commit", "-q", "--allow-empty", "-m", "merged elsewhere")
     _git(repo, env, "push", "-q", "origin", "upstream:main")
     _git(repo, env, "switch", "-q", "main")
-    _git(repo, env, "fetch", "-q", "origin")
-    edit = (repo / "CHANGELOG.md").read_text().replace("* A fix", "* A fix\n* Another one")
-    (repo / "CHANGELOG.md").write_text(edit)
-    result = _carry(repo, env)
+    _write_notes(repo)
+    result = _publish(repo, env, NEXT)
     assert result.returncode != 0
-    assert "saved in" in result.stderr
-    backup = Path(result.stderr.split("saved in ")[1].split(";")[0])
-    assert backup.read_text() == edit
+    assert "main is behind origin/main" in result.stderr
+    assert _remote_tags(repo, env) == ""
+
+
+def test_publish_refuses_main_ahead_of_origin(release_repo) -> None:
+    repo, _, env = release_repo
+    _git(repo, env, "commit", "-q", "--allow-empty", "-m", "local only")
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert "main is not at origin/main" in result.stderr
+    assert _remote_tags(repo, env) == ""
+
+
+@pytest.mark.parametrize("stray", ["pyproject.toml", "untracked.txt"])
+def test_publish_refuses_any_local_change_but_the_changelog(release_repo, stray: str) -> None:
+    repo, _, env = release_repo
+    head = _git(repo, env, "rev-parse", "HEAD")
+    _write_notes(repo)
+    path = repo / stray
+    path.write_text((path.read_text() if path.exists() else "") + "# unreviewed\n")
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert "changes other than CHANGELOG.md" in result.stderr
+    assert _git(repo, env, "rev-parse", "HEAD") == head
+    assert _git(repo, env, "tag", "--list") == ""
+    assert _remote_tags(repo, env) == ""
+
+
+def test_publish_refuses_a_tag_that_exists_locally(release_repo) -> None:
+    repo, _, env = release_repo
+    head = _git(repo, env, "rev-parse", "HEAD")
+    _git(repo, env, "tag", NEXT)
+    _write_notes(repo)
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert f"Tag {NEXT} already exists locally" in result.stderr
+    assert _git(repo, env, "rev-parse", "HEAD") == head
+    assert _remote_tags(repo, env) == ""
+
+
+def test_publish_refuses_a_tag_that_exists_on_origin(release_repo) -> None:
+    repo, _, env = release_repo
+    _git(repo, env, "tag", NEXT)
+    _git(repo, env, "push", "-q", "origin", NEXT)
+    _git(repo, env, "tag", "-d", NEXT)
+    head = _git(repo, env, "rev-parse", "HEAD")
+    _write_notes(repo)
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert f"Tag {NEXT} already exists on origin" in result.stderr
+    assert _git(repo, env, "rev-parse", "HEAD") == head
+
+
+def test_publish_pushes_no_tag_when_main_is_rejected(release_repo) -> None:
+    repo, origin, env = release_repo
+    origin_main = _git(repo, env, "rev-parse", "origin/main")
+    _reject_pushes_to(origin, "refs/heads/")
+    _write_notes(repo)
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert "Pushing main failed" in result.stderr
+    assert _git(repo, env, "ls-remote", "origin", "refs/heads/main").split()[0] == origin_main
+    assert _remote_tags(repo, env) == ""
+    assert _git(repo, env, "tag", "--list") == ""
+
+
+def test_publish_points_at_tag_release_when_only_the_tag_is_rejected(release_repo) -> None:
+    repo, origin, env = release_repo
+    _reject_pushes_to(origin, "refs/tags/")
+    _write_notes(repo)
+    result = _publish(repo, env, NEXT)
+    assert result.returncode != 0
+    assert f"main is pushed but the tag {NEXT} is not" in result.stderr
+    assert f"scripts/build/tag_release.sh {NEXT}" in result.stderr
+    head = _git(repo, env, "rev-parse", "HEAD")
+    assert _git(repo, env, "ls-remote", "origin", "refs/heads/main").split()[0] == head
+    # The local tag is gone, so tag_release.sh can recover from here.
+    assert _git(repo, env, "tag", "--list") == ""
+    (origin / "hooks" / "pre-receive").unlink()
+    recovered = _tag_release(repo, env, NEXT, "--yes")
+    assert recovered.returncode == 0, recovered.stderr
+    assert f"refs/tags/{NEXT}" in _remote_tags(repo, env)

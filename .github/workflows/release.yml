@@ -6,12 +6,11 @@ name: Release
 # do not trigger on.release). The armhf package is workflow_dispatch'd after
 # publish so QEMU does not block a re-run.
 #
-# Cutting a release (no workflow pushes main or creates a tag):
-#   1. scripts/build/prepare_release.sh X.Y.Z opens the release PR (version bump,
-#      LICENSES.md, changelog) on branch release/X.Y.Z;
-#   2. the PR is merged into main (merge commit) and All Quality goes green;
-#   3. scripts/build/tag_release.sh X.Y.Z pushes the annotated X.Y.Z tag, which
-#      starts this workflow.
+# Cutting a release (no workflow pushes main or creates a tag): an admin writes
+# the [X.Y.Z] section of CHANGELOG.md and runs scripts/build/publish.sh X.Y.Z,
+# which commits the version bump, pushes main, then pushes the annotated X.Y.Z
+# tag that starts this workflow. If main went out but the tag did not,
+# scripts/build/tag_release.sh X.Y.Z pushes the tag.
 # workflow_dispatch only re-publishes an existing tag: start it on the tag
 # itself (`gh workflow run release.yml --ref X.Y.Z`), never on a branch.
 #
@@ -47,7 +46,7 @@ jobs:
           RAW_VERSION: ${{ github.ref_name }}
         run: |
           if [ "$REF_TYPE" != "tag" ]; then
-            echo "::error::Release runs on an existing X.Y.Z tag only. Re-publish with: gh workflow run release.yml --ref X.Y.Z (tags come from scripts/build/tag_release.sh)."
+            echo "::error::Release runs on an existing X.Y.Z tag only. Re-publish with: gh workflow run release.yml --ref X.Y.Z (tags come from scripts/build/publish.sh)."
             exit 1
           fi
           VERSION="$RAW_VERSION"

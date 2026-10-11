@@ -80,9 +80,7 @@ def test_the_addon_builds_on_the_release_image_rather_than_running_it_as_is() ->
 
 def test_the_release_pins_the_base_image_to_itself() -> None:
     """Otherwise the add-on advertises one release and installs another."""
-    publish = (ADDON.parent / "scripts" / "build" / "prepare_release.sh").read_text(
-        encoding="utf-8"
-    )
+    publish = (ADDON.parent / "scripts" / "build" / "publish.sh").read_text(encoding="utf-8")
     assert "meshloom/Dockerfile" in publish
 
     config = _config()
@@ -107,9 +105,7 @@ def test_the_release_script_rewrites_the_addon_version() -> None:
     Kept honest by the release rather than by discipline — the same reason
     pyproject.toml and package.json are rewritten there.
     """
-    publish = (ADDON.parent / "scripts" / "build" / "prepare_release.sh").read_text(
-        encoding="utf-8"
-    )
+    publish = (ADDON.parent / "scripts" / "build" / "publish.sh").read_text(encoding="utf-8")
     assert "meshloom/config.yaml" in publish
 
     config_text = (ADDON / "config.yaml").read_text(encoding="utf-8")

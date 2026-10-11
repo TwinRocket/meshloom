@@ -116,35 +116,9 @@ release_sed_i() {
 }
 
 # The release notes are usually written in CHANGELOG.md before the release is cut,
-# without committing them. That edit is the only local change a release may carry;
-# anything else would slip unreviewed work into the release commit.
+# without committing them. That edit is the only local change a release may carry
+# (publish.sh commits it); anything else would slip unreviewed work into the
+# release commit.
 release_tree_clean_but_changelog() {
     ! git status --porcelain --untracked-files=all | grep -qvE '^.. CHANGELOG\.md$'
-}
-
-# Creates `branch` from `base` and carries an uncommitted CHANGELOG.md edit onto it.
-# The edit is kept in a backup file until it is applied, so a failure loses nothing.
-release_switch_carrying_changelog() {
-    local branch="$1"
-    local base="$2"
-    local patch backup
-
-    if [ -z "$(git status --porcelain -- CHANGELOG.md)" ]; then
-        git switch --quiet -c "$branch" --no-track "$base"
-        return
-    fi
-    patch="$(mktemp)"
-    backup="$(mktemp)"
-    git diff HEAD -- CHANGELOG.md > "$patch"
-    cp CHANGELOG.md "$backup"
-    git restore --staged --worktree --source=HEAD -- CHANGELOG.md
-    if ! git switch --quiet -c "$branch" --no-track "$base"; then
-        cp "$backup" CHANGELOG.md
-        release_die "Could not create $branch; your CHANGELOG.md edit is back in place."
-    fi
-    if ! git apply "$patch"; then
-        release_die "Your uncommitted CHANGELOG.md edit does not apply on $base (main changed it since). It is saved in $backup; you are on $branch."
-    fi
-    rm -f "$patch" "$backup"
-    echo "Carried your uncommitted CHANGELOG.md edit onto $branch."
 }

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Step 2 of 2 of a release: tag the merged release commit.
+# Recovery tool: push the X.Y.Z tag when scripts/build/publish.sh pushed the
+# release commit to main but not the tag (a failed tag push, an interrupted run).
+# A normal release does not need it: publish.sh pushes main, then the tag.
 #
-# Run on a clean main equal to origin/main, after the PR opened by
-# prepare_release.sh is merged. Refuses unless HEAD carries version X.Y.Z in
-# every version source, has a CHANGELOG section for it, has the `all-quality`
-# check green, and the tag exists neither locally nor on origin. Then creates an
+# Run on a clean main equal to origin/main. Refuses unless HEAD carries version
+# X.Y.Z in every version source, has a CHANGELOG section for it, has the
+# `all-quality` check green, and the tag exists neither locally nor on origin. Then creates an
 # annotated (unsigned) X.Y.Z tag and, after confirmation, pushes it. The tag
 # starts release.yml and docker.yml; nothing is built here.
 #
@@ -33,8 +34,8 @@ usage() {
     cat <<'EOF'
 Usage: scripts/build/tag_release.sh X.Y.Z [options]
 
-Creates and pushes the annotated X.Y.Z tag on main's HEAD once the release PR
-from scripts/build/prepare_release.sh is merged.
+Recovery only: creates and pushes the annotated X.Y.Z tag on main's HEAD when
+scripts/build/publish.sh pushed the release commit but not the tag.
 
 Options:
   --dry-run                 Run every check, create and push nothing
@@ -73,22 +74,22 @@ done
 VERSION="$(release_trim "$VERSION")"
 release_validate_version "$VERSION"
 
-echo -e "${YELLOW}=== Meshloom release, step 2/2: tag $VERSION ===${NC}"
+echo -e "${YELLOW}=== Meshloom release: tag $VERSION (recovery) ===${NC}"
 
-# 1. A clean main, equal to origin/main: the tag must point at what was merged.
+# 1. A clean main, equal to origin/main: the tag must point at what was pushed.
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" = "main" ] || release_die "Tags are cut from main; you are on '$BRANCH'."
 [ -z "$(git status --porcelain)" ] || release_die "The working tree is not clean; commit or stash first."
 git fetch --quiet origin main
 HEAD_SHA="$(git rev-parse HEAD)"
 [ "$HEAD_SHA" = "$(git rev-parse origin/main)" ] \
-    || release_die "main is not at origin/main; run 'git pull --ff-only' (and merge the release PR first)."
+    || release_die "main is not at origin/main; run 'git pull --ff-only' (or push the release commit first)."
 echo "ok    main is clean and at origin/main ($HEAD_SHA)"
 
 # 2. HEAD is the release: every version source says X.Y.Z, and the changelog has it.
 scripts/build/check_version_consistency.sh "$VERSION" >/dev/null \
     || { scripts/build/check_version_consistency.sh "$VERSION" >&2 || true
-         release_die "HEAD does not carry version $VERSION; is the release PR merged?"; }
+         release_die "HEAD does not carry version $VERSION; did scripts/build/publish.sh $VERSION push it to main?"; }
 echo "ok    version sources = $VERSION"
 TAG_NOTES_FILE="$(mktemp)"
 trap 'rm -f "$TAG_NOTES_FILE"' EXIT

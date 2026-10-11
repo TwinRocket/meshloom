@@ -56,7 +56,7 @@ pkg/keys/             public release key, fingerprint, key procedure (README.md)
 pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update
 pkg/rpi/              Raspberry Pi image and kiosk files
 scripts/quality/      all_quality.sh (gate), extended_quality.sh, e2e.sh, docker_ci.sh
-scripts/build/        prepare_release.sh + tag_release.sh, nFPM, Pi images, signing and version checks
+scripts/build/        publish.sh (release), tag_release.sh (recovery), nFPM, Pi images, signing and version checks
 scripts/setup/        install.sh (public one-liner), compose update helper, embed sync
 docs/user/            user docs (en, fr), built by the meshloom.app site from this folder
 .github/workflows/    CI, release, packages, repo publication
@@ -224,10 +224,12 @@ in `app_settings`, edited in the UI.
 4. Run `./scripts/quality/all_quality.sh` and get it green locally.
 5. Open a PR that links the issue (`Closes #N`) and states what was left out
    on purpose.
-6. Wait for green CI. `main` is meant to be protected by a ruleset (PR
-   required, no direct push; `X.Y.Z` tags created by admins only). Until the
-   owner enables it, this is a discipline. No workflow pushes `main` or creates
-   a tag, and releases go through a PR too (below).
+6. Wait for green CI. `main` is protected by a ruleset: a PR is required, with
+   the `all-quality`, `analyze (python)` and `analyze (javascript-typescript)`
+   checks green. Admins bypass it and may push directly to `main` (that is how
+   `publish.sh` pushes the release commit). A second ruleset reserves the
+   creation of `X.Y.Z` tags to admins. No workflow pushes `main` or creates a
+   tag.
 7. Merge with a **merge commit** (not squash, not rebase), only after a human
    approves.
 
@@ -240,22 +242,26 @@ Clients and installers trust the public key committed in `pkg/keys` (or embedded
 in `install.sh`), never a key fetched at install time. The procedure and the
 rotation steps are in `pkg/keys/README.md`.
 
-1. A release is a pull request, then a tag. Neither step pushes `main`, and
-   neither builds or publishes anything.
-   - `scripts/build/prepare_release.sh X.Y.Z` refuses local changes, except an uncommitted `CHANGELOG.md` edit (the release notes), which it carries onto the branch. It creates
-     `release/X.Y.Z` from `origin/main`, runs the gate, regenerates
+1. A release is one command, run by an admin on `main`:
+   `scripts/build/publish.sh X.Y.Z`. It builds and publishes nothing itself.
+   - Usual flow: write the `[X.Y.Z]` section of `CHANGELOG.md` without
+     committing it, then run the script. That edit is the only local change it
+     accepts (`release_tree_clean_but_changelog`); it then leaves the section
+     as-is. Without a section, it asks for the bullets (or `--notes-file`).
+   - It refuses unless you are on `main` equal to `origin/main` and the tag
+     exists neither locally nor on origin. It runs the gate, regenerates
      `LICENSES.md`, bumps the version sources (`pyproject.toml`,
      `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag in
-     `meshloom/Dockerfile`), updates `uv.lock` and `CHANGELOG.md`, commits
-     exactly those files, pushes the branch and opens the PR with `gh`.
-   - Merge the PR (merge commit) and wait for `all-quality` on `main`.
-   - `scripts/build/tag_release.sh X.Y.Z` refuses unless you are on a clean
-     `main` equal to `origin/main`, HEAD carries `X.Y.Z`
-     (`check_version_consistency.sh`) and a CHANGELOG section, the
-     `all-quality` check is green on HEAD and the tag exists neither locally
-     nor on origin. It then creates an annotated, unsigned tag (the artifacts
-     are what the release key signs) and pushes it after confirmation.
-     `--dry-run` runs the checks only. `publish.sh` is retired and only says so.
+     `meshloom/Dockerfile`) and `uv.lock`, checks them with
+     `check_version_consistency.sh`, commits exactly those files and
+     `CHANGELOG.md` ("Updating changelog + build for X.Y.Z"), pushes `main`,
+     then creates and pushes an annotated, unsigned tag (the artifacts are what
+     the release key signs). The tag is pushed only after `main` is.
+   - `scripts/build/tag_release.sh X.Y.Z` is the recovery tool for a run that
+     pushed `main` but not the tag. It refuses unless you are on a clean `main`
+     equal to `origin/main`, HEAD carries `X.Y.Z` and a CHANGELOG section, the
+     `all-quality` check is green on HEAD and the tag is new, then pushes the
+     tag after confirmation (`--dry-run` runs the checks only).
 2. A tag `X.Y.Z` triggers `release.yml` (`workflow_dispatch` only re-publishes
    an existing tag: `gh workflow run release.yml --ref X.Y.Z`; the workflow and
    `create_github_release.sh` never create a tag). That workflow runs the quality gate,
