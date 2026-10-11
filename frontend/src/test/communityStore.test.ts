@@ -54,13 +54,26 @@ describe('communityStore', () => {
     setCommunityStatus(on);
     mocks.getCommunity.mockResolvedValue({ ...on, enabled: false });
 
-    noteCommunityLiveOptedOut(false);
-    expect(mocks.getCommunity).not.toHaveBeenCalled();
-
     noteCommunityLiveOptedOut(true);
     await waitFor(() => {
       expect(getCommunitySnapshot().enabled).toBe(false);
     });
     expect(mocks.getCommunity).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads on a status that agrees with the switch: the IATA may have moved', async () => {
+    setCommunityStatus(on);
+    mocks.getCommunity.mockResolvedValue({ ...on, iata: 'CDG' });
+
+    noteCommunityLiveOptedOut(false);
+    await waitFor(() => {
+      expect(getCommunitySnapshot().status?.iata).toBe('CDG');
+    });
+    expect(getCommunitySnapshot().enabled).toBe(true);
+  });
+
+  it('ignores a status before anything is known', () => {
+    noteCommunityLiveOptedOut(true);
+    expect(mocks.getCommunity).not.toHaveBeenCalled();
   });
 });

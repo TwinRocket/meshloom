@@ -16,6 +16,7 @@ import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { formatNumber } from '../../utils/formatNumber';
+import { setCommunityStatus, useCommunityStatus } from '../../stores/communityStore';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
@@ -186,10 +187,22 @@ export function SettingsCommunitySection({
     (next: CommunityStatus) => {
       setStatus(next);
       setIataDraft(next.iata);
+      setCommunityStatus(next);
       onStatusChange?.(next);
     },
     [onStatusChange]
   );
+
+  // Follow a change made elsewhere (another tab, the API): the store re-reads
+  // on every Community broadcast. Our own actions write the store first, so
+  // this only fires for outside changes; it waits for an action in progress.
+  const storeStatus = useCommunityStatus();
+  useEffect(() => {
+    if (!storeStatus || busy !== null || storeStatus === status) return;
+    if (storeStatus.iata !== status?.iata) setIataDraft(storeStatus.iata);
+    if (!storeStatus.enabled) setBindResult(null);
+    setStatus(storeStatus);
+  }, [storeStatus, busy, status]);
 
   const loadStatus = useCallback(async () => {
     try {

@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsCommunitySection } from '../components/settings/SettingsCommunitySection';
 import { api, ApiError } from '../api';
 import i18n from '../i18n';
+import { setCommunityStatus } from '../stores/communityStore';
 import type { CommunityStatus } from '../types';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
@@ -55,6 +56,23 @@ describe('SettingsCommunitySection', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     void i18n.changeLanguage(DEFAULT_LOCALE);
+  });
+
+  it('follows an opt-out made in another tab without a reload', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG' });
+    render(<SettingsCommunitySection />);
+    expect(await screen.findByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+
+    // The store re-read after a `community_live` broadcast from the other tab.
+    act(() => {
+      setCommunityStatus({ ...offStatus, iata: 'CDG' });
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeChecked();
+    });
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
   });
 
   it('shows a join CTA when community is off', async () => {

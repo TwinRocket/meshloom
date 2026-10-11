@@ -10,7 +10,8 @@ import type { CommunityStatus } from '../types';
  * test, the Live view, hashtag names) reads this store, so turning Community off
  * in the settings is seen everywhere at once, without a reload. Other tabs follow
  * through the `community_live` WebSocket status, which the backend broadcasts on
- * every Community settings change.
+ * every Community settings change, and re-read on a WebSocket reconnect, since a
+ * change made while the socket was down sends them nothing.
  *
  * `enabled` is `null` until something has answered. App settings seed it from
  * `directory_available` (the backend computes it from the same flag) so routing
@@ -73,12 +74,13 @@ export function refreshCommunityStatus(): Promise<CommunityStatus | null> {
 }
 
 /**
- * A `community_live` status arrived. Its `opted_out` flag follows the Community
- * switch, so a mismatch means another tab (or the API) changed it: re-read.
+ * A `community_live` status arrived. The backend broadcasts one on every
+ * Community settings change (on, off, IATA, hosts), so re-read: another tab or
+ * the API may have changed more than the switch. `GET /api/community` is local
+ * and concurrent re-reads share one request.
  */
 export function noteCommunityLiveOptedOut(optedOut: boolean | undefined): void {
   if (typeof optedOut !== 'boolean' || state.enabled === null) return;
-  if (state.enabled === !optedOut) return;
   void refreshCommunityStatus();
 }
 
