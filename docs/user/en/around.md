@@ -63,6 +63,8 @@ Packets that could not be decrypted are not necessarily lost. They are what make
 
 **Regions** opens a list of airport codes (IATA) with a box to tick for each. By default only your own region is ticked, the code saved in Meshloom Community. Tick other codes to add them, or **All regions** to see the whole feed. Unticking the last code also shows every region. The list offers the regions active in the last 24 hours, the ones already seen on the map and your own. The filter follows the packet: when a packet is heard in a region you chose, all its observations are drawn, even those heard elsewhere. Packets heard by your own radio always appear. Your choice is remembered in this browser.
 
+When the page opens, and each time you change the regions, the map frames the nodes around the airports of the chosen regions (within about 150 km), or the airport itself if no node is known there yet. With **All regions** it frames every known node. Once you move the map yourself, it stays where you put it until you change the regions again.
+
 Your own radio's packets always appear. The packets of Community observers need Meshloom Community to be on and an airport code (IATA) to be saved; without them, a banner explains what is missing. If Community refuses the connection because the server's clock is wrong, the banner says so: set the server's time right, then choose **Retry**.
 
 ## The control journal

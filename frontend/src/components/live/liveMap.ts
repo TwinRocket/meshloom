@@ -49,6 +49,7 @@ import {
   observationDrawOpacity,
   observationPassesFilters,
   LivePacketRegionIndex,
+  liveFitPoints,
   placeableEdges,
   readLiveCamera,
   remanenceOpacity,
@@ -60,6 +61,7 @@ import {
   visibleEdgeSlices,
   writeLiveCamera,
   type LaserPolyline,
+  type LiveCameraFocus,
   type LiveRoleShape,
   type LiveViewFilters,
   type LonLat,
@@ -91,6 +93,8 @@ import { laserEdgeVisible } from '../../utils/liveSoundVisibility';
 /** As close in as framing the nodes is allowed to go — a lone node must not put
  *  the camera in a street. */
 const LIVE_FIT_MAX_ZOOM = 11;
+/** Framing a region by its airport alone: the area around it, not the runway. */
+const LIVE_REGION_FIT_MAX_ZOOM = 8;
 
 export const LIVE_MAP_STYLE = osmDarkRasterStyle();
 
@@ -246,6 +250,7 @@ export class LiveMapController {
   private frame = 0;
   private userMoved = false;
   private fitted = false;
+  private cameraFocus: LiveCameraFocus = { kind: 'all' };
   private lastHoverKey = '';
   private resizeObserver: ResizeObserver | null = null;
 
@@ -415,6 +420,19 @@ export class LiveMapController {
     }
     this.syncLocalSprites();
     this.draw();
+  }
+
+  /**
+   * Aim the arrival framing. `reframe` is a new region choice: it frames again
+   * even after the reader moved the map, since choosing a region means going there.
+   */
+  setCameraFocus(focus: LiveCameraFocus, options: { reframe?: boolean } = {}): void {
+    this.cameraFocus = focus;
+    if (options.reframe) {
+      this.userMoved = false;
+      this.fitted = false;
+    }
+    this.maybeFitNodes();
   }
 
   setDirectoryNodes(nodes: DirectoryMapNode[]): void {
@@ -913,9 +931,15 @@ export class LiveMapController {
     if (!this.map || this.fitted || !shouldAutoFitCamera(this.userMoved, this.nodes.length)) {
       return;
     }
+    const fit = liveFitPoints(this.nodes, this.cameraFocus);
+    if (!fit) return;
     const bounds = new LngLatBounds();
-    for (const node of this.nodes) bounds.extend([node.lon, node.lat]);
-    this.map.fitBounds(bounds, { padding: 56, maxZoom: LIVE_FIT_MAX_ZOOM, duration: 0 });
+    for (const point of fit.points) bounds.extend(point);
+    this.map.fitBounds(bounds, {
+      padding: 56,
+      maxZoom: fit.regionOnly ? LIVE_REGION_FIT_MAX_ZOOM : LIVE_FIT_MAX_ZOOM,
+      duration: 0,
+    });
     this.fitted = true;
   }
 

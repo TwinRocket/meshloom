@@ -61,6 +61,7 @@ import {
   segmentsFromObservation,
   selectCatchup,
   shouldAutoFitCamera,
+  liveFitPoints,
   shouldSpawnLaser,
   strokeStyleForConfidence,
   visibleEdgeSlices,
@@ -573,6 +574,23 @@ describe('camera and spawn policy', () => {
     // means seeing what is being heard, wherever it is.
     expect(shouldAutoFitCamera(true, 10)).toBe(false);
     expect(shouldAutoFitCamera(false, 0)).toBe(false);
+  });
+
+  it('frames the selected regions, or waits while they are being located', () => {
+    const paris = { lat: 48.86, lon: 2.35 };
+    const boston = { lat: 42.36, lon: -71.06 };
+    const CDG: [number, number] = [2.55, 49.01];
+    expect(liveFitPoints([paris, boston], { kind: 'pending' })).toBeNull();
+    expect(liveFitPoints([], { kind: 'all' })).toBeNull();
+    expect(liveFitPoints([paris, boston], { kind: 'all' })?.points).toHaveLength(2);
+    expect(liveFitPoints([paris, boston], { kind: 'regions', centers: [CDG] })).toEqual({
+      points: [[2.35, 48.86]],
+      regionOnly: false,
+    });
+    expect(liveFitPoints([boston], { kind: 'regions', centers: [CDG] })).toEqual({
+      points: [CDG],
+      regionOnly: true,
+    });
   });
 
   it('keeps only the newest catch-up lasers', () => {

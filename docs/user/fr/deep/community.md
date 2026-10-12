@@ -63,7 +63,7 @@ Changer le code IATA efface de la même façon l’état laissé sous l’ancien
 - les e-mails d’alerte partent par le serveur de messagerie que vous avez configuré. Le logo de Meshloom est inclus dans l’e-mail : l’ouvrir ne charge rien depuis `meshloom.app` ;
 - les fonds de carte sont chargés par votre navigateur chez leurs fournisseurs (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
-La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre serveur) fait partie de Community : désactivé, elle n’est jamais appelée, et vous saisissez vous-même le code à trois lettres.
+La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre serveur) fait partie de Community : désactivé, elle n’est jamais appelée, et vous saisissez vous-même le code à trois lettres. La page Live s’en sert aussi pour placer les régions choisies sur la carte, une fois par code tant que la page reste ouverte.
 
 ## Dans l’interface
 

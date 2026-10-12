@@ -7,7 +7,7 @@ import {
   type DirectoryNodeRole,
   type DirectoryNodeSource,
 } from '../../types';
-import { isValidLocation } from '../../utils/pathUtils';
+import { calculateDistance, isValidLocation } from '../../utils/pathUtils';
 import {
   LIVE_PACKET_TYPES,
   LIVE_TYPE_COLORS,
@@ -900,6 +900,42 @@ export function writeLiveCamera(
  */
 export function shouldAutoFitCamera(userMoved: boolean, nodeCount: number): boolean {
   return !userMoved && nodeCount > 0;
+}
+
+/** How far from a region's airport a node still counts as that region's. */
+export const LIVE_REGION_RADIUS_KM = 150;
+
+/**
+ * What the arrival framing aims at. `all`: every node. `pending`: the selected
+ * regions are still being located, so wait instead of framing the world first.
+ * `regions`: the airports of the selected IATA codes.
+ */
+export type LiveCameraFocus =
+  { kind: 'all' } | { kind: 'pending' } | { kind: 'regions'; centers: LonLat[] };
+
+/**
+ * The points the arrival framing must hold, or `null` to wait.
+ *
+ * With regions selected, only the nodes near their airports count: framing every
+ * directory node spans continents. A region with no known node there yet frames
+ * the airports themselves (`regionOnly`), so the camera still lands on it.
+ */
+export function liveFitPoints(
+  nodes: readonly { lat: number; lon: number }[],
+  focus: LiveCameraFocus
+): { points: LonLat[]; regionOnly: boolean } | null {
+  if (focus.kind === 'pending' || nodes.length === 0) return null;
+  const all = nodes.map((node): LonLat => [node.lon, node.lat]);
+  if (focus.kind === 'all') return { points: all, regionOnly: false };
+  const near = all.filter(([lon, lat]) =>
+    focus.centers.some(
+      ([centerLon, centerLat]) =>
+        (calculateDistance(lat, lon, centerLat, centerLon) ?? Infinity) <= LIVE_REGION_RADIUS_KM
+    )
+  );
+  return near.length > 0
+    ? { points: near, regionOnly: false }
+    : { points: focus.centers, regionOnly: true };
 }
 
 export function selectCatchup(newIds: string[], max: number = MAX_LIVE_CATCHUP): Set<string> {
