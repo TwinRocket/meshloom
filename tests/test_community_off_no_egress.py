@@ -2,9 +2,10 @@
 
 Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
-``/api/community``, ``/api/directory`` and ``/api/tools`` is called (found
-dynamically from ``app.routes``), plus the hashtag catalogue and the update
-check with GitHub answering 503. Any request to ``*.meshloom.app``,
+``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
+``/api/settings`` and ``/api/updates`` is called (found dynamically from
+``app.routes``), plus the hashtag catalogue and the update check with GitHub
+answering 503. Any request to ``*.meshloom.app``,
 ``api.fx-port.com`` or the effective Community API base fails the test.
 
 The transition tests cover the opt-out itself (on → off) and an IATA change:
@@ -279,6 +280,7 @@ _PATH_PARAMS = {
     "session_id": "session-1",
     "pubkey": "ab" * 32,
     "packet_hash": "AB" * 8,
+    "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
 }
 _QUERY = {
     "/api/community/airports": {"q": "Lyon", "locale": "fr"},
@@ -292,8 +294,34 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/directory/resolve-hops"): {"hops": ["abcd", "abcdef"]},
     ("POST", "/api/directory/packets/reach-counts"): {"hashes": ["AB" * 8]},
     ("POST", "/api/tools/mesh-test"): {"flood_scope": "#test"},
+    ("POST", "/api/channels"): {"name": "#meshcore"},
+    ("POST", "/api/channels/bulk-hashtag"): {"channel_names": ["#meshcore"]},
+    ("POST", "/api/channels/{key}/flood-scope-override"): {"flood_scope_override": ""},
+    ("POST", "/api/channels/{key}/path-hash-mode-override"): {"path_hash_mode_override": None},
+    ("PATCH", "/api/settings"): {},
+    ("POST", "/api/settings/favorites/toggle"): {"type": "contact", "id": "ab" * 32},
+    ("POST", "/api/settings/pins/toggle"): {"type": "contact", "id": "ab" * 32},
+    ("POST", "/api/settings/muted-channels/toggle"): {"key": _PATH_PARAMS["key"]},
+    ("POST", "/api/settings/blocked-keys/toggle"): {"key": "ab" * 32},
+    ("POST", "/api/settings/blocked-names/toggle"): {"name": "Bob"},
+    ("POST", "/api/settings/tracked-telemetry/toggle"): {"public_key": "ab" * 32},
+    ("POST", "/api/settings/tracked-telemetry-contacts/toggle"): {"public_key": "ab" * 32},
+    ("POST", "/api/settings/notification-destinations/test"): {"channel": "webhook"},
+    ("POST", "/api/settings/backup/restore"): {"confirm": True},
+    ("PATCH", "/api/updates/settings"): {},
 }
-_SWEPT_PREFIXES = ("/api/community", "/api/directory", "/api/tools")
+_SWEPT_PREFIXES = (
+    "/api/community",
+    "/api/directory",
+    "/api/tools",
+    "/api/channels",
+    "/api/settings",
+    "/api/updates",
+)
+
+
+# Local only, and needs the on-disk database the test fixture does not open.
+_NOT_SWEPT = {("GET", "/api/settings/backup/database")}
 
 
 def _walk_routes(routes: list[Any], prefix: str = "") -> list[tuple[str, APIRoute]]:
@@ -316,7 +344,8 @@ def _swept_routes() -> list[tuple[str, str]]:
         if not path.startswith(_SWEPT_PREFIXES):
             continue
         for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
-            out.append((method, path))
+            if (method, path) not in _NOT_SWEPT:
+                out.append((method, path))
     return out
 
 
@@ -327,7 +356,10 @@ class TestCommunityOffNoEgress:
         assert "/api/community/airports" in paths
         assert "/api/directory/packets/{packet_hash}/reach" in paths
         assert "/api/tools/mesh-test" in paths
-        assert len(routes) >= 20
+        assert "/api/channels/{key}/adopt" in paths
+        assert "/api/settings" in paths
+        assert "/api/updates/refresh" in paths
+        assert len(routes) >= 50
 
     @pytest.mark.asyncio
     async def test_no_community_or_airport_egress_when_off(
