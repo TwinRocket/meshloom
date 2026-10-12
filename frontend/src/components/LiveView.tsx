@@ -273,9 +273,11 @@ export function LiveView({
   }, [iataSelectionKey]);
 
   // Opening Live, or choosing regions, frames the chosen regions, not the world.
+  // The airport search is Community's: nothing is asked while it is off, and
+  // turning it back on frames the regions again.
   useEffect(() => {
     const selection = iataSelectionRef.current;
-    if (selection === null) {
+    if (selection === null || !communityEnabled) {
       engineRef.current?.setCameraFocus({ kind: 'all' }, { reframe: true });
       return;
     }
@@ -292,7 +294,7 @@ export function LiveView({
     return () => {
       cancelled = true;
     };
-  }, [iataSelectionKey]);
+  }, [iataSelectionKey, communityEnabled]);
 
   // Community's active regions feed the picker. Nothing is asked while it is off.
   useEffect(() => {

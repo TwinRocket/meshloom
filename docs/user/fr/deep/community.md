@@ -54,7 +54,7 @@ La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquem
 - le flux Live se ferme, et les requêtes Community encore en cours sont annulées ;
 - les compteurs « entendu par » et le test radio indiquent que Community est désactivé au lieu d’afficher un résultat vide.
 
-Changer le code IATA efface de la même façon l’état laissé sous l’ancien code, avec la même reprise unique si le broker est injoignable. Arrêter ou redémarrer Meshloom marque le nœud `offline`. Rejoindre de nouveau avec le même code annule une reprise en attente : l’état redevient le vôtre.
+Changer le code IATA efface de la même façon l’état laissé sous l’ancien code, avec la même reprise unique si le broker est injoignable : l’ancien état est d’abord effacé, puis Community enregistre le nouveau code, et alors seulement Meshloom se reconnecte avec lui. Si Community refuse le nouveau code, votre nœud repasse en ligne sous l’ancien. Arrêter ou redémarrer Meshloom marque le nœud `offline`. Si le code ou le broker change pendant que Meshloom est arrêté (par `MESHLOOM_COMMUNITY_IATA`, par exemple), ou si Community est désactivé entre-temps, l’état laissé sous l’ancien code est effacé au démarrage suivant, avec la même reprise unique. Rejoindre de nouveau avec le même code annule une reprise en attente : l’état redevient le vôtre.
 
 **Community désactivé ne veut pas dire zéro trafic réseau.** Ceci continue :
 
@@ -63,7 +63,7 @@ Changer le code IATA efface de la même façon l’état laissé sous l’ancien
 - les e-mails d’alerte partent par le serveur de messagerie que vous avez configuré. Le logo de Meshloom est inclus dans l’e-mail : l’ouvrir ne charge rien depuis `meshloom.app` ;
 - les fonds de carte sont chargés par votre navigateur chez leurs fournisseurs (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
-La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre serveur) fait partie de Community : désactivé, elle n’est jamais appelée, et vous saisissez vous-même le code à trois lettres. La page Live s’en sert aussi pour placer les régions choisies sur la carte, une fois par code tant que la page reste ouverte.
+La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre serveur) fait partie de Community : désactivé, elle n’est jamais appelée, et vous saisissez vous-même le code à trois lettres. La page Live s’en sert aussi pour placer les régions choisies sur la carte, une fois par code tant que la page reste ouverte, et seulement quand Community est activé.
 
 ## Dans l’interface
 

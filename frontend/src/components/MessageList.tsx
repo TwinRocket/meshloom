@@ -2058,6 +2058,7 @@ export function MessageList({
         contacts={contacts}
         config={config ?? null}
         resendableIds={resendableIds}
+        directoryEnabled={directoryEnabled}
         onResend={onResendChannelMessage}
         onAnalyzePacket={(messageId) => {
           const message = messages.find((entry) => entry.id === messageId);

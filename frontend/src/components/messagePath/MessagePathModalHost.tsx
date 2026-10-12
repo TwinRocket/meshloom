@@ -19,6 +19,8 @@ interface MessagePathModalHostProps {
   contacts: Contact[];
   config: RadioConfig | null;
   resendableIds: Set<number>;
+  /** Community directory available: unknown hops may be looked up there. */
+  directoryEnabled?: boolean;
   onResend?: (messageId: number, newTimestamp?: boolean) => void;
   onAnalyzePacket?: (messageId?: number) => void;
 }
@@ -27,7 +29,7 @@ export const MessagePathModalHost = forwardRef<
   MessagePathModalHostHandle,
   MessagePathModalHostProps
 >(function MessagePathModalHost(
-  { contacts, config, resendableIds, onResend, onAnalyzePacket },
+  { contacts, config, resendableIds, directoryEnabled = false, onResend, onAnalyzePacket },
   ref
 ) {
   const [selectedPath, setSelectedPath] = useState<MessagePathSelection | null>(null);
@@ -53,6 +55,7 @@ export const MessagePathModalHost = forwardRef<
       senderInfo={selectedPath.senderInfo}
       contacts={contacts}
       config={config}
+      directoryEnabled={directoryEnabled}
       messageId={selectedPath.messageId}
       packetId={selectedPath.packetId}
       isOutgoingChan={selectedPath.isOutgoingChan}

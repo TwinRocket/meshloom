@@ -473,6 +473,16 @@ class TestPollCadence:
             assert await oss_updates.poll_interval_seconds() == 300
 
     @pytest.mark.asyncio
+    async def test_interval_is_6h_when_the_community_state_is_unreadable(self):
+        from app.services import oss_updates
+
+        with patch(
+            "app.services.meshloom_community.get_community_effective",
+            new=AsyncMock(side_effect=RuntimeError("database is locked")),
+        ):
+            assert await oss_updates.poll_interval_seconds() == 6 * 3600
+
+    @pytest.mark.asyncio
     async def test_opted_out_loop_checks_github_then_waits_6h(self):
         import asyncio
 

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsCommunitySection } from '../components/settings/SettingsCommunitySection';
 import { api, ApiError } from '../api';
 import i18n from '../i18n';
-import { setCommunityStatus } from '../stores/communityStore';
+import { resetCommunityStoreForTests, setCommunityStatus } from '../stores/communityStore';
 import type { CommunityStatus } from '../types';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
@@ -20,6 +20,7 @@ const offStatus: CommunityStatus = {
 
 describe('SettingsCommunitySection', () => {
   beforeEach(() => {
+    resetCommunityStoreForTests();
     vi.spyOn(api, 'getCommunity').mockResolvedValue(offStatus);
     vi.spyOn(api, 'updateCommunity').mockResolvedValue({
       ...offStatus,
@@ -185,7 +186,7 @@ describe('SettingsCommunitySection', () => {
     });
   });
 
-  it('persists IATA before bind when already enabled', async () => {
+  it('changes the IATA in one bind call, saved by the backend after Community accepts it', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       ...offStatus,
       enabled: true,
@@ -205,9 +206,23 @@ describe('SettingsCommunitySection', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.community.bind') }));
 
     await waitFor(() => {
-      expect(api.updateCommunity).toHaveBeenCalledWith({ iata: 'LYS' });
       expect(api.bindCommunityIata).toHaveBeenCalledWith({ iata: 'LYS' });
     });
+    // No PATCH first: it would reconnect with the new IATA before Community
+    // binds it (and before the old region's status is cleared).
+    expect(api.updateCommunity).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.getCommunity).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows the store status at once', async () => {
+    act(() => {
+      setCommunityStatus({ ...offStatus, enabled: true, iata: 'NCE' });
+    });
+    vi.mocked(api.getCommunity).mockReturnValue(new Promise(() => {}));
+    render(<SettingsCommunitySection />);
+
+    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+    expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('NCE');
   });
 
   it('surfaces the IATA change cap on 429', async () => {

@@ -15,6 +15,7 @@ import {
 import { resetRawPacketStore } from '../stores/rawPacketStore';
 import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
 import { LIVE_IATA_STORAGE_KEY } from '../utils/liveIataPreference';
+import { resetLocatedLiveRegions } from '../utils/liveRegionCenters';
 import { LiveSoundEngine } from '../utils/liveSound';
 
 vi.mock('../api', () => ({
@@ -198,10 +199,37 @@ describe('LiveView', () => {
   });
 
   it('asks Community for nothing while it is off', async () => {
+    vi.mocked(api.searchCommunityAirports).mockClear();
     render(<LiveView contacts={[]} config={null} communityEnabled={false} communityIata="LYS" />);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(api.subscribeCommunityLive).not.toHaveBeenCalled();
     expect(api.getCommunityActiveIata).not.toHaveBeenCalled();
+    expect(api.searchCommunityAirports).not.toHaveBeenCalled();
+  });
+
+  it('frames the regions again when Community comes back on, without a reload', async () => {
+    resetLocatedLiveRegions();
+    vi.mocked(api.searchCommunityAirports).mockClear();
+    vi.mocked(api.searchCommunityAirports).mockResolvedValue([
+      {
+        iata: 'LYS',
+        name: 'Lyon',
+        city: 'Lyon',
+        country: 'FR',
+        label: 'LYS',
+        lat: 45.72,
+        lon: 5.08,
+      },
+    ]);
+    const { rerender } = render(
+      <LiveView contacts={[]} config={null} communityEnabled={false} communityIata="LYS" />
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.searchCommunityAirports).not.toHaveBeenCalled();
+
+    rerender(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    await waitFor(() => expect(api.searchCommunityAirports).toHaveBeenCalledWith('LYS'));
+    vi.mocked(api.searchCommunityAirports).mockResolvedValue([]);
   });
 
   it('does not show a 24h inactive banner or Relancer when 4002 is set', () => {

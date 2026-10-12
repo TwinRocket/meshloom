@@ -54,7 +54,7 @@ Your radio's private key never leaves your machine. It is only used to sign the 
 - the Live feed closes, and Community requests still in flight are cancelled;
 - the "heard by" counts and the radio test say Community is off instead of showing an empty result.
 
-Changing the IATA code clears the status left under the old code the same way, with the same single retry if the broker cannot be reached. Stopping or restarting Meshloom marks the node `offline`. Joining again with the same code cancels a pending retry: the status is yours to publish again.
+Changing the IATA code clears the status left under the old code the same way, with the same single retry if the broker cannot be reached: first the old status is cleared, then Community records the new code, and only then does Meshloom reconnect under it. If Community refuses the new code, your node goes back online under the old one. Stopping or restarting Meshloom marks the node `offline`. If the code or the broker changes while Meshloom is stopped (`MESHLOOM_COMMUNITY_IATA`, for instance), or Community is turned off meanwhile, the status left under the old code is cleared at the next start, with the same single retry. Joining again with the same code cancels a pending retry: the status is yours to publish again.
 
 **Community off does not mean no network traffic at all.** These still happen:
 
@@ -63,7 +63,7 @@ Changing the IATA code clears the status left under the old code the same way, w
 - alert emails leave through the mail server you set up. The Meshloom logo is inside the email, so opening one loads nothing from `meshloom.app`;
 - the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
-The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself. The Live page also uses it to place the chosen regions on the map, once per code while the page stays open.
+The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself. The Live page also uses it to place the chosen regions on the map, once per code while the page stays open, and only while Community is on.
 
 ## In the interface
 

@@ -2,19 +2,23 @@
 
 Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
-``/api/community``, ``/api/directory`` and ``/api/tools`` is called (found
-dynamically from ``app.routes``), plus the hashtag catalogue and the update
-check with GitHub answering 503. Any request to ``*.meshloom.app``,
+``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
+``/api/settings`` and ``/api/updates`` is called (found dynamically from
+``app.routes``), plus the hashtag catalogue and the update check with GitHub
+answering 503. Any request to ``*.meshloom.app``,
 ``api.fx-port.com`` or the effective Community API base fails the test.
 
 The transition tests cover the opt-out itself (on → off) and an IATA change:
 the retained MQTT status is cleared before the DISCONNECT, the Live socket is
-closed, requests in flight are cancelled, and nothing leaves afterwards.
+closed, requests in flight are cancelled, and nothing leaves afterwards. They
+also run when the update fails or is cancelled halfway, and an IATA bind
+clears the old status before ``PUT /v1/me/iata`` and before the reconnect.
 
 The one exception, ``TestRetainedStatusClear``: when the broker was unreachable
 at the opt-out, one bounded reconnect clears the retained status, and that
 connection carries only the empty retained payload. Nothing else connects,
-and nothing at all once it succeeded or gave up.
+and nothing at all once it succeeded or gave up. ``TestOrphanedStatusAtStartup``
+uses the same clear for a topic left behind while the app was stopped.
 """
 
 from __future__ import annotations
@@ -91,6 +95,8 @@ class EgressRecorder:
         self.ws_connects = True
         self.sockets: list[FakeLiveSocket] = []
         self.mqtt_clients: list[FakeMqttClient] = []
+        # Path -> canned answer from Community (everything else gets a 503).
+        self.responses: dict[str, httpx.Response] = {}
 
     def hosts(self, since: int = 0) -> list[str]:
         out: list[str] = []
@@ -108,6 +114,9 @@ class EgressRecorder:
             return httpx.Response(503)
         if self.http_gate is not None:
             await self.http_gate.wait()
+        canned = self.responses.get(request.url.path)
+        if canned is not None:
+            return httpx.Response(canned.status_code, content=canned.content)
         return httpx.Response(503)
 
 
@@ -271,6 +280,7 @@ _PATH_PARAMS = {
     "session_id": "session-1",
     "pubkey": "ab" * 32,
     "packet_hash": "AB" * 8,
+    "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
 }
 _QUERY = {
     "/api/community/airports": {"q": "Lyon", "locale": "fr"},
@@ -284,8 +294,34 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/directory/resolve-hops"): {"hops": ["abcd", "abcdef"]},
     ("POST", "/api/directory/packets/reach-counts"): {"hashes": ["AB" * 8]},
     ("POST", "/api/tools/mesh-test"): {"flood_scope": "#test"},
+    ("POST", "/api/channels"): {"name": "#meshcore"},
+    ("POST", "/api/channels/bulk-hashtag"): {"channel_names": ["#meshcore"]},
+    ("POST", "/api/channels/{key}/flood-scope-override"): {"flood_scope_override": ""},
+    ("POST", "/api/channels/{key}/path-hash-mode-override"): {"path_hash_mode_override": None},
+    ("PATCH", "/api/settings"): {},
+    ("POST", "/api/settings/favorites/toggle"): {"type": "contact", "id": "ab" * 32},
+    ("POST", "/api/settings/pins/toggle"): {"type": "contact", "id": "ab" * 32},
+    ("POST", "/api/settings/muted-channels/toggle"): {"key": _PATH_PARAMS["key"]},
+    ("POST", "/api/settings/blocked-keys/toggle"): {"key": "ab" * 32},
+    ("POST", "/api/settings/blocked-names/toggle"): {"name": "Bob"},
+    ("POST", "/api/settings/tracked-telemetry/toggle"): {"public_key": "ab" * 32},
+    ("POST", "/api/settings/tracked-telemetry-contacts/toggle"): {"public_key": "ab" * 32},
+    ("POST", "/api/settings/notification-destinations/test"): {"channel": "webhook"},
+    ("POST", "/api/settings/backup/restore"): {"confirm": True},
+    ("PATCH", "/api/updates/settings"): {},
 }
-_SWEPT_PREFIXES = ("/api/community", "/api/directory", "/api/tools")
+_SWEPT_PREFIXES = (
+    "/api/community",
+    "/api/directory",
+    "/api/tools",
+    "/api/channels",
+    "/api/settings",
+    "/api/updates",
+)
+
+
+# Local only, and needs the on-disk database the test fixture does not open.
+_NOT_SWEPT = {("GET", "/api/settings/backup/database")}
 
 
 def _walk_routes(routes: list[Any], prefix: str = "") -> list[tuple[str, APIRoute]]:
@@ -308,7 +344,8 @@ def _swept_routes() -> list[tuple[str, str]]:
         if not path.startswith(_SWEPT_PREFIXES):
             continue
         for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
-            out.append((method, path))
+            if (method, path) not in _NOT_SWEPT:
+                out.append((method, path))
     return out
 
 
@@ -319,7 +356,10 @@ class TestCommunityOffNoEgress:
         assert "/api/community/airports" in paths
         assert "/api/directory/packets/{packet_hash}/reach" in paths
         assert "/api/tools/mesh-test" in paths
-        assert len(routes) >= 20
+        assert "/api/channels/{key}/adopt" in paths
+        assert "/api/settings" in paths
+        assert "/api/updates/refresh" in paths
+        assert len(routes) >= 50
 
     @pytest.mark.asyncio
     async def test_no_community_or_airport_egress_when_off(
@@ -548,6 +588,192 @@ class TestOptOutTransition:
         assert get_live_relay()._reader_task is None
 
 
+class TestTransitionsSurviveFailures:
+    """The teardown (and the status move) run even when the update itself fails."""
+
+    @pytest.mark.asyncio
+    async def test_opt_out_tears_down_when_a_reset_raises(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        socket = egress.sockets[-1]
+
+        with (
+            patch(
+                "app.services.directory.reset_directory_nodes_cache",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await update_community(enabled=False)
+
+        assert (await get_community_effective()).enabled is False
+        assert _clear("CDG") in egress.events
+        assert socket.closed.is_set()
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+        assert _open_mqtt_connections(egress) == 0
+
+    @pytest.mark.asyncio
+    async def test_opt_out_tears_down_when_the_caller_is_cancelled(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.repository.settings import AppSettingsRepository
+
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        socket = egress.sockets[-1]
+
+        real_write = AppSettingsRepository.update_community
+        written = asyncio.Event()
+
+        async def write_then_hang(**kwargs: Any) -> None:
+            await real_write(**kwargs)
+            written.set()
+            await asyncio.sleep(3600)
+
+        with patch.object(AppSettingsRepository, "update_community", write_then_hang):
+            task = asyncio.create_task(update_community(enabled=False))
+            await asyncio.wait_for(written.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert _clear("CDG") in egress.events
+        assert socket.closed.is_set()
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+        mark = len(egress.events)
+        await fanout_manager.sync_system_modules()
+        await subscribe_live()
+        await asyncio.sleep(0.05)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_teardown_finishes_when_cancelled_midway(
+        self, test_db, egress, cleanup_community
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        real_cancel = meshloom_community._cancel_inflight_requests
+        started = asyncio.Event()
+
+        async def slow_cancel() -> None:
+            started.set()
+            await asyncio.sleep(0.2)
+            await real_cancel()
+
+        with patch.object(meshloom_community, "_cancel_inflight_requests", slow_cancel):
+            task = asyncio.create_task(update_community(enabled=False))
+            await asyncio.wait_for(started.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        # The cancellation waited for the whole teardown.
+        assert _clear("CDG") in egress.events
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+
+    @pytest.mark.asyncio
+    async def test_iata_change_moves_the_status_when_a_reset_raises(
+        self, test_db, egress, cleanup_community
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+
+        with (
+            patch(
+                "app.services.directory.reset_directory_nodes_cache",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await update_community(iata="LYS")
+
+        await _until(lambda: _online_published(egress, "LYS"))
+        assert _clear("CDG") in egress.events
+        assert _open_mqtt_connections(egress) == 1
+
+
+def _bind_ok(iata: str) -> httpx.Response:
+    body = {"iata": iata, "concordance": "ok", "honored_for_buckets": True}
+    return httpx.Response(200, content=json.dumps(body).encode())
+
+
+async def _put_me_iata(iata: str) -> httpx.Response:
+    from app.main import app
+
+    async with _RealAsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        return await client.put("/api/community/me/iata", json={"iata": iata})
+
+
+def _bind_at(events: list[tuple[Any, ...]]) -> int:
+    return next(i for i, e in enumerate(events) if e[0] == "http" and e[2] == "/v1/me/iata")
+
+
+class TestIataBindOrder:
+    """identity.md, Changing IATA: clear the old retained status, PUT, then reconnect."""
+
+    @pytest.mark.asyncio
+    async def test_old_status_cleared_before_the_put_and_the_reconnect(
+        self, test_db, egress, cleanup_community
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        egress.responses["/v1/me/iata"] = _bind_ok("LYS")
+
+        response = await _put_me_iata("LYS")
+        assert response.status_code == 200, response.text
+        await _until(lambda: _online_published(egress, "LYS"))
+
+        events = egress.events
+        clear_at = events.index(_clear("CDG"))
+        disconnect_at = events.index(("mqtt_disconnect",))
+        lys_online = next(
+            i
+            for i, e in enumerate(events)
+            if _status_of(e) == "online" and e[1] == _status_topic("LYS")
+        )
+        assert clear_at < disconnect_at < _bind_at(events) < lys_online
+        assert (await get_community_effective()).iata == "LYS"
+        assert await _pending() == []
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_bind_brings_the_old_topic_back(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        # No canned answer: Community answers 503.
+
+        response = await _put_me_iata("LYS")
+        assert response.status_code == 503, response.text
+        await _until(lambda: _open_mqtt_connections(egress) == 1)
+
+        events = egress.events
+        clear_at = events.index(_clear("CDG"))
+        back_online = max(
+            i
+            for i, e in enumerate(events)
+            if _status_of(e) == "online" and e[1] == _status_topic("CDG")
+        )
+        assert clear_at < _bind_at(events) < back_online
+        assert not _online_published(egress, "LYS")
+        assert (await get_community_effective()).iata == "CDG"
+        assert await _pending() == []
+
+    @pytest.mark.asyncio
+    async def test_same_iata_bind_keeps_the_status(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        egress.responses["/v1/me/iata"] = _bind_ok("CDG")
+
+        response = await _put_me_iata("CDG")
+        assert response.status_code == 200, response.text
+        assert _clear("CDG") not in egress.events
+
+
 def _stats_publisher() -> MeshloomStatsPublisher:
     module = fanout_manager._modules[SYSTEM_MESHLOOM_STATS_ID][0]
     return module._publisher  # type: ignore[attr-defined]
@@ -773,3 +999,145 @@ class TestRetainedStatusClear:
 async def stats_json_forbidden() -> None:
     with pytest.raises(HTTPException):
         await stats_json("GET", "/v1/community/stats", auth=False)
+
+
+async def _last_topic() -> str | None:
+    last = await community_status_clear.last_published()
+    return last.topic if last is not None else None
+
+
+async def _stop_app() -> None:
+    """A clean shutdown: the publisher says offline and disconnects."""
+    await fanout_manager.remove_config(SYSTEM_MESHLOOM_STATS_ID)
+    await community_status_clear.stop_status_clear_worker()
+
+
+async def _restart_app() -> None:
+    """The lifespan order: adopt or resume the status clear, then start fanout."""
+    await community_status_clear.start_status_clear_worker()
+    await fanout_manager.load_from_db()
+
+
+class TestOrphanedStatusAtStartup:
+    """A status topic left behind while the app was stopped is cleared at the next start."""
+
+    @pytest.mark.asyncio
+    async def test_the_publisher_remembers_its_topic(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+
+        await update_community(iata="LYS")
+        await _until(lambda: _online_published(egress, "LYS"))
+        await _until_async(lambda: _is_last_topic("LYS"))
+
+    @pytest.mark.asyncio
+    async def test_restart_with_another_iata_clears_the_old_topic(
+        self, test_db, egress, cleanup_community, fast_retries, monkeypatch
+    ):
+        fast_retries(0.0)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        await _stop_app()
+        assert _clear("CDG") not in egress.events  # a plain stop leaves "offline"
+
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "LYS")  # changed while stopped
+        mark = len(egress.events)
+        await _restart_app()
+        await _until(lambda: _online_published(egress, "LYS"))
+        await _until_async(_nothing_pending)
+
+        assert _clear("CDG") in egress.events[mark:]
+        assert _clear("LYS") not in egress.events
+        assert await _last_topic() == _status_topic("LYS")
+        from app.fanout import community_mqtt
+
+        token_iatas = [
+            c.kwargs.get("iata") for c in community_mqtt._generate_jwt_token.call_args_list
+        ]
+        assert "CDG" in token_iatas
+
+    @pytest.mark.asyncio
+    async def test_restart_with_community_off_clears_the_old_topic(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        from app.repository.settings import AppSettingsRepository
+
+        fast_retries(0.0)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        await _stop_app()
+        # Turned off while stopped (database edit, restore, crash before the teardown).
+        await AppSettingsRepository.update_community(enabled=False)
+
+        mark = len(egress.events)
+        await _restart_app()
+        await _until_async(_nothing_pending)
+        assert egress.events[mark:] == [
+            ("mqtt_connect", "mqtt.meshloom.app"),
+            _clear("CDG"),
+            ("mqtt_disconnect",),
+        ]
+        assert await _last_topic() is None
+        # Nothing ever again.
+        done = len(egress.events)
+        await _stop_app()
+        await _restart_app()
+        await asyncio.sleep(0.2)
+        assert egress.events[done:] == []
+
+    @pytest.mark.asyncio
+    async def test_restart_on_the_same_topic_clears_nothing(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(0.0)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        await _stop_app()
+
+        await _restart_app()
+        await _until(lambda: sum(_status_of(e) == "online" for e in egress.events) >= 2)
+        await asyncio.sleep(0.2)
+        assert _clear("CDG") not in egress.events
+        assert await _pending() == []
+
+    @pytest.mark.asyncio
+    async def test_a_cleared_opt_out_leaves_nothing_for_the_restart(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(0.0)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        await update_community(enabled=False)
+        assert _clear("CDG") in egress.events
+        assert await _last_topic() is None
+
+        mark = len(egress.events)
+        await _stop_app()
+        await _restart_app()
+        await asyncio.sleep(0.2)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_opt_out_without_the_radio_key_clears_the_remembered_topic(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(3600.0)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        egress.mqtt_connects = False
+        _stats_publisher().connected = False
+        with patch("app.keystore.get_public_key", return_value=None):
+            await update_community(enabled=False)
+        # The radio was away: the remembered topic stands in for its key.
+        assert await _pending_topics() == [_status_topic("CDG")]
+        assert await _last_topic() is None
+
+
+async def _is_last_topic(iata: str) -> bool:
+    return await _last_topic() == _status_topic(iata)

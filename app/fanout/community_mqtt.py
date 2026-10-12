@@ -586,7 +586,11 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         if self.connected:
             self._last_status_topic = status_topic
             self._last_status_identity = (device_name, pubkey_hex)
+            await self._on_status_retained(settings, pubkey_hex)
         self._last_status_publish = time.monotonic()
+
+    async def _on_status_retained(self, settings: CommunityMqttSettings, pubkey_hex: str) -> None:
+        """Hook: the retained ``online`` status went out on this connection."""
 
     async def _on_connected_async(self, settings: object) -> None:
         """Publish a retained online status message after connecting."""

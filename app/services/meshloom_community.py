@@ -18,9 +18,9 @@ import logging
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -29,9 +29,13 @@ from fastapi import HTTPException
 from app.background_tasks import spawn
 from app.data.meshcore_channels import hashtag_room_name
 from app.loop_lock import LoopBoundLock
-from app.models import CommunityAirportHit, CommunityStatus
+from app.models import CommunityAirportHit, CommunityIataBindResult, CommunityStatus
+
+if TYPE_CHECKING:
+    from app.services.community_status_clear import StatusClearTarget
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 SYSTEM_MESHLOOM_STATS_ID = "system:meshloom-stats"  # keep in sync with app.fanout.manager
 DEFAULT_BROKER_HOST = "mqtt.meshloom.app"
@@ -315,12 +319,92 @@ async def update_community(
         )
 
 
+async def bind_community_iata(
+    requested: str,
+    bind: Callable[[], Awaitable[CommunityIataBindResult]],
+) -> CommunityIataBindResult:
+    """Change the IATA through Community (``PUT /v1/me/iata``), then save it.
+
+    Order (Community identity contract, *Changing IATA*): Community's ``/authz``
+    ties a status topic to the IATA of the MQTT session (the JWT it connected
+    with), so the old retained status is cleared first, by the running session
+    still bound to the old IATA; then ``bind()`` calls ``PUT /v1/me/iata``; only
+    then does the publisher reconnect, with a JWT for the new IATA. If the bind
+    fails, the publisher comes back on the old topic.
+    """
+    async with _update_lock:
+        before = await get_community_effective()
+        target = _normalize_iata(requested)
+        # An env IATA wins over the database: the topic would not move.
+        retire_first = (
+            before.enabled
+            and bool(before.iata)
+            and not env_community_iata()
+            and target != before.iata
+        )
+        if retire_first:
+            await _run_to_completion(_retire_status_and_reload(before, restart=False))
+        try:
+            result = await bind()
+        except BaseException:
+            if retire_first:
+                await _run_to_completion(_restore_publisher())
+            raise
+        try:
+            await _update_community_locked(
+                enabled=None,
+                iata=result.iata,
+                broker_host=None,
+                api_base=None,
+                status_retired=retire_first,
+            )
+        except BaseException:
+            if retire_first:
+                await _run_to_completion(_restore_publisher())
+            raise
+        return result
+
+
+async def _restore_publisher() -> None:
+    """Start the publisher again after a failed IATA bind stopped it."""
+    from app.fanout.manager import fanout_manager
+
+    if not fanout_manager.has_system_module():
+        await _reload_system_publisher()
+    await _forget_pending_clear(await get_community_effective())
+
+
+async def _run_to_completion(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Await ``coro`` to its end, even if the caller is cancelled meanwhile.
+
+    A cancelled request or a dropped HTTP client must not leave half a
+    transition behind (database off, connections still up). The work runs as
+    a tracked task; a cancellation of the caller is held until it is done,
+    then raised. Only a cancellation of the work itself (shutdown drain) stops
+    it. Every step is bounded, so this never waits forever.
+    """
+    task = spawn(coro, name="community-transition")
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            cancelled = True
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 async def _update_community_locked(
     *,
     enabled: bool | None,
     iata: str | None,
     broker_host: str | None,
     api_base: str | None,
+    status_retired: bool = False,
 ) -> CommunityEffective:
     from app.repository.settings import AppSettingsRepository
 
@@ -345,31 +429,40 @@ async def _update_community_locked(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         else:
             next_api = ""
-    if before.enabled and enabled is False:
-        # Last call while Community is still on, before the DB flips.
-        await _bounded_step(
-            "opt-out last call", lambda: _announce_opt_out(before), OPT_OUT_LAST_CALL_TIMEOUT_S
+    opting_out = before.enabled and enabled is False
+    written = False
+    topic_moved = False
+    try:
+        if opting_out:
+            # Last call while Community is still on, before the DB flips.
+            await _bounded_step(
+                "opt-out last call", lambda: _announce_opt_out(before), OPT_OUT_LAST_CALL_TIMEOUT_S
+            )
+        await AppSettingsRepository.update_community(
+            enabled=enabled,
+            iata=next_iata if iata is not None else None,
+            broker_host=next_broker if broker_host is not None else None,
+            api_base=next_api if api_base is not None else None,
         )
-    await AppSettingsRepository.update_community(
-        enabled=enabled,
-        iata=next_iata if iata is not None else None,
-        broker_host=next_broker if broker_host is not None else None,
-        api_base=next_api if api_base is not None else None,
-    )
-    from app.services.directory import reset_directory_nodes_cache
-    from app.services.observer_reach import reset_observer_reach_cache
+        written = True
+        from app.services.directory import reset_directory_nodes_cache
+        from app.services.observer_reach import reset_observer_reach_cache
 
-    reset_directory_nodes_cache()
-    reset_observer_reach_cache()
+        reset_directory_nodes_cache()
+        reset_observer_reach_cache()
+    finally:
+        # Also on an exception or a cancellation above: the operator asked to
+        # leave (or the database already names a new topic), so the old
+        # connections must not stay up. Fail closed: an opt-out tears down
+        # even when the write itself failed.
+        if opting_out:
+            await _run_to_completion(community_teardown(before))
+        elif written and before.enabled:
+            topic_moved = await _run_to_completion(_move_status_topic(before, status_retired))
     state = await get_community_effective()
-    if before.enabled and not state.enabled:
-        await community_teardown(before)
+    if opting_out:
         return state
-    if before.enabled and state.enabled and _status_topic_moved(before, state):
-        # The old meshcore/{IATA}/{PUBKEY}/status (or old broker) would keep
-        # its retained "online" forever: clear it on the way out.
-        await _retire_status_and_reload(before)
-    else:
+    if not topic_moved:
         await _reload_system_publisher()
     await _forget_pending_clear(state)
     from app.services.community_live import get_live_relay, sync_community_live
@@ -384,6 +477,24 @@ async def _update_community_locked(
 
         nudge_oss_update_poll()
     return state
+
+
+async def _move_status_topic(before: CommunityEffective, already_retired: bool) -> bool:
+    """IATA or broker changed while on: clear the old status topic, then reconnect.
+
+    The old meshcore/{IATA}/{PUBKEY}/status (or old broker) would keep its
+    retained "online" forever. ``already_retired``: ``bind_community_iata``
+    cleared it and stopped the publisher before ``PUT /v1/me/iata``; only the
+    reconnect is left. Returns whether the topic moved (the publisher reloaded).
+    """
+    state = await get_community_effective()
+    if not (state.enabled and _status_topic_moved(before, state)):
+        return False
+    if already_retired:
+        await _reload_system_publisher()
+    else:
+        await _retire_status_and_reload(before)
+    return True
 
 
 def _live_target_moved(before: CommunityEffective, after: CommunityEffective) -> bool:
@@ -430,34 +541,64 @@ async def _run_steps(steps: list[tuple[str, Callable[[], Awaitable[object]]]]) -
         await _run_steps(steps[1:])
 
 
-async def _retire_status_and_reload(before: CommunityEffective | None) -> None:
+async def _retire_status_and_reload(
+    before: CommunityEffective | None, *, restart: bool = True
+) -> None:
     """Clear the retained status of ``before`` (before DISCONNECT), then reload.
 
     The topic is first saved as "clear pending"; it is forgotten once the
     publisher's empty retained payload is acknowledged. Otherwise (broker
     unreachable, publisher not connected) ``community_status_clear`` makes its
     single bounded retry, the only Community connection after an opt-out.
+    Without the radio key (radio away), the topic the publisher last recorded
+    stands in for it. ``restart=False`` stops the publisher without starting
+    it again (``bind_community_iata`` reconnects once Community has the new
+    IATA).
     """
     from app.fanout.manager import fanout_manager
     from app.services import community_status_clear
 
-    target = community_status_clear.target_for(before) if before is not None else None
+    target = None
+    if before is not None:
+        target = community_status_clear.target_for(before)
+        if target is None:
+            last = await _last_published_or_none()
+            if last is not None and (last.iata, last.broker_host) == (
+                before.iata,
+                before.broker_host,
+            ):
+                target = last
     if target is not None:
         try:
             await community_status_clear.mark_pending(target)
         except Exception:
             logger.warning("Could not save the pending Community status clear", exc_info=True)
     module = fanout_manager.retire_system_status()
-    await _reload_system_publisher()
+    if restart:
+        await _reload_system_publisher()
+    else:
+        await fanout_manager.stop_system_module()
     if target is None:
         return
     try:
+        # Pending now (or cleared): no longer the publisher's to remember.
+        await community_status_clear.forget_published(target)
         if getattr(module, "retired_status_topic", None) == target.topic:
             await community_status_clear.resolve(target)
         else:
             community_status_clear.schedule()
     except Exception:
         logger.warning("Could not update the pending Community status clear", exc_info=True)
+
+
+async def _last_published_or_none() -> StatusClearTarget | None:
+    from app.services import community_status_clear
+
+    try:
+        return await community_status_clear.last_published()
+    except Exception:
+        logger.warning("Could not read the last Community status topic", exc_info=True)
+        return None
 
 
 async def _forget_pending_clear(state: CommunityEffective) -> None:

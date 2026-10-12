@@ -4,7 +4,6 @@ import type {
   AppSettings,
   AppSettingsUpdate,
   Channel,
-  CommunityStatus,
   Contact,
   HealthStatus,
   OssUpdateSettingsPatch,
@@ -70,7 +69,6 @@ interface SettingsModalBaseProps {
   onToggleTrackedTelemetry?: (publicKey: string) => Promise<void>;
   trackedTelemetryContacts?: string[];
   onToggleTrackedTelemetryContact?: (publicKey: string) => Promise<void>;
-  onCommunityStatusChange?: (status: CommunityStatus) => void;
   updates?: OssUpdateStatus | null;
   onOpenUpdate?: () => void;
   onOpenUpdates?: () => void;
@@ -123,7 +121,6 @@ export function SettingsModal(props: SettingsModalProps) {
     onToggleTrackedTelemetry,
     trackedTelemetryContacts,
     onToggleTrackedTelemetryContact,
-    onCommunityStatusChange,
     updates,
     onOpenUpdates,
     onApplyUpdate,
@@ -336,10 +333,7 @@ export function SettingsModal(props: SettingsModalProps) {
         <section className={sectionWrapperClass}>
           {renderSectionHeader('community')}
           {isSectionVisible('community') && (
-            <SettingsCommunitySection
-              className={sectionContentClass}
-              onStatusChange={onCommunityStatusChange}
-            />
+            <SettingsCommunitySection className={sectionContentClass} />
           )}
         </section>
       )}

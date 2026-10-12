@@ -1,3 +1,4 @@
+import { getCommunitySnapshot, subscribeCommunity } from '../stores/communityStore';
 import type { CommunityAirportHit } from '../types';
 
 /** `[lon, lat]`, as the Live map takes them. */
@@ -8,12 +9,22 @@ type AirportSearch = (query: string) => Promise<CommunityAirportHit[]>;
 /** Airports do not move: one lookup per code for the life of the page. */
 const located = new Map<string, RegionCenter | null>();
 
+// Community turned (back) on: forget what was looked up before, so a lookup
+// made while it was off or unreachable never sticks.
+let communityWasEnabled = getCommunitySnapshot().enabled;
+subscribeCommunity(() => {
+  const enabled = getCommunitySnapshot().enabled;
+  if (enabled === true && communityWasEnabled !== true) located.clear();
+  communityWasEnabled = enabled;
+});
+
 /**
  * Where the selected Live regions are, from their IATA airport.
  *
  * Codes the search does not place exactly are left out, so the result can be
  * shorter than `codes`, or empty (Community off, search down). A failed request
- * is not remembered, so the next opening asks again.
+ * or an empty answer (what the backend sends while Community is off) is not
+ * remembered, so the next opening asks again.
  */
 export async function locateLiveRegions(
   codes: readonly string[],
@@ -23,7 +34,9 @@ export async function locateLiveRegions(
     codes.map(async (code): Promise<RegionCenter | null> => {
       if (located.has(code)) return located.get(code) ?? null;
       try {
-        const hit = (await search(code)).find((candidate) => candidate.iata === code);
+        const hits = await search(code);
+        if (hits.length === 0) return null;
+        const hit = hits.find((candidate) => candidate.iata === code);
         const center: RegionCenter | null =
           hit && Number.isFinite(hit.lat) && Number.isFinite(hit.lon)
             ? [hit.lon as number, hit.lat as number]

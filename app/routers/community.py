@@ -28,6 +28,7 @@ from app.services.community_live import (
     unsubscribe_live,
 )
 from app.services.meshloom_community import (
+    bind_community_iata,
     community_status,
     radio_gps_or_none,
     search_community_airports,
@@ -80,12 +81,17 @@ async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult
     if lat is not None and lon is not None:
         json_body["lat"] = lat
         json_body["lon"] = lon
-    payload = await stats_json("PUT", "/v1/me/iata", auth=True, json_body=json_body, iata=body.iata)
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
-    result = CommunityIataBindResult.model_validate(payload)
-    await update_community(iata=result.iata)
-    return result
+
+    async def bind() -> CommunityIataBindResult:
+        payload = await stats_json(
+            "PUT", "/v1/me/iata", auth=True, json_body=json_body, iata=body.iata
+        )
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="Community returned an unexpected body")
+        return CommunityIataBindResult.model_validate(payload)
+
+    # Clears the old retained status first, then binds, then reconnects.
+    return await bind_community_iata(body.iata, bind)
 
 
 @router.post("/me/iata/override", response_model=CommunityIataBindResult)

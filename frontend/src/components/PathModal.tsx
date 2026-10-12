@@ -36,6 +36,8 @@ interface PathModalProps {
   senderInfo: SenderInfo;
   contacts: Contact[];
   config: RadioConfig | null;
+  /** Community directory available. Off: unknown hops stay unknown, nothing is asked. */
+  directoryEnabled?: boolean;
   messageId?: number;
   packetId?: number | null;
   isOutgoingChan?: boolean;
@@ -51,6 +53,7 @@ export function PathModal({
   senderInfo,
   contacts,
   config,
+  directoryEnabled = false,
   messageId,
   packetId,
   isOutgoingChan,
@@ -77,7 +80,7 @@ export function PathModal({
   const hasSinglePath = paths.length === 1;
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !directoryEnabled) {
       setDirectoryHits({});
       return;
     }
@@ -106,7 +109,7 @@ export function PathModal({
     return () => {
       cancelled = true;
     };
-  }, [open, paths, senderInfo, contacts, config]);
+  }, [open, directoryEnabled, paths, senderInfo, contacts, config]);
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>

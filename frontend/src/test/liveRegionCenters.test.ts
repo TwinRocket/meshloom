@@ -1,14 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { CommunityAirportHit } from '../types';
+import {
+  resetCommunityStoreForTests,
+  seedCommunityEnabled,
+  setCommunityStatus,
+} from '../stores/communityStore';
+import type { CommunityAirportHit, CommunityStatus } from '../types';
 import { locateLiveRegions, resetLocatedLiveRegions } from '../utils/liveRegionCenters';
 
 function hit(iata: string, lat: number | null, lon: number | null): CommunityAirportHit {
   return { iata, name: iata, city: '', country: '', label: iata, lat, lon };
 }
 
+function status(enabled: boolean): CommunityStatus {
+  return { enabled } as CommunityStatus;
+}
+
 describe('locateLiveRegions', () => {
-  afterEach(() => resetLocatedLiveRegions());
+  afterEach(() => {
+    resetLocatedLiveRegions();
+    resetCommunityStoreForTests();
+  });
 
   it('places each code at its own airport, not at a fuzzy match', async () => {
     const search = vi.fn(async (query: string) =>
@@ -34,5 +46,30 @@ describe('locateLiveRegions', () => {
       .mockResolvedValueOnce([hit('LYS', 45.72, 5.08)]);
     expect(await locateLiveRegions(['LYS'], search)).toEqual([]);
     expect(await locateLiveRegions(['LYS'], search)).toEqual([[5.08, 45.72]]);
+  });
+
+  it('does not remember an empty answer (Community off)', async () => {
+    const search = vi
+      .fn<(query: string) => Promise<CommunityAirportHit[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([hit('LYS', 45.72, 5.08)]);
+    expect(await locateLiveRegions(['LYS'], search)).toEqual([]);
+    expect(await locateLiveRegions(['LYS'], search)).toEqual([[5.08, 45.72]]);
+    expect(search).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets every lookup when Community comes back on', async () => {
+    seedCommunityEnabled(false);
+    const search = vi
+      .fn<(query: string) => Promise<CommunityAirportHit[]>>()
+      .mockResolvedValueOnce([hit('LYS', null, null)])
+      .mockResolvedValueOnce([hit('LYS', 45.72, 5.08)]);
+    expect(await locateLiveRegions(['LYS'], search)).toEqual([]);
+    expect(await locateLiveRegions(['LYS'], search)).toEqual([]);
+    expect(search).toHaveBeenCalledTimes(1);
+
+    setCommunityStatus(status(true));
+    expect(await locateLiveRegions(['LYS'], search)).toEqual([[5.08, 45.72]]);
+    expect(search).toHaveBeenCalledTimes(2);
   });
 });

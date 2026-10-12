@@ -6,6 +6,7 @@ _MODULE_TYPES / fanout_configs. Coexists with a user LetsMesh mqtt_community row
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from typing import Any
 
@@ -24,6 +25,8 @@ from app.services.meshloom_community import (
     SYSTEM_MESHLOOM_STATS_ID,
     get_community_effective,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _state_to_settings(state: Any) -> SimpleNamespace:
@@ -78,6 +81,23 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
             self.connected = False
             return False
         return await super()._pre_connect(settings)
+
+    async def _on_status_retained(self, settings: Any, pubkey_hex: str) -> None:
+        """Remember the topic, so a restart with another IATA can clear it."""
+        from app.services.community_status_clear import StatusClearTarget, note_published
+
+        broker = getattr(settings, "community_mqtt_broker_host", "") or DEFAULT_BROKER_HOST
+        audience = (getattr(settings, "community_mqtt_token_audience", "") or "").strip()
+        target = StatusClearTarget(
+            iata=(getattr(settings, "community_mqtt_iata", "") or "").upper().strip(),
+            broker_host=broker,
+            audience=audience or broker,
+            pubkey=pubkey_hex,
+        )
+        try:
+            await note_published(target)
+        except Exception:
+            logger.warning("Could not record the Community status topic", exc_info=True)
 
     def _on_not_configured(self) -> None:
         # No IATA nag — LetsMesh mqtt_community already owns that prompt.
