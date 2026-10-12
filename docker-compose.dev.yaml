@@ -1,4 +1,6 @@
 # Portainer GitOps: Compose path = docker-compose.dev.yaml
+# Portainer never deletes files removed upstream; the build tolerates them
+# (README_ADVANCED.md, "Portainer GitOps").
 # Load the same keys via a .env (local) or the stack Environment section (Portainer).
 # Radio transport is configured in the web UI (app_settings), not here.
 services:

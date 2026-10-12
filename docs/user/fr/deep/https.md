@@ -5,34 +5,34 @@ level: deep
 order: 13
 ---
 
-Meshloom fonctionne en HTTP simple, et pour un accès local ça suffit. Trois fonctionnalités changent la donne et réclament HTTPS.
+Meshloom fonctionne en HTTP simple, et pour un accès local cela suffit. Trois fonctionnalités demandent plus.
 
 ## Ce qui exige HTTPS
 
-Le navigateur réserve certaines API à ce qu’il appelle un contexte sécurisé (*secure context*) : une page servie en HTTPS, ou servie depuis `localhost`. Une page servie en HTTP simple sur une adresse IP du réseau local n’est pas un contexte sécurisé.
+Les navigateurs réservent certaines fonctions à un **contexte sécurisé** : une page servie en HTTPS, ou depuis `localhost`. Une page servie en HTTP simple depuis une adresse du réseau local, comme `192.168.1.20`, n’est pas un contexte sécurisé.
 
-Conséquences concrètes :
+Sur une telle page :
 
-- La recherche de clés de salon par WebGPU ne fonctionne pas hors `localhost` sans HTTPS.
-- Les [notifications push](/docs/deep/push/) exigent HTTPS. Le service worker n’est enregistré que sur un contexte sécurisé.
-- L’authentification HTTP Basic optionnelle envoie les identifiants en clair sans TLS. Elle n’a de sens que derrière HTTPS. Voir [Sécurité](/docs/deep/security/).
+- La recherche par force brute du chercheur de canaux ne fonctionne pas, car elle a besoin de WebGPU. La page le signale.
+- Les [notifications push](/docs/deep/push/) ne fonctionnent pas, car elles ont besoin d’un service worker, que les navigateurs n’autorisent qu’en contexte sécurisé. **Réglages → Notifications** indique que le push exige HTTPS.
+- L’authentification HTTP Basic facultative enverrait le mot de passe en clair. Voir [Sécurité](/docs/deep/security/).
 
-Un certificat auto-signé fait l’affaire dans les trois cas.
+Un certificat auto-signé (que vous avez fabriqué vous-même) suffit à rendre la page sécurisée, ce qui suffit au chercheur de canaux. Pour le push, il faut en plus que votre navigateur accepte le certificat. Meshloom prévient que la livraison peut être peu fiable avec un certificat non approuvé, selon le navigateur. Un certificat que vos appareils approuvent, comme ceux de [mkcert](https://github.com/FiloSottile/mkcert), évite le problème.
 
 ## Certificat local et uvicorn
 
-Générez la paire, puis lancez le backend avec les deux fichiers :
+Uvicorn est le programme qui sert Meshloom. Fabriquez un certificat, puis lancez-le avec les deux fichiers :
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
-Le navigateur affichera un avertissement, puisque le certificat n’est signé par personne de connu. Il faut l’accepter une fois. Pour éviter l’avertissement, [mkcert](https://github.com/FiloSottile/mkcert) génère des certificats localement approuvés.
+Le navigateur affiche un avertissement, puisque personne de connu n’a signé le certificat. Acceptez-le une fois. [mkcert](https://github.com/FiloSottile/mkcert) fabrique des certificats que vos propres appareils approuvent, ce qui supprime l’avertissement.
 
 ## Docker Compose
 
-Générez le certificat sur l’hôte, montez-le dans le conteneur, et remplacez la commande de lancement :
+Fabriquez le certificat sur l’hôte, montez-le dans le conteneur et remplacez la commande de lancement :
 
 ```yaml
 services:
@@ -44,28 +44,24 @@ services:
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
 ```
 
-Les deux montages sont en lecture seule. Le `command` écrase celui de l’image, donc il doit contenir l’intégralité de la ligne, hôte et port compris.
+Les montages du certificat sont en lecture seule. `command` remplace celle de l’image : elle doit donc contenir toute la ligne, hôte et port compris.
 
 ## Reverse-proxy sur un sous-chemin
 
-Meshloom accepte d’être servi sous un préfixe, par exemple `/meshcore/`, y compris via l’ingress Home Assistant. Tous les chemins d’assets frontend et d’API sont relatifs, donc ils se résolvent correctement sous n’importe quel préfixe.
+Meshloom peut être servi sous un préfixe, par exemple `/meshcore/`, y compris via la barre latérale de Home Assistant. Les adresses des ressources, de l’API et du manifeste web sont toutes relatives : il n’y a rien d’autre à configurer, et aucun en-tête `X-Forwarded-*` n’est nécessaire.
 
-Une exigence côté proxy.
-
-**La barre oblique finale.** L’URL du sous-chemin doit en avoir une. Si un visiteur atteint `/meshcore` sans barre finale, les chemins relatifs cassent. La plupart des proxys s’en occupent seuls ; pour Nginx, un bloc `location /meshcore/ { ... }` — avec la barre — fait ce qu’il faut.
-
-**Pas d’en-tête `X-Forwarded-*` requis.** Le manifeste web est lui aussi relatif (`start_url` et `scope` valent `./`), donc l’installation en PWA fonctionne sous le préfixe sans `X-Forwarded-Prefix`.
+Une seule exigence côté proxy : l’adresse doit **se terminer par une barre oblique**. Si un visiteur atteint `/meshcore` sans elle, les chemins relatifs cassent. La plupart des proxys s’en occupent ; avec Nginx, un bloc `location /meshcore/ { ... }`, barre comprise, fait ce qu’il faut.
 
 ## WebSocket
 
-L’interface s’appuie sur un WebSocket permanent (`/api/ws`) pour les mises à jour temps réel : messages, ACK, paquets bruts, état radio. Un proxy qui ne relaie pas les en-têtes de mise à niveau de connexion coupe ce flux. Symptôme typique : l’interface s’affiche, l’historique se charge par REST, mais rien n’arrive en direct et une reconnexion est tentée toutes les trois secondes.
+La page garde une connexion permanente avec le serveur, sur `/api/ws`, pour recevoir en direct les messages, les accusés de réception, les paquets et l’état de la radio. Un proxy qui ne relaie pas les en-têtes de changement de protocole la coupe. Symptôme typique : la page s’affiche, l’historique se charge, mais rien n’arrive en direct. Le navigateur réessaie en attendant un peu plus longtemps à chaque fois (d’une seconde jusqu’à trente).
 
-Le client renvoie un ping toutes les trente secondes. Un proxy qui coupe les connexions inactives plus tôt que ça provoquera des reconnexions en boucle.
+La page envoie un ping au serveur toutes les trente secondes. Un proxy qui coupe les connexions inactives plus tôt que cela provoque des reconnexions en boucle.
 
-Si l’authentification HTTP Basic est activée, elle s’applique aussi au point d’entrée WebSocket, pas seulement aux routes HTTP.
+Quand l’authentification HTTP Basic est activée, elle s’applique aussi à cette connexion, pas seulement aux pages.
 
-## Sur quel hôte servir
+## Sur quelle adresse écouter
 
-`--host 0.0.0.0` expose le serveur sur toutes les interfaces de la machine. C’est ce que veulent la plupart des installations, puisque l’intérêt est de consulter la radio depuis un téléphone ou un autre poste. C’est aussi ce qui rend les avertissements de la page [Sécurité](/docs/deep/security/) pertinents : il n’y a pas de comptes utilisateurs, et l’origine des requêtes n’est pas restreinte.
+`--host 0.0.0.0` rend le serveur joignable depuis tous les réseaux auxquels la machine est reliée. C’est ce que font le paquet Linux, l’installation Docker de l’installateur et l’image, parce que l’intérêt est d’utiliser Meshloom depuis un téléphone ou un autre ordinateur. C’est aussi ce qui rend pertinents les avertissements de [Sécurité](/docs/deep/security/) : il n’y a pas de comptes utilisateurs, et l’origine des requêtes n’est pas restreinte.
 
-Si Meshloom ne doit être atteignable que localement, ne changez pas l’hôte par défaut, et vous gardez au passage le statut de contexte sécurisé de `localhost` sans TLS.
+Si vous le lancez à la main et que vous voulez qu’il ne soit joignable que depuis la machine elle-même, gardez la valeur par défaut d’uvicorn (`127.0.0.1`) et ouvrez `http://localhost:8000`, qui est un contexte sécurisé sans aucun certificat.

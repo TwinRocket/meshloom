@@ -78,8 +78,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["var(--font-sans)"],
-        mono: ["var(--font-mono)"],
+        sans: ["var(--font-sans)", "'Meshloom Marks'"],
+        mono: ["var(--font-mono)", "'Meshloom Marks'"],
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -1,15 +1,15 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsCommunitySection } from '../components/settings/SettingsCommunitySection';
 import { api, ApiError } from '../api';
 import i18n from '../i18n';
+import { setCommunityStatus } from '../stores/communityStore';
 import type { CommunityStatus } from '../types';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
 const offStatus: CommunityStatus = {
   enabled: false,
-  locked: false,
   iata: '',
   broker_host: '',
   api_base: '',
@@ -58,6 +58,23 @@ describe('SettingsCommunitySection', () => {
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
+  it('follows an opt-out made in another tab without a reload', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG' });
+    render(<SettingsCommunitySection />);
+    expect(await screen.findByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+
+    // The store re-read after a `community_live` broadcast from the other tab.
+    act(() => {
+      setCommunityStatus({ ...offStatus, iata: 'CDG' });
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeChecked();
+    });
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+  });
+
   it('shows a join CTA when community is off', async () => {
     render(<SettingsCommunitySection />);
 
@@ -66,20 +83,11 @@ describe('SettingsCommunitySection', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyAccount'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyPrivateKey'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.community.privacyPackets'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.community.privacyRadio'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyHashtags'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.community.privacyDirectory'))).toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeDisabled();
-  });
-
-  it('disables enable and join when locked', async () => {
-    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, locked: true });
-
-    render(<SettingsCommunitySection />);
-
-    expect(await screen.findByText(i18n.t('settings.community.locked'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
-    ).toBeDisabled();
   });
 
   it('explains IATA as the nearest airport and offers a search', async () => {
@@ -111,6 +119,18 @@ describe('SettingsCommunitySection', () => {
     });
     fireEvent.click(await screen.findByRole('option', { name: /LYS/ }));
     expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('LYS');
+  });
+
+  it('offers no airport search while Community is off', async () => {
+    const search = vi.spyOn(api, 'searchCommunityAirports');
+
+    render(<SettingsCommunitySection />);
+
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(i18n.t('settings.community.iataSearch'))).toBeNull();
+    expect(search).not.toHaveBeenCalled();
   });
 
   it('explains that publish is off when enabled without IATA', async () => {

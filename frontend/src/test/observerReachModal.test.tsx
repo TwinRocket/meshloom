@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -43,6 +43,18 @@ vi.mock('react-leaflet', () => ({
 
 import { ObserverReachModal } from '../components/ObserverReachModal';
 import i18n from '../i18n';
+import { setCommunityStatus } from '../stores/communityStore';
+import type { CommunityStatus } from '../types';
+
+const communityOn: CommunityStatus = {
+  enabled: true,
+  iata: 'LYS',
+  broker_host: '',
+  api_base: '',
+  publisher_configured: true,
+  publisher_connected: true,
+  env_seeded: true,
+};
 
 describe('ObserverReachModal hop path', () => {
   beforeEach(() => {
@@ -143,5 +155,77 @@ describe('ObserverReachModal hop path', () => {
     );
     expect(screen.getByText('1A2B')).toBeInTheDocument();
     expect(screen.getByText(/Relay-East/)).toBeInTheDocument();
+  });
+});
+
+describe('ObserverReachModal Meshloom mark', () => {
+  beforeEach(() => {
+    apiMocks.getPacketObserverReach.mockReset();
+    apiMocks.resolveDirectoryHops.mockReset();
+    apiMocks.resolveDirectoryHops.mockResolvedValue({ resolved: {} });
+    setCommunityStatus(communityOn);
+  });
+
+  it('marks only the members when members and upstream observers share a region', async () => {
+    apiMocks.getPacketObserverReach.mockResolvedValue({
+      directory_enabled: true,
+      packet_hash: 'AABBCCDDEEFF0011',
+      observer_count: 4,
+      observers: [
+        { name: 'Member-Lyon', public_key: 'aa'.repeat(32), hops: 1, path: ['ab'], isMLC: true },
+        { name: 'Upstream-Lyon', public_key: 'bb'.repeat(32), hops: 1, path: ['ab'] },
+        { name: 'Upstream-Villeurbanne', hops: 2, path: ['ab', 'cd'], isMLC: false },
+        { name: 'Member-Bron', public_key: 'cc'.repeat(32), hops: 0, path: [], isMLC: true },
+      ],
+      origin_available: false,
+    });
+
+    render(<ObserverReachModal packetHash="AABBCCDDEEFF0011" open onOpenChange={() => {}} />);
+
+    expect(await screen.findByText('Upstream-Lyon')).toBeInTheDocument();
+    const marks = screen.getAllByTestId('observer-mlc-mark');
+    expect(marks).toHaveLength(2);
+    const marked = marks.map((mark) => mark.closest('li')?.textContent ?? '');
+    expect(marked.some((text) => text.includes('Member-Lyon'))).toBe(true);
+    expect(marked.some((text) => text.includes('Member-Bron'))).toBe(true);
+    expect(marked.some((text) => text.includes('Upstream'))).toBe(false);
+  });
+});
+
+describe('ObserverReachModal with Community off', () => {
+  beforeEach(() => {
+    apiMocks.getPacketObserverReach.mockReset();
+    apiMocks.getPacketObserverReach.mockResolvedValue({
+      directory_enabled: false,
+      packet_hash: 'AABBCCDDEEFF0011',
+      observer_count: 0,
+      observers: [],
+      origin_available: false,
+    });
+  });
+
+  it('says Community is off instead of "nobody heard it"', async () => {
+    setCommunityStatus({ ...communityOn, enabled: false });
+
+    render(<ObserverReachModal packetHash="AABBCCDDEEFF0011" open onOpenChange={() => {}} />);
+
+    expect(
+      await screen.findByText(i18n.t('messageList.observerReachCommunityOff'))
+    ).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('messageList.observerReachEmpty'))).not.toBeInTheDocument();
+    expect(apiMocks.getPacketObserverReach).not.toHaveBeenCalled();
+  });
+
+  it('switches to the message when Community is turned off while it is open', async () => {
+    setCommunityStatus(communityOn);
+    render(<ObserverReachModal packetHash="AABBCCDDEEFF0011" open onOpenChange={() => {}} />);
+    expect(await screen.findByText(i18n.t('messageList.observerReachEmpty'))).toBeInTheDocument();
+
+    act(() => setCommunityStatus({ ...communityOn, enabled: false }));
+
+    expect(
+      await screen.findByText(i18n.t('messageList.observerReachCommunityOff'))
+    ).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('messageList.observerReachEmpty'))).not.toBeInTheDocument();
   });
 });

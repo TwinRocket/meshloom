@@ -30,11 +30,20 @@ import {
   getSavedLivePacketLegendOpen,
   setSavedLivePacketLegendOpen,
 } from '../utils/liveLegendPreference';
+import {
+  effectiveLiveIataSelection,
+  getSavedLiveIataSelection,
+  normalizeLiveIataSelection,
+  setSavedLiveIataSelection,
+  type LiveIataSelection,
+} from '../utils/liveIataPreference';
+import { locateLiveRegions } from '../utils/liveRegionCenters';
 import { LiveSoundEngine } from '../utils/liveSound';
 import { LIVE_SOUND_THEMES, type LiveSoundTheme } from '../utils/liveSoundPreference';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { LiveMapController, type LiveHoverPayload } from './live/liveMap';
+import { LiveIataMenu } from './live/LiveIataMenu';
 import {
   DIRECTORY_NODES_REFRESH_MS,
   LIVE_PACKET_TYPES,
@@ -43,6 +52,7 @@ import {
   collectIataCodes,
   emptyLiveFilters,
   heardDirectoryPins,
+  liveIataOptions,
   localContactsToMapNodes,
   localHash8Set,
   mergeLocalOverDirectory,
@@ -61,6 +71,27 @@ interface LiveViewProps {
   onOpenContactInfo?: (publicKey: string) => void;
   onSelectConversation?: (conversation: Conversation) => void;
   onOpenCommunitySettings?: () => void;
+}
+
+/** Community caches its list 30 s and the backend proxy 60 s. */
+const LIVE_ACTIVE_IATA_REFRESH_MS = 5 * 60 * 1000;
+
+/**
+ * Heartbeat (or region change) for this tab's Live session. A relay that forgot
+ * the session (TTL, restart) answers with a new id: keep it, or every beat would
+ * mint one more session that lingers until its TTL.
+ */
+function refreshLiveSession(sessionRef: { current: string | null }, iata: LiveIataSelection): void {
+  const sessionId = sessionRef.current;
+  if (!sessionId) return;
+  void api.subscribeCommunityLive(sessionId, iata).then(
+    (status) => {
+      if (status.session_id && sessionRef.current === sessionId) {
+        sessionRef.current = status.session_id;
+      }
+    },
+    () => {}
+  );
 }
 
 function communityReadyForLive(enabled: boolean, iata: string | undefined): boolean {
@@ -100,7 +131,11 @@ export function LiveView({
   const rawPackets = useRawPackets();
   const communityPackets = useCommunityPackets();
   const connection = useLiveConnectionState();
-  const [iataFilter, setIataFilter] = useState('');
+  // undefined = nothing saved yet: the radio's IATA alone, once it is known.
+  const [savedIata, setSavedIata] = useState<LiveIataSelection | undefined>(
+    getSavedLiveIataSelection
+  );
+  const [activeIata, setActiveIata] = useState<string[]>([]);
   const [hiddenTypes, setHiddenTypes] = useState<Set<CommunityPacketType>>(() => new Set());
   const [certainOnly, setCertainOnly] = useState(false);
   const [soundTheme, setSoundTheme] = useState<LiveSoundTheme>('off');
@@ -119,6 +154,13 @@ export function LiveView({
   const tombstonesRef = useRef<Set<string>>(new Set());
 
   const communityReady = communityReadyForLive(communityEnabled, communityIata);
+  const iataSelection = useMemo(
+    () => effectiveLiveIataSelection(savedIata, communityIata),
+    [communityIata, savedIata]
+  );
+  const iataSelectionRef = useRef(iataSelection);
+  iataSelectionRef.current = iataSelection;
+  const liveSessionRef = useRef<string | null>(null);
   const optedOut = connection.optOut || !communityEnabled;
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
 
@@ -196,30 +238,84 @@ export function LiveView({
       applyLiveStatus({ close_code: null, opted_out: !communityEnabled });
       return;
     }
-    let sessionId: string | null = null;
     let cancelled = false;
-    void api.subscribeCommunityLive().then(
+    void api.subscribeCommunityLive(undefined, iataSelectionRef.current).then(
       (status) => {
         if (cancelled) {
           if (status.session_id) void api.unsubscribeCommunityLive(status.session_id);
           return;
         }
-        sessionId = status.session_id ?? null;
+        liveSessionRef.current = status.session_id ?? null;
         applyLiveStatus(status);
       },
       () => {
         if (!cancelled) applyLiveStatus({ close_code: null, opted_out: false });
       }
     );
-    const beat = window.setInterval(() => {
-      if (sessionId) void api.subscribeCommunityLive(sessionId).catch(() => {});
-    }, 30_000);
+    // The heartbeat carries the regions too, so the relay's union stays right.
+    const beat = window.setInterval(
+      () => refreshLiveSession(liveSessionRef, iataSelectionRef.current),
+      30_000
+    );
     return () => {
       cancelled = true;
+      const sessionId = liveSessionRef.current;
+      liveSessionRef.current = null;
       window.clearInterval(beat);
       if (sessionId) void api.unsubscribeCommunityLive(sessionId);
     };
   }, [communityEnabled, communityReady]);
+
+  // A new region choice reaches the relay at once, not at the next heartbeat.
+  const iataSelectionKey = iataSelection === null ? '*' : iataSelection.join(',');
+  useEffect(() => {
+    refreshLiveSession(liveSessionRef, iataSelectionRef.current);
+  }, [iataSelectionKey]);
+
+  // Opening Live, or choosing regions, frames the chosen regions, not the world.
+  useEffect(() => {
+    const selection = iataSelectionRef.current;
+    if (selection === null) {
+      engineRef.current?.setCameraFocus({ kind: 'all' }, { reframe: true });
+      return;
+    }
+    let cancelled = false;
+    engineRef.current?.setCameraFocus({ kind: 'pending' }, { reframe: true });
+    void locateLiveRegions(selection, (code) => api.searchCommunityAirports(code)).then(
+      (centers) => {
+        if (cancelled) return;
+        engineRef.current?.setCameraFocus(
+          centers.length > 0 ? { kind: 'regions', centers } : { kind: 'all' }
+        );
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [iataSelectionKey]);
+
+  // Community's active regions feed the picker. Nothing is asked while it is off.
+  useEffect(() => {
+    if (!communityReady) {
+      setActiveIata([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      void api.getCommunityActiveIata().then(
+        (res) => {
+          if (!cancelled) setActiveIata(res.available ? res.codes.map((row) => row.code) : []);
+        },
+        () => {}
+      );
+    };
+    load();
+    const refresh = window.setInterval(load, LIVE_ACTIVE_IATA_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refresh);
+    };
+  }, [communityReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -249,10 +345,26 @@ export function LiveView({
     engineRef.current?.setLocalRadio(config);
   }, [config]);
 
+  useEffect(() => {
+    engineRef.current?.setLocalIata(communityIata ?? null);
+  }, [communityIata]);
+
   const filters = useMemo(
-    () => ({ ...emptyLiveFilters(), iata: iataFilter, hiddenTypes, exactOnly: certainOnly }),
-    [certainOnly, hiddenTypes, iataFilter]
+    () => ({
+      ...emptyLiveFilters(),
+      iata: new Set(iataSelection ?? []),
+      hiddenTypes,
+      exactOnly: certainOnly,
+    }),
+    [certainOnly, hiddenTypes, iataSelection]
   );
+
+  const changeIataSelection = useCallback((next: LiveIataSelection) => {
+    // Past LIVE_IATA_SELECTION_MAX codes this is "every region" (the relay refuses more).
+    const normalized = normalizeLiveIataSelection(next);
+    setSavedIata(normalized);
+    setSavedLiveIataSelection(normalized);
+  }, []);
 
   useEffect(() => {
     engineRef.current?.setFilters(filters);
@@ -281,7 +393,11 @@ export function LiveView({
   }, [heardPins, publishPins]);
 
   const hash8Local = useMemo(() => localHash8Set(observations), [observations]);
-  const iataOptions = useMemo(() => collectIataCodes(observations), [observations]);
+  const seenIata = useMemo(() => collectIataCodes(observations), [observations]);
+  const iataOptions = useMemo(
+    () => liveIataOptions(activeIata, seenIata, communityIata, iataSelection ?? []),
+    [activeIata, communityIata, iataSelection, seenIata]
+  );
 
   useEffect(() => {
     engineRef.current?.syncObservations(observations, hash8Local);
@@ -365,22 +481,12 @@ export function LiveView({
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">{t('live.iataFilter')}</span>
-          <select
-            value={iataFilter}
-            onChange={(event) => setIataFilter(event.target.value)}
-            className="rounded border border-border bg-background px-1.5 py-0.5"
-            aria-label={t('live.iataFilter')}
-          >
-            <option value="">{t('live.iataAll')}</option>
-            {iataOptions.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
-        </label>
+        <LiveIataMenu
+          options={iataOptions}
+          selection={iataSelection}
+          radioIata={communityIata}
+          onChange={changeIataSelection}
+        />
         <div
           className="flex flex-wrap items-center gap-1"
           role="group"

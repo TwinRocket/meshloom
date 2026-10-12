@@ -5,114 +5,106 @@ level: deep
 order: 15
 ---
 
-Meshloom prend le contrôle des contacts et des salons de la radio. Ce n’est pas un effet de bord, c’est le modèle : le serveur garde beaucoup plus d’état que la radio ne peut en retenir, et il pilote le contenu de la mémoire du nœud pour que celui-ci travaille sur les bonnes entrées.
+Meshloom gère les contacts et les salons stockés sur votre radio. Le serveur retient beaucoup plus de choses que la radio ne peut en contenir, et charge sur la radio l’ensemble de travail dont il a besoin.
 
-La conséquence est nette. Si vous changez de radio en attendant que l’appareil conserve ses propres favoris indépendamment de l’application, Meshloom est un mauvais choix.
-
-La base est liée à la clé publique de la radio. Une autre radio ouvre un dialogue : adopter la nouvelle identité efface contacts et messages mesh locaux ; les salons et la config serveur restent. Une base qui précède ce lien demande une confirmation unique, même pour la radio historique — **Lier sans effacer** dans ce cas. Voir [Premier lancement](/docs/first-run/).
+La base de données est liée à la clé publique de votre radio. Si vous branchez une autre radio, une fenêtre s’ouvre : **Cette radio ne correspond pas à l’identité enregistrée**. **Effacer et continuer** adopte la nouvelle radio et efface les contacts et messages mesh locaux ; les salons et les réglages du serveur restent. **Annuler** laisse vos données intactes et met la connexion à cette radio en pause. Une base créée avant ce lien pose la question une fois, même pour sa radio habituelle : **Cette radio n’est pas liée à cette instance**. Choisissez **Lier sans effacer** s’il s’agit de la même radio, ou **Nouvelle radio** pour repartir de zéro. Voir [Premier lancement](/docs/first-run/).
 
 ## Pourquoi charger des contacts sur la radio
 
-Une radio n’a de place que pour quelques centaines de contacts et une poignée de salons. Le serveur, lui, garde tout.
+Une radio peut accuser réception toute seule des messages directs entrants, mais seulement si l’expéditeur est dans sa table de contacts. Meshloom lit donc cette table, charge vos favoris en premier, puis la remplit jusqu’à environ 80 % de **Contacts max sur la radio**. Quand la table atteint environ 95 % de remplissage, Meshloom la vide et la recharge entièrement.
 
-Meshloom charge quand même des contacts sur la radio, et pour une raison précise : la radio peut acquitter automatiquement les messages directs entrants à votre place quand l’expéditeur est dans sa table de contacts. Sans ça, pas d’ACK automatique.
-
-La séquence est la suivante. Meshloom énumère la table de contacts existante de la radio, puis la réconcilie avec l’ensemble de travail souhaité. Les favoris sont rechargés en premier. Le remplissage en contacts non favoris vise environ 80 % de `max_radio_contacts`. Un déchargement puis rechargement complet se déclenche autour de 95 % d’occupation.
-
-`max_radio_contacts` est un réglage d’exécution, dans les paramètres radio de l’interface. Le baisser réduit le nombre de contacts que l’application tente de charger.
+Contacts max sur la radio se règle dans **Réglages → Radio → Messagerie**. Le baisser fait charger moins de contacts à Meshloom.
 
 ## Quand la table de contacts est pleine
 
-Deux situations posent problème.
+La table peut se remplir à cause des annonces, ou parce qu’une autre application utilise la même radio. En Bluetooth, la lecture d’une grande table peut aussi expirer. Dans les deux cas, Meshloom vous avertit que l’accusé de réception automatique peut ne pas fonctionner pour tous les contacts. Vous pouvez :
 
-Sur une liaison BLE avec beaucoup de contacts, ou sur une radio dont la table a grossi organiquement à force de publicités reçues, l’énumération initiale peut expirer. Meshloom charge alors les favoris et les contacts récents au mieux, mais sans photo complète de la table certains ajouts sont redondants ou échouent.
+- vider la table avec une autre application MeshCore, puis redémarrer Meshloom ;
+- baisser le nombre de **Contacts max sur la radio** ;
+- activer l’éviction automatique (ci-dessous) ;
+- ignorer l’avertissement. **L’envoi et la réception des messages ne sont jamais affectés.**
 
-Si la table est déjà pleine — remplie par des publicités ou par un autre client — l’application ne peut pas charger tout ce qu’elle voudrait. Un avertissement signale que l’acquittement automatique des DM ne fonctionnera peut-être pas pour tous les contacts. Quatre sorties :
+### Éviction automatique
 
-- Vider la table de contacts de la radio avec un autre client MeshCore, l’application compagnon officielle par exemple, puis redémarrer Meshloom.
-- Baisser la cible de remplissage dans les paramètres radio.
-- Activer le mode autoevict.
-- Ignorer l’avertissement. **L’envoi et la réception de messages ne sont jamais affectés.**
+`MESHCORE_LOAD_WITH_AUTOEVICT=true` fait supprimer à la radio son plus ancien contact non favori quand la table est pleine. Ajouter des contacts n’échoue alors jamais, Meshloom peut charger des contacts même s’il n’a pas réussi à lire la table, et il n’a plus besoin d’en retirer d’abord.
 
-### Mode autoevict
+Le prix à payer : les contacts chargés par Meshloom ne sont pas marqués comme favoris sur la radio, ils peuvent donc être supprimés quand une nouvelle annonce arrive. Si vous débranchez la radio de Meshloom pour l’utiliser seule, ils ne sont plus protégés.
 
-`MESHCORE_LOAD_WITH_AUTOEVICT=true` évite entièrement les erreurs `TABLE_FULL`. À la connexion, l’application active la préférence `AUTO_ADD_OVERWRITE_OLDEST` de la radio, qui fait évincer automatiquement le plus ancien contact non favori quand la table est pleine. Trois effets :
+## Salons et emplacements
 
-- Les ajouts de contacts n’échouent plus, la radio fait toujours de la place.
-- L’application peut charger des contacts même quand elle n’arrive pas à énumérer la table existante, typiquement sur une liaison BLE lente.
-- Aucune étape de retrait n’est nécessaire pendant la réconciliation.
+La radio a un nombre limité d’emplacements de salon. Meshloom lit ce nombre sur la radio et n’en suppose aucun.
 
-Le compromis : les contacts chargés par l’application ne sont pas marqués favoris côté radio, donc ils sont candidats à l’éviction si une nouvelle publicité arrive alors que la table est pleine. En pratique, un contact fraîchement chargé a un `lastmod` récent et sera parmi les derniers évincés. Mais si vous débranchez la radio de Meshloom pour l’utiliser seule, ces contacts ne sont plus protégés.
-
-## Salons et slots
-
-Le nombre de slots de salon vient de ce que le firmware annonce dans `DEVICE_INFO.max_channels`. Meshloom ne suppose pas de valeur fixe.
-
-Au démarrage, le déchargement des salons vide les slots de la radio. Ensuite, les envois utilisent un cache local de slots en LRU : un envoi répété vers le même salon réutilise le slot déjà chargé, un nouveau salon prend un slot libre jusqu’à la capacité annoncée, puis évince le salon en cache le moins récemment utilisé.
+Au démarrage, il vide les emplacements de salon de la radio. Ensuite, un envoi vers un salon réutilise l’emplacement déjà chargé ; un nouveau salon prend un emplacement libre, puis remplace le moins récemment utilisé quand il n’y en a plus.
 
 Deux exceptions à cette réutilisation :
 
-- En TCP, chaque envoi de salon repasse par `set_channel(...)`. Meshloom n’a pas l’accès exclusif au périphérique sur ce transport, donc il ne fait pas confiance au contenu supposé des slots.
-- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` désactive la réutilisation sur tous les transports. À utiliser si les slots semblent instables ou si un autre client les modifie. Coût : environ 500 ms de plus par envoi.
+- Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
+- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
 
 ## L’audit horaire
 
-Par défaut, Meshloom s’appuie sur les événements radio et la récupération automatique de MeshCore pour les messages entrants, et fait tourner en plus un audit à basse fréquence, une fois par heure. Cet audit vérifie deux choses :
+Meshloom s’appuie sur les événements de la radio pour recevoir les messages, et fait en plus une vérification lente, une fois par heure. Elle cherche les messages restés sur la radio, et les emplacements de salon qui ne correspondent plus à ce que Meshloom attend.
 
-- si des messages sont restés sur la radio sans atteindre l’application par abonnement d’événement
-- si les attentes de l’application sur les slots de salon correspondent toujours à la liste réelle de la radio
+S’il trouve un écart, il affiche une erreur et oublie ce qu’il croyait savoir des emplacements. Si vous voyez cette erreur, ou si des messages présents sur la radio n’arrivent jamais dans Meshloom, `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` fait tourner la vérification toutes les 10 secondes.
 
-En cas d’écart, une erreur apparaît dans l’interface et dans les logs, et le cache de slots d’envoi est réinitialisé.
+## Largeur des sauts : `path_hash_mode`
 
-Si vous voyez cet avertissement, ou si des messages présents sur la radio n’apparaissent jamais dans l’application, `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` transforme cet audit en filet de sécurité agressif, toutes les 10 secondes.
+Chaque répéteur d’une route est identifié par quelques octets. Un identifiant plus long limite les confusions entre répéteurs, mais moins de répéteurs tiennent dans un paquet. Le réglage s’appelle **Mode de hachage de chemin**, dans l’onglet **Configuration** de **Réglages → Radio** :
 
-## Largeur des sauts : path_hash_mode
+| Valeur | Largeur par saut | Route la plus longue |
+|--------|------------------|----------------------|
+| `0` | 1 octet | 63 sauts |
+| `1` | 2 octets (recommandé) | 32 sauts |
+| `2` | 3 octets | 21 sauts |
 
-Le firmware MeshCore peut encoder les sauts d’un chemin sur 1, 2 ou 3 octets. Le réglage s’appelle `path_hash_mode` :
+À la connexion, Meshloom fait passer de 1 à 2 octets une radio qui utilise 1 octet, sauf si vous avez choisi de rester à 1 octet. Le réglage n’apparaît que si le firmware de la radio le gère.
 
-| Valeur | Largeur par saut |
-|--------|------------------|
-| `0` | 1 octet |
-| `1` | 2 octets |
-| `2` | 3 octets |
-
-`GET /api/radio/config` expose la valeur courante et `path_hash_mode_supported`. `PATCH /api/radio/config` ne peut la modifier que si le firmware connecté le supporte. L’interface n’affiche le réglage que dans ce cas.
-
-Deux règles qui évitent des erreurs de lecture :
-
-- `path_len`, dans les payloads d’API comme dans l’interface, est **toujours un nombre de sauts**, jamais un nombre d’octets. La longueur réelle en octets est `nombre de sauts × largeur`.
-- Un salon peut porter un `path_hash_mode_override`. Quand il est défini, l’envoi vers ce salon bascule temporairement la radio sur cette largeur, puis restaure la valeur par défaut.
+`path_len`, dans l’interface comme dans l’API, est **toujours un nombre de sauts**, jamais un nombre d’octets. Un salon peut avoir sa propre largeur (**Définir le forçage de largeur de saut** dans son en-tête), appliquée à cet envoi seulement.
 
 ## Portée de flood régionale
 
-`flood_scope` est un réglage global, dans la base. Il nomme la région dans laquelle les envois en flood sont portés. Un salon peut en dévier avec `flood_scope_override` : l’envoi bascule la radio sur cette portée le temps de l’émission, puis restaure le réglage global.
+Un message envoyé en flood traverse tous les répéteurs à portée. Une **région** le limite : les répéteurs configurés pour cette région le relaient, et ceux configurés pour refuser les autres régions peuvent l’abandonner.
 
-Côté réception, nommer la région d’un paquet demande une liste de candidats. Les paquets scopés portent un code de transport qui n’est pas un identifiant de région stable : c’est un MAC calculé avec la clé de la région. Il n’existe pas de table inverse. Meshloom recalcule donc le code pour chaque région de `known_regions` et cherche une correspondance. Une région absente de la liste donne un paquet scopé mais non nommé.
+- **Réglages → Radio → Messagerie → Portée flood / région** est la région utilisée pour tous vos envois. Vide, il n’y a pas de région (flood simple).
+- Un salon peut utiliser une autre région, ou aucune, avec le bouton en forme de globe dans son en-tête. Le changement s’applique aux envois vers ce salon, puis le réglage habituel est rétabli. Forcer « aucune région » quand la radio a une région par défaut demande un firmware en version 12 ou plus récente.
 
-`known_regions` est éditable. `POST /api/radio/discover-regions` interroge les répéteurs proches pour récupérer les noms de régions autorisées en flood et les fusionner dans la liste. La requête est routée en direct, donc seuls les répéteurs à portée répondent.
+Pour les messages reçus, la région n’est pas écrite en clair dans le paquet : c’est un code calculé avec la clé de la région. Meshloom essaie chaque nom de **Régions connues (pour le décodage)** pour trouver celui qui correspond. Une région absente de la liste laisse un message marqué comme régional mais sans nom. Quand vous modifiez la liste, Meshloom ré-étiquette les messages dont le paquet est encore stocké.
+
+**Découvrir les régions** demande aux répéteurs proches quelles régions ils relaient, et propose de les ajouter à la liste. Seuls les répéteurs à portée directe répondent, et seules les régions qu’ils autorisent sont signalées.
 
 ## Routage des messages directs
 
-Trois sources de route possibles pour un DM, dans cet ordre de priorité :
+Meshloom choisit la route dans cet ordre :
 
-1. une surcharge explicite (`route_override_*`)
-2. la route directe apprise
-3. le flood
+1. une route que vous avez fixée à la main pour ce contact ;
+2. la route apprise par la radio ;
+3. le flood.
 
-La route directe apprise vient de la synchronisation des contacts de la radio et des mises à jour de découverte de chemin. Les chemins de publicité ne sont **pas** une source de route : ils sont conservés pour le panneau contact et le visualiseur, rien de plus. Les ACK non plus : ils décrivent l’état de livraison, pas la topologie.
+Les routes apprises viennent de la liste de contacts de la radio et de la découverte de chemin. Le chemin d’une annonce est affiché à titre d’information, et n’est pas utilisé pour envoyer. Un accusé de réception dit qu’un message est arrivé, pas par où.
 
-Un DM part une fois immédiatement. Si le résultat d’envoi contient un code d’ACK attendu et que le message reste non acquitté, jusqu’à deux réessais suivent en arrière-plan, cadencés par le `suggested_timeout` de la radio. Le dernier réessai est envoyé en flood même si une surcharge de route existe.
+Un message direct part tout de suite. Si un accusé est attendu et ne vient pas, Meshloom réessaie jusqu’à deux fois, en attendant le délai que suggère la radio. Avant le dernier essai, il oublie la route enregistrée : le dernier essai part donc en flood, même si vous aviez fixé une route à la main.
 
-## Publicité
+## Renvoyer les messages de salon
 
-`advert_interval`, en secondes, pilote la publicité périodique. `0` la désactive. Le dernier envoi est mémorisé dans `last_advert_time`.
+**Renvoyer automatiquement les messages de canal non entendus**, dans **Réglages → Radio → Messagerie**, renvoie un message de salon une fois si aucun répéteur ne l’a répété dans les 2 secondes. La copie est identique : les répéteurs qui ont déjà entendu le premier l’ignorent, et aucun doublon n’apparaît.
 
-Un envoi manuel passe par `POST /api/radio/advertise`, avec un `mode` valant `flood` ou `zero_hop`. L’interface expose les deux boutons dans les paramètres radio.
+## Annonces et position
 
-Le contrôle de localisation dans la publicité est volontairement binaire : désactivé, ou inclure la position du nœud. Le firmware compagnon ne distingue pas fiablement des coordonnées enregistrées d’un relevé GPS live sur ce chemin.
+Une annonce dit aux autres que vous existez. L’onglet **Annonces** de **Réglages → Radio** propose :
 
-## Clé privée
+- **Intervalle d’annonce périodique**, en heures. `0` la désactive. Le minimum est d’une heure (24 ou plus est recommandé), et une valeur plus courte est relevée à une heure.
+- **Envoyer une annonce flood**, qui passe par les répéteurs, et **Envoyer une annonce zéro saut**, qui reste locale et consomme moins de temps d’antenne.
 
-À la connexion, Meshloom exporte la clé privée de la radio et la garde **en mémoire uniquement**. Elle n’est jamais écrite sur disque. C’est ce qui permet de déchiffrer les messages directs côté serveur, même quand le contact n’est pas chargé sur la radio, et de rattraper des DM historiques quand une clé devient connue.
+La position dans les annonces se règle avec **Source de position des annonces**, dans l’onglet **Configuration**. Elle n’a que deux choix : **Désactivée**, ou **Inclure la position du nœud**. Le firmware compagnon ne distingue pas une position enregistrée d’un relevé GPS en direct.
+
+## Proxy radio
+
+**Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.
+
+Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Un second Meshloom doit utiliser une nouvelle base de données.
+
+## La clé privée
+
+À la connexion, Meshloom demande à la radio sa clé privée et la garde **en mémoire uniquement**. Elle n’est jamais écrite sur le disque. Grâce à elle, Meshloom peut déchiffrer lui-même les messages directs, même quand le contact n’est pas chargé sur la radio, et lire d’anciens messages dès qu’une clé devient connue.
 
 L’export de cette clé par l’API est désactivé par défaut. Voir [Sécurité](/docs/deep/security/).

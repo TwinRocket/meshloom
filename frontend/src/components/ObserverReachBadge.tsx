@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import type { ObserverReachCountState } from '../types';
 import { handleKeyboardActivate } from '../utils/a11y';
 import { cn } from '@/lib/utils';
+import { useCommunityEnabled } from '../stores/communityStore';
 
 interface ObserverReachBadgeProps {
   state?: ObserverReachCountState;
@@ -79,7 +80,10 @@ function RollingCount({ value }: { value: number }) {
 
 export function ObserverReachBadge({ state, variant, onOpen, className }: ObserverReachBadgeProps) {
   const { t } = useTranslation();
-  if (state?.status !== 'ok' || state.count <= 0) {
+  // A count read while Community was on is stale once it is off: show nothing
+  // rather than a number nobody can open (the modal explains Community is off).
+  const communityOff = useCommunityEnabled() === false;
+  if (communityOff || state?.status !== 'ok' || state.count <= 0) {
     return null;
   }
   const count = state.count;

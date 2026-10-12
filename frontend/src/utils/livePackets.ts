@@ -815,7 +815,9 @@ export function observationFromRaw(
       ? { lat: config.lat, lon: config.lon, source: 'local' }
       : null;
   const earId = (config?.public_key || 'local-ear').slice(0, 16);
-  const t = packet.timestamp > 1e12 ? packet.timestamp : packet.timestamp * 1000;
+  // Live packets use the browser receipt time: LIVE_DIM_AFTER_MS is checked against Date.now().
+  const t =
+    packet.received_at_ms ?? (packet.timestamp > 1e12 ? packet.timestamp : packet.timestamp * 1000);
   return {
     id: `local:${packet.observation_id ?? packet.id}`,
     hash8: hash8FromRaw(packet),

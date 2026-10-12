@@ -7,6 +7,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app.events import dump_ws_event
 from app.models import CommunityLiveStatus
@@ -76,7 +77,6 @@ def _v2_packet(**overrides: object) -> dict:
 def _enabled_state() -> CommunityEffective:
     return CommunityEffective(
         enabled=True,
-        locked=False,
         iata="LYS",
         broker_host="mqtt.meshloom.app",
         api_base="https://api.meshloom.app",
@@ -325,7 +325,8 @@ class TestSanitizeAndCloseCodes:
 
     def test_map_handshake_and_close_codes(self):
         assert map_stats_close(code=4001) == CLOSE_JWT_EXPIRED
-        assert map_stats_close(http_status=403) == CLOSE_INACTIVE
+        # A 403 refusal is not 4002: it has no close code and reconnects with backoff.
+        assert map_stats_close(http_status=403) is None
         assert map_stats_close(http_status=409) == CLOSE_SUPERSEDED
         assert map_stats_close(code=CLOSE_SLOT_BUSY) == CLOSE_SUPERSEDED
         assert map_stats_close(http_status=503) == CLOSE_RATE_LIMIT
@@ -352,10 +353,14 @@ class TestSanitizeAndCloseCodes:
             {"close_code": 4005, "opted_out": False, "connected": False, "state": "reconnecting"}
         )
         assert hidden.close_code is None
-        gated = CommunityLiveStatus.model_validate(
-            {"close_code": 4002, "opted_out": False, "connected": False, "state": "gate"}
+        reserved = CommunityLiveStatus.model_validate(
+            {"close_code": 4002, "opted_out": False, "connected": False, "state": "reconnecting"}
         )
-        assert gated.close_code == CLOSE_INACTIVE
+        assert reserved.close_code == CLOSE_INACTIVE
+        with pytest.raises(ValidationError):
+            CommunityLiveStatus.model_validate(
+                {"close_code": None, "opted_out": False, "connected": False, "state": "gate"}
+            )
 
 
 @pytest.mark.asyncio
@@ -383,7 +388,6 @@ class TestCommunityLiveRelay:
         connect = AsyncMock()
         no_iata = CommunityEffective(
             enabled=True,
-            locked=False,
             iata="",
             broker_host="mqtt.meshloom.app",
             api_base="https://api.meshloom.app",

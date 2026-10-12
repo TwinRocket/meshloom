@@ -3,8 +3,8 @@
 #
 # Sets up Meshloom as a persistent systemd service running as
 # the current user from the current repo directory. No separate service account
-# is needed. After installation, git pull and rebuilds work without any sudo -u
-# gymnastics.
+# is needed. Updating means checking out the new release and running this
+# script again (the summary prints the exact commands); no sudo -u gymnastics.
 #
 # Run from anywhere inside the repo:
 #   bash scripts/setup/install_service.sh
@@ -301,12 +301,30 @@ fi
 
 echo -e "${BOLD}─── Quick Reference ─────────────────────────────────────────────────${NC}"
 echo
-echo -e "${YELLOW}Update to latest and restart:${NC}"
-echo -e "  cd ${REPO_DIR}"
-echo -e "  git pull"
-echo -e "  uv sync"
-echo -e "  cd frontend && npm install && npm run build && cd .."
-echo -e "  $(priv systemctl restart ${SERVICE_NAME})"
+# This install has no in-app updater: Settings → Updates only says when a new
+# release is out. The one-line installer clones a release tag (detached HEAD),
+# where `git pull` does nothing, so the recipe depends on how the folder was made.
+RERUN_CMD="MESHLOOM_FRONTEND_MODE=${FRONTEND_MODE} bash scripts/setup/install_service.sh"
+echo -e "${YELLOW}Update to a new release:${NC}"
+echo    "  Settings → Updates shows when a new release is out; it cannot install it here."
+if git -C "$REPO_DIR" symbolic-ref -q HEAD >/dev/null 2>&1 &&
+    git -C "$REPO_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    echo -e "  cd ${REPO_DIR}"
+    echo -e "  git pull"
+    echo -e "  ${RERUN_CMD}"
+elif git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    echo    "  Replace X.Y.Z with the latest version shown in Settings → Updates, without the v:"
+    echo -e "  cd ${REPO_DIR}"
+    echo -e "  git fetch --depth 1 origin tag X.Y.Z"
+    echo -e "  git checkout X.Y.Z"
+    echo -e "  ${RERUN_CMD}"
+else
+    echo    "  This folder is not a git clone. Replace its files with the new release"
+    echo    "  (keep the data/ folder), then run:"
+    echo -e "  cd ${REPO_DIR}"
+    echo -e "  ${RERUN_CMD}"
+fi
+echo    "  The script reinstalls the dependencies and the frontend, then restarts the service."
 echo
 echo -e "${YELLOW}Refresh prebuilt frontend only (skips local build):${NC}"
 echo -e "  python3 ${REPO_DIR}/scripts/setup/fetch_prebuilt_frontend.py"

@@ -42,7 +42,7 @@ draw() {
             printf '\n  Waiting for a network address...\n'
         fi
         printf '\nPlug in the radio, then open one of these addresses.\n'
-        printf 'Updates: Settings → About.\n'
+        printf 'Updates: Settings → Updates.\n'
     } >"$TTY" 2>/dev/null || true
 }
 

@@ -82,3 +82,22 @@ async def test_non_transactional_migration_runs_outside_a_transaction():
         assert await get_version(conn) == 2
     finally:
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_two_files_with_one_number_stop_before_migrating():
+    """A stale file left by a deployment that never deletes (Portainer GitOps)."""
+    ran: list[str] = []
+
+    async def body(conn):
+        ran.append("ran")
+
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        p1, p2 = _fake_modules(_module("_002_old_name", body), _module("_002_new_name", body))
+        with p1, p2, pytest.raises(RuntimeError, match="share number 2"):
+            await run_migrations(conn)
+        assert ran == []
+        assert await get_version(conn) == 0
+    finally:
+        await conn.close()

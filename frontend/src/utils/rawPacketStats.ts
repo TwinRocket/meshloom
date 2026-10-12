@@ -93,6 +93,12 @@ const KNOWN_ROUTE_TYPES = [
 
 export interface RawPacketStatsObservation {
   observationKey: string;
+  /**
+   * Unix seconds on the browser clock for live packets (receipt time), so that the
+   * time windows and the session start, which come from Date.now(), compare like with
+   * like. Falls back to the server timestamp for packets without a receipt time
+   * (history replay). Never use it as an absolute packet time.
+   */
   timestamp: number;
   payloadType: string;
   routeType: string;
@@ -264,6 +270,13 @@ function getSourceInfo(
   }
 }
 
+/** Observation time in seconds on the browser clock, falling back to the server timestamp. */
+function getObservationTimestampSec(packet: RawPacket): number {
+  return packet.received_at_ms !== undefined
+    ? Math.floor(packet.received_at_ms / 1000)
+    : packet.timestamp;
+}
+
 export function summarizeRawPacketForStats(packet: RawPacket): RawPacketStatsObservation {
   try {
     const decoded = MeshCoreDecoder.decode(packet.data);
@@ -276,7 +289,7 @@ export function summarizeRawPacketForStats(packet: RawPacket): RawPacketStatsObs
 
     return {
       observationKey: getRawPacketObservationKey(packet),
-      timestamp: packet.timestamp,
+      timestamp: getObservationTimestampSec(packet),
       payloadType,
       routeType,
       decrypted: packet.decrypted,
@@ -291,7 +304,7 @@ export function summarizeRawPacketForStats(packet: RawPacket): RawPacketStatsObs
   } catch {
     return {
       observationKey: getRawPacketObservationKey(packet),
-      timestamp: packet.timestamp,
+      timestamp: getObservationTimestampSec(packet),
       payloadType: packet.payload_type,
       routeType: 'Unknown',
       decrypted: packet.decrypted,

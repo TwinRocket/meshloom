@@ -209,6 +209,14 @@ t() {
         fr:asset_bad) echo "L'adresse du paquet publié n'est pas celle attendue. Rien n'a été installé." ;;
         en:using_clone) echo "No ready-made package for this system; installing from source." ;;
         fr:using_clone) echo "Aucun paquet prêt pour ce système ; installation depuis les sources." ;;
+        en:armv6_title) echo "Unsupported hardware" ;;
+        fr:armv6_title) echo "Matériel non pris en charge" ;;
+        en:armv6_body) echo "This machine has an ARMv6 processor (Raspberry Pi 1, Compute Module 1, original Zero or Zero W). Meshloom does not run on it. Nothing was changed on this system." ;;
+        fr:armv6_body) echo "Cette machine a un processeur ARMv6 (Raspberry Pi 1, Compute Module 1, Zero ou Zero W d'origine). Meshloom ne fonctionne pas dessus. Rien n'a été modifié sur ce système." ;;
+        en:armv6_supported) echo "Supported Raspberry Pi boards: Pi 2, Pi 3, Pi 4, Pi 5, Zero 2 W, Compute Module 3 and later." ;;
+        fr:armv6_supported) echo "Raspberry Pi pris en charge : Pi 2, Pi 3, Pi 4, Pi 5, Zero 2 W, Compute Module 3 et suivants." ;;
+        en:armv6_more) echo "Details: https://meshloom.app/en/docs/rpi/" ;;
+        fr:armv6_more) echo "Détails : https://meshloom.app/docs/rpi/" ;;
         en:prompt_dir) echo "Installation folder" ;;
         fr:prompt_dir) echo "Dossier d'installation" ;;
         en:missing) echo "Missing on this machine" ;;
@@ -245,8 +253,10 @@ t() {
         fr:update_dnf) echo "Pour mettre à jour plus tard" ;;
         en:update_docker) echo "To update later, in that folder" ;;
         fr:update_docker) echo "Pour mettre à jour plus tard, dans ce dossier" ;;
-        en:update_git) echo "To update later: git pull, then restart the service" ;;
-        fr:update_git) echo "Pour mettre à jour plus tard : git pull, puis redémarrez le service" ;;
+        en:update_git) echo "To update later, replace X.Y.Z with the latest version shown in Settings → Updates (without the v) and run:" ;;
+        fr:update_git) echo "Pour mettre à jour plus tard, remplacez X.Y.Z par la dernière version affichée dans Réglages → Mises à jour (sans le v) et lancez :" ;;
+        en:update_git_branch) echo "To update later, run:" ;;
+        fr:update_git_branch) echo "Pour mettre à jour plus tard, lancez :" ;;
         en:step_browser) echo "Open Meshloom" ;;
         fr:step_browser) echo "Ouvrir Meshloom" ;;
         en:browser_body) echo "Nothing was installed. Open the Meshloom already running on your network:" ;;
@@ -269,10 +279,20 @@ t() {
         fr:compose_dir_unsafe) echo "Les mises à jour depuis l'application exigent un chemin de dossier fait de lettres, chiffres, '.', '_', '-' et '/'. Mettez cette pile à jour à la main." ;;
         en:compose_found) echo "Existing Meshloom stack found in" ;;
         fr:compose_found) echo "Pile Meshloom existante trouvée dans" ;;
-        en:compose_custom) echo "This docker-compose.yml was edited after the installer wrote it (- expected, + yours):" ;;
-        fr:compose_custom) echo "Ce docker-compose.yml a été modifié après l'installeur (- attendu, + le vôtre) :" ;;
-        en:compose_custom_stop) echo "Nothing was changed. Either apply by hand: image: \${MESHLOOM_IMAGE}, the ./update-status:/app/update-status:ro volume and MESHLOOM_UPDATE_STATUS_PATH; or re-run with MESHLOOM_COMPOSE_OVERWRITE=1 to regenerate it (a .bak copy is kept)." ;;
-        fr:compose_custom_stop) echo "Rien n'a été modifié. Soit vous appliquez à la main : image: \${MESHLOOM_IMAGE}, le volume ./update-status:/app/update-status:ro et MESHLOOM_UPDATE_STATUS_PATH ; soit vous relancez avec MESHLOOM_COMPOSE_OVERWRITE=1 pour le régénérer (une copie .bak est gardée)." ;;
+        en:compose_custom) echo "Your docker-compose.yml has changes of your own (+ added, - removed):" ;;
+        fr:compose_custom) echo "Votre docker-compose.yml contient des modifications à vous (+ ajouté, - retiré) :" ;;
+        en:compose_keep_q) echo "Keep your changes?" ;;
+        fr:compose_keep_q) echo "Garder vos modifications ?" ;;
+        en:compose_kept) echo "Your changes were kept. The installer only updated its own lines." ;;
+        fr:compose_kept) echo "Vos modifications sont conservées. L'installeur n'a mis à jour que ses propres lignes." ;;
+        en:compose_patch_failed) echo "Your file could not be adapted automatically. It was not modified." ;;
+        fr:compose_patch_failed) echo "Votre fichier n'a pas pu être adapté automatiquement. Il n'a pas été modifié." ;;
+        en:compose_regen_q) echo "Regenerate it? Your changes would be lost; a copy is kept as docker-compose.yml.bak-<date>." ;;
+        fr:compose_regen_q) echo "Le régénérer ? Vos modifications seraient perdues ; une copie est gardée en docker-compose.yml.bak-<date>." ;;
+        en:compose_untouched) echo "Nothing was changed. Your stack keeps running as it is, without in-app updates." ;;
+        fr:compose_untouched) echo "Rien n'a été modifié. Votre pile continue de tourner telle quelle, sans mise à jour depuis l'application." ;;
+        en:compose_needs_root) echo "The Meshloom stack in $1 can only be read by root. Run the installer again as root: sudo -i, then the same command." ;;
+        fr:compose_needs_root) echo "La pile Meshloom de $1 n'est lisible qu'en root. Relancez l'installeur en root : sudo -i, puis la même commande." ;;
         en:update_docker_managed) echo "Updates: Settings → Updates in Meshloom installs signed releases." ;;
         fr:update_docker_managed) echo "Mises à jour : Réglages → Mises à jour dans Meshloom installe les versions signées." ;;
         *) echo "$key" ;;
@@ -408,10 +428,11 @@ ui_menu() {
 ui_yesno() {
     local q="$1" def="$2" ans
     while :; do
+        # ui_ask exits on EOF, but only its subshell: stop here too.
         if [ "$def" = y ]; then
-            ans="$(ui_ask "${q} $(t hint_yes)" "y")"
+            ans="$(ui_ask "${q} $(t hint_yes)" "y")" || exit 130
         else
-            ans="$(ui_ask "${q} $(t hint_no)" "n")"
+            ans="$(ui_ask "${q} $(t hint_no)" "n")" || exit 130
         fi
         case "$(printf '%s' "$ans" | tr 'A-Z' 'a-z')" in
             y | yes | o | oui) return 0 ;;
@@ -467,6 +488,31 @@ log_note() {
 }
 
 # ── detection ─────────────────────────────────────────────────────────────────
+
+# ARMv6 (Pi 1, Compute Module 1, original Zero and Zero W) has no package, no
+# Docker image (the image stops at armv7), and the source install, its old
+# fallback, is not supported there either and starts by changing the system.
+# Refuse before anything else runs: no prompt, no file written, no sudo. The
+# language comes from MESHLOOM_LANG, a saved choice or the locale, read only.
+refuse_unsupported_hardware() {
+    case "$(uname -m)" in
+        armv6*) ;;
+        *) return 0 ;;
+    esac
+    if ! load_saved_language; then
+        case "$(printf '%s%s%s' "${LC_ALL:-}" "${LC_MESSAGES:-}" "${LANG:-}" | tr 'A-Z' 'a-z')" in
+            *fr*) ML_LANG="fr" ;;
+            *) ML_LANG="en" ;;
+        esac
+    fi
+    {
+        printf '\n%s\n\n' "$(t armv6_title)"
+        printf '%s\n\n' "$(t armv6_body)"
+        printf '%s\n' "$(t armv6_supported)"
+        printf '%s\n' "$(t armv6_more)"
+    } >&2
+    exit 1
+}
 
 detect_os() {
     case "$(uname -s)" in
@@ -790,8 +836,8 @@ host_arch() {
         # 32-bit Raspberry Pi OS on a Pi 2, 3 or 4. Not armv6l: a Pi 1 and the
         # original Zero are ARMv6, and Raspberry Pi OS calls that armhf too, but
         # the package carries an interpreter built for ARMv7. Installing it there
-        # would succeed and then die on an illegal instruction, which is a worse
-        # answer than sending it to the source install.
+        # would succeed and then die on an illegal instruction. The installer
+        # never gets here on ARMv6: refuse_unsupported_hardware stops it first.
         armv7l | armhf) echo "armhf" ;;
         *) echo "unknown" ;;
     esac
@@ -2154,7 +2200,22 @@ install_native_service() {
     else
         ui_ok "  $(t done)"
     fi
-    ui_dim "  $(t update_git)"
+    print_source_update_hint
+}
+
+# A source install has no in-app updater. The clone made above is a release tag
+# (detached HEAD), where `git pull` does nothing: fetch the new tag instead.
+print_source_update_hint() {
+    local rerun="MESHLOOM_FRONTEND_MODE=${MESHLOOM_FRONTEND_MODE:-build} bash scripts/setup/install_service.sh"
+    if git -C "$INSTALL_DIR" symbolic-ref -q HEAD >/dev/null 2>&1; then
+        ui_dim "  $(t update_git_branch)"
+        ui_dim "    cd ${INSTALL_DIR} && git pull && ${rerun}"
+    else
+        ui_dim "  $(t update_git)"
+        ui_dim "    cd ${INSTALL_DIR}"
+        ui_dim "    git fetch --depth 1 origin tag X.Y.Z && git checkout X.Y.Z"
+        ui_dim "    ${rerun}"
+    fi
 }
 
 yaml_quote() {
@@ -2225,7 +2286,7 @@ write_unmanaged_env() {
 # Where an existing installer-managed stack lives. 4.17 never saved it, so
 # also ask the old helper's config and a running Meshloom container.
 saved_compose_dir() {
-    local dir=""
+    local dir="" p
     dir="$(conf_get "$(system_installer_conf)" compose_dir 2>/dev/null ||
         conf_get "$(user_installer_conf)" compose_dir 2>/dev/null || true)"
     if [ -z "$dir" ] && [ -r /etc/meshloom/compose-update.env ]; then
@@ -2238,7 +2299,17 @@ saved_compose_dir() {
                 --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null; } |
             grep -m 1 '^/' || true)"
     fi
-    if [ -n "$dir" ] && [ -f "${dir}/docker-compose.yml" ]; then
+    if [ -z "$dir" ]; then
+        return 0
+    fi
+    # A non-root run cannot see a stack under /root: report it all the same,
+    # so the caller stops instead of offering a new, empty stack elsewhere.
+    # A stale path (folder deleted) is not reported.
+    p="$dir"
+    while [ "$p" != / ] && [ ! -e "$p" ]; do
+        p="$(dirname "$p")"
+    done
+    if [ -f "${dir}/docker-compose.yml" ] || { ! is_root && [ ! -x "$p" ]; }; then
         printf '%s' "$dir"
     fi
 }
@@ -2283,13 +2354,124 @@ compose_is_installer_generated() {
         return 0
     fi
     ui_warn "  $(t compose_custom)"
-    diff -u "$tmpdir/expected" "$tmpdir/current" | sed 's/^/    /' >&2 || true
+    diff -u "$tmpdir/expected" "$tmpdir/current" |
+        sed -n -e '/^+++/d' -e '/^---/d' -e 's/^\([-+]\)/    \1/p' >&2 || true
     rm -rf "$tmpdir"
     return 1
 }
 
+# Prints an edited compose file with only the installer's own lines updated,
+# inside the meshloom service: the image comes from .env, and the update
+# helper lines (update-status volume, MESHLOOM_UPDATE_*) are set when $2 = 1
+# or dropped when $2 = 0. Everything else is copied as is. Fails when an
+# anchor line is missing or appears more than once.
+patch_compose_file() {
+    awk -v managed="$2" '
+        # Top-level keys: only a "meshloom:" directly under "services:" counts.
+        $0 ~ /^[^ \t\r#]/ { top = ($0 ~ /^services:[ \t\r]*$/); svc = 0 }
+        top && /^  meshloom:[ \t\r]*$/ { seen++; svc = 1; print; next }
+        svc && $0 !~ /^[ \t\r]*(#|$)/ {
+            match($0, /^ */)
+            if (RLENGTH < 4) svc = 0
+        }
+        !svc { print; next }
+        /^    image:/ {
+            # Only the official image moves to .env; a custom one is not ours.
+            if ($0 !~ /^    image: ghcr\.io\/twinrocket\/meshloom[:@]/ &&
+                !($0 ~ /^    image: \$/ && index($0, "MESHLOOM_IMAGE"))) {
+                bad = 1
+                exit 1
+            }
+            img++
+            print "    image: ${MESHLOOM_IMAGE:?run the Meshloom installer to pin the image in .env}"
+            next
+        }
+        $0 == "      # Written by the root update helper; read-only for the container." { next }
+        $0 == "      - ./update-status:/app/update-status:ro" { next }
+        $0 == "      MESHLOOM_UPDATE_HELPER: compose" { next }
+        $0 == "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json" { next }
+        $0 == "      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json" { next }
+        # Any other value for these is a choice of the user: leave the file alone.
+        /MESHLOOM_UPDATE_(HELPER|JOB_PATH|STATUS_PATH)/ || /\/app\/update-status/ {
+            bad = 1
+            exit 1
+        }
+        $0 == "      - ./data:/app/data" {
+            data++
+            print
+            if (managed == 1) {
+                print "      # Written by the root update helper; read-only for the container."
+                print "      - ./update-status:/app/update-status:ro"
+            }
+            next
+        }
+        /^      MESHLOOM_INSTALL_KIND:/ {
+            kind++
+            print
+            if (managed == 1) {
+                print "      MESHLOOM_UPDATE_HELPER: compose"
+                print "      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json"
+                print "      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json"
+            }
+            next
+        }
+        { print }
+        END {
+            if (bad) exit 1
+            if (seen != 1 || img != 1) exit 1
+            if (managed == 1 && (data != 1 || kind != 1)) exit 1
+        }
+    ' "$1"
+}
+
+# The only lines a patch may add or remove, besides the image line.
+compose_owned_lines() {
+    cat <<'EOF'
+      # Written by the root update helper; read-only for the container.
+      - ./update-status:/app/update-status:ro
+      MESHLOOM_UPDATE_HELPER: compose
+      MESHLOOM_UPDATE_JOB_PATH: /app/data/update-job.json
+      MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json
+EOF
+}
+
+# Writes the patched compose file to $3 and checks it before anyone uses it:
+# compared line by line with the original, it may only differ by the image
+# line and the installer's own lines, and Docker Compose itself must accept it
+# and see the new image, volume and env. $1 = dir, $2 = managed. Never touches
+# the original; fails on any doubt.
+build_patched_compose() {
+    local dir="$1" managed="$2" out="$3" file="${1}/docker-compose.yml" check
+    local dc sentinel="meshloom-installer-check:0"
+    if ! patch_compose_file "$file" "$managed" >"$out"; then
+        rm -f "$out"
+        return 1
+    fi
+    check="$(mktemp -d /tmp/meshloom-patch.XXXXXX)"
+    compose_owned_lines >"$check/owned"
+    { diff "$file" "$out" || true; } | sed -n 's/^[<>] //p' |
+        grep -v '^    image: ' >"$check/changed" || true
+    if grep -vxF -f "$check/owned" "$check/changed" >/dev/null; then
+        rm -rf "$check" "$out"
+        return 1
+    fi
+    dc="$(compose_cmd)"
+    if ! MESHLOOM_IMAGE="$sentinel" $dc --project-directory "$dir" -f "$out" config \
+        >"$check/config" 2>/dev/null ||
+        ! grep -q "image: ${sentinel}\$" "$check/config" ||
+        { [ "$managed" = 1 ] && {
+            ! grep -q 'MESHLOOM_UPDATE_STATUS_PATH: /app/update-status/status.json' "$check/config" ||
+                ! grep -Eq '(target: /app/update-status$|:/app/update-status:ro)' "$check/config"
+        }; }; then
+        rm -rf "$check" "$out"
+        return 1
+    fi
+    rm -rf "$check"
+    return 0
+}
+
 install_docker_stack() {
-    local default dc existing=0 managed=0 saved
+    local default dc existing=0 managed=0 saved patched keep_edits=0
     ensure_docker
     detect_docker
     prepare_docker_mappings
@@ -2300,6 +2482,10 @@ install_docker_stack() {
         SERIAL_COMPOSE_HOST_PATH=""
     fi
     saved="$(saved_compose_dir)"
+    if [ -n "$saved" ] && [ ! -f "${saved}/docker-compose.yml" ]; then
+        ui_err "$(t compose_needs_root "$saved")"
+        exit 1
+    fi
     default="${saved:-${IN_CHECKOUT:-${HOME}/meshloom}}"
     if [ -n "$saved" ]; then
         ui_dim "  $(t compose_found) ${saved}"
@@ -2312,21 +2498,33 @@ install_docker_stack() {
     esac
     INSTALL_DIR="${INSTALL_DIR%/}"
     COMPOSE_DIR_SAVED="$INSTALL_DIR"
+    if compose_helper_possible "$INSTALL_DIR"; then
+        managed=1
+    fi
     if [ -f "${INSTALL_DIR}/docker-compose.yml" ]; then
         existing=1
-        # Keep the stack's own radio mappings, and never overwrite edits.
+        # Keep the stack's own radio mappings. Edits are kept unless the user
+        # asks otherwise; MESHLOOM_COMPOSE_OVERWRITE=1 regenerates silently.
         read_compose_mappings "${INSTALL_DIR}/docker-compose.yml"
         if ! compose_is_installer_generated "${INSTALL_DIR}/docker-compose.yml" &&
-            [ "${MESHLOOM_COMPOSE_OVERWRITE:-}" != 1 ]; then
-            ui_err "$(t compose_custom_stop)"
-            exit 1
+            [ "${MESHLOOM_COMPOSE_OVERWRITE:-}" != 1 ] &&
+            ui_yesno "$(t compose_keep_q)" y; then
+            patched="$(mktemp /tmp/meshloom-compose-new.XXXXXX)"
+            if build_patched_compose "$INSTALL_DIR" "$managed" "$patched"; then
+                rm -f "$patched"
+                keep_edits=1
+            else
+                ui_warn "  $(t compose_patch_failed)"
+                if ! ui_yesno "$(t compose_regen_q)" n; then
+                    ui_dim "  $(t compose_untouched)"
+                    exit 0
+                fi
+            fi
         fi
     fi
     confirm_install
     mkdir -p "$INSTALL_DIR"
-    if compose_helper_possible "$INSTALL_DIR"; then
-        managed=1
-    elif [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
+    if [ "$managed" = 0 ] && [ "$OS_FAMILY" = "linux" ] && [ "$DOCKER_KIND" = "linux-rootful" ] &&
         ! compose_dir_is_safe "$INSTALL_DIR"; then
         ui_warn "  $(t compose_dir_unsafe)"
     fi
@@ -2347,8 +2545,20 @@ install_docker_stack() {
     else
         write_unmanaged_env "$INSTALL_DIR"
     fi
-    write_docker_compose "$INSTALL_DIR" "$managed"
-    ui_dim "  $(t wrote_config) ${INSTALL_DIR}/docker-compose.yml"
+    if [ "$keep_edits" = 1 ]; then
+        patched="$(mktemp /tmp/meshloom-compose-new.XXXXXX)"
+        if ! build_patched_compose "$INSTALL_DIR" "$managed" "$patched"; then
+            ui_err "$(t compose_patch_failed)"
+            exit 1
+        fi
+        # Written through the existing file: a symlink, owner and mode stay.
+        cat "$patched" >"${INSTALL_DIR}/docker-compose.yml"
+        rm -f "$patched"
+        ui_dim "  $(t compose_kept)"
+    else
+        write_docker_compose "$INSTALL_DIR" "$managed"
+        ui_dim "  $(t wrote_config) ${INSTALL_DIR}/docker-compose.yml"
+    fi
     dc="$(compose_cmd)"
     # An existing stack restarts right away so the app and the helper match.
     if [ "$existing" = 1 ] || ui_yesno "$(t q_start_now)" y; then
@@ -2389,6 +2599,7 @@ show_browser_only() {
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+refuse_unsupported_hardware
 ui_init
 choose_language
 detect_os

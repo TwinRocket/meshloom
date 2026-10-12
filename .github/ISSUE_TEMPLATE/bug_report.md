@@ -35,7 +35,8 @@ assignees: ''
 ## 💻 Environment Information
 - **OS:** <!-- e.g. macOS 15, Windows 11, Raspberry Pi OS -->
 - **Browser / Version:** <!-- e.g. Chrome 150, Safari 18 -->
-- **Meshloom Version:** <!-- e.g. v4.0.0 -->
+- **Meshloom Version:** <!-- e.g. 4.18.2 (Settings → About) -->
+- **Install type:** <!-- package (.deb/.rpm), Docker, Home Assistant add-on, Raspberry Pi image, source -->
 
 ## 📸 Screenshots / Debug Logs
 <!-- Screenshots are great. A debug snapshot or debug-level logs help enormously. -->
@@ -49,8 +50,10 @@ In the app, go to **Settings → About → "Open debug support snapshot"** (or n
 
 > 🔒 The snapshot includes recent logs and basic environment/radio status. It never
 > exposes your private key. Logs *may* contain channel names or keys. If you'd rather
-> not share those, copy only **up to the `STOP COPYING HERE` marker** — everything
-> above it reveals nothing sensitive beyond your bot names.
+> not share those, copy only **up to the `STOP COPYING HERE` marker**. Above it there
+> are no channel names or secret keys, but it does show how your radio is connected
+> (serial port, TCP host or Bluetooth address), your radio's name and public key, and
+> the names of failing integrations.
 
 **Advanced — full debug-level logs:**
 Restart the backend with debug logging enabled to capture detailed radio
@@ -58,7 +61,7 @@ communication and packet processing:
 ```bash
 MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
-Then reproduce the issue and paste the relevant log output.
+On a package install, set `MESHCORE_LOG_LEVEL=DEBUG` in `/etc/meshloom/meshloom.env` and restart the service; with Docker, add it under `environment:`; in the Home Assistant add-on, set the `log_level` option. Then reproduce the issue and paste the relevant log output.
 
 </details>
 

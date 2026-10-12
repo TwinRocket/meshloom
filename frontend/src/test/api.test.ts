@@ -657,7 +657,6 @@ describe('fetchJson (via api methods)', () => {
   describe('Meshloom Stats community client', () => {
     const communityStatus = {
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: 'mqtt.meshloom.app',
       api_base: 'https://api.meshloom.app',
@@ -754,6 +753,26 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
       expect(mockFetch.mock.calls[3][0]).toBe('./api/community/live/relancer');
       expect(mockFetch.mock.calls[3][1].method).toBe('POST');
+    });
+
+    it('sends the Live regions and reads the active ones', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ available: true, codes: [] }),
+      });
+
+      await api.subscribeCommunityLive('s1', ['LYS', 'NCE']);
+      await api.subscribeCommunityLive(undefined, null);
+      await api.subscribeCommunityLive('s1', []);
+      await api.getCommunityActiveIata();
+
+      expect(mockFetch.mock.calls[0][1].body).toBe(
+        JSON.stringify({ session_id: 's1', iata: ['LYS', 'NCE'] })
+      );
+      expect(mockFetch.mock.calls[1][1].body).toBe(JSON.stringify({}));
+      expect(mockFetch.mock.calls[2][1].body).toBe(JSON.stringify({ session_id: 's1' }));
+      expect(mockFetch.mock.calls[3][0]).toBe('./api/community/iata/active');
     });
   });
 });

@@ -51,6 +51,21 @@ def hashtag_key_from_name(name: str) -> bytes:
     return sha256(f"#{hashtag_room_name(name)}".encode()).digest()[:16]
 
 
+def is_public_hashtag_channel(name: str, key_hex: str) -> bool:
+    """True when ``name`` starts with ``#`` and ``key_hex`` is the key derived from it.
+
+    A radio or another app can give a ``#`` name to a channel with its own
+    secret: that channel is private, and its name must never reach Community.
+    """
+    if not (name or "").startswith("#"):
+        return False
+    try:
+        key = bytes.fromhex(key_hex or "")
+    except ValueError:
+        return False
+    return key == hashtag_key_from_name(name)
+
+
 def channel_key_hash_byte(key: bytes) -> str:
     """Lowercase two-hex first byte of ``SHA256(key)``."""
     return sha256(key).digest()[:1].hex()

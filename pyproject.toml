@@ -1,6 +1,6 @@
 [project]
 name = "meshloom"
-version = "4.18.0"
+version = "4.18.2"
 description = "Meshloom - Web interface for MeshCore radio mesh networks"
 readme = "README.md"
 license = "MIT"
@@ -18,7 +18,7 @@ dependencies = [
     # meshcore declares bleak=* and has not stated Bleak 3 compatibility.
     "bleak>=2.1,<3",
     "aiomqtt>=2.0",
-    "apprise>=2.0.1",
+    "apprise>=2.0.1",  # inline cid: attachments (alert email logo)
     "boto3>=1.38.0",
     "pywebpush>=0.14.0",
     "packaging>=26.3",

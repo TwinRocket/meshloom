@@ -7,7 +7,7 @@ IATA is set, and at least one Live session is present.
 Upstream lifetime is independent of any one browser session: a page reload
 that cannot run React cleanup must not close or reopen the Stats socket.
 The reader loop reconnects itself (capped exponential backoff) on every
-close except reserved 4002 (unused; not a product 24h sesame). JWT remint
+close except reserved 4002 (never sent by Community). JWT remint
 is local and happens on each connect attempt. A close 4001 on a socket that
 stayed up remints at once; a handshake 401 never does: it backs off, and the
 relay gives up after ``AUTH_REJECT_MAX_ATTEMPTS`` consecutive refusals (at
@@ -16,6 +16,16 @@ once for refusals no retry can fix) with state ``auth_rejected`` and an
 local IATA when set; Stats still treats the claim as optional.
 ``X-Live-Instance`` identifies this process so a v2 Stats server can treat
 our reconnect as a silent same-relay takeover.
+
+Region filter: each Live session says which IATA codes it shows (``None`` =
+every region). The socket asks Community for the union of the sessions'
+codes **plus the radio's own IATA** (``?iata=A,B``), or for the global feed
+when one session wants every region or the union exceeds
+``UPSTREAM_IATA_MAX``. A change of union reconnects after
+``FILTER_DEBOUNCE_S``, with the same ``X-Live-Instance``. A Community that
+refuses the parameter (handshake 400) gets the global feed for
+``FILTER_RETRY_S``; one that ignores it sends the global feed anyway. Either
+way the browser filters again, so the result is the same.
 """
 
 from __future__ import annotations
@@ -28,6 +38,9 @@ import re
 import time
 import uuid
 from typing import Any, Literal
+from urllib.parse import urlencode
+
+from app.models import LIVE_PLACEHOLDER_IATAS as PLACEHOLDER_IATAS
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +63,18 @@ AUTH_FATAL_CODES = frozenset(
     {"token_audience", "token_signature", "token_malformed", "token_missing", "token_in_query"}
 )
 
+# Community /v1/live/packets accepts at most this many codes in ?iata=.
+UPSTREAM_IATA_MAX = 16
+# A filter change waits this long so a burst of tab changes reconnects once.
+FILTER_DEBOUNCE_S = 2.0
+# After a handshake 400 on a filtered URL, stay on the global feed this long.
+FILTER_RETRY_S = 3600.0
+IataFilter = frozenset[str] | None
+
 CLOSE_JWT_EXPIRED = 4001
 CLOSE_INACTIVE = 4002
+# close_stats(): longest wait for the upstream close handshake.
+CLOSE_TIMEOUT_S = 5.0
 CLOSE_SLOT_BUSY = 4003
 CLOSE_RATE_LIMIT = 4004
 CLOSE_SUPERSEDED = 4005
@@ -60,8 +83,8 @@ LIVE_CLOSE_CODES = frozenset(
 )
 USER_CLOSE_CODES = frozenset({CLOSE_JWT_EXPIRED, CLOSE_INACTIVE})
 # 401 is deliberately absent: a handshake refusal is not a 4001 (see _run).
+# Any other refusal (403 included) has no close code and reconnects with backoff.
 HANDSHAKE_TO_CLOSE = {
-    403: CLOSE_INACTIVE,
     409: CLOSE_SUPERSEDED,
     429: CLOSE_RATE_LIMIT,
     503: CLOSE_RATE_LIMIT,
@@ -91,7 +114,7 @@ PACKET_TYPES = KNOWN_PACKET_TYPES
 _PACKET_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
-LiveState = Literal["connected", "reconnecting", "gate", "opted_out", "idle", "auth_rejected"]
+LiveState = Literal["connected", "reconnecting", "opted_out", "idle", "auth_rejected"]
 LiveAuthError = Literal["clock_skew", "token_rejected"]
 _HASH8_RE = re.compile(r"^[0-9a-f]{8}$")
 _PACKET_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -99,13 +122,53 @@ _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 _IATA_RE = re.compile(r"^[A-Z]{3}$")
 
 
-def stats_live_ws_url(api_base: str) -> str:
+def stats_live_ws_url(api_base: str, iata: IataFilter = None) -> str:
+    """Live socket URL. ``iata`` adds ``?iata=A,B`` (sorted); ``None`` is the global feed."""
     base = (api_base or "").strip().rstrip("/")
     if base.startswith("https://"):
-        return f"wss://{base[len('https://') :]}{LIVE_PATH}"
-    if base.startswith("http://"):
-        return f"ws://{base[len('http://') :]}{LIVE_PATH}"
-    return f"wss://{base}{LIVE_PATH}" if base else ""
+        url = f"wss://{base[len('https://') :]}{LIVE_PATH}"
+    elif base.startswith("http://"):
+        url = f"ws://{base[len('http://') :]}{LIVE_PATH}"
+    else:
+        url = f"wss://{base}{LIVE_PATH}" if base else ""
+    if url and iata:
+        url = f"{url}?{urlencode({'iata': ','.join(sorted(iata))}, safe=',')}"
+    return url
+
+
+def normalize_iata_selection(codes: object) -> IataFilter:
+    """A session's regions: ``None`` (or nothing valid) means every region."""
+    if not isinstance(codes, (list, tuple, set, frozenset)):
+        return None
+    out: set[str] = set()
+    for raw in codes:
+        if not isinstance(raw, str):
+            continue
+        code = raw.strip().upper()
+        if _IATA_RE.fullmatch(code) and code not in PLACEHOLDER_IATAS:
+            out.add(code)
+    return frozenset(out) or None
+
+
+def upstream_iata_filter(selections: list[IataFilter], radio_iata: str) -> IataFilter:
+    """Union of the sessions' regions plus the radio's IATA; ``None`` = global feed.
+
+    The radio's IATA is always in, so what this radio's own region hears
+    stays complete whatever the tabs pick. One session that wants every
+    region, no session at all, or more codes than Community accepts, means
+    the global feed.
+    """
+    if not selections or any(selection is None for selection in selections):
+        return None
+    union: set[str] = set()
+    for selection in selections:
+        union.update(selection or ())
+    radio = (radio_iata or "").strip().upper()
+    if _IATA_RE.fullmatch(radio) and radio not in PLACEHOLDER_IATAS:
+        union.add(radio)
+    if not union or len(union) > UPSTREAM_IATA_MAX:
+        return None
+    return frozenset(union)
 
 
 def map_stats_close(*, code: int | None = None, http_status: int | None = None) -> int | None:
@@ -377,7 +440,12 @@ class CommunityLiveRelay:
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self._sessions: dict[str, float] = {}
+        # session id -> (last heartbeat, regions shown; None = every region)
+        self._sessions: dict[str, tuple[float, IataFilter]] = {}
+        # Filter the open (or opening) socket asked for; None = global feed.
+        self._active_filter: IataFilter = None
+        self._filter_rejected_at: float | None = None
+        self._filter_task: asyncio.Task[None] | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._fanout_task: asyncio.Task[None] | None = None
         self._idle_close_task: asyncio.Task[None] | None = None
@@ -385,7 +453,6 @@ class CommunityLiveRelay:
         self._ws: Any = None
         self._connected = False
         self._close_code: int | None = None
-        self._gate_blocked = False
         self._auth_error: LiveAuthError | None = None
         self._auth_code: str | None = None
         self._clock_skew_s: int | None = None
@@ -409,12 +476,18 @@ class CommunityLiveRelay:
     def instance_id(self) -> str:
         return self._instance_id
 
-    def _prune(self, now: float) -> None:
-        expired = [sid for sid, seen in self._sessions.items() if now - seen > SESSION_TTL_S]
+    def _prune(self, now: float) -> bool:
+        """Drop sessions without a heartbeat. True when one was dropped."""
+        expired = [
+            sid for sid, (seen, _filter) in self._sessions.items() if now - seen > SESSION_TTL_S
+        ]
         for sid in expired:
             del self._sessions[sid]
+        return bool(expired)
 
     def _has_consumers(self) -> bool:
+        # Only reached while not connected (see _live_state and _run): the
+        # next connect attempt reads the pruned union itself.
         self._prune(time.monotonic())
         return bool(self._sessions)
 
@@ -423,8 +496,6 @@ class CommunityLiveRelay:
             return "opted_out"
         if self._auth_error is not None:
             return "auth_rejected"
-        if self._gate_blocked:
-            return "gate"
         if self._connected:
             return "connected"
         if self._reader_task is not None and not self._reader_task.done():
@@ -443,7 +514,65 @@ class CommunityLiveRelay:
             "auth_error": None if opted_out else self._auth_error,
             "auth_code": None if opted_out else self._auth_code,
             "clock_skew_s": None if opted_out else self._clock_skew_s,
+            "upstream_iata": (
+                sorted(self._active_filter)
+                if self._active_filter is not None and self._connected and not opted_out
+                else None
+            ),
         }
+
+    def _desired_filter(self, radio_iata: str, *, now: float | None = None) -> IataFilter:
+        if self._filter_rejected_at is not None:
+            moment = time.monotonic() if now is None else now
+            if moment - self._filter_rejected_at < FILTER_RETRY_S:
+                return None
+            self._filter_rejected_at = None
+        return upstream_iata_filter([sel for _seen, sel in self._sessions.values()], radio_iata)
+
+    def _schedule_filter_check(self) -> None:
+        """Debounced: reconnect once the union of the sessions' regions settles."""
+        if self._filter_task is not None and not self._filter_task.done():
+            self._filter_task.cancel()
+        self._filter_task = asyncio.create_task(self._apply_filter_change())
+
+    def _cancel_filter_check(self) -> None:
+        task = self._filter_task
+        self._filter_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _apply_filter_change(self) -> None:
+        try:
+            await asyncio.sleep(FILTER_DEBOUNCE_S)
+        except asyncio.CancelledError:
+            return
+        # Past the debounce this task is no longer cancellable by a newer
+        # change (a cancel inside close_stats() could orphan the reader): a
+        # newer change schedules its own check instead.
+        if self._filter_task is asyncio.current_task():
+            self._filter_task = None
+        from app.services.meshloom_community import community_egress_state
+
+        # The same guard as every other egress: opted out, nothing reopens.
+        state = await community_egress_state()
+        if state is None or not state.iata:
+            return
+        async with self._lock:
+            self._prune(time.monotonic())
+            if not self._sessions or self._auth_error is not None or not self._connected:
+                # Not connected: the next connect attempt reads the new union
+                # itself, and a handshake already in flight checks it again
+                # once open (see _run).
+                return
+            if self._desired_filter(state.iata) == self._active_filter:
+                return
+        logger.info("Community live region filter changed; reconnecting")
+        await self.close_stats()
+        if await community_egress_state() is None:
+            return
+        async with self._lock:
+            self._prune(time.monotonic())
+            self._ensure_reader_locked()
 
     async def _can_open_live(self, enabled: bool) -> bool:
         if not enabled:
@@ -459,7 +588,7 @@ class CommunityLiveRelay:
         # socket against our own pubkey slot (measured production deadlock).
         if not self._lock.locked():
             raise RuntimeError("reader claim requires the relay lock")
-        if self._gate_blocked or self._auth_error is not None:
+        if self._auth_error is not None:
             return
         if self._reader_task is not None and not self._reader_task.done():
             return
@@ -469,49 +598,61 @@ class CommunityLiveRelay:
         generation = self._generation
         self._reader_task = asyncio.create_task(self._run(generation))
 
-    async def subscribe(self, session_id: str | None = None) -> dict[str, Any]:
-        """Register a Live session. Heartbeat (known id) never remints."""
+    async def subscribe(self, session_id: str | None = None, iata: object = None) -> dict[str, Any]:
+        """Register a Live session. Heartbeat (known id) never remints.
+
+        ``iata`` is the regions this session shows (``None`` = every region);
+        a heartbeat carries it again, so a change reaches the upstream filter.
+        """
         from app.services.meshloom_community import community_enabled
 
         enabled = await community_enabled()
         can_open = await self._can_open_live(enabled)
         now = time.monotonic()
+        selection = normalize_iata_selection(iata)
         async with self._lock:
-            self._prune(now)
+            expired = self._prune(now)
             if session_id and session_id in self._sessions:
-                self._sessions[session_id] = now
+                previous = self._sessions[session_id][1]
+                self._sessions[session_id] = (now, selection)
                 sid = session_id
+                changed = previous != selection
             else:
                 sid = uuid.uuid4().hex
-                self._sessions[sid] = now
+                self._sessions[sid] = (now, selection)
+                changed = True
             if self._idle_close_task is not None:
                 self._idle_close_task.cancel()
                 self._idle_close_task = None
             if can_open:
                 self._ensure_reader_locked()
+                if changed or expired:
+                    self._schedule_filter_check()
         if not can_open:
             await self.close_stats()
         return self.snapshot(session_id=sid, opted_out=not enabled)
 
     async def unsubscribe(self, session_id: str) -> dict[str, Any]:
         async with self._lock:
-            self._sessions.pop(session_id, None)
-            self._prune(time.monotonic())
+            removed = self._sessions.pop(session_id, None) is not None
+            expired = self._prune(time.monotonic())
             empty = not self._sessions
             if empty and self._idle_close_task is None:
                 self._idle_close_task = asyncio.create_task(self._idle_close())
+            elif (removed or expired) and not empty:
+                self._schedule_filter_check()
         from app.services.meshloom_community import community_enabled
 
         return self.snapshot(opted_out=not await community_enabled())
 
     async def relancer(self) -> dict[str, Any]:
-        """Mint a new API JWT and reconnect. Clears 4002 and a given-up 401."""
+        """Mint a new API JWT and reconnect. Clears a 4002 stop and a given-up 401."""
         from app.services.meshloom_community import community_enabled
 
         enabled = await community_enabled()
         can_open = await self._can_open_live(enabled)
-        self._gate_blocked = False
         self._clear_auth_error()
+        self._filter_rejected_at = None
         self._close_code = None
         await self.close_stats()
         if can_open:
@@ -528,10 +669,12 @@ class CommunityLiveRelay:
         self._clock_skew_s = None
 
     async def sync_community(self, enabled: bool) -> None:
-        # A settings change (IATA, API base, opt-in) is a fresh start for auth.
+        # A settings change (IATA, API base, opt-in) is a fresh start for auth
+        # and for the region filter (a new Community may accept it).
         self._clear_auth_error()
+        self._filter_rejected_at = None
         if not enabled:
-            self._gate_blocked = False
+            self._cancel_filter_check()
             await self.close_stats()
             await self._broadcast_status(opted_out=True)
             return
@@ -550,7 +693,22 @@ class CommunityLiveRelay:
             if self._idle_close_task is not None:
                 self._idle_close_task.cancel()
                 self._idle_close_task = None
+            self._cancel_filter_check()
         await self.close_stats()
+
+    def drain_queue(self) -> int:
+        """Drop frames waiting for fan-out (opt-out). Returns how many were dropped."""
+        dropped = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return dropped
+            if item is None:
+                # The fan-out stop sentinel is not a frame: keep it.
+                self._queue.put_nowait(None)
+                return dropped
+            dropped += 1
 
     async def shutdown(self) -> None:
         await self.release_all_consumers()
@@ -567,15 +725,17 @@ class CommunityLiveRelay:
             self._reader_task = None
         if ws is not None:
             try:
-                await ws.close()
-            except Exception:
+                # Bounded: a close handshake that hangs must not keep the
+                # reader below from being cancelled (opt-out teardown).
+                await asyncio.wait_for(ws.close(), timeout=CLOSE_TIMEOUT_S)
+            except Exception:  # TimeoutError included
                 logger.debug("Community live socket close failed", exc_info=True)
         if task is not None and not task.done():
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            # Bounded too: the reader's own socket exit may wait on the peer.
+            done, _pending = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_S)
+            if not done:
+                logger.warning("Community live reader did not stop in time; abandoning it")
 
     async def _idle_close(self) -> None:
         try:
@@ -645,7 +805,7 @@ class CommunityLiveRelay:
     async def _run(self, generation: int) -> None:
         from app.services.meshloom_community import (
             classify_auth_rejection,
-            get_community_effective,
+            community_egress_state,
             mint_stats_jwt,
         )
 
@@ -655,10 +815,10 @@ class CommunityLiveRelay:
         opted_out = False
         try:
             while generation == self._generation:
-                if not self._has_consumers() or self._gate_blocked or self._auth_error is not None:
+                if not self._has_consumers() or self._auth_error is not None:
                     return
                 try:
-                    state = await get_community_effective()
+                    state = await community_egress_state()
                 except Exception:
                     if generation != self._generation:
                         return
@@ -666,16 +826,18 @@ class CommunityLiveRelay:
                     await self._sleep_backoff(generation, delay)
                     delay = min(RECONNECT_MAX_S, delay * RECONNECT_FACTOR)
                     continue
-                if not state.enabled:
+                if state is None:
                     opted_out = True
                     return
                 if not state.iata:
                     logger.info("Community live skipped: IATA is not set")
                     return
-                url = stats_live_ws_url(state.api_base)
+                wanted = self._desired_filter(state.iata)
+                url = stats_live_ws_url(state.api_base, wanted)
                 if not url:
                     logger.warning("Community live skipped: API base is empty")
                     return
+                self._active_filter = wanted
                 try:
                     token = mint_stats_jwt(
                         audience=state.api_audience, iata=state.iata, require_iata=False
@@ -687,8 +849,12 @@ class CommunityLiveRelay:
                     await self._sleep_backoff(generation, delay)
                     delay = min(RECONNECT_MAX_S, delay * RECONNECT_FACTOR)
                     continue
-                logger.info("Opening Community live socket")
+                logger.info(
+                    "Opening Community live socket (%s)",
+                    ",".join(sorted(wanted)) if wanted else "global",
+                )
                 close_code: int | None = None
+                http_status: int | None = None
                 auth_payload: dict[str, Any] | None = None
                 auth_refused = False
                 opened_at: float | None = None
@@ -701,6 +867,11 @@ class CommunityLiveRelay:
                         self._close_code = None
                         opened_at = time.monotonic()
                         auth_failures = 0
+                        # A region change that landed during the handshake was
+                        # dropped by its debounced check (not connected yet):
+                        # this socket opened with the older union, check again.
+                        if self._desired_filter(state.iata) != wanted:
+                            self._schedule_filter_check()
                         await self._broadcast_status(opted_out=False)
                         async for message in ws:
                             if generation != self._generation:
@@ -742,6 +913,17 @@ class CommunityLiveRelay:
                     delay = RECONNECT_INITIAL_S
                 if generation != self._generation or not self._has_consumers():
                     return
+                if wanted is not None and http_status == 400:
+                    # A Community that knows ?iata= but refuses this value
+                    # (live_bad_filter): fall back to the global feed at once.
+                    # The browser filters the global feed the same way.
+                    logger.warning(
+                        "Community refused the live region filter; using the global feed"
+                    )
+                    self._filter_rejected_at = time.monotonic()
+                    self._active_filter = None
+                    await self._sleep_backoff(generation, 0)
+                    continue
                 if auth_refused:
                     auth_failures += 1
                     reason, skew = classify_auth_rejection(auth_payload)
@@ -772,8 +954,8 @@ class CommunityLiveRelay:
                     )
                     continue
                 if close_code == CLOSE_INACTIVE:
-                    # 4002 is reserved unused. Do not reconnect this generation.
-                    # Do not set _gate_blocked: 4002 is not a product 24h sesame.
+                    # 4002 is reserved and never sent (contract live-events.md):
+                    # if it ever arrives, stop this generation until Relancer.
                     self._close_code = user_visible_close_code(close_code)
                     await self._broadcast_status(opted_out=False)
                     return
@@ -792,6 +974,7 @@ class CommunityLiveRelay:
                 self._connected = False
                 self._ws = None
                 self._reader_task = None
+                self._active_filter = None
                 try:
                     await self._broadcast_status(opted_out=opted_out)
                 except Exception:
@@ -809,6 +992,78 @@ class CommunityLiveRelay:
             return
 
 
+ACTIVE_IATA_PATH = "/v1/iata/active"
+ACTIVE_IATA_CACHE_S = 60.0
+# Community statuses that mean "this server does not serve the route yet".
+ACTIVE_IATA_MISSING_STATUSES = frozenset({404, 405})
+_active_iata_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def parse_active_iata(payload: object) -> list[dict[str, Any]]:
+    """``[{code, unique_hashes_24h}]``, busiest first. Bad rows are skipped.
+
+    Accepts the bare list from the contract and, defensively, an object that
+    wraps it under ``iata``, ``codes`` or ``data``.
+    """
+    rows = payload
+    if isinstance(rows, dict):
+        for key in ("iata", "codes", "data"):
+            if isinstance(rows.get(key), list):
+                rows = rows[key]
+                break
+    if not isinstance(rows, list):
+        return []
+    seen: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("code")
+        code = raw.strip().upper() if isinstance(raw, str) else ""
+        if not _IATA_RE.fullmatch(code) or code in PLACEHOLDER_IATAS:
+            continue
+        count = row.get("unique_hashes_24h")
+        hashes = count if isinstance(count, int) and not isinstance(count, bool) else 0
+        seen[code] = max(seen.get(code, 0), max(hashes, 0))
+    ordered = sorted(seen.items(), key=lambda item: (-item[1], item[0]))
+    return [{"code": code, "unique_hashes_24h": hashes} for code, hashes in ordered]
+
+
+async def active_iata_codes() -> dict[str, Any]:
+    """Regions Community saw in the last 24 h, for the Live picker (cached 60 s).
+
+    Opted out: nothing is sent, ``available`` is false. A Community without
+    the route (404/405) is cached as unavailable too; any other failure is
+    raised so the browser keeps the regions it has seen.
+    """
+    from app.services.meshloom_community import (
+        CommunityUpstreamError,
+        community_egress_state,
+        stats_json,
+    )
+
+    state = await community_egress_state()
+    if state is None:
+        return {"available": False, "codes": []}
+    now = time.monotonic()
+    cached = _active_iata_cache.get(state.api_base)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    try:
+        payload = await stats_json("GET", ACTIVE_IATA_PATH, auth=False)
+        result: dict[str, Any] = {"available": True, "codes": parse_active_iata(payload)}
+    except CommunityUpstreamError as exc:
+        if exc.upstream_status not in ACTIVE_IATA_MISSING_STATUSES:
+            raise
+        result = {"available": False, "codes": []}
+    _active_iata_cache.clear()
+    _active_iata_cache[state.api_base] = (now + ACTIVE_IATA_CACHE_S, result)
+    return result
+
+
+def reset_active_iata_cache() -> None:
+    _active_iata_cache.clear()
+
+
 _relay: CommunityLiveRelay | None = None
 
 
@@ -819,8 +1074,10 @@ def get_live_relay() -> CommunityLiveRelay:
     return _relay
 
 
-async def subscribe_live(session_id: str | None = None) -> dict[str, Any]:
-    return await get_live_relay().subscribe(session_id)
+async def subscribe_live(
+    session_id: str | None = None, iata: list[str] | None = None
+) -> dict[str, Any]:
+    return await get_live_relay().subscribe(session_id, iata)
 
 
 async def unsubscribe_live(session_id: str) -> dict[str, Any]:
@@ -849,6 +1106,7 @@ async def shutdown_community_live() -> None:
 
 def reset_community_live_for_tests() -> None:
     global _relay
+    reset_active_iata_cache()
     relay = _relay
     _relay = CommunityLiveRelay()
     if relay is None:
@@ -862,3 +1120,4 @@ def reset_community_live_for_tests() -> None:
     idle = relay._idle_close_task
     if idle is not None and not idle.done():
         idle.cancel()
+    relay._cancel_filter_check()

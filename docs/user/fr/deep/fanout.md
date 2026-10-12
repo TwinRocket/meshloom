@@ -5,71 +5,79 @@ level: deep
 order: 16
 ---
 
-Le fanout est le bus qui redistribue les événements du mesh vers l’extérieur. Toutes les intégrations passent par lui : MQTT privé, MQTT communautaire, bots, webhooks, Apprise, SQS, et l’envoi de publicités vers la carte publique. [Meshloom Community](/docs/deep/community/) est un état d’adhésion séparé, pas une ligne Fanout.
+Le fanout envoie ce que Meshloom entend vers d’autres systèmes : votre propre broker MQTT, Home Assistant, des bots Python, des webhooks, des services de messagerie et d’e-mail via Apprise, Amazon SQS, des collecteurs communautaires de paquets, et la carte publique MeshCore. Dans l’interface, il s’appelle **MQTT et automatisation**.
 
-Chaque intégration est une configuration stockée en base, dans la table `fanout_configs`. Elles se gèrent depuis Réglages > Intégrations, ou via l’API :
+Chaque destination est une **intégration**. Pour en ajouter une :
 
-| Méthode | Endpoint | Effet |
-|---------|----------|-------|
-| GET | `/api/fanout` | Liste les configurations |
-| POST | `/api/fanout` | Crée une configuration |
-| PATCH | `/api/fanout/{id}` | Met à jour, ce qui recharge le module |
-| DELETE | `/api/fanout/{id}` | Supprime, ce qui arrête le module |
+1. Ouvrez **Réglages → MQTT et automatisation**.
+2. Choisissez **Ajouter une intégration** et sélectionnez un type.
+3. Remplissez le formulaire, puis choisissez **Enregistrer et activer** (ou **Enregistrer et désactiver** pour la garder de côté).
 
-Une configuration désactivée est traitée comme un brouillon : sa validation n’est pas exécutée. L’état de chaque module est visible dans `GET /api/health`, dans `fanout_statuses`, avec trois valeurs possibles : `connected`, `disconnected`, `error`.
+La page affiche un avertissement : les intégrations sont une fonctionnalité expérimentale en bêta ouverte. Chaque intégration montre son état, par exemple **Connecté**, **Déconnecté** ou **Erreur**. En cas d’erreur, **Voir la dernière erreur** affiche le dernier message.
 
-## Les types de modules
+[Meshloom Community](/docs/deep/community/) n’est pas une intégration. C’est une adhésion à part, avec sa propre page.
+
+## Les types d’intégration
 
 | Type | Ce qu’il fait |
 |------|---------------|
-| `mqtt_private` | Publie vers votre propre broker MQTT. Hôte, port, identifiants, TLS, préfixe de sujet. |
-| `mqtt_community` | Publie vers un broker communautaire. Paquets bruts uniquement. |
-| `bot` | Exécute du code Python en réponse aux messages. |
-| `webhook` | POST / PUT / PATCH HTTP, signature HMAC-SHA256 optionnelle, en-têtes libres. |
-| `apprise` | Notifications via Apprise, une URL de service par ligne. |
-| `sqs` | Dépose une enveloppe JSON dans une file Amazon SQS. |
-| `map_upload` | Envoie les publicités de répéteurs et de salons entendues vers map.meshcore.io. |
+| MQTT privé | Publie les messages et les paquets bruts vers votre propre broker MQTT |
+| MQTT Discovery Home Assistant | Fait apparaître votre radio, vos répéteurs et vos contacts comme des appareils dans Home Assistant. Voir [Home Assistant](/docs/deep/home-assistant/) |
+| MQTT communautaire / meshcoretomqtt | Envoie les paquets bruts à un collecteur communautaire. Des préréglages existent pour **MeshRank** et **LetsMesh** (US et EU) |
+| Bot Python | Exécute du code Python que vous écrivez en réponse aux messages |
+| Webhook | Envoie chaque message en JSON par HTTP, avec une signature facultative |
+| Apprise | Envoie des notifications vers Discord, Telegram, Slack, e-mail, SMS et une centaine d’autres services |
+| Amazon SQS | Dépose chaque événement dans une file Amazon SQS |
+| Envoi vers la carte | Envoie les répéteurs et serveurs de salon entendus vers map.meshcore.io |
 
-L’intégration Home Assistant est un cas particulier de MQTT Discovery et a sa propre page : [Home Assistant](/docs/deep/home-assistant/).
+### MQTT privé
 
-## La portée (scope)
+Vous indiquez l’adresse et le port de votre broker (port 1883 par défaut), des identifiants facultatifs, TLS, et un préfixe de sujet (`meshcore` par défaut). Meshloom publie vers :
 
-Chaque configuration porte un blob `scope` qui décide quels événements l’atteignent :
+- `<préfixe>/dm:<clé du contact>` pour les messages directs ;
+- `<préfixe>/gm:<clé du salon>` pour les messages de salon ;
+- `<préfixe>/raw/dm:<clé>`, `<préfixe>/raw/gm:<clé>` ou `<préfixe>/raw/unrouted` pour les paquets bruts.
 
-```json
-{"messages": "all", "raw_packets": "all"}
-{"messages": "none", "raw_packets": "all"}
-{"messages": {"channels": ["key1"], "contacts": "all"}, "raw_packets": "none"}
-```
+Les messages partent **déchiffrés**, en clair, y compris ceux que vous envoyez. Ne le dirigez que vers un broker de confiance.
 
-La portée ne filtre que deux flux : les messages décodés et les paquets RF bruts. Trois autres flux — mises à jour de contacts, snapshots de télémétrie de répéteurs, snapshots de santé radio — sont distribués à tous les modules sans condition. Chaque module filtre lui-même selon sa configuration.
+### MQTT communautaire
 
-Deux types ont une portée imposée :
+Il envoie les paquets bruts à un collecteur tenu par une communauté, comme LetsMesh ou MeshRank, pour que votre radio serve aussi d’observateur. Seuls les paquets bruts partent, jamais les messages déchiffrés. Le serveur par défaut est celui de LetsMesh US, en WebSockets. Un code de région (IATA) est obligatoire ; une adresse e-mail est facultative (elle permet au collecteur de relier le nœud à vous). Avec LetsMesh, votre radio signe le laissez-passer de connexion avec sa clé ; MeshRank n’en demande pas. En plus des paquets, le collecteur reçoit toutes les cinq minutes un message d’état : nom de la radio, modèle, version de firmware et paramètres radio.
 
-- MQTT communautaire est verrouillé sur `{"messages": "none", "raw_packets": "all"}`. Il ne transporte jamais le contenu de vos messages.
-- `map_upload` est verrouillé sur la même valeur : paquets bruts uniquement.
+C’est autre chose que le [Meshloom Community](/docs/deep/community/) officiel. Les deux peuvent fonctionner en même temps.
 
-Pour les webhooks et Apprise, l’interface n’offre pas l’option « aucun message », qui rendrait l’intégration inerte.
+### Envoi vers la carte
 
-Le déchiffrement historique ne déclenche aucun fanout. Ce chemin est marqué non temps réel, et la distribution est court-circuitée. Autrement dit, ajouter une clé de salon et rattraper le trafic de la semaine passée ne va pas rejouer une semaine de notifications.
+Il envoie vers map.meshcore.io les annonces des répéteurs et des serveurs de salon qui diffusent leur position. Il a besoin de la clé privée de la radio pour les signer : le firmware de la radio doit donc autoriser l’export de la clé. Un même nœud est envoyé au plus une fois par heure.
 
-## Ce que reçoit un module
+**Il démarre en mode simulation (dry-run).** En mode simulation, Meshloom écrit seulement dans son journal ce qu’il enverrait. Rien n’arrive sur la carte tant que vous n’avez pas décoché **Mode simulation (journal uniquement, pas d’envoi)** dans le formulaire. Un périmètre géographique facultatif limite les envois aux nœuds situés dans un rayon autour de votre radio.
 
-Cinq points d’entrée, tous facultatifs.
+## Choisir ce qui part : la portée
 
-- **Messages** — le modèle de message complet : `type` (`PRIV` ou `CHAN`), `conversation_key`, `text`, `sender_name`, `sender_key`, `outgoing`, `acked`, `paths`, `sender_timestamp`, `received_at`.
-- **Paquets bruts** — `id` (identité de stockage), `observation_id` (identité par arrivée RF), `raw` en hexadécimal, `timestamp`, et un `decrypted_info` optionnel.
-- **Contacts** — le modèle contact : `public_key`, `name`, `type`, `lat`, `lon`, `last_seen`, `first_seen`, `on_radio`.
-- **Télémétrie** — snapshot d’un répéteur après enregistrement : tension batterie, plancher de bruit, RSSI et SNR, compteurs de paquets, temps d’antenne, uptime.
-- **Santé** — snapshot radio toutes les 60 secondes : état de connexion, identité du nœud, plancher de bruit, batterie, uptime, compteurs.
+Chaque intégration a une **portée** : quels messages elle reçoit, et si elle reçoit aussi les paquets bruts.
 
-Deux identités cohabitent pour les paquets bruts, et la distinction compte si vous consommez ce flux : `id` est une identité de **stockage**, déduplique sur le hachage de payload en excluant les octets de chemin, donc un même payload réentendu par un autre chemin partage une ligne. `observation_id` est unique par arrivée RF. Pour compter ou dédupliquer des observations, c’est `observation_id`.
+- **Messages** : tous, aucun, seulement les salons et contacts que vous listez, ou tous sauf ceux que vous listez. Avec « seulement », les salons et contacts ajoutés plus tard ne sont pas inclus automatiquement.
+- **Transférer les paquets bruts** : oui ou non. Seuls MQTT privé et Amazon SQS vous laissent le choix.
+
+Certains types ont une portée imposée :
+
+| Type | Portée |
+|------|--------|
+| MQTT communautaire, Envoi vers la carte | Paquets bruts uniquement, jamais les messages |
+| Bot Python | Tous les messages, pas de paquets bruts |
+| Webhook, Apprise, Home Assistant | Messages selon votre choix, jamais de paquets bruts |
+
+La portée ne filtre que les messages et les paquets bruts. Les contacts, la télémétrie des répéteurs et les instantanés de santé de la radio (toutes les 60 secondes) vont à toutes les intégrations, et chacune garde ce dont elle a besoin.
+
+Déchiffrer d’anciens paquets plus tard, après l’ajout d’une clé, ne déclenche jamais les intégrations. Ajouter une clé ne rejoue pas une semaine de notifications.
+
+Ce que contient un message : son type (direct ou salon), la clé de la conversation, le texte, l’expéditeur, l’état d’accusé de réception, les chemins empruntés et les heures. Un paquet brut a deux identifiants. `id` identifie le paquet stocké, et un paquet réentendu par une autre route le partage. `observation_id` est unique à chaque arrivée par les ondes : c’est lui qu’il faut utiliser pour compter. Sa numérotation repart du début quand Meshloom redémarre.
 
 ## Bots
 
-Un bot est du code Python que vous écrivez dans l’interface et que le serveur exécute. C’est une fonctionnalité de puissance, pas un bac à sable : le code tourne avec `exec()` et l’ensemble des `__builtins__`. Toute personne ayant accès à l’interface peut donc exécuter du code arbitraire sur la machine. Voir [Sécurité](/docs/deep/security/) et [Un réseau de confiance](/docs/trust/).
+Un bot est du code Python que vous écrivez dans l’interface. Le serveur l’exécute à chaque message reçu.
 
-La fonction reçoit, dans cet ordre : `sender_name`, `sender_key`, `message_text`, `is_dm`, `channel_key`, `channel_name`, `sender_timestamp`, `path`, puis éventuellement `is_outgoing`, `path_bytes_per_hop`, `packet_hash`.
+**C’est de l’exécution de code arbitraire, par conception.** Le code tourne sur le serveur avec un accès complet à la machine. Toute personne qui peut ouvrir la page de Meshloom peut écrire et lancer du code. N’activez les bots que sur un réseau de confiance. Voir [Sécurité](/docs/deep/security/) et [Un réseau de confiance](/docs/trust/). Les bots sont désactivés au départ sur les installations faites avec le paquet Linux.
 
 ```python
 def bot(sender_name, sender_key, message_text, is_dm,
@@ -79,24 +87,37 @@ def bot(sender_name, sender_key, message_text, is_dm,
     return None
 ```
 
-Deux arguments supplémentaires, `region` et `scoped`, ne sont livrés qu’aux bots qui utilisent `**kwargs` ou nomment explicitement le paramètre. C’est délibéré : les signatures existantes continuent de fonctionner sans modification. `scoped` lève l’ambiguïté d’un `region` à `None` — non scopé, ou scopé vers une région inconnue de la liste.
+La fonction peut aussi accepter `is_outgoing`, `path_bytes_per_hop`, `packet_hash` et, si vous les nommez ou utilisez `**kwargs`, `region` et `scoped`. Les bots voient tous les messages, y compris ceux que vous envoyez : évitez donc les réponses qui relancent le bot. Pour les messages de salon, `sender_key` vaut `None` et le préfixe « nom de l’expéditeur : » est retiré du texte.
 
-Le retour peut être `None` (pas de réponse), une chaîne, une liste de chaînes envoyées dans l’ordre, ou un dictionnaire `{"region": ..., "message": ...}` qui scope la réponse à une région pour cet envoi seulement. Le scope de région ne s’applique qu’aux réponses de salon ; il est ignoré pour les DM.
+Un bot renvoie `None` (pas de réponse), un texte, une liste de textes envoyés dans l’ordre, ou `{"region": ..., "message": ...}` pour envoyer une réponse de salon dans une région donnée. Les régions ne s’appliquent qu’aux réponses de salon.
 
-Pour les messages de salon, le texte passé au bot est normalisé : le préfixe `"{sender_name}: "` est retiré quand il correspond à l’expéditeur du payload.
+Limites : un bot attend deux secondes avant de s’exécuter (pour reconnaître les échos), chaque exécution est interrompue au bout de 10 secondes, 100 au plus tournent en même temps, et les réponses d’un bot sont espacées d’au moins deux secondes pour que les répéteurs n’entrent pas en collision.
 
-L’exécution est bornée : pool de threads, délai maximal, limite de concurrence, et limitation de débit sur les messages sortants pour rester compatible avec les répéteurs.
-
-Deux interrupteurs existent. `MESHCORE_DISABLE_BOTS=true` désactive le système au démarrage : plus d’exécution, `403` sur les modifications de configuration de bots, et un message d’indisponibilité dans l’interface. `POST /api/fanout/bots/disable-until-restart` arrête les modules bots et les maintient désactivés jusqu’au redémarrage du processus, sans toucher à l’environnement.
-
-Une limite de principe du projet, valable aussi pour les bots : pas de trafic radio réellement automatisé, et pas d’injection de contenu venu d’Internet sur le mesh. Les réponses de bots sont la limite de ce que le projet veut automatiser.
-
-## MQTT communautaire
-
-Ce module ne publie que des paquets bruts. Le champ `raw` est toujours l’hexadécimal du paquet d’origine.
-
-Un détail de lecture : quand un paquet direct porte un champ `path`, il est émis comme une liste d’identifiants de saut séparés par des virgules, exactement comme le paquet les rapporte. La largeur d’un identifiant suit le `path_hash_mode` du paquet — 1, 2 ou 3 octets. Ce n’est volontairement pas un rendu octet par octet.
+`MESHCORE_DISABLE_BOTS=true` désactive le système au démarrage : aucun bot ne tourne, en créer ou en modifier un est refusé, et la page le dit. `POST /api/fanout/bots/disable-until-restart` arrête tous les bots jusqu’au prochain redémarrage, sans toucher à l’environnement.
 
 ## Webhooks
 
-`hmac_secret`, quand il est défini, ajoute une signature HMAC-SHA256 du corps JSON. Le nom d’en-tête est configurable via `hmac_header` et vaut `X-Webhook-Signature` par défaut. La valeur est au format `sha256=<hex>`.
+Meshloom envoie chaque message en JSON, avec la méthode que vous choisissez (`POST`, `PUT` ou `PATCH`) et les en-têtes supplémentaires que vous définissez. Il attend une réponse jusqu’à 10 secondes. Chaque requête porte un en-tête `X-Webhook-Event`.
+
+Si vous définissez un **secret HMAC**, Meshloom signe le corps avec HMAC-SHA256 et envoie le résultat sous la forme `sha256=<hex>` dans un en-tête. L’en-tête est `X-Webhook-Signature`, sauf si vous en nommez un autre.
+
+## Apprise
+
+Indiquez une adresse par ligne. Chaque message est envoyé à toutes. Vous pouvez écrire vos propres modèles de texte pour les messages directs et les messages de salon, avec des variables comme l’expéditeur, le texte, le salon, le nombre de sauts et la force du signal. Les messages que vous avez envoyés vous-même ne sont pas transmis, sauf si vous cochez l’option. Pour Discord, vous pouvez conserver le nom et l’image propres au webhook.
+
+## Amazon SQS
+
+Vous indiquez l’URL de la file. La région et le point d’accès (utile avec LocalStack) sont facultatifs. Sans clés, Meshloom utilise les identifiants AWS habituels du serveur. Chaque message est un objet JSON avec `event_type` (`message` ou `raw_packet`) et `data`. Les messages sont envoyés déchiffrés.
+
+## Par l’API
+
+L’interface utilise ces points d’accès. Une intégration enregistrée est vérifiée à chaque fois, qu’elle soit activée ou non.
+
+| Méthode | Point d’accès | Effet |
+|---------|---------------|-------|
+| GET | `/api/fanout` | Liste les intégrations |
+| POST | `/api/fanout` | En crée une |
+| PATCH | `/api/fanout/{id}` | La met à jour et la redémarre |
+| DELETE | `/api/fanout/{id}` | L’arrête et la supprime |
+
+`GET /api/health` indique l’état de chaque intégration activée dans `fanout_statuses`. Une intégration désactivée n’est simplement pas démarrée.

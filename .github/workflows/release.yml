@@ -4,9 +4,15 @@ name: Release
 # GitHub release, then bakes the Raspberry Pi Lite image from the arm64 .deb
 # in this same run (a second workflow would not start: GITHUB_TOKEN releases
 # do not trigger on.release). The armhf package is workflow_dispatch'd after
-# publish so QEMU does not block a re-run. Cut a release with
-# scripts/build/publish.sh, then:
-#   git tag X.Y.Z && git push origin X.Y.Z
+# publish so QEMU does not block a re-run.
+#
+# Cutting a release (no workflow pushes main or creates a tag): an admin writes
+# the [X.Y.Z] section of CHANGELOG.md and runs scripts/build/publish.sh X.Y.Z,
+# which commits the version bump, pushes main, then pushes the annotated X.Y.Z
+# tag that starts this workflow. If main went out but the tag did not,
+# scripts/build/tag_release.sh X.Y.Z pushes the tag.
+# workflow_dispatch only re-publishes an existing tag: start it on the tag
+# itself (`gh workflow run release.yml --ref X.Y.Z`), never on a branch.
 #
 # Signing (pkg/keys/README.md): `preflight` refuses to start unless the four
 # version sources equal the tag and the CI secret MESHLOOM_REPO_GPG_PRIVATE_KEY
@@ -18,11 +24,10 @@ name: Release
 on:
   push:
     tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  # Re-publish an existing tag only: run it with --ref X.Y.Z. Every job then
+  # checks out the tagged commit, and create_github_release.sh refuses to run
+  # unless the tag is on origin and points at it.
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release (no v prefix, e.g. 4.0.0)"
-        required: true
 
 # Least privilege: every job below states what it needs.
 permissions: {}
@@ -37,9 +42,14 @@ jobs:
       - name: Resolve version
         id: version
         env:
-          RAW_VERSION: ${{ inputs.version || github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          RAW_VERSION: ${{ github.ref_name }}
         run: |
-          VERSION="${RAW_VERSION#v}"
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Release runs on an existing X.Y.Z tag only. Re-publish with: gh workflow run release.yml --ref X.Y.Z (tags come from scripts/build/publish.sh)."
+            exit 1
+          fi
+          VERSION="$RAW_VERSION"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$RAW_VERSION' is not X.Y.Z"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -217,15 +227,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           ASSET_ARGS=()
           while IFS= read -r file; do
             ASSET_ARGS+=(--asset "$file")
           done < <(find artifacts -type f | sort)
           scripts/build/create_github_release.sh \
             --version "${{ needs.version.outputs.version }}" \
-            --full-git-hash "$(git rev-parse HEAD)" \
             "${ASSET_ARGS[@]}"
 
   # armhf lives in nfpm-armhf.yml: a GITHUB_TOKEN release does not trigger
@@ -247,6 +254,16 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --ref "${{ github.event.repository.default_branch }}" \
             -f version="${{ needs.version.outputs.version }}"
+
+  # meshloom.app builds its docs from the latest tag: rebuild it now that the
+  # release is public. Called here because a GITHUB_TOKEN release does not
+  # trigger docs-site.yml's on.release.
+  docs-site:
+    needs: [publish]
+    uses: ./.github/workflows/docs-site.yml
+    secrets:
+      DOCS_SITE_DEPLOY_HOOK: ${{ secrets.DOCS_SITE_DEPLOY_HOOK }}
+    permissions: {}
 
   # Publishes amd64/arm64 immediately. The armhf workflow refreshes the index
   # once that package is attached, rather than holding this run for QEMU.

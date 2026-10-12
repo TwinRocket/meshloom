@@ -725,8 +725,7 @@ export type LiveCloseCode =
   | typeof LIVE_CLOSE_RATE_LIMIT
   | typeof LIVE_CLOSE_SUPERSEDED;
 
-export type LiveRelayState =
-  'connected' | 'reconnecting' | 'gate' | 'opted_out' | 'idle' | 'auth_rejected';
+export type LiveRelayState = 'connected' | 'reconnecting' | 'opted_out' | 'idle' | 'auth_rejected';
 
 /** Why Community refused the live token for good (state `auth_rejected`). */
 export type LiveAuthError = 'clock_skew' | 'token_rejected';
@@ -736,8 +735,6 @@ export interface CommunityLiveStatus {
   close_code: LiveCloseCode | null;
   opted_out: boolean;
   connected: boolean;
-  /** Absent on older relays — derive reconnecting from close_code instead. */
-  reconnecting?: boolean;
   state?: LiveRelayState;
   /** Set with state `auth_rejected`; the relay stopped retrying until Relancer. */
   auth_error?: LiveAuthError | null;
@@ -745,6 +742,19 @@ export interface CommunityLiveStatus {
   auth_code?: string | null;
   /** Community server time minus this server's time, in seconds. */
   clock_skew_s?: number | null;
+  /** Regions the upstream socket asked Community for; null = the global feed. */
+  upstream_iata?: string[] | null;
+}
+
+export interface CommunityIataActiveEntry {
+  code: string;
+  unique_hashes_24h: number;
+}
+
+export interface CommunityIataActiveResponse {
+  /** False when Community is off or does not serve the list yet. */
+  available: boolean;
+  codes: CommunityIataActiveEntry[];
 }
 
 export interface DirectoryMapNodesQuery {
@@ -759,6 +769,9 @@ export interface RawPacket {
   /** Per-observation WS identity (unique per RF arrival, may be absent in older payloads) */
   observation_id?: number;
   timestamp: number;
+  /** Client-only: browser Date.now() when the WS frame was recorded. Live activity
+   *  (visualizer pruning) uses this so a skewed server clock cannot age packets. */
+  received_at_ms?: number;
   data: string; // hex
   payload_type: string;
   snr: number | null; // Signal-to-noise ratio in dB
@@ -1849,7 +1862,6 @@ export interface StatisticsResponse {
 /** Local Meshloom Stats join state. Browser talks only to the Meshloom backend. */
 export interface CommunityStatus {
   enabled: boolean;
-  locked: boolean;
   iata: string;
   broker_host: string;
   api_base: string;

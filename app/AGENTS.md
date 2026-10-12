@@ -5,13 +5,15 @@ identities, message dedup, path hash modes, channel keys), environment variables
 chain, the updater security principle and the working rules are in the root `AGENTS.md`.
 Like everything else here, this file is a hypothesis: check it against the code.
 
-Stack: FastAPI, aiosqlite, Pydantic v2 (+ pydantic-settings), `meshcore` (PyPI), PyCryptodome, httpx.
+In short: the backend talks to one radio, stores what it hears in SQLite and exposes it to the web interface over REST and a WebSocket.
+
+Stack: FastAPI, aiosqlite, Pydantic v2 (+ pydantic-settings), `meshcore` (PyPI), PyCryptodome, httpx, Apprise (email alerts and the `apprise` fanout type).
 
 ## Module map
 
 ```text
 app/
-├── main.py              # lifespan, middleware (CORS, gzip, Basic auth), router registration, static mount
+├── main.py              # lifespan, middleware (CORS, gzip, Basic auth, security headers), router registration, static mount
 ├── config.py            # pydantic-settings, env prefix MESHCORE_ (see root env table)
 ├── database.py          # SQLite connection, base schema and indexes
 ├── migrations/          # _NNN_name.py, each exposes `async def migrate(conn)`; tracked by PRAGMA user_version
@@ -29,6 +31,13 @@ app/
 ├── security.py          # optional app-wide HTTP Basic auth (HTTP + WS)
 ├── frontend_static.py   # serve frontend/dist, else frontend/prebuilt
 ├── keystore.py          # in-memory private key for DM decryption
+├── path_utils.py        # path_len byte (hash mode + hop count), packet hash, region-scope buckets
+├── telemetry_alerts.py  # alert rules evaluated after each telemetry poll (see "Telemetry alerts")
+├── telemetry_interval.py # tracked-repeater polling interval and its daily ceiling
+├── notify.py, email_template.py # delivery of system alerts (push, email, webhook) and the HTML email
+├── version_info.py      # version and commit resolution (package metadata, env, build_info.json, pyproject)
+├── api_docs.py          # the custom /docs page
+├── region_scope.py, channel_constants.py, loop_lock.py # name normalisation, constants, loop-bound locks
 ├── push/                # Web Push (not a fanout module)
 ├── fanout/              # fanout bus, see fanout/AGENTS_fanout.md
 ├── repository/          # data access, one module per aggregate
@@ -48,19 +57,32 @@ Services worth knowing before touching a flow:
 | `messages.py`, `message_send.py` | Message creation, `handle_duplicate_message`, send/resend workflows |
 | `meshloom_community.py` | Community settings, JWT mint, HTTP client and circuit breaker |
 | `community_live.py` | Community Live relay (one upstream socket) |
+| `community_status_clear.py` | The single bounded retry that deletes a retained MQTT status the opt-out could not clear |
 | `directory.py`, `observer_reach.py`, `rf_locate.py` | Community directory, observer reach, RF locate |
 | `hashtag_catalogue.py`, `channel_membership.py` | Unlocking unknown GroupText; pending/adopted/refused channels |
 | `install_kind.py`, `update_apply.py`, `oss_updates.py`, `update_window.py` | In-app updater, see "Updates" |
-| `stale_contacts.py` | Hourly housekeeping: stale contacts, raw-packet retention (`raw_packet_retention_days`, 0 = off) |
+| `stale_contacts.py` | Hourly housekeeping: stale contacts (`stale_contact_days`, 0 = off), raw-packet retention (`raw_packet_retention_days`, 0 = off), bounded `incremental_vacuum` |
+| `radio_stats.py` | One 60 s loop that samples the local radio (noise floor, battery, airtime, packets). Feeds `GET /health`, the WS `health` frame and the fanout `on_health` hook |
+| `radio_commands.py`, `flood_scope.py` | Radio command helpers, including firmware-compatible flood-scope commands |
+| `region_candidates.py` | Tests proposed region names against packets already stored (no airtime) |
+| `test_channel.py` | The built-in `#meshloom-testing` channel used by the radio self-test and by `POST /tools/mesh-test`. It stores no channel and no message |
+| `backup.py` | JSON backup/restore of contacts, channels, settings and groups (the SQLite download lives beside it) |
+| `contact_access.py`, `contact_reconciliation.py` | Contact lookup and radio staging shared by the contact, repeater and room routers; contact/message reconciliation |
+| `raw_packet_decrypt.py`, `ttl_lru.py` | Decrypted info attached to raw packets; bounded TTL/LRU caches |
 
 ## Migrations
 
+Migrations change the shape of the database when the program is upgraded.
+
 - One file per version: `app/migrations/_NNN_description.py`. The runner discovers files by numeric prefix and runs pending ones in order.
+- Never rename or delete a migration. Some deployments (Portainer GitOps) keep files deleted upstream, so the old name would stay on disk and run too. The runner refuses to start when two files share a number (`_refuse_duplicate_numbers`).
 - Each migration runs in one transaction with the `user_version` bump. `conn.commit()` inside a migration is deferred to the runner. A migration that cannot run in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs). Example: `idx_messages_chan_unattributed_sender` (migration 086).
 - Tests: `tests/test_migrations/`.
 
 ## Radio lifecycle
+
+How the program connects to the radio, keeps the link alive and notices when it is a different radio.
 
 - Transport lives in `app_settings` (`radio_transport`, `radio_serial_port` empty = auto-detect, `radio_tcp_*`, `radio_ble_*`). Until `radio_transport` is set, the radio stays paused.
 - A live key that differs from `radio_bound_public_key`, or mesh history with no bound key (`identity_unbound_legacy`), closes ingest and pauses setup until the user adopts or rejects (`POST /radio/identity/adopt|reject`). Do not call `pause_connection()` while the post-connect operation lock is held.
@@ -72,6 +94,8 @@ Services worth knowing before touching a flow:
 - Contact capacity: `max_radio_contacts`. Favorites load first, non-favorites refill to 80 %, and a full offload/reload triggers at 95 % (`RADIO_CONTACT_*_RATIO` in `radio_sync.py`).
 
 ## Sending
+
+How a message leaves the program and how we know it arrived.
 
 - Routers validate, then delegate to `services/message_send.py`. Radio access goes through `radio_operation()`.
 - Channel slots: the count comes from firmware `max_channels` (fallback 40). Slots are reused through a session LRU cache, except on TCP (`connection_info` starts with `TCP:`) or with `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true`; then every send calls `set_channel(...)`.
@@ -97,13 +121,19 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 
 ## Community client
 
+How Meshloom talks to the optional Meshloom Community service.
+
 ### HTTP (`services/meshloom_community.py`)
 
-- Effective config = env first, then DB. `MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST` and `_API_BASE` override the stored value on every read (`get_community_effective()`); they are not only seeds. `MESHLOOM_COMMUNITY` only seeds a brand-new DB. `MESHLOOM_COMMUNITY_LOCKED=1` makes enabling answer 403.
+- Effective config = env first, then DB. `MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST` and `_API_BASE` override the stored value on every read (`get_community_effective()`); they are not only seeds. `MESHLOOM_COMMUNITY` only seeds a brand-new DB.
 - Upstream mapping: transport error/timeout/5xx → **503**; 429 → 429; 400 → 400; 401 → 502 (with a clock hint when `classify_auth_rejection` reports `clock_skew`, drift > 60 s); other non-200 → 502 (`CommunityUpstreamError.upstream_status`); an unexpected body → 502.
 - `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
 - Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).
-- `GET /community/iata/{code}/hashtags` ignores `code` and returns the global list (same as `/community/hashtags`).
+- The hashtag catalogue is global: `GET /community/hashtags` proxies `GET /v1/hashtags`. There is no per-IATA catalogue (`/community/iata/{code}/hashtags` was removed; Community answers 410 on its old `/v1/iata/{code}/hashtags`).
+- Hashtag names go out (`PUT /v1/me/hashtags`) only with Community on and an IATA saved, and only for a `#` channel whose key is `SHA256(name)[:16]` (`is_public_hashtag_channel`); a `#` name on a channel with its own secret is private and never published. Resolve and sample uploads (`services/hashtag_catalogue.py`) also wait for the IATA.
+- **Egress guard.** Opted out means no connection to the Community hosts or to the airport search (`api.fx-port.com`), with one exception: the leftover status clear below. `community_egress_state()` is the one check made by HTTP (`stats_request`), the Live socket (before every reconnect), `FanoutManager.sync_system_modules()`, the Stats publisher (`MeshloomStatsPublisher._pre_connect`, before every reconnect, in case a stop abandoned its loop), the release mirror (`fetch_meshloom_latest`) and `search_community_airports`. HTTP to Community and to the airport search leaves only through `_community_http()`, which tracks each request so the teardown can cancel it; a cancelled caller gets the opt-out 403. `tests/test_community_off_no_egress.py` sweeps every `/api/community`, `/api/directory` and `/api/tools` route with recorders on httpx, websockets and aiomqtt.
+- **Opt-out teardown.** `update_community()` holds one lock (`_update_lock`), so an opt-in sent during the teardown waits for it instead of being undone by it; `sync_system_modules()` is serialised too, so two overlapping syncs never leave a second publisher running. It runs `community_teardown()` when `enabled` goes from true to false. Each step is bounded and runs even if the previous one failed: cancel Community requests in flight, close the Live relay (`close_stats()` bounds the close handshake and the reader, `CLOSE_TIMEOUT_S`), clear the retained MQTT status and stop the publisher, then reset the breaker, the sample quota and the Live queue. The status clear runs before the DISCONNECT through `BaseMqttPublisher._before_disconnect`: a retained `offline` first (QoS 1), then an empty retained payload (QoS 1), so a failed clear leaves `offline`, never `online`. Any other clean stop (reload, shutdown) publishes the retained `offline` only, as the Will would. If the broker is unreachable at that moment nothing is sent; the broker's own Will (`offline`, retained) covers a connection it saw drop, and that `offline` would stay. An IATA or broker change clears the old status topic the same way (`FanoutManager.retire_system_status()`, which returns the module so the caller can read `retired_status_topic`), and an IATA or API base change reopens the Live socket.
+- **Leftover status clear (the only connection after an opt-out).** `_retire_status_and_reload(before)` first saves the old topic (IATA, broker, audience, pubkey) in `app_settings.community_status_clear` (JSON list, migration 088), then retires and stops the publisher. If the publisher acknowledged the empty retained payload on that topic (`retired_status_topic`), the entry is removed; otherwise `services/community_status_clear.py` starts its worker. Each attempt holds `_update_lock`, saves the attempt count first, then opens one MQTT connection (no Will, JWT minted with that entry's `iata`, which the Community `/authz` requires to match the topic), publishes `b""` retained QoS 1 on the status topic, and disconnects, within `CLEAR_ATTEMPT_TIMEOUT_S` (15 s). At most `CLEAR_MAX_ATTEMPTS` (6) attempts, spaced by `CLEAR_RETRY_DELAYS_S` (1 min to 8 h), and none after `CLEAR_GIVE_UP_AFTER_S` (24 h from the opt-out): the entry is then dropped and the worker exits. It waits for this radio's key without spending attempts. The lifespan resumes it at startup (`start_status_clear_worker`) and stops it at shutdown. Being on again on the same topic drops the entry (`drop_current`), so a fresh `online` is never cleared. Community's ingest drops the empty payload as `invalid_json` before any bind or status write. Covered by `TestRetainedStatusClear` in `tests/test_community_off_no_egress.py`: one connection carrying only the clear, nothing after success, nothing after giving up (attempts or 24 h), survival across a restart, the old IATA's token. `_announce_opt_out()` is the hook for a future "last call" `POST /v1/me/opt-out`, run before the database flips; it does nothing yet (Community does not serve that route).
 - Hashtag keys hash the exact name everywhere; the official-app normalisation is UI input only (see root `AGENTS.md`, "Hashtag rule").
 
 ### Live relay (`services/community_live.py`)
@@ -112,18 +142,35 @@ Two views with different denominators that are not meant to agree. Traffic (`pat
 - Frames go out as `community_packet` through `ws_manager.broadcast`, i.e. to **every** connected WS client, not only to subscribed tabs.
 - Reconnect backoff: 0.5 s doubling up to 30 s. It resets only after a socket stayed up ≥ 10 s (`JWT_EXPIRY_MIN_UPTIME_S`). The JWT is reminted locally on every attempt. A 4001 close on such a socket reconnects at once.
 - A handshake 401 is not a 4001: retry at 2 s, doubling, and give up after 5 refusals (`AUTH_REJECT_MAX_ATTEMPTS`), or at once for `AUTH_FATAL_CODES`. The relay then reports `state: auth_rejected`, with `auth_error` = `clock_skew` or `token_rejected` (`auth_code` keeps the raw code). `POST /community/live/relancer` or `PATCH /community` clears it.
-- 4002: the reader stops that generation and does not reconnect. 4003/4004/4005 are never shown to the user (`CommunityLiveStatus` hides them).
-- `community_live.state` values actually produced: `connected`, `reconnecting`, `opted_out`, `idle`, `auth_rejected`. `gate` is in the type, but nothing sets `_gate_blocked = True` (dead code, tracked as a code issue).
+- Other handshake refusals: 409 maps to 4005, 429 and 503 to 4004; any other status, 403 included, has no close code. All of them reconnect with the normal backoff.
+- 4002 is reserved and Community never sends it. If a 4002 close ever arrives, the reader stops that generation and waits for `POST /community/live/relancer`. 4003/4004/4005 are never shown to the user (`CommunityLiveStatus` hides them).
+- `community_live.state` values: `connected`, `reconnecting`, `opted_out`, `idle`, `auth_rejected`.
+- **Region filter.** `POST /community/live/subscribe` takes `iata` (list of codes, at most 64 (`LIVE_IATA_SELECTION_MAX`), the placeholders `XXX`, `LOC`, `AAA` (`LIVE_PLACEHOLDER_IATAS`, the set Community ingest uses) refused with 422; null or empty = every region), on the first call and on every heartbeat. Sessions are `{sid: (last_seen, regions)}`. The socket asks Community for `?iata=` = the union of the sessions' regions **plus the radio's IATA**, sorted; one session for every region, or more than 16 codes (`UPSTREAM_IATA_MAX`), means the global feed. When the union changes (subscribe, unsubscribe, a session expiring), a check runs after 2 s (`FILTER_DEBOUNCE_S`) and, if the open socket asked for something else, closes it and opens a new one with the same `X-Live-Instance`. That check goes through `community_egress_state()` before and after the close, so an opt-out in between never reopens anything. A handshake **400** on a filtered URL (`live_bad_filter`) switches to the global feed at once. For an hour (`FILTER_RETRY_S`) no union change or reconnect asks for a filter again; `relancer`/`PATCH /community` clear that hour at once. Past it nothing retries on its own: the global socket stays until the next union change or reconnect (JWT expiry, for instance). A Community that ignores the parameter just sends the global feed. Either way frames still go to every WS client, and the browser filters them again (frontend `AGENTS.md`, `#live`). `CommunityLiveStatus.upstream_iata` reports the filter of the open socket (null = global). A region change that lands while a handshake is in flight is checked again once that socket opens. The "heard by" counts in conversations are also bumped live by this feed (frontend `applyCommunityPacketObserverTick`, whatever regions the Live tab shows), then reconciled by REST. Because the radio's IATA is always in the upstream filter, packets heard in its region stay complete; accepted limit: a far observation of a packet never heard in the radio's region no longer bumps the count live, only on the next REST poll. `#test` only polls REST (`GET /directory/packets/{hash}/reach`), so the filter does not change it.
+- `GET /community/iata/active` proxies Community `GET /v1/iata/active` (`[{code, unique_hashes_24h}]`, the placeholders `XXX`, `LOC`, `AAA` dropped), cached 60 s. Opted out it answers `available: false` without any request; a Community without the route (404/405) gives `available: false` too (cached); other failures are raised as usual.
 
 ## Updates
+
+How the program learns that a new version exists and, on some installs, installs it.
 
 Security principle (root side never reads anything the app writes): see the root `AGENTS.md`.
 
 - `services/install_kind.py`: `MESHLOOM_INSTALL_KIND` (`package|compose|addon|container|source`) wins. Otherwise detection order: package helper (`/usr/lib/meshloom/apply-update` or `meshloom-update.service`), compose helper (`MESHLOOM_UPDATE_HELPER=compose` or `/var/lib/meshloom/update-helper-compose`), container, source. Apply is supported only for package/compose with a helper present. `addon` is declared only, never inferred, and never applies. `MESHLOOM_UPDATE_HELPER=none` forces apply off.
-- `services/oss_updates.py`: polls every 300 s (once at start). It reads GitHub `releases/latest` (redirect, strict `X.Y.Z`) and falls back to the Community mirror `GET /v1/meshloom/latest` (no JWT, works with Community off, skipped while the breaker is open). `latest_source` says which one answered.
+- `services/oss_updates.py`: polls once at start, then every 300 s with Community on and every 6 h opted out (`poll_interval_seconds`; turning Community on wakes the loop, `nudge_oss_update_poll`). It reads GitHub `releases/latest` (redirect, strict `X.Y.Z`) and, with Community on only, falls back to the Community mirror `GET /v1/meshloom/latest` (no JWT, skipped while the breaker is open). `source` in `GET /updates` says which one answered.
 - `services/update_apply.py`: the app only writes the trigger `request-update` and its own `update-attempt.json`. The root helper publishes `status.json` (package: `/var/lib/meshloom-update/status.json`; compose: `MESHLOOM_UPDATE_STATUS_PATH`, a read-only mount). `read_job()` shows the attempt until the helper's `started_at` is at or after the request (±2 s), then the helper status. Helper `cooldown` shows as `failed`. The pre-4.18 `update-job.json` is read only as a fallback (`legacy_update_helper`). When the package `.path` unit is not active, the app falls back to `systemctl start --no-block meshloom-update.service` and checks that the unit really started.
 - Routes: `GET /updates`, `POST /updates/refresh`, `POST /updates/apply` (202; 409 `apply_not_supported` / `update_not_available` / `apply_in_progress`), `PATCH /updates/settings` (`auto_update` and window; not through `PATCH /settings`). Auto-apply waits 6 h after a failed job.
 - Tests: `tests/test_update_apply.py`, `tests/test_install_kind.py`, `tests/test_oss_updates.py`, `tests/test_update_helpers_exec.py` (runs the real helpers against hostile inputs).
+
+## Telemetry polling and alerts
+
+Repeaters and contacts that the user tracks are polled for telemetry (`radio_sync.py`), up to 8 tracked repeaters and 8 tracked contacts (`routers/settings.py`). The polling interval is one of 1, 2, 3, 4, 6, 8 (default), 12 or 24 hours. Repeaters and contacts each have their own ceiling of 24 checks per day, so the shortest allowed interval grows with the number of tracked nodes in that list (`telemetry_interval.py`); the stored choice is not changed, only clamped. With `telemetry_routed_hourly`, nodes reachable by a direct or routed path are also polled every hour. Each node keeps its samples for 30 days or 1000 samples, whichever comes first (`repository/repeater_telemetry.py`, `repository/contact_telemetry.py`).
+
+After each poll, `telemetry_alerts.note_telemetry_poll()` evaluates the rules. Untracked nodes never alert, and a poll skipped because the radio was busy is not counted as a miss. Tracking a node writes a per-node override with `alerting: false` (`alerting_off_patch`), so its alerts stay off until the user turns them on. The rules are:
+
+- gauges with a threshold and a re-arm margin (hysteresis, not a time window): `battery` (on by default, below 3.5 V), `noise` (on, above -90 dBm), `rssi`, `snr`, `tx_queue` (off by default), and scalar CayenneLPP readings such as `lpp:temperature` (off by default);
+- `silence`: alert after N polls without a usable reply (default 2, between 1 and 4);
+- `gps_lost`: a node that used to report a GPS fix stops reporting one.
+
+Rules and per-node overrides live in `app_settings.telemetry_alert_rules`; the on/off state of each alert in `telemetry_alert_state`. Delivery goes through `notify.dispatch_system_event()` to any of three transports: Web Push (on by default), email (an Apprise `mailto` URL built on the fly from the SMTP settings, never stored as a URL; the HTML references the logo as `cid:meshloom-mark.png` and the PNG from `app/assets/` is attached with `inline=yes`, so the message is `multipart/related` and opening it fetches nothing: no remote image, no link) and a signed webhook (`X-Webhook-Event`, optional `X-Webhook-Signature: sha256=<HMAC of the body>`). Failures are only logged at debug level. SMTP password and webhook secret are stored in `app_settings.notification_destinations`; the API returns them as `********` and a PATCH that sends `********` back keeps the stored value. `POST /settings/notification-destinations/test` sends a fixed test alert on the email or the webhook channel (400 when it is not configured, 502 when the send fails). `GET /settings/telemetry-alert-catalog` lists the metrics a node can alert on.
 
 ## Web Push (`app/push/`)
 
@@ -136,6 +183,8 @@ Per-browser subscriptions in `push_subscriptions` (`UNIQUE(endpoint)`). VAPID ke
 - Changing these belongs to the out-of-scope Access and Plugins workstreams (root `AGENTS.md`, "Working rules"). Do not change them in passing.
 
 ## API routes (all under `/api`)
+
+Every address the web interface (or a script) can call.
 
 Source of truth: `app/routers/*.py` and `app.include_router(...)` in `main.py`. The OpenAPI docs are served by `api_docs.py`.
 
@@ -158,7 +207,7 @@ Source of truth: `app/routers/*.py` and `app.include_router(...)` in `main.py`. 
 | tools | `POST /tools/mesh-test` (404 when Community is off, 400 when the scope is not in `known_regions`; stores nothing) |
 | locate | `GET /locate?q=` (409 when ambiguous; never writes GPS) |
 | directory | `POST /directory/resolve-hops` (1-byte prefixes → 400) · `GET /directory/nodes` · `GET /directory/nodes/live` · `GET /directory/nodes/search` · `GET /directory/nodes/{pk}/reach` · `GET /directory/nodes/{pk}/neighbors` · `GET /directory/packets/{hash}/reach` · `POST /directory/packets/reach-counts` (≤ 20) · `POST /directory/cache/reset`. Community only: empty payloads when it is off |
-| community | `GET,PATCH /community` · `GET /community/airports` · `GET /community/me/stats` · `PUT /community/me/iata` · `POST /community/me/iata/override` · `GET /community/stats` · `GET /community/hashtags` · `GET /community/iata/{code}/hashtags` (ignores `code`) · `PUT /community/me/hashtags` · `POST /community/live/subscribe` · `DELETE /community/live/subscribe/{session_id}` · `POST /community/live/relancer` |
+| community | `GET,PATCH /community` · `GET /community/airports` · `GET /community/me/stats` · `PUT /community/me/iata` · `POST /community/me/iata/override` · `GET /community/stats` · `GET /community/hashtags` · `PUT /community/me/hashtags` · `GET /community/iata/active` · `POST /community/live/subscribe` · `DELETE /community/live/subscribe/{session_id}` · `POST /community/live/relancer` |
 | updates | see "Updates" |
 | push | `GET /push/vapid-public-key` · `POST /push/subscribe` · `GET /push/subscriptions` · `PATCH,DELETE /push/subscriptions/{id}` · `POST /push/subscriptions/{id}/test` · `GET,PATCH /push/preferences` · `PUT /push/preferences/conversations/{key}` |
 | ws | `WS /ws` |

@@ -1,5 +1,7 @@
 # Packet visualizer (`#visualizer`)
 
+The visualizer is a 3D picture of the mesh: each node is a dot, each packet travels along the hops it took. This page explains how it is built.
+
 Read this only when you change the 3D visualizer. Its numbers come from the code listed below. Check them again before you rely on them.
 
 ## Layers
@@ -23,6 +25,13 @@ Read this only when you change the 3D visualizer. Its numbers come from the code
 1. A packet arrives and is deduped on `getRawPacketObservationKey(packet)` (by `observation_id`).
 2. `generatePacketKey()` groups repeats as `ad:{pubkey[:12]}`, `gt:{channel}:{sender}:{hash}`, `dm:{src}:{dst}:{hash}`, or `other:{hash}`. The hash is the decoder's `messageHash`, which ignores the path. Malformed packets fall back to a hash of the data.
 3. Paths for the same key are collected during the observation window (`observationWindowSec`, default 15 s, 1 to 60 s). They are then published together, and the particles of every path animate at the same time.
+
+## Clock used for activity and pruning
+
+- Pruning (`useVisualizerData3D.ts`, tick every 1 s) compares `Date.now() - pruneStaleMinutes` with each node's and link's `lastActivity`. That is the **browser clock** on both sides.
+- `lastActivity` comes from `activityAtMs` in `ingestPacketIntoPacketNetwork`: `packet.received_at_ms ?? normalizePacketTimestampMs(packet.timestamp)`.
+- `received_at_ms` is client-only. `recordRawPacket` (`stores/rawPacketStore.ts`) stamps it with `Date.now()` when a live WebSocket packet is recorded. Packets seeded by the history replay (`seedRawPacketStore`) do not have it and keep the **server** timestamp, which is intended: they are historical.
+- Never date live traffic with `packet.timestamp` before comparing it with `Date.now()`. The server clock may be minutes off (a host without NTP): a server behind by more than the prune delay used to wipe every node within a second. `src/test/clockSkewPrune.test.ts` covers this.
 
 ## Ambiguous repeaters
 

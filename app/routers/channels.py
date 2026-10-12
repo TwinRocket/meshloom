@@ -10,7 +10,7 @@ from app.channel_constants import (
     is_public_channel_key,
     is_public_channel_name,
 )
-from app.data.meshcore_channels import hashtag_room_name
+from app.data.meshcore_channels import hashtag_room_name, is_public_hashtag_channel
 from app.decoder import parse_packet, try_decrypt_packet_with_channel_key
 from app.models import (
     Channel,
@@ -285,7 +285,9 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
         ) from exc
 
     if not _is_test_channel(stored):
-        await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
+        await schedule_hashtag_names_publish(
+            [stored.name], is_hashtag=is_public_hashtag_channel(stored.name, stored.key)
+        )
     _broadcast_channel_update(stored)
     return stored
 
@@ -473,7 +475,9 @@ async def adopt_channel(key: str) -> Channel:
         await _run_historical_channel_decryption(bytes.fromhex(stored.key), stored.key, stored.name)
 
     if not _is_test_channel(stored):
-        await schedule_hashtag_names_publish([stored.name], is_hashtag=stored.is_hashtag)
+        await schedule_hashtag_names_publish(
+            [stored.name], is_hashtag=is_public_hashtag_channel(stored.name, stored.key)
+        )
     _broadcast_channel_update(stored)
     return stored
 

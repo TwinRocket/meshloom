@@ -45,5 +45,9 @@ api.github.com and ghcr.io signed by it, in $C/tls (srv.crt, srv.key, ca.crt).
 10. Negative (trigger_in_host.sh copied to /usr/local/bin/e2e-trigger):
     cooldown (keep), downgrade (publish 4.18.2), wrong signer on OCI-DIGESTS,
     hostile Location (gh/location file) -> each "failed"/"cooldown", .env unchanged.
-11. Edit docker-compose.yml (e.g. a port), re-run install.sh N -> it stops with
-    a diff and changes nothing (MESHLOOM_COMPOSE_OVERWRITE=1 to force).
+11. Edit docker-compose.yml (e.g. add a port), re-run install.sh N -> it lists
+    the edit and asks to keep it. Enter (yes): the port stays, only the image,
+    update-status volume and MESHLOOM_UPDATE_* lines change, .bak-<date> kept.
+    "n": regenerated, .bak-<date> kept. A file it cannot adapt (environment as
+    a list): it says so and asks to regenerate; "n" leaves everything as is.
+    MESHLOOM_COMPOSE_OVERWRITE=1 regenerates without asking.

@@ -46,11 +46,15 @@ class Settings(BaseSettings):
             "editing it here would be silently ignored."
         ),
     )
-    public_url: str = Field(
-        default="",
+    radio_proxy_port: int | None = Field(
+        default=None,
+        ge=1,
+        le=65535,
         description=(
-            "External address this instance is reached at, when a tunnel or proxy "
-            "gives it one. Used where a link has to survive leaving the page."
+            "Port the radio proxy listens on, chosen by the host. Only honoured "
+            "together with ``managed_ports``: it then overrides the port stored in "
+            "the database on every start, because the host forwards that exact "
+            "container port. Without ``managed_ports`` the port is edited in the UI."
         ),
     )
 

@@ -51,6 +51,7 @@
     "observerReachMaxDistance": "Distance max",
     "observerReachDistanceUnavailable": "Distance indisponible",
     "observerReachEmpty": "Aucun nœud n’a publié avoir entendu ce paquet sur Meshloom Community.",
+    "observerReachCommunityOff": "La liste de qui a entendu ce paquet vient de Meshloom Community. Activez Community pour la voir.",
     "observerReachHops": "{{count}} sauts",
     "observerReachDirect": "direct",
     "observerReachExpandPath": "Voir les sauts de {{name}}",

@@ -778,3 +778,52 @@ def test_status_reports_who_owns_the_port(monkeypatch):
 
     monkeypatch.setattr(settings, "managed_ports", False)
     assert radio_proxy_manager.status_dict()["port_managed_by_host"] is False
+
+
+@pytest.mark.asyncio
+async def test_host_port_overrides_the_stored_port_when_managed(test_db, monkeypatch):
+    """The Home Assistant add-on forwards one container port; the proxy must use it."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "managed_ports", True)
+    monkeypatch.setattr(settings, "radio_proxy_port", 5051)
+
+    stored = await RadioProxyRepository.get()
+    assert stored.port == 5051
+
+    # Saving the form back (same port) is not a change, and the override survives it.
+    updated = await RadioProxyRepository.update(enabled=False)
+    assert updated.port == 5051
+
+
+@pytest.mark.asyncio
+async def test_start_from_db_listens_on_the_host_port(test_db, monkeypatch):
+    from app.config import settings
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    monkeypatch.setattr(settings, "managed_ports", True)
+    monkeypatch.setattr(settings, "radio_proxy_port", port)
+    await RadioProxyRepository.update(enabled=True, bind="127.0.0.1", port=1)
+
+    manager = RadioProxyManager()
+    try:
+        await manager.start_from_db()
+        assert manager.settings.port == port
+        assert manager.listen_port == port
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_host_port_is_ignored_without_managed_ports(test_db, monkeypatch):
+    """Outside a managing host the UI owns the port; the variable must not override it."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "managed_ports", False)
+    monkeypatch.setattr(settings, "radio_proxy_port", 5051)
+
+    assert (await RadioProxyRepository.get()).port == 5001

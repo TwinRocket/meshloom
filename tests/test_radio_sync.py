@@ -1207,10 +1207,12 @@ class TestBackgroundContactReconcile:
 class TestRadioHashtagPublish:
     @pytest.mark.asyncio
     async def test_radio_hashtag_upsert_puts_name_when_community_joined(self, test_db):
+        from app.data.meshcore_channels import hashtag_key_from_name
         from app.radio_sync import upsert_channel_from_radio_slot
         from app.services.meshloom_community import update_community
 
         await update_community(enabled=True, iata="LYS")
+        secret = hashtag_key_from_name("#fr")
         with patch(
             "app.services.meshloom_community.stats_json",
             new=AsyncMock(return_value={"hashtags": []}),
@@ -1218,13 +1220,13 @@ class TestRadioHashtagPublish:
             key = await upsert_channel_from_radio_slot(
                 {
                     "channel_name": "#fr",
-                    "channel_secret": bytes.fromhex("AA" * 16),
+                    "channel_secret": secret,
                 },
                 on_radio=True,
             )
             await asyncio.sleep(0)
 
-        assert key == "AA" * 16
+        assert key == secret.hex().upper()
         stats.assert_awaited_once_with(
             "PUT",
             "/v1/me/hashtags",
@@ -1246,6 +1248,28 @@ class TestRadioHashtagPublish:
                 {
                     "channel_name": "secret",
                     "channel_secret": bytes.fromhex("BB" * 16),
+                },
+                on_radio=True,
+            )
+            await asyncio.sleep(0)
+
+        stats.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_radio_hash_named_slot_with_own_secret_skips_put(self, test_db):
+        """A "#" name on a slot whose secret is not derived from it is private."""
+        from app.radio_sync import upsert_channel_from_radio_slot
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json",
+            new=AsyncMock(return_value={"hashtags": []}),
+        ) as stats:
+            await upsert_channel_from_radio_slot(
+                {
+                    "channel_name": "#family",
+                    "channel_secret": bytes.fromhex("AA" * 16),
                 },
                 on_radio=True,
             )

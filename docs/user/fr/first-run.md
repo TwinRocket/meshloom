@@ -1,80 +1,100 @@
 ---
 title: Premier lancement
-description: Ouvrir l’interface, vérifier la radio, nommer le nœud, faire le tour de l’écran.
+description: Ouvrir l’interface, connecter la radio, nommer le nœud, faire le tour de l’écran.
 level: start
 order: 3
 ---
 
-Le serveur tourne. Reste à ouvrir la page, lier la radio, puis regarder ce qui s’y passe.
+Le serveur tourne. Reste à ouvrir la page, connecter la radio, puis regarder ce qui s’y passe.
 
 ```
 http://127.0.0.1:8000
 ```
 
-Depuis un autre appareil du même réseau, la même adresse avec l’IP de la machine et le port `8000`.
+Depuis un autre appareil du même réseau, utilisez l’adresse IP de la machine avec le port `8000`.
 
-## Lier la radio
+## Langue de l’interface
 
-Le transport — USB, TCP ou Bluetooth — se choisit dans l’interface, pas à l’installation. Tant qu’il n’est pas défini, la barre d’état reste en pause et un clic sur **Connecter** ouvre **Réglages > Radio**.
+L’interface s’ouvre en français par défaut. Pour passer à l’anglais, ouvrez **Réglages > Configuration locale** et changez **Langue**. Ce choix ne vaut que pour ce navigateur. Ce guide utilise les noms français des boutons et des menus.
 
-Choisissez le transport, renseignez le port, l’hôte, ou l’adresse BLE et le PIN, puis appliquez. Les détails sont dans [Transports radio](/docs/deep/transports/).
+## Connecter la radio
 
-La barre passe ensuite par **Radio en connexion**, **Radio en initialisation**, puis **Radio OK** quand la liaison est établie et la synchronisation terminée. La première connexion prend un moment : le serveur lit la configuration de l’appareil, récupère ses contacts et ses salons, remet l’horloge à l’heure.
+Meshloom ne sait pas encore comment joindre votre radio. Le lien (USB, réseau ou Bluetooth) se choisit dans l’interface, pas pendant l’installation. Tant qu’il n’est pas défini, la bannière **Aucune radio connectée** s’affiche et la barre d’état indique **Radio en pause**.
 
-Si la barre affiche **Radio déconnectée**, un bouton **Reconnecter** est disponible à côté. Un serveur qui ne trouve pas la radio réessaie de lui-même toutes les quelques secondes, donc un câble rebranché ou une radio rallumée finit par être vu sans rien cliquer. Si l’état ne bouge pas : mauvais port série, mauvaise adresse IP, PIN Bluetooth refusé. Voir [Dépannage](/docs/deep/troubleshooting/).
+1. Appuyez sur **Connecter une radio** dans la bannière, ou sur **Connecter** dans la barre d’état. Cela ouvre **Réglages > Radio**.
+2. Dans **Transport**, choisissez **Série** (câble USB), **TCP** (radio sur le réseau) ou **Bluetooth**.
+3. Remplissez le champ qui apparaît : le port série (laissez **Détection automatique** si une seule radio est branchée), l’hôte et le port, ou l’adresse et le PIN Bluetooth.
+4. Appuyez sur **Enregistrer et connecter**.
 
-## Première liaison d’identité
+[Transports radio](/docs/deep/transports/) détaille chaque champ.
 
-Meshloom lie la base à la clé publique de la radio. Sur une installation neuve, c’est silencieux. Après une mise à jour d’une base qui existait déjà, un dialogue demande de confirmer.
+La barre d’état passe ensuite par **Radio en connexion**, **Radio en initialisation**, puis **Radio OK**. **Radio OK** veut dire que le lien est établi et que tout est synchronisé. La première connexion prend un moment : Meshloom lit la configuration de la radio, récupère ses contacts et ses canaux, et règle son horloge.
 
-- **Lier sans effacer** si c’est la même radio : contacts et messages restent.
-- **Nouvelle radio** si c’est un autre appareil : contacts et messages mesh locaux sont effacés. Les salons et la config serveur restent.
+Si la barre indique **Radio déconnectée**, un bouton **Reconnecter** apparaît. Meshloom réessaie aussi tout seul toutes les quelques secondes : rebrancher le câble ou rallumer la radio suffit souvent. Si rien ne change, les causes habituelles sont un mauvais port série, une mauvaise adresse IP ou un mauvais PIN Bluetooth. Voir [Dépannage](/docs/deep/troubleshooting/).
 
-« Clé précédente : inconnue » veut dire que cette base précède le lien d’identité, pas que la radio a changé. Si la nouvelle clé est bien la vôtre, liez sans effacer.
+Cliquez sur l’état de la radio dans la barre pour voir un résumé de la connexion.
 
-Si une autre radio est branchée, le dialogue affiche les deux préfixes de clé. Continuer sans effacer n’est alors pas proposé : adopter l’autre identité exige l’effacement.
+## Première vérification d’identité
 
-La barre d’état affiche aussi le nom du nœud, sa clé publique — cliquer dessus la copie — et son niveau de batterie quand la radio le remonte.
+Meshloom lie sa base à la clé publique de votre radio, pour ne jamais mélanger l’historique de deux radios. Sur une installation neuve, cela se fait sans bruit. Après la mise à jour d’une base qui contient déjà des données, une fenêtre demande de confirmer.
 
-## Nommer le nœud
+- Choisissez **Lier sans effacer** s’il s’agit de la même radio. Contacts et messages restent.
+- Choisissez **Nouvelle radio** s’il s’agit d’un autre appareil. Les contacts et messages du mesh, les paquets stockés et l’historique de télémétrie sont effacés. Les canaux et les réglages restent.
 
-Un nœud sans nom apparaît chez les autres sous les premiers caractères de sa clé publique. Autant lui en donner un.
+**Clé précédente : Inconnue** signifie seulement que la base est antérieure à cette vérification, pas que la radio a changé. Si la clé affichée est la vôtre, choisissez **Lier sans effacer**.
 
-**Réglages**, puis la section **Radio**, groupe **Identité**, champ **Nom de la radio**. Ce nom part dans chaque annonce et c’est ce que les autres verront dans leur liste de contacts. Court vaut mieux que long : la place dans un paquet radio est comptée.
+Si une radio avec une autre clé est connectée, la fenêtre montre les deux clés et propose **Annuler** ou **Effacer et continuer**. Garder l’historique n’est pas proposé, car cet historique appartient à l’autre radio.
 
-La même section contient les paramètres radio : préréglages, fréquence, largeur de bande, et le reste. Ils doivent correspondre à ceux des nœuds voisins, sinon personne ne s’entend. Si le nœud reste muet alors que d’autres appareils sont actifs à proximité, ces réglages sont le premier endroit à regarder — et il vaut mieux savoir quelles valeurs sont en usage localement avant d’y toucher.
+Une fois connectée, la barre d’état affiche aussi le nom du nœud, sa clé publique (cliquez dessus pour la copier) et le niveau de batterie quand la radio le communique.
 
-## Se signaler
+## Nommer votre nœud
 
-Plus bas dans la même section, le groupe **Annonces et découverte**. Une annonce est le petit paquet par lequel un nœud dit qu’il existe, avec son nom et sa clé publique.
+Un nœud sans nom apparaît chez les autres sous les premiers caractères de sa clé publique. Donnez un nom au vôtre.
 
-- **Envoyer une annonce** en envoie une tout de suite. La version *flood* se propage via les répéteurs et va donc loin. La version *zéro saut* reste locale et consomme beaucoup moins de temps d’antenne.
-- **Intervalle d’annonce périodique** règle la répétition automatique. `0` désactive. Le minimum est d’une heure, et vingt-quatre heures ou plus est la valeur recommandée : une annonce trop fréquente occupe l’antenne pour tout le monde.
+1. Ouvrez **Réglages > Radio**.
+2. Dans le groupe **Identité**, renseignez **Nom de la radio**.
+3. Enregistrez.
 
-L’inverse fonctionne pareil. Les contacts n’ont pas à être saisis à la main : chaque annonce entendue crée ou met à jour un contact tout seul. Une liste vide au démarrage n’est pas un problème, juste un réseau qu’on n’a pas encore écouté assez longtemps.
+Ce nom part avec chaque annonce et c’est lui que les autres voient dans leur liste de contacts. Restez bref : sur un canal, votre nom part avec chaque message et occupe une partie de ses 156 octets.
 
-## Le tour de l’écran
+La même page contient les paramètres radio (préréglage, fréquence, bande passante, etc.). Ils doivent correspondre à ceux des nœuds autour de vous, sinon personne n’entend personne. Si votre nœud reste muet alors que d’autres, tout près, sont actifs, regardez-les en premier, et notez les valeurs actuelles avant de rien changer.
 
-Sur un téléphone, la barre du bas propose quatre destinations : **Conversations**, **Carte**, **Outils** et **Réglages**. Sur un grand écran, un rail d’icônes à gauche reprend **Conversations** et la **Carte**, puis les outils ; **Réglages** reste en bas du rail.
+## Vous annoncer
 
-La liste des conversations est rangée par sections : **Favoris**, **Canaux**, **Contacts**, **Répéteurs**, **Serveurs de salon**. Un salon nommé **Public** existe dès le départ ; c’est le salon par défaut de MeshCore, ouvert à tout le monde.
+Une annonce (advert) est un petit paquet qui dit « je suis là », avec le nom et la clé publique du nœud. Dans **Réglages > Radio**, le groupe **Annonces et découverte** la contrôle.
 
-Les outils s’ouvrent depuis l’écran **Outils**, ou depuis une icône du rail :
+- **Envoyer une annonce flood** passe par les répéteurs et va loin.
+- **Envoyer une annonce zéro saut** reste locale et consomme bien moins de temps d’antenne.
+- **Intervalle d’annonce périodique** envoie des annonces automatiquement. `0` désactive. Le minimum est d’1 heure, et 24 heures ou plus est recommandé : trop d’annonces encombrent les ondes pour tout le monde.
 
-- **Flux de paquets** — tout ce que la radio entend, déchiffrable ou non.
-- **Journal de contrôle** — requêtes, réponses et données de groupe, à part des conversations.
-- **Live** — les paquets posés sur une carte au moment où ils sont entendus.
-- **Visualiseur mesh** — les chemins réellement empruntés par les paquets.
-- **Trace** — un test de route vers un nœud précis.
-- **Localisation RF** — une zone de couverture estimée, pas un point GPS.
-- **Recherche de messages** — recherche plein texte dans tout l’historique.
-- **Canaux découverts** — les salons hashtag entendus, à garder ou à refuser.
-- **Test radio** — envoie un message de test et montre qui l’a entendu. Il n’est proposé que lorsque Meshloom Community est actif.
+Le panneau de l’état radio (cliquez sur l’état dans la barre) propose aussi des boutons rapides **Flood** et **Zéro saut**.
 
-Le bouton **Ajouter canal/contact** ouvre la création d’une conversation : un contact par sa clé publique, un salon par sa clé, ou un salon hashtag par son nom.
+L’inverse fonctionne aussi : vous n’avez pas à saisir les contacts à la main. Chaque annonce que Meshloom entend crée ou met à jour un contact. Une liste vide le premier jour signifie seulement que le réseau n’a pas encore été entendu. Vous pouvez ignorer certains types de nœuds dans **Réglages > Gestion radio-application**, avec **Bloquer la découverte de nouveaux types de nœuds** (clients, répéteurs, serveurs de salon, capteurs).
 
-Une install neuve affiche une bannière **Community** tant qu’un code IATA d’aéroport n’est pas enregistré dans **Réglages > Community**. On peut quitter Community depuis cet onglet. Voir [Meshloom Community](/docs/deep/community/).
+## Faire le tour
 
-**Réglages > Notifications** est l’endroit du Web Push (cet appareil, défauts, exceptions, sujet VAPID). Il n’y a plus d’alertes bureau dans l’onglet.
+Sur téléphone, la barre du bas propose quatre entrées : **Discussions**, **Carte**, **Outils** et **Réglages**. Sur grand écran, une barre d’icônes à gauche montre les discussions, la carte et chaque outil, avec **Réglages** tout en bas. Vous choisissez les outils qui restent sur cette barre, et leur ordre, dans **Réglages > Navigation**.
 
-Pour envoyer quelque chose : [Messages](/docs/messages/).
+La liste des conversations est découpée en sections : **Favoris**, **Canaux**, **Contacts**, **Répéteurs** et **Serveurs de salon**. Un canal **Public** existe dès le départ. C’est le canal par défaut de MeshCore, ouvert à tout le monde.
+
+L’écran **Outils** (ou la barre d’icônes) ouvre :
+
+- **Flux de paquets** : tous les paquets que la radio entend, qu’ils soient déchiffrables ou non.
+- **Journal de contrôle** : requêtes, réponses et données de groupe, à part des conversations.
+- **Live** : les paquets apparaissent sur une carte au fur et à mesure qu’ils sont entendus.
+- **Visualiseur mesh** : les chemins réellement empruntés par les paquets.
+- **Trace** : un test de route à travers des répéteurs choisis.
+- **Localisation RF** : une zone de couverture estimée, pas un point GPS.
+- **Recherche de messages** : recherche dans tout l’historique.
+- **Canaux découverts** : les canaux hashtag que Meshloom a trouvés seul. Vous choisissez **Adopter** ou **Refuser** pour chacun.
+- **Test radio** : envoie un message de test et montre qui l’a entendu. Il n’apparaît que si Meshloom Community est actif.
+
+Le bouton **Ajouter canal/contact** crée une conversation : un contact à partir de sa clé publique, un salon privé à partir de sa clé, un salon hashtag à partir de son nom, ou plusieurs salons hashtag d’un coup.
+
+Les nouvelles installations rejoignent [Meshloom Community](/docs/deep/community/). Tant que vous n’avez pas saisi le code de l’aéroport le plus proche (son code IATA, trois lettres) dans **Réglages > Meshloom Community**, une bannière vous le rappelle et rien n’est publié. Vous pouvez aussi quitter Community depuis cette page.
+
+Autres pages utiles dans **Réglages** : **Notifications** (ci-dessous), **Mises à jour**, **MQTT et automatisation** (sorties et bots), **Alertes** (seuils de télémétrie), **Base de données** (taille et nettoyage du stockage), **Statistiques** et **À propos**.
+
+**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs ou capteurs, canaux trouvés, alertes télémétrie, mises à jour), et par quel moyen : Web Push sur ce navigateur, e-mail ou webhook. Le push fonctionne aussi navigateur fermé, mais il exige HTTPS. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications push](/docs/deep/push/).
+
+Pour envoyer votre premier message : [Messages](/docs/messages/).

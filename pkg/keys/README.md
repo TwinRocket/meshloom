@@ -1,5 +1,11 @@
 # Release signing keys
 
+In plain words: every file Meshloom publishes for installation is signed with a
+private key that only the owner controls, and this folder holds the matching
+public key that your machine uses to check the signature. If a file were
+tampered with, the check would fail. This page is for maintainers; users only
+benefit from it.
+
 This directory holds the **public** half of the key that signs every Meshloom
 release artifact: the `.deb` / `.rpm` packages, the apt and dnf repository
 metadata (`InRelease`, `Release.gpg`, `repomd.xml.asc`) and the release manifest
@@ -60,6 +66,11 @@ shreds its working directory.
 ```bash
 pkg/keys/create-release-key.sh            # output in ~/meshloom-release-key-YYYYMMDD/
 ```
+
+Options: `--out DIR` chooses the output folder (it must be outside any git
+repository), `--no-gh` skips the GitHub secret and leaves the CI subkey in
+`DIR/ci-subkey-A-SUPPRIMER.asc` (mode 600), `--yes` asks no question (tests; the
+passphrase then comes from `MESHLOOM_KEY_PASSPHRASE`).
 
 Difference with the manual procedure: the primary key itself has no passphrase
 inside the throwaway keyring; the offline backup is protected by symmetric
@@ -170,6 +181,9 @@ so users can compare.
    embeds the key), and say so in the release notes.
 
 ## Why publishing a signed repository cannot break existing clients
+
+*Historical note, written for the 4.18.0 change that introduced signed
+repositories.*
 
 Every install made before this change uses `[trusted=yes]` (apt) or `gpgcheck=0`
 (dnf). Both options make the package manager *ignore* signatures, so adding

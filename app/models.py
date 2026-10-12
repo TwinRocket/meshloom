@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
@@ -2037,7 +2038,6 @@ class CommunityStatus(BaseModel):
     """Local Meshloom Stats community join state (OSS-owned, not a fanout row)."""
 
     enabled: bool
-    locked: bool
     iata: str
     broker_host: str
     api_base: str
@@ -2148,9 +2148,7 @@ class CommunityLiveStatus(BaseModel):
     close_code: int | None = None
     opted_out: bool
     connected: bool
-    state: Literal["connected", "reconnecting", "gate", "opted_out", "idle", "auth_rejected"] = (
-        "idle"
-    )
+    state: Literal["connected", "reconnecting", "opted_out", "idle", "auth_rejected"] = "idle"
     auth_error: Literal["clock_skew", "token_rejected"] | None = Field(
         default=None,
         description=(
@@ -2160,6 +2158,13 @@ class CommunityLiveStatus(BaseModel):
     )
     auth_code: str | None = Field(
         default=None, description="Community 401 `code` behind auth_error, when it sent one"
+    )
+    upstream_iata: list[str] | None = Field(
+        default=None,
+        description=(
+            "Regions the upstream socket asked Community for (sorted). Null means the "
+            "global feed: a tab wants every region, or Community refused the filter."
+        ),
     )
     clock_skew_s: int | None = Field(
         default=None, description="Community server_time minus local time, in seconds"
@@ -2173,8 +2178,53 @@ class CommunityLiveStatus(BaseModel):
         return value
 
 
+LIVE_IATA_SELECTION_MAX = 64
+# Not regions: Community files unplaced observations under them (its ingest and
+# auth use the same set).
+LIVE_PLACEHOLDER_IATAS = frozenset({"XXX", "LOC", "AAA"})
+
+
 class CommunityLiveSubscribeRequest(BaseModel):
     session_id: str | None = None
+    iata: list[str] | None = Field(
+        default=None,
+        max_length=LIVE_IATA_SELECTION_MAX,
+        description=(
+            "Regions this Live tab shows. Null (or empty) means every region. The relay "
+            "asks Community for the union of every tab's regions plus the radio's IATA."
+        ),
+    )
+
+    @field_validator("iata")
+    @classmethod
+    def _normalize_iata(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        codes: list[str] = []
+        for raw in value:
+            code = raw.strip().upper() if isinstance(raw, str) else ""
+            if not re.fullmatch(r"[A-Z]{3}", code):
+                raise ValueError("each IATA code is three letters")
+            if code in LIVE_PLACEHOLDER_IATAS:
+                raise ValueError(f"{code} is not a region")
+            if code not in codes:
+                codes.append(code)
+        return codes or None
+
+
+class CommunityIataActiveEntry(BaseModel):
+    code: str
+    unique_hashes_24h: int = 0
+
+
+class CommunityIataActiveResponse(BaseModel):
+    available: bool = Field(
+        description=(
+            "False when Community is off or does not serve GET /v1/iata/active yet; "
+            "the Live picker then offers the regions it has seen."
+        )
+    )
+    codes: list[CommunityIataActiveEntry] = Field(default_factory=list)
 
 
 class RadioProxyStatus(BaseModel):

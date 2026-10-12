@@ -33,14 +33,20 @@ def test_a_nonsense_port_is_ignored_rather_than_passed_on() -> None:
 
 def test_blank_options_are_left_unset_rather_than_set_to_nothing() -> None:
     """An empty string would override Meshloom's own default with nothing."""
-    env = addon.build_environment({"public_url": "   ", "vapid_subject": ""})
-    assert "MESHCORE_PUBLIC_URL" not in env
+    env = addon.build_environment({"basic_auth_username": "   ", "vapid_subject": ""})
+    assert "MESHCORE_BASIC_AUTH_USERNAME" not in env
     assert "MESHCORE_VAPID_SUBJECT" not in env
 
 
 def test_values_are_trimmed_before_they_are_passed_on() -> None:
-    env = addon.build_environment({"public_url": "  https://mesh.example.org  "})
-    assert env["MESHCORE_PUBLIC_URL"] == "https://mesh.example.org"
+    env = addon.build_environment({"vapid_subject": "  mailto:me@example.org  "})
+    assert env["MESHCORE_VAPID_SUBJECT"] == "mailto:me@example.org"
+
+
+def test_the_retired_public_url_option_is_ignored() -> None:
+    """It never had an effect. An old options.json that still carries it must not fail."""
+    env = addon.build_environment({"public_url": "https://mesh.example.org"})
+    assert "MESHCORE_PUBLIC_URL" not in env
 
 
 def test_the_database_lives_where_the_addon_keeps_its_data() -> None:

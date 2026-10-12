@@ -53,7 +53,9 @@ const { FakeMap, maps, overlays } = vi.hoisted(() => {
 
 vi.mock('maplibre-gl', () => {
   class LngLatBounds {
-    extend() {
+    points: unknown[] = [];
+    extend(point: unknown) {
+      this.points.push(point);
       return this;
     }
   }
@@ -209,11 +211,11 @@ describe('LiveMapController', () => {
     expect(shots[0].remanenceMs).toBe(400);
 
     t += 700;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()[0].finishedAt).toBeNull();
 
     t += 700;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()[0].finishedAt).not.toBeNull();
   });
 
@@ -281,7 +283,7 @@ describe('LiveMapController', () => {
     );
     expect(engine.getShotSnapshots()).toHaveLength(1);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const afterLate = engine.getShotSnapshots();
     expect(afterLate).toHaveLength(2);
     expect(afterLate.some((shot) => shot.lastPoint?.[0] === 6.1 && shot.pointCount === 2)).toBe(
@@ -364,7 +366,7 @@ describe('LiveMapController', () => {
     expect(engine.pendingBucketCount()).toBe(1);
     expect(engine.getShotSnapshots()).toEqual([]);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const shots = engine.getShotSnapshots();
     expect(shots).toHaveLength(1);
     expect(shots[0].pointCount).toBe(2);
@@ -399,7 +401,7 @@ describe('LiveMapController', () => {
     );
     expect(engine.pendingBucketCount()).toBe(1);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(1);
   });
 
@@ -432,7 +434,7 @@ describe('LiveMapController', () => {
       new Set()
     );
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const laser = engine.getShotSnapshots().find((shot) => shot.pointCount === 2);
     expect(laser?.lastPoint).toEqual([4.92, 45.74]);
     expect(engine.drawnPublicKeys()).toEqual([]);
@@ -484,7 +486,7 @@ describe('LiveMapController', () => {
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
     expect(engine.pendingAnimCount()).toBe(surplus);
     expect(engine.droppedPendingCount()).toBe(0);
@@ -499,14 +501,14 @@ describe('LiveMapController', () => {
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     // Derive from the cap: hardcoding the index pins the test to one ceiling.
     const firstDeferred = `late-${MAX_CONCURRENT_ANIMS}`;
     const lastDeferred = `late-${MAX_CONCURRENT_ANIMS + 4}`;
     expect(engine.getShotSnapshots().map((shot) => shot.id)).not.toContain(firstDeferred);
 
     t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const ids = engine.getShotSnapshots().map((shot) => shot.id);
     expect(ids).toContain(firstDeferred);
     expect(ids).toContain(lastDeferred);
@@ -525,13 +527,13 @@ describe('LiveMapController', () => {
     );
     engine.syncObservations(rows, new Set());
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.getShotSnapshots()).toHaveLength(MAX_CONCURRENT_ANIMS);
     expect(engine.pendingAnimCount()).toBe(MAX_PENDING_ANIMS);
     expect(engine.droppedPendingCount()).toBe(overflow);
 
     t += LIVE_PACKET_MS + (MAX_CONCURRENT_ANIMS - 1) * LIVE_STAGGER_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const ids = engine.getShotSnapshots().map((shot) => shot.id);
     expect(ids).not.toContain(`shed-${MAX_CONCURRENT_ANIMS}`);
     expect(ids).not.toContain(`shed-${MAX_CONCURRENT_ANIMS + overflow - 1}`);
@@ -550,7 +552,7 @@ describe('LiveMapController', () => {
     for (let i = 0; i < arrivals; i++) {
       engine.syncObservations([uniqueFlash(`sust-${i}`, i)], new Set());
       t += cadenceMs;
-      engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+      engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
       for (const shot of engine.getShotSnapshots()) {
         expect(shot.startedAt).toBeLessThanOrEqual(t + maxAhead);
       }
@@ -582,9 +584,35 @@ describe('LiveMapController', () => {
     engine.syncObservations(rows, new Set());
     expect(engine.pendingBucketCount()).toBe(1);
     t += LIVE_HOLD_MS;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(engine.droppedCatchupCount()).toBe(extra);
     expect(engine.getShotSnapshots()).toHaveLength(1);
+  });
+
+  it('indexes the regions that heard a packet, local ones under the radio IATA', async () => {
+    const engine = await readyController(() => 1_000);
+    engines.push(engine);
+    engine.setLocalIata('nce');
+    engine.syncObservations(
+      [
+        observation({
+          id: 'far',
+          source: 'community',
+          iata: 'BCN',
+          packetHash: 'aaaabbbbccccdddd',
+        }),
+        observation({ id: 'local', source: 'local', iata: null, packetHash: 'aaaabbbbccccdddd' }),
+        observation({
+          id: 'other',
+          source: 'community',
+          iata: 'XXX',
+          packetHash: 'eeeeffff00001111',
+        }),
+      ],
+      new Set()
+    );
+    expect(engine.packetRegionsFor('aaaabbbbccccdddd')).toEqual(['BCN', 'NCE']);
+    expect(engine.packetRegionsFor('eeeeffff00001111')).toEqual([]);
   });
 
   it('releases a type-filtered shot slot after travel so a visible one can draw', async () => {
@@ -592,7 +620,7 @@ describe('LiveMapController', () => {
     const engine = await readyController(() => t);
     engines.push(engine);
     const hiddenAdvert: Set<CommunityPacketType> = new Set(['advert']);
-    const hideAdvert = { iata: '', hiddenTypes: hiddenAdvert, exactOnly: false };
+    const hideAdvert = { iata: new Set<string>(), hiddenTypes: hiddenAdvert, exactOnly: false };
     engine.setFilters(hideAdvert);
     engine.syncObservations([uniqueFlash('hid-0', 0)], new Set());
     t += LIVE_HOLD_MS;
@@ -636,7 +664,7 @@ describe('LiveMapController', () => {
     const engine = await readyController(() => t);
     engines.push(engine);
     const hideAdvert = {
-      iata: '',
+      iata: new Set<string>(),
       hiddenTypes: new Set<CommunityPacketType>(['advert']),
       exactOnly: false,
     };
@@ -667,7 +695,7 @@ describe('LiveMapController', () => {
     expect(first?.data.length).toBeGreaterThan(0);
 
     t += 16;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const second = lastLayer('live-nodes');
     expect(second?.data).toBe(first?.data);
     expect(second?.updateTriggers?.getPosition).toBe(first?.updateTriggers?.getPosition);
@@ -717,7 +745,7 @@ describe('LiveMapController', () => {
     expect(lastLayer('live-local-radio')?.data.length).toBe(1);
 
     engine.setLocalRadio(null);
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     const local = lastLayer('live-local-radio');
     expect(local?.data.length).toBe(0);
   });
@@ -818,7 +846,7 @@ describe('LiveMapController', () => {
 
     const travelMs = engine.getShotSnapshots()[0]?.travelMs ?? 0;
     t += travelMs / 2;
-    engine.setFilters({ iata: '', hiddenTypes: new Set(), exactOnly: false });
+    engine.setFilters({ iata: new Set(), hiddenTypes: new Set(), exactOnly: false });
     expect(onLaserSegment).toHaveBeenCalledTimes(2);
     expect(onLaserSegment.mock.calls[1]?.[0]).toEqual({
       type: 'ack',
@@ -837,5 +865,72 @@ describe('LiveMapController', () => {
     t += LIVE_HOLD_MS;
     engine.syncObservations([observation({ type: 'text' })], new Set());
     expect(onLaserSegment).not.toHaveBeenCalled();
+  });
+
+  describe('arrival framing', () => {
+    // Lyon pins near LYS, one far pin in New York.
+    const lyon = directoryNode({ public_key: 'a1'.repeat(32), lat: 45.76, lon: 4.84 });
+    const villeurbanne = directoryNode({ public_key: 'a2'.repeat(32), lat: 45.77, lon: 4.88 });
+    const newYork = directoryNode({ public_key: 'a3'.repeat(32), lat: 40.71, lon: -74.0 });
+    const LYS: [number, number] = [5.08, 45.72];
+
+    function lastFit(): { points: unknown[]; maxZoom: number } | undefined {
+      const map = maps[maps.length - 1] as unknown as { fitBounds: ReturnType<typeof vi.fn> };
+      const calls = map.fitBounds.mock.calls;
+      const call = calls[calls.length - 1];
+      if (!call) return undefined;
+      return {
+        points: (call[0] as { points: unknown[] }).points,
+        maxZoom: (call[1] as { maxZoom: number }).maxZoom,
+      };
+    }
+
+    it('frames only the nodes of the selected region, not every directory node', async () => {
+      const engine = await readyController(() => 70_000);
+      engines.push(engine);
+      engine.setCameraFocus({ kind: 'pending' }, { reframe: true });
+      engine.setDirectoryNodes([lyon, villeurbanne, newYork]);
+      expect(lastFit()).toBeUndefined();
+
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] });
+      expect(lastFit()?.points).toEqual([
+        [4.84, 45.76],
+        [4.88, 45.77],
+      ]);
+    });
+
+    it('frames the airport itself when no node is known around it', async () => {
+      const engine = await readyController(() => 71_000);
+      engines.push(engine);
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] });
+      engine.setDirectoryNodes([newYork]);
+      expect(lastFit()).toEqual({ points: [LYS], maxZoom: 8 });
+    });
+
+    it('frames every node for "all regions"', async () => {
+      const engine = await readyController(() => 72_000);
+      engines.push(engine);
+      engine.setDirectoryNodes([lyon, newYork]);
+      expect(lastFit()?.points).toHaveLength(2);
+    });
+
+    it('frames once, then leaves the camera to the reader until a new region choice', async () => {
+      const engine = await readyController(() => 73_000);
+      engines.push(engine);
+      engine.setCameraFocus({ kind: 'all' }, { reframe: true });
+      engine.setDirectoryNodes([lyon, newYork]);
+      const map = maps[maps.length - 1] as unknown as {
+        fitBounds: ReturnType<typeof vi.fn>;
+        handlers: Map<string, Array<(event: unknown) => void>>;
+      };
+      for (const cb of map.handlers.get('movestart') ?? []) cb({ originalEvent: new Event('x') });
+
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] });
+      expect(map.fitBounds).toHaveBeenCalledTimes(1);
+
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] }, { reframe: true });
+      expect(map.fitBounds).toHaveBeenCalledTimes(2);
+      expect(lastFit()?.points).toEqual([[4.84, 45.76]]);
+    });
   });
 });

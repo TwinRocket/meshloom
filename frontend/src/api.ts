@@ -77,6 +77,7 @@ import type {
   CommunityHashtagsResponse,
   CommunityIataBindRequest,
   CommunityIataBindResult,
+  CommunityIataActiveResponse,
   CommunityLiveStatus,
   CommunityMeStats,
   CommunityPublicStats,
@@ -730,11 +731,16 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ names }),
     }),
-  subscribeCommunityLive: (sessionId?: string) =>
+  /** `iata`: regions this tab shows; null or omitted = every region. */
+  subscribeCommunityLive: (sessionId?: string, iata?: string[] | null) =>
     fetchJson<CommunityLiveStatus>('/community/live/subscribe', {
       method: 'POST',
-      body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
+      body: JSON.stringify({
+        ...(sessionId ? { session_id: sessionId } : {}),
+        ...(iata && iata.length ? { iata } : {}),
+      }),
     }),
+  getCommunityActiveIata: () => fetchJson<CommunityIataActiveResponse>('/community/iata/active'),
   unsubscribeCommunityLive: (sessionId: string) =>
     fetchJson<CommunityLiveStatus>(`/community/live/subscribe/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',

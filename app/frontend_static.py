@@ -2,7 +2,7 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -21,41 +21,6 @@ FRONTEND_BUILD_INSTRUCTIONS = (
     "Run 'cd frontend && npm install && npm run build', "
     "or use a release zip that includes frontend/prebuilt."
 )
-_FORWARDED_HOST_RE = re.compile(
-    r"^("
-    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
-    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*"
-    r"|\[(?:[0-9A-Fa-f:]+)\]"
-    r"|(?:\d{1,3}(?:\.\d{1,3}){3})"
-    r")(?::\d{1,5})?$"
-)
-
-
-def _sanitize_forwarded_proto(raw: str) -> str | None:
-    proto = raw.split(",")[0].strip().lower()
-    if proto in {"http", "https"}:
-        return proto
-    return None
-
-
-def _sanitize_forwarded_host(raw: str) -> str | None:
-    host = raw.split(",")[0].strip()
-    if not host or any(char in host for char in "@/?#\\") or "://" in host:
-        return None
-    if not _FORWARDED_HOST_RE.fullmatch(host):
-        return None
-    return host
-
-
-def _sanitize_forwarded_prefix(raw: str) -> str:
-    prefix = raw.strip()
-    if not prefix:
-        return ""
-    if not prefix.startswith("/") or any(char in prefix for char in "@?#\\") or "://" in prefix:
-        return ""
-    if ".." in prefix:
-        return ""
-    return prefix.rstrip("/")
 
 
 class CacheControlStaticFiles(StaticFiles):
@@ -115,46 +80,6 @@ def _file_response(path: Path, *, cache_control: str) -> FileResponse:
 def _is_index_file(path: Path, index_file: Path) -> bool:
     """Return True when the requested file is the SPA shell index.html."""
     return path == index_file
-
-
-def _resolve_request_base(request: Request) -> str:
-    """Resolve the external base URL, honoring common reverse-proxy headers.
-
-    Returns a URL like ``https://host:8000/meshcore/`` (always trailing-slash)
-    so callers can append paths directly.
-
-    Recognized headers:
-    - ``X-Forwarded-Proto`` + ``X-Forwarded-Host``: override scheme and host.
-    - ``X-Forwarded-Prefix`` (or ``X-Forwarded-Path``): sub-path prefix added
-      by the proxy (e.g. ``/meshcore``).
-
-    ``MESHCORE_PUBLIC_URL`` outranks all of it. Headers describe the hop that
-    happened to arrive; a tunnel or a chain of proxies can strip or rewrite them,
-    and then a link built from what arrived points somewhere only reachable from
-    inside. Setting it says what the address is, once, for every request.
-    """
-    from app.config import settings as server_settings
-
-    configured = server_settings.public_url.strip()
-    if configured:
-        return configured.rstrip("/") + "/"
-
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    forwarded_host = request.headers.get("x-forwarded-host")
-    origin = str(request.base_url).rstrip("/")
-
-    if forwarded_proto and forwarded_host:
-        proto = _sanitize_forwarded_proto(forwarded_proto)
-        host = _sanitize_forwarded_host(forwarded_host)
-        if proto and host:
-            origin = f"{proto}://{host}"
-
-    # Sub-path prefix (e.g. /meshcore) communicated by the reverse proxy
-    prefix = _sanitize_forwarded_prefix(
-        request.headers.get("x-forwarded-prefix") or request.headers.get("x-forwarded-path") or ""
-    )
-
-    return f"{origin}{prefix}/"
 
 
 def _validate_frontend_dir(frontend_dir: Path, *, log_failures: bool = True) -> tuple[bool, Path]:

@@ -5,12 +5,9 @@ import {
   applyLiveStatus,
   getCommunityPackets,
   getLiveConnectionState,
-  isSilentLiveClose,
   liveBannerI18nKey,
   recordCommunityPacket,
   resetLivePacketStore,
-  setLiveCloseCode,
-  setLiveOptOut,
 } from '../stores/livePacketStore';
 import type { CommunityPacket } from '../types';
 import { LIVE_CLOSE_SLOT_BUSY, LIVE_CLOSE_SUPERSEDED } from '../types';
@@ -58,91 +55,28 @@ describe('livePacketStore', () => {
     expect(getCommunityPackets()).toHaveLength(0);
   });
 
-  it('stores fixture close and opt-out flags', () => {
-    setLiveCloseCode(4001);
-    setLiveOptOut(true);
-    expect(getLiveConnectionState()).toMatchObject({
-      closeCode: null,
-      optOut: true,
-      banner: 'opt_out',
-      reconnecting: false,
-    });
+  it('never raises a banner for a close code, 4002 included', () => {
+    for (const code of [4001, 4002, LIVE_CLOSE_SLOT_BUSY, 4004, LIVE_CLOSE_SUPERSEDED] as const) {
+      applyLiveStatus({ close_code: code, opted_out: false, connected: false });
+      expect(getLiveConnectionState()).toMatchObject({
+        optOut: false,
+        authError: null,
+        banner: null,
+      });
+      expect(liveBannerI18nKey(getLiveConnectionState())).toBeNull();
+    }
   });
 
-  it('does not treat 4002 as a 24h viewer lock or banner', () => {
-    applyLiveStatus({ close_code: 4002, opted_out: false });
-    expect(getLiveConnectionState()).toMatchObject({
-      closeCode: 4002,
-      optOut: false,
-      inactiveObserver: true,
-      connected: false,
-      reconnecting: true,
-      banner: null,
-    });
-    expect(liveBannerI18nKey(getLiveConnectionState())).toBeNull();
-  });
-
-  it('treats 4003 as 4005 and never raises a user-visible error', () => {
-    applyLiveStatus({ close_code: LIVE_CLOSE_SLOT_BUSY, opted_out: false, connected: false });
-    const afterBusy = getLiveConnectionState();
-    expect(afterBusy.closeCode).toBe(LIVE_CLOSE_SUPERSEDED);
-    expect(afterBusy.banner).toBeNull();
-    expect(afterBusy.inactiveObserver).toBe(false);
-    expect(afterBusy.reconnecting).toBe(true);
-    expect(liveBannerI18nKey(afterBusy)).toBeNull();
-    expect(isSilentLiveClose(LIVE_CLOSE_SLOT_BUSY)).toBe(true);
-
-    applyLiveStatus({ close_code: LIVE_CLOSE_SUPERSEDED, opted_out: false, connected: false });
-    const afterSuperseded = getLiveConnectionState();
-    expect(afterSuperseded.closeCode).toBe(LIVE_CLOSE_SUPERSEDED);
-    expect(afterSuperseded.banner).toBeNull();
-    expect(afterSuperseded.reconnecting).toBe(true);
-    expect(liveBannerI18nKey(afterSuperseded)).toBeNull();
-    expect(isSilentLiveClose(LIVE_CLOSE_SUPERSEDED)).toBe(true);
-  });
-
-  it('setLiveCloseCode(4005) does not produce an error banner', () => {
-    setLiveCloseCode(4005);
-    const state = getLiveConnectionState();
-    expect(state.closeCode).toBe(4005);
-    expect(state.banner).toBeNull();
-    expect(state.reconnecting).toBe(true);
-    expect(liveBannerI18nKey(state)).toBeNull();
-  });
-
-  it('tolerates a missing reconnecting field on live status', () => {
+  it('switches between connected and opt-out', () => {
     applyLiveStatus({ close_code: null, opted_out: false, connected: true });
-    expect(getLiveConnectionState()).toMatchObject({
-      connected: true,
-      reconnecting: false,
-      banner: null,
-    });
-  });
-
-  it('distinguishes connected, reconnecting, and opt-out', () => {
-    applyLiveStatus({ close_code: null, opted_out: false, connected: true });
-    expect(getLiveConnectionState()).toMatchObject({
-      connected: true,
-      reconnecting: false,
-      optOut: false,
-      banner: null,
-    });
-
-    applyLiveStatus({ close_code: 4001, opted_out: false, connected: false });
-    expect(getLiveConnectionState()).toMatchObject({
-      connected: false,
-      reconnecting: true,
-      banner: null,
-    });
+    expect(getLiveConnectionState()).toMatchObject({ optOut: false, banner: null });
 
     applyLiveStatus({ opted_out: true });
-    expect(getLiveConnectionState()).toMatchObject({
-      optOut: true,
-      connected: false,
-      reconnecting: false,
-      banner: 'opt_out',
-    });
+    expect(getLiveConnectionState()).toMatchObject({ optOut: true, banner: 'opt_out' });
     expect(liveBannerI18nKey(getLiveConnectionState())).toBe('live.bannerOptOut');
+
+    resetLivePacketStore();
+    expect(getLiveConnectionState()).toMatchObject({ optOut: false, banner: null });
   });
 
   it('maps a given-up token refusal to a banner, not to reconnecting', () => {
@@ -155,7 +89,6 @@ describe('livePacketStore', () => {
       clock_skew_s: 125.4,
     });
     const state = getLiveConnectionState();
-    expect(state.reconnecting).toBe(false);
     expect(state.authError).toBe('clock_skew');
     expect(state.clockSkewS).toBe(125);
     expect(liveBannerI18nKey(state)).toBe('live.bannerClockSkew');

@@ -611,7 +611,9 @@ export function ingestPacketIntoPacketNetwork(
   const parsed = parsePacket(packet.data);
   if (!parsed) return null;
 
-  const activityAtMs = normalizePacketTimestampMs(packet.timestamp);
+  // Live frames carry the browser receipt time: the prune cutoff is computed from the
+  // browser clock, so the server clock must not decide how old a live packet is.
+  const activityAtMs = packet.received_at_ms ?? normalizePacketTimestampMs(packet.timestamp);
   const canonicalPath = buildCanonicalPathForPacket(state, context, parsed, packet, activityAtMs);
   if (canonicalPath.length < 2) {
     return null;

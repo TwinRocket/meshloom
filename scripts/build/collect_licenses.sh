@@ -81,6 +81,21 @@ frontend_licenses() {
     frontend_licenses_docker
 }
 
+# ── Bundled assets (vendored in the repo, not npm or pip packages) ───
+bundled_licenses() {
+    echo "### Noto Sans (2.015), subset as frontend/src/assets/fonts/meshloom-marks.woff2 — OFL-1.1"
+    echo
+    echo "<details>"
+    echo "<summary>Full license text</summary>"
+    echo
+    echo '```'
+    cat "$REPO_ROOT/frontend/src/assets/fonts/OFL.txt"
+    echo '```'
+    echo
+    echo "</details>"
+    echo
+}
+
 # ── Assemble ─────────────────────────────────────────────────────────
 {
     echo "# Third-Party Licenses"
@@ -93,6 +108,9 @@ frontend_licenses() {
     echo "## Frontend (npm) Dependencies"
     echo
     frontend_licenses
+    echo "## Bundled Assets"
+    echo
+    bundled_licenses
 } > "$OUT"
 
 echo "Wrote $OUT" >&2

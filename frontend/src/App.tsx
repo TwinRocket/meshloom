@@ -30,6 +30,7 @@ import { usePush } from './contexts/PushSubscriptionContext';
 import { messageContainsMention } from './utils/messageParser';
 import { getStateKey } from './utils/conversationState';
 import { isPublicChannelKey } from './utils/publicChannel';
+import { seedCommunityEnabled, useCommunityEnabled } from './stores/communityStore';
 import type {
   BulkCreateHashtagChannelsResult,
   Channel,
@@ -189,8 +190,14 @@ export function App() {
   } = useAppSettings();
 
   // Community's directory is what the reach lookups and the radio test run on.
-  // Read once here so the router, the navigation surfaces and the panes all agree.
-  const directoryEnabled = appSettings?.directory_available ?? false;
+  // One store (stores/communityStore) so the router, the navigation surfaces and
+  // the panes all agree, and all follow a change made in the settings at once.
+  // App settings only seed it on startup; GET /api/community is the answer.
+  const communityEnabled = useCommunityEnabled();
+  useEffect(() => {
+    if (appSettings) seedCommunityEnabled(appSettings.directory_available ?? false);
+  }, [appSettings]);
+  const directoryEnabled = communityEnabled === true;
 
   // Keep user's name in ref for mention detection in WebSocket callback
   const myNameRef = useRef<string | null>(null);
@@ -317,7 +324,7 @@ export function App() {
     setSidebarOpen,
     pendingDeleteFallbackRef,
     hasSetDefaultConversation,
-    settingsLoaded: appSettings !== null,
+    settingsLoaded: appSettings !== null && communityEnabled !== null,
     directoryEnabled,
   });
 
@@ -587,11 +594,7 @@ export function App() {
   );
 
   const [discoveredHashtagNames, setDiscoveredHashtagNames] = useState<string[]>([]);
-  const [communityEnabled, setCommunityEnabled] = useState(false);
-  const handleCommunityStatusChange = useCallback((status: { enabled: boolean }) => {
-    setCommunityEnabled(status.enabled);
-  }, []);
-  const communityHashtagNames = useCommunityHashtagNames(communityEnabled, discoveredHashtagNames);
+  const communityHashtagNames = useCommunityHashtagNames(directoryEnabled, discoveredHashtagNames);
 
   const handleHashtagDiscovered = useCallback((name: string) => {
     // Local finder wordlist only. Backend owns Community publish
@@ -1038,7 +1041,6 @@ export function App() {
             conversationListCollapsed={desktopSidebarCollapsed}
             onToggleConversationList={handleToggleDesktopSidebar}
             onExpandConversationList={handleExpandDesktopSidebar}
-            onCommunityStatusChange={handleCommunityStatusChange}
           />
         </PathHopWidthProvider>
       </RichPayloadProvider>

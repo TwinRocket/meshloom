@@ -1084,6 +1084,36 @@ class AppSettingsRepository:
                 )
         return await AppSettingsRepository.get_community()
 
+    @staticmethod
+    async def get_community_status_clear() -> list[dict[str, Any]]:
+        """Pending clears of a retained Community status. Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT community_status_clear FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return []
+        try:
+            raw = row["community_status_clear"]
+        except (KeyError, TypeError, IndexError):
+            return []
+        try:
+            parsed = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return [entry for entry in parsed if isinstance(entry, dict)]
+
+    @staticmethod
+    async def set_community_status_clear(entries: list[dict[str, Any]]) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET community_status_clear = ? WHERE id = 1",
+                (json.dumps(entries, separators=(",", ":"), sort_keys=True),),
+            )
+
 
 class StatisticsRepository:
     @staticmethod

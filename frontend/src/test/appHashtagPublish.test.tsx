@@ -182,7 +182,6 @@ describe('App hashtag publish ownership', () => {
     });
     mocks.api.getCommunity.mockResolvedValue({
       enabled: true,
-      locked: false,
       iata: 'LYS',
       broker_host: '',
       api_base: '',
@@ -210,7 +209,6 @@ describe('App hashtag publish ownership', () => {
   it('does not fetch hashtag names when community is disabled', async () => {
     mocks.api.getCommunity.mockResolvedValue({
       enabled: false,
-      locked: false,
       iata: '',
       broker_host: '',
       api_base: '',
@@ -229,6 +227,25 @@ describe('App hashtag publish ownership', () => {
     expect(mocks.api.getCommunityHashtags).not.toHaveBeenCalled();
   });
 
+  it('fetches the global hashtag names without an airport code', async () => {
+    mocks.api.getCommunity.mockResolvedValue({
+      enabled: true,
+      locked: false,
+      iata: '',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: false,
+      publisher_connected: false,
+      env_seeded: false,
+    });
+
+    render(<App />);
+    await waitFor(() => {
+      expect(mocks.api.getCommunityHashtags).toHaveBeenCalledWith();
+    });
+    expect(mocks.api.putCommunityHashtags).not.toHaveBeenCalled();
+  });
+
   it('does not PUT hashtag names when showCracker opens', async () => {
     render(<App />);
     await waitFor(() => {
@@ -237,7 +254,7 @@ describe('App hashtag publish ownership', () => {
     expect(mocks.api.putCommunityHashtags).not.toHaveBeenCalled();
 
     fireEvent.click(
-      screen.getByRole('button', {
+      await screen.findByRole('button', {
         name: i18n.t('sidebar.discoveredChannels'),
         hidden: true,
       })

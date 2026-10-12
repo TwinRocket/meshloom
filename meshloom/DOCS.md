@@ -34,12 +34,13 @@ anywhere else.
 
 | Option | What it does |
 |---|---|
-| `log_level` | How much the add-on writes to its log. |
-| `proxy_port` | Intended container-side port of the radio proxy. **Currently not applied** — see below. |
-| `public_url` | The address this instance is reached at from outside. Accepted, but no feature uses it yet. |
-| `basic_auth_username` / `basic_auth_password` | Guards the web interface when it is published beyond ingress. |
-| `vapid_subject` | Contact address for Web Push. |
-| `disable_bots` | Turns off the bot system. |
+| `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. |
+| `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
+| `basic_auth_username` / `basic_auth_password` | Asks for a username and password on the whole web interface and API. Both or neither. The check has no exception for ingress: if you set them, open the sidebar entry afterwards to make sure it still loads. |
+| `vapid_subject` | Contact address for Web Push, as `mailto:you@example.com`. Apple refuses the default `.local` address, so set a real one for iPhones. |
+| `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on. |
+
+Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
 
 ## The radio proxy port
 
@@ -51,11 +52,13 @@ plain TCP listener. So it is published on the host, and the published port is
 changed in this add-on's **Network** panel, not inside Meshloom. The port field
 in Meshloom's own settings is read-only here.
 
-**Known limitation.** The add-on forwards container port `5051`, but Meshloom
-does not read `proxy_port`: the proxy listens on the port stored in its settings,
-`5001` by default, and the read-only field prevents changing it. The proxy is also
-off until you enable it in **Settings > Proxy**. Until this is fixed, nothing
-reaches the proxy through the published `5051/tcp`.
+The add-on tells Meshloom the port at startup (`MESHCORE_RADIO_PROXY_PORT`, from
+the `proxy_port` option, `5051` by default), and Meshloom listens on it whatever
+the stored setting says. The proxy itself is off until you enable it in
+**Settings → Proxy**. It has no authentication: anyone who can reach the
+published port can use the radio. Leave `proxy_port` at `5051`: it has to equal the container
+port the add-on forwards, which is fixed by the manifest. Only the host side of
+the mapping is yours to change, in the Network panel.
 
 ## Reaching it from outside
 
@@ -71,7 +74,6 @@ provide one:
 2. Route that hostname to `http://<home-assistant-ip>:<the port you chose>`. The
    **Cloudflared** add-on does this without opening a port on your router.
 3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
-   Setting `public_url` is harmless but has no effect yet.
 
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
 address and a port, and Meshloom answers to whatever name it is asked for. Ingress
@@ -79,6 +81,25 @@ keeps working meanwhile; the two ways in are independent. A published port is
 reachable by anything that can route to that machine, so set
 `basic_auth_username` / `basic_auth_password` unless the tunnel authenticates for
 you.
+
+## Meshloom Community
+
+A new install starts with Meshloom Community on; the add-on has no option for
+it. Community receives the raw packets your radio hears, and in return names
+hops, draws RF locate zones and feeds the Live page. To leave, untick it in
+**Settings → Meshloom Community**: every connection to Community stops at once,
+without a restart, and the update check then asks GitHub only, every 6 hours.
+The one exception: if the broker could not be reached at that moment, Meshloom
+reconnects once, only to delete your node's leftover status, a few tries within
+24 hours at most, then never again.
+Details: <https://meshloom.app/en/docs/deep/community/>.
+
+## Where the data lives
+
+The database, keys and settings are kept in the add-on's own configuration
+folder (`addon_config`), which survives updates and is included in Home Assistant
+backups. Updating Meshloom is done from Home Assistant's add-on page: the
+in-app updater only tells you a new version exists.
 
 ## The radio identity
 

@@ -19,12 +19,17 @@ npm run dev          # Vite on :5173, proxies /api to :8000
 npm run test:run     # vitest run
 npm run lint         # eslint src/ (lint:fix to autofix)
 npm run format       # prettier --write src/
-npm run build        # tsc && vite build -> dist/
+npm run typecheck    # tsc on all of src/, tests included (CI and all_quality.sh)
+npm run build        # tsc -p tsconfig.build.json && vite build -> dist/
 ```
 
 `npm run packaged-build` writes `frontend/prebuilt` and is for releases only.
 
+`npm run build` type-checks only what `src/main.tsx` imports, plus the ambient `src/**/*.d.ts` (`tsconfig.build.json`), like the bundle itself. A Portainer GitOps stack keeps files deleted upstream, and such a dead file must not fail its image build. A file nothing imports is therefore checked by `npm run typecheck` only.
+
 ## Where things live
+
+A map of the main files of the web interface.
 
 - `main.tsx`: waits for `i18nReady`, then renders. It also registers `public/sw.js`, on secure contexts only.
 - `App.tsx` wires the hooks and builds the `AppShell` props. `components/AppShell.tsx` owns the layout, the settings/search/cracker surfaces, the modals, and the info sheets. `components/ConversationPane.tsx` picks the active surface: map, live, visualizer, raw feed, trace, locate, test, repeater dashboard, room gate, or chat.
@@ -37,8 +42,12 @@ npm run build        # tsc && vite build -> dist/
 
 ## Invariants that are easy to break
 
+Rules that, if broken, make the interface slow or wrong without any visible error.
+
 ### Packet stream stays out of React ancestors
 `stores/rawPacketStore.ts` is read through `useSyncExternalStore` (`useRawPackets()`, `useRawPacketStatsSession()`). Only leaf views subscribe to it: `RawPacketFeedView`, `VisualizerView`, `LiveView`, `ControlJournalView`, and `CrackerPanel`. **No ancestor of `MessageList` (`App`, `AppShell`, `ConversationPane`) may subscribe**, or every packet re-renders the whole tree. `src/test/appPacketIsolation.test.tsx` enforces this rule.
+
+**Clocks.** The server `packet.timestamp` is the server wall clock and can be minutes off. `recordRawPacket` adds a client-only `received_at_ms` (browser `Date.now()`) to every live packet. Anything compared with `Date.now()` (visualizer pruning, `#raw` stats windows, Live view laser aging) must use `received_at_ms`, falling back to `timestamp` only for history-replayed packets. Displaying a packet's absolute time keeps using `timestamp`.
 
 ### Lazy loading
 Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `SearchView`, the info sheets, `MapView`, `LiveView`, `VisualizerView`, `RepeaterDashboard`, `RawPacketFeedView`, and the map sub-components. If an always-loaded module imports `recharts`, `leaflet`/`react-leaflet`, or `qrcode.react` statically, they end up back in the entry chunk. `vite.config.ts` defines no manual vendor chunks on purpose: Vite splits the chunks automatically.
@@ -55,8 +64,11 @@ Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `Searc
 - `raw_packet`: use `observation_id` as the key to render and dedupe events. `id` is the storage row and can repeat.
 - `contact_resolved` migrates an identity. It affects the active conversation, the cached messages, the unread state keys, and the reconnect reconciliation all at once.
 
+### Community state
+`stores/communityStore.ts` is the only source of "is Community on" (`useCommunityEnabled()`, `useCommunityStatus()`). App settings seed it on startup from `directory_available`; `GET`/`PATCH /api/community` answers replace the seed (`setCommunityStatus`, `refreshCommunityStatus`); every `community_live` WS status triggers a re-read (concurrent re-reads share one request), and so does a WS reconnect, so other tabs follow an opt-out, an opt-in and an IATA change. `SettingsCommunitySection` writes the store on each answer and follows it when it changes from elsewhere. `App` derives `directoryEnabled` from it, so the router leaves `#test` and the test tool disappears as soon as Community is off. With Community off, `ObserverReachModal` and `MeshTestView` say so instead of showing an empty list, the "heard by" badges are hidden, and nothing calls `/api/community/airports` (the location picker checks `enabled` first; the join form has no airport search).
+
 ### Community live status
-`livePacketStore.applyLiveStatus` works out `connected` / `reconnecting` / banner from `close_code`, `connected`, `opted_out`, and `auth_error`. It reads `state` only to treat `auth_rejected` as `token_rejected` for older relays. The optional boolean `CommunityLiveStatus.reconnecting` in `types.ts` is never sent by the backend. The `gate` value of `LiveRelayState` is never reached (see the root `AGENTS.md`). Do not build UI on either of them.
+`livePacketStore.applyLiveStatus` keeps only what `LiveView` shows: the opt-out flag, `auth_error`, `clock_skew_s`, and the banner they produce. Close codes never reach the user, so the store ignores `close_code` and `connected`. It reads `state` only to treat `auth_rejected` as `token_rejected` for older relays.
 
 ### Messages and unreads
 - An outgoing message appears after the send API returns. There is no optimistic insert. The backend also emits a WS `message` so other tabs stay in sync.
@@ -78,6 +90,8 @@ Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `Searc
 ### `#live`
 `LiveView` + `components/live/` animate packets along their hops over the directory map (`GET /api/directory/nodes/live`). There are **no observer icons**: `NODE_ROLE_STYLE` has no observer role. Observer GPS stays in `geometryDirectoryNodes` only so that hops can be resolved, and `mappableDirectoryNodes` skips it. One observation draws one polyline: origin (from `origin.pubkey` / local advert, never `hops[0]`), then the hops, then the ear. Two or more points draw a line, one point a pulse. A 300 ms hold (`LIVE_HOLD_MS`) merges frames for the same path. `MAX_CONCURRENT_ANIMS` caps how many animations run at once.
 
+Region filter: `LiveViewFilters.iata` is a `Set` (empty = every region), picked in `live/LiveIataMenu.tsx` (a disclosure button named by its visible text, label + selection, opening a `role="group"` of checkboxes with "All regions"; focus goes to the first box on open and back to the button on Escape). Unticking the last region means every region, and so does a list over 64 codes (`LIVE_IATA_SELECTION_MAX`, the relay's limit). Options = `GET /api/community/iata/active` (only while Community is ready; failures are ignored) ∪ the regions seen in the feed ∪ the radio's IATA, the placeholders `XXX`, `LOC`, `AAA` excluded (`LIVE_PLACEHOLDER_IATAS`). Default = the radio's IATA; the choice is kept in localStorage `meshloom-live-iata` (`utils/liveIataPreference.ts`: `"all"` or a JSON list, every access in try/catch) and sent with the subscribe, every 30 s heartbeat, and at once on change. Each answer's `session_id` replaces the tab's: a relay that forgot the session (TTL, restart) mints a new one, and the next beats reuse it. The filter follows the packet: `LiveMapController` keeps a bounded `LivePacketRegionIndex` (bucket key → regions that heard it, local observations counted under the radio's IATA), and `observationPassesFilters` lets an observation through when its packet was heard in a chosen region. Local observations (`iata: null`) always pass. The backend relay filters upstream too, but `community_packet` reaches every tab, so the browser filter is what decides.
+
 ### Repeater dashboard and rooms
 - On mount, the dashboard first loads `GET /api/contacts/{key}/repeater/cache` (database only, each pane with its own `fetched_at`).
 - Login sends exactly one request. The backend may retry once by flood on its own, so do not add a client-side retry loop.
@@ -92,6 +106,8 @@ Heavy surfaces are loaded with `lazy()`: `SettingsModal`, `CrackerPanel`, `Searc
 
 ### Styling
 Use rem-based text sizes (`text-[0.8125rem]`, not `text-[13px]`), because the font-scale setting depends on them. The "Canonical style reference" inside `ThemePreview` (`components/settings/SettingsLocalSection.tsx`) is the catalogue of patterns to copy.
+
+Fonts come from the system, except `'Meshloom Marks'` (`src/assets/fonts/meshloom-marks.woff2`, declared in `index.css`). It is a subset of Noto Sans for the stacked combining marks that no Windows font covers (U+1AB0–1AFF, U+1DC0–1DFF), and it is fetched only when an earlier font misses a character. Any new `font-family` that can show a contact or node name must end with it, as `body`, Tailwind's `font-sans`/`font-mono`, `.leaflet-container` and the 3D visualizer labels already do. Its OFL licence goes into `LICENSES.md` through `scripts/build/collect_licenses.sh`.
 
 ## Editing checklist
 

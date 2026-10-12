@@ -11,6 +11,7 @@ from app.models import (
     CommunityAirportSearchResponse,
     CommunityHashtagPut,
     CommunityHashtagsResponse,
+    CommunityIataActiveResponse,
     CommunityIataBindRequest,
     CommunityIataBindResult,
     CommunityLiveStatus,
@@ -20,7 +21,12 @@ from app.models import (
     CommunityStatus,
     CommunityUpdate,
 )
-from app.services.community_live import relancer_live, subscribe_live, unsubscribe_live
+from app.services.community_live import (
+    active_iata_codes,
+    relancer_live,
+    subscribe_live,
+    unsubscribe_live,
+)
 from app.services.meshloom_community import (
     community_status,
     radio_gps_or_none,
@@ -106,23 +112,25 @@ async def get_hashtags() -> CommunityHashtagsResponse:
     return CommunityHashtagsResponse.model_validate(payload)
 
 
-@router.get("/iata/{code}/hashtags", response_model=CommunityHashtagsResponse)
-async def get_iata_hashtags(code: str) -> CommunityHashtagsResponse:
-    del code
-    return await get_hashtags()
-
-
 @router.post("/live/subscribe", response_model=CommunityLiveStatus)
 async def post_live_subscribe(
     body: CommunityLiveSubscribeRequest | None = None,
 ) -> CommunityLiveStatus:
     payload = body or CommunityLiveSubscribeRequest()
-    return CommunityLiveStatus.model_validate(await subscribe_live(payload.session_id))
+    return CommunityLiveStatus.model_validate(
+        await subscribe_live(payload.session_id, payload.iata)
+    )
 
 
 @router.delete("/live/subscribe/{session_id}", response_model=CommunityLiveStatus)
 async def delete_live_subscribe(session_id: str) -> CommunityLiveStatus:
     return CommunityLiveStatus.model_validate(await unsubscribe_live(session_id))
+
+
+@router.get("/iata/active", response_model=CommunityIataActiveResponse)
+async def get_active_iata() -> CommunityIataActiveResponse:
+    """Regions with traffic in the last 24 h (Community ``GET /v1/iata/active``), for Live."""
+    return CommunityIataActiveResponse.model_validate(await active_iata_codes())
 
 
 @router.post("/live/relancer", response_model=CommunityLiveStatus)

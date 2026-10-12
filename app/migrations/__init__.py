@@ -74,6 +74,25 @@ async def _apply_transactional(conn: aiosqlite.Connection, mod: Any, num: int) -
         raise
 
 
+def _refuse_duplicate_numbers(migration_files: list[tuple[int, str]]) -> None:
+    """Stop before migrating when two files claim the same number.
+
+    Files are discovered on disk, and some deployments keep files deleted
+    upstream: a Portainer GitOps stack copies each new commit over the old tree
+    without removing anything. A renamed migration then leaves its old name
+    behind, and both would run.
+    """
+    seen: dict[int, str] = {}
+    for num, name in migration_files:
+        if num in seen:
+            raise RuntimeError(
+                f"Migrations {seen[num]} and {name} share number {num}. One is a stale "
+                "file left by an earlier version: delete it from app/migrations/, or "
+                "redeploy from a clean checkout."
+            )
+        seen[num] = name
+
+
 async def run_migrations(conn: aiosqlite.Connection) -> int:
     """
     Run all pending migrations.
@@ -83,15 +102,18 @@ async def run_migrations(conn: aiosqlite.Connection) -> int:
     version = await get_version(conn)
     applied = 0
 
+    migration_files: list[tuple[int, str]] = []
     for module_info in sorted(pkgutil.iter_modules(__path__), key=lambda m: m.name):
         match = re.match(r"_(\d+)_", module_info.name)
-        if not match:
-            continue
-        num = int(match.group(1))
+        if match:
+            migration_files.append((int(match.group(1)), module_info.name))
+    _refuse_duplicate_numbers(migration_files)
+
+    for num, name in migration_files:
         if num <= version:
             continue
-        logger.info("Applying migration %d: %s", num, module_info.name)
-        mod = importlib.import_module(f"{__name__}.{module_info.name}")
+        logger.info("Applying migration %d: %s", num, name)
+        mod = importlib.import_module(f"{__name__}.{name}")
         if getattr(mod, "TRANSACTIONAL", True):
             await _apply_transactional(conn, mod, num)
         else:

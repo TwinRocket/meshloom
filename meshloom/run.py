@@ -23,7 +23,6 @@ OPTIONS_FILE = Path("/data/options.json")
 # Options whose value is passed straight through when it is not blank.
 PASS_THROUGH = {
     "log_level": "MESHCORE_LOG_LEVEL",
-    "public_url": "MESHCORE_PUBLIC_URL",
     "basic_auth_username": "MESHCORE_BASIC_AUTH_USERNAME",
     "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
     "vapid_subject": "MESHCORE_VAPID_SUBJECT",

@@ -91,6 +91,11 @@ jobs:
         run: npm run test:run
         working-directory: frontend
 
+      # All of src/, tests included. `npm run build` only checks what main.tsx reaches.
+      - name: Frontend type check
+        run: npm run typecheck
+        working-directory: frontend
+
       - name: Frontend build
         run: npm run build
         working-directory: frontend

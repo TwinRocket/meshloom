@@ -114,3 +114,11 @@ release_sed_i() {
         sed -i '' "$@"
     fi
 }
+
+# The release notes are usually written in CHANGELOG.md before the release is cut,
+# without committing them. That edit is the only local change a release may carry
+# (publish.sh commits it); anything else would slip unreviewed work into the
+# release commit.
+release_tree_clean_but_changelog() {
+    ! git status --porcelain --untracked-files=all | grep -qvE '^.. CHANGELOG\.md$'
+}
