@@ -104,7 +104,10 @@ How a radio message travels through the program, in and out.
   The one exception is `app/services/community_status_clear.py`: when the
   opt-out could not clear the retained MQTT status, it reconnects to the
   broker only to publish the empty retained payload, bounded in attempts and
-  to 24 h, persisted across restarts, then never again. The last status topic
+  to 24 h, persisted across restarts, then never again. Joining is the other
+  one: `PUT /api/community/me/iata` with `enable` sends Community's
+  `PUT /v1/me/iata` while still off (the operator just asked to join, and the
+  bind comes first); Community is turned on only if it succeeds. The last status topic
   is persisted too, so a topic left behind while the app was stopped (IATA or
   broker changed, Community turned off) gets the same clear at the next start.
   Details are in `app/AGENTS.md`.
