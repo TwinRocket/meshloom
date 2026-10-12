@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
+vi.mock('../components/ui/sonner', () => ({ toast: toastMocks }));
+
 import { SettingsCommunitySection } from '../components/settings/SettingsCommunitySection';
 import { api, ApiError } from '../api';
 import i18n from '../i18n';
@@ -56,6 +59,8 @@ describe('SettingsCommunitySection', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    toastMocks.error.mockClear();
+    toastMocks.success.mockClear();
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
@@ -173,7 +178,10 @@ describe('SettingsCommunitySection', () => {
     });
   });
 
-  it('joins with enable + IATA then binds', async () => {
+  it('joins in one bind call: Community binds the IATA before anything is turned on', async () => {
+    vi.mocked(api.getCommunity)
+      .mockResolvedValueOnce(offStatus)
+      .mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG', publisher_configured: true });
     render(<SettingsCommunitySection />);
 
     const iata = await screen.findByLabelText(i18n.t('settings.community.iata'));
@@ -181,9 +189,40 @@ describe('SettingsCommunitySection', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.community.joinCta') }));
 
     await waitFor(() => {
-      expect(api.updateCommunity).toHaveBeenCalledWith({ enabled: true, iata: 'CDG' });
-      expect(api.bindCommunityIata).toHaveBeenCalledWith({ iata: 'CDG' });
+      expect(api.bindCommunityIata).toHaveBeenCalledWith({ iata: 'CDG', enable: true });
     });
+    // No PATCH first: it would start the publisher on the new topic before
+    // Community binds the IATA.
+    expect(api.updateCommunity).not.toHaveBeenCalled();
+    expect(await screen.findByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+    expect(toastMocks.success).toHaveBeenCalledWith(i18n.t('settings.community.bindSuccess'));
+  });
+
+  it('stays off and says why when Community refuses the join bind (IATA change cap)', async () => {
+    vi.mocked(api.bindCommunityIata).mockRejectedValue(
+      new ApiError('Community IATA change cap reached', 429)
+    );
+    render(<SettingsCommunitySection />);
+
+    const iata = await screen.findByLabelText(i18n.t('settings.community.iata'));
+    fireEvent.change(iata, { target: { value: 'lys' } });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.community.joinCta') }));
+
+    await waitFor(() => {
+      expect(toastMocks.error).toHaveBeenCalledWith(i18n.t('settings.community.joinIataChangeCap'));
+    });
+    expect(api.updateCommunity).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeChecked();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+  });
+
+  it('shows why the status could not be loaded', async () => {
+    vi.mocked(api.getCommunity).mockRejectedValue(new ApiError('Radio key is not available', 503));
+    render(<SettingsCommunitySection />);
+
+    expect(await screen.findByText('Radio key is not available')).toBeInTheDocument();
   });
 
   it('changes the IATA in one bind call, saved by the backend after Community accepts it', async () => {
@@ -242,7 +281,7 @@ describe('SettingsCommunitySection', () => {
     fireEvent.click(bind);
 
     await waitFor(() => {
-      expect(api.bindCommunityIata).toHaveBeenCalled();
+      expect(toastMocks.error).toHaveBeenCalledWith(i18n.t('settings.community.iataChangeCap'));
     });
   });
 });

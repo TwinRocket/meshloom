@@ -13,6 +13,7 @@ vi.mock('../api', () => ({
 
 import {
   getCommunitySnapshot,
+  loadCommunityStatus,
   noteCommunityLiveOptedOut,
   refreshCommunityStatus,
   seedCommunityEnabled,
@@ -47,6 +48,16 @@ describe('communityStore', () => {
     mocks.getCommunity.mockResolvedValue(on);
     await Promise.all([refreshCommunityStatus(), refreshCommunityStatus()]);
     expect(mocks.getCommunity).toHaveBeenCalledTimes(1);
+    expect(getCommunitySnapshot().status).toEqual(on);
+  });
+
+  it('keeps the last state on a failure; load rejects with the error, refresh gives null', async () => {
+    setCommunityStatus(on);
+    const failure = new Error('Radio key is not available');
+    mocks.getCommunity.mockRejectedValue(failure);
+
+    await expect(loadCommunityStatus()).rejects.toBe(failure);
+    await expect(refreshCommunityStatus()).resolves.toBeNull();
     expect(getCommunitySnapshot().status).toEqual(on);
   });
 

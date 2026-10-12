@@ -17,7 +17,7 @@ import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { formatNumber } from '../../utils/formatNumber';
 import {
-  refreshCommunityStatus,
+  loadCommunityStatus,
   setCommunityStatus,
   useCommunityStatus,
 } from '../../stores/communityStore';
@@ -199,9 +199,14 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   }
 
   const loadStatus = useCallback(async () => {
-    const next = await refreshCommunityStatus();
-    setStatusError(next ? null : t('toast.requestFailed'));
-    return next;
+    try {
+      const next = await loadCommunityStatus();
+      setStatusError(null);
+      return next;
+    } catch (err) {
+      setStatusError(formatApiError(err, t));
+      return null;
+    }
   }, [t]);
 
   const loadStats = useCallback(
@@ -236,9 +241,11 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     void loadStats(status);
   }, [status, loadStats]);
 
-  const handleCommunityError = (err: unknown) => {
+  const handleCommunityError = (err: unknown, joining = false) => {
     if (err instanceof ApiError && err.status === 429 && err.message.includes('IATA')) {
-      toast.error(t('settings.community.iataChangeCap'));
+      toast.error(
+        t(joining ? 'settings.community.joinIataChangeCap' : 'settings.community.iataChangeCap')
+      );
       return;
     }
     toast.error(formatApiError(err, t));
@@ -252,15 +259,18 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     }
     setBusy('join');
     try {
-      setCommunityStatus(await api.updateCommunity({ enabled: true, iata }));
-      const result = await api.bindCommunityIata({ iata });
+      // One call: the backend binds the IATA with Community first (a token for
+      // this IATA), and only then turns Community on, saves the IATA and starts
+      // the publisher. A refused bind (e.g. the 3-changes-a-week cap) leaves
+      // Community off and the saved IATA as it was.
+      const result = await api.bindCommunityIata({ iata, enable: true });
       setBindResult(result);
       const next = await api.getCommunity();
       setCommunityStatus(next);
       await loadStats(next);
       toast.success(t('settings.community.bindSuccess'));
     } catch (err) {
-      handleCommunityError(err);
+      handleCommunityError(err, true);
       await loadStatus();
     } finally {
       setBusy(null);

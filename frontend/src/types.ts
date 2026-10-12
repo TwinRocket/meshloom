@@ -1881,6 +1881,8 @@ export interface CommunityIataBindRequest {
   iata: string;
   lat?: number;
   lon?: number;
+  /** Join: bind with Community first, then turn Community on (only if the bind succeeds). */
+  enable?: boolean;
 }
 
 export interface CommunityIataBindResult {

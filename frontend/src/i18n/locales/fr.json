@@ -939,6 +939,7 @@
       "bindSuccess": "Code IATA enregistré",
       "noIataPublishOff": "Aucun code IATA n’est enregistré, donc la publication reste désactivée.",
       "iataChangeCap": "Plafond de changement d’IATA atteint. Réessayez plus tard.",
+      "joinIataChangeCap": "Community a refusé ce code IATA : cette radio a déjà changé d’IATA trop souvent ces 7 derniers jours. Community reste désactivé. Rejoignez avec votre code précédent, ou réessayez plus tard.",
       "iAmSure": "Je suis sûr de moi",
       "overriding": "Confirmation…",
       "overrideHelp": "Confirmez cet IATA même s’il n’est pas cohérent avec la position de votre radio. Cette confirmation n’est pas plafonnée.",

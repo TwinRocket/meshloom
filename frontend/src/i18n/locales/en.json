@@ -939,6 +939,7 @@
       "bindSuccess": "IATA code saved",
       "noIataPublishOff": "No IATA code is saved, so publish stays off.",
       "iataChangeCap": "IATA change cap reached. Try again later.",
+      "joinIataChangeCap": "Community refused this IATA code: this radio already changed its IATA too often in the last 7 days. Community stays off. Join with your previous code, or try again later.",
       "iAmSure": "I am sure",
       "overriding": "Confirming…",
       "overrideHelp": "Confirm this IATA even if it is not consistent with your radio position. This confirmation is not change-capped.",
