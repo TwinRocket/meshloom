@@ -19,7 +19,8 @@ import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Coroutine
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlsplit
 
@@ -92,6 +93,13 @@ _inflight: set[asyncio.Future[httpx.Response]] = set()
 # teardown still runs would otherwise be undone by it (Live closed, publisher
 # stopped while the database says on).
 _update_lock = LoopBoundLock()
+# Set only around the ``PUT /v1/me/iata`` of a join (``bind_community_iata``
+# with ``enable=True`` while Community is off): that one request may leave
+# before the database says on, because the operator just asked to join and the
+# bind must come first. Everything else still sees Community off until the write.
+_joining_state: ContextVar[CommunityEffective | None] = ContextVar(
+    "community_joining_state", default=None
+)
 
 
 class CommunityUpstreamError(HTTPException):
@@ -322,6 +330,8 @@ async def update_community(
 async def bind_community_iata(
     requested: str,
     bind: Callable[[], Awaitable[CommunityIataBindResult]],
+    *,
+    enable: bool = False,
 ) -> CommunityIataBindResult:
     """Change the IATA through Community (``PUT /v1/me/iata``), then save it.
 
@@ -330,11 +340,18 @@ async def bind_community_iata(
     with), so the old retained status is cleared first, by the running session
     still bound to the old IATA; then ``bind()`` calls ``PUT /v1/me/iata``; only
     then does the publisher reconnect, with a JWT for the new IATA. If the bind
-    fails, the publisher comes back on the old topic.
+    fails or the caller is cancelled before it answers, the publisher comes back
+    on the old topic.
+
+    ``enable`` (joining, Community off): the bind goes out first, with a token
+    for the requested IATA, and only a successful bind turns Community on, saves
+    the IATA and starts the publisher. A failed bind leaves Community off and the
+    stored IATA as it was, so the first ``online`` never meets another bind.
     """
     async with _update_lock:
         before = await get_community_effective()
         target = _normalize_iata(requested)
+        joining = enable and not before.enabled
         # An env IATA wins over the database: the topic would not move.
         retire_first = (
             before.enabled
@@ -342,17 +359,23 @@ async def bind_community_iata(
             and not env_community_iata()
             and target != before.iata
         )
-        if retire_first:
-            await _run_to_completion(_retire_status_and_reload(before, restart=False))
+        token = _joining_state.set(replace(before, enabled=True)) if joining else None
         try:
+            # Inside the try: a caller cancelled during the retire (held by
+            # _run_to_completion until it is done) still gets the publisher back.
+            if retire_first:
+                await _run_to_completion(_retire_status_and_reload(before, restart=False))
             result = await bind()
         except BaseException:
             if retire_first:
                 await _run_to_completion(_restore_publisher())
             raise
+        finally:
+            if token is not None:
+                _joining_state.reset(token)
         try:
             await _update_community_locked(
-                enabled=None,
+                enabled=True if joining else None,
                 iata=result.iata,
                 broker_host=None,
                 api_base=None,
@@ -968,7 +991,8 @@ async def stats_request(
     open this raises 503 without touching the network.
     """
     generation = _egress_generation
-    state = await community_egress_state()
+    # A join's bind leaves before the database says on (``_joining_state``).
+    state = _joining_state.get() or await community_egress_state()
     if state is None:
         raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
     headers: dict[str, str] = {}

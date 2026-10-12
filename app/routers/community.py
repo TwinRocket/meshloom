@@ -90,8 +90,9 @@ async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult
             raise HTTPException(status_code=502, detail="Community returned an unexpected body")
         return CommunityIataBindResult.model_validate(payload)
 
-    # Clears the old retained status first, then binds, then reconnects.
-    return await bind_community_iata(body.iata, bind)
+    # Clears the old retained status first, then binds, then reconnects. With
+    # ``enable`` (join), Community is turned on only after a successful bind.
+    return await bind_community_iata(body.iata, bind, enable=body.enable)
 
 
 @router.post("/me/iata/override", response_model=CommunityIataBindResult)

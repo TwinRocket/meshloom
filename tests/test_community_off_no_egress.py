@@ -700,13 +700,16 @@ def _bind_ok(iata: str) -> httpx.Response:
     return httpx.Response(200, content=json.dumps(body).encode())
 
 
-async def _put_me_iata(iata: str) -> httpx.Response:
+async def _put_me_iata(iata: str, *, enable: bool | None = None) -> httpx.Response:
     from app.main import app
 
+    body: dict[str, Any] = {"iata": iata}
+    if enable is not None:
+        body["enable"] = enable
     async with _RealAsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        return await client.put("/api/community/me/iata", json={"iata": iata})
+        return await client.put("/api/community/me/iata", json=body)
 
 
 def _bind_at(events: list[tuple[Any, ...]]) -> int:
@@ -764,6 +767,43 @@ class TestIataBindOrder:
         assert await _pending() == []
 
     @pytest.mark.asyncio
+    async def test_cancelled_during_the_retire_brings_the_old_topic_back(
+        self, test_db, egress, cleanup_community
+    ):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        real_retire = meshloom_community._retire_status_and_reload
+        started = asyncio.Event()
+
+        async def slow_retire(*args: Any, **kwargs: Any) -> None:
+            started.set()
+            await asyncio.sleep(0.2)
+            await real_retire(*args, **kwargs)
+
+        bind = AsyncMock()
+        with patch.object(meshloom_community, "_retire_status_and_reload", slow_retire):
+            task = asyncio.create_task(meshloom_community.bind_community_iata("LYS", bind))
+            await asyncio.wait_for(started.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        bind.assert_not_awaited()
+        # The retire ran to its end, then the publisher came back on the old topic.
+        assert _clear("CDG") in egress.events
+        assert SYSTEM_MESHLOOM_STATS_ID in fanout_manager._modules
+        await _until(lambda: _open_mqtt_connections(egress) == 1)
+        back_online = max(
+            i
+            for i, e in enumerate(egress.events)
+            if _status_of(e) == "online" and e[1] == _status_topic("CDG")
+        )
+        assert egress.events.index(_clear("CDG")) < back_online
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (True, "CDG")
+        assert await _pending() == []
+
+    @pytest.mark.asyncio
     async def test_same_iata_bind_keeps_the_status(self, test_db, egress, cleanup_community):
         await update_community(enabled=True, iata="CDG")
         await _until(lambda: _online_published(egress, "CDG"))
@@ -772,6 +812,71 @@ class TestIataBindOrder:
         response = await _put_me_iata("CDG")
         assert response.status_code == 200, response.text
         assert _clear("CDG") not in egress.events
+
+
+class TestJoinBindsFirst:
+    """Join (Community off): ``PUT /v1/me/iata`` first, then on + publisher."""
+
+    @pytest.mark.asyncio
+    async def test_join_binds_before_turning_on_and_publishing(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        egress.responses["/v1/me/iata"] = _bind_ok("LYS")
+        mint = patch.object(
+            meshloom_community, "mint_stats_jwt", wraps=meshloom_community.mint_stats_jwt
+        )
+
+        with mint as minted:
+            response = await _put_me_iata("LYS", enable=True)
+        assert response.status_code == 200, response.text
+        await _until(lambda: _online_published(egress, "LYS"))
+
+        # The bind token carries the new IATA.
+        assert minted.call_args_list[0].kwargs["iata"] == "LYS"
+        events = egress.events
+        first_mqtt = next(i for i, e in enumerate(events) if e[0] == "mqtt_connect")
+        assert _bind_at(events) < first_mqtt
+        assert not _online_published(egress, "CDG")
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (True, "LYS")
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_refused_join_stays_off_with_the_old_iata(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        egress.responses["/v1/me/iata"] = httpx.Response(
+            429, content=json.dumps({"detail": "IATA change cap exceeded"}).encode()
+        )
+
+        response = await _put_me_iata("LYS", enable=True)
+        assert response.status_code == 429, response.text
+        assert "IATA" in response.json()["detail"]
+        await asyncio.sleep(0.05)
+
+        assert [e for e in egress.events if e[0] != "http"] == []
+        assert [e[2] for e in egress.events if e[0] == "http"] == ["/v1/me/iata"]
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (False, "CDG")
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+        # The join egress was scoped to the bind: Community is still off.
+        with pytest.raises(HTTPException) as exc:
+            await stats_json("GET", "/v1/me/stats", auth=True)
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_bind_without_enable_stays_refused_while_off(
+        self, test_db, egress, cleanup_community
+    ):
+        response = await _put_me_iata("LYS")
+        assert response.status_code == 403, response.text
+        assert egress.events == []
 
 
 def _stats_publisher() -> MeshloomStatsPublisher:

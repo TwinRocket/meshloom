@@ -2057,6 +2057,8 @@ class CommunityIataBindRequest(BaseModel):
     iata: str = Field(pattern=r"^[A-Za-z]{3}$")
     lat: float | None = None
     lon: float | None = None
+    # Join: bind with Community first, then turn Community on (only if the bind succeeds).
+    enable: bool = False
 
 
 class CommunityIataBindResult(BaseModel):
