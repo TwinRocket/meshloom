@@ -19,10 +19,13 @@ npm run dev          # Vite on :5173, proxies /api to :8000
 npm run test:run     # vitest run
 npm run lint         # eslint src/ (lint:fix to autofix)
 npm run format       # prettier --write src/
-npm run build        # tsc && vite build -> dist/
+npm run typecheck    # tsc on all of src/, tests included (CI and all_quality.sh)
+npm run build        # tsc -p tsconfig.build.json && vite build -> dist/
 ```
 
 `npm run packaged-build` writes `frontend/prebuilt` and is for releases only.
+
+`npm run build` type-checks only what `src/main.tsx` imports, plus the ambient `src/**/*.d.ts` (`tsconfig.build.json`), like the bundle itself. A Portainer GitOps stack keeps files deleted upstream, and such a dead file must not fail its image build. A file nothing imports is therefore checked by `npm run typecheck` only.
 
 ## Where things live
 

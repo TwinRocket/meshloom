@@ -58,6 +58,7 @@ cd frontend
 npm run lint:fix
 npm run format
 npm run test:run
+npm run typecheck
 npm run build
 ```
 
