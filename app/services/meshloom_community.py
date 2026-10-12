@@ -20,7 +20,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -30,6 +30,9 @@ from app.background_tasks import spawn
 from app.data.meshcore_channels import hashtag_room_name
 from app.loop_lock import LoopBoundLock
 from app.models import CommunityAirportHit, CommunityIataBindResult, CommunityStatus
+
+if TYPE_CHECKING:
+    from app.services.community_status_clear import StatusClearTarget
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -332,9 +335,13 @@ async def bind_community_iata(
     async with _update_lock:
         before = await get_community_effective()
         target = _normalize_iata(requested)
+        # An env IATA wins over the database: the topic would not move.
         retire_first = (
-            before.enabled and bool(before.iata) and not env_community_iata()
-        ) and target != before.iata
+            before.enabled
+            and bool(before.iata)
+            and not env_community_iata()
+            and target != before.iata
+        )
         if retire_first:
             await _run_to_completion(_retire_status_and_reload(before, restart=False))
         try:
@@ -584,7 +591,7 @@ async def _retire_status_and_reload(
         logger.warning("Could not update the pending Community status clear", exc_info=True)
 
 
-async def _last_published_or_none() -> Any:
+async def _last_published_or_none() -> StatusClearTarget | None:
     from app.services import community_status_clear
 
     try:
