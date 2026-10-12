@@ -99,11 +99,14 @@ How a radio message travels through the program, in and out.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
   module. Opted out means no connection at all to the Community hosts or to
   the airport search: every egress goes through the guard in
-  `meshloom_community.py`, and an opt-out runs `community_teardown()`.
+  `meshloom_community.py`, and an opt-out runs `community_teardown()` in a
+  `finally` block, to the end even when the update fails or is cancelled.
   The one exception is `app/services/community_status_clear.py`: when the
   opt-out could not clear the retained MQTT status, it reconnects to the
   broker only to publish the empty retained payload, bounded in attempts and
-  to 24 h, persisted across restarts, then never again.
+  to 24 h, persisted across restarts, then never again. The last status topic
+  is persisted too, so a topic left behind while the app was stopped (IATA or
+  broker changed, Community turned off) gets the same clear at the next start.
   Details are in `app/AGENTS.md`.
 
 ## Commands
