@@ -24,6 +24,7 @@ vi.mock('../api', () => ({
     relancerCommunityLive: vi.fn(),
     getLiveDirectoryMapNodes: vi.fn(),
     getCommunityActiveIata: vi.fn(),
+    searchCommunityAirports: vi.fn(async () => []),
   },
 }));
 

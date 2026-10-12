@@ -53,7 +53,9 @@ const { FakeMap, maps, overlays } = vi.hoisted(() => {
 
 vi.mock('maplibre-gl', () => {
   class LngLatBounds {
-    extend() {
+    points: unknown[] = [];
+    extend(point: unknown) {
+      this.points.push(point);
       return this;
     }
   }
@@ -863,5 +865,72 @@ describe('LiveMapController', () => {
     t += LIVE_HOLD_MS;
     engine.syncObservations([observation({ type: 'text' })], new Set());
     expect(onLaserSegment).not.toHaveBeenCalled();
+  });
+
+  describe('arrival framing', () => {
+    // Lyon pins near LYS, one far pin in New York.
+    const lyon = directoryNode({ public_key: 'a1'.repeat(32), lat: 45.76, lon: 4.84 });
+    const villeurbanne = directoryNode({ public_key: 'a2'.repeat(32), lat: 45.77, lon: 4.88 });
+    const newYork = directoryNode({ public_key: 'a3'.repeat(32), lat: 40.71, lon: -74.0 });
+    const LYS: [number, number] = [5.08, 45.72];
+
+    function lastFit(): { points: unknown[]; maxZoom: number } | undefined {
+      const map = maps[maps.length - 1] as unknown as { fitBounds: ReturnType<typeof vi.fn> };
+      const calls = map.fitBounds.mock.calls;
+      const call = calls[calls.length - 1];
+      if (!call) return undefined;
+      return {
+        points: (call[0] as { points: unknown[] }).points,
+        maxZoom: (call[1] as { maxZoom: number }).maxZoom,
+      };
+    }
+
+    it('frames only the nodes of the selected region, not every directory node', async () => {
+      const engine = await readyController(() => 70_000);
+      engines.push(engine);
+      engine.setCameraFocus({ kind: 'pending' }, { reframe: true });
+      engine.setDirectoryNodes([lyon, villeurbanne, newYork]);
+      expect(lastFit()).toBeUndefined();
+
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] });
+      expect(lastFit()?.points).toEqual([
+        [4.84, 45.76],
+        [4.88, 45.77],
+      ]);
+    });
+
+    it('frames the airport itself when no node is known around it', async () => {
+      const engine = await readyController(() => 71_000);
+      engines.push(engine);
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] });
+      engine.setDirectoryNodes([newYork]);
+      expect(lastFit()).toEqual({ points: [LYS], maxZoom: 8 });
+    });
+
+    it('frames every node for "all regions"', async () => {
+      const engine = await readyController(() => 72_000);
+      engines.push(engine);
+      engine.setDirectoryNodes([lyon, newYork]);
+      expect(lastFit()?.points).toHaveLength(2);
+    });
+
+    it('frames once, then leaves the camera to the reader until a new region choice', async () => {
+      const engine = await readyController(() => 73_000);
+      engines.push(engine);
+      engine.setCameraFocus({ kind: 'all' }, { reframe: true });
+      engine.setDirectoryNodes([lyon, newYork]);
+      const map = maps[maps.length - 1] as unknown as {
+        fitBounds: ReturnType<typeof vi.fn>;
+        handlers: Map<string, Array<(event: unknown) => void>>;
+      };
+      for (const cb of map.handlers.get('movestart') ?? []) cb({ originalEvent: new Event('x') });
+
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] });
+      expect(map.fitBounds).toHaveBeenCalledTimes(1);
+
+      engine.setCameraFocus({ kind: 'regions', centers: [LYS] }, { reframe: true });
+      expect(map.fitBounds).toHaveBeenCalledTimes(2);
+      expect(lastFit()?.points).toEqual([[4.84, 45.76]]);
+    });
   });
 });

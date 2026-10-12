@@ -63,6 +63,8 @@ Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant. Ce 
 
 **Régions** ouvre une liste de codes d’aéroport (IATA), avec une case à cocher pour chacun. Par défaut, seule votre région est cochée : le code enregistré dans Meshloom Community. Cochez d’autres codes pour les ajouter, ou **Toutes les régions** pour voir tout le flux. Décocher le dernier code affiche aussi toutes les régions. La liste propose les régions actives ces dernières 24 heures, celles déjà vues sur la carte et la vôtre. Le filtre suit le paquet : quand un paquet est entendu dans une région choisie, toutes ses observations sont dessinées, même celles entendues ailleurs. Les paquets entendus par votre propre radio s’affichent toujours. Votre choix est mémorisé dans ce navigateur.
 
+À l’ouverture de la page, et à chaque changement de régions, la carte cadre les nœuds situés autour des aéroports des régions choisies (à 150 km environ), ou l’aéroport lui-même si aucun nœud n’y est encore connu. Avec **Toutes les régions**, elle cadre tous les nœuds connus. Dès que vous déplacez la carte vous-même, elle reste où vous l’avez mise jusqu’au prochain changement de régions.
+
 Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs de Community demandent que Meshloom Community soit activé et qu’un code d’aéroport (IATA) soit enregistré ; sinon, un bandeau explique ce qui manque. Si Community refuse la connexion parce que l’horloge du serveur est fausse, le bandeau le dit : remettez le serveur à l’heure, puis choisissez **Réessayer**.
 
 ## Le journal de contrôle

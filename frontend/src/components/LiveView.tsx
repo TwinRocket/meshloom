@@ -37,6 +37,7 @@ import {
   setSavedLiveIataSelection,
   type LiveIataSelection,
 } from '../utils/liveIataPreference';
+import { locateLiveRegions } from '../utils/liveRegionCenters';
 import { LiveSoundEngine } from '../utils/liveSound';
 import { LIVE_SOUND_THEMES, type LiveSoundTheme } from '../utils/liveSoundPreference';
 import { Button } from './ui/button';
@@ -269,6 +270,28 @@ export function LiveView({
   const iataSelectionKey = iataSelection === null ? '*' : iataSelection.join(',');
   useEffect(() => {
     refreshLiveSession(liveSessionRef, iataSelectionRef.current);
+  }, [iataSelectionKey]);
+
+  // Opening Live, or choosing regions, frames the chosen regions, not the world.
+  useEffect(() => {
+    const selection = iataSelectionRef.current;
+    if (selection === null) {
+      engineRef.current?.setCameraFocus({ kind: 'all' }, { reframe: true });
+      return;
+    }
+    let cancelled = false;
+    engineRef.current?.setCameraFocus({ kind: 'pending' }, { reframe: true });
+    void locateLiveRegions(selection, (code) => api.searchCommunityAirports(code)).then(
+      (centers) => {
+        if (cancelled) return;
+        engineRef.current?.setCameraFocus(
+          centers.length > 0 ? { kind: 'regions', centers } : { kind: 'all' }
+        );
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [iataSelectionKey]);
 
   // Community's active regions feed the picker. Nothing is asked while it is off.

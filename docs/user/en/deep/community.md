@@ -63,7 +63,7 @@ Changing the IATA code clears the status left under the old code the same way, w
 - alert emails leave through the mail server you set up. The Meshloom logo is inside the email, so opening one loads nothing from `meshloom.app`;
 - the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
-The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself.
+The airport search (`api.fx-port.com`, through your server) is part of Community: with Community off it is never called, and you type the three-letter code yourself. The Live page also uses it to place the chosen regions on the map, once per code while the page stays open.
 
 ## In the interface
 
