@@ -56,7 +56,7 @@ const config: RadioConfig = {
   path_hash_mode_supported: false,
 };
 
-function renderPath(path: string, pathLen: number, contacts: Contact[]) {
+function renderPath(path: string, pathLen: number, contacts: Contact[], directoryEnabled = true) {
   return render(
     <PathModal
       open
@@ -65,6 +65,7 @@ function renderPath(path: string, pathLen: number, contacts: Contact[]) {
       senderInfo={senderInfo}
       contacts={contacts}
       config={config}
+      directoryEnabled={directoryEnabled}
     />
   );
 }
@@ -160,6 +161,21 @@ describe('PathModal local hop names', () => {
     expect(screen.getByTestId('directory-globe-icon')).toBeInTheDocument();
     expect(screen.queryByTestId('local-repeater-icon')).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t('path.unknown'))).not.toBeInTheDocument();
+  });
+
+  it('asks the Community directory nothing while Community is off', async () => {
+    vi.mocked(api.resolveDirectoryHops).mockResolvedValue({
+      resolved: {
+        FFFF: { name: 'RemoteHill', source: 'corescope', hash_width: 2 },
+      },
+    });
+
+    renderPath('FFFF', 1, [], false);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.resolveDirectoryHops).not.toHaveBeenCalled();
+    expect(screen.queryByText('RemoteHill')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('directory-globe-icon')).not.toBeInTheDocument();
   });
 
   it('does not request or show CoreScope for a local unique type-2', async () => {

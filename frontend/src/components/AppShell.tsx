@@ -40,11 +40,7 @@ import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { LazyBoundary } from './LazyBoundary';
-import {
-  refreshCommunityStatus,
-  setCommunityStatus,
-  useCommunityState,
-} from '../stores/communityStore';
+import { refreshCommunityStatus, useCommunityState } from '../stores/communityStore';
 
 const SettingsModal = lazy(() =>
   import('./SettingsModal').then((m) => ({ default: m.SettingsModal }))
@@ -590,7 +586,6 @@ export function AppShell({
                     updatesApplying={ossUpdates.applying}
                     onOpenManualHelp={() => setUpdateDialogOpen(true)}
                     onClose={onCloseSettingsView}
-                    onCommunityStatusChange={setCommunityStatus}
                   />
                 </LazyBoundary>
               </div>

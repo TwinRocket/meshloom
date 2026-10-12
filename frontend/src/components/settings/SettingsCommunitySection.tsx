@@ -16,7 +16,11 @@ import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { formatNumber } from '../../utils/formatNumber';
-import { setCommunityStatus, useCommunityStatus } from '../../stores/communityStore';
+import {
+  refreshCommunityStatus,
+  setCommunityStatus,
+  useCommunityStatus,
+} from '../../stores/communityStore';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
@@ -166,15 +170,11 @@ function StatRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function SettingsCommunitySection({
-  className,
-  onStatusChange,
-}: {
-  className?: string;
-  onStatusChange?: (status: CommunityStatus) => void;
-}) {
+export function SettingsCommunitySection({ className }: { className?: string }) {
   const { t } = useTranslation();
-  const [status, setStatus] = useState<CommunityStatus | null>(null);
+  // The store is the only copy: our answers write it, and it follows other
+  // tabs and the API on its own.
+  const status = useCommunityStatus();
   const [statusError, setStatusError] = useState<string | null>(null);
   const [iataDraft, setIataDraft] = useState('');
   const [bindResult, setBindResult] = useState<CommunityIataBindResult | null>(null);
@@ -183,38 +183,26 @@ export function SettingsCommunitySection({
   const [statsError, setStatsError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'join' | 'enable' | 'bind' | 'override' | null>(null);
 
-  const applyStatus = useCallback(
-    (next: CommunityStatus) => {
-      setStatus(next);
-      setIataDraft(next.iata);
-      setCommunityStatus(next);
-      onStatusChange?.(next);
-    },
-    [onStatusChange]
-  );
-
-  // Follow a change made elsewhere (another tab, the API): the store re-reads
-  // on every Community broadcast. Our own actions write the store first, so
-  // this only fires for outside changes; it waits for an action in progress.
-  const storeStatus = useCommunityStatus();
-  useEffect(() => {
-    if (!storeStatus || busy !== null || storeStatus === status) return;
-    if (storeStatus.iata !== status?.iata) setIataDraft(storeStatus.iata);
-    if (!storeStatus.enabled) setBindResult(null);
-    setStatus(storeStatus);
-  }, [storeStatus, busy, status]);
+  // The draft follows the saved IATA whenever it changes (our actions, another
+  // tab, the API); typing is left alone while the saved value stays the same.
+  const savedIata = status?.iata;
+  const [draftSource, setDraftSource] = useState<string | undefined>(undefined);
+  if (savedIata !== draftSource) {
+    setDraftSource(savedIata);
+    if (savedIata !== undefined) setIataDraft(savedIata);
+  }
+  const enabled = status?.enabled;
+  const [bindResultEnabled, setBindResultEnabled] = useState(enabled);
+  if (enabled !== bindResultEnabled) {
+    setBindResultEnabled(enabled);
+    if (enabled === false) setBindResult(null);
+  }
 
   const loadStatus = useCallback(async () => {
-    try {
-      const next = await api.getCommunity();
-      applyStatus(next);
-      setStatusError(null);
-      return next;
-    } catch (err) {
-      setStatusError(formatApiError(err, t));
-      return null;
-    }
-  }, [applyStatus, t]);
+    const next = await refreshCommunityStatus();
+    setStatusError(next ? null : t('toast.requestFailed'));
+    return next;
+  }, [t]);
 
   const loadStats = useCallback(
     async (next: CommunityStatus) => {
@@ -264,11 +252,11 @@ export function SettingsCommunitySection({
     }
     setBusy('join');
     try {
-      applyStatus(await api.updateCommunity({ enabled: true, iata }));
+      setCommunityStatus(await api.updateCommunity({ enabled: true, iata }));
       const result = await api.bindCommunityIata({ iata });
       setBindResult(result);
       const next = await api.getCommunity();
-      applyStatus(next);
+      setCommunityStatus(next);
       await loadStats(next);
       toast.success(t('settings.community.bindSuccess'));
     } catch (err) {
@@ -282,7 +270,7 @@ export function SettingsCommunitySection({
   const handleEnableChange = async (enabled: boolean) => {
     setBusy('enable');
     try {
-      applyStatus(await api.updateCommunity({ enabled }));
+      setCommunityStatus(await api.updateCommunity({ enabled }));
       if (!enabled) {
         setBindResult(null);
         toast.success(t('settings.community.left'));
@@ -302,11 +290,12 @@ export function SettingsCommunitySection({
     }
     setBusy('bind');
     try {
-      applyStatus(await api.updateCommunity({ iata }));
+      // One call: the backend clears the old region's status, binds the new
+      // IATA with Community, then saves it and reconnects (in that order).
       const result = await api.bindCommunityIata({ iata });
       setBindResult(result);
       const next = await api.getCommunity();
-      applyStatus(next);
+      setCommunityStatus(next);
       await loadStats(next);
       toast.success(t('settings.community.bindSuccess'));
     } catch (err) {

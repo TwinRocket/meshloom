@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../api';
 import {
+  resetCommunityStoreForTests,
+  seedCommunityEnabled,
+  setCommunityStatus,
+} from '../stores/communityStore';
+import {
   LOCATION_PICKER_FALLBACK,
   formatPickedCoordinate,
   lookupCommunityIataLocation,
@@ -89,6 +94,7 @@ describe('formatPickedCoordinate', () => {
 
 describe('lookupCommunityIataLocation', () => {
   beforeEach(() => {
+    resetCommunityStoreForTests();
     vi.mocked(api.getCommunity).mockReset();
     vi.mocked(api.searchCommunityAirports).mockReset();
   });
@@ -143,6 +149,7 @@ describe('lookupCommunityIataLocation', () => {
     });
     await expect(lookupCommunityIataLocation()).resolves.toBeNull();
 
+    resetCommunityStoreForTests();
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: 'CDG',
@@ -162,5 +169,41 @@ describe('lookupCommunityIataLocation', () => {
       },
     ]);
     await expect(lookupCommunityIataLocation()).resolves.toBeNull();
+  });
+
+  it('reads the Community store instead of asking the backend again', async () => {
+    setCommunityStatus({
+      enabled: true,
+      iata: 'LYS',
+      broker_host: '',
+      api_base: '',
+      publisher_configured: true,
+      publisher_connected: true,
+      env_seeded: false,
+    });
+    vi.mocked(api.searchCommunityAirports).mockResolvedValue([
+      {
+        iata: 'LYS',
+        name: 'Lyon-Saint-Exupéry',
+        city: 'Lyon',
+        country: 'France',
+        label: 'Lyon (LYS)',
+        lat: 45.7256,
+        lon: 5.0811,
+      },
+    ]);
+    await expect(lookupCommunityIataLocation()).resolves.toEqual({
+      lat: 45.7256,
+      lon: 5.0811,
+      iata: 'LYS',
+    });
+    expect(api.getCommunity).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing at all when the store says Community is off', async () => {
+    seedCommunityEnabled(false);
+    await expect(lookupCommunityIataLocation()).resolves.toBeNull();
+    expect(api.getCommunity).not.toHaveBeenCalled();
+    expect(api.searchCommunityAirports).not.toHaveBeenCalled();
   });
 });
