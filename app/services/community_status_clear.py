@@ -20,6 +20,13 @@ How it is bounded:
   is abandoned, and the attempt count is saved before each attempt, so a
   restart neither loses nor repeats it.
 
+A topic can also be left behind while the app is stopped: the IATA or broker
+changes in the environment or the database, or Community is turned off, before
+the next start. The Stats publisher therefore records the last topic it made
+retained (``note_published``, ``app_settings.community_status_last``), and at
+startup ``adopt_orphaned_status`` hands that topic to this same bounded clear
+when it is no longer the current one.
+
 Community's ingest drops the empty payload (``invalid_json``) before any bind or
 status write; the broker deletes the retained message (MQTT 3.1.1 §3.3.1.3).
 """
@@ -179,6 +186,70 @@ async def drop_current(state: CommunityEffective) -> None:
         await resolve(target)
 
 
+def _target_entry(target: StatusClearTarget) -> dict[str, str]:
+    return {
+        "iata": target.iata,
+        "broker_host": target.broker_host,
+        "audience": target.audience,
+        "pubkey": target.pubkey,
+    }
+
+
+async def last_published() -> StatusClearTarget | None:
+    """The status topic the Stats publisher last made retained, if remembered."""
+    from app.repository.settings import AppSettingsRepository
+
+    entry = await AppSettingsRepository.get_community_status_last()
+    return _entry_target(entry) if entry is not None else None
+
+
+async def note_published(target: StatusClearTarget) -> None:
+    """The Stats publisher made its status retained on ``target``: remember it.
+
+    Written only when the topic changes, so the periodic status refresh costs
+    one read.
+    """
+    from app.repository.settings import AppSettingsRepository
+
+    if await last_published() == target:
+        return
+    await AppSettingsRepository.set_community_status_last(_target_entry(target))
+
+
+async def forget_published(target: StatusClearTarget) -> None:
+    """The status on ``target`` is cleared, or pending a clear: stop tracking it."""
+    from app.repository.settings import AppSettingsRepository
+
+    last = await last_published()
+    if last is not None and last.key() == target.key():
+        await AppSettingsRepository.set_community_status_last(None)
+
+
+async def adopt_orphaned_status() -> None:
+    """At startup: a retained status left on a topic that is no longer ours.
+
+    The IATA or the broker changed while the app was stopped (env or database),
+    or Community is off now: the topic the publisher last used keeps a retained
+    ``offline`` (or the Will's). Hand it to the bounded clear. The public key is
+    not compared: it is not known before the radio connects, and only that
+    radio's key could sign for its topic anyway (the worker waits for it).
+    """
+    from app.repository.settings import AppSettingsRepository
+    from app.services.meshloom_community import get_community_effective
+
+    last = await last_published()
+    if last is None:
+        return
+    state = await get_community_effective()
+    if state.enabled and (state.iata, state.broker_host) == (last.iata, last.broker_host):
+        return
+    pending = {t.key() for e in await _load() if (t := _entry_target(e)) is not None}
+    if last.key() not in pending:
+        await mark_pending(last)
+        logger.info("Status topic %s is no longer current: clearing it", last.topic)
+    await AppSettingsRepository.set_community_status_last(None)
+
+
 def _is_current(target: StatusClearTarget, state: CommunityEffective) -> bool:
     current = target_for(state)
     return state.enabled and current is not None and current.key() == target.key()
@@ -205,15 +276,32 @@ async def _clear_once(target: StatusClearTarget, private_key: bytes, public_key:
         await client.publish(target.topic, b"", qos=1, retain=True)
 
 
-async def _attempt(target: StatusClearTarget, private_key: bytes, public_key: bytes) -> None:
+def _signing_keys(target: StatusClearTarget) -> tuple[bytes, bytes] | None:
+    """This radio's (private, public) key, if it is the one that owns ``target``."""
+    from app import keystore
+
+    public_key = keystore.get_public_key()
+    private_key = keystore.get_private_key()
+    if public_key is None or private_key is None or public_key.hex().upper() != target.pubkey:
+        return None
+    return private_key, public_key
+
+
+async def _attempt(target: StatusClearTarget) -> None:
     """Count the attempt, make it, and forget the target if it worked.
 
     Runs under ``update_community()``'s lock: an opt-in on this very topic
     cannot land between the check and the clear and lose its fresh ``online``.
+    The key is read again under the lock: the radio may have gone while it
+    waited for it.
     """
     from app.services.meshloom_community import _update_lock, get_community_effective
 
     async with _update_lock:
+        keys = _signing_keys(target)
+        if keys is None:
+            return
+        private_key, public_key = keys
         entries = await _load()
         entry = next(
             (e for e in entries if (t := _entry_target(e)) and t.key() == target.key()), None
@@ -253,8 +341,6 @@ async def _worker() -> None:
 
 
 async def _worker_loop() -> None:
-    from app import keystore
-
     while True:
         now = time.time()
         entries = await _load()
@@ -278,14 +364,12 @@ async def _worker_loop() -> None:
 
         target = _entry_target(entry)
         assert target is not None  # _expired() drops invalid entries
-        public_key = keystore.get_public_key()
-        private_key = keystore.get_private_key()
-        if public_key is None or private_key is None or public_key.hex().upper() != target.pubkey:
+        if _signing_keys(target) is None:
             # Only this radio's key can sign for this topic. Wait for it
             # without spending an attempt; the 24 h limit still applies.
             await asyncio.sleep(WORKER_POLL_S)
             continue
-        await _attempt(target, private_key, public_key)
+        await _attempt(target)
 
 
 def schedule() -> None:
@@ -297,7 +381,12 @@ def schedule() -> None:
 
 
 async def start_status_clear_worker() -> None:
-    """At startup: resume a clear left pending before the restart."""
+    """At startup: adopt a topic orphaned while stopped, resume pending clears.
+
+    Runs before the fanout modules start, so the publisher has not yet
+    recorded the current topic over the one it used before the restart.
+    """
+    await adopt_orphaned_status()
     if await _load():
         schedule()
 

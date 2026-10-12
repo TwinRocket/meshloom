@@ -179,6 +179,18 @@ async def lifespan(app: FastAPI):
     # Always start connection monitor (even if initial connection failed)
     await radio_manager.start_connection_monitor()
 
+    # A retained Community status left behind: an opt-out that could not clear
+    # it, or a topic that changed while the app was stopped (IATA, broker, or
+    # Community turned off). Resume or start its single bounded clear
+    # (services/community_status_clear), before the publisher records the
+    # current topic over the old one.
+    from app.services.community_status_clear import start_status_clear_worker
+
+    try:
+        await start_status_clear_worker()
+    except Exception:
+        logger.exception("Failed to resume the pending Community status clear")
+
     # Start fanout modules (MQTT, etc.) from database configs
     from app.fanout.manager import fanout_manager
 
@@ -186,15 +198,6 @@ async def lifespan(app: FastAPI):
         await fanout_manager.load_from_db()
     except Exception:
         logger.exception("Failed to start fanout modules")
-
-    # A retained Community status that an opt-out could not clear before the
-    # restart: resume its single bounded retry (services/community_status_clear).
-    from app.services.community_status_clear import start_status_clear_worker
-
-    try:
-        await start_status_clear_worker()
-    except Exception:
-        logger.exception("Failed to resume the pending Community status clear")
 
     from app.radio_proxy.manager import radio_proxy_manager
 

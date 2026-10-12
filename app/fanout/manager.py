@@ -197,6 +197,16 @@ class FanoutManager:
             retire()
         return entry[0]
 
+    def has_system_module(self) -> bool:
+        return SYSTEM_MESHLOOM_STATS_ID in self._modules
+
+    async def stop_system_module(self) -> None:
+        """Stop the Stats publisher without starting another one (IATA bind)."""
+        lock = self._restart_locks.setdefault(SYSTEM_MESHLOOM_STATS_ID, asyncio.Lock())
+        async with lock:
+            if SYSTEM_MESHLOOM_STATS_ID in self._modules:
+                await self.remove_config(SYSTEM_MESHLOOM_STATS_ID)
+
     async def reload_system_module(self, config_id: str) -> None:
         if config_id != SYSTEM_MESHLOOM_STATS_ID:
             return

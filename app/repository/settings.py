@@ -1114,6 +1114,34 @@ class AppSettingsRepository:
                 (json.dumps(entries, separators=(",", ":"), sort_keys=True),),
             )
 
+    @staticmethod
+    async def get_community_status_last() -> dict[str, Any] | None:
+        """Last status topic the Stats publisher made retained. Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT community_status_last FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        try:
+            raw = row["community_status_last"]
+        except (KeyError, TypeError, IndexError):
+            return None
+        try:
+            parsed = json.loads(raw or "null")
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    @staticmethod
+    async def set_community_status_last(entry: dict[str, Any] | None) -> None:
+        value = "" if entry is None else json.dumps(entry, separators=(",", ":"), sort_keys=True)
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET community_status_last = ? WHERE id = 1", (value,)
+            )
+
 
 class StatisticsRepository:
     @staticmethod
