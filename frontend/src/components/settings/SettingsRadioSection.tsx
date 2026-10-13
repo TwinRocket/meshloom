@@ -578,7 +578,7 @@ export function SettingsRadioSection({
   const [sf, setSf] = useState('');
   const [cr, setCr] = useState('');
   const [pathHashMode, setPathHashMode] = useState('0');
-  const [advertLocationSource, setAdvertLocationSource] = useState<'off' | 'current'>('current');
+  const [advertLocationSource, setAdvertLocationSource] = useState<'off' | 'current'>('off');
   const [multiAcksEnabled, setMultiAcksEnabled] = useState(false);
   const [telemetryModeBase, setTelemetryModeBase] = useState(0);
   const [telemetryModeLoc, setTelemetryModeLoc] = useState(0);
@@ -619,7 +619,7 @@ export function SettingsRadioSection({
     setSf(String(config.radio.sf));
     setCr(String(config.radio.cr));
     setPathHashMode(String(config.path_hash_mode));
-    setAdvertLocationSource(config.advert_location_source ?? 'current');
+    setAdvertLocationSource(config.advert_location_source ?? 'off');
     setMultiAcksEnabled(config.multi_acks_enabled ?? false);
     setTelemetryModeBase(config.telemetry_mode_base ?? 0);
     setTelemetryModeLoc(config.telemetry_mode_loc ?? 0);
@@ -650,7 +650,7 @@ export function SettingsRadioSection({
       sf !== String(config.radio.sf) ||
       cr !== String(config.radio.cr) ||
       (config.path_hash_mode_supported && pathHashMode !== String(config.path_hash_mode)) ||
-      advertLocationSource !== (config.advert_location_source ?? 'current') ||
+      advertLocationSource !== (config.advert_location_source ?? 'off') ||
       multiAcksEnabled !== (config.multi_acks_enabled ?? false) ||
       telemetryModeBase !== (config.telemetry_mode_base ?? 0) ||
       telemetryModeLoc !== (config.telemetry_mode_loc ?? 0) ||
@@ -704,7 +704,7 @@ export function SettingsRadioSection({
     setSf(String(config.radio.sf));
     setCr(String(config.radio.cr));
     setPathHashMode(String(config.path_hash_mode));
-    setAdvertLocationSource(config.advert_location_source ?? 'current');
+    setAdvertLocationSource(config.advert_location_source ?? 'off');
     setMultiAcksEnabled(config.multi_acks_enabled ?? false);
     setTelemetryModeBase(config.telemetry_mode_base ?? 0);
     setTelemetryModeLoc(config.telemetry_mode_loc ?? 0);
@@ -800,7 +800,7 @@ export function SettingsRadioSection({
       lat: parsedLat,
       lon: parsedLon,
       tx_power: parsedTxPower,
-      ...(advertLocationSource !== (config?.advert_location_source ?? 'current')
+      ...(advertLocationSource !== (config?.advert_location_source ?? 'off')
         ? { advert_location_source: advertLocationSource }
         : {}),
       ...(multiAcksEnabled !== (config?.multi_acks_enabled ?? false)
@@ -1060,7 +1060,7 @@ export function SettingsRadioSection({
     tx_power: config?.tx_power ?? 0,
     radio: { ...(config?.radio ?? { freq: 0, bw: 0, sf: 0, cr: 0 }) },
     path_hash_mode: config?.path_hash_mode ?? 0,
-    advert_location_source: config?.advert_location_source ?? 'current',
+    advert_location_source: config?.advert_location_source ?? 'off',
     multi_acks_enabled: config?.multi_acks_enabled ?? false,
     telemetry_mode_base: config?.telemetry_mode_base ?? 0,
     telemetry_mode_loc: config?.telemetry_mode_loc ?? 0,
