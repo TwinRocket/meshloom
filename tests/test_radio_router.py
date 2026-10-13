@@ -176,6 +176,23 @@ class TestGetRadioConfig:
         assert response.advert_location_source == "current"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("policy", ["absent", None, "x", True, 0])
+    async def test_untrusted_advert_location_policy_reads_as_off(self, policy):
+        mc = _mock_meshcore_with_info()
+        if policy == "absent":
+            del mc.self_info["adv_loc_policy"]
+        else:
+            mc.self_info["adv_loc_policy"] = policy
+
+        with patch("app.routers.radio.radio_manager.require_connected", return_value=mc):
+            response = await get_radio_config()
+
+        assert response.advert_location_source == "off"
+
+    def test_response_model_defaults_to_off(self):
+        assert RadioConfigResponse.model_fields["advert_location_source"].default == "off"
+
+    @pytest.mark.asyncio
     async def test_returns_423_when_self_info_missing(self):
         mc = MagicMock()
         mc.self_info = None

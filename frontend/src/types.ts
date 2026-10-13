@@ -606,6 +606,8 @@ export interface DirectoryReachResponse {
     avg_snr?: number | null;
     lat?: number | null;
     lon?: number | null;
+    /** `rounded` (about 1 km) unless Community says the position is an advert's. */
+    position_precision?: PositionPrecision;
   }>;
   first_hops?: DirectoryReachFirstHop[];
   unresolved_first_hops?: DirectoryReachUnresolvedHop[];
@@ -1374,11 +1376,16 @@ export interface DirectoryMapNodesResponse {
   total?: number;
 }
 
+/** `exact`: an advert position. `rounded`: about 1 km, never used for a distance. */
+export type PositionPrecision = 'exact' | 'rounded';
+
 export interface ObserverReachEntry {
   name: string;
   public_key?: string | null;
   lat?: number | null;
   lon?: number | null;
+  /** Null without a position. A rounded position places the ear but makes no distance. */
+  position_precision?: PositionPrecision | null;
   hops?: number | null;
   snr?: number | null;
   /** Often absent. Null or empty means the role is unknown, not that there is none. */
@@ -1878,9 +1885,8 @@ export interface CommunityUpdate {
 }
 
 export interface CommunityIataBindRequest {
+  /** No position: the backend sends the radio's own, rounded unless the radio broadcasts it. */
   iata: string;
-  lat?: number;
-  lon?: number;
   /** Join: bind with Community first, then turn Community on (only if the bind succeeds). */
   enable?: boolean;
 }
@@ -1890,6 +1896,8 @@ export interface CommunityIataBindResult {
   concordance: string;
   honored_for_buckets: boolean;
   distance_km: number | null;
+  /** Precision of the bound position; null without one (or an older Community). */
+  position_precision?: PositionPrecision | null;
 }
 
 export interface CommunityMeStats {
@@ -1898,6 +1906,7 @@ export interface CommunityMeStats {
   iata: string;
   concordance: string;
   rank_in_iata: number | null;
+  position_precision?: PositionPrecision | null;
 }
 
 export interface CommunityPublicStats {

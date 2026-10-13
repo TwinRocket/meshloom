@@ -883,25 +883,25 @@ class TestEventHandlerRegistration:
 
         register_event_handlers(mock_meshcore)
 
-        # CONTACT_MSG_RECV, RX_LOG_DATA, PATH_UPDATE, NEW_CONTACT, ACK,
+        # CONTACT_MSG_RECV, RX_LOG_DATA, PATH_UPDATE, NEW_CONTACT, ACK, SELF_INFO,
         # CONNECTED, DISCONNECTED
-        assert len(_active_subscriptions) == 7
-        assert mock_meshcore.subscribe.call_count == 7
+        assert len(_active_subscriptions) == 8
+        assert mock_meshcore.subscribe.call_count == 8
 
     def test_register_handlers_twice_does_not_duplicate(self):
         """Calling register_event_handlers twice unsubscribes old handlers first."""
         mock_meshcore = MagicMock()
 
         # First call: create mock subscriptions
-        first_subs = [MagicMock() for _ in range(7)]
+        first_subs = [MagicMock() for _ in range(8)]
         mock_meshcore.subscribe.side_effect = first_subs
         register_event_handlers(mock_meshcore)
 
-        assert len(_active_subscriptions) == 7
+        assert len(_active_subscriptions) == 8
         first_sub_objects = list(_active_subscriptions)
 
         # Second call: create new mock subscriptions
-        second_subs = [MagicMock() for _ in range(7)]
+        second_subs = [MagicMock() for _ in range(8)]
         mock_meshcore.subscribe.side_effect = second_subs
         register_event_handlers(mock_meshcore)
 
@@ -909,8 +909,8 @@ class TestEventHandlerRegistration:
         for sub in first_sub_objects:
             sub.unsubscribe.assert_called_once()
 
-        # Should still have exactly 7 subscriptions (not 14)
-        assert len(_active_subscriptions) == 7
+        # Should still have exactly 8 subscriptions (not 16)
+        assert len(_active_subscriptions) == 8
 
         # New subscriptions should be the second batch
         for sub in second_subs:
@@ -931,8 +931,8 @@ class TestEventHandlerRegistration:
         # Stale subscriptions should have been unsubscribed
         assert stale_sub.unsubscribe.call_count == 2
 
-        # Should have exactly 7 fresh subscriptions
-        assert len(_active_subscriptions) == 7
+        # Should have exactly 8 fresh subscriptions
+        assert len(_active_subscriptions) == 8
 
     def test_register_handlers_survives_unsubscribe_exception(self):
         """If unsubscribe() throws, registration still completes successfully."""
@@ -954,8 +954,8 @@ class TestEventHandlerRegistration:
         bad_sub.unsubscribe.assert_called_once()
         good_sub.unsubscribe.assert_called_once()
 
-        # Should have exactly 7 fresh subscriptions
-        assert len(_active_subscriptions) == 7
+        # Should have exactly 8 fresh subscriptions
+        assert len(_active_subscriptions) == 8
 
 
 class TestOnPathUpdate:

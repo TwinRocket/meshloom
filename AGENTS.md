@@ -107,7 +107,11 @@ How a radio message travels through the program, in and out.
   to 24 h, persisted across restarts, then never again. Joining is the other
   one: `PUT /api/community/me/iata` with `enable` sends Community's
   `PUT /v1/me/iata` while still off (the operator just asked to join, and the
-  bind comes first); Community is turned on only if it succeeds. The last status topic
+  bind comes first); Community is turned on only if it succeeds. The bind is
+  also the only place this radio's position leaves: exact only when its adverts
+  broadcast it, rounded to about 1 km otherwise (`app/services/observer_position.py`),
+  re-sent on its own when the position or the advert location policy changes,
+  and only while Community is on. The last status topic
   is persisted too, so a topic left behind while the app was stopped (IATA or
   broker changed, Community turned off) gets the same clear at the next start.
   Details are in `app/AGENTS.md`.

@@ -7,6 +7,7 @@ import {
 } from '../utils/lastViewedConversation';
 import {
   meshTestListenState,
+  meshTestObserverDistanceKm,
   meshTestPathPoints,
   placedObserverCoordinates,
   preselectedFloodScope,
@@ -144,5 +145,27 @@ describe('last viewed radio test', () => {
   it('does not restore a saved radio-test conversation', () => {
     saveLastViewedConversation({ type: 'test', id: 'test', name: 'Radio test' });
     expect(getLastViewedConversation()).toBeNull();
+  });
+});
+
+describe('meshTestObserverDistanceKm', () => {
+  const origin = { lat: 45, lon: 4 };
+  const placed = { lat: 46, lon: 4 };
+
+  it('measures an exact position', () => {
+    expect(meshTestObserverDistanceKm(origin, { position_precision: 'exact' }, placed)).toBeCloseTo(
+      111.2,
+      0
+    );
+  });
+
+  it('measures a position without precision (local advert, older backend)', () => {
+    expect(meshTestObserverDistanceKm(origin, {}, placed)).toBeCloseTo(111.2, 0);
+  });
+
+  it('never measures a rounded position', () => {
+    expect(meshTestObserverDistanceKm(origin, { position_precision: 'rounded' }, placed)).toBe(
+      null
+    );
   });
 });

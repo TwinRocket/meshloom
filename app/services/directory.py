@@ -708,6 +708,10 @@ def parse_directory_reach(payload: object, pubkey: str) -> DirectoryReachRespons
                     avg_snr=snr,
                     lat=lat,
                     lon=lon,
+                    # Upstream ears were rounded before the field existed.
+                    position_precision=(
+                        "exact" if item.get("position_precision") == "exact" else "rounded"
+                    ),
                 )
             )
     return DirectoryReachResponse(

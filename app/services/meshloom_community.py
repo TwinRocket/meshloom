@@ -388,6 +388,23 @@ async def bind_community_iata(
         return result
 
 
+async def rebind_current_iata(
+    bind: Callable[[str], Awaitable[CommunityIataBindResult]],
+) -> CommunityIataBindResult | None:
+    """Send ``PUT /v1/me/iata`` again with the stored IATA (position refresh).
+
+    Same IATA, so nothing else moves: no status retire, no database write, and
+    Community does not count it as an IATA change. Under ``_update_lock``, so
+    it never interleaves with an IATA change, a join or an opt-out. None,
+    without any request, when Community is off or has no IATA yet.
+    """
+    async with _update_lock:
+        state = await community_egress_state()
+        if state is None or not state.iata:
+            return None
+        return await bind(state.iata)
+
+
 async def _restore_publisher() -> None:
     """Start the publisher again after a failed IATA bind stopped it."""
     from app.fanout.manager import fanout_manager
@@ -856,22 +873,6 @@ def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False)
     if require_iata and not iata:
         raise HTTPException(status_code=400, detail="IATA is required for Community tokens")
     return _generate_jwt_token(private_key, public_key, audience=audience, iata=iata)
-
-
-def radio_gps_or_none() -> tuple[float | None, float | None]:
-    from app.services.radio_runtime import radio_runtime as radio_manager
-
-    try:
-        info = radio_manager.meshcore.self_info if radio_manager.meshcore else None
-        if not isinstance(info, dict):
-            return None, None
-        lat = float(info.get("adv_lat") or 0.0)
-        lon = float(info.get("adv_lon") or 0.0)
-        if lat == 0.0 and lon == 0.0:
-            return None, None
-        return lat, lon
-    except (TypeError, ValueError, AttributeError):
-        return None, None
 
 
 def publisher_connected() -> bool:

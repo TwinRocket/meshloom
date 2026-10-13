@@ -1556,6 +1556,10 @@ class DirectoryReachObserver(BaseModel):
     avg_snr: float | None = None
     lat: float | None = None
     lon: float | None = None
+    position_precision: Literal["exact", "rounded"] = Field(
+        default="rounded",
+        description="exact (advert position) or rounded (about 1 km); rounded when Community sent none",
+    )
 
 
 class DirectoryReachNode(BaseModel):
@@ -1628,6 +1632,13 @@ class ObserverReachEntry(BaseModel):
     public_key: str | None = None
     lat: float | None = None
     lon: float | None = None
+    position_precision: Literal["exact", "rounded"] | None = Field(
+        default=None,
+        description=(
+            "Precision of lat/lon: exact (advert position) or rounded (about 1 km, "
+            "never used for distances). None without a position."
+        ),
+    )
     hops: int | None = None
     snr: float | None = None
     rssi: float | None = None
@@ -2054,9 +2065,11 @@ class CommunityUpdate(BaseModel):
 
 
 class CommunityIataBindRequest(BaseModel):
+    """No position here: the bind sends the radio's own, rounded unless it
+    broadcasts it (``app/services/observer_position.py``). Extra fields such as
+    ``lat``/``lon`` are ignored."""
+
     iata: str = Field(pattern=r"^[A-Za-z]{3}$")
-    lat: float | None = None
-    lon: float | None = None
     # Join: bind with Community first, then turn Community on (only if the bind succeeds).
     enable: bool = False
 
@@ -2066,6 +2079,8 @@ class CommunityIataBindResult(BaseModel):
     concordance: str
     honored_for_buckets: bool
     distance_km: float | None = None
+    # Echo of the stored bind position's precision (None: none, or an older Community).
+    position_precision: Literal["exact", "rounded"] | None = None
 
 
 class CommunityMeStats(BaseModel):
@@ -2074,6 +2089,7 @@ class CommunityMeStats(BaseModel):
     iata: str
     concordance: str
     rank_in_iata: int | None = None
+    position_precision: Literal["exact", "rounded"] | None = None
 
 
 class CommunityPublicStats(BaseModel):

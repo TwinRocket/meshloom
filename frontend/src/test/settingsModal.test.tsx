@@ -738,6 +738,24 @@ describe('SettingsModal', () => {
     });
   });
 
+  it('reads a missing advert location source as off', async () => {
+    const { advert_location_source: _omitted, ...withoutSource } = baseConfig;
+    const { onSave } = renderModal({ config: withoutSource });
+    openRadioSection();
+
+    expect(screen.getByLabelText(i18n.t('settings.radio.advertLocationSource'))).toHaveValue('off');
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.radio.advertLocationSource')), {
+      target: { value: 'current' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.saveConfig') }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ advert_location_source: 'current' })
+      );
+    });
+  });
+
   it('saves multi-acks through radio config save', async () => {
     const { onSave } = renderModal();
     openRadioSection();

@@ -137,6 +137,20 @@ export function meshTestDistanceKm(
   return calculateDistance(origin.lat, origin.lon, lat ?? null, lon ?? null);
 }
 
+/**
+ * Distance from the send origin to an ear. A rounded position (about 1 km, an
+ * ear that does not broadcast its own) places the ear but never makes a
+ * distance, so it cannot set the farthest-ear record.
+ */
+export function meshTestObserverDistanceKm(
+  origin: { lat: number; lon: number } | null,
+  entry: Pick<ObserverReachEntry, 'position_precision'>,
+  placed: { lat: number | null; lon: number | null }
+): number | null {
+  if (entry.position_precision === 'rounded') return null;
+  return meshTestDistanceKm(origin, placed.lat, placed.lon);
+}
+
 /** Reach GPS first, then the local advert for the same public key. */
 export function placedObserverCoordinates(
   entry: Pick<ObserverReachEntry, 'lat' | 'lon' | 'public_key'> & { name?: string | null },

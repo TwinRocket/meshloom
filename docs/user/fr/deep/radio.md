@@ -95,7 +95,9 @@ Une annonce dit aux autres que vous existez. L’onglet **Annonces** de **Régla
 - **Intervalle d’annonce périodique**, en heures. `0` la désactive. Le minimum est d’une heure (24 ou plus est recommandé), et une valeur plus courte est relevée à une heure.
 - **Envoyer une annonce flood**, qui passe par les répéteurs, et **Envoyer une annonce zéro saut**, qui reste locale et consomme moins de temps d’antenne.
 
-La position dans les annonces se règle avec **Source de position des annonces**, dans l’onglet **Configuration**. Elle n’a que deux choix : **Désactivée**, ou **Inclure la position du nœud**. Le firmware compagnon ne distingue pas une position enregistrée d’un relevé GPS en direct.
+La position dans les annonces se règle avec **Source de position des annonces**, dans l’onglet **Configuration**. Elle n’a que deux choix : **Désactivée**, ou **Inclure la position du nœud**. Le firmware compagnon ne distingue pas une position enregistrée d’un relevé GPS en direct. Quand la radio n’indique pas ce réglage, Meshloom affiche **Désactivée**.
+
+Avec [Meshloom Community](/docs/deep/community/) activé, ce choix fixe aussi la position que reçoit Community : exacte avec **Inclure la position du nœud**, arrondie à environ 1 km avec **Désactivée**. Le changer, ou changer la position de la radio, envoie d’elle-même la nouvelle position à Community.
 
 ## Proxy radio
 

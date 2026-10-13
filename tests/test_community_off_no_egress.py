@@ -19,6 +19,9 @@ at the opt-out, one bounded reconnect clears the retained status, and that
 connection carries only the empty retained payload. Nothing else connects,
 and nothing at all once it succeeded or gave up. ``TestOrphanedStatusAtStartup``
 uses the same clear for a topic left behind while the app was stopped.
+
+``TestPositionRebindOff``: the automatic re-bind on a radio position or policy
+change sends nothing while Community is off.
 """
 
 from __future__ import annotations
@@ -1246,3 +1249,61 @@ class TestOrphanedStatusAtStartup:
 
 async def _is_last_topic(iata: str) -> bool:
     return await _last_topic() == _status_topic(iata)
+
+
+class TestPositionRebindOff:
+    """A SELF_INFO with a new position re-binds only while Community is on."""
+
+    @pytest.mark.asyncio
+    async def test_self_info_change_while_off_connects_nowhere(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        from app.event_handlers import on_self_info
+        from app.repository.settings import AppSettingsRepository
+        from app.services import observer_position
+
+        await AppSettingsRepository.update_community(enabled=False, iata="LYS")
+        info = {
+            "public_key": PUBKEY_HEX,
+            "adv_lat": 45.764043,
+            "adv_lon": 4.835659,
+            "adv_loc_policy": 0,
+        }
+        monkeypatch.setattr(observer_position, "radio_self_info", lambda: info)
+        monkeypatch.setattr(observer_position, "REBIND_DEBOUNCE_S", 0.01)
+
+        await on_self_info(SimpleNamespace(payload=info))
+        info = {**info, "adv_loc_policy": 1}
+        await on_self_info(SimpleNamespace(payload=info))
+        task = observer_position._rebind_task
+        assert task is not None
+        await asyncio.wait_for(task, 3)
+
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    async def test_self_info_change_while_on_rebinds_the_same_iata(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        from app.services import observer_position
+
+        await update_community(enabled=True, iata="LYS")
+        await _until(lambda: _online_published(egress, "LYS"))
+        egress.responses["/v1/me/iata"] = _bind_ok("LYS")
+        info = {"public_key": PUBKEY_HEX, "adv_lat": 45.76, "adv_lon": 4.83, "adv_loc_policy": 0}
+        monkeypatch.setattr(observer_position, "radio_self_info", lambda: info)
+        monkeypatch.setattr(observer_position, "REBIND_DEBOUNCE_S", 0.01)
+        since = len(egress.events)
+
+        observer_position.note_radio_self_info(info)
+        task = observer_position._rebind_task
+        assert task is not None
+        await asyncio.wait_for(task, 3)
+
+        new = egress.events[since:]
+        assert [e for e in new if e[0] == "http"] == [
+            ("http", urlsplit(EGRESS_API_BASE).hostname, "/v1/me/iata")
+        ]
+        # Same IATA: the status topic does not move.
+        assert _clear("LYS") not in egress.events
+        assert (await get_community_effective()).iata == "LYS"

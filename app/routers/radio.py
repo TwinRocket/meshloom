@@ -56,6 +56,7 @@ from app.services.contact_reconciliation import (
     promote_prefix_contacts_for_contact,
     reconcile_contact_messages,
 )
+from app.services.observer_position import advert_location_broadcast
 from app.services.radio_commands import (
     KeystoreRefreshError,
     PathHashModeUnsupportedError,
@@ -132,7 +133,7 @@ class RadioConfigResponse(BaseModel):
         default=False, description="Whether firmware supports path hash mode setting"
     )
     advert_location_source: AdvertLocationSource = Field(
-        default="current",
+        default="off",
         description="Whether adverts include the node's current location state",
     )
     multi_acks_enabled: bool = Field(
@@ -399,8 +400,10 @@ async def get_radio_config() -> RadioConfigResponse:
     if not info:
         raise HTTPException(status_code=423, detail="Radio info not available")
 
-    adv_loc_policy = info.get("adv_loc_policy", 1)
-    advert_location_source: AdvertLocationSource = "off" if adv_loc_policy == 0 else "current"
+    # Absent or not an integer means off: never claim the adverts carry a position.
+    advert_location_source: AdvertLocationSource = (
+        "current" if advert_location_broadcast(info) else "off"
+    )
 
     return RadioConfigResponse(
         public_key=info.get("public_key", ""),
