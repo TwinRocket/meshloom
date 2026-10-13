@@ -390,17 +390,23 @@ async def bind_community_iata(
 
 async def rebind_current_iata(
     bind: Callable[[str], Awaitable[CommunityIataBindResult]],
+    *,
+    still_needed: Callable[[], bool] | None = None,
 ) -> CommunityIataBindResult | None:
     """Send ``PUT /v1/me/iata`` again with the stored IATA (position refresh).
 
     Same IATA, so nothing else moves: no status retire, no database write, and
     Community does not count it as an IATA change. Under ``_update_lock``, so
     it never interleaves with an IATA change, a join or an opt-out. None,
-    without any request, when Community is off or has no IATA yet.
+    without any request, when Community is off or has no IATA yet, or when
+    ``still_needed`` (checked under the lock) says another bind already sent
+    this position.
     """
     async with _update_lock:
         state = await community_egress_state()
         if state is None or not state.iata:
+            return None
+        if still_needed is not None and not still_needed():
             return None
         return await bind(state.iata)
 

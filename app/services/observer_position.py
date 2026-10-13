@@ -231,16 +231,28 @@ async def _rebind_once() -> RebindOutcome:
     if info is None or not ingest_allowed() or _bound_key(info) == _last_bound:
         return "skipped"
     try:
-        result = await rebind_current_iata(put_iata_bind)
+        # Compared again under the Community lock: a join or an IATA change
+        # that held it may have just sent this very position.
+        result = await rebind_current_iata(put_iata_bind, still_needed=_rebind_still_needed)
     except HTTPException as exc:
         if exc.status_code == 403:
             return "skipped"  # opted out meanwhile
         logger.warning("Community position re-bind failed: %s", exc.detail)
         return "failed"
+    except Exception:
+        # Anything else (an unexpected Community body failing validation, a
+        # bug): logged and retried like a failure, the worker never dies.
+        logger.exception("Community position re-bind failed")
+        return "failed"
     if result is None:
-        return "skipped"  # Community off or no IATA: nothing was sent
+        return "skipped"  # Community off, no IATA, or already bound: nothing was sent
     logger.info("Community bind refreshed after a radio position or policy change")
     return "sent"
+
+
+def _rebind_still_needed() -> bool:
+    info = radio_self_info()
+    return info is not None and _bound_key(info) != _last_bound
 
 
 def reset_position_rebind_for_tests() -> None:

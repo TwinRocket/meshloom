@@ -251,6 +251,41 @@ class TestAutomaticRebind:
         assert observer_position._last_bound == ("ab" * 32, publishable_position(INFO_EXACT))
 
     @pytest.mark.asyncio
+    async def test_unexpected_error_counts_as_a_failure_and_the_worker_lives(self, test_db, radio):
+        await update_community(enabled=True, iata="LYS")
+        # A position_precision this version does not know fails validation
+        # (not an HTTPException): retried like any failure, never fatal.
+        odd = {**BIND_OK, "position_precision": "approximate"}
+        flaky = AsyncMock(side_effect=[odd, BIND_OK])
+        with patch("app.services.meshloom_community.stats_json", new=flaky):
+            note_radio_self_info(radio["info"])
+            await _settle()
+
+        assert flaky.await_count == 2
+        assert observer_position._last_bound == ("ab" * 32, publishable_position(INFO_EXACT))
+
+    @pytest.mark.asyncio
+    async def test_bind_sent_while_the_worker_waited_for_the_lock_is_not_sent_twice(
+        self, test_db, radio
+    ):
+        from app.services import meshloom_community
+
+        await update_community(enabled=True, iata="LYS")
+        with patch(
+            "app.services.meshloom_community.stats_json", new=AsyncMock(return_value=BIND_OK)
+        ) as stats:
+            async with meshloom_community._update_lock:
+                # A join or an IATA change holds the lock; the worker, past its
+                # debounce, waits for it.
+                note_radio_self_info(radio["info"])
+                await asyncio.sleep(0.1)
+                assert stats.await_count == 0
+                await put_iata_bind("LYS")  # sends this very position
+            await _settle()
+
+        assert stats.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_self_info_event_handler_notes_the_payload(self, radio):
         from app.event_handlers import on_self_info
 
