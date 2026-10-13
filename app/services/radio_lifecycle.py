@@ -111,6 +111,13 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
                 # Register event handlers only after the identity is accepted.
                 register_event_handlers(mc)
 
+                # The appstart SELF_INFO went to the identity gate, not to the
+                # handlers: decide now whether Community waits for a position,
+                # before the radio key makes any Community call possible.
+                from app.services.meshloom_community import note_radio_position
+
+                note_radio_position(getattr(mc, "self_info", None))
+
                 await export_and_store_private_key(mc)
 
                 # Sync radio clock with system time. A corrective reboot drops

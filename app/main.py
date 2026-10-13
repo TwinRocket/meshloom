@@ -154,6 +154,14 @@ async def lifespan(app: FastAPI):
         await import_legacy_community_iata(existing_database=existing_database)
     except Exception:
         logger.exception("Failed to import the retired MESHLOOM_COMMUNITY_IATA")
+    # Waiting for a position, as last known before the restart: no packet and
+    # no Community call for a radio known to have none (migration 092).
+    from app.services.meshloom_community import load_position_state
+
+    try:
+        await load_position_state()
+    except Exception:
+        logger.exception("Failed to load the Community waiting state")
     if not snapshot.configured:
         logger.info("Radio transport is not configured; connection attempts stay paused")
 
