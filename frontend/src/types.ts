@@ -1886,17 +1886,33 @@ export interface StatisticsResponse {
  */
 export type CommunityState = 'off' | 'active' | 'waiting_for_position';
 
+/** Optional reason sent with an opt-out (`POST /v1/me/opt-out` upstream). */
+export type CommunityOptOutReason = 'privacy' | 'not_useful' | 'technical_issue' | 'other';
+
+/**
+ * An opt-out Community did not confirm: Meshloom left, but Community may still
+ * hold the position. Retried by hand only (`POST /api/community/opt-out/retry`).
+ */
+export interface CommunityOptOutPending {
+  requested_at: string;
+  reason?: CommunityOptOutReason | null;
+}
+
 export interface CommunityStatus {
   enabled: boolean;
   iata: string;
   publisher_configured: boolean;
   publisher_connected: boolean;
   state?: CommunityState;
+  /** Set while off after an opt-out Community did not confirm. Absent from an older backend. */
+  opt_out_pending?: CommunityOptOutPending | null;
 }
 
 export interface CommunityUpdate {
   enabled?: boolean;
   iata?: string;
+  /** Only with `enabled: false`. */
+  opt_out_reason?: CommunityOptOutReason;
 }
 
 export interface CommunityIataBindRequest {

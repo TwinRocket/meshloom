@@ -17,14 +17,14 @@ import {
  * Community is on, but the radio has no position it may publish
  * (`CommunityStatus.state === 'waiting_for_position'`): only its MQTT status
  * leaves. The banner offers to choose a position (saved on the radio, which
- * then re-binds with Community) or to leave Community.
+ * then re-binds with Community) or to leave Community (through the exit dialog).
  *
  * A named region, not a live region: it is mounted with its content and holds
  * buttons, so a `role="status"` would be read whole, or not at all.
  */
 export function CommunityWaitingBanner() {
   const { t } = useTranslation();
-  const { leave, leaving } = useCommunityLeave();
+  const { requestLeave, leaving, leaveDialog } = useCommunityLeave();
   const { openPicker, saving, picker } = useCommunityPositionPicker();
   const [explainOpen, setExplainOpen] = useState(false);
 
@@ -33,8 +33,10 @@ export function CommunityWaitingBanner() {
     openPicker();
   };
 
-  const handleLeave = async () => {
-    if (await leave()) setExplainOpen(false);
+  // The exit dialog says what Community keeps and deletes before anything is sent.
+  const handleLeave = () => {
+    setExplainOpen(false);
+    requestLeave();
   };
 
   return (
@@ -85,10 +87,10 @@ export function CommunityWaitingBanner() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => void handleLeave()}
+              onClick={handleLeave}
               disabled={leaving || saving}
             >
-              {leaving ? t('settings.community.leaving') : t('settings.community.waiting.leave')}
+              {t('settings.community.waiting.leave')}
             </Button>
             <Button type="button" onClick={choosePosition} disabled={leaving || saving}>
               {t('settings.community.waiting.chooseLocation')}
@@ -98,6 +100,7 @@ export function CommunityWaitingBanner() {
       </Dialog>
 
       {picker}
+      {leaveDialog}
     </>
   );
 }

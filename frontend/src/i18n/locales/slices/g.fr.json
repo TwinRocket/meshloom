@@ -11,6 +11,8 @@
     "radio_contacts_enum_failed": "Impossible d'énumérer les contacts de la radio",
     "radio_inconsistency_found": "Une tâche périodique a détecté des incohérences radio.",
     "mqtt_connected": "MQTT connecté",
-    "community_mqtt_unavailable": "MQTT communautaire indisponible"
+    "community_mqtt_unavailable": "MQTT communautaire indisponible",
+    "opt_out_other_radio": "Connectez la radio qui a quitté Community, puis réessayez.",
+    "no_pending_opt_out": "Aucune sortie à renvoyer."
   }
 }

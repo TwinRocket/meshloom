@@ -648,12 +648,36 @@
         "why": "Community place chaque radio sur sa carte pour montrer où les paquets sont entendus. Tant que votre radio n’a pas de position, elle indique seulement à Community qu’elle est en ligne : aucun paquet n’est envoyé, et le Live, l’annuaire et les statistiques restent coupés.",
         "privacy": "La position est enregistrée sur votre radio. Si sa Source de position des annonces est réglée sur Inclure la position du nœud, les annonces de la radio la diffuseront aussi par les ondes à tous les nœuds à portée. Community la reçoit arrondie à environ 1 km, sauf si vos annonces la diffusent déjà.",
         "leaveHelp": "Si vous préférez ne pas donner de position, vous pouvez quitter Community.",
-        "positionSaved": "Position enregistrée sur la radio",
+        "positionSaved": "Position enregistrée sur la radio. Elle est en cours d’envoi à Community : le bandeau disparaît dans quelques secondes.",
         "positionFailed": "Impossible d’enregistrer la position sur la radio",
         "settingsNote": "Community attend la position de votre radio : seul son statut en ligne est envoyé tant que vous n’en avez pas choisi une.",
         "featureOff": "Cette fonction vient de Meshloom Community, qui a d’abord besoin de la position de votre radio.",
         "liveBanner": "Les paquets de Community s’afficheront dès que votre radio aura une position. Les paquets de votre propre radio restent affichés.",
         "regionLabel": "Meshloom Community a besoin de votre position"
+      },
+      "optOut": {
+        "title": "Quitter Meshloom Community ?",
+        "intro": "Meshloom n’envoie plus rien à Community et lui demande de supprimer la position de votre radio.",
+        "kept": "Les paquets déjà remontés par votre radio restent dans les statistiques de Community, sous le nom de votre radio.",
+        "position": "La position de votre radio est supprimée de Community.",
+        "advert": "Si les annonces de votre radio diffusent sa position, elle reste visible sur la carte comme celle de tout autre nœud entendu sur le mesh.",
+        "fullDeletion": "Pour tout faire supprimer, écrivez à <email>privacy@meshloom.app</email>.",
+        "reasonLabel": "Pourquoi partez-vous ? (facultatif)",
+        "reasons": {
+          "none": "Je préfère ne pas répondre",
+          "privacy": "Vie privée",
+          "not_useful": "Pas utile pour moi",
+          "technical_issue": "Problème technique",
+          "other": "Autre"
+        },
+        "confirm": "Quitter Community",
+        "cancel": "Annuler",
+        "notConfirmedToast": "Vous avez quitté Community, mais la suppression n’a pas été confirmée",
+        "pendingTitle": "Suppression non confirmée",
+        "pendingBody": "Vous avez quitté Community, mais Community n’a pas pu être joint pour supprimer la position de votre radio. Rien d’autre n’est envoyé à Community ; réessayez quand vous voulez.",
+        "retry": "Réessayer",
+        "retrying": "Nouvel essai…",
+        "retryDone": "Community a confirmé la suppression"
       }
     },
     "proxy": {

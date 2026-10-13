@@ -183,8 +183,9 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   const [meStats, setMeStats] = useState<CommunityMeStats | null>(null);
   const [communityStats, setCommunityStats] = useState<CommunityPublicStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'join' | 'leave' | 'bind' | 'override' | null>(null);
-  const { leave } = useCommunityLeave();
+  const [busy, setBusy] = useState<'join' | 'bind' | 'override' | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const { requestLeave, leaveDialog } = useCommunityLeave(() => setBindResult(null));
   // Waiting for the radio's position: on, but no stats, no airport search.
   const active = communityStatusActive(status);
   const waiting = communityWaitingForPosition(status);
@@ -283,14 +284,24 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     }
   };
 
-  // Leaving is the only thing this component sends through `PATCH /api/community`.
-  // Turning Community on goes through the join form, which binds the IATA first.
-  const handleLeave = async () => {
-    setBusy('leave');
+  // Leaving is the only thing this component sends through `PATCH /api/community`
+  // (after the exit dialog). Turning Community on goes through the join form,
+  // which binds the IATA first.
+  const handleLeave = () => {
+    requestLeave();
+  };
+
+  // Manual only: the backend never retries an unconfirmed opt-out on its own.
+  const handleRetryOptOut = async () => {
+    setRetrying(true);
     try {
-      if (await leave()) setBindResult(null);
+      setCommunityStatus(await api.retryCommunityOptOut());
+      toast.success(t('settings.community.optOut.retryDone'));
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+      await loadStatus();
     } finally {
-      setBusy(null);
+      setRetrying(false);
     }
   };
 
@@ -371,11 +382,37 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
           <Button
             type="button"
             variant="outline"
-            onClick={() => void handleLeave()}
+            onClick={handleLeave}
             disabled={busy !== null}
             aria-describedby="community-leave-help"
           >
-            {busy === 'leave' ? t('settings.community.leaving') : t('settings.community.leave')}
+            {t('settings.community.leave')}
+          </Button>
+        </div>
+      )}
+
+      {!status.enabled && status.opt_out_pending && (
+        <div
+          data-testid="community-opt-out-pending"
+          className="mt-4 space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3"
+        >
+          <p className="text-[0.8125rem] font-medium text-warning">
+            {t('settings.community.optOut.pendingTitle')}
+          </p>
+          <p id="community-opt-out-pending-help" className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.community.optOut.pendingBody')}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void handleRetryOptOut()}
+            disabled={retrying || busy !== null}
+            aria-describedby="community-opt-out-pending-help"
+          >
+            {retrying
+              ? t('settings.community.optOut.retrying')
+              : t('settings.community.optOut.retry')}
           </Button>
         </div>
       )}
@@ -583,6 +620,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
           </div>
         </>
       )}
+      {leaveDialog}
     </div>
   );
 }
