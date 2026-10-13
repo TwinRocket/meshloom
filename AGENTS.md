@@ -105,15 +105,20 @@ How a radio message travels through the program, in and out.
   leave (`community_enrolled_state()`); everything else is cut as if off
   (`community_egress_state()` answers None). The state is decided right
   after the identity gate, before the radio key is exported, ends only once
-  a bind carrying a position succeeds, and is persisted (migration 092). An opt-out runs `community_teardown()` in a
+  a bind carrying a position succeeds, and is persisted (migration 092). An opt-out
+  first sends Community `POST /v1/me/opt-out` (optional reason, 5 s at most;
+  nothing may reconnect meanwhile), then runs `community_teardown()` in a
   `finally` block, to the end even when the update fails or is cancelled.
-  The one exception is `app/services/community_status_clear.py`: when the
-  opt-out could not clear the retained MQTT status, it reconnects to the
+  There are three exceptions. `app/services/community_status_clear.py`: when
+  the opt-out could not clear the retained MQTT status (and Community did not
+  clear it either), it reconnects to the
   broker only to publish the empty retained payload, bounded in attempts and
-  to 24 h, persisted across restarts, then never again. Joining is the other
-  one: `PUT /api/community/me/iata` with `enable` sends Community's
+  to 24 h, persisted across restarts, then never again. Joining:
+  `PUT /api/community/me/iata` with `enable` sends Community's
   `PUT /v1/me/iata` while still off (the operator just asked to join, and the
-  bind comes first); Community is turned on only if it succeeds. The bind is
+  bind comes first); Community is turned on only if it succeeds. An opt-out
+  Community did not confirm is kept as pending (migration 093) and sent again
+  only by hand (`POST /api/community/opt-out/retry`), never on its own. The bind is
   also the only place this radio's position leaves: exact only when its adverts
   broadcast it, rounded to about 1 km otherwise (`app/services/observer_position.py`),
   re-sent on its own when the position or the advert location policy changes,
