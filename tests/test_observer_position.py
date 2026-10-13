@@ -253,9 +253,9 @@ class TestAutomaticRebind:
     @pytest.mark.asyncio
     async def test_unexpected_error_counts_as_a_failure_and_the_worker_lives(self, test_db, radio):
         await update_community(enabled=True, iata="LYS")
-        # A position_precision this version does not know fails validation
-        # (not an HTTPException): retried like any failure, never fatal.
-        odd = {**BIND_OK, "position_precision": "approximate"}
+        # A body missing a required field fails validation (not an
+        # HTTPException): retried like any failure, never fatal.
+        odd = {"iata": "LYS"}
         flaky = AsyncMock(side_effect=[odd, BIND_OK])
         with patch("app.services.meshloom_community.stats_json", new=flaky):
             note_radio_self_info(radio["info"])
@@ -292,3 +292,56 @@ class TestAutomaticRebind:
         with patch.object(observer_position, "note_radio_self_info") as note:
             await on_self_info(SimpleNamespace(payload=INFO_EXACT))
         note.assert_called_once_with(INFO_EXACT)
+
+
+class TestUnknownPositionPrecision:
+    """A precision Community adds later must not turn a successful bind into a 500."""
+
+    @pytest.mark.asyncio
+    async def test_bind_with_an_unknown_precision_succeeds(self, test_db, radio):
+        await update_community(enabled=True, iata="LYS")
+        odd = {**BIND_OK, "position_precision": "approximate"}
+        with patch("app.services.meshloom_community.stats_json", new=AsyncMock(return_value=odd)):
+            result = await put_iata_bind("LYS")
+        assert result.iata == "LYS"
+        assert result.position_precision is None
+
+    @pytest.mark.asyncio
+    async def test_join_with_an_unknown_precision_turns_community_on(self, test_db, radio):
+        from app.models import CommunityIataBindRequest
+        from app.routers.community import put_me_iata
+        from app.services.meshloom_community import get_community_effective
+
+        odd = {**BIND_OK, "position_precision": "approximate"}
+        with (
+            patch("app.services.meshloom_community.stats_json", new=AsyncMock(return_value=odd)),
+            patch("app.services.meshloom_community._reload_system_publisher", new=AsyncMock()),
+            patch("app.services.community_live.sync_community_live", new=AsyncMock()),
+        ):
+            result = await put_me_iata(CommunityIataBindRequest(iata="LYS", enable=True))
+        assert result.position_precision is None
+        state = await get_community_effective()
+        assert state.enabled is True and state.iata == "LYS"
+
+    def test_me_stats_tolerates_an_unknown_precision(self):
+        from app.models import CommunityMeStats
+
+        stats = CommunityMeStats.model_validate(
+            {
+                "unique_hashes_24h": 1,
+                "unique_hashes_7d": 2,
+                "iata": "LYS",
+                "concordance": "ok",
+                "position_precision": "approximate",
+            }
+        )
+        assert stats.position_precision is None
+
+    def test_known_precisions_are_kept(self):
+        from app.models import CommunityIataBindResult
+
+        for value in ("exact", "rounded", None):
+            parsed = CommunityIataBindResult.model_validate(
+                {**BIND_OK, "position_precision": value}
+            )
+            assert parsed.position_precision == value

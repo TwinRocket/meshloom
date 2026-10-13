@@ -658,11 +658,8 @@ describe('fetchJson (via api methods)', () => {
     const communityStatus = {
       enabled: false,
       iata: '',
-      broker_host: 'mqtt.meshloom.app',
-      api_base: 'https://api.meshloom.app',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     };
 
     it('GETs /community', async () => {

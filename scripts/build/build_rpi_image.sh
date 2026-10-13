@@ -7,7 +7,7 @@
 #   scripts/build/build_rpi_image.sh --deb dist/meshloom_*_arm64.deb \
 #     [--output-dir dist] [--version 4.12.0]
 #
-# MESHLOOM_COMMUNITY stays unset (product default: on for a new database).
+# Meshloom Community is an opt-in from the UI (Settings > Meshloom Community).
 
 set -euo pipefail
 
@@ -219,7 +219,6 @@ install -D -m 0644 "$RPI_DIR/meshloom-console.service" \
 # Apt source for later UI upgrades. Do not probe Pages here.
 write_meshloom_apt_source "$ROOTMNT"
 
-# Do not set MESHLOOM_COMMUNITY — new databases join Community by default.
 # Bots stay off via the packaged meshloom.env.
 
 for fs in proc sys dev dev/pts; do

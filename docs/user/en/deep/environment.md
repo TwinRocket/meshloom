@@ -52,12 +52,9 @@ The contact address of push notifications (VAPID subject) is not a variable: set
 
 ## Meshloom Community
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MESHLOOM_COMMUNITY` | *(on)* | Applies to a brand-new database only. Unset or `1` starts with Community on. `0`, `false`, `off` or `no` starts with it off. Existing databases are never switched |
-| `MESHLOOM_COMMUNITY_IATA` | *(empty)* | Three-letter airport code. While set, it replaces the code saved in the interface |
-| `MESHLOOM_COMMUNITY_BROKER_HOST` | *(empty)* | Replaces the Community publishing server (default `mqtt.meshloom.app`) while set |
-| `MESHLOOM_COMMUNITY_API_BASE` | *(empty)* | Replaces the Community API address (default `https://api.meshloom.app`) while set |
+No variable sets Community: you join and leave in **Settings → Meshloom Community**, and a new database starts with it off. Its servers are fixed (`mqtt.meshloom.app`, `api.meshloom.app`).
+
+The former `MESHLOOM_COMMUNITY*` variables are listed under **Retired variables** below.
 
 See [Meshloom Community](/en/docs/deep/community/).
 
@@ -95,6 +92,17 @@ These variables no longer change anything. Their settings are in the interface:
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | **Settings → Radio → Advanced**, "Let the radio evict its oldest contacts" |
 
 If one is still set when you update, Meshloom copies it into its database once, at the first start: the VAPID subject only when the field in Settings is empty, a workaround only when the variable is `true`. Your setup keeps working as before. After that Meshloom never reads them again and writes a warning in its log at each start while one is still set: remove it from your environment, and change the setting in the interface from now on.
+
+Meshloom Community no longer reads any variable either:
+
+| Retired variable | What happens to it |
+|----------|---------|
+| `MESHLOOM_COMMUNITY` | Ignored. It only ever applied to a brand-new database, which now starts with Community off |
+| `MESHLOOM_COMMUNITY_IATA` | On an existing installation, copied once into the settings at the first start after the upgrade, then ignored. Change the code in the settings |
+| `MESHLOOM_COMMUNITY_BROKER_HOST` | Ignored. The status left on a custom broker is cleared once after the upgrade |
+| `MESHLOOM_COMMUNITY_API_BASE` | Ignored |
+
+Meshloom writes the same warning at each start while one of them is still set.
 
 ## Settings stored in the database
 

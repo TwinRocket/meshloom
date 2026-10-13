@@ -151,11 +151,8 @@ describe('MeshTestView', () => {
     setCommunityStatus({
       enabled: true,
       iata: 'NCE',
-      broker_host: '',
-      api_base: '',
       publisher_configured: true,
       publisher_connected: true,
-      env_seeded: true,
     });
     sessionStorage.setItem(
       MESH_TEST_RUN_KEY,
@@ -212,11 +209,8 @@ describe('MeshTestView with Community off', () => {
     setCommunityStatus({
       enabled: false,
       iata: 'LYS',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: true,
     });
     const onOpenCommunitySettings = vi.fn();
 

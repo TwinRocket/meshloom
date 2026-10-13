@@ -68,4 +68,4 @@ If **Settings > Updates** says you must update Meshloom by hand, follow the step
 
 Home Assistant add-ons update inside Home Assistant, not with this button.
 
-A new database joins Meshloom Community by default, like on every other install. Nothing is published until you enter an airport code in **Settings > Meshloom Community**.
+Meshloom Community is off on a new database, like on every other install. You join it by entering an airport code in **Settings > Meshloom Community**; nothing is published before that.

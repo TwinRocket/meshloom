@@ -41,7 +41,6 @@ from app.services.meshloom_community import (
     mint_stats_jwt,
     reset_stats_client_for_tests,
     sample_quota_blocked,
-    seed_community_from_env,
     stats_request,
     unwrap_directory_envelope,
     update_community,
@@ -454,8 +453,13 @@ class TestCommunityStatusAndProxies:
         status = await get_community()
         assert status.enabled is False
         assert status.publisher_configured is False
-        assert status.broker_host == DEFAULT_BROKER_HOST
-        assert status.api_base == DEFAULT_API_BASE
+        # The Community addresses are neither settable nor shown.
+        assert set(status.model_dump()) == {
+            "enabled",
+            "iata",
+            "publisher_configured",
+            "publisher_connected",
+        }
 
     @pytest.mark.asyncio
     async def test_stats_proxy_forbidden_when_off(self, test_db):
@@ -516,39 +520,6 @@ class TestCommunityHashtagProxies:
             json_body={"names": ["meshcore"]},
         )
         assert result.hashtags[0].name == "meshcore"
-
-
-class TestExistingDbDoesNotAutoEnable:
-    @pytest.mark.asyncio
-    async def test_existing_install_stays_off(self, test_db, monkeypatch):
-        monkeypatch.setenv("MESHLOOM_COMMUNITY", "1")
-        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "CDG")
-        await seed_community_from_env(new_install=False)
-        state = await get_community_effective()
-        assert state.enabled is False
-
-    @pytest.mark.asyncio
-    async def test_new_install_defaults_on(self, test_db, monkeypatch):
-        monkeypatch.delenv("MESHLOOM_COMMUNITY", raising=False)
-        await seed_community_from_env(new_install=True)
-        state = await get_community_effective()
-        assert state.enabled is True
-
-    @pytest.mark.asyncio
-    async def test_new_install_can_seed_enable(self, test_db, monkeypatch):
-        monkeypatch.setenv("MESHLOOM_COMMUNITY", "1")
-        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "lyo")
-        await seed_community_from_env(new_install=True)
-        state = await get_community_effective()
-        assert state.enabled is True
-        assert state.iata == "LYO"
-
-    @pytest.mark.asyncio
-    async def test_new_install_can_seed_off(self, test_db, monkeypatch):
-        monkeypatch.setenv("MESHLOOM_COMMUNITY", "0")
-        await seed_community_from_env(new_install=True)
-        state = await get_community_effective()
-        assert state.enabled is False
 
 
 class TestKeepaliveAndJwtKwargs:
@@ -636,26 +607,38 @@ class TestEnvelopeMapping:
 
 class TestOfficialHostDefaults:
     @pytest.mark.asyncio
-    async def test_env_overrides_official_defaults(self, test_db, monkeypatch):
+    async def test_env_no_longer_overrides_the_addresses(self, test_db, monkeypatch):
         monkeypatch.setenv("MESHLOOM_COMMUNITY_BROKER_HOST", "mqtt.internal.test")
         monkeypatch.setenv("MESHLOOM_COMMUNITY_API_BASE", "https://api.internal.test")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "CDG")
+        state = await get_community_effective()
+        assert state.broker_host == "mqtt.meshloom.app"
+        assert state.api_base == "https://api.meshloom.app"
+        assert state.iata == ""
+
+    @pytest.mark.asyncio
+    async def test_constants_are_read_at_call_time(self, test_db, monkeypatch):
+        from app.services import meshloom_community
+
+        monkeypatch.setattr(meshloom_community, "DEFAULT_BROKER_HOST", "mqtt.internal.test")
+        monkeypatch.setattr(meshloom_community, "DEFAULT_API_BASE", "https://api.internal.test/")
         state = await get_community_effective()
         assert state.broker_host == "mqtt.internal.test"
         assert state.api_base == "https://api.internal.test"
         assert state.mqtt_audience == "mqtt.internal.test"
         assert state.api_audience == "api.internal.test"
+        assert _state_to_settings(state).community_mqtt_broker_host == "mqtt.internal.test"
 
-    @pytest.mark.asyncio
-    async def test_placeholder_row_uses_official_defaults(self, test_db):
-        await update_community(
-            broker_host="mqtt.example.invalid",
-            api_base="https://api.example.invalid",
-        )
-        state = await get_community_effective()
-        assert state.broker_host == DEFAULT_BROKER_HOST
-        assert state.api_base == DEFAULT_API_BASE
-        assert state.mqtt_audience == "mqtt.meshloom.app"
-        assert state.api_audience == "api.meshloom.app"
+    def test_addresses_cannot_be_set(self):
+        import inspect
+
+        from app.models import CommunityUpdate
+
+        assert set(CommunityUpdate.model_fields) == {"enabled", "iata"}
+        params = inspect.signature(update_community).parameters
+        assert "broker_host" not in params and "api_base" not in params
+        body = CommunityUpdate.model_validate({"enabled": True, "broker_host": "mqtt.evil.test"})
+        assert "broker_host" not in body.model_dump()
 
 
 class TestAirportSearch:

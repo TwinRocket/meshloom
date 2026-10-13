@@ -1,21 +1,27 @@
 """Meshloom Community state, JWT mint, and HTTP client (server code name: Stats).
 
-Community is on for new installs and one opt-out. Off means no connection at
+Community is an explicit opt-in from the UI (a new database starts off). Off
+means no connection at
 all to the Community hosts (HTTP API, Live WS, MQTT broker, release mirror)
 nor to the airport search. One exception: if the opt-out could not clear the
 retained MQTT status, ``community_status_clear`` reconnects to the broker only
 to clear it, bounded in time and attempts, then never again. This module is the egress guard: every one of
 those connections checks ``community_egress_state()`` first, and HTTP goes
 through ``_community_http()`` so ``community_teardown()`` can cancel what is
-in flight. Env names are MESHLOOM_* only — do not invent MESHCORE_COMMUNITY
-aliases.
+in flight.
+
+The Community addresses are fixed: ``DEFAULT_BROKER_HOST`` and
+``DEFAULT_API_BASE`` are the only source, read when the state is built (never
+copied by value elsewhere), and are neither settable nor shown. No environment
+variable steers Community any more; the old ``MESHLOOM_COMMUNITY*`` ones are
+handled by ``services/legacy_env_settings.py`` (one-shot IATA import into an
+existing database, then a startup warning).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Coroutine
@@ -39,6 +45,8 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 SYSTEM_MESHLOOM_STATS_ID = "system:meshloom-stats"  # keep in sync with app.fanout.manager
+# The only source of the Community addresses. Read at call time through
+# get_community_effective(); tests monkeypatch these module attributes.
 DEFAULT_BROKER_HOST = "mqtt.meshloom.app"
 DEFAULT_API_BASE = "https://api.meshloom.app"
 DEFAULT_BROKER_PORT = 443
@@ -51,7 +59,6 @@ _AIRPORT_QUERY_MIN = 2
 _AIRPORT_QUERY_MAX = 48
 _AIRPORT_HITS_MAX = 12
 _STATS_TIMEOUT_SECONDS = 8.0
-_PLACEHOLDER_HOST_SUFFIX = ".example.invalid"
 # Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
 # window has elapsed instead of retrying every catalogue pass.
 SAMPLE_QUOTA_BACKOFF_SECONDS = 3600.0
@@ -159,55 +166,14 @@ def community_breaker() -> CommunityBreaker:
     return _breaker
 
 
-def _env_raw(name: str) -> str:
-    return os.environ.get(name, "").strip()
-
-
-def env_community_opt_in() -> bool:
-    """New installs default on. MESHLOOM_COMMUNITY=0/false/off seeds opted out."""
-    raw = _env_raw("MESHLOOM_COMMUNITY").lower()
-    return raw not in {"0", "false", "off", "no"}
-
-
-def env_community_iata() -> str:
-    return _normalize_iata(_env_raw("MESHLOOM_COMMUNITY_IATA"))
-
-
-def env_community_broker_host() -> str:
-    return _usable_broker_host(_env_raw("MESHLOOM_COMMUNITY_BROKER_HOST"))
-
-
-def env_community_api_base() -> str:
-    return _usable_api_base(_env_raw("MESHLOOM_COMMUNITY_API_BASE"))
-
-
-def _is_placeholder_host(host: str) -> bool:
-    return not host or host == "example.invalid" or host.endswith(_PLACEHOLDER_HOST_SUFFIX)
-
-
-def _usable_broker_host(raw: str) -> str:
-    text = (raw or "").strip()
-    if _is_placeholder_host(host_without_scheme(text)):
-        return ""
-    return text
-
-
-def _usable_api_base(raw: str) -> str:
-    text = (raw or "").strip()
-    if not text:
-        return ""
-    try:
-        normalized = normalize_api_base(text)
-    except ValueError:
-        return ""
-    if _is_placeholder_host(host_without_scheme(normalized)):
-        return ""
-    return normalized
-
-
 def _normalize_iata(raw: str) -> str:
     code = raw.upper().strip()
     return code if _IATA_RE.fullmatch(code) else ""
+
+
+def normalize_iata(raw: str) -> str:
+    """Three uppercase letters, or "" when ``raw`` is not an IATA code."""
+    return _normalize_iata(raw)
 
 
 def normalize_api_base(raw: str) -> str:
@@ -232,14 +198,17 @@ def host_without_scheme(url_or_host: str) -> str:
 
 @dataclass(frozen=True)
 class CommunityRecord:
+    """What the database stores: the opt-in and the IATA. No address."""
+
     enabled: bool
     iata: str
-    broker_host: str
-    api_base: str
 
 
 @dataclass(frozen=True)
 class CommunityEffective:
+    """The state every Community connection uses. ``broker_host`` and
+    ``api_base`` are always ``DEFAULT_BROKER_HOST`` / ``DEFAULT_API_BASE``."""
+
     enabled: bool
     iata: str
     broker_host: str
@@ -260,18 +229,11 @@ async def get_community_record() -> CommunityRecord:
 
 async def get_community_effective() -> CommunityEffective:
     row = await get_community_record()
-    iata = env_community_iata() or row.iata
-    broker = (
-        env_community_broker_host() or _usable_broker_host(row.broker_host) or DEFAULT_BROKER_HOST
-    )
-    api_base = env_community_api_base() or _usable_api_base(row.api_base) or DEFAULT_API_BASE
-    try:
-        api_base = normalize_api_base(api_base) or DEFAULT_API_BASE
-    except ValueError:
-        api_base = DEFAULT_API_BASE
+    broker = DEFAULT_BROKER_HOST
+    api_base = normalize_api_base(DEFAULT_API_BASE)
     return CommunityEffective(
         enabled=row.enabled,
-        iata=_normalize_iata(iata),
+        iata=_normalize_iata(row.iata),
         broker_host=broker,
         api_base=api_base,
         api_audience=host_without_scheme(api_base),
@@ -283,43 +245,10 @@ async def community_enabled() -> bool:
     return (await get_community_effective()).enabled
 
 
-async def seed_community_from_env(*, new_install: bool) -> None:
-    """Write env defaults only for a brand-new database. Existing DBs stay opted out."""
-    from app.repository.settings import AppSettingsRepository
-
-    if not new_install:
-        return
-    row = await get_community_record()
-    if row.enabled or row.iata or row.broker_host or row.api_base:
-        return
-    enabled = env_community_opt_in()
-    iata = env_community_iata()
-    broker = env_community_broker_host()
-    api_raw = env_community_api_base()
-    api_base = ""
-    if api_raw:
-        try:
-            api_base = normalize_api_base(api_raw)
-        except ValueError:
-            logger.warning("Ignoring invalid MESHLOOM_COMMUNITY_API_BASE")
-    await AppSettingsRepository.update_community(
-        enabled=enabled,
-        iata=iata,
-        broker_host=broker,
-        api_base=api_base,
-    )
-    if enabled:
-        logger.info("Seeded Meshloom Community on for new install")
-    else:
-        logger.info("Seeded Meshloom Community off from MESHLOOM_COMMUNITY")
-
-
 async def update_community(
     *,
     enabled: bool | None = None,
     iata: str | None = None,
-    broker_host: str | None = None,
-    api_base: str | None = None,
     iata_through_bind: bool = False,
 ) -> CommunityEffective:
     """Write the Community settings under ``_update_lock``.
@@ -344,9 +273,7 @@ async def update_community(
                         "(enable: true to join)",
                     },
                 )
-        return await _update_community_locked(
-            enabled=enabled, iata=iata, broker_host=broker_host, api_base=api_base
-        )
+        return await _update_community_locked(enabled=enabled, iata=iata)
 
 
 async def bind_community_iata(
@@ -374,13 +301,7 @@ async def bind_community_iata(
         before = await get_community_effective()
         target = _normalize_iata(requested)
         joining = enable and not before.enabled
-        # An env IATA wins over the database: the topic would not move.
-        retire_first = (
-            before.enabled
-            and bool(before.iata)
-            and not env_community_iata()
-            and target != before.iata
-        )
+        retire_first = before.enabled and bool(before.iata) and target != before.iata
         token = _joining_state.set(replace(before, enabled=True)) if joining else None
         try:
             # Inside the try: a caller cancelled during the retire (held by
@@ -403,8 +324,6 @@ async def bind_community_iata(
                 _update_community_locked(
                     enabled=True if joining else None,
                     iata=result.iata,
-                    broker_host=None,
-                    api_base=None,
                     status_retired=retire_first,
                 )
             )
@@ -475,8 +394,6 @@ async def _update_community_locked(
     *,
     enabled: bool | None,
     iata: str | None,
-    broker_host: str | None,
-    api_base: str | None,
     status_retired: bool = False,
 ) -> CommunityEffective:
     from app.repository.settings import AppSettingsRepository
@@ -489,19 +406,6 @@ async def _update_community_locked(
         if iata.strip() and not normalized:
             raise HTTPException(status_code=400, detail="IATA must be exactly 3 uppercase letters")
         next_iata = normalized
-    next_broker = row.broker_host
-    if broker_host is not None:
-        next_broker = broker_host.strip()
-    next_api = row.api_base
-    if api_base is not None:
-        raw = api_base.strip()
-        if raw:
-            try:
-                next_api = normalize_api_base(raw)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-        else:
-            next_api = ""
     opting_out = before.enabled and enabled is False
     written = False
     topic_moved = False
@@ -514,8 +418,6 @@ async def _update_community_locked(
         await AppSettingsRepository.update_community(
             enabled=enabled,
             iata=next_iata if iata is not None else None,
-            broker_host=next_broker if broker_host is not None else None,
-            api_base=next_api if api_base is not None else None,
         )
         written = True
         from app.services.directory import reset_directory_nodes_cache
@@ -553,9 +455,9 @@ async def _update_community_locked(
 
 
 async def _move_status_topic(before: CommunityEffective, already_retired: bool) -> bool:
-    """IATA or broker changed while on: clear the old status topic, then reconnect.
+    """IATA changed while on: clear the old status topic, then reconnect.
 
-    The old meshcore/{IATA}/{PUBKEY}/status (or old broker) would keep its
+    The old meshcore/{IATA}/{PUBKEY}/status would keep its
     retained "online" forever. ``already_retired``: ``bind_community_iata``
     cleared it and stopped the publisher before ``PUT /v1/me/iata``; only the
     reconnect is left. Returns whether the topic moved (the publisher reloaded).
@@ -570,14 +472,15 @@ async def _move_status_topic(before: CommunityEffective, already_retired: bool) 
     return True
 
 
+# The addresses are fixed at runtime, so only the IATA can move a topic. A
+# broker left over from a retired custom address is cleared once at startup
+# (``community_status_clear.adopt_orphaned_status``, which still compares it).
 def _live_target_moved(before: CommunityEffective, after: CommunityEffective) -> bool:
-    return before.iata != after.iata or before.api_base != after.api_base
+    return before.iata != after.iata
 
 
 def _status_topic_moved(before: CommunityEffective, after: CommunityEffective) -> bool:
-    return bool(before.iata) and (
-        before.iata != after.iata or before.broker_host != after.broker_host
-    )
+    return bool(before.iata) and before.iata != after.iata
 
 
 async def _announce_opt_out(state: CommunityEffective) -> None:
@@ -922,11 +825,8 @@ async def community_status() -> CommunityStatus:
     return CommunityStatus(
         enabled=state.enabled,
         iata=state.iata,
-        broker_host=state.broker_host,
-        api_base=state.api_base,
         publisher_configured=state.publisher_configured,
         publisher_connected=publisher_connected(),
-        env_seeded=env_community_opt_in(),
     )
 
 

@@ -1074,19 +1074,21 @@ class AppSettingsRepository:
 
     @staticmethod
     async def get_community() -> Any:
-        """Load Meshloom Stats community columns. Not part of AppSettings."""
+        """Load the Community opt-in and IATA. Not part of AppSettings.
+
+        The Community addresses are fixed in code (``meshloom_community``); the
+        old ``community_broker_host`` / ``community_api_base`` columns are
+        emptied by migration 091 and never read.
+        """
         from app.services.meshloom_community import CommunityRecord
 
         async with db.readonly() as conn:
             async with conn.execute(
-                """
-                SELECT community_enabled, community_iata, community_broker_host, community_api_base
-                FROM app_settings WHERE id = 1
-                """
+                "SELECT community_enabled, community_iata FROM app_settings WHERE id = 1"
             ) as cursor:
                 row = await cursor.fetchone()
         if not row:
-            return CommunityRecord(enabled=False, iata="", broker_host="", api_base="")
+            return CommunityRecord(enabled=False, iata="")
         try:
             enabled = bool(row["community_enabled"])
         except (KeyError, TypeError):
@@ -1095,27 +1097,15 @@ class AppSettingsRepository:
             iata = (row["community_iata"] or "").upper().strip()
         except (KeyError, TypeError):
             iata = ""
-        try:
-            broker_host = row["community_broker_host"] or ""
-        except (KeyError, TypeError):
-            broker_host = ""
-        try:
-            api_base = row["community_api_base"] or ""
-        except (KeyError, TypeError):
-            api_base = ""
-        return CommunityRecord(
-            enabled=enabled, iata=iata, broker_host=broker_host, api_base=api_base
-        )
+        return CommunityRecord(enabled=enabled, iata=iata)
 
     @staticmethod
     async def update_community(
         *,
         enabled: bool | None = None,
         iata: str | None = None,
-        broker_host: str | None = None,
-        api_base: str | None = None,
     ) -> Any:
-        """Update Meshloom Stats community columns. Only provided fields change."""
+        """Update the Community opt-in and IATA. Only provided fields change."""
         updates: list[str] = []
         params: list[Any] = []
         if enabled is not None:
@@ -1124,12 +1114,6 @@ class AppSettingsRepository:
         if iata is not None:
             updates.append("community_iata = ?")
             params.append(iata)
-        if broker_host is not None:
-            updates.append("community_broker_host = ?")
-            params.append(broker_host)
-        if api_base is not None:
-            updates.append("community_api_base = ?")
-            params.append(api_base)
         if updates:
             async with db.tx() as conn:
                 await conn.execute(
@@ -1137,6 +1121,26 @@ class AppSettingsRepository:
                     params,
                 )
         return await AppSettingsRepository.get_community()
+
+    @staticmethod
+    async def get_community_env_imported() -> bool:
+        """Whether the retired MESHLOOM_COMMUNITY* env was already imported (migration 091)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT community_env_imported FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return False
+        try:
+            return bool(row["community_env_imported"])
+        except (KeyError, TypeError, IndexError):
+            return False
+
+    @staticmethod
+    async def mark_community_env_imported() -> None:
+        async with db.tx() as conn:
+            await conn.execute("UPDATE app_settings SET community_env_imported = 1 WHERE id = 1")
 
     @staticmethod
     async def get_community_status_clear() -> list[dict[str, Any]]:

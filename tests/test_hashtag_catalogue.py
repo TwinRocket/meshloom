@@ -194,7 +194,6 @@ class TestCommunityResolve:
 
     @pytest.mark.asyncio
     async def test_community_on_without_iata_skips_sample_upload(self, test_db, monkeypatch):
-        monkeypatch.delenv("MESHLOOM_COMMUNITY_IATA", raising=False)
         name = "lys-published-xyz"
         key = hashtag_key_from_name(name)
         raw = _group_text_packet(key, int(time.time()), "Bob: still locked")

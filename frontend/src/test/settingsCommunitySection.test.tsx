@@ -14,11 +14,8 @@ import { DEFAULT_LOCALE } from '../utils/languagePreference';
 const offStatus: CommunityStatus = {
   enabled: false,
   iata: '',
-  broker_host: '',
-  api_base: '',
   publisher_configured: false,
   publisher_connected: false,
-  env_seeded: false,
 };
 
 describe('SettingsCommunitySection', () => {

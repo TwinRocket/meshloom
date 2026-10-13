@@ -43,7 +43,7 @@ Meshloom ajoute aussi ce qu’une radio seule ne peut pas faire : une carte des 
 
 ## Ce que Meshloom n’est pas
 
-Ce n’est pas un firmware : la radio garde le sien, et Meshloom ne le remplace pas. Le serveur tourne sur votre machine. Une **nouvelle installation** rejoint [Meshloom Community](/docs/deep/community/) sauf si vous refusez, mais rien n’est publié tant que vous n’avez pas saisi le code de votre aéroport le plus proche. Ensuite, il peut publier les paquets bruts qu’il entend vers les serveurs de Meshloom Community. Les bases existantes restent comme elles étaient.
+Ce n’est pas un firmware : la radio garde le sien, et Meshloom ne le remplace pas. Le serveur tourne sur votre machine. [Meshloom Community](/docs/deep/community/) est désactivé sur une **nouvelle installation** : vous le rejoignez dans les réglages en saisissant le code de votre aéroport le plus proche. Ensuite, il peut publier les paquets bruts qu’il entend vers les serveurs de Meshloom Community. Les bases existantes restent comme elles étaient.
 
 Une chose à savoir avant de commencer : **Meshloom prend le contrôle des contacts et des canaux de la radio.** Il les charge, les décharge et les remplace selon ce qu’il juge utile. C’est ainsi qu’il contourne la limite de mémoire de l’appareil. Ce n’est pas adapté si vous changez souvent de radio et attendez que chaque appareil garde ses propres favoris.
 

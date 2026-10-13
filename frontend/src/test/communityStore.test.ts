@@ -23,11 +23,8 @@ import {
 const on: CommunityStatus = {
   enabled: true,
   iata: 'LYS',
-  broker_host: '',
-  api_base: '',
   publisher_configured: true,
   publisher_connected: true,
-  env_seeded: true,
 };
 
 describe('communityStore', () => {

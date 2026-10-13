@@ -103,11 +103,8 @@ describe('lookupCommunityIataLocation', () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: 'lys',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
@@ -141,11 +138,8 @@ describe('lookupCommunityIataLocation', () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: '',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
     await expect(lookupCommunityIataLocation()).resolves.toBeNull();
 
@@ -153,11 +147,8 @@ describe('lookupCommunityIataLocation', () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: 'CDG',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
@@ -175,11 +166,8 @@ describe('lookupCommunityIataLocation', () => {
     setCommunityStatus({
       enabled: true,
       iata: 'LYS',
-      broker_host: '',
-      api_base: '',
       publisher_configured: true,
       publisher_connected: true,
-      env_seeded: false,
     });
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {

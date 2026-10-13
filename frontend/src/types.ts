@@ -1875,22 +1875,20 @@ export interface StatisticsResponse {
   noise_floor_24h: NoiseFloorHistoryStats;
 }
 
-/** Local Meshloom Stats join state. Browser talks only to the Meshloom backend. */
+/**
+ * Local Meshloom Stats join state. Browser talks only to the Meshloom backend.
+ * The Community addresses are fixed in the backend and never exposed.
+ */
 export interface CommunityStatus {
   enabled: boolean;
   iata: string;
-  broker_host: string;
-  api_base: string;
   publisher_configured: boolean;
   publisher_connected: boolean;
-  env_seeded: boolean;
 }
 
 export interface CommunityUpdate {
   enabled?: boolean;
   iata?: string;
-  broker_host?: string;
-  api_base?: string;
 }
 
 export interface CommunityIataBindRequest {

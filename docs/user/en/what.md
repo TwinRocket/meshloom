@@ -43,7 +43,7 @@ Meshloom also adds what a radio alone cannot do: a map of the nodes it has heard
 
 ## What Meshloom is not
 
-It is not firmware: the radio keeps its own, and Meshloom does not replace it. The server runs on your machine. A **new install** joins [Meshloom Community](/en/docs/deep/community/) unless you opt out, but nothing is published until you enter the code of your nearest airport. After that, it can publish the raw packets it overhears to the Meshloom Community servers. Existing databases stay as they were.
+It is not firmware: the radio keeps its own, and Meshloom does not replace it. The server runs on your machine. [Meshloom Community](/en/docs/deep/community/) is off on a **new install**: you join it in the settings by entering the code of your nearest airport. After that, it can publish the raw packets it overhears to the Meshloom Community servers. Existing databases stay as they were.
 
 One thing to know before you start: **Meshloom takes control of the radio's contacts and channels.** It loads, unloads and replaces them according to what it thinks is useful. That is how it works around the device's memory limit. It is a poor fit if you often swap radios and expect each device to keep its own favorites.
 

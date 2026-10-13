@@ -25,18 +25,13 @@ The code is a coarse label for your region, not a precise location. Meshloom com
 
 The code is also the region the Live page shows by default; you can add other regions there.
 
-Until a code is saved, a banner stays on screen. Publishing packets, the Live page, publishing hashtag names and channel look-ups wait for that code. The directory (hop names, RF locate, "heard by") does not need it. If you have turned Community off, you can dismiss the banner for good in that browser with **Don't show again**.
+Until a code is saved, a banner stays on screen. Publishing packets, the Live page, publishing hashtag names and channel look-ups wait for that code. The directory (hop names, RF locate, "heard by") does not need it. While Community is off (as on a new install, or after you leave), you can dismiss the banner for good in that browser with **Don't show again**.
 
 ## New installs
 
-A **brand-new database** starts with Community on, unless `MESHLOOM_COMMUNITY=0` (or `false`, `off`, `no`) is set before the first start. Existing databases are never switched by that variable: they keep what they stored.
+A **brand-new database** starts with Community off: joining is your choice, made in **Settings → Meshloom Community**. No environment variable turns it on, sets the code or changes the Community servers, which are fixed (`mqtt.meshloom.app` and `api.meshloom.app`).
 
-Three other variables are meant for people who run Meshloom for others:
-
-- `MESHLOOM_COMMUNITY_IATA` replaces the code saved in the interface for as long as it is set, so changing the code in Settings has no effect.
-- `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` do the same for the two Community servers.
-
-See [Variables and settings](/en/docs/deep/environment/).
+`MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA`, `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` are no longer read. On an existing installation that still sets `MESHLOOM_COMMUNITY_IATA`, its code is copied into the settings once, at the first start after the upgrade, so Community keeps the region it knows; whether Community is on stays as it was. Meshloom then logs a warning at each start while one of these variables is still set: remove them. See [Variables and settings](/en/docs/deep/environment/).
 
 ## What leaves your machine
 
@@ -51,13 +46,13 @@ With Community on and a code saved, your server sends:
 
 Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
-**Turning Community off cuts every connection to Community** (`*.meshloom.app`, or the hosts set by `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE`) and the airport search, at once and without a restart, with the single exception described in the first point:
+**Turning Community off cuts every connection to Community** (`*.meshloom.app`) and the airport search, at once and without a restart, with the single exception described in the first point:
 
 - your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. If the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone, and that `offline` would stay. This is the **only connection made after you leave**: Meshloom reconnects to the broker, alone, to delete that leftover status and nothing else (no packets, no status, no other request). It tries at most 6 times over about 13 hours (after 1 minute, then 5 minutes, 15 minutes, 1 hour, 4 hours and 8 hours), survives a restart, and gives up for good after 24 hours. Once the status is deleted, or once it gives up, nothing connects to Community any more;
 - the Live feed closes, and Community requests still in flight are cancelled;
 - the "heard by" counts and the radio test say Community is off instead of showing an empty result.
 
-Changing the IATA code clears the status left under the old code the same way, with the same single retry if the broker cannot be reached: first the old status is cleared, then Community records the new code, and only then does Meshloom reconnect under it. If Community refuses the new code, your node goes back online under the old one. Stopping or restarting Meshloom marks the node `offline`. If the code or the broker changes while Meshloom is stopped (`MESHLOOM_COMMUNITY_IATA`, for instance), or Community is turned off meanwhile, the status left under the old code is cleared at the next start, with the same single retry. Joining again with the same code cancels a pending retry: the status is yours to publish again.
+Changing the IATA code clears the status left under the old code the same way, with the same single retry if the broker cannot be reached: first the old status is cleared, then Community records the new code, and only then does Meshloom reconnect under it. If Community refuses the new code, your node goes back online under the old one. Stopping or restarting Meshloom marks the node `offline`. If the code changes while Meshloom is stopped (a restored database, for instance), or Community is turned off meanwhile, the status left under the old code is cleared at the next start, with the same single retry. The same happens once after the upgrade on an installation that used its own broker through `MESHLOOM_COMMUNITY_BROKER_HOST`: the status left on that broker is cleared, then Meshloom publishes on `mqtt.meshloom.app`. Joining again with the same code cancels a pending retry: the status is yours to publish again.
 
 **Community off does not mean no network traffic at all.** These still happen:
 

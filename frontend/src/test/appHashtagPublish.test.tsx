@@ -183,11 +183,8 @@ describe('App hashtag publish ownership', () => {
     mocks.api.getCommunity.mockResolvedValue({
       enabled: true,
       iata: 'LYS',
-      broker_host: '',
-      api_base: '',
       publisher_configured: true,
       publisher_connected: false,
-      env_seeded: false,
     });
     mocks.api.getCommunityHashtags.mockResolvedValue({
       hashtags: [{ name: 'mesh', hash_byte: 'ab' }],
@@ -210,11 +207,8 @@ describe('App hashtag publish ownership', () => {
     mocks.api.getCommunity.mockResolvedValue({
       enabled: false,
       iata: '',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
 
     render(<App />);
@@ -232,11 +226,8 @@ describe('App hashtag publish ownership', () => {
       enabled: true,
       locked: false,
       iata: '',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
 
     render(<App />);

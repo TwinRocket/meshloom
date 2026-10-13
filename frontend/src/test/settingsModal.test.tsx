@@ -303,11 +303,8 @@ describe('SettingsModal', () => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
       iata: '',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
   });
 
@@ -870,11 +867,8 @@ describe('SettingsModal', () => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: false,
       iata: '',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
 
     renderModal({
@@ -1660,11 +1654,8 @@ describe('SettingsModal', () => {
     vi.spyOn(api, 'getCommunity').mockResolvedValue({
       enabled: true,
       iata: 'LYS',
-      broker_host: 'mqtt.meshloom.app',
-      api_base: 'https://api.meshloom.app',
       publisher_configured: true,
       publisher_connected: true,
-      env_seeded: false,
     });
 
     renderModal({

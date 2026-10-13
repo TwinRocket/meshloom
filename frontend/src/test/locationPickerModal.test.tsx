@@ -101,11 +101,8 @@ describe('LocationPickerModal', () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: 'CDG',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
@@ -141,11 +138,8 @@ describe('LocationPickerModal', () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: false,
       iata: 'CDG',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
 
     render(
@@ -173,11 +167,8 @@ describe('LocationPickerModal', () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: '',
-      broker_host: '',
-      api_base: '',
       publisher_configured: false,
       publisher_connected: false,
-      env_seeded: false,
     });
     vi.mocked(timezoneLocation.getBrowserTimeZone).mockReturnValue('Europe/Paris');
 
