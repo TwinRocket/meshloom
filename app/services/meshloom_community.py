@@ -14,15 +14,14 @@ The Community addresses are fixed: ``DEFAULT_BROKER_HOST`` and
 ``DEFAULT_API_BASE`` are the only source, read when the state is built (never
 copied by value elsewhere), and are neither settable nor shown. No environment
 variable steers Community any more; the old ``MESHLOOM_COMMUNITY*`` ones are
-imported once into an existing database (``import_legacy_community_env``),
-then only trigger a warning.
+handled by ``services/legacy_env_settings.py`` (one-shot IATA import into an
+existing database, then a startup warning).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Coroutine
@@ -50,14 +49,6 @@ SYSTEM_MESHLOOM_STATS_ID = "system:meshloom-stats"  # keep in sync with app.fano
 # get_community_effective(); tests monkeypatch these module attributes.
 DEFAULT_BROKER_HOST = "mqtt.meshloom.app"
 DEFAULT_API_BASE = "https://api.meshloom.app"
-# Environment variables that no longer steer Community (lot E). Warned about at
-# startup when still set; IATA is imported once into an existing database.
-LEGACY_COMMUNITY_ENV = (
-    "MESHLOOM_COMMUNITY",
-    "MESHLOOM_COMMUNITY_IATA",
-    "MESHLOOM_COMMUNITY_BROKER_HOST",
-    "MESHLOOM_COMMUNITY_API_BASE",
-)
 DEFAULT_BROKER_PORT = 443
 DEFAULT_WEBSOCKET_PATH = "/mqtt"
 MQTT_KEEPALIVE_SECONDS = 30
@@ -175,13 +166,14 @@ def community_breaker() -> CommunityBreaker:
     return _breaker
 
 
-def _env_raw(name: str) -> str:
-    return os.environ.get(name, "").strip()
-
-
 def _normalize_iata(raw: str) -> str:
     code = raw.upper().strip()
     return code if _IATA_RE.fullmatch(code) else ""
+
+
+def normalize_iata(raw: str) -> str:
+    """Three uppercase letters, or "" when ``raw`` is not an IATA code."""
+    return _normalize_iata(raw)
 
 
 def normalize_api_base(raw: str) -> str:
@@ -251,49 +243,6 @@ async def get_community_effective() -> CommunityEffective:
 
 async def community_enabled() -> bool:
     return (await get_community_effective()).enabled
-
-
-async def import_legacy_community_env(*, existing_database: bool) -> None:
-    """One-shot import of the retired ``MESHLOOM_COMMUNITY*`` variables, then a warning.
-
-    Modelled on the radio transport import (``radio_transport.py``): runs once
-    per database (``app_settings.community_env_imported``), then the variables
-    are never read again.
-
-    - A new database ignores them: joining Community is an explicit opt-in in
-      the UI, and the database starts off.
-    - An existing database: ``MESHLOOM_COMMUNITY_IATA`` overrode the stored IATA
-      on every read, so a valid value is written into the database (when it
-      differs) to keep the region Community already knows.
-      ``MESHLOOM_COMMUNITY`` only ever seeded a brand-new database, so the
-      stored opt-in is left as it is. The broker and API addresses are fixed.
-
-    Whatever the marker, a variable still set logs "no longer supported".
-    """
-    from app.repository.settings import AppSettingsRepository
-
-    still_set = [name for name in LEGACY_COMMUNITY_ENV if _env_raw(name)]
-    if not await AppSettingsRepository.get_community_env_imported():
-        if existing_database:
-            env_iata = _normalize_iata(_env_raw("MESHLOOM_COMMUNITY_IATA"))
-            stored = (await get_community_record()).iata
-            if env_iata and env_iata != stored:
-                await AppSettingsRepository.update_community(iata=env_iata)
-                logger.warning(
-                    "Imported MESHLOOM_COMMUNITY_IATA=%s into the database (was %r); "
-                    "the variable is no longer read",
-                    env_iata,
-                    stored,
-                )
-        elif still_set:
-            logger.info("New database: leftover MESHLOOM_COMMUNITY* env vars are ignored")
-        await AppSettingsRepository.mark_community_env_imported()
-    for name in still_set:
-        logger.warning(
-            "%s is no longer supported and is ignored: Community is set in "
-            "Settings > Community, its addresses are fixed. Remove it from the environment.",
-            name,
-        )
 
 
 async def update_community(

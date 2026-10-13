@@ -148,17 +148,18 @@ async def lifespan(app: FastAPI):
     snapshot = await maybe_import_legacy_env(existing_database=existing_database)
     radio_manager.connection_desired = snapshot.configured
 
-    from app.services.meshloom_community import import_legacy_community_env
+    from app.services.legacy_env_settings import import_legacy_community_iata
 
     try:
-        await import_legacy_community_env(existing_database=existing_database)
+        await import_legacy_community_iata(existing_database=existing_database)
     except Exception:
-        logger.exception("Failed to import the retired MESHLOOM_COMMUNITY* env")
+        logger.exception("Failed to import the retired MESHLOOM_COMMUNITY_IATA")
     if not snapshot.configured:
         logger.info("Radio transport is not configured; connection attempts stay paused")
 
     # Retired MESHCORE_* settings (VAPID contact, radio workarounds): copied into
-    # app_settings once, then only a warning while they are still set.
+    # app_settings once, then only a warning while they (or a retired
+    # MESHLOOM_COMMUNITY* variable) are still set.
     from app import radio_workarounds
     from app.services.legacy_env_settings import import_legacy_env_settings
 

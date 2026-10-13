@@ -184,7 +184,8 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
 - **Public keys** are 64 hex characters. Prefix lookups use `LIKE 'prefix%'` and
   must be unambiguous.
 - **Retired settings variables** (`MESHCORE_VAPID_SUBJECT`, the three radio
-  workarounds) follow the same one-shot import, see "Environment variables".
+  workarounds, `MESHLOOM_COMMUNITY*`) follow the same one-shot import, see
+  "Environment variables".
 - **Radio transport** is set in the UI (`app_settings.radio_transport`). Legacy
   `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` (with
   `_BAUDRATE`, `_TCP_PORT`, `_BLE_PIN`) are imported once into an existing
@@ -197,9 +198,10 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
   returned by `GET /api/community`. A new database starts with Community off
   (opt-in from the settings). The retired `MESHLOOM_COMMUNITY`, `_IATA`,
   `_BROKER_HOST` and `_API_BASE` are never read, except once on an existing
-  database (`import_legacy_community_env`, marker `community_env_imported`,
-  migration 090): a valid `_IATA` is copied into `community_iata`. Every start
-  warns while one is still set. Migration 090 empties the old
+  database (`import_legacy_community_iata` in `app/services/legacy_env_settings.py`,
+  marker `community_env_imported`, migration 091): a valid `_IATA` is copied
+  into `community_iata`. Every start warns while one is still set
+  (`RETIRED_ENV`). Migration 091 empties the old
   `community_broker_host` / `community_api_base` columns (not dropped).
 - **Current security posture.** This is a description, not a recommendation;
   changing it belongs to the Access and Plugins work.
@@ -247,7 +249,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
 | `MESHCORE_MANAGED_PORTS` | `false` | the host owns the proxy port; `PATCH /api/radio/proxy` answers 409 to a port change |
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
-| `MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | — | **retired**: ignored with a startup warning; `_IATA` imported once into an existing DB (see "Community is set in the UI only") |
 | `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source`. Set by `meshloom.env` (`package`) and by the add-on (`addon`) |
 | `MESHLOOM_UPDATE_HELPER` | unset | `compose` marks a compose install with its helper; `none` forces "apply not supported" (`app/services/install_kind.py`) |
 | `MESHLOOM_UPDATE_STATUS_PATH` | unset | where the compose helper's read-only status file is mounted (`app/services/update_apply.py`). Without it the package path `/var/lib/meshloom-update/status.json` is used |
@@ -272,7 +273,11 @@ Settings → Notifications) and `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK`,
 Advanced). `app/services/legacy_env_settings.py` copies a leftover value once at the
 first start (the subject only into an empty field, a workaround only when `true`),
 sets `app_settings.legacy_env_settings_imported`, and from then on only logs a
-warning while one is still set. Do not add a new environment variable for anything
+warning while one is still set. `MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA`,
+`_BROKER_HOST` and `_API_BASE` are retired too (same module, same warning): only
+`_IATA` is imported, once and into an existing database only
+(`import_legacy_community_iata`, marker `community_env_imported`); see
+"Community is set in the UI only". Do not add a new environment variable for anything
 a user tunes: put it in `app_settings` and the UI.
 
 ## Delivery flow

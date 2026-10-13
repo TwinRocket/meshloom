@@ -16,7 +16,7 @@ async def migrate(conn: aiosqlite.Connection) -> None:
     startup, from ``community_status_last``.
 
     ``community_env_imported`` marks the one-shot import of the retired
-    ``MESHLOOM_COMMUNITY*`` variables (``import_legacy_community_env``).
+    ``MESHLOOM_COMMUNITY*`` variables (``legacy_env_settings.import_legacy_community_iata``).
     """
     tables_cursor = await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     if "app_settings" not in {row[0] for row in await tables_cursor.fetchall()}:

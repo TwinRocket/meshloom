@@ -9,8 +9,14 @@ from app.radio import radio_manager
 from app.repository.settings import AppSettingsRepository
 from app.services.legacy_env_settings import (
     RETIRED_ENV,
+    import_legacy_community_iata,
     import_legacy_env_settings,
     warn_about_retired_env,
+)
+from app.services.meshloom_community import (
+    DEFAULT_API_BASE,
+    DEFAULT_BROKER_HOST,
+    get_community_effective,
 )
 
 WORKAROUND_ENV = {
@@ -119,3 +125,97 @@ async def test_the_imported_workarounds_reach_the_radio_code(test_db, monkeypatc
     await radio_workarounds.load()
     assert radio_workarounds.current().force_channel_slot_reconfigure is True
     assert radio_manager.channel_slot_reuse_enabled() is False
+
+
+class TestLegacyCommunityEnv:
+    """The retired MESHLOOM_COMMUNITY* variables: imported once, then only warned about."""
+
+    @pytest.mark.asyncio
+    async def test_new_database_starts_off_and_ignores_env(self, test_db, monkeypatch):
+        monkeypatch.setenv("MESHLOOM_COMMUNITY", "1")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "CDG")
+        await import_legacy_community_iata(existing_database=False)
+        state = await get_community_effective()
+        assert state.enabled is False  # Community is an explicit opt-in in the UI
+        assert state.iata == ""
+        from app.repository.settings import AppSettingsRepository
+
+        assert await AppSettingsRepository.get_community_env_imported() is True
+
+    @pytest.mark.asyncio
+    async def test_new_database_without_env_starts_off(self, test_db, monkeypatch):
+        for name in ("MESHLOOM_COMMUNITY", "MESHLOOM_COMMUNITY_IATA"):
+            monkeypatch.delenv(name, raising=False)
+        await import_legacy_community_iata(existing_database=False)
+        assert (await get_community_effective()).enabled is False
+
+    @pytest.mark.asyncio
+    async def test_existing_database_imports_the_iata_once(self, test_db, monkeypatch, caplog):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=True, iata="")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY", "0")  # only ever seeded a new database
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "lys")
+        assert await import_legacy_community_iata(existing_database=True) == "LYS"
+        state = await get_community_effective()
+        assert state.enabled is True  # the stored opt-in is kept
+        assert state.iata == "LYS"
+
+        # Then never read again: a later value (or a UI change) is not overwritten.
+        await AppSettingsRepository.update_community(iata="CDG")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "BOD")
+        await import_legacy_community_iata(existing_database=True)
+        assert (await get_community_effective()).iata == "CDG"
+
+    @pytest.mark.asyncio
+    async def test_existing_database_env_iata_replaces_the_stored_one(self, test_db, monkeypatch):
+        """The env IATA overrode the stored one on every read: keep what was in effect."""
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=True, iata="CDG")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "NCE")
+        await import_legacy_community_iata(existing_database=True)
+        assert (await get_community_effective()).iata == "NCE"
+
+    @pytest.mark.asyncio
+    async def test_existing_database_ignores_an_invalid_iata(self, test_db, monkeypatch):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(iata="CDG")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "nope")
+        await import_legacy_community_iata(existing_database=True)
+        assert (await get_community_effective()).iata == "CDG"
+
+    @pytest.mark.asyncio
+    async def test_existing_off_database_stays_off(self, test_db, monkeypatch):
+        monkeypatch.setenv("MESHLOOM_COMMUNITY", "1")
+        await import_legacy_community_iata(existing_database=True)
+        assert (await get_community_effective()).enabled is False
+
+    @pytest.mark.asyncio
+    async def test_every_community_variable_is_warned_about(self, test_db, monkeypatch, caplog):
+        names = [
+            "MESHLOOM_COMMUNITY",
+            "MESHLOOM_COMMUNITY_IATA",
+            "MESHLOOM_COMMUNITY_BROKER_HOST",
+            "MESHLOOM_COMMUNITY_API_BASE",
+        ]
+        for name in names:
+            monkeypatch.setenv(name, "x")
+        assert set(names) <= set(RETIRED_ENV)
+        with caplog.at_level(logging.WARNING):
+            assert set(warn_about_retired_env()) == set(names)
+            # Warned at every start, even once imported.
+            await import_legacy_env_settings()
+            await import_legacy_env_settings()
+        for name in names:
+            assert caplog.text.count(f"{name} is set but no longer read") == 3
+
+    @pytest.mark.asyncio
+    async def test_address_variables_are_ignored(self, test_db, monkeypatch):
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_BROKER_HOST", "mqtt.internal.test")
+        monkeypatch.setenv("MESHLOOM_COMMUNITY_API_BASE", "https://api.internal.test")
+        await import_legacy_community_iata(existing_database=True)
+        state = await get_community_effective()
+        assert state.broker_host == DEFAULT_BROKER_HOST
+        assert state.api_base == DEFAULT_API_BASE

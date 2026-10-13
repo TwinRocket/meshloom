@@ -54,14 +54,7 @@ L’adresse de contact des notifications push (sujet VAPID) n’est pas une vari
 
 Aucune variable ne règle Community : vous le rejoignez et le quittez dans **Réglages → Meshloom Community**, et une base neuve démarre avec Community désactivé. Ses serveurs sont fixes (`mqtt.meshloom.app`, `api.meshloom.app`).
 
-Ces variables ne sont plus lues. Meshloom journalise un avertissement à chaque démarrage tant que l’une d’elles est définie :
-
-| Variable retirée | Ce qu’elle devient |
-|----------|--------|
-| `MESHLOOM_COMMUNITY` | Ignorée. Elle ne concernait qu’une base toute neuve, qui démarre désormais avec Community désactivé |
-| `MESHLOOM_COMMUNITY_IATA` | Sur une installation existante, recopiée une seule fois dans les réglages au premier démarrage après la mise à jour, puis ignorée. Changez le code dans les réglages |
-| `MESHLOOM_COMMUNITY_BROKER_HOST` | Ignorée. L’état laissé sur un broker personnalisé est effacé une fois après la mise à jour |
-| `MESHLOOM_COMMUNITY_API_BASE` | Ignorée |
+Les anciennes variables `MESHLOOM_COMMUNITY*` sont listées plus bas, dans **Variables retirées**.
 
 Voir [Meshloom Community](/docs/deep/community/).
 
@@ -99,6 +92,17 @@ Ces variables ne changent plus rien. Leurs réglages sont dans l’interface :
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | **Réglages → Radio → Avancé**, « Laisser la radio supprimer ses plus anciens contacts » |
 
 Si l’une d’elles est encore définie au moment de la mise à jour, Meshloom la recopie une seule fois dans sa base, au premier démarrage : le sujet VAPID seulement si le champ des Réglages est vide, un contournement seulement si la variable vaut `true`. Votre installation continue donc de fonctionner comme avant. Ensuite Meshloom ne les lit plus jamais et écrit un avertissement dans son journal à chaque démarrage tant que l’une d’elles reste définie : retirez-la de votre environnement, et changez désormais le réglage dans l’interface.
+
+Meshloom Community ne lit plus aucune variable non plus :
+
+| Variable retirée | Ce qu’elle devient |
+|----------|--------|
+| `MESHLOOM_COMMUNITY` | Ignorée. Elle ne concernait qu’une base toute neuve, qui démarre désormais avec Community désactivé |
+| `MESHLOOM_COMMUNITY_IATA` | Sur une installation existante, recopiée une seule fois dans les réglages au premier démarrage après la mise à jour, puis ignorée. Changez le code dans les réglages |
+| `MESHLOOM_COMMUNITY_BROKER_HOST` | Ignorée. L’état laissé sur un broker personnalisé est effacé une fois après la mise à jour |
+| `MESHLOOM_COMMUNITY_API_BASE` | Ignorée |
+
+Meshloom écrit le même avertissement à chaque démarrage tant que l’une d’elles reste définie.
 
 ## Réglages stockés dans la base
 

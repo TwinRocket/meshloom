@@ -1,4 +1,4 @@
-"""One-shot import of retired ``MESHCORE_*`` settings into ``app_settings``.
+"""One-shot import of retired ``MESHCORE_*`` / ``MESHLOOM_COMMUNITY*`` settings.
 
 Meshloom's behaviour is set in the UI, not through environment variables. These
 variables used to be read on every start and are now settings in the database:
@@ -16,6 +16,12 @@ the variables are never read again, and each start only warns that one is still
 set. Unlike the radio transport import (``services/radio_transport.py``), which a
 new database skips, this one also runs on a new database: a variable set before the
 very first start is copied too.
+
+The ``MESHLOOM_COMMUNITY*`` variables are retired too (Community is an opt-in in
+the UI, its addresses are fixed): ``import_legacy_community_iata`` copies a
+leftover ``MESHLOOM_COMMUNITY_IATA`` into an existing database only, once
+(``community_env_imported``, migration 091); the others are never imported. All
+of them get the same startup warning.
 """
 
 from __future__ import annotations
@@ -37,9 +43,18 @@ RADIO_WORKAROUND_ENV: dict[str, str] = {
     "MESHCORE_LOAD_WITH_AUTOEVICT": "load_with_autoevict",
 }
 
+ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
+_COMMUNITY_UI = "Settings → Meshloom Community"
+_COMMUNITY_FIXED = "nowhere: the Meshloom Community addresses are fixed"
+
+# Retired variable → where its setting lives now (for the startup warning).
 RETIRED_ENV: dict[str, str] = {
     ENV_VAPID_SUBJECT: "Settings → Notifications",
     **dict.fromkeys(RADIO_WORKAROUND_ENV, "Settings → Radio → Advanced"),
+    "MESHLOOM_COMMUNITY": f"{_COMMUNITY_UI} (an opt-in; a new database starts off)",
+    ENV_COMMUNITY_IATA: _COMMUNITY_UI,
+    "MESHLOOM_COMMUNITY_BROKER_HOST": _COMMUNITY_FIXED,
+    "MESHLOOM_COMMUNITY_API_BASE": _COMMUNITY_FIXED,
 }
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
@@ -64,6 +79,38 @@ def warn_about_retired_env() -> list[str]:
             RETIRED_ENV[name],
         )
     return still_set
+
+
+async def import_legacy_community_iata(*, existing_database: bool) -> str | None:
+    """Copy a leftover ``MESHLOOM_COMMUNITY_IATA`` into an existing database, once.
+
+    Returns the IATA written, if any. Runs while ``community_env_imported`` is
+    unset, then never reads the variable again (the warning is
+    ``warn_about_retired_env``'s).
+
+    - A new database ignores it: joining Community is an explicit opt-in in the
+      UI, and the database starts off.
+    - An existing database: the variable overrode the stored IATA on every
+      read, so a valid value is written when it differs, to keep the region
+      Community already knows. ``MESHLOOM_COMMUNITY`` only ever seeded a
+      brand-new database, so the stored opt-in is left as it is.
+    """
+    from app.services.meshloom_community import get_community_record, normalize_iata
+
+    if await AppSettingsRepository.get_community_env_imported():
+        return None
+    written = None
+    if existing_database:
+        env_iata = normalize_iata(_env(ENV_COMMUNITY_IATA))
+        stored = (await get_community_record()).iata
+        if env_iata and env_iata != stored:
+            await AppSettingsRepository.update_community(iata=env_iata)
+            written = env_iata
+            logger.warning(
+                "Imported %s=%s into the database (was %r)", ENV_COMMUNITY_IATA, env_iata, stored
+            )
+    await AppSettingsRepository.mark_community_env_imported()
+    return written
 
 
 async def import_legacy_env_settings() -> dict[str, object]:

@@ -50,7 +50,7 @@ class TestStartupLifespan:
                 ),
                 ("app.fanout.manager.fanout_manager.load_from_db", {"new": AsyncMock()}),
                 (
-                    "app.services.meshloom_community.import_legacy_community_env",
+                    "app.services.legacy_env_settings.import_legacy_community_iata",
                     {"new": AsyncMock()},
                 ),
                 ("app.fanout.manager.fanout_manager.stop_all", {"new": AsyncMock()}),

@@ -39,6 +39,8 @@ These variables no longer change anything. Their settings live in Meshloom's dat
 
 At the first start of a version that retired them, Meshloom copies a value still set into its database once: the VAPID subject when the field in Settings is empty, a workaround when the variable is `true`. After that the variables are never read again, and each start logs a warning while one is still set: remove it from your environment.
 
+Meshloom Community is not set through the environment: it is an opt-in in **Settings > Meshloom Community** (a new database starts with it off), and its servers are fixed. `MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA`, `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` are no longer read: an existing install that still sets `MESHLOOM_COMMUNITY_IATA` has its code copied once into the database at the first start after the upgrade, and each start logs a warning while any of them is set. See [Variables and settings](docs/user/en/deep/environment.md).
+
 ## Remediation & Advanced Environment Variables
 
 These are intended for diagnosing or working around radios that behave oddly, or enabling advanced functionality.
@@ -47,7 +49,6 @@ These are intended for diagnosing or working around radios that behave oddly, or
 |----------|---------|-------------|
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | Enable `GET /api/radio/private-key` to return the in-memory private key as hex for backup or migration. Only enable on a trusted network. Import via `PUT /api/radio/private-key` is always available. ([docs](#private-key-export)) |
 
-Meshloom Community is not set through the environment: it is an opt-in in **Settings > Meshloom Community** (a new database starts with it off), and its servers are fixed. `MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA`, `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` are no longer read: an existing install that still sets `MESHLOOM_COMMUNITY_IATA` has its code copied once into the database at the first start after the upgrade, and each start logs a warning while any of them is set. See [Variables and settings](docs/user/en/deep/environment.md).
 
 By default the app relies on radio events plus MeshCore auto-fetch for incoming messages, and also runs a low-frequency hourly audit poll. That audit checks both:
 
