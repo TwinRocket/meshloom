@@ -131,6 +131,16 @@ async def _stop_community_status_clear():
 
 
 @pytest.fixture(autouse=True)
+def _reset_position_rebind():
+    """A SELF_INFO seen by one test must not re-bind in the next one."""
+    from app.services.observer_position import reset_position_rebind_for_tests
+
+    reset_position_rebind_for_tests()
+    yield
+    reset_position_rebind_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _reset_radio_ingest_gate():
     """Keep the process-wide ingest gate open between tests."""
     from app.radio import radio_manager

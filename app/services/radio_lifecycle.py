@@ -314,6 +314,11 @@ async def run_post_connect_setup(radio_manager) -> None:
                 start_telemetry_collect()
 
             radio_manager._setup_complete = True
+            # The appstart of the identity check ran before the SELF_INFO
+            # subscription: compare the position Community has now.
+            from app.services.observer_position import note_radio_self_info
+
+            note_radio_self_info(getattr(radio_manager.meshcore, "self_info", None))
         finally:
             radio_manager._setup_in_progress = False
 

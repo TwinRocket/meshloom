@@ -9,10 +9,22 @@ is read as "off", the safe side.
 rounded: exact when the radio broadcasts it anyway, rounded to about 1 km
 otherwise. ``put_iata_bind`` is the only place it leaves, in the body of
 Community's ``PUT /v1/me/iata`` (``lat``, ``lon``, ``position_precision``).
+
+Automatic re-bind: when the radio reports a new ``self_info`` (``SELF_INFO``
+after a connection, a ``set_coords`` or a policy change, all followed by an
+``appstart``) and what ``publishable_position`` gives differs from what the
+last successful bind sent, the bind is sent again with the stored IATA
+(``rebind_current_iata``). Same IATA, so Community does not count it as an
+IATA change. Debounced, one worker at a time, a few bounded retries, and only
+while Community is on with an IATA: off, nothing leaves. The last bound
+position is kept in memory, so the first ``self_info`` after a start re-binds
+once (that also replaces a position an older version sent exactly).
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
 from typing import Any, Literal, NamedTuple
 
@@ -20,6 +32,8 @@ from fastapi import HTTPException
 
 from app.models import CommunityIataBindResult
 from app.services.directory import is_valid_map_location
+
+logger = logging.getLogger(__name__)
 
 
 def advert_location_broadcast(info: Any) -> bool:
@@ -116,7 +130,8 @@ async def put_iata_bind(iata: str) -> CommunityIataBindResult:
     """
     from app.services.meshloom_community import stats_json
 
-    position = publishable_position(radio_self_info())
+    info = radio_self_info()
+    position = publishable_position(info)
     payload = await stats_json(
         "PUT",
         "/v1/me/iata",
@@ -126,4 +141,112 @@ async def put_iata_bind(iata: str) -> CommunityIataBindResult:
     )
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail="Community returned an unexpected body")
-    return CommunityIataBindResult.model_validate(payload)
+    result = CommunityIataBindResult.model_validate(payload)
+    _note_bound(info)
+    return result
+
+
+# --- Automatic re-bind -------------------------------------------------------
+
+REBIND_DEBOUNCE_S = 5.0
+# After a failed re-bind (Community down, rate limit, no radio key yet). A new
+# radio change cuts a retry wait short.
+REBIND_RETRY_DELAYS_S = (60.0, 300.0, 1800.0)
+
+_UNKNOWN: Any = object()
+# (radio public key, position) sent by the last successful bind, in memory.
+_last_bound: Any = _UNKNOWN
+_rebind_task: asyncio.Task[None] | None = None
+_rebind_retry_wait = False
+
+RebindOutcome = Literal["sent", "skipped", "failed"]
+
+
+def _bound_key(info: Any) -> tuple[str, PublishablePosition | None]:
+    raw = info.get("public_key") if isinstance(info, dict) else None
+    pubkey = raw.strip().lower() if isinstance(raw, str) else ""
+    return pubkey, publishable_position(info)
+
+
+def _note_bound(info: Any) -> None:
+    global _last_bound
+    _last_bound = _bound_key(info)
+
+
+def note_radio_self_info(info: Any) -> None:
+    """A fresh ``self_info``: schedule a re-bind if the published position moved.
+
+    Cheap and synchronous (an event handler calls it). Nothing leaves from
+    here: the worker checks the Community state, under the Community lock,
+    before any request.
+    """
+    global _rebind_task
+    if not isinstance(info, dict) or _bound_key(info) == _last_bound:
+        return
+    if _rebind_task is not None and not _rebind_task.done():
+        if not _rebind_retry_wait:
+            # Debouncing or binding: the worker reads the latest self_info.
+            return
+        _rebind_task.cancel()
+    from app.background_tasks import spawn
+
+    _rebind_task = spawn(_rebind_worker(), name="community-position-rebind")
+
+
+async def _rebind_worker() -> None:
+    global _rebind_retry_wait
+    failures = 0
+    delay = REBIND_DEBOUNCE_S
+    try:
+        while True:
+            await asyncio.sleep(delay)
+            _rebind_retry_wait = False
+            outcome = await _rebind_once()
+            if outcome == "skipped":
+                return
+            if outcome == "sent":
+                # The radio may have changed again while the bind was out.
+                failures = 0
+                delay = REBIND_DEBOUNCE_S
+                continue
+            if failures >= len(REBIND_RETRY_DELAYS_S):
+                logger.warning("Community position re-bind gave up until the next radio change")
+                return
+            delay = REBIND_RETRY_DELAYS_S[failures]
+            failures += 1
+            _rebind_retry_wait = True
+            logger.info("Community position re-bind failed, retrying in %.0f s", delay)
+    finally:
+        _rebind_retry_wait = False
+
+
+async def _rebind_once() -> RebindOutcome:
+    """One re-bind attempt, if one is still needed."""
+    from app.services.meshloom_community import rebind_current_iata
+    from app.services.radio_ingest_gate import ingest_allowed
+
+    info = radio_self_info()
+    # No radio, or an identity not accepted yet: the end of the post-connect
+    # setup notes self_info again.
+    if info is None or not ingest_allowed() or _bound_key(info) == _last_bound:
+        return "skipped"
+    try:
+        result = await rebind_current_iata(put_iata_bind)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return "skipped"  # opted out meanwhile
+        logger.warning("Community position re-bind failed: %s", exc.detail)
+        return "failed"
+    if result is None:
+        return "skipped"  # Community off or no IATA: nothing was sent
+    logger.info("Community bind refreshed after a radio position or policy change")
+    return "sent"
+
+
+def reset_position_rebind_for_tests() -> None:
+    global _last_bound, _rebind_task, _rebind_retry_wait
+    if _rebind_task is not None and not _rebind_task.done():
+        _rebind_task.cancel()
+    _rebind_task = None
+    _rebind_retry_wait = False
+    _last_bound = _UNKNOWN

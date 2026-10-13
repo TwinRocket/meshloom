@@ -341,6 +341,13 @@ async def on_ack(event: "Event") -> None:
         logger.debug("ACK code %s does not match any pending messages", ack_code)
 
 
+async def on_self_info(event: "Event") -> None:
+    """A fresh SELF_INFO (appstart): re-bind with Community if the position moved."""
+    from app.services.observer_position import note_radio_self_info
+
+    note_radio_self_info(getattr(event, "payload", None))
+
+
 async def on_library_connected(event: "Event") -> None:
     """Re-run the identity gate when meshcore_py auto-reconnects the transport."""
     payload = event.payload if isinstance(getattr(event, "payload", None), dict) else {}
@@ -411,6 +418,7 @@ def register_event_handlers(meshcore) -> None:
     _active_subscriptions.append(meshcore.subscribe(EventType.PATH_UPDATE, on_path_update))
     _active_subscriptions.append(meshcore.subscribe(EventType.NEW_CONTACT, on_new_contact))
     _active_subscriptions.append(meshcore.subscribe(EventType.ACK, on_ack))
+    _active_subscriptions.append(meshcore.subscribe(EventType.SELF_INFO, on_self_info))
     if hasattr(EventType, "CONNECTED"):
         _active_subscriptions.append(meshcore.subscribe(EventType.CONNECTED, on_library_connected))
     if hasattr(EventType, "DISCONNECTED"):
