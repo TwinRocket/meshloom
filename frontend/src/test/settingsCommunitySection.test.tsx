@@ -67,14 +67,18 @@ describe('SettingsCommunitySection', () => {
   it('follows an opt-out made in another tab without a reload', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG' });
     render(<SettingsCommunitySection />);
-    expect(await screen.findByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.leave') })
+    ).toBeInTheDocument();
 
     // The store re-read after a `community_live` broadcast from the other tab.
     act(() => {
       setCommunityStatus({ ...offStatus, iata: 'CDG' });
     });
     await waitFor(() => {
-      expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeChecked();
+      expect(
+        screen.queryByRole('button', { name: i18n.t('settings.community.leave') })
+      ).not.toBeInTheDocument();
     });
     expect(
       screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
@@ -93,7 +97,28 @@ describe('SettingsCommunitySection', () => {
     expect(screen.getByText(i18n.t('settings.community.privacyRadio'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyHashtags'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.community.privacyDirectory'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeDisabled();
+    // No enable checkbox: joining is the only way on, and it binds the IATA first.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: i18n.t('settings.community.leave') })).toBeNull();
+    expect(api.updateCommunity).not.toHaveBeenCalled();
+  });
+
+  it('leaves through PATCH enabled:false and only then', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG' });
+    vi.mocked(api.updateCommunity).mockResolvedValue({ ...offStatus, iata: 'CDG' });
+    render(<SettingsCommunitySection />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: i18n.t('settings.community.leave') })
+    );
+
+    await waitFor(() => {
+      expect(api.updateCommunity).toHaveBeenCalledWith({ enabled: false });
+    });
+    expect(api.updateCommunity).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
   });
 
   it('explains IATA as the nearest airport and offers a search', async () => {
@@ -194,7 +219,9 @@ describe('SettingsCommunitySection', () => {
     // No PATCH first: it would start the publisher on the new topic before
     // Community binds the IATA.
     expect(api.updateCommunity).not.toHaveBeenCalled();
-    expect(await screen.findByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.leave') })
+    ).toBeInTheDocument();
     expect(toastMocks.success).toHaveBeenCalledWith(i18n.t('settings.community.bindSuccess'));
   });
 
@@ -212,7 +239,7 @@ describe('SettingsCommunitySection', () => {
       expect(toastMocks.error).toHaveBeenCalledWith(i18n.t('settings.community.joinIataChangeCap'));
     });
     expect(api.updateCommunity).not.toHaveBeenCalled();
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: i18n.t('settings.community.leave') })).toBeNull();
     expect(
       screen.getByRole('button', { name: i18n.t('settings.community.joinCta') })
     ).toBeInTheDocument();
@@ -260,7 +287,9 @@ describe('SettingsCommunitySection', () => {
     vi.mocked(api.getCommunity).mockReturnValue(new Promise(() => {}));
     render(<SettingsCommunitySection />);
 
-    expect(screen.getByLabelText(i18n.t('settings.community.enable'))).toBeChecked();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.leave') })
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('NCE');
   });
 

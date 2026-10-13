@@ -10,7 +10,6 @@ import type {
   CommunityStatus,
 } from '../../types';
 import { Button } from '../ui/button';
-import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
@@ -277,14 +276,14 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     }
   };
 
-  const handleEnableChange = async (enabled: boolean) => {
+  // Leaving is the only thing this component sends through `PATCH /api/community`.
+  // Turning Community on goes through the join form, which binds the IATA first.
+  const handleLeave = async () => {
     setBusy('enable');
     try {
-      setCommunityStatus(await api.updateCommunity({ enabled }));
-      if (!enabled) {
-        setBindResult(null);
-        toast.success(t('settings.community.left'));
-      }
+      setCommunityStatus(await api.updateCommunity({ enabled: false }));
+      setBindResult(null);
+      toast.success(t('settings.community.left'));
     } catch (err) {
       handleCommunityError(err);
     } finally {
@@ -358,25 +357,21 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
         <p className="text-[0.8125rem] text-muted-foreground">{t('settings.community.intro')}</p>
       </div>
 
-      <div className="mt-4 flex items-start gap-3 rounded-md border border-border/60 p-3">
-        <Checkbox
-          id="community-enable"
-          checked={status.enabled}
-          disabled={busy !== null}
-          onCheckedChange={(checked) => {
-            void handleEnableChange(checked === true);
-          }}
-          className="mt-0.5"
-        />
-        <div className="space-y-1">
-          <Label htmlFor="community-enable">{t('settings.community.enable')}</Label>
-          <p className="text-[0.8125rem] text-muted-foreground">
-            {status.enabled
-              ? t('settings.community.disableHelp')
-              : t('settings.community.enableHelp')}
+      {status.enabled && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-border/60 p-3">
+          <p className="min-w-0 flex-1 text-[0.8125rem] text-muted-foreground">
+            {t('settings.community.disableHelp')}
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void handleLeave()}
+            disabled={busy !== null}
+          >
+            {t('settings.community.leave')}
+          </Button>
         </div>
-      </div>
+      )}
 
       {!status.enabled && (
         <div className="mt-4 space-y-3 rounded-md border border-input bg-muted/20 p-3">
