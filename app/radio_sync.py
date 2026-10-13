@@ -19,6 +19,7 @@ from typing import Literal
 
 from meshcore import EventType, MeshCore
 
+from app import radio_workarounds
 from app.background_tasks import spawn
 from app.channel_constants import PUBLIC_CHANNEL_KEY, PUBLIC_CHANNEL_NAME
 from app.config import settings
@@ -523,7 +524,7 @@ async def ensure_default_channels() -> None:
 
 async def sync_and_offload_all(mc: MeshCore) -> dict:
     """Run fast startup sync, then background contact reconcile."""
-    autoevict_requested = settings.load_with_autoevict
+    autoevict_requested = radio_workarounds.current().load_with_autoevict
     autoevict = False
 
     if autoevict_requested:
@@ -554,9 +555,9 @@ async def sync_and_offload_all(mc: MeshCore) -> dict:
             "Could not enumerate radio contacts",
             "Loading favorites and recent contacts on a best-effort basis — "
             "some adds may be redundant or fail if the radio's contact table "
-            "is already full. Set MESHCORE_LOAD_WITH_AUTOEVICT=true for more "
-            "reliable loading without needing to read the radio first. "
-            "See 'Contact Loading Issues' in the Advanced Setup documentation.",
+            "is already full. Turning on Settings → Radio → Advanced → "
+            '"Let the radio evict its oldest contacts" gives more reliable '
+            "loading without needing to read the radio first.",
             code="radio_contacts_enum_failed",
         )
 
@@ -692,14 +693,20 @@ async def audit_channel_send_cache(mc: MeshCore) -> bool:
         return True
 
     logger.error(
-        "[RADIO SYNC ERROR] A periodic radio audit discovered that the channel send-slot cache fell out of sync with radio state. This indicates that some other system, internal or external to the radio, has updated the channel slots on the radio (which the app assumes it has exclusive rights to, except on TCP-linked devices). The cache is resetting now, but you should review the README.md and consider using the environment variable MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true to make the radio use non-optimistic channel management and force-write the channel to radio before each send. This is a minor performance hit, but guarantees consistency. Mismatches found: %s",
+        "[RADIO SYNC ERROR] A periodic radio audit found that the channel send-slot cache "
+        "fell out of sync with the radio. Something else, inside or outside the radio, "
+        "changed its channel slots (the app assumes it owns them, except on TCP-linked "
+        "radios). The cache is resetting now. If this repeats, turn on Settings → Radio "
+        '→ Advanced → "Rewrite the channel before every send": every channel send '
+        "then writes the channel to the radio first, a small slowdown that guarantees "
+        "consistency. Mismatches found: %s",
         "; ".join(mismatches),
     )
     radio_manager.reset_channel_send_cache()
     broadcast_error(
-        "A periodic poll task has discovered radio inconsistencies.",
-        "Please check the logs for recommendations (search "
-        "'MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE').",
+        "A periodic radio audit found that the channel slots changed under Meshloom.",
+        "If this repeats, turn on Settings → Radio → Advanced → "
+        '"Rewrite the channel before every send".',
         code="radio_inconsistency_found",
     )
     return False
@@ -709,7 +716,7 @@ async def _message_poll_loop():
     """Background task that periodically polls for messages."""
     while True:
         try:
-            aggressive_fallback = settings.enable_message_poll_fallback
+            aggressive_fallback = radio_workarounds.current().enable_message_poll_fallback
             await asyncio.sleep(
                 MESSAGE_POLL_INTERVAL if aggressive_fallback else MESSAGE_POLL_AUDIT_INTERVAL
             )
@@ -731,16 +738,17 @@ async def _message_poll_loop():
                                 )
                             else:
                                 logger.error(
-                                    "[RADIO SYNC ERROR] Periodic radio audit caught %d message(s) that were not "
-                                    "surfaced via event subscription. This means that the method of event (new contacts, messages, etc.) awareness we want isn't giving us everything. There is a fallback method available; see README.md and consider "
-                                    "setting MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true to "
-                                    "enable active radio polling every few seconds.",
+                                    "[RADIO SYNC ERROR] Periodic radio audit caught %d message(s) "
+                                    "that the radio never announced. Event subscription is not "
+                                    "delivering everything. If this repeats, turn on Settings → "
+                                    'Radio → Advanced → "Check for messages every 10 seconds" '
+                                    "to poll the radio actively.",
                                     count,
                                 )
                                 broadcast_error(
-                                    "A periodic poll task has discovered radio inconsistencies.",
-                                    "Please check the logs for recommendations (search "
-                                    "'MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK').",
+                                    "A periodic radio audit found messages the radio never announced.",
+                                    "If this repeats, turn on Settings → Radio → Advanced → "
+                                    '"Check for messages every 10 seconds".',
                                     code="radio_inconsistency_found",
                                 )
                 except RadioOperationBusyError:
@@ -757,7 +765,7 @@ def start_message_polling():
     global _message_poll_task
     if _message_poll_task is None or _message_poll_task.done():
         _message_poll_task = asyncio.create_task(_message_poll_loop())
-        if settings.enable_message_poll_fallback:
+        if radio_workarounds.current().enable_message_poll_fallback:
             logger.info(
                 "Started periodic message polling task (aggressive fallback, interval: %ds)",
                 MESSAGE_POLL_INTERVAL,
@@ -780,6 +788,18 @@ async def stop_message_polling():
             pass
         _message_poll_task = None
         logger.info("Stopped periodic message polling")
+
+
+async def restart_message_polling_if_running() -> None:
+    """Apply a changed poll interval now rather than after the current sleep.
+
+    The loop picks its interval before sleeping, so switching the 10-second
+    fallback on would otherwise wait for the end of an hour-long audit sleep.
+    """
+    if _message_poll_task is None or _message_poll_task.done():
+        return
+    await stop_message_polling()
+    start_message_polling()
 
 
 async def send_advertisement(
@@ -1525,9 +1545,8 @@ async def _reconcile_radio_contacts_in_background(
                     normal_table_full_message = (
                         "The radio's contact table is full. Clearing your radio contacts "
                         "using another client, lowering your contact fill target in "
-                        "settings, or setting MESHCORE_LOAD_WITH_AUTOEVICT=true may "
-                        "relieve this. See 'Contact Loading Issues' in the Advanced "
-                        "README.md"
+                        'settings, or turning on Settings → Radio → Advanced → "Let the '
+                        'radio evict its oldest contacts" may relieve this.'
                     )
                     logger.error(
                         "Contact reconcile hit TABLE_FULL. %s",

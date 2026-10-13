@@ -131,6 +131,16 @@ async def _stop_community_status_clear():
 
 
 @pytest.fixture(autouse=True)
+def _reset_radio_workarounds():
+    """A workaround switched on by one test must not leak into the next one."""
+    from app import radio_workarounds
+
+    radio_workarounds.reset()
+    yield
+    radio_workarounds.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_position_rebind():
     """A SELF_INFO seen by one test must not re-bind in the next one."""
     from app.services.observer_position import reset_position_rebind_for_tests

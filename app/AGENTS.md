@@ -22,6 +22,7 @@ app/
 ├── websocket.py         # WS manager, broadcast_event(), broadcast_error()
 ├── background_tasks.py  # spawn(): fire-and-forget with a strong ref, logged errors, drained on shutdown
 ├── radio.py             # RadioManager: transport/session state, radio_operation() lock, slot cache
+├── radio_workarounds.py # in-memory copy of the radio workarounds in app_settings (Settings → Radio → Advanced): load() at startup, refreshed by AppSettingsRepository.update()
 ├── radio_sync.py        # periodic loops: contact sync/offload, adverts, message poll/audit, telemetry
 ├── radio_proxy/         # virtual companion TCP radio (protocol, policy, manager)
 ├── decoder.py           # packet parsing and decryption
@@ -53,6 +54,7 @@ Services worth knowing before touching a flow:
 | `radio_lifecycle.py` | Post-connect setup (timeout 300 s), connection monitor loop (every 5 s) |
 | `radio_identity.py`, `radio_ingest_gate.py` | Bound identity (`radio_bound_public_key`) and the process-wide ingest gate |
 | `radio_transport.py` | Transport snapshot read from `app_settings` (serial/TCP/BLE are UI settings, never env) |
+| `legacy_env_settings.py` | One-shot import of the retired `MESHCORE_VAPID_SUBJECT` and radio-workaround variables (marker `legacy_env_settings_imported`), then a warning while one is still set |
 | `dm_ingest.py`, `dm_ack_apply.py`, `dm_ack_tracker.py` | DM storage and ACK application, shared by packet and fallback paths |
 | `messages.py`, `message_send.py` | Message creation, `handle_duplicate_message`, send/resend workflows |
 | `meshloom_community.py` | Community settings, JWT mint, HTTP client and circuit breaker |
@@ -91,7 +93,7 @@ How the program connects to the radio, keeps the link alive and notices when it 
 - Clock sync (`sync_radio_time_outcome`, `app/radio_sync.py`): when the radio rejects the time and its clock is ahead, it is rebooted once per process. Setup then returns `"reconnect"` before the device query, and `prepare_connected_radio()` drops the transport so the monitor reconnects once the radio is back. Without this, the device query lands on a rebooting radio: path hash support goes undetected (the 2-byte default is not applied) and setup hangs until its timeout.
 - Dev-only switches (never in user docs; table in the root `AGENTS.md`, "Dev-only variables"): `MESHCORE_SKIP_POST_CONNECT_SYNC` skips the post-connect sync here, `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` enables the wraparound attempt in the clock sync above.
 - If setup exceeds 300 s, the backend logs the failure and broadcasts an `error` toast asking the operator to reboot the radio and restart the server.
-- The message poll task always runs: an hourly audit by default, or every 10 s with `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true`. It also detects channel-slot cache drift and resets the send-slot cache when it finds any.
+- The message poll task always runs: an hourly audit by default, or every 10 s with `app_settings.enable_message_poll_fallback` (Settings → Radio → Advanced; a change restarts the loop through `restart_message_polling_if_running()`). It also detects channel-slot cache drift and resets the send-slot cache when it finds any.
 - Periodic adverts: `app_settings.advert_interval` in seconds, `0` = off. Any non-zero value is floored at 3600 s (`MIN_ADVERT_INTERVAL`).
 - `sync_recent_contacts_to_radio()` sets `_last_contact_sync` before the sync finishes, so a failed sync stays throttled (no retry storm).
 - Contact capacity: `max_radio_contacts`. Favorites load first, non-favorites refill to 80 %, and a full offload/reload triggers at 95 % (`RADIO_CONTACT_*_RATIO` in `radio_sync.py`).
@@ -101,7 +103,7 @@ How the program connects to the radio, keeps the link alive and notices when it 
 How a message leaves the program and how we know it arrived.
 
 - Routers validate, then delegate to `services/message_send.py`. Radio access goes through `radio_operation()`.
-- Channel slots: the count comes from firmware `max_channels` (fallback 40). Slots are reused through a session LRU cache, except on TCP (`connection_info` starts with `TCP:`) or with `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true`; then every send calls `set_channel(...)`.
+- Channel slots: the count comes from firmware `max_channels` (fallback 40). Slots are reused through a session LRU cache, except on TCP (`connection_info` starts with `TCP:`) or with `app_settings.force_channel_slot_reconfigure`; then every send calls `set_channel(...)`.
 - DM retries mirror `meshcore_py` `send_msg_with_retry`: stage the effective route with `add_contact`, send, and retry up to 2 more times only when `MSG_SENT` returned an expected ACK code. Timing follows the radio's `suggested_timeout`. The last retry is flood (`reset_path`). The first ACK is terminal: sibling ACK codes are cleared.
 - ACKs are matched from the host `ACK` frame (`event_handlers.on_ack`) and from RF packets (PATH-embedded and standalone `ACK` payloads, in `packet_processor`). ACKs never update routes.
 - Channel resend: byte-perfect within 30 s; `?new_timestamp=true` has no time limit and creates a new row. The sender prefix is stripped by exact match on the current radio name.
@@ -182,7 +184,7 @@ Rules and per-node overrides live in `app_settings.telemetry_alert_rules`; the o
 
 ## Web Push (`app/push/`)
 
-Per-browser subscriptions in `push_subscriptions` (`UNIQUE(endpoint)`). VAPID keys are generated on first start and stored in `app_settings`. The subject is `app_settings.vapid_subject`, falling back to `MESHCORE_VAPID_SUBJECT`; Apple rejects `.local`. Enablement: `policy.conversation_is_enabled` (overrides > `new_dm` for PRIV and rooms > public/hashtag ON > private-key channels OFF). Muted channels are a separate breaker. First-seen alerts (`dispatch_first_seen`) fire only on a new contact insert after setup. A push service answering 404/410 deletes the subscription. Requires HTTPS and outbound internet.
+Per-browser subscriptions in `push_subscriptions` (`UNIQUE(endpoint)`). VAPID keys are generated on first start and stored in `app_settings`. The subject is `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT` (`push/vapid.py`); Apple rejects `.local`. `MESHCORE_VAPID_SUBJECT` is no longer read (one-shot import, `services/legacy_env_settings.py`). Enablement: `policy.conversation_is_enabled` (overrides > `new_dm` for PRIV and rooms > public/hashtag ON > private-key channels OFF). Muted channels are a separate breaker. First-seen alerts (`dispatch_first_seen`) fire only on a new contact insert after setup. A push service answering 404/410 deletes the subscription. Requires HTTPS and outbound internet.
 
 ## Security posture: facts, not endorsements
 

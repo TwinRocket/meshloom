@@ -39,8 +39,25 @@ def test_blank_options_are_left_unset_rather_than_set_to_nothing() -> None:
 
 
 def test_values_are_trimmed_before_they_are_passed_on() -> None:
+    env = addon.build_environment({"basic_auth_username": "  mesh  "})
+    assert env["MESHCORE_BASIC_AUTH_USERNAME"] == "mesh"
+
+
+def test_the_retired_vapid_subject_is_handed_on_for_the_one_shot_import() -> None:
+    """No longer in the manifest, but an old options.json may still carry it.
+
+    Meshloom copies it into Settings → Notifications once, then ignores it.
+    """
     env = addon.build_environment({"vapid_subject": "  mailto:me@example.org  "})
     assert env["MESHCORE_VAPID_SUBJECT"] == "mailto:me@example.org"
+
+
+def test_vapid_subject_is_no_longer_an_addon_option() -> None:
+    import yaml
+
+    config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
+    assert "vapid_subject" not in config["options"]
+    assert "vapid_subject" not in config["schema"]
 
 
 def test_the_retired_public_url_option_is_ignored() -> None:

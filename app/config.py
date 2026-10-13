@@ -4,34 +4,34 @@ from collections import deque
 from threading import Lock
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# Shared with app.push.vapid so empty Docker/env interpolation cannot
-# send a blank VAPID JWT ``sub`` to py-vapid.
-DEFAULT_VAPID_SUBJECT = "mailto:noreply@meshcore.local"
 
 
 class Settings(BaseSettings):
+    """Host-level settings read from ``MESHCORE_*`` before the database opens.
+
+    Everything a user tunes lives in ``app_settings`` and is edited in the UI. The
+    retired variables (``MESHCORE_VAPID_SUBJECT`` and the three radio workarounds)
+    are no longer fields here: ``services/legacy_env_settings.py`` imports a leftover
+    value once, then only warns that it is still set.
+    """
+
     model_config = SettingsConfigDict(env_prefix="MESHCORE_")
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_path: str = "data/meshcore.db"
     disable_bots: bool = False
-    enable_message_poll_fallback: bool = False
-    force_channel_slot_reconfigure: bool = False
     # DEV-ONLY (experimental, undocumented for users; see AGENTS.md "Dev-only variables").
     clowntown_do_clock_wraparound: bool = Field(
         default=False,
         validation_alias="__CLOWNTOWN_DO_CLOCK_WRAPAROUND",
     )
     enable_local_private_key_export: bool = False
-    load_with_autoevict: bool = False
     # DEV-ONLY debug switch (see AGENTS.md "Dev-only variables"): not a user setting.
     skip_post_connect_sync: bool = False
     basic_auth_username: str = ""
     basic_auth_password: str = ""
-    vapid_subject: str = DEFAULT_VAPID_SUBJECT
     embeddable_same_origin: bool = Field(
         default=False,
         description=(
@@ -59,19 +59,6 @@ class Settings(BaseSettings):
             "container port. Without ``managed_ports`` the port is edited in the UI."
         ),
     )
-
-    @field_validator("vapid_subject", mode="before")
-    @classmethod
-    def empty_vapid_subject_uses_default(cls, value: object) -> object:
-        """Treat blank ``MESHCORE_VAPID_SUBJECT`` as unset.
-
-        Compose files often pass ``${MESHCORE_VAPID_SUBJECT}``, which becomes
-        an empty string when the host/stack env is missing and would otherwise
-        override this field's default.
-        """
-        if isinstance(value, str) and not value.strip():
-            return DEFAULT_VAPID_SUBJECT
-        return value
 
     @model_validator(mode="after")
     def validate_basic_auth_pairing(self) -> "Settings":

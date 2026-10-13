@@ -157,6 +157,21 @@ async def lifespan(app: FastAPI):
     if not snapshot.configured:
         logger.info("Radio transport is not configured; connection attempts stay paused")
 
+    # Retired MESHCORE_* settings (VAPID contact, radio workarounds): copied into
+    # app_settings once, then only a warning while they are still set.
+    from app import radio_workarounds
+    from app.services.legacy_env_settings import import_legacy_env_settings
+
+    try:
+        await import_legacy_env_settings()
+    except Exception:
+        logger.exception("Failed to import retired MESHCORE_* settings from the environment")
+    try:
+        await radio_workarounds.load()
+    except Exception:
+        # The workarounds stay off (their defaults) rather than block startup.
+        logger.exception("Failed to load the radio workarounds from app_settings")
+
     # Initialize VAPID keys for Web Push (generates on first run)
     from app.push.vapid import ensure_vapid_keys
 

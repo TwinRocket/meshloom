@@ -11,7 +11,7 @@ from meshcore import MeshCore
 from serial.serialutil import SerialException
 from serial.tools import list_ports
 
-from app.config import settings
+from app import radio_workarounds
 from app.keystore import clear_keys
 from app.models import RadioTransportSnapshot
 from app.services.radio_lifecycle import PostConnectSetupOutcome
@@ -351,7 +351,7 @@ class RadioManager:
 
     def channel_slot_reuse_enabled(self) -> bool:
         """Return whether this transport can safely reuse cached channel slots."""
-        if settings.force_channel_slot_reconfigure:
+        if radio_workarounds.current().force_channel_slot_reconfigure:
             return False
         if self._connection_info:
             return not self._connection_info.startswith("TCP:")

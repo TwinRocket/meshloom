@@ -25,6 +25,13 @@ PASS_THROUGH = {
     "log_level": "MESHCORE_LOG_LEVEL",
     "basic_auth_username": "MESHCORE_BASIC_AUTH_USERNAME",
     "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
+}
+
+# Retired options, no longer in the manifest. An options.json written before their
+# removal may still carry them; the value is handed on so Meshloom copies it into
+# its database once at the next start (app/services/legacy_env_settings.py) and
+# never reads it again. ``vapid_subject`` now lives in Settings → Notifications.
+RETIRED_PASS_THROUGH = {
     "vapid_subject": "MESHCORE_VAPID_SUBJECT",
 }
 
@@ -63,7 +70,7 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
         "MESHLOOM_INSTALL_KIND": "addon",
     }
 
-    for option, variable in PASS_THROUGH.items():
+    for option, variable in (PASS_THROUGH | RETIRED_PASS_THROUGH).items():
         value = options.get(option)
         if isinstance(value, str) and value.strip():
             env[variable] = value.strip()

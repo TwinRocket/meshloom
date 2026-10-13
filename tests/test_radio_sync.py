@@ -28,6 +28,7 @@ from app.radio_sync import (
     sync_radio_time_outcome,
     sync_recent_contacts_to_radio,
 )
+from app.radio_workarounds import RadioWorkarounds
 from app.repository import (
     AppSettingsRepository,
     ChannelRepository,
@@ -563,7 +564,10 @@ class TestSyncAndOffloadAll:
         radio_contacts = {KEY_A: {"public_key": KEY_A}}
 
         with (
-            patch.object(radio_sync.settings, "load_with_autoevict", True),
+            patch(
+                "app.radio_sync.radio_workarounds.current",
+                return_value=RadioWorkarounds(load_with_autoevict=True),
+            ),
             patch(
                 "app.radio_sync._enable_autoevict_on_radio",
                 new=AsyncMock(return_value=False),
@@ -594,7 +598,10 @@ class TestSyncAndOffloadAll:
         radio_contacts = {KEY_A: {"public_key": KEY_A}}
 
         with (
-            patch.object(radio_sync.settings, "load_with_autoevict", True),
+            patch(
+                "app.radio_sync.radio_workarounds.current",
+                return_value=RadioWorkarounds(load_with_autoevict=True),
+            ),
             patch(
                 "app.radio_sync._enable_autoevict_on_radio",
                 new=AsyncMock(return_value=True),
@@ -1789,7 +1796,10 @@ class TestMessagePollLoopRaces:
 
         with (
             patch("app.radio_sync.radio_manager", rm),
-            patch("app.radio_sync.settings.enable_message_poll_fallback", False),
+            patch(
+                "app.radio_sync.radio_workarounds.current",
+                return_value=RadioWorkarounds(enable_message_poll_fallback=False),
+            ),
             patch("asyncio.sleep", side_effect=mock_sleep),
         ):
             await _message_poll_loop()
@@ -1803,7 +1813,10 @@ class TestMessagePollLoopRaces:
 
         with (
             patch("app.radio_sync.radio_manager", rm),
-            patch("app.radio_sync.settings.enable_message_poll_fallback", True),
+            patch(
+                "app.radio_sync.radio_workarounds.current",
+                return_value=RadioWorkarounds(enable_message_poll_fallback=True),
+            ),
             patch("asyncio.sleep", side_effect=mock_sleep),
         ):
             await _message_poll_loop()
@@ -1874,7 +1887,10 @@ class TestMessagePollLoopRaces:
 
         with (
             patch("app.radio_sync.radio_manager", rm),
-            patch("app.radio_sync.settings.enable_message_poll_fallback", False),
+            patch(
+                "app.radio_sync.radio_workarounds.current",
+                return_value=RadioWorkarounds(enable_message_poll_fallback=False),
+            ),
             patch("asyncio.sleep", side_effect=mock_sleep),
             patch("app.radio_sync.poll_for_messages", new_callable=AsyncMock, return_value=2),
             patch("app.radio_sync.broadcast_error") as mock_broadcast_error,
@@ -1882,9 +1898,9 @@ class TestMessagePollLoopRaces:
             await _message_poll_loop()
 
         mock_broadcast_error.assert_called_once_with(
-            "A periodic poll task has discovered radio inconsistencies.",
-            "Please check the logs for recommendations (search "
-            "'MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK').",
+            "A periodic radio audit found messages the radio never announced.",
+            "If this repeats, turn on Settings → Radio → Advanced → "
+            '"Check for messages every 10 seconds".',
             code="radio_inconsistency_found",
         )
 
@@ -1895,7 +1911,10 @@ class TestMessagePollLoopRaces:
 
         with (
             patch("app.radio_sync.radio_manager", rm),
-            patch("app.radio_sync.settings.enable_message_poll_fallback", True),
+            patch(
+                "app.radio_sync.radio_workarounds.current",
+                return_value=RadioWorkarounds(enable_message_poll_fallback=True),
+            ),
             patch("asyncio.sleep", side_effect=mock_sleep),
             patch("app.radio_sync.poll_for_messages", new_callable=AsyncMock, return_value=2),
             patch("app.radio_sync.broadcast_error") as mock_broadcast_error,
@@ -1959,7 +1978,10 @@ class TestChannelSendCacheAudit:
         radio_manager.note_channel_slot_loaded(chan_key, 0)
         mock_mc = MagicMock()
 
-        with patch("app.radio.settings.force_channel_slot_reconfigure", True):
+        with patch(
+            "app.radio.radio_workarounds.current",
+            return_value=RadioWorkarounds(force_channel_slot_reconfigure=True),
+        ):
             assert await audit_channel_send_cache(mock_mc) is True
 
         mock_mc.commands.get_channel.assert_not_called()

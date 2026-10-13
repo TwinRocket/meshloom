@@ -17,6 +17,7 @@ from app.models import AppSettings
 from app.radio_sync import get_contacts_selected_for_radio_sync, get_radio_channel_limit
 from app.repository import AppSettingsRepository, MessageRepository, StatisticsRepository
 from app.routers.health import FanoutStatusResponse, build_health_data
+from app.services.legacy_env_settings import RETIRED_ENV
 from app.services.radio_runtime import radio_runtime
 from app.services.radio_transport import get_transport
 from app.version_info import get_app_build_info, git_output
@@ -121,9 +122,13 @@ class DebugEnvironment(BaseModel):
     log_level: str
     database_path: str
     disable_bots: bool
-    enable_message_poll_fallback: bool
-    force_channel_slot_reconfigure: bool
-    load_with_autoevict: bool
+    retired_env_still_set: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Retired MESHCORE_* variables still defined. They are no longer read; "
+            "their settings live in the database (see app_settings)"
+        ),
+    )
 
 
 class DebugAppSettings(BaseModel):
@@ -133,6 +138,9 @@ class DebugAppSettings(BaseModel):
     flood_scope: str
     blocked_keys_count: int
     blocked_names_count: int
+    enable_message_poll_fallback: bool = False
+    force_channel_slot_reconfigure: bool = False
+    load_with_autoevict: bool = False
 
 
 class DebugSnapshotResponse(BaseModel):
@@ -235,9 +243,7 @@ async def _build_environment() -> DebugEnvironment:
         log_level=settings.log_level,
         database_path=settings.database_path,
         disable_bots=settings.disable_bots,
-        enable_message_poll_fallback=settings.enable_message_poll_fallback,
-        force_channel_slot_reconfigure=settings.force_channel_slot_reconfigure,
-        load_with_autoevict=settings.load_with_autoevict,
+        retired_env_still_set=[name for name in RETIRED_ENV if name in os.environ],
     )
 
 
@@ -249,6 +255,9 @@ def _build_debug_app_settings(app_settings: AppSettings) -> DebugAppSettings:
         flood_scope=app_settings.flood_scope,
         blocked_keys_count=len(app_settings.blocked_keys),
         blocked_names_count=len(app_settings.blocked_names),
+        enable_message_poll_fallback=app_settings.enable_message_poll_fallback,
+        force_channel_slot_reconfigure=app_settings.force_channel_slot_reconfigure,
+        load_with_autoevict=app_settings.load_with_autoevict,
     )
 
 
