@@ -91,7 +91,7 @@ The **Tools** screen (or the icon bar) opens:
 
 The **Add Channel/Contact** button creates a conversation: a contact from its public key, a private channel from its key, a hashtag channel from its name, or several hashtag channels at once.
 
-[Meshloom Community](/en/docs/deep/community/) is optional and off on a new install. To join, enter the code of the nearest airport (its three-letter IATA code) in **Settings > Meshloom Community**; until then, a banner offers it (you can dismiss it for good) and nothing is published. You can leave Community from that page at any time.
+[Meshloom Community](/en/docs/deep/community/) is optional and off on a new install. To join, enter the code of the nearest airport (its three-letter IATA code) in **Settings > Meshloom Community**; until then, a banner offers it (you can dismiss it for good) and nothing is published. Community also needs your radio's position: while the radio has none, a banner asks for it and nothing but the node's status is sent. You can leave Community from that page at any time.
 
 Other useful pages in **Settings**: **Notifications** (below), **Updates**, **MQTT & Automation** (outputs and bots), **Alerts** (telemetry thresholds), **Database** (size and storage cleanup), **Statistics** and **About**.
 

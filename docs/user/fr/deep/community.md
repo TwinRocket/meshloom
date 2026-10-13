@@ -27,6 +27,21 @@ Ce code est aussi la région que la page Live affiche par défaut ; on peut y aj
 
 Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live, la publication des noms hashtag et les recherches de canaux attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Tant que Community est désactivé (comme sur une nouvelle installation, ou après l’avoir quitté), vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
 
+## En attente de position
+
+Community a besoin de savoir à peu près où se trouve votre radio : il place chaque observateur sur sa carte pour montrer où les paquets sont entendus. Tant que Community est activé mais que votre radio n’a **aucune position** (aucune réglée, ou le `0, 0` « pas de GPS » de MeshCore), Community **attend votre position** :
+
+- une bannière indique « Pour fonctionner, Meshloom Community a besoin de votre position », sur toutes les pages, réglages compris ;
+- votre serveur garde sa connexion au broker Community uniquement pour publier son **état**, marqué en attente de position, afin que Community sache que l’observateur est là ;
+- **aucun paquet n’est publié**, et la page Live, l’annuaire (noms de sauts, localisation RF, « entendu par »), le test radio, les statistiques, les noms hashtag et les recherches de canaux, la recherche d’aéroport et le miroir des versions de Community sont tous coupés, comme si vous l’aviez quitté.
+
+Vous pouvez rejoindre alors que votre radio n’a pas de position : Community démarre alors dans cet état. Depuis la bannière :
+
+- **Choisir ma position** ouvre une carte. Le point choisi est enregistré sur votre radio (comme dans **Réglages → Radio**). Dès que la radio le signale, Meshloom l’envoie à Community avec votre code (arrondi à environ 1 km sauf si vos annonces la diffusent, voir plus bas), publie de nouveau son état, et tout ce qui précède revient, sans redémarrage.
+- **En savoir plus** explique pourquoi, et propose le même choix ou **Quitter Community**, qui est la désinscription habituelle.
+
+Si la radio est déconnectée, ou pas encore reconnue après une reconnexion, Meshloom garde le dernier état connu : la bannière ne va et vient pas pendant que la radio se reconnecte. Retirer la position de la radio (la remettre à `0, 0`) remet aussitôt Community en attente.
+
 ## Installations neuves
 
 Une **base de données toute neuve** démarre avec Community désactivé : le rejoindre est votre choix, fait dans **Réglages → Meshloom Community**. Aucune variable d’environnement ne l’active, ne fixe le code ni ne change les serveurs Community, qui sont fixes (`mqtt.meshloom.app` et `api.meshloom.app`).
@@ -40,8 +55,8 @@ Voir [Variables et réglages](/docs/deep/environment/).
 Avec Community activé et un code enregistré, votre serveur envoie :
 
 - Les **paquets bruts**, tels qu’ils circulent par les ondes, avec la force du signal, le nom de votre radio et sa clé publique. Les messages des salons privés et les messages directs restent chiffrés. Le texte de vos conversations ne passe jamais par ce chemin.
-- La **position de votre radio**, si elle en a une, avec le code : quand vous rejoignez ou changez de code, puis d’elle-même quand la radio signale une nouvelle position ou une nouvelle **Source de position des annonces** (ce renvoi ne compte pas comme un changement de code). La radio les signale quand elle se connecte ou se reconnecte, quand Meshloom règle sa position et quand ce réglage change, pas à chaque mouvement du GPS : une radio qui se déplace avec son GPS actif envoie sa nouvelle position à la reconnexion ou au changement de réglage suivant. Elle est **exacte seulement si la radio la diffuse déjà** dans ses annonces (**Inclure la position du nœud**). Sinon elle est **arrondie à environ 1 km** (deux décimales). Community s’en sert pour vérifier le code, et **l’affiche sur sa carte publique** (Live, annuaire) : la position exacte est celle que vos annonces rendent déjà publique, la position arrondie place votre observateur près de sa commune, pas à son adresse. Une radio sans position n’en envoie aucune.
-- Un **message d’état**, à l’ouverture de la connexion puis toutes les cinq minutes : le nom de votre radio, sa clé publique, son modèle, sa version de firmware et ses paramètres radio (fréquence, largeur de bande, facteur d’étalement, taux de codage), la version de Meshloom, et les compteurs de la radio quand elle les fournit.
+- La **position de votre radio**, si elle en a une, avec le code : quand vous rejoignez ou changez de code, puis d’elle-même quand la radio signale une nouvelle position ou une nouvelle **Source de position des annonces** (ce renvoi ne compte pas comme un changement de code). La radio les signale quand elle se connecte ou se reconnecte, quand Meshloom règle sa position et quand ce réglage change, pas à chaque mouvement du GPS : une radio qui se déplace avec son GPS actif envoie sa nouvelle position à la reconnexion ou au changement de réglage suivant. Elle est **exacte seulement si la radio la diffuse déjà** dans ses annonces (**Inclure la position du nœud**). Sinon elle est **arrondie à environ 1 km** (deux décimales). Community s’en sert pour vérifier le code, et **l’affiche sur sa carte publique** (Live, annuaire) : la position exacte est celle que vos annonces rendent déjà publique, la position arrondie place votre observateur près de sa commune, pas à son adresse. Une radio sans position n’en envoie aucune, et Community attend alors qu’elle en ait une (voir « En attente de position » plus haut).
+- Un **message d’état**, à l’ouverture de la connexion puis toutes les cinq minutes : le nom de votre radio, sa clé publique, son modèle, sa version de firmware et ses paramètres radio (fréquence, largeur de bande, facteur d’étalement, taux de codage), la version de Meshloom, et les compteurs de la radio quand elle les fournit. Quand Community attend une position, il le dit aussi (`state: waiting_for_position`), et il est republié dès que cela change.
 - Des **requêtes d’annuaire.** Pour nommer un saut ou dessiner une zone de localisation RF, votre serveur interroge Community sur les nœuds concernés. Le navigateur ne parle jamais à Community lui-même : c’est votre serveur qui relaie. Les sauts d’un seul octet ne sont jamais envoyés.
 - Les **noms de salons hashtag.** Quand vous créez ou adoptez un salon hashtag, ou quand Meshloom en trouve un, son nom (50 au plus à la fois) est ajouté à la liste globale. Les noms ne sont pas regroupés par aéroport. Les clés ne sont pas partagées. Un salon dont la clé ne découle pas de son nom est privé : son nom n’est jamais partagé, même s’il commence par `#`.
 - Des **recherches de canaux.** Pour reconnaître un canal inconnu, Meshloom envoie l’identifiant d’un octet du canal pour demander quels noms peuvent correspondre. Si rien ne correspond, il peut aussi envoyer un paquet chiffré de ce canal (une fois par identifiant tant que Meshloom tourne), pour que la communauté essaie d’en retrouver le nom. Seuls les canaux que vous ne pouvez pas lire sont concernés.
@@ -67,7 +82,7 @@ La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre s
 
 ## Dans l’interface
 
-**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de saisir le code IATA (ou de le chercher une fois inscrit), de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
+**Réglages → Meshloom Community** permet de rejoindre ou de quitter, de saisir le code IATA (ou de le chercher une fois inscrit), de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté. Quand Community attend une position, les réglages l’indiquent et n’affichent ni les statistiques ni la recherche d’aéroport.
 
 Le détail « entendu par » et le test radio ne mesurent de distance que vers les observateurs dont la position exacte est connue. Un observateur qui publie une position arrondie apparaît quand même sur leurs cartes, mais sans distance, et il ne bat jamais le record de l’oreille la plus lointaine.
 

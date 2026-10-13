@@ -91,7 +91,7 @@ L’écran **Outils** (ou la barre d’icônes) ouvre :
 
 Le bouton **Ajouter canal/contact** crée une conversation : un contact à partir de sa clé publique, un salon privé à partir de sa clé, un salon hashtag à partir de son nom, ou plusieurs salons hashtag d’un coup.
 
-[Meshloom Community](/docs/deep/community/) est facultatif et désactivé sur une nouvelle installation. Pour le rejoindre, saisissez le code de l’aéroport le plus proche (son code IATA, trois lettres) dans **Réglages > Meshloom Community** ; d’ici là, une bannière vous le propose (vous pouvez la masquer pour de bon) et rien n’est publié. Vous pouvez quitter Community depuis cette page à tout moment.
+[Meshloom Community](/docs/deep/community/) est facultatif et désactivé sur une nouvelle installation. Pour le rejoindre, saisissez le code de l’aéroport le plus proche (son code IATA, trois lettres) dans **Réglages > Meshloom Community** ; d’ici là, une bannière vous le propose (vous pouvez la masquer pour de bon) et rien n’est publié. Community a aussi besoin de la position de votre radio : tant qu’elle n’en a pas, une bannière vous la demande et seul l’état du nœud est envoyé. Vous pouvez quitter Community depuis cette page à tout moment.
 
 Autres pages utiles dans **Réglages** : **Notifications** (ci-dessous), **Mises à jour**, **MQTT et automatisation** (sorties et bots), **Alertes** (seuils de télémétrie), **Base de données** (taille et nettoyage du stockage), **Statistiques** et **À propos**.
 
