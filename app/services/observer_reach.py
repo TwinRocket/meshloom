@@ -2,6 +2,13 @@
 
 Community on: counts come from the Stats directory, one entry per stored
 observation event. Community off: there is no source and the badge is off.
+
+Each ear position carries ``position_precision``. Only ``exact`` positions
+count in distances (``max_distance_km``): a ``rounded`` one (about 1 km, an
+ear that does not broadcast its own position) still places the ear on the
+map. A missing field means ``exact`` on ``/v1/directory/packets/*`` (before
+it existed those were advert positions only) and ``rounded`` on
+``/v1/directory/observers`` (rounded by Community already).
 """
 
 from __future__ import annotations
@@ -13,6 +20,7 @@ import math
 import re
 import time
 from dataclasses import dataclass
+from typing import Literal
 
 from fastapi import HTTPException
 
@@ -31,6 +39,8 @@ from app.services.radio_runtime import radio_runtime
 from app.services.ttl_lru import TtlLruCache
 
 logger = logging.getLogger(__name__)
+
+PositionPrecision = Literal["exact", "rounded"]
 
 # Sealed sets are final, but "final" is only as good as what Stats stored: a
 # server-side data repair has no way to reach a client holding a sealed copy.
@@ -63,6 +73,7 @@ class ObserverGeo:
     public_key: str | None
     lat: float | None
     lon: float | None
+    position_precision: PositionPrecision = "rounded"
 
 
 _HOP_TOKEN_RE = re.compile(r"^[0-9a-fA-F]{2,6}$")
@@ -81,6 +92,21 @@ class ParsedObservation:
     lon: float | None = None
     path: tuple[str, ...] = ()
     is_mlc: bool = False
+    position_precision: PositionPrecision = "exact"
+
+
+def parse_position_precision(
+    item: dict[str, object], default: PositionPrecision
+) -> PositionPrecision:
+    """``position_precision`` of an ear, ``default`` when Community sent none.
+
+    Any value other than ``exact`` or ``rounded`` is read as ``rounded``: an
+    unknown precision never counts in a distance.
+    """
+    raw = item.get("position_precision")
+    if raw is None:
+        return default
+    return "exact" if raw == "exact" else "rounded"
 
 
 @dataclass(frozen=True)
@@ -259,6 +285,8 @@ def parse_directory_observers(payload: object) -> dict[str, ObserverGeo]:
             public_key=public_key,
             lat=lat,
             lon=lon,
+            # Rounded by Community (PUBLIC_OBSERVER_COORD_DECIMALS) before the field existed.
+            position_precision=parse_position_precision(item, "rounded"),
         )
     return by_id
 
@@ -334,6 +362,8 @@ def _parse_one_observation(item: dict[str, object]) -> ParsedObservation:
         lon=lon,
         path=path,
         is_mlc=item.get("isMLC") is True,
+        # Before the field existed, packet ears carried advert positions only.
+        position_precision=parse_position_precision(item, "exact"),
     )
 
 
@@ -428,20 +458,20 @@ def _observation_geo(
 
 def _observation_coords(
     obs: ParsedObservation, geo: ObserverGeo | None
-) -> tuple[float | None, float | None]:
-    """Prefer the GPS carried on the observation itself.
+) -> tuple[float | None, float | None, PositionPrecision | None]:
+    """Prefer the GPS carried on the observation itself, with its precision.
 
     Stats attaches the mesh node's coordinates to each ear. The observers
     catalogue is only a fallback, and its id often does not match
     ``observer_id``, which used to drop a position that was already on the row.
     """
     if obs.lat is not None and obs.lon is not None and _is_valid_map_location(obs.lat, obs.lon):
-        return obs.lat, obs.lon
+        return obs.lat, obs.lon, obs.position_precision
     if geo is None or geo.lat is None or geo.lon is None:
-        return None, None
+        return None, None, None
     if not _is_valid_map_location(geo.lat, geo.lon):
-        return None, None
-    return geo.lat, geo.lon
+        return None, None, None
+    return geo.lat, geo.lon, geo.position_precision
 
 
 def _dedup_entries(
@@ -462,7 +492,7 @@ def _dedup_entries(
             or (public_key[:12] if public_key else obs.observer_id)
             or "observer"
         )
-        lat, lon = _observation_coords(obs, geo)
+        lat, lon, precision = _observation_coords(obs, geo)
         existing = by_key.get(dedup_key)
         if existing is None:
             by_key[dedup_key] = ObserverReachEntry(
@@ -470,6 +500,7 @@ def _dedup_entries(
                 public_key=public_key,
                 lat=lat,
                 lon=lon,
+                position_precision=precision,
                 hops=obs.hops,
                 snr=obs.snr,
                 rssi=obs.rssi,
@@ -485,6 +516,11 @@ def _dedup_entries(
             next_path = list(obs.path)
         elif not next_path and obs.path:
             next_path = list(obs.path)
+        # Keep the first position, unless a later row places the ear exactly.
+        take_position = lat is not None and (
+            existing.lat is None
+            or (existing.position_precision != "exact" and precision == "exact")
+        )
         by_key[dedup_key] = existing.model_copy(
             update={
                 "hops": next_hops,
@@ -492,8 +528,9 @@ def _dedup_entries(
                 "snr": obs.snr if existing.snr is None else existing.snr,
                 "rssi": obs.rssi if existing.rssi is None else existing.rssi,
                 "role": obs.role if existing.role is None else existing.role,
-                "lat": existing.lat if existing.lat is not None else lat,
-                "lon": existing.lon if existing.lon is not None else lon,
+                "lat": lat if take_position else existing.lat,
+                "lon": lon if take_position else existing.lon,
+                "position_precision": (precision if take_position else existing.position_precision),
                 "isMLC": existing.isMLC or obs.is_mlc,
             }
         )
@@ -763,6 +800,8 @@ async def _fill_local_contact_coordinates(
                 update={
                     "lat": coords[0],
                     "lon": coords[1],
+                    # A position heard in that node's own advert.
+                    "position_precision": "exact",
                     "public_key": entry.public_key or contact.public_key,
                 }
             )
@@ -787,7 +826,8 @@ async def _finish_observer_reach(
     max_distance_km = None
     if origin_coords is not None:
         for entry in entries:
-            if entry.lat is None or entry.lon is None:
+            # A rounded position (about 1 km) never makes a distance record.
+            if entry.lat is None or entry.lon is None or entry.position_precision != "exact":
                 continue
             distance = haversine_km(origin_coords[0], origin_coords[1], entry.lat, entry.lon)
             max_distance_km = (

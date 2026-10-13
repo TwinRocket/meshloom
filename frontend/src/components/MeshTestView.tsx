@@ -21,7 +21,7 @@ import {
 import { observerReachPollIntervalMs } from '../utils/observerReach';
 import {
   clearMeshTestRun,
-  meshTestDistanceKm,
+  meshTestObserverDistanceKm,
   meshTestListenState,
   meshTestOrigin,
   meshTestSummary,
@@ -243,7 +243,7 @@ function MeshTestRunView({
           rssi: entry.rssi ?? null,
           lat: placed.lat,
           lon: placed.lon,
-          distanceKm: meshTestDistanceKm(origin, placed.lat, placed.lon),
+          distanceKm: meshTestObserverDistanceKm(origin, entry, placed),
           path: (entry.path ?? []).map((prefix, hopIndex) => {
             const hop = toPathHop(prefix, contacts);
             const hit = directoryHits[hop.prefix];

@@ -1556,6 +1556,10 @@ class DirectoryReachObserver(BaseModel):
     avg_snr: float | None = None
     lat: float | None = None
     lon: float | None = None
+    position_precision: Literal["exact", "rounded"] = Field(
+        default="rounded",
+        description="exact (advert position) or rounded (about 1 km); rounded when Community sent none",
+    )
 
 
 class DirectoryReachNode(BaseModel):
@@ -1628,6 +1632,13 @@ class ObserverReachEntry(BaseModel):
     public_key: str | None = None
     lat: float | None = None
     lon: float | None = None
+    position_precision: Literal["exact", "rounded"] | None = Field(
+        default=None,
+        description=(
+            "Precision of lat/lon: exact (advert position) or rounded (about 1 km, "
+            "never used for distances). None without a position."
+        ),
+    )
     hops: int | None = None
     snr: float | None = None
     rssi: float | None = None

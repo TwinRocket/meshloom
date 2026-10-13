@@ -606,6 +606,8 @@ export interface DirectoryReachResponse {
     avg_snr?: number | null;
     lat?: number | null;
     lon?: number | null;
+    /** `rounded` (about 1 km) unless Community says the position is an advert's. */
+    position_precision?: PositionPrecision;
   }>;
   first_hops?: DirectoryReachFirstHop[];
   unresolved_first_hops?: DirectoryReachUnresolvedHop[];
@@ -1374,11 +1376,16 @@ export interface DirectoryMapNodesResponse {
   total?: number;
 }
 
+/** `exact`: an advert position. `rounded`: about 1 km, never used for a distance. */
+export type PositionPrecision = 'exact' | 'rounded';
+
 export interface ObserverReachEntry {
   name: string;
   public_key?: string | null;
   lat?: number | null;
   lon?: number | null;
+  /** Null without a position. A rounded position places the ear but makes no distance. */
+  position_precision?: PositionPrecision | null;
   hops?: number | null;
   snr?: number | null;
   /** Often absent. Null or empty means the role is unknown, not that there is none. */

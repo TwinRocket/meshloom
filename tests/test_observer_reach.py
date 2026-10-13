@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.decoder import outgoing_group_text_packet_hash
-from app.models import Message
+from app.models import ContactUpsert, Message
 from app.path_utils import calculate_packet_hash, canonical_packet_hash
 from app.repository import (
     AmbiguousPublicKeyPrefixError,
@@ -1062,3 +1062,129 @@ class TestLocalObserverFilter:
             detail = await get_packet_observer_reach("AABBCCDDEEFF0011")
 
         assert detail.observer_count == 2
+
+
+class TestPositionPrecision:
+    """Only exact ear positions count in distances; rounded ones only place the ear."""
+
+    HASH = "AABBCCDDEEFF0011"
+
+    async def _reach(self, observations: list[dict], observers: list[dict] | None = None):
+        reset_observer_reach_cache()
+        from app.services.meshloom_community import update_community
+
+        await update_community(enabled=True, iata="LYS")
+
+        async def fake_data(path: str, method: str = "GET", **_kwargs: object) -> object:
+            if path.endswith("/observations"):
+                return {"results": {self.HASH: observations}}
+            if path.endswith("/observers"):
+                return {"observers": observers or []}
+            return {}
+
+        with (
+            patch("app.services.directory._community_directory_data", side_effect=fake_data),
+            patch(
+                "app.services.observer_reach.resolve_origin_coords",
+                new=AsyncMock(return_value=(45.0, 4.0)),
+            ),
+        ):
+            return await get_packet_observer_reach(self.HASH)
+
+    @pytest.mark.asyncio
+    async def test_rounded_ear_is_placed_but_not_a_distance(self, test_db):
+        result = await self._reach(
+            [
+                {"observer_id": "near", "public_key": "aa" * 32, "lat": 45.1, "lon": 4.0},
+                {
+                    "observer_id": "far",
+                    "public_key": "bb" * 32,
+                    "lat": 46.0,
+                    "lon": 4.0,
+                    "position_precision": "rounded",
+                },
+            ]
+        )
+
+        by_key = {entry.public_key: entry for entry in result.observers}
+        assert by_key["aa" * 32].position_precision == "exact"
+        assert by_key["bb" * 32].position_precision == "rounded"
+        assert (by_key["bb" * 32].lat, by_key["bb" * 32].lon) == (46.0, 4.0)
+        # Only the near, exact ear: about 11 km, not the 111 km of the rounded one.
+        assert result.max_distance_km == pytest.approx(11.1, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_unknown_precision_is_not_a_distance(self, test_db):
+        result = await self._reach(
+            [{"observer_id": "x", "lat": 46.0, "lon": 4.0, "position_precision": "approx"}]
+        )
+        assert result.observers[0].position_precision == "rounded"
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_missing_precision_on_packets_reads_exact(self, test_db):
+        """Packet responses before P1 (sealed copies too) carry advert positions only."""
+        result = await self._reach([{"observer_id": "x", "lat": 46.0, "lon": 4.0}])
+        assert result.observers[0].position_precision == "exact"
+        assert result.max_distance_km == pytest.approx(111.2, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_missing_precision_on_observers_reads_rounded(self, test_db):
+        result = await self._reach(
+            [{"observer_id": "obs-1", "observer_name": "Lyon"}],
+            observers=[{"id": "obs-1", "name": "Lyon", "lat": 46.0, "lon": 4.0}],
+        )
+        assert result.observers[0].lat == 46.0
+        assert result.observers[0].position_precision == "rounded"
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_exact_row_replaces_a_rounded_one_for_the_same_ear(self, test_db):
+        result = await self._reach(
+            [
+                {
+                    "observer_id": "a",
+                    "public_key": "aa" * 32,
+                    "lat": 46.0,
+                    "lon": 4.0,
+                    "position_precision": "rounded",
+                },
+                {
+                    "observer_id": "b",
+                    "public_key": "aa" * 32,
+                    "lat": 45.5,
+                    "lon": 4.0,
+                    "position_precision": "exact",
+                },
+            ]
+        )
+        assert len(result.observers) == 1
+        entry = result.observers[0]
+        assert (entry.lat, entry.position_precision) == (45.5, "exact")
+        assert result.max_distance_km == pytest.approx(55.6, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_local_advert_fill_is_exact(self, test_db):
+        from app.repository import ContactRepository
+
+        await ContactRepository.upsert(
+            ContactUpsert(public_key="cc" * 32, name="Hill", type=2, lat=45.2, lon=4.0)
+        )
+        result = await self._reach([{"observer_id": "x", "public_key": "cc" * 32}])
+        assert result.observers[0].position_precision == "exact"
+        assert result.max_distance_km == pytest.approx(22.2, abs=0.2)
+
+
+class TestDirectoryReachPrecision:
+    def test_direct_observer_precision_defaults_to_rounded(self):
+        from app.services.directory import parse_directory_reach
+
+        payload = {
+            "direct_observers": [
+                {"pubkey": "aa" * 32, "lat": 45.76, "lon": 4.84},
+                {"pubkey": "bb" * 32, "lat": 45.7, "lon": 4.8, "position_precision": "exact"},
+                {"pubkey": "cc" * 32, "lat": 45.7, "lon": 4.8, "position_precision": "?"},
+            ]
+        }
+        reach = parse_directory_reach(payload, "dd" * 32)
+        assert [o.position_precision for o in reach.observers] == ["rounded", "exact", "rounded"]
