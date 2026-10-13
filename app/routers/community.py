@@ -60,6 +60,8 @@ async def patch_community(body: CommunityUpdate) -> CommunityStatus:
         iata=body.iata,
         broker_host=body.broker_host,
         api_base=body.api_base,
+        # Off to on with an IATA: 409, the join is PUT /community/me/iata.
+        join_through_bind=True,
     )
     if body.enabled and not was_enabled:
         # Turned on without a bind (the settings join through PUT /me/iata

@@ -918,6 +918,36 @@ class TestJoinBindsFirst:
         await _until(lambda: _online_published(egress, "LYS"))
 
 
+async def _patch_community(body: dict[str, Any]) -> httpx.Response:
+    from app.main import app
+
+    async with _RealAsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        return await client.patch("/api/community", json=body)
+
+
+class TestPatchOnWithIata:
+    @pytest.mark.asyncio
+    async def test_off_to_on_with_an_iata_is_refused(self, test_db, egress, cleanup_community):
+        response = await _patch_community({"enabled": True, "iata": "LYS"})
+        assert response.status_code == 409, response.text
+        assert response.json()["code"] == "iata_requires_join"
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (False, "")
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    async def test_iata_alone_or_on_alone_is_still_accepted(
+        self, test_db, egress, cleanup_community
+    ):
+        response = await _patch_community({"iata": "LYS"})
+        assert response.status_code == 200, response.text
+        response = await _patch_community({"enabled": True})
+        assert response.status_code == 200, response.text
+        await _until(lambda: _online_published(egress, "LYS"))
+
+
 def _stats_publisher() -> MeshloomStatsPublisher:
     module = fanout_manager._modules[SYSTEM_MESHLOOM_STATS_ID][0]
     return module._publisher  # type: ignore[attr-defined]
