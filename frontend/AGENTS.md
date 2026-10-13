@@ -37,6 +37,7 @@ A map of the main files of the web interface.
 - `hooks/`: state ownership (`useConversationMessages`, `useUnreadCounts`, `useRealtimeAppState`, `useRepeaterDashboard`, `useOssUpdates`, `usePushSubscription`, ...).
 - `stores/`: state held outside React. `rawPacketStore.ts` holds overheard packets and `livePacketStore.ts` holds `#live` packets and the Community live connection state.
 - `utils/urlHash.ts` handles hash routing. `components/settings/settingsConstants.ts` (`SETTINGS_SECTION_ORDER`) lists the settings sections.
+- `components/settings/SettingsRadioSection.tsx` is tabbed: Connection, Configuration (radio), Messaging, Advertising, Advanced. The Advanced tab holds the radio workarounds (`enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, saved through `PATCH /api/settings` on each toggle). It only needs the app settings, so it stays available while the radio is disconnected. These used to be environment variables: never reintroduce a variable for something a user tunes.
 - `i18n/`: `locales/{en,fr}.json` plus `locales/slices/*.{en,fr}.json`.
 - `src/test/`: vitest suites. `tests/e2e/` at the repo root: Playwright, for layout checks that jsdom cannot do.
 

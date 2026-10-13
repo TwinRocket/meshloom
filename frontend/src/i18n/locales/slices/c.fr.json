@@ -378,7 +378,17 @@
       "tabConnection": "Connexion",
       "tabDevice": "Configuration",
       "tabMessaging": "Messagerie",
-      "tabAdvert": "Annonces"
+      "tabAdvert": "Annonces",
+      "tabAdvanced": "Avancé",
+      "advanced": "Contournements",
+      "advancedIntro": "Correctifs pour les radios ou les installations qui se comportent mal. Laissez-les désactivés, sauf si Meshloom en suggère un dans un message d’erreur ou si vous constatez le problème décrit. Ils sont enregistrés par Meshloom, pas dans la radio.",
+      "advancedPollFallback": "Vérifier les messages toutes les 10 secondes",
+      "advancedPollFallbackHelp": "Meshloom reçoit normalement les messages dès que la radio les annonce, et vérifie une fois par heure s’il en a manqué. Activez cette option si des messages restent sur la radio sans jamais apparaître dans Meshloom : il demande alors à la radio ses messages en attente toutes les 10 secondes. Cela occupe un peu la radio.",
+      "advancedForceSlot": "Réécrire le salon avant chaque envoi",
+      "advancedForceSlotHelp": "Meshloom retient quel salon occupe quel emplacement de la radio et le réutilise. Activez cette option si des messages partent sur le mauvais salon, ou si une autre application modifie les salons de la radio : Meshloom écrit alors le salon dans la radio avant chaque envoi vers un salon. Chaque envoi prend un peu plus de temps. C’est déjà le comportement en TCP.",
+      "advancedAutoevict": "Laisser la radio supprimer ses plus anciens contacts",
+      "advancedAutoevictHelp": "Quand la table de contacts de la radio est pleine, la radio supprime elle-même son plus ancien contact non favori pour faire de la place. Ajouter un contact n’échoue alors jamais et Meshloom n’a pas besoin de lire la table de la radio au préalable. Activez cette option si vous voyez des erreurs « table de contacts pleine » ou « impossible de lister les contacts de la radio ».",
+      "advancedAppliesNextConnection": "S’applique à la prochaine connexion"
     },
     "radioApp": {
       "loading": "Chargement des réglages…",

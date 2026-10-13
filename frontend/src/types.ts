@@ -1318,6 +1318,10 @@ export interface AppSettings {
   telemetry_interval_hours: number;
   telemetry_routed_hourly: boolean;
   stale_contact_days?: number;
+  /** Radio workarounds (Settings → Radio → Advanced). Absent from an older backend. */
+  enable_message_poll_fallback?: boolean;
+  force_channel_slot_reconfigure?: boolean;
+  load_with_autoevict?: boolean;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1340,6 +1344,9 @@ export interface AppSettingsUpdate {
   stale_contact_days?: number;
   telemetry_alert_rules?: TelemetryAlertRules;
   notification_destinations?: NotificationDestinationsUpdate;
+  enable_message_poll_fallback?: boolean;
+  force_channel_slot_reconfigure?: boolean;
+  load_with_autoevict?: boolean;
 }
 
 export interface DirectoryHopHit {

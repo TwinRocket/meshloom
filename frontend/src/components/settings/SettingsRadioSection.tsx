@@ -524,6 +524,100 @@ function RadioTransportPanel({
   );
 }
 
+type RadioWorkaroundKey =
+  'enable_message_poll_fallback' | 'force_channel_slot_reconfigure' | 'load_with_autoevict';
+
+// Workarounds for radios or setups that misbehave. They used to be environment
+// variables (MESHCORE_*); they are now stored by Meshloom and edited here.
+const RADIO_WORKAROUNDS: ReadonlyArray<{
+  key: RadioWorkaroundKey;
+  label: string;
+  help: string;
+  applies: string;
+}> = [
+  {
+    key: 'enable_message_poll_fallback',
+    label: 'settings.radio.advancedPollFallback',
+    help: 'settings.radio.advancedPollFallbackHelp',
+    applies: 'settings.radio.appliesImmediately',
+  },
+  {
+    key: 'force_channel_slot_reconfigure',
+    label: 'settings.radio.advancedForceSlot',
+    help: 'settings.radio.advancedForceSlotHelp',
+    applies: 'settings.radio.appliesImmediately',
+  },
+  {
+    key: 'load_with_autoevict',
+    label: 'settings.radio.advancedAutoevict',
+    help: 'settings.radio.advancedAutoevictHelp',
+    applies: 'settings.radio.advancedAppliesNextConnection',
+  },
+];
+
+function RadioWorkaroundsPanel({
+  appSettings,
+  onSaveAppSettings,
+}: {
+  appSettings: AppSettings;
+  onSaveAppSettings: (update: AppSettingsUpdate) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [saving, setSaving] = useState<RadioWorkaroundKey | null>(null);
+
+  const toggle = async (key: RadioWorkaroundKey, value: boolean) => {
+    setSaving(key);
+    try {
+      await onSaveAppSettings({ [key]: value });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('settings.radio.saveFailed'));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <SettingsGroup id="radio-advanced">
+      <SettingsGroupHeader
+        id="radio-advanced"
+        title={t('settings.radio.advanced')}
+        storedOn="server"
+      />
+      <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+        {t('settings.radio.advancedIntro')}
+      </p>
+      <div className="space-y-2">
+        {RADIO_WORKAROUNDS.map(({ key, label, help, applies }) => {
+          const id = `radio-advanced-${key}`;
+          return (
+            <div
+              key={key}
+              className="flex items-start gap-3 rounded-md border border-border/60 p-3"
+            >
+              <Checkbox
+                id={id}
+                checked={appSettings[key] ?? false}
+                disabled={saving !== null}
+                onCheckedChange={(checked) => void toggle(key, checked === true)}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <Label htmlFor={id}>{t(label)}</Label>
+                  <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">
+                    {t(applies)}
+                  </span>
+                </div>
+                <p className="max-w-prose text-[0.8125rem] text-muted-foreground">{t(help)}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </SettingsGroup>
+  );
+}
+
 export function SettingsRadioSection({
   config,
   health,
@@ -1345,6 +1439,9 @@ export function SettingsRadioSection({
             {t('settings.radio.tabAdvert')}
             {advertIntervalDirty && <DirtyDot />}
           </TabsTrigger>
+          <TabsTrigger value="advanced" disabled={!appSettings} className="shrink-0">
+            {t('settings.radio.tabAdvanced')}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="connection" className="m-0 space-y-4">
@@ -1405,6 +1502,17 @@ export function SettingsRadioSection({
             </p>
           ) : null}
         </TabsContent>
+
+        {/* Meshloom-side workarounds: they matter before the radio is connected too
+            (autoevict applies at the next connection), so only the settings gate it. */}
+        {appSettings ? (
+          <TabsContent value="advanced" className="m-0 space-y-4">
+            <RadioWorkaroundsPanel
+              appSettings={appSettings}
+              onSaveAppSettings={onSaveAppSettings}
+            />
+          </TabsContent>
+        ) : null}
 
         {config && appSettings ? (
           <>
