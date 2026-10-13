@@ -76,7 +76,8 @@ class StatusClearTarget:
         return f"meshcore/{self.iata}/{self.pubkey}/status"
 
     def key(self) -> tuple[str, str, str]:
-        return (self.iata, self.broker_host, self.pubkey)
+        # Hostnames are case-insensitive: MQTT.meshloom.app is the same broker.
+        return (self.iata, self.broker_host.lower(), self.pubkey)
 
 
 def target_for(state: CommunityEffective) -> StatusClearTarget | None:
@@ -243,7 +244,10 @@ async def adopt_orphaned_status() -> None:
     if last is None:
         return
     state = await get_community_effective()
-    if state.enabled and (state.iata, state.broker_host) == (last.iata, last.broker_host):
+    if state.enabled and (state.iata, state.broker_host.lower()) == (
+        last.iata,
+        last.broker_host.lower(),
+    ):
         return
     pending = {t.key() for e in await _load() if (t := _entry_target(e)) is not None}
     if last.key() not in pending:

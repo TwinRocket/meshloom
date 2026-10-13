@@ -7,7 +7,7 @@
 #   scripts/build/build_rpi_image.sh --deb dist/meshloom_*_arm64.deb \
 #     [--output-dir dist] [--version 4.12.0]
 #
-# Meshloom Community is an opt-in from the UI (Settings > Community).
+# Meshloom Community is an opt-in from the UI (Settings > Meshloom Community).
 
 set -euo pipefail
 

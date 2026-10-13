@@ -1310,6 +1310,26 @@ class TestOrphanedStatusAtStartup:
         assert ("mqtt_connect", "mqtt.old-custom.test") not in egress.events[done:]
 
     @pytest.mark.asyncio
+    async def test_restart_does_not_clear_the_same_broker_spelled_differently(
+        self, test_db, egress, cleanup_community, fast_retries, monkeypatch
+    ):
+        """The official broker set with another case is the same broker: the live
+        status topic must not get an empty retained publish."""
+        fast_retries(0.0)
+        monkeypatch.setattr(meshloom_community, "DEFAULT_BROKER_HOST", "MQTT.meshloom.app")
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        await _stop_app()
+
+        monkeypatch.setattr(meshloom_community, "DEFAULT_BROKER_HOST", "mqtt.meshloom.app")
+        mark = len(egress.events)
+        await _restart_app()
+        await _until(lambda: _online_since(egress, "CDG", mark))
+        await _until_async(_nothing_pending)
+        assert _clear("CDG") not in egress.events[mark:]
+
+    @pytest.mark.asyncio
     async def test_restart_with_community_off_clears_the_old_topic(
         self, test_db, egress, cleanup_community, fast_retries
     ):

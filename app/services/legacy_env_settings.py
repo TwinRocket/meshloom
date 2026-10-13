@@ -45,7 +45,7 @@ RADIO_WORKAROUND_ENV: dict[str, str] = {
 
 ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
 _COMMUNITY_UI = "Settings → Meshloom Community"
-_COMMUNITY_FIXED = "nowhere: the Meshloom Community addresses are fixed"
+_COMMUNITY_FIXED = "no setting at all (the Meshloom Community addresses are fixed)"
 
 # Retired variable → where its setting lives now (for the startup warning).
 RETIRED_ENV: dict[str, str] = {
