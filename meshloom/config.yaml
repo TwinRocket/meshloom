@@ -47,6 +47,8 @@ options:
   proxy_port: 5051
   basic_auth_username: ""
   basic_auth_password: ""
+  # DEPRECATED, remove in the next release: copied once into Settings → Notifications.
+  vapid_subject: ""
   disable_bots: false
 
 schema:
@@ -57,4 +59,5 @@ schema:
   proxy_port: port
   basic_auth_username: str?
   basic_auth_password: password?
+  vapid_subject: str?
   disable_bots: bool?

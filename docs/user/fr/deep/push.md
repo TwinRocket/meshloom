@@ -25,7 +25,7 @@ Réglez-la dans **Réglages → Notifications**, champ **Sujet VAPID**. Elle doi
 
 **Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans ce champ.
 
-La variable d’environnement `MESHCORE_VAPID_SUBJECT` n’est plus lue. Si elle était encore définie lors de la mise à jour, Meshloom l’a recopiée une seule fois dans ce champ, au premier démarrage, à condition qu’il soit vide. L’add-on Home Assistant n’a plus d’option `vapid_subject` non plus : vérifiez le champ après la mise à jour.
+La variable d’environnement `MESHCORE_VAPID_SUBJECT` n’est plus lue. Si elle était encore définie lors de la mise à jour, Meshloom l’a recopiée une seule fois dans ce champ, au premier démarrage, à condition qu’il soit vide. L’option `vapid_subject` de l’add-on Home Assistant suit le même chemin : elle est recopiée une fois dans ce champ, et elle est dépréciée (elle disparaît à la version suivante).
 
 Voir la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). D’autres services de push peuvent accepter la valeur par défaut : le problème n’apparaît donc souvent qu’avec le premier appareil Apple.
 

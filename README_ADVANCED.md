@@ -97,7 +97,7 @@ If the radio's contact table is already full (from contacts added by advertiseme
 
 ### Autoevict Mode
 
-**Settings > Radio > Advanced > Let the radio evict its oldest contacts** enables an alternative contact loading strategy that avoids TABLE_FULL errors entirely. It applies at the next connection. On connect, the app enables the radio's `AUTO_ADD_OVERWRITE_OLDEST` preference, which makes the radio automatically evict the oldest non-favorite contact when the contact table is full. This means:
+**Settings > Radio > Advanced > Let the radio evict its oldest contacts** enables an alternative contact loading strategy that avoids TABLE_FULL errors entirely. It applies at the next connection; turning it off later does not clear the radio's preference (clear it with another MeshCore app). On connect, the app enables the radio's `AUTO_ADD_OVERWRITE_OLDEST` preference, which makes the radio automatically evict the oldest non-favorite contact when the contact table is full. This means:
 
 - Contact adds never fail — the radio always makes room by evicting stale contacts
 - The app can load contacts even when it can't enumerate the radio's existing contact table (e.g., on slow BLE connections)

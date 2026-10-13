@@ -682,6 +682,7 @@ describe('SettingsModal', () => {
       name: i18n.t('settings.radio.advancedForceSlot'),
     });
     expect(forceSlot).toHaveAttribute('data-state', 'checked');
+    expect(forceSlot).toHaveAccessibleDescription(i18n.t('settings.radio.advancedForceSlotHelp'));
 
     const pollFallback = screen.getByRole('checkbox', {
       name: i18n.t('settings.radio.advancedPollFallback'),

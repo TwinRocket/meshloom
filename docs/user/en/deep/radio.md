@@ -26,7 +26,7 @@ The table can fill up because of adverts, or because another app uses the same r
 
 ### Auto-evict
 
-**Let the radio evict its oldest contacts**, in **Settings → Radio → Advanced**, makes the radio drop its oldest non-favorite contact by itself when the table is full. It applies at the next connection. Adding contacts then never fails, Meshloom can load contacts even if it could not read the table, and it no longer needs to remove contacts first.
+**Let the radio evict its oldest contacts**, in **Settings → Radio → Advanced**, makes the radio drop its oldest non-favorite contact by itself when the table is full. It applies at the next connection. Turning it off later does not clear that preference on the radio: clear it with another MeshCore app. Adding contacts then never fails, Meshloom can load contacts even if it could not read the table, and it no longer needs to remove contacts first.
 
 The price: contacts loaded by Meshloom are not marked as favorites on the radio, so they can be dropped when a new advert arrives. If you unplug the radio from Meshloom and use it alone, they are no longer protected.
 

@@ -589,6 +589,7 @@ function RadioWorkaroundsPanel({
       <div className="space-y-2">
         {RADIO_WORKAROUNDS.map(({ key, label, help, applies }) => {
           const id = `radio-advanced-${key}`;
+          const helpId = `${id}-help`;
           return (
             <div
               key={key}
@@ -596,6 +597,7 @@ function RadioWorkaroundsPanel({
             >
               <Checkbox
                 id={id}
+                aria-describedby={helpId}
                 checked={appSettings[key] ?? false}
                 disabled={saving !== null}
                 onCheckedChange={(checked) => void toggle(key, checked === true)}
@@ -608,7 +610,9 @@ function RadioWorkaroundsPanel({
                     {t(applies)}
                   </span>
                 </div>
-                <p className="max-w-prose text-[0.8125rem] text-muted-foreground">{t(help)}</p>
+                <p id={helpId} className="max-w-prose text-[0.8125rem] text-muted-foreground">
+                  {t(help)}
+                </p>
               </div>
             </div>
           );

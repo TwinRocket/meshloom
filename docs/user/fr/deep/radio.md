@@ -26,7 +26,7 @@ La table peut se remplir à cause des annonces, ou parce qu’une autre applicat
 
 ### Éviction automatique
 
-**Laisser la radio supprimer ses plus anciens contacts**, dans **Réglages → Radio → Avancé**, fait supprimer à la radio son plus ancien contact non favori quand la table est pleine. L’option s’applique à la prochaine connexion. Ajouter des contacts n’échoue alors jamais, Meshloom peut charger des contacts même s’il n’a pas réussi à lire la table, et il n’a plus besoin d’en retirer d’abord.
+**Laisser la radio supprimer ses plus anciens contacts**, dans **Réglages → Radio → Avancé**, fait supprimer à la radio son plus ancien contact non favori quand la table est pleine. L’option s’applique à la prochaine connexion. La désactiver ensuite n’efface pas ce réglage dans la radio : effacez-le avec une autre application MeshCore. Ajouter des contacts n’échoue alors jamais, Meshloom peut charger des contacts même s’il n’a pas réussi à lire la table, et il n’a plus besoin d’en retirer d’abord.
 
 Le prix à payer : les contacts chargés par Meshloom ne sont pas marqués comme favoris sur la radio, ils peuvent donc être supprimés quand une nouvelle annonce arrive. Si vous débranchez la radio de Meshloom pour l’utiliser seule, ils ne sont plus protégés.
 

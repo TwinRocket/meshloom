@@ -69,7 +69,11 @@ _RADIO_CONTACT_FAVORITE = 0x01
 
 
 async def _enable_autoevict_on_radio(mc: MeshCore) -> bool:
-    """Ensure the radio's AUTO_ADD_OVERWRITE_OLDEST preference bit is set."""
+    """Ensure the radio's AUTO_ADD_OVERWRITE_OLDEST preference bit is set.
+
+    Never cleared when the setting is off: the bit may have been set on purpose
+    with another app, and Meshloom cannot tell. The UI help says so.
+    """
     try:
         current = await mc.commands.get_autoadd_config()
         if current is None or current.type == EventType.ERROR:

@@ -37,16 +37,11 @@ anywhere else.
 | `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. |
 | `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
 | `basic_auth_username` / `basic_auth_password` | Asks for a username and password on the whole web interface and API. Both or neither. The check has no exception for ingress: if you set them, open the sidebar entry afterwards to make sure it still loads. |
+| `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |
 | `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on. |
 
 Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
 
-The `vapid_subject` option is gone: the contact address for Web Push is now set in
-**Settings → Notifications**, VAPID subject field (Apple refuses the default `.local`
-address, so set a real `mailto:` for iPhones). If you had set the option, Meshloom
-copies it there at its first start after the update, when that field is empty. Home
-Assistant may drop an option the add-on no longer declares before Meshloom sees it,
-so check that field after updating and fill it in if it is empty.
 
 ## The radio proxy port
 

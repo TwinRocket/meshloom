@@ -106,7 +106,8 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description=(
             "Radio workaround: let the radio overwrite its oldest non-favorite contact "
-            "when its table is full. Applies at the next connection"
+            "when its table is full. Applies at the next connection. Turning it off "
+            "does not clear the radio's own preference"
         ),
     )
     telemetry_interval_hours: int | None = Field(

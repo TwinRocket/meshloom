@@ -27,10 +27,12 @@ PASS_THROUGH = {
     "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
 }
 
-# Retired options, no longer in the manifest. An options.json written before their
-# removal may still carry them; the value is handed on so Meshloom copies it into
-# its database once at the next start (app/services/legacy_env_settings.py) and
-# never reads it again. ``vapid_subject`` now lives in Settings → Notifications.
+# Deprecated options, still declared in the manifest for one release: the Supervisor
+# rewrites options.json from the schema at every start and drops undeclared keys, so
+# an option removed from the schema would never reach this file. The value is handed
+# on so Meshloom copies it into its database once (app/services/legacy_env_settings.py)
+# and never reads it again. ``vapid_subject`` now lives in Settings → Notifications.
+# Remove it here and from config.yaml in the next release.
 RETIRED_PASS_THROUGH = {
     "vapid_subject": "MESHCORE_VAPID_SUBJECT",
 }

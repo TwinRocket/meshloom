@@ -106,7 +106,8 @@ async def test_a_variable_still_set_after_the_import_is_logged(test_db, monkeypa
 
 
 def test_warn_lists_only_the_variables_that_are_set(monkeypatch):
-    monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "")
+    monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "mailto:x@example.org")
+    monkeypatch.setenv("MESHCORE_LOAD_WITH_AUTOEVICT", "   ")  # blank: not a leftover
     assert warn_about_retired_env() == ["MESHCORE_VAPID_SUBJECT"]
 
 

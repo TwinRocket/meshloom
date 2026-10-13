@@ -387,7 +387,7 @@
       "advancedForceSlot": "Rewrite the channel before every send",
       "advancedForceSlotHelp": "Meshloom remembers which channel sits in which slot of the radio and reuses it. Turn this on if channel messages go out on the wrong channel, or if another app changes the radio's channels: Meshloom then writes the channel into the radio before every channel send. Each send takes a little longer. Already the behaviour over TCP.",
       "advancedAutoevict": "Let the radio evict its oldest contacts",
-      "advancedAutoevictHelp": "When the radio's contact table is full, the radio itself drops its oldest non-favorite contact to make room. Adding contacts then never fails and Meshloom does not need to read the radio's table first. Turn this on if you see “contact table is full” or “could not enumerate radio contacts” errors.",
+      "advancedAutoevictHelp": "When the radio's contact table is full, the radio itself drops its oldest non-favorite contact to make room. Adding contacts then never fails and Meshloom does not need to read the radio's table first. Turn this on if you see “contact table is full” or “could not enumerate radio contacts” errors. Turning it off later does not undo this on the radio: the radio keeps evicting until you clear its “overwrite oldest” setting with another MeshCore app.",
       "advancedAppliesNextConnection": "Applies at the next connection"
     },
     "radioApp": {

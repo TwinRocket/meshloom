@@ -13,7 +13,9 @@ existing install keeps behaving as before: a usable VAPID subject only when the
 field in the UI is empty, a workaround only when it is switched on (``true``).
 ``legacy_env_settings_imported`` then records that the import ran; from there on
 the variables are never read again, and each start only warns that one is still
-set. The same pattern as the radio transport (``services/radio_transport.py``).
+set. Unlike the radio transport import (``services/radio_transport.py``), which a
+new database skips, this one also runs on a new database: a variable set before the
+very first start is copied too.
 """
 
 from __future__ import annotations
@@ -52,8 +54,8 @@ def _env_true(name: str) -> bool:
 
 
 def warn_about_retired_env() -> list[str]:
-    """Log one warning per retired variable still set. Returns their names."""
-    still_set = [name for name in RETIRED_ENV if name in os.environ]
+    """Log one warning per retired variable still set (and not blank). Returns their names."""
+    still_set = [name for name in RETIRED_ENV if _env(name)]
     for name in still_set:
         logger.warning(
             "%s is set but no longer read: this setting lives in %s. "

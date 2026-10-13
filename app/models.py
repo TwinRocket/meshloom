@@ -1501,7 +1501,8 @@ class AppSettings(BaseModel):
         description=(
             "Radio workaround: let the radio overwrite its oldest non-favorite contact "
             "when its table is full (AUTO_ADD_OVERWRITE_OLDEST). Applies at the next "
-            "connection"
+            "connection. Turning it off does not clear that preference on the radio; "
+            "clear it with another MeshCore app"
         ),
     )
     auto_update: bool = Field(

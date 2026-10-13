@@ -43,21 +43,21 @@ def test_values_are_trimmed_before_they_are_passed_on() -> None:
     assert env["MESHCORE_BASIC_AUTH_USERNAME"] == "mesh"
 
 
-def test_the_retired_vapid_subject_is_handed_on_for_the_one_shot_import() -> None:
-    """No longer in the manifest, but an old options.json may still carry it.
-
-    Meshloom copies it into Settings → Notifications once, then ignores it.
-    """
+def test_the_deprecated_vapid_subject_is_handed_on_for_the_one_shot_import() -> None:
+    """Meshloom copies it into Settings → Notifications once, then ignores it."""
     env = addon.build_environment({"vapid_subject": "  mailto:me@example.org  "})
     assert env["MESHCORE_VAPID_SUBJECT"] == "mailto:me@example.org"
 
 
-def test_vapid_subject_is_no_longer_an_addon_option() -> None:
+def test_vapid_subject_stays_declared_for_one_release() -> None:
+    """The Supervisor drops options.json keys missing from the schema before the
+    add-on starts, so the deprecated option must stay declared for the one-shot
+    import to ever see it. Remove both in the next release."""
     import yaml
 
     config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
-    assert "vapid_subject" not in config["options"]
-    assert "vapid_subject" not in config["schema"]
+    assert config["options"]["vapid_subject"] == ""
+    assert config["schema"]["vapid_subject"] == "str?"
 
 
 def test_the_retired_public_url_option_is_ignored() -> None:
@@ -98,7 +98,9 @@ def test_every_option_in_the_manifest_is_understood_here() -> None:
     import yaml
 
     config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
-    handled = set(addon.PASS_THROUGH) | {"proxy_port", "disable_bots"}
+    handled = (
+        set(addon.PASS_THROUGH) | set(addon.RETIRED_PASS_THROUGH) | {"proxy_port", "disable_bots"}
+    )
     assert set(config["options"]) <= handled
 
 

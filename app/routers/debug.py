@@ -243,7 +243,9 @@ async def _build_environment() -> DebugEnvironment:
         log_level=settings.log_level,
         database_path=settings.database_path,
         disable_bots=settings.disable_bots,
-        retired_env_still_set=[name for name in RETIRED_ENV if name in os.environ],
+        retired_env_still_set=[
+            name for name in RETIRED_ENV if (os.environ.get(name) or "").strip()
+        ],
     )
 
 

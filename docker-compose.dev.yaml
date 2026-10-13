@@ -16,10 +16,6 @@ services:
     environment:
       MESHCORE_DATABASE_PATH: "${MESHCORE_DATABASE_PATH:-/app/data/meshcore.db}"
       MESHCORE_DISABLE_BOTS: "${MESHCORE_DISABLE_BOTS:-0}"
-      # Retired: copied once into Settings → Notifications at the first start of the
-      # version that retired it (only if that field is empty), then never read.
-      # Remove once this stack has started on that version.
-      MESHCORE_VAPID_SUBJECT: "${MESHCORE_VAPID_SUBJECT:-https://meshloom.local}"
       # New empty data volumes join Community. Set 0 to seed opted out.
       # MESHLOOM_COMMUNITY: "0"
     networks:
