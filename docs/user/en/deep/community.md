@@ -19,7 +19,7 @@ It is not an integration you create in **Settings → MQTT & Automation**. You j
 2. Enter the **IATA code** of the nearest airport: three letters, such as `CDG`. If you do not know it, look it up with **Browse IATA airport codes**: the airport search (**Find an airport**) is a Community feature, so it only appears once you have joined, to change the code.
 3. Click **Join Meshloom Community**.
 
-Meshloom first registers the code with Community, and only then turns Community on and starts publishing. If Community refuses the code (for instance because this radio already changed its code too often in the last 7 days), Community stays off, your saved code does not change, and the settings say why.
+Joining is the only way to turn Community on from the settings: there is no on/off switch, and **Leave Meshloom Community** (shown once joined) only turns it off. Meshloom first registers the code with Community, and only then turns Community on and starts publishing. If Community refuses the code (for instance because this radio already changed its code too often in the last 7 days), Community stays off, your saved code does not change, and the settings say why.
 
 The code is a coarse label for your region, not a precise location. Meshloom compares it with your radio's position and tells you whether the two agree. If you are sure of your choice despite a mismatch, **I am sure** confirms it. Community limits how often the code can be changed.
 
