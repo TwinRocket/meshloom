@@ -94,7 +94,7 @@ These exist to diagnose or work around radios that misbehave. None is needed in 
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Rewrites the channel into the radio before every channel send |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Lets the radio drop its oldest contacts when its table is full |
 
-The audit always runs; the poll variable only changes how often. Forcing the channel rewrite makes each channel send a little slower. The skip variable is a diagnostic exit: event handlers, key export, clock sync and automatic message fetching still run. The last variable is a last resort for a radio whose clock is stuck in the future, and may not be safe on every board.
+The audit always runs; the poll variable only changes how often. Forcing the channel rewrite makes each channel send a little slower.
 
 ## Settings stored in the database
 

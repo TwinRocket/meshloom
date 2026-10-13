@@ -37,9 +37,8 @@ interface MapViewProps {
 }
 
 // --- Tile layer presets ---
-// Providers here are free. CARTO dark raster tiles optionally take a free API
-// key (Settings → Local); without one they may show a watermark. Other layers
-// work without a key. Attribution strings follow each provider's requirements;
+// Providers here are free and need no API key. The dark basemap is OpenStreetMap
+// darkened by CSS, not CARTO (see mapBasemap.tsx). Attribution strings follow each provider's requirements;
 // do not remove them. If you add a new provider, verify its terms of service
 // (especially for Esri / Google-style satellite tiles) before committing.
 // Raster-only transitional fix: Neighbors / Locate / Path stay on OSM.

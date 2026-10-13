@@ -94,7 +94,7 @@ Ces variables servent à diagnostiquer ou contourner des radios qui se comporten
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Réécrit le salon dans la radio avant chaque envoi vers un salon |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Laisse la radio supprimer elle-même ses plus anciens contacts quand sa table est pleine |
 
-L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon. La variable « skip » est une sortie de secours pour le diagnostic : les gestionnaires d’événements, l’export de clé, la synchronisation d’horloge et la récupération automatique des messages continuent. La dernière est un dernier recours pour une radio dont l’horloge est coincée dans le futur, et peut ne pas être sûre sur toutes les cartes.
+L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon.
 
 ## Réglages stockés dans la base
 
