@@ -68,4 +68,4 @@ Si **Réglages > Mises à jour** indique qu’il faut mettre à jour Meshloom à
 
 Les add-ons Home Assistant se mettent à jour dans Home Assistant, pas avec ce bouton.
 
-Une nouvelle base rejoint Meshloom Community par défaut, comme sur toute autre installation. Rien n’est publié tant que vous n’avez pas saisi un code d’aéroport dans **Réglages > Meshloom Community**.
+Meshloom Community est désactivé sur une nouvelle base, comme sur toute autre installation. Vous le rejoignez en saisissant un code d’aéroport dans **Réglages > Meshloom Community** ; rien n’est publié avant.

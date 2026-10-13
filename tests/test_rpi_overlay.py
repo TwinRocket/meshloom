@@ -1,4 +1,4 @@
-"""The Pi image must not pin Community off; unset means the product default (on)."""
+"""The Pi image sets no Community variable: Community is an opt-in from the UI."""
 
 from __future__ import annotations
 
@@ -20,9 +20,8 @@ def test_rpi_overlay_does_not_set_community_env() -> None:
         REPO / "scripts/build/build_rpi_kiosk_image.sh",
     ):
         text = path.read_text(encoding="utf-8")
-        assert "MESHLOOM_COMMUNITY=0" not in text
-        assert "MESHLOOM_COMMUNITY=false" not in text
-        assert "MESHLOOM_COMMUNITY=off" not in text
+        # Retired: Community is an opt-in from the UI, no variable sets it.
+        assert "MESHLOOM_COMMUNITY" not in text
 
 
 def test_apply_update_helper_never_upgrades_the_os() -> None:

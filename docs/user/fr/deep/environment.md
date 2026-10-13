@@ -52,12 +52,16 @@ L’adresse de contact des notifications push (sujet VAPID) n’est pas une vari
 
 ## Meshloom Community
 
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `MESHLOOM_COMMUNITY` | *(activé)* | Ne concerne qu’une base toute neuve. Absente ou `1` : démarre avec Community activé. `0`, `false`, `off` ou `no` : démarre désactivé. Les bases existantes ne sont jamais basculées |
-| `MESHLOOM_COMMUNITY_IATA` | *(vide)* | Code d’aéroport à trois lettres. Tant qu’elle est définie, elle remplace le code enregistré dans l’interface |
-| `MESHLOOM_COMMUNITY_BROKER_HOST` | *(vide)* | Remplace le serveur de publication de Community (par défaut `mqtt.meshloom.app`) tant qu’elle est définie |
-| `MESHLOOM_COMMUNITY_API_BASE` | *(vide)* | Remplace l’adresse de l’API Community (par défaut `https://api.meshloom.app`) tant qu’elle est définie |
+Aucune variable ne règle Community : vous le rejoignez et le quittez dans **Réglages → Meshloom Community**, et une base neuve démarre avec Community désactivé. Ses serveurs sont fixes (`mqtt.meshloom.app`, `api.meshloom.app`).
+
+Ces variables ne sont plus lues. Meshloom journalise un avertissement à chaque démarrage tant que l’une d’elles est définie :
+
+| Variable retirée | Ce qu’elle devient |
+|----------|--------|
+| `MESHLOOM_COMMUNITY` | Ignorée. Elle ne concernait qu’une base toute neuve, qui démarre désormais avec Community désactivé |
+| `MESHLOOM_COMMUNITY_IATA` | Sur une installation existante, recopiée une seule fois dans les réglages au premier démarrage après la mise à jour, puis ignorée. Changez le code dans les réglages |
+| `MESHLOOM_COMMUNITY_BROKER_HOST` | Ignorée. L’état laissé sur un broker personnalisé est effacé une fois après la mise à jour |
+| `MESHLOOM_COMMUNITY_API_BASE` | Ignorée |
 
 Voir [Meshloom Community](/docs/deep/community/).
 

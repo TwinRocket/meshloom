@@ -14,4 +14,4 @@ Deux pages valent une lecture avant les autres :
 - [Variables et réglages](/docs/deep/environment/) sépare ce qui se décide au démarrage de ce qui vit dans la base et se change dans l’interface.
 - [Sécurité](/docs/deep/security/) dit ce que Meshloom ne protège pas.
 
-[Meshloom Community](/docs/deep/community/) est activé sur une installation neuve sauf opposition de votre part : lisez sa page pour savoir ce qu’il envoie.
+[Meshloom Community](/docs/deep/community/) reste désactivé tant que vous ne l’avez pas rejoint : lisez sa page pour savoir ce qu’il envoie avant de le faire.

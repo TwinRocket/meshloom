@@ -112,8 +112,8 @@ How a radio message travels through the program, in and out.
   broadcast it, rounded to about 1 km otherwise (`app/services/observer_position.py`),
   re-sent on its own when the position or the advert location policy changes,
   and only while Community is on. The last status topic
-  is persisted too, so a topic left behind while the app was stopped (IATA or
-  broker changed, Community turned off) gets the same clear at the next start.
+  is persisted too, so a topic left behind while the app was stopped (IATA
+  changed, a retired custom broker, Community turned off) gets the same clear at the next start.
   Details are in `app/AGENTS.md`.
 
 ## Commands
@@ -190,10 +190,17 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
   `_BAUDRATE`, `_TCP_PORT`, `_BLE_PIN`) are imported once into an existing
   database with no transport set, then never read again. A new database ignores
   them (`app/services/radio_transport.py`).
-- **`MESHLOOM_COMMUNITY_IATA`, `_BROKER_HOST`, `_API_BASE` override the database
-  on every read** (`get_community_effective`, `app/services/meshloom_community.py`).
-  They are not only seeds. A value set in the UI is ignored while the env var is
-  set. `MESHLOOM_COMMUNITY` only seeds a new database.
+- **Community is set in the UI only.** The addresses are fixed:
+  `DEFAULT_BROKER_HOST` / `DEFAULT_API_BASE` in `app/services/meshloom_community.py`
+  are the only source, read by `get_community_effective()` at call time, and are
+  neither settable (`PATCH /api/community` takes `enabled` and `iata` only) nor
+  returned by `GET /api/community`. A new database starts with Community off
+  (opt-in from the settings). The retired `MESHLOOM_COMMUNITY`, `_IATA`,
+  `_BROKER_HOST` and `_API_BASE` are never read, except once on an existing
+  database (`import_legacy_community_env`, marker `community_env_imported`,
+  migration 090): a valid `_IATA` is copied into `community_iata`. Every start
+  warns while one is still set. Migration 090 empties the old
+  `community_broker_host` / `community_api_base` columns (not dropped).
 - **Current security posture.** This is a description, not a recommendation;
   changing it belongs to the Access and Plugins work.
   - CORS is `allow_origins=["*"]` with `allow_credentials=True` (`app/main.py`).
@@ -240,8 +247,7 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
 | `MESHCORE_MANAGED_PORTS` | `false` | the host owns the proxy port; `PATCH /api/radio/proxy` answers 409 to a port change |
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
-| `MESHLOOM_COMMUNITY` | on | seeds Community on a new DB; `0`/`false`/`off`/`no` seeds it off |
-| `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | empty | **override the DB on every read** (defaults `mqtt.meshloom.app`, `https://api.meshloom.app`) |
+| `MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA` / `_BROKER_HOST` / `_API_BASE` | — | **retired**: ignored with a startup warning; `_IATA` imported once into an existing DB (see "Community is set in the UI only") |
 | `MESHLOOM_INSTALL_KIND` | detected | `package`/`compose`/`addon`/`container`/`source`. Set by `meshloom.env` (`package`) and by the add-on (`addon`) |
 | `MESHLOOM_UPDATE_HELPER` | unset | `compose` marks a compose install with its helper; `none` forces "apply not supported" (`app/services/install_kind.py`) |
 | `MESHLOOM_UPDATE_STATUS_PATH` | unset | where the compose helper's read-only status file is mounted (`app/services/update_apply.py`). Without it the package path `/var/lib/meshloom-update/status.json` is used |

@@ -103,14 +103,13 @@ MESHLOOM_HTTP_PORT=8123
 MESHLOOM_DATA_PATH=/opt/docker/meshloom/data
 MESHCORE_DATABASE_PATH=data/meshcore.db
 MESHCORE_DISABLE_BOTS=false
-# MESHLOOM_COMMUNITY=0
 ```
 
 Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Si vous ne voulez pas d’une construction sur le serveur, utilisez plutôt `docker-compose.example.yml`.
 
 Portainer met à jour une telle pile en copiant la nouvelle version par-dessus les anciens fichiers, et ne supprime jamais un fichier retiré du dépôt. Meshloom est construit pour ignorer ces restes. Si une mise à jour échoue malgré tout à la construction, supprimez la pile et recréez-la (avec les mêmes variables et le même dossier de données : votre base n’est pas touchée), pour repartir d’une copie propre. Une pile sur l’image publiée (`docker-compose.example.yml`) ne construit rien et n’est pas concernée.
 
-Le contact des notifications push se règle dans **Réglages → Notifications**, l’adresse et le port de la radio dans l’interface web. Un nouveau dossier de données vide rejoint Community, sauf si `MESHLOOM_COMMUNITY=0`. Voir [Meshloom Community](/docs/deep/community/).
+Le contact des notifications push se règle dans **Réglages → Notifications**, l’adresse et le port de la radio dans l’interface web. Un nouveau dossier de données vide démarre avec Community désactivé : rejoignez-le dans les réglages. Voir [Meshloom Community](/docs/deep/community/).
 
 ## Depuis une copie du code, pour le développement
 

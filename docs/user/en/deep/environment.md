@@ -52,12 +52,16 @@ The contact address of push notifications (VAPID subject) is not a variable: set
 
 ## Meshloom Community
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MESHLOOM_COMMUNITY` | *(on)* | Applies to a brand-new database only. Unset or `1` starts with Community on. `0`, `false`, `off` or `no` starts with it off. Existing databases are never switched |
-| `MESHLOOM_COMMUNITY_IATA` | *(empty)* | Three-letter airport code. While set, it replaces the code saved in the interface |
-| `MESHLOOM_COMMUNITY_BROKER_HOST` | *(empty)* | Replaces the Community publishing server (default `mqtt.meshloom.app`) while set |
-| `MESHLOOM_COMMUNITY_API_BASE` | *(empty)* | Replaces the Community API address (default `https://api.meshloom.app`) while set |
+No variable sets Community: you join and leave in **Settings → Meshloom Community**, and a new database starts with it off. Its servers are fixed (`mqtt.meshloom.app`, `api.meshloom.app`).
+
+These variables are no longer read. Meshloom logs a warning at each start while one is still set:
+
+| Retired variable | What happens to it |
+|----------|---------|
+| `MESHLOOM_COMMUNITY` | Ignored. It only ever applied to a brand-new database, which now starts with Community off |
+| `MESHLOOM_COMMUNITY_IATA` | On an existing installation, copied once into the settings at the first start after the upgrade, then ignored. Change the code in the settings |
+| `MESHLOOM_COMMUNITY_BROKER_HOST` | Ignored. The status left on a custom broker is cleared once after the upgrade |
+| `MESHLOOM_COMMUNITY_API_BASE` | Ignored |
 
 See [Meshloom Community](/en/docs/deep/community/).
 

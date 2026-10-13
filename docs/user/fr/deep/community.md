@@ -25,16 +25,13 @@ Ce code est une étiquette grossière de votre région, pas une localisation pr�
 
 Ce code est aussi la région que la page Live affiche par défaut ; on peut y ajouter d’autres régions.
 
-Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live, la publication des noms hashtag et les recherches de canaux attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Si vous avez désactivé Community, vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
+Tant qu’aucun code n’est enregistré, une bannière reste affichée. La publication des paquets, la page Live, la publication des noms hashtag et les recherches de canaux attendent ce code. L’annuaire (noms de sauts, localisation RF, « entendu par ») n’en a pas besoin. Tant que Community est désactivé (comme sur une nouvelle installation, ou après l’avoir quitté), vous pouvez masquer la bannière définitivement dans ce navigateur avec **Ne plus afficher**.
 
 ## Installations neuves
 
-Une **base de données toute neuve** démarre avec Community activé, sauf si `MESHLOOM_COMMUNITY=0` (ou `false`, `off`, `no`) est défini avant le premier démarrage. Les bases existantes ne sont jamais basculées par cette variable : elles gardent ce qu’elles ont enregistré.
+Une **base de données toute neuve** démarre avec Community désactivé : le rejoindre est votre choix, fait dans **Réglages → Meshloom Community**. Aucune variable d’environnement ne l’active, ne fixe le code ni ne change les serveurs Community, qui sont fixes (`mqtt.meshloom.app` et `api.meshloom.app`).
 
-Trois autres variables s’adressent à ceux qui font tourner Meshloom pour d’autres personnes :
-
-- `MESHLOOM_COMMUNITY_IATA` remplace le code enregistré dans l’interface tant qu’elle est définie : modifier le code dans les Réglages n’a alors aucun effet.
-- `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` font de même pour les deux serveurs Community.
+`MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA`, `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE` ne sont plus lues. Sur une installation existante qui définit encore `MESHLOOM_COMMUNITY_IATA`, son code est recopié une seule fois dans les réglages, au premier démarrage après la mise à jour, pour que Community garde la région qu’il connaît ; l’activation de Community reste telle qu’elle était. Meshloom journalise ensuite un avertissement à chaque démarrage tant qu’une de ces variables est définie : supprimez-les.
 
 Voir [Variables et réglages](/docs/deep/environment/).
 
@@ -51,13 +48,13 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 
 La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
 
-**Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`, ou les serveurs définis par `MESHLOOM_COMMUNITY_BROKER_HOST` et `MESHLOOM_COMMUNITY_API_BASE`) ainsi que la recherche d’aéroport, immédiatement et sans redémarrage, avec la seule exception décrite au premier point :
+**Désactiver Community coupe toute connexion à Community** (`*.meshloom.app`) ainsi que la recherche d’aéroport, immédiatement et sans redémarrage, avec la seule exception décrite au premier point :
 
 - l’état de votre nœud sur le broker passe à `offline` puis est effacé, avant la fermeture de la connexion MQTT, pour qu’il ne reste pas affiché en ligne. Si le broker est injoignable à ce moment-là, rien ne peut être envoyé : le broker marque alors lui-même le nœud `offline` quand il s’aperçoit que la connexion est perdue, et cet `offline` resterait. C’est la **seule connexion faite après votre départ** : Meshloom se reconnecte au broker, seul, pour effacer cet état restant et rien d’autre (ni paquet, ni état, ni autre requête). Il essaie 6 fois au plus en 13 heures environ (après 1 minute, puis 5 minutes, 15 minutes, 1 heure, 4 heures et 8 heures), tient compte d’un redémarrage entre-temps, et abandonne définitivement au bout de 24 heures. Une fois l’état effacé, ou l’abandon acté, plus rien ne se connecte à Community ;
 - le flux Live se ferme, et les requêtes Community encore en cours sont annulées ;
 - les compteurs « entendu par » et le test radio indiquent que Community est désactivé au lieu d’afficher un résultat vide.
 
-Changer le code IATA efface de la même façon l’état laissé sous l’ancien code, avec la même reprise unique si le broker est injoignable : l’ancien état est d’abord effacé, puis Community enregistre le nouveau code, et alors seulement Meshloom se reconnecte avec lui. Si Community refuse le nouveau code, votre nœud repasse en ligne sous l’ancien. Arrêter ou redémarrer Meshloom marque le nœud `offline`. Si le code ou le broker change pendant que Meshloom est arrêté (par `MESHLOOM_COMMUNITY_IATA`, par exemple), ou si Community est désactivé entre-temps, l’état laissé sous l’ancien code est effacé au démarrage suivant, avec la même reprise unique. Rejoindre de nouveau avec le même code annule une reprise en attente : l’état redevient le vôtre.
+Changer le code IATA efface de la même façon l’état laissé sous l’ancien code, avec la même reprise unique si le broker est injoignable : l’ancien état est d’abord effacé, puis Community enregistre le nouveau code, et alors seulement Meshloom se reconnecte avec lui. Si Community refuse le nouveau code, votre nœud repasse en ligne sous l’ancien. Arrêter ou redémarrer Meshloom marque le nœud `offline`. Si le code change pendant que Meshloom est arrêté (une base restaurée, par exemple), ou si Community est désactivé entre-temps, l’état laissé sous l’ancien code est effacé au démarrage suivant, avec la même reprise unique. Il en va de même une fois après la mise à jour sur une installation qui utilisait son propre broker par `MESHLOOM_COMMUNITY_BROKER_HOST` : l’état laissé sur ce broker est effacé, puis Meshloom publie sur `mqtt.meshloom.app`. Rejoindre de nouveau avec le même code annule une reprise en attente : l’état redevient le vôtre.
 
 **Community désactivé ne veut pas dire zéro trafic réseau.** Ceci continue :
 

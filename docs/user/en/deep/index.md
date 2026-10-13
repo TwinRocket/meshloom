@@ -14,4 +14,4 @@ Two pages are worth reading before the others:
 - [Variables and settings](/en/docs/deep/environment/) separates what is decided at startup from what lives in the database and is changed in the interface.
 - [Security](/en/docs/deep/security/) says what Meshloom does not protect.
 
-[Meshloom Community](/en/docs/deep/community/) is on for new installations unless you opt out, so read its page to know what it sends.
+[Meshloom Community](/en/docs/deep/community/) is off until you join it, so read its page to know what it sends before you do.
