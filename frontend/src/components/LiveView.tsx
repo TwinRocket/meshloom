@@ -485,17 +485,20 @@ export function LiveView({
           </select>
         </label>
         {livePaused && (
-          <span
-            role="status"
-            title={t('live.pausedHelp')}
-            className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.6875rem] text-muted-foreground"
-          >
+          <span role="status">
+            {/* The tooltip is for the mouse only (aria-hidden): screen readers
+                get the label and the help once, from the sr-only text. */}
             <span
               aria-hidden
-              className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground"
-            />
-            {t('live.paused')}
-            <span className="sr-only">{t('live.pausedHelp')}</span>
+              title={t('live.pausedHelp')}
+              className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.6875rem] text-muted-foreground"
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+              {t('live.paused')}
+            </span>
+            <span className="sr-only">
+              {t('live.paused')}. {t('live.pausedHelp')}
+            </span>
           </span>
         )}
         <LiveIataMenu

@@ -774,6 +774,8 @@ class CommunityLiveRelay:
             ws = self._ws
             self._ws = None
             self._connected = False
+            # No reader left to retry: nothing is paused any more.
+            self._paused = False
             self._generation += 1
             task = self._reader_task
             self._reader_task = None
@@ -964,6 +966,11 @@ class CommunityLiveRelay:
                     )
                 self._connected = False
                 self._ws = None
+                if not feed_paused:
+                    # Any other answer (401, 409, 429, 502, live_viewer_cap...)
+                    # means the feed is no longer known to be paused: the state
+                    # must not stay "paused" through another kind of failure.
+                    self._paused = False
                 # Only a socket that stayed up earns a fresh backoff; one that is
                 # closed right after opening keeps growing the delay.
                 stayed_up = (
@@ -1048,6 +1055,7 @@ class CommunityLiveRelay:
                 self._ws = None
                 self._reader_task = None
                 self._active_filter = None
+                self._paused = False
                 try:
                     await self._broadcast_status(opted_out=opted_out)
                 except Exception:
