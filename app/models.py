@@ -2068,6 +2068,15 @@ class RadioIdentityActionResponse(BaseModel):
     connected: bool = False
 
 
+def _known_position_precision(value: object) -> object:
+    """A precision Community added after this version reads as unknown (None).
+
+    The bind has already succeeded when its answer is parsed: an unknown value
+    must not turn it into a 500.
+    """
+    return value if value in ("exact", "rounded") else None
+
+
 class CommunityStatus(BaseModel):
     """Local Meshloom Stats community join state (OSS-owned, not a fanout row)."""
 
@@ -2102,8 +2111,14 @@ class CommunityIataBindResult(BaseModel):
     concordance: str
     honored_for_buckets: bool
     distance_km: float | None = None
-    # Echo of the stored bind position's precision (None: none, or an older Community).
+    # Echo of the stored bind position's precision (None: none, an older
+    # Community, or a value this version does not know).
     position_precision: Literal["exact", "rounded"] | None = None
+
+    @field_validator("position_precision", mode="before")
+    @classmethod
+    def _unknown_precision_is_none(cls, value: object) -> object:
+        return _known_position_precision(value)
 
 
 class CommunityMeStats(BaseModel):
@@ -2113,6 +2128,11 @@ class CommunityMeStats(BaseModel):
     concordance: str
     rank_in_iata: int | None = None
     position_precision: Literal["exact", "rounded"] | None = None
+
+    @field_validator("position_precision", mode="before")
+    @classmethod
+    def _unknown_precision_is_none(cls, value: object) -> object:
+        return _known_position_precision(value)
 
 
 class CommunityPublicStats(BaseModel):
