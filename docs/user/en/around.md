@@ -67,6 +67,8 @@ When the page opens, and each time you change the regions, the map frames the no
 
 Your own radio's packets always appear. The packets of Community observers need Meshloom Community to be on and an airport code (IATA) to be saved; without them, a banner explains what is missing. If Community refuses the connection because the server's clock is wrong, the banner says so: set the server's time right, then choose **Retry**.
 
+Meshloom Community can pause its public feed for a while. A small **Live paused** label then appears next to the sound setting, and only your own radio's packets are drawn. There is nothing to do: your server checks again every minute or so and the Community packets come back on their own when the feed resumes.
+
 ## The control journal
 
 The **control journal** gathers traffic that is not a conversation: requests, responses, anonymous requests (such as logins) and group data. Packets are grouped by the node they talk to. When the content stays encrypted, you see the envelope, not the contents.

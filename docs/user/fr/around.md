@@ -67,6 +67,8 @@ Les paquets qu’on n’a pas su déchiffrer ne sont pas perdus pour autant. Ce 
 
 Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs de Community demandent que Meshloom Community soit activé et qu’un code d’aéroport (IATA) soit enregistré ; sinon, un bandeau explique ce qui manque. Si Community refuse la connexion parce que l’horloge du serveur est fausse, le bandeau le dit : remettez le serveur à l’heure, puis choisissez **Réessayer**.
 
+Meshloom Community peut mettre son flux public en pause pendant un moment. Une petite étiquette **Live en pause** s’affiche alors à côté du réglage du son, et seuls les paquets de votre propre radio sont dessinés. Il n’y a rien à faire : votre serveur revérifie à peu près chaque minute et les paquets de Community reviennent d’eux-mêmes quand le flux reprend.
+
 ## Le journal de contrôle
 
 Le **journal de contrôle** rassemble le trafic qui n’est pas une conversation : requêtes, réponses, requêtes anonymes (comme les connexions) et données de groupe. Les paquets sont regroupés par nœud concerné. Quand le contenu reste chiffré, on voit l’enveloppe, pas le contenu.
