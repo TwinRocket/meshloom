@@ -34,8 +34,11 @@ async def test_empties_custom_addresses_and_logs_them(caplog):
             " community_api_base, community_env_imported FROM app_settings"
         )
         assert await cursor.fetchone() == (1, "CDG", "", "", 0)
-        assert "mqtt.internal.test" in caplog.text
-        assert "https://api.internal.test" in caplog.text
+        dropped = {r.args[0]: r.args[1] for r in caplog.records if "Dropping" in r.msg}
+        assert dropped == {
+            "community_broker_host": "mqtt.internal.test",
+            "community_api_base": "https://api.internal.test",
+        }
         cursor = await conn.execute("PRAGMA table_info(app_settings)")
         names = [row[1] for row in await cursor.fetchall()]
         # Emptied, never dropped.
