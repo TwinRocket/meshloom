@@ -93,7 +93,6 @@ from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
     stop_hashtag_catalogue_polling,
 )
-from app.services.meshloom_community import CommunityConflictError
 from app.services.oss_updates import start_oss_update_polling, stop_oss_update_polling
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import start_radio_stats_sampling, stop_radio_stats_sampling
@@ -327,15 +326,6 @@ async def radio_disconnected_handler(request: Request, exc: RadioDisconnectedErr
     return JSONResponse(
         status_code=423,
         content={"detail": {"code": "radio_not_connected", "message": "Radio not connected"}},
-    )
-
-
-@app.exception_handler(CommunityConflictError)
-async def community_conflict_handler(request: Request, exc: CommunityConflictError):
-    """409 in the Community error shape: ``{"detail": str, "code": str}``."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail, "code": exc.code},
     )
 
 

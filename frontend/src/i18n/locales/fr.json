@@ -1722,6 +1722,7 @@
   },
   "errors": {
     "radio_not_connected": "Radio non connectée",
+    "iata_requires_bind": "Le code IATA ne change que par les réglages Meshloom Community (enregistrement ou adhésion), jamais par une simple mise à jour des réglages.",
     "radio_initializing": "Radio en cours d'initialisation",
     "radio_startup_stuck": "Le démarrage de la radio semble bloqué",
     "reconnection_failed": "Échec de la reconnexion",

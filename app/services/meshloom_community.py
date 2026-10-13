@@ -102,18 +102,6 @@ _joining_state: ContextVar[CommunityEffective | None] = ContextVar(
 )
 
 
-class CommunityConflictError(HTTPException):
-    """409 with a machine-readable ``code`` next to ``detail``.
-
-    ``app.main`` renders it as ``{"detail": str, "code": str}`` (the Community
-    error shape), so API users can tell the cases apart without parsing text.
-    """
-
-    def __init__(self, code: str, detail: str) -> None:
-        super().__init__(status_code=409, detail=detail)
-        self.code = code
-
-
 class CommunityUpstreamError(HTTPException):
     """Local HTTP error that remembers the Community status it came from."""
 
@@ -332,27 +320,30 @@ async def update_community(
     iata: str | None = None,
     broker_host: str | None = None,
     api_base: str | None = None,
-    join_through_bind: bool = False,
+    iata_through_bind: bool = False,
 ) -> CommunityEffective:
     """Write the Community settings under ``_update_lock``.
 
-    ``join_through_bind`` (the ``PATCH /community`` route): an IATA in an
-    off-to-on change is refused (409 ``iata_requires_join``).
+    ``iata_through_bind`` (the ``PATCH /community`` route): an IATA other than
+    the stored one is refused with 409 ``iata_requires_bind``, whatever the
+    state and whether ``enabled`` is sent; the same IATA is accepted.
     """
     async with _update_lock:
-        if (
-            iata is not None
-            and join_through_bind
-            and enabled is True
-            and not (await get_community_effective()).enabled
-        ):
-            # Off to on with an IATA would let the automatic re-bind change
-            # the IATA outside the retire -> bind -> reconnect order.
-            raise CommunityConflictError(
-                "iata_requires_join",
-                "Turning Community on with an IATA goes through "
-                "PUT /api/community/me/iata with enable: true",
-            )
+        if iata_through_bind and iata is not None:
+            stored = (await get_community_record()).iata
+            if _normalize_iata(iata) != _normalize_iata(stored):
+                # Saved without a bind, the IATA would reach the publisher
+                # (now, or at the next opt-in) and the automatic re-bind while
+                # Community still knows the old one: an IATA change outside the
+                # retire -> bind -> reconnect order.
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "iata_requires_bind",
+                        "message": "Change the IATA with PUT /api/community/me/iata "
+                        "(enable: true to join)",
+                    },
+                )
         return await _update_community_locked(
             enabled=enabled, iata=iata, broker_host=broker_host, api_base=api_base
         )

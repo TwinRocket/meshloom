@@ -927,25 +927,57 @@ async def _patch_community(body: dict[str, Any]) -> httpx.Response:
         return await client.patch("/api/community", json=body)
 
 
-class TestPatchOnWithIata:
+class TestPatchNeverChangesTheIata:
+    """An IATA change is a bind (PUT /community/me/iata), never a PATCH."""
+
+    @staticmethod
+    def _refused(response: httpx.Response) -> None:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "iata_requires_bind"
+
     @pytest.mark.asyncio
     async def test_off_to_on_with_an_iata_is_refused(self, test_db, egress, cleanup_community):
-        response = await _patch_community({"enabled": True, "iata": "LYS"})
-        assert response.status_code == 409, response.text
-        assert response.json()["code"] == "iata_requires_join"
+        self._refused(await _patch_community({"enabled": True, "iata": "LYS"}))
         state = await get_community_effective()
         assert (state.enabled, state.iata) == (False, "")
         assert egress.events == []
 
     @pytest.mark.asyncio
-    async def test_iata_alone_or_on_alone_is_still_accepted(
-        self, test_db, egress, cleanup_community
-    ):
-        response = await _patch_community({"iata": "LYS"})
-        assert response.status_code == 200, response.text
+    async def test_iata_while_off_then_on_is_refused(self, test_db, egress, cleanup_community):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        # The two-step way around: store another IATA while off, then turn on.
+        self._refused(await _patch_community({"iata": "LYS"}))
         response = await _patch_community({"enabled": True})
         assert response.status_code == 200, response.text
-        await _until(lambda: _online_published(egress, "LYS"))
+        await _until(lambda: _online_published(egress, "CDG"))
+        assert not _online_published(egress, "LYS")
+        assert (await get_community_effective()).iata == "CDG"
+
+    @pytest.mark.asyncio
+    async def test_iata_while_on_is_refused(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        mark = len(egress.events)
+
+        self._refused(await _patch_community({"iata": "LYS"}))
+        self._refused(await _patch_community({"enabled": True, "iata": "LYS"}))
+        self._refused(await _patch_community({"iata": ""}))
+        await asyncio.sleep(0.05)
+        assert egress.events[mark:] == []
+        assert (await get_community_effective()).iata == "CDG"
+
+    @pytest.mark.asyncio
+    async def test_the_stored_iata_is_accepted(self, test_db, egress, cleanup_community):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        response = await _patch_community({"enabled": True, "iata": "cdg"})
+        assert response.status_code == 200, response.text
+        await _until(lambda: _online_published(egress, "CDG"))
+        response = await _patch_community({"iata": "CDG"})
+        assert response.status_code == 200, response.text
 
 
 def _stats_publisher() -> MeshloomStatsPublisher:
