@@ -180,7 +180,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   const [meStats, setMeStats] = useState<CommunityMeStats | null>(null);
   const [communityStats, setCommunityStats] = useState<CommunityPublicStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'join' | 'enable' | 'bind' | 'override' | null>(null);
+  const [busy, setBusy] = useState<'join' | 'leave' | 'bind' | 'override' | null>(null);
 
   // The draft follows the saved IATA whenever it changes (our actions, another
   // tab, the API); typing is left alone while the saved value stays the same.
@@ -279,7 +279,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   // Leaving is the only thing this component sends through `PATCH /api/community`.
   // Turning Community on goes through the join form, which binds the IATA first.
   const handleLeave = async () => {
-    setBusy('enable');
+    setBusy('leave');
     try {
       setCommunityStatus(await api.updateCommunity({ enabled: false }));
       setBindResult(null);
@@ -359,7 +359,10 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
 
       {status.enabled && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-border/60 p-3">
-          <p className="min-w-0 flex-1 text-[0.8125rem] text-muted-foreground">
+          <p
+            id="community-leave-help"
+            className="min-w-0 flex-1 text-[0.8125rem] text-muted-foreground"
+          >
             {t('settings.community.disableHelp')}
           </p>
           <Button
@@ -367,8 +370,9 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
             variant="outline"
             onClick={() => void handleLeave()}
             disabled={busy !== null}
+            aria-describedby="community-leave-help"
           >
-            {t('settings.community.leave')}
+            {busy === 'leave' ? t('settings.community.leaving') : t('settings.community.leave')}
           </Button>
         </div>
       )}

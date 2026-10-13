@@ -588,6 +588,7 @@
       "leave": "Leave Meshloom Community",
       "disableHelp": "Stopping Meshloom Community stops publish, and also stops the online directory: no hop names, no locate anchors, no heard-by counts.",
       "left": "Meshloom Community stopped",
+      "leaving": "Leaving…",
       "iata": "IATA code",
       "iataHelp": "The IATA code is the 3-letter code of the nearest airport (A–Z). It is a coarse region label. Concordance only means it is consistent with your radio position — never a verified location.",
       "iataPlaceholder": "CDG",

@@ -930,6 +930,7 @@
       "leave": "Quitter Meshloom Community",
       "disableHelp": "Arrêter Meshloom Community arrête la publication, et arrête aussi l’annuaire en ligne : plus de noms de sauts, plus d’ancres locate, plus de compteur « entendu par ».",
       "left": "Meshloom Community arrêté",
+      "leaving": "Quitter…",
       "iata": "Code IATA",
       "iataHelp": "Le code IATA est le code à 3 lettres de l’aéroport le plus proche (A–Z). C’est une étiquette de région approximative. La concordance signifie seulement que le code est cohérent avec la position de votre radio — jamais un emplacement vérifié.",
       "iataPlaceholder": "CDG",

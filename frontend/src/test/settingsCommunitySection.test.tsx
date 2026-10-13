@@ -121,6 +121,34 @@ describe('SettingsCommunitySection', () => {
     ).toBeInTheDocument();
   });
 
+  it('says it is leaving while the PATCH runs, and ties the button to its help', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG' });
+    let finish: (status: CommunityStatus) => void = () => {};
+    vi.mocked(api.updateCommunity).mockReturnValue(
+      new Promise<CommunityStatus>((resolve) => {
+        finish = resolve;
+      })
+    );
+    render(<SettingsCommunitySection />);
+
+    const leave = await screen.findByRole('button', {
+      name: i18n.t('settings.community.leave'),
+    });
+    expect(leave).toHaveAccessibleDescription(i18n.t('settings.community.disableHelp'));
+    fireEvent.click(leave);
+
+    const leaving = await screen.findByRole('button', {
+      name: i18n.t('settings.community.leaving'),
+    });
+    expect(leaving).toBeDisabled();
+    await act(async () => {
+      finish({ ...offStatus, iata: 'CDG' });
+    });
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+  });
+
   it('explains IATA as the nearest airport and offers a search', async () => {
     vi.spyOn(api, 'searchCommunityAirports').mockResolvedValue([
       {
