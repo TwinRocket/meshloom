@@ -43,6 +43,7 @@ See [Variables and settings](/en/docs/deep/environment/).
 With Community on and a code saved, your server sends:
 
 - **Raw packets**, exactly as they travel over the air, together with the signal strength, your radio's name and its public key. Messages for private channels and direct messages stay encrypted. The text of your conversations never goes through this path.
+- **Your radio's position**, if it has one, with the code: when you join or change the code, and again on its own whenever the radio's position or its **Advert Location Source** changes (re-sending it is not a code change). It is **exact only if the radio already broadcasts it** in its adverts (**Include Node Location**). Otherwise it is **rounded to about 1 km** (two decimals). Community uses it to check the code, and **shows it on its public map** (Live, directory): the exact one is the position your adverts already make public, the rounded one places your observer near its town, not at its address. A radio with no position sends none.
 - **A status message**, when the connection opens and then every five minutes: your radio's name, public key, model, firmware version and radio settings (frequency, bandwidth, spreading factor, coding rate), the Meshloom version, and the radio's counters when it provides them.
 - **Directory requests.** To name a hop or draw an RF locate zone, your server asks Community about the nodes involved. The browser never talks to Community itself: your server relays. One-byte hops are never sent.
 - **Hashtag channel names.** When you create or adopt a hashtag channel, or when Meshloom finds one, its name (up to 50 at a time) is added to the global list. Names are not grouped by airport. Keys are not shared. A channel whose key does not come from its name is private: its name is never shared, even when it starts with `#`.
@@ -70,5 +71,7 @@ The airport search (`api.fx-port.com`, through your server) is part of Community
 ## In the interface
 
 **Settings → Meshloom Community** lets you join or leave, type the IATA code (or search for it once joined), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals.
+
+The "heard by" details and the radio test measure distances only to observers whose exact position is known. An observer that publishes a rounded position still appears on their maps, but has no distance and never sets the farthest-ear record.
 
 See [Variables and settings](/en/docs/deep/environment/) and [Security](/en/docs/deep/security/).

@@ -95,7 +95,9 @@ An advert tells others that you exist. The **Advertising** tab of **Settings →
 - **Periodic Advertising Interval**, in hours. `0` turns it off. The minimum is 1 hour (24 or more is recommended), and a shorter value is raised to 1 hour.
 - **Send Flood Advertisement**, which goes through repeaters, and **Send Zero-Hop Advertisement**, which stays local and uses less airtime.
 
-The location in the adverts is set by **Advert Location Source**, in the **Configuration** tab. It has only two choices: **Off**, or **Include Node Location**. Companion firmware does not tell a saved position from a live GPS reading.
+The location in the adverts is set by **Advert Location Source**, in the **Configuration** tab. It has only two choices: **Off**, or **Include Node Location**. Companion firmware does not tell a saved position from a live GPS reading. When the radio does not report this setting, Meshloom shows **Off**.
+
+With [Meshloom Community](/en/docs/deep/community/) on, this choice also sets the position Community receives: exact with **Include Node Location**, rounded to about 1 km with **Off**. Changing it, or the radio's position, sends the new one to Community on its own.
 
 ## Radio proxy
 

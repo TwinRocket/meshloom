@@ -43,6 +43,7 @@ Voir [Variables et réglages](/docs/deep/environment/).
 Avec Community activé et un code enregistré, votre serveur envoie :
 
 - Les **paquets bruts**, tels qu’ils circulent par les ondes, avec la force du signal, le nom de votre radio et sa clé publique. Les messages des salons privés et les messages directs restent chiffrés. Le texte de vos conversations ne passe jamais par ce chemin.
+- La **position de votre radio**, si elle en a une, avec le code : quand vous rejoignez ou changez de code, puis d’elle-même à chaque changement de la position de la radio ou de sa **Source de position des annonces** (ce renvoi ne compte pas comme un changement de code). Elle est **exacte seulement si la radio la diffuse déjà** dans ses annonces (**Inclure la position du nœud**). Sinon elle est **arrondie à environ 1 km** (deux décimales). Community s’en sert pour vérifier le code, et **l’affiche sur sa carte publique** (Live, annuaire) : la position exacte est celle que vos annonces rendent déjà publique, la position arrondie place votre observateur près de sa commune, pas à son adresse. Une radio sans position n’en envoie aucune.
 - Un **message d’état**, à l’ouverture de la connexion puis toutes les cinq minutes : le nom de votre radio, sa clé publique, son modèle, sa version de firmware et ses paramètres radio (fréquence, largeur de bande, facteur d’étalement, taux de codage), la version de Meshloom, et les compteurs de la radio quand elle les fournit.
 - Des **requêtes d’annuaire.** Pour nommer un saut ou dessiner une zone de localisation RF, votre serveur interroge Community sur les nœuds concernés. Le navigateur ne parle jamais à Community lui-même : c’est votre serveur qui relaie. Les sauts d’un seul octet ne sont jamais envoyés.
 - Les **noms de salons hashtag.** Quand vous créez ou adoptez un salon hashtag, ou quand Meshloom en trouve un, son nom (50 au plus à la fois) est ajouté à la liste globale. Les noms ne sont pas regroupés par aéroport. Les clés ne sont pas partagées. Un salon dont la clé ne découle pas de son nom est privé : son nom n’est jamais partagé, même s’il commence par `#`.
@@ -70,5 +71,7 @@ La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre s
 ## Dans l’interface
 
 **Réglages → Meshloom Community** permet de rejoindre ou de quitter, de saisir le code IATA (ou de le chercher une fois inscrit), de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté.
+
+Le détail « entendu par » et le test radio ne mesurent de distance que vers les observateurs dont la position exacte est connue. Un observateur qui publie une position arrondie apparaît quand même sur leurs cartes, mais sans distance, et il ne bat jamais le record de l’oreille la plus lointaine.
 
 Voir [Variables et réglages](/docs/deep/environment/) et [Sécurité](/docs/deep/security/).
