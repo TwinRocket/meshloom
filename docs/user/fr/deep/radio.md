@@ -57,7 +57,7 @@ Chaque répéteur d’une route est identifié par quelques octets. Un identifia
 | `1` | 2 octets (recommandé) | 32 sauts |
 | `2` | 3 octets | 21 sauts |
 
-À la connexion, Meshloom fait passer de 1 à 2 octets une radio qui utilise 1 octet, sauf si vous avez choisi de rester à 1 octet. Le réglage n’apparaît que si le firmware de la radio le gère.
+À la connexion, Meshloom fait passer de 1 à 2 octets une radio qui utilise 1 octet, sauf si vous avez choisi de rester à 1 octet. Il faut pour cela que la radio indique son mode pendant la connexion. Sinon (firmware trop ancien pour le gérer, ou radio qui n’a pas répondu), un message remplace le réglage et la radio garde sa largeur actuelle : reconnectez la radio, et si le message reste, mettez à jour son firmware.
 
 `path_len`, dans l’interface comme dans l’API, est **toujours un nombre de sauts**, jamais un nombre d’octets. Un salon peut avoir sa propre largeur (**Définir le forçage de largeur de saut** dans son en-tête), appliquée à cet envoi seulement.
 

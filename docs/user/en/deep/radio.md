@@ -57,7 +57,7 @@ Every repeater on a route is identified by a few bytes. A longer identifier mean
 | `1` | 2 bytes (recommended) | 32 hops |
 | `2` | 3 bytes | 21 hops |
 
-When it connects, Meshloom switches a radio that uses 1 byte to 2 bytes, unless you chose to stay on 1 byte. The setting only appears if the radio's firmware supports it.
+When it connects, Meshloom switches a radio that uses 1 byte to 2 bytes, unless you chose to stay on 1 byte. This needs the radio to report its mode while connecting. If it did not (firmware too old to support it, or the radio did not answer), a notice replaces the setting and the radio keeps its current width: reconnect the radio, and if the notice stays, update its firmware.
 
 `path_len`, in the interface and in the API, is **always a number of hops**, never a number of bytes. A channel can have its own width (**Set path hop width override** in its header), applied for that send only.
 

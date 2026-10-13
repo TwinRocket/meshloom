@@ -338,6 +338,26 @@ describe('SettingsModal', () => {
     expect(screen.queryByLabelText(i18n.t('settings.radio.preset'))).not.toBeInTheDocument();
   });
 
+  it('explains why the path hash mode cannot be set when the radio did not report it', () => {
+    renderModal();
+    openRadioSection();
+    openRadioTab('tabDevice');
+
+    expect(screen.getByTestId('path-hash-unavailable')).toHaveTextContent(
+      i18n.t('settings.radio.pathHashUnavailable')
+    );
+    expect(screen.queryByLabelText(i18n.t('settings.radio.pathHashMode'))).toBeNull();
+  });
+
+  it('shows the path hash mode selector when the radio reports it', () => {
+    renderModal({ config: { ...baseConfig, path_hash_mode_supported: true, path_hash_mode: 1 } });
+    openRadioSection();
+    openRadioTab('tabDevice');
+
+    expect(screen.getByLabelText(i18n.t('settings.radio.pathHashMode'))).toHaveValue('1');
+    expect(screen.queryByTestId('path-hash-unavailable')).toBeNull();
+  });
+
   it('shows favorite-contact radio sync helper text in radio tab', async () => {
     renderModal();
     openRadioSection();
