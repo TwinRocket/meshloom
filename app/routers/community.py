@@ -58,8 +58,6 @@ async def patch_community(body: CommunityUpdate) -> CommunityStatus:
     await update_community(
         enabled=body.enabled,
         iata=body.iata,
-        broker_host=body.broker_host,
-        api_base=body.api_base,
         # Another IATA: 409, an IATA change is PUT /community/me/iata (a bind).
         iata_through_bind=True,
     )

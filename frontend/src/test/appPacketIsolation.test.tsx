@@ -220,11 +220,8 @@ describe('overheard packets and the chat render path', () => {
     mocks.api.getCommunity.mockResolvedValue({
       enabled: true,
       iata: 'LYS',
-      broker_host: '',
-      api_base: '',
       publisher_configured: true,
       publisher_connected: false,
-      env_seeded: false,
     });
     mocks.api.getCommunityHashtags.mockResolvedValue({ hashtags: [] });
     mocks.api.putCommunityHashtags.mockResolvedValue({ hashtags: [] });

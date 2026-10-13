@@ -106,7 +106,7 @@ async def test_db_disconnect_runs_even_if_teardown_raises():
             ),
             ("app.fanout.manager.fanout_manager.load_from_db", {"new": AsyncMock()}),
             ("app.radio_proxy.manager.radio_proxy_manager.start_from_db", {"new": AsyncMock()}),
-            ("app.services.meshloom_community.seed_community_from_env", {"new": AsyncMock()}),
+            ("app.services.meshloom_community.import_legacy_community_env", {"new": AsyncMock()}),
             ("app.main.start_radio_stats_sampling", {"new": AsyncMock()}),
             ("app.main.start_oss_update_polling", {"new": AsyncMock()}),
             ("app.main.start_hashtag_catalogue_polling", {}),

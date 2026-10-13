@@ -18,7 +18,6 @@ from app.fanout.mqtt_community import (
     _publish_community_packet,
 )
 from app.services.meshloom_community import (
-    DEFAULT_BROKER_HOST,
     DEFAULT_BROKER_PORT,
     DEFAULT_WEBSOCKET_PATH,
     MQTT_KEEPALIVE_SECONDS,
@@ -32,7 +31,8 @@ logger = logging.getLogger(__name__)
 def _state_to_settings(state: Any) -> SimpleNamespace:
     return SimpleNamespace(
         community_mqtt_enabled=state.enabled,
-        community_mqtt_broker_host=state.broker_host or DEFAULT_BROKER_HOST,
+        # Always the fixed Community broker (get_community_effective).
+        community_mqtt_broker_host=state.broker_host,
         community_mqtt_broker_port=DEFAULT_BROKER_PORT,
         community_mqtt_transport="websockets",
         community_mqtt_use_tls=True,
@@ -86,7 +86,7 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
         """Remember the topic, so a restart with another IATA can clear it."""
         from app.services.community_status_clear import StatusClearTarget, note_published
 
-        broker = getattr(settings, "community_mqtt_broker_host", "") or DEFAULT_BROKER_HOST
+        broker = getattr(settings, "community_mqtt_broker_host", "")
         audience = (getattr(settings, "community_mqtt_token_audience", "") or "").strip()
         target = StatusClearTarget(
             iata=(getattr(settings, "community_mqtt_iata", "") or "").upper().strip(),
@@ -124,7 +124,7 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
         return kwargs
 
     def _on_connected(self, settings: object) -> tuple[str, str]:
-        host = getattr(settings, "community_mqtt_broker_host", "") or DEFAULT_BROKER_HOST
+        host = getattr(settings, "community_mqtt_broker_host", "")
         return ("Meshloom Stats MQTT connected", f"{host}:{DEFAULT_BROKER_PORT}")
 
     def _on_error(self) -> tuple[str, str]:

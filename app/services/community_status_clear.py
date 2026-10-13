@@ -2,7 +2,7 @@
 
 This is the one Community connection made after an opt-out, and nothing else
 ever reconnects. It exists for one case: the broker was unreachable when the
-operator left (or when the IATA or broker changed), so the publisher could not
+operator left (or when the IATA changed), so the publisher could not
 send the empty retained payload before its DISCONNECT, and a retained
 ``offline`` (the Will, or the one from an earlier clean stop) stays on
 ``meshcore/{IATA}/{PUBKEY}/status``.
@@ -20,9 +20,10 @@ How it is bounded:
   is abandoned, and the attempt count is saved before each attempt, so a
   restart neither loses nor repeats it.
 
-A topic can also be left behind while the app is stopped: the IATA or broker
-changes in the environment or the database, or Community is turned off, before
-the next start. The Stats publisher therefore records the last topic it made
+A topic can also be left behind while the app is stopped: the IATA changes in
+the database, or Community is turned off, before the next start, or the
+upgrade retired a custom broker (the Community addresses are fixed now; the
+recorded topic keeps its broker, so that old broker is cleared once). The Stats publisher therefore records the last topic it made
 retained (``note_published``, ``app_settings.community_status_last``), and at
 startup ``adopt_orphaned_status`` hands that topic to this same bounded clear
 when it is no longer the current one.
@@ -228,8 +229,9 @@ async def forget_published(target: StatusClearTarget) -> None:
 async def adopt_orphaned_status() -> None:
     """At startup: a retained status left on a topic that is no longer ours.
 
-    The IATA or the broker changed while the app was stopped (env or database),
-    or Community is off now: the topic the publisher last used keeps a retained
+    The IATA changed while the app was stopped, the topic sits on a broker that
+    is no longer the fixed Community one (a custom broker retired by the
+    upgrade: cleared once, on purpose), or Community is off now: the topic the publisher last used keeps a retained
     ``offline`` (or the Will's). Hand it to the bounded clear. The public key is
     not compared: it is not known before the radio connects, and only that
     radio's key could sign for its topic anyway (the worker waits for it).

@@ -285,11 +285,8 @@ describe('App startup hash resolution', () => {
     const communityOn: CommunityStatus = {
       enabled: true,
       iata: 'LYS',
-      broker_host: '',
-      api_base: '',
       publisher_configured: true,
       publisher_connected: true,
-      env_seeded: true,
     };
     setHash('#test');
     mocks.api.getCommunity.mockResolvedValue(communityOn);

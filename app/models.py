@@ -2082,18 +2082,15 @@ class CommunityStatus(BaseModel):
 
     enabled: bool
     iata: str
-    broker_host: str
-    api_base: str
     publisher_configured: bool
     publisher_connected: bool = False
-    env_seeded: bool = False
 
 
 class CommunityUpdate(BaseModel):
+    """The Community addresses are fixed and not settable: extra fields are ignored."""
+
     enabled: bool | None = None
     iata: str | None = Field(default=None, max_length=3)
-    broker_host: str | None = None
-    api_base: str | None = None
 
 
 class CommunityIataBindRequest(BaseModel):

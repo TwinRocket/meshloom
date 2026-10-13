@@ -148,12 +148,12 @@ async def lifespan(app: FastAPI):
     snapshot = await maybe_import_legacy_env(existing_database=existing_database)
     radio_manager.connection_desired = snapshot.configured
 
-    from app.services.meshloom_community import seed_community_from_env
+    from app.services.meshloom_community import import_legacy_community_env
 
     try:
-        await seed_community_from_env(new_install=not existing_database)
+        await import_legacy_community_env(existing_database=existing_database)
     except Exception:
-        logger.exception("Failed to seed Meshloom Stats community from env")
+        logger.exception("Failed to import the retired MESHLOOM_COMMUNITY* env")
     if not snapshot.configured:
         logger.info("Radio transport is not configured; connection attempts stay paused")
 
@@ -195,8 +195,8 @@ async def lifespan(app: FastAPI):
     await radio_manager.start_connection_monitor()
 
     # A retained Community status left behind: an opt-out that could not clear
-    # it, or a topic that changed while the app was stopped (IATA, broker, or
-    # Community turned off). Resume or start its single bounded clear
+    # it, or a topic that changed while the app was stopped (IATA, a retired
+    # custom broker, or Community turned off). Resume or start its single bounded clear
     # (services/community_status_clear), before the publisher records the
     # current topic over the old one.
     from app.services.community_status_clear import start_status_clear_worker

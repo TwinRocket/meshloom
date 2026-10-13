@@ -49,7 +49,10 @@ class TestStartupLifespan:
                     {"new": AsyncMock(return_value=False)},
                 ),
                 ("app.fanout.manager.fanout_manager.load_from_db", {"new": AsyncMock()}),
-                ("app.services.meshloom_community.seed_community_from_env", {"new": AsyncMock()}),
+                (
+                    "app.services.meshloom_community.import_legacy_community_env",
+                    {"new": AsyncMock()},
+                ),
                 ("app.fanout.manager.fanout_manager.stop_all", {"new": AsyncMock()}),
                 ("app.main.stop_message_polling", {"new": AsyncMock()}),
                 ("app.main.stop_periodic_advert", {"new": AsyncMock()}),

@@ -195,7 +195,7 @@ def egress(monkeypatch):
     monkeypatch.setattr(
         "app.services.oss_updates.fetch_meshloom_latest", _real_fetch_meshloom_latest
     )
-    monkeypatch.setenv("MESHLOOM_COMMUNITY_API_BASE", EGRESS_API_BASE)
+    monkeypatch.setattr(meshloom_community, "DEFAULT_API_BASE", EGRESS_API_BASE)
     with (
         patch("app.keystore.get_public_key", return_value=PUBKEY),
         patch("app.keystore.get_private_key", return_value=b"\x02" * 64),
@@ -253,6 +253,17 @@ def _status_of(event: tuple[Any, ...]) -> str | None:
 
 def _online_published(recorder: EgressRecorder, iata: str) -> bool:
     return any(_status_of(e) == "online" and e[1] == _status_topic(iata) for e in recorder.events)
+
+
+def _online_since(recorder: EgressRecorder, iata: str, start: int) -> bool:
+    return any(
+        _status_of(e) == "online" and e[1] == _status_topic(iata) for e in recorder.events[start:]
+    )
+
+
+async def _last_on_fixed_broker() -> bool:
+    last = await community_status_clear.last_published()
+    return last is not None and last.broker_host == "mqtt.meshloom.app"
 
 
 def _offline_at(events: list[tuple[Any, ...]], iata: str) -> int:
@@ -1248,7 +1259,10 @@ class TestOrphanedStatusAtStartup:
         await _stop_app()
         assert _clear("CDG") not in egress.events  # a plain stop leaves "offline"
 
-        monkeypatch.setenv("MESHLOOM_COMMUNITY_IATA", "LYS")  # changed while stopped
+        from app.repository.settings import AppSettingsRepository
+
+        # Changed while stopped (database edit, restore, the one-shot env import).
+        await AppSettingsRepository.update_community(iata="LYS")
         mark = len(egress.events)
         await _restart_app()
         await _until(lambda: _online_published(egress, "LYS"))
@@ -1263,6 +1277,37 @@ class TestOrphanedStatusAtStartup:
             c.kwargs.get("iata") for c in community_mqtt._generate_jwt_token.call_args_list
         ]
         assert "CDG" in token_iatas
+
+    @pytest.mark.asyncio
+    async def test_restart_clears_a_retired_custom_broker_once(
+        self, test_db, egress, cleanup_community, fast_retries, monkeypatch
+    ):
+        """An old custom broker (the retired MESHLOOM_COMMUNITY_BROKER_HOST): the
+        topic recorded there is cleared once at the first start on fixed addresses."""
+        fast_retries(0.0)
+        monkeypatch.setattr(meshloom_community, "DEFAULT_BROKER_HOST", "mqtt.old-custom.test")
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        await _stop_app()
+
+        monkeypatch.setattr(meshloom_community, "DEFAULT_BROKER_HOST", "mqtt.meshloom.app")
+        mark = len(egress.events)
+        await _restart_app()
+        await _until(lambda: _online_since(egress, "CDG", mark))
+        await _until_async(_nothing_pending)
+        connects = [e for e in egress.events[mark:] if e[0] == "mqtt_connect"]
+        assert ("mqtt_connect", "mqtt.old-custom.test") in connects
+        assert ("mqtt_connect", "mqtt.meshloom.app") in connects
+        assert _clear("CDG") in egress.events[mark:]
+        await _until_async(_last_on_fixed_broker)
+
+        # Nothing more on the old broker afterwards.
+        done = len(egress.events)
+        await _stop_app()
+        await _restart_app()
+        await _until(lambda: _online_since(egress, "CDG", done))
+        assert ("mqtt_connect", "mqtt.old-custom.test") not in egress.events[done:]
 
     @pytest.mark.asyncio
     async def test_restart_with_community_off_clears_the_old_topic(
