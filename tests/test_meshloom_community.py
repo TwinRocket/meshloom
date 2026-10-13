@@ -461,7 +461,9 @@ class TestCommunityStatusAndProxies:
             "publisher_configured",
             "publisher_connected",
             "state",
+            "opt_out_pending",
         }
+        assert status.opt_out_pending is None
 
     @pytest.mark.asyncio
     async def test_stats_proxy_forbidden_when_off(self, test_db):
@@ -636,7 +638,7 @@ class TestOfficialHostDefaults:
 
         from app.models import CommunityUpdate
 
-        assert set(CommunityUpdate.model_fields) == {"enabled", "iata"}
+        assert set(CommunityUpdate.model_fields) == {"enabled", "iata", "opt_out_reason"}
         params = inspect.signature(update_community).parameters
         assert "broker_host" not in params and "api_base" not in params
         body = CommunityUpdate.model_validate({"enabled": True, "broker_host": "mqtt.evil.test"})

@@ -188,6 +188,26 @@ async def drop_current(state: CommunityEffective) -> None:
         await resolve(target)
 
 
+async def drop_pubkey(pubkey: str) -> None:
+    """Community confirmed an opt-out that cleared this key's retained status.
+
+    Its broker now refuses the key, so every clear pending for it would only
+    be refused: forget them, and the topic the publisher last recorded for it.
+    """
+    from app.repository.settings import AppSettingsRepository
+
+    wanted = pubkey.upper()
+    entries = await _load()
+    remaining = [
+        e for e in entries if (t := _entry_target(e)) is None or t.pubkey.upper() != wanted
+    ]
+    if len(remaining) != len(entries):
+        await _save(remaining)
+    last = await last_published()
+    if last is not None and last.pubkey.upper() == wanted:
+        await AppSettingsRepository.set_community_status_last(None)
+
+
 def _target_entry(target: StatusClearTarget) -> dict[str, str]:
     return {
         "iata": target.iata,

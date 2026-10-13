@@ -157,6 +157,10 @@ REBIND_DEBOUNCE_S = 5.0
 # After a failed re-bind (Community down, rate limit, no radio key yet). A new
 # radio change cuts a retry wait short.
 REBIND_RETRY_DELAYS_S = (60.0, 300.0, 1800.0)
+# Once those are spent, while Community still waits for a position (every
+# Community feature is held back until a bind carrying it succeeds), keep
+# trying at this pace instead of giving up until the next radio change.
+REBIND_WAITING_RETRY_S = 1800.0
 
 _UNKNOWN: Any = object()
 # (radio public key, position) sent by the last successful bind, in memory.
@@ -223,11 +227,14 @@ async def _rebind_worker() -> None:
                 failures = 0
                 delay = REBIND_DEBOUNCE_S
                 continue
-            if failures >= len(REBIND_RETRY_DELAYS_S):
+            if failures < len(REBIND_RETRY_DELAYS_S):
+                delay = REBIND_RETRY_DELAYS_S[failures]
+                failures += 1
+            elif _waiting_for_position():
+                delay = REBIND_WAITING_RETRY_S
+            else:
                 logger.warning("Community position re-bind gave up until the next radio change")
                 return
-            delay = REBIND_RETRY_DELAYS_S[failures]
-            failures += 1
             _rebind_retry_wait = True
             logger.info("Community position re-bind failed, retrying in %.0f s", delay)
     finally:
@@ -262,6 +269,12 @@ async def _rebind_once() -> RebindOutcome:
         return "skipped"  # Community off, no IATA, or already bound: nothing was sent
     logger.info("Community bind refreshed after a radio position or policy change")
     return "sent"
+
+
+def _waiting_for_position() -> bool:
+    from app.services.meshloom_community import waiting_for_position
+
+    return waiting_for_position()
 
 
 def _rebind_still_needed() -> bool:

@@ -3,12 +3,16 @@
 Community is an explicit opt-in from the UI (a new database starts off). Off
 means no connection at
 all to the Community hosts (HTTP API, Live WS, MQTT broker, release mirror)
-nor to the airport search. One exception: if the opt-out could not clear the
-retained MQTT status, ``community_status_clear`` reconnects to the broker only
-to clear it, bounded in time and attempts, then never again. This module is the egress guard: every one of
-those connections checks ``community_egress_state()`` first, and HTTP goes
-through ``_community_http()`` so ``community_teardown()`` can cancel what is
-in flight.
+nor to the airport search. Three exceptions, each bounded: if the opt-out could
+not clear the retained MQTT status, ``community_status_clear`` reconnects to
+the broker only to clear it, then never again; a join sends its
+``PUT /v1/me/iata`` before the database says on (``_bind_state``); and an
+opt-out Community did not confirm can be sent again, by hand only, with
+``retry_opt_out()`` (``_opt_out_state``, ``POST /v1/me/opt-out`` alone). This
+module is the egress guard: every one of those connections checks
+``community_egress_state()`` first, and HTTP goes through
+``_community_http()`` so ``community_teardown()`` can cancel what is in
+flight.
 
 Waiting for a position: Community on, but the radio has no position it may
 publish (``observer_position.publishable_position`` is None). The egress guard
@@ -44,7 +48,12 @@ from fastapi import HTTPException
 from app.background_tasks import spawn
 from app.data.meshcore_channels import hashtag_room_name
 from app.loop_lock import LoopBoundLock
-from app.models import CommunityAirportHit, CommunityIataBindResult, CommunityStatus
+from app.models import (
+    CommunityAirportHit,
+    CommunityIataBindResult,
+    CommunityOptOutPending,
+    CommunityStatus,
+)
 
 if TYPE_CHECKING:
     from app.services.community_status_clear import StatusClearTarget
@@ -80,8 +89,10 @@ COMMUNITY_DISABLED_DETAIL = "Community is disabled"
 # Opt-out teardown: each step is bounded on its own. The MQTT step covers the
 # publisher's own bounds (clear the retained status, then DISCONNECT).
 TEARDOWN_STEP_TIMEOUT_S = 20.0
-# Future "last call" to Community before the teardown (see _announce_opt_out).
+# The "last call" to Community before the teardown (see _announce_opt_out).
 OPT_OUT_LAST_CALL_TIMEOUT_S = 5.0
+OPT_OUT_PATH = "/v1/me/opt-out"
+OptOutReason = Literal["privacy", "not_useful", "technical_issue", "other"]
 # Circuit breaker: after this many consecutive transport failures or 5xx, stop
 # calling Community for BREAKER_OPEN_SECONDS and answer 503 at once instead of
 # making every page wait for the full timeout. One trial call then decides.
@@ -120,6 +131,20 @@ _update_lock = LoopBoundLock()
 _bind_state: ContextVar[CommunityEffective | None] = ContextVar(
     "community_bind_state", default=None
 )
+
+# Set only around the ``POST /v1/me/opt-out`` of an opt-out (Community still
+# on, but ``_leaving`` already makes the guard answer None) or of its manual
+# retry (``retry_opt_out``, Community off). ``stats_request`` honours it for
+# that path alone.
+_opt_out_state: ContextVar[CommunityEffective | None] = ContextVar(
+    "community_opt_out_state", default=None
+)
+# True from just before the opt-out's ``POST /v1/me/opt-out`` to the end of
+# its teardown. Community kicks the MQTT session as it answers, before the
+# local teardown stops the publisher: the guard then answers None, so the
+# publisher does not reconnect (``_pre_connect``) and says nothing about the
+# lost connection, and Live does not reopen.
+_leaving = False
 
 CommunityState = Literal["off", "active", "waiting_for_position"]
 STATE_WAITING_FOR_POSITION: CommunityState = "waiting_for_position"
@@ -276,12 +301,14 @@ async def update_community(
     enabled: bool | None = None,
     iata: str | None = None,
     iata_through_bind: bool = False,
+    opt_out_reason: OptOutReason | None = None,
 ) -> CommunityEffective:
     """Write the Community settings under ``_update_lock``.
 
     ``iata_through_bind`` (the ``PATCH /community`` route): an IATA other than
     the stored one is refused with 409 ``iata_requires_bind``, whatever the
     state and whether ``enabled`` is sent; the same IATA is accepted.
+    ``opt_out_reason`` goes with the ``POST /v1/me/opt-out`` of an opt-out.
     """
     async with _update_lock:
         if iata_through_bind and iata is not None:
@@ -299,7 +326,9 @@ async def update_community(
                         "(enable: true to join)",
                     },
                 )
-        return await _update_community_locked(enabled=enabled, iata=iata)
+        return await _update_community_locked(
+            enabled=enabled, iata=iata, opt_out_reason=opt_out_reason
+        )
 
 
 async def bind_community_iata(
@@ -434,7 +463,9 @@ async def _update_community_locked(
     enabled: bool | None,
     iata: str | None,
     status_retired: bool = False,
+    opt_out_reason: OptOutReason | None = None,
 ) -> CommunityEffective:
+    global _leaving
     from app.repository.settings import AppSettingsRepository
 
     row = await get_community_record()
@@ -448,12 +479,16 @@ async def _update_community_locked(
     opting_out = before.enabled and enabled is False
     written = False
     topic_moved = False
+    cleared_upstream = False
     try:
         if opting_out:
+            # From here the guard answers None: Community kicks the MQTT
+            # session as it answers, and nothing may reconnect before the
+            # teardown below.
+            _leaving = True
             # Last call while Community is still on, before the DB flips.
-            await _bounded_step(
-                "opt-out last call", lambda: _announce_opt_out(before), OPT_OUT_LAST_CALL_TIMEOUT_S
-            )
+            outcome = await _announce_opt_out(before, opt_out_reason)
+            cleared_upstream = outcome is not None and outcome.retained_cleared
         await AppSettingsRepository.update_community(
             enabled=enabled,
             iata=next_iata if iata is not None else None,
@@ -470,12 +505,21 @@ async def _update_community_locked(
         # connections must not stay up. Fail closed: an opt-out tears down
         # even when the write itself failed.
         if opting_out:
-            await _run_to_completion(community_teardown(before))
+            try:
+                await _run_to_completion(
+                    community_teardown(before, cleared_upstream=cleared_upstream)
+                )
+            finally:
+                _leaving = False
         elif written and before.enabled:
             topic_moved = await _run_to_completion(_move_status_topic(before, status_retired))
     state = await get_community_effective()
     if opting_out:
         return state
+    if state.enabled and not before.enabled:
+        # Joined again: Community lifts its opt-out on the bind, so an
+        # unconfirmed one no longer matters.
+        await _set_opt_out_pending(None)
     if not topic_moved:
         await _reload_system_publisher()
     await _forget_pending_clear(state)
@@ -523,18 +567,169 @@ def _status_topic_moved(before: CommunityEffective, after: CommunityEffective) -
     return bool(before.iata) and before.iata != after.iata
 
 
-async def _announce_opt_out(state: CommunityEffective) -> None:
-    """Hook: the "last call" to Community when the operator opts out.
+@dataclass(frozen=True)
+class OptOutOutcome:
+    """What Community said it did on ``POST /v1/me/opt-out`` (2xx)."""
 
-    Runs while Community is still on, before the database flips and before
-    ``community_teardown()``, bounded by ``OPT_OUT_LAST_CALL_TIMEOUT_S``. A
-    failure is logged and never blocks the opt-out.
+    retained_cleared: bool
 
-    Not implemented yet: Community does not serve ``POST /v1/me/opt-out``
-    (separate lot). When it does, call it from here, e.g.
-    ``await stats_json("POST", "/v1/me/opt-out", auth=True)``.
+
+def opt_out_in_progress() -> bool:
+    """True while an opt-out runs (last call and teardown): nothing reconnects."""
+    return _leaving
+
+
+async def _post_opt_out(reason: OptOutReason | None) -> OptOutOutcome:
+    """``POST /v1/me/opt-out``. Any 2xx is a success; the body is read tolerantly.
+
+    Community deletes the bind's position, kicks the MQTT session, clears the
+    retained status and refuses reconnections until a re-join. Raises the
+    usual mapped ``HTTPException`` otherwise.
     """
-    del state
+    response = await stats_request(
+        "POST",
+        OPT_OUT_PATH,
+        auth=True,
+        json_body={"reason": reason} if reason else {},
+        timeout=OPT_OUT_LAST_CALL_TIMEOUT_S,
+    )
+    if not 200 <= response.status_code < 300:
+        _json_or_http_error(response, path=OPT_OUT_PATH)
+        raise CommunityUpstreamError(
+            502,
+            f"Community request failed (HTTP {response.status_code})",
+            upstream_status=response.status_code,
+        )
+    mqtt = _response_payload(response).get("mqtt")
+    cleared = isinstance(mqtt, dict) and mqtt.get("retained_cleared") is True
+    return OptOutOutcome(retained_cleared=cleared)
+
+
+async def _with_opt_out_state(state: CommunityEffective, call: Callable[[], Awaitable[_T]]) -> _T:
+    """Run the opt-out call with ``_opt_out_state`` set, and nothing else."""
+    token = _opt_out_state.set(state)
+    try:
+        return await call()
+    finally:
+        _opt_out_state.reset(token)
+
+
+async def _announce_opt_out(
+    state: CommunityEffective, reason: OptOutReason | None
+) -> OptOutOutcome | None:
+    """The "last call" to Community when the operator opts out.
+
+    Runs while the database still says on, before ``community_teardown()``,
+    bounded by ``OPT_OUT_LAST_CALL_TIMEOUT_S``. The opt-out is first saved as
+    pending (write-ahead), and cleared once Community confirms it. A failure
+    is logged, keeps the pending record (the UI offers a manual retry) and
+    never blocks the opt-out. None on failure.
+    """
+    try:
+        await _set_opt_out_pending(_pending_entry(state, reason))
+        outcome = await asyncio.wait_for(
+            _with_opt_out_state(replace(state, enabled=True), lambda: _post_opt_out(reason)),
+            timeout=OPT_OUT_LAST_CALL_TIMEOUT_S,
+        )
+    except Exception:  # TimeoutError included
+        logger.warning("Community opt-out: the last call failed", exc_info=True)
+        return None
+    await _set_opt_out_pending(None)
+    logger.info("Community confirmed the opt-out")
+    return outcome
+
+
+def _current_pubkey_hex() -> str:
+    from app.keystore import get_public_key
+
+    key = get_public_key()
+    return key.hex().upper() if key is not None else ""
+
+
+def _pending_entry(state: CommunityEffective, reason: OptOutReason | None) -> dict[str, Any]:
+    from datetime import UTC, datetime
+
+    return {
+        "pubkey": _current_pubkey_hex(),
+        "reason": reason,
+        "requested_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "iata": state.iata,
+    }
+
+
+async def opt_out_pending() -> dict[str, Any] | None:
+    """The opt-out Community did not confirm, if any (migration 093)."""
+    from app.repository.settings import AppSettingsRepository
+
+    try:
+        return await AppSettingsRepository.get_community_opt_out_pending()
+    except Exception:
+        logger.warning("Could not read the pending Community opt-out", exc_info=True)
+        return None
+
+
+async def _set_opt_out_pending(entry: dict[str, Any] | None) -> None:
+    from app.repository.settings import AppSettingsRepository
+
+    try:
+        await AppSettingsRepository.set_community_opt_out_pending(entry)
+    except Exception:
+        logger.warning("Could not save the pending Community opt-out", exc_info=True)
+
+
+def _pending_reason(entry: dict[str, Any]) -> OptOutReason | None:
+    raw = entry.get("reason")
+    if raw in ("privacy", "not_useful", "technical_issue", "other"):
+        return raw  # type: ignore[no-any-return]
+    return None
+
+
+async def retry_opt_out() -> None:
+    """Send an unconfirmed opt-out again (``POST /api/community/opt-out/retry``).
+
+    The only Community request made by hand while off, and only this one
+    path (``_opt_out_state``). Manual only: nothing retries on its own. Under
+    ``_update_lock``, so it never meets a join. Signed by the radio key that
+    left; another radio is refused (409 ``opt_out_other_radio``). On success
+    the pending record goes, and if Community cleared the retained status, a
+    leftover status clear for that key is dropped (its reconnects would be
+    refused anyway). Errors are the usual mapped ``HTTPException``; the record
+    then stays.
+    """
+    from app.services import community_status_clear
+
+    async with _update_lock:
+        pending = await opt_out_pending()
+        state = await get_community_effective()
+        if pending is None or state.enabled:
+            if pending is not None:
+                await _set_opt_out_pending(None)
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "no_pending_opt_out", "message": "No opt-out to send again"},
+            )
+        current = _current_pubkey_hex()
+        if not current:
+            raise HTTPException(status_code=503, detail="Radio key is not available")
+        left_with = str(pending.get("pubkey") or "").upper()
+        if left_with and left_with != current:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "opt_out_other_radio",
+                    "message": "Connect the radio that left Community to send its opt-out",
+                },
+            )
+        outcome = await _with_opt_out_state(
+            replace(state, enabled=True), lambda: _post_opt_out(_pending_reason(pending))
+        )
+        await _set_opt_out_pending(None)
+        logger.info("Community confirmed the opt-out (retry)")
+        if outcome.retained_cleared:
+            try:
+                await community_status_clear.drop_pubkey(current)
+            except Exception:
+                logger.warning("Could not update the pending Community status clear", exc_info=True)
 
 
 async def _bounded_step(
@@ -558,7 +753,10 @@ async def _run_steps(steps: list[tuple[str, Callable[[], Awaitable[object]]]]) -
 
 
 async def _retire_status_and_reload(
-    before: CommunityEffective | None, *, restart: bool = True
+    before: CommunityEffective | None,
+    *,
+    restart: bool = True,
+    cleared_upstream: bool = False,
 ) -> None:
     """Clear the retained status of ``before`` (before DISCONNECT), then reload.
 
@@ -570,6 +768,11 @@ async def _retire_status_and_reload(
     stands in for it. ``restart=False`` stops the publisher without starting
     it again (``bind_community_iata`` reconnects once Community has the new
     IATA).
+
+    ``cleared_upstream``: Community already cleared that retained status
+    (``POST /v1/me/opt-out`` said ``retained_cleared``) and now refuses this
+    key on the broker, so no clear is marked pending and no worker starts; the
+    topic is only forgotten.
     """
     from app.fanout.manager import fanout_manager
     from app.services import community_status_clear
@@ -584,7 +787,7 @@ async def _retire_status_and_reload(
                 before.broker_host,
             ):
                 target = last
-    if target is not None:
+    if target is not None and not cleared_upstream:
         try:
             await community_status_clear.mark_pending(target)
         except Exception:
@@ -598,6 +801,11 @@ async def _retire_status_and_reload(
         return
     try:
         # Pending now (or cleared): no longer the publisher's to remember.
+        if cleared_upstream:
+            # Community refuses this key on the broker now: any clear still
+            # pending for it (an older IATA too) could only be refused.
+            await community_status_clear.drop_pubkey(target.pubkey)
+            return
         await community_status_clear.forget_published(target)
         if getattr(module, "retired_status_topic", None) == target.topic:
             await community_status_clear.resolve(target)
@@ -650,7 +858,9 @@ async def _reset_client_state() -> None:
     get_live_relay().drain_queue()
 
 
-async def community_teardown(before: CommunityEffective | None = None) -> None:
+async def community_teardown(
+    before: CommunityEffective | None = None, *, cleared_upstream: bool = False
+) -> None:
     """Cut every Community connection after an opt-out.
 
     Order: cancel Community requests in flight and close the Live relay
@@ -662,7 +872,9 @@ async def community_teardown(before: CommunityEffective | None = None) -> None:
 
     ``before`` is the state that was on. If its status topic could not be
     cleared here, ``community_status_clear`` retries that clear alone, bounded
-    in time and attempts: the one exception to "nothing after the opt-out".
+    in time and attempts: the one exception to "nothing after the opt-out"
+    (besides the manual ``retry_opt_out``). ``cleared_upstream``: Community
+    cleared it already, so no such retry is armed.
     """
     global _egress_generation
     _egress_generation += 1
@@ -670,7 +882,10 @@ async def community_teardown(before: CommunityEffective | None = None) -> None:
         [
             ("in-flight requests", _cancel_inflight_requests),
             ("Live relay", _close_live),
-            ("MQTT publisher", lambda: _retire_status_and_reload(before)),
+            (
+                "MQTT publisher",
+                lambda: _retire_status_and_reload(before, cleared_upstream=cleared_upstream),
+            ),
             ("client state reset", _reset_client_state),
         ]
     )
@@ -706,6 +921,8 @@ def _hashtag_publish_names(names: list[str]) -> list[str]:
 
 
 def _path_requires_iata(path: str) -> bool:
+    if path == OPT_OUT_PATH:
+        return False  # identity.md: the opt-out needs no ``iata`` claim
     return path.startswith("/v1/me/") or path == "/v1/hashtags/samples"
 
 
@@ -720,10 +937,11 @@ def note_sample_quota(*, now: float | None = None) -> None:
 
 
 def reset_stats_client_for_tests() -> None:
-    global _sample_quota_until, _breaker, _position_missing
+    global _sample_quota_until, _breaker, _position_missing, _leaving
     _sample_quota_until = 0.0
     _breaker = CommunityBreaker()
     _position_missing = False
+    _leaving = False
 
 
 def _is_quota_http(exc: BaseException) -> bool:
@@ -863,12 +1081,21 @@ def publisher_connected() -> bool:
 
 async def community_status() -> CommunityStatus:
     state = await get_community_effective()
+    pending = None if state.enabled else await opt_out_pending()
     return CommunityStatus(
         enabled=state.enabled,
         iata=state.iata,
         publisher_configured=state.publisher_configured,
         publisher_connected=publisher_connected(),
         state=community_state_of(state),
+        opt_out_pending=(
+            CommunityOptOutPending(
+                requested_at=str(pending.get("requested_at") or ""),
+                reason=_pending_reason(pending),
+            )
+            if pending is not None
+            else None
+        ),
     )
 
 
@@ -986,10 +1213,13 @@ async def community_enrolled_state() -> CommunityEffective | None:
     Enrolled-level check, used only by the Stats MQTT publisher (start and
     every reconnect) and the ``PUT /v1/me/iata`` binds: while Community waits
     for a position the publisher keeps its status up and a chosen position can
-    still be bound. Everything else uses ``community_egress_state()``.
+    still be bound. Everything else uses ``community_egress_state()``. None
+    while an opt-out runs (``opt_out_in_progress``), before the database flips.
     """
+    if _leaving:
+        return None
     state = await get_community_effective()
-    return state if state.enabled else None
+    return state if state.enabled and not _leaving else None
 
 
 async def community_egress_state() -> CommunityEffective | None:
@@ -1095,8 +1325,13 @@ async def stats_request(
     open this raises 503 without touching the network.
     """
     generation = _egress_generation
-    # A bind may leave while off (join) or waiting for a position (``_bind_state``).
-    state = _bind_state.get() or await community_egress_state()
+    # A bind may leave while off (join) or waiting for a position (``_bind_state``);
+    # the opt-out call while leaving or off (``_opt_out_state``), on its path only.
+    state = _bind_state.get()
+    if state is None and path == OPT_OUT_PATH:
+        state = _opt_out_state.get()
+    if state is None:
+        state = await community_egress_state()
     if state is None:
         raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
     headers: dict[str, str] = {}

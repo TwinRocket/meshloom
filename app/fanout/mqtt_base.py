@@ -207,6 +207,10 @@ class BaseMqttPublisher(ABC):
         """Called before connecting. Return True to proceed, False to retry."""
         return True
 
+    def _error_toast_allowed(self) -> bool:
+        """False to keep a connection failure out of the UI (logged only)."""
+        return True
+
     async def _before_disconnect(self, client: aiomqtt.Client) -> None:
         """Called by ``stop()`` while still connected, before the DISCONNECT.
 
@@ -348,7 +352,7 @@ class BaseMqttPublisher(ABC):
                     )
                     return
 
-                if not self._error_notified:
+                if not self._error_notified and self._error_toast_allowed():
                     title, detail = self._on_error()
                     broadcast_error(title, detail, code=self._error_code())
                     _broadcast_health()

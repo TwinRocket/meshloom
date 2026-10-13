@@ -30,6 +30,7 @@ from app.services.meshloom_community import (
     bind_community_iata,
     community_status,
     get_community_effective,
+    retry_opt_out,
     search_community_airports,
     stats_json,
     update_community,
@@ -60,12 +61,21 @@ async def patch_community(body: CommunityUpdate) -> CommunityStatus:
         iata=body.iata,
         # Another IATA: 409, an IATA change is PUT /community/me/iata (a bind).
         iata_through_bind=True,
+        opt_out_reason=body.opt_out_reason,
     )
     if body.enabled and not was_enabled:
         # Turned on without a bind (the settings join through PUT /me/iata
         # instead): check the radio's position the way an appstart does, so a
         # stale bind is refreshed. The worker sends nothing when nothing moved.
         note_radio_self_info(radio_self_info())
+    return await community_status()
+
+
+@router.post("/opt-out/retry", response_model=CommunityStatus)
+async def post_opt_out_retry() -> CommunityStatus:
+    # Manual only: sends the opt-out Community did not confirm, the one
+    # Community request allowed by hand while off (409 when none is pending).
+    await retry_opt_out()
     return await community_status()
 
 
