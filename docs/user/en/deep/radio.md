@@ -99,6 +99,14 @@ The location in the adverts is set by **Advert Location Source**, in the **Confi
 
 With [Meshloom Community](/en/docs/deep/community/) on, this choice also sets the position Community receives: exact with **Include Node Location**, rounded to about 1 km with **Off**. Changing it, or the radio's position, sends the new one to Community on its own. A radio with no position puts Community on hold until it has one (see [Meshloom Community](/en/docs/deep/community/)).
 
+## GPS and firmware settings
+
+The **Advanced** tab of **Settings → Radio** starts with **Firmware settings**: the settings the radio's own firmware reports. They are stored on the radio and apply at once.
+
+On a radio with a GPS module, the list holds a **GPS** checkbox. When it is on, the radio uses the GPS for its position and sets its clock from it. The firmware looks for the GPS only when the radio starts, so a GPS that is not listed was not connected at that moment: power the radio off, plug the GPS in, then power it on. With **Include Node Location** (see above), the adverts then carry the GPS position.
+
+If the list is empty, the radio reports no setting. Very old firmware reports none at all, and Meshloom says so.
+
 ## Radio proxy
 
 **Settings → Proxy** can make Meshloom look like a MeshCore radio on your network, so that a phone app or another Meshloom connects through it. It is off by default. When enabled it listens on port 5001, on every network address, for up to 8 clients at a time. You can change the address, the port and the number of clients.

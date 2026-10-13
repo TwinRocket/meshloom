@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import random
+import re
 import time
 from contextlib import suppress
 from typing import Literal, TypeAlias
 
 from fastapi import APIRouter, HTTPException
 from meshcore import EventType
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
@@ -187,6 +188,30 @@ class RadioConfigUpdate(BaseModel):
 
 class PrivateKeyUpdate(BaseModel):
     private_key: str = Field(description="Private key as hex string")
+
+
+_CUSTOM_VAR_NAME_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+
+
+class RadioCustomVarsResponse(BaseModel):
+    supported: bool = Field(
+        description="False when the firmware has no custom-vars command or reports an error"
+    )
+    vars: dict[str, str] = Field(
+        default_factory=dict, description="Firmware custom variables (name to value)"
+    )
+
+
+class RadioCustomVarUpdate(BaseModel):
+    value: str = Field(min_length=1, max_length=64, description="New value (printable ASCII)")
+
+    @field_validator("value")
+    @classmethod
+    def _printable_ascii_without_separators(cls, value: str) -> str:
+        # ':' and ',' are the firmware's key/value and pair separators.
+        if any(not (0x20 <= ord(ch) <= 0x7E) for ch in value) or ":" in value or "," in value:
+            raise ValueError("Value must be printable ASCII without ':' or ','")
+        return value
 
 
 class RadioAdvertiseRequest(BaseModel):
@@ -451,6 +476,39 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
             await AppSettingsRepository.set_path_hash_one_byte_opt_in(update.path_hash_mode == 0)
 
     return await get_radio_config()
+
+
+async def _read_custom_vars(mc) -> RadioCustomVarsResponse:
+    result = await mc.commands.get_custom_vars()
+    if result is None or result.type != EventType.CUSTOM_VARS:
+        return RadioCustomVarsResponse(supported=False, vars={})
+    payload = result.payload if isinstance(result.payload, dict) else {}
+    return RadioCustomVarsResponse(
+        supported=True, vars={str(k): str(v) for k, v in payload.items()}
+    )
+
+
+@router.get("/custom-vars", response_model=RadioCustomVarsResponse)
+async def get_radio_custom_vars() -> RadioCustomVarsResponse:
+    """Read the firmware custom variables (e.g. `gps`)."""
+    radio_manager.require_connected()
+
+    async with radio_manager.radio_operation("get_radio_custom_vars") as mc:
+        return await _read_custom_vars(mc)
+
+
+@router.put("/custom-vars/{name}", response_model=RadioCustomVarsResponse)
+async def set_radio_custom_var(name: str, update: RadioCustomVarUpdate) -> RadioCustomVarsResponse:
+    """Set one firmware custom variable, then return the re-read variables."""
+    if not _CUSTOM_VAR_NAME_RE.fullmatch(name):
+        raise HTTPException(status_code=400, detail="Invalid custom variable name")
+    radio_manager.require_connected()
+
+    async with radio_manager.radio_operation("set_radio_custom_var") as mc:
+        result = await mc.commands.set_custom_var(name, update.value)
+        if result is None or result.type == EventType.ERROR:
+            raise HTTPException(status_code=422, detail=f"Radio rejected setting {name}")
+        return await _read_custom_vars(mc)
 
 
 @router.get("/private-key")

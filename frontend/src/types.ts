@@ -126,6 +126,12 @@ export interface RadioConfig {
   telemetry_mode_env?: number;
 }
 
+export interface RadioCustomVars {
+  /** False when the firmware does not know the custom-vars command (old firmware). */
+  supported: boolean;
+  vars: Record<string, string>;
+}
+
 export interface RadioConfigUpdate {
   name?: string;
   lat?: number;
