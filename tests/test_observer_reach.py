@@ -1129,6 +1129,14 @@ class TestPositionPrecision:
         assert result.max_distance_km == pytest.approx(111.2, abs=0.2)
 
     @pytest.mark.asyncio
+    async def test_null_precision_on_packets_is_not_exact(self, test_db):
+        result = await self._reach(
+            [{"observer_id": "x", "lat": 46.0, "lon": 4.0, "position_precision": None}]
+        )
+        assert result.observers[0].position_precision == "rounded"
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
     async def test_missing_precision_on_observers_reads_rounded(self, test_db):
         result = await self._reach(
             [{"observer_id": "obs-1", "observer_name": "Lyon"}],
@@ -1184,7 +1192,14 @@ class TestDirectoryReachPrecision:
                 {"pubkey": "aa" * 32, "lat": 45.76, "lon": 4.84},
                 {"pubkey": "bb" * 32, "lat": 45.7, "lon": 4.8, "position_precision": "exact"},
                 {"pubkey": "cc" * 32, "lat": 45.7, "lon": 4.8, "position_precision": "?"},
+                # Completed by CoreScope: always present, null.
+                {"pubkey": "ee" * 32, "lat": 45.7, "lon": 4.8, "position_precision": None},
             ]
         }
         reach = parse_directory_reach(payload, "dd" * 32)
-        assert [o.position_precision for o in reach.observers] == ["rounded", "exact", "rounded"]
+        assert [o.position_precision for o in reach.observers] == [
+            "rounded",
+            "exact",
+            "rounded",
+            "rounded",
+        ]

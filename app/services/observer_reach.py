@@ -98,15 +98,15 @@ class ParsedObservation:
 def parse_position_precision(
     item: dict[str, object], default: PositionPrecision
 ) -> PositionPrecision:
-    """``position_precision`` of an ear, ``default`` when Community sent none.
+    """``position_precision`` of an ear, ``default`` when the field is absent.
 
-    Any value other than ``exact`` or ``rounded`` is read as ``rounded``: an
-    unknown precision never counts in a distance.
+    ``null`` (a position Community did not get from an advert, such as one
+    completed by CoreScope) and any value other than ``exact`` read as
+    ``rounded``: such a position never counts in a distance.
     """
-    raw = item.get("position_precision")
-    if raw is None:
+    if "position_precision" not in item:
         return default
-    return "exact" if raw == "exact" else "rounded"
+    return "exact" if item.get("position_precision") == "exact" else "rounded"
 
 
 @dataclass(frozen=True)

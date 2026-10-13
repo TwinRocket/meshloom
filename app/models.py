@@ -2079,6 +2079,8 @@ class CommunityIataBindResult(BaseModel):
     concordance: str
     honored_for_buckets: bool
     distance_km: float | None = None
+    # Echo of the stored bind position's precision (None: none, or an older Community).
+    position_precision: Literal["exact", "rounded"] | None = None
 
 
 class CommunityMeStats(BaseModel):
@@ -2087,6 +2089,7 @@ class CommunityMeStats(BaseModel):
     iata: str
     concordance: str
     rank_in_iata: int | None = None
+    position_precision: Literal["exact", "rounded"] | None = None
 
 
 class CommunityPublicStats(BaseModel):

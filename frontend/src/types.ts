@@ -1896,6 +1896,8 @@ export interface CommunityIataBindResult {
   concordance: string;
   honored_for_buckets: boolean;
   distance_km: number | null;
+  /** Precision of the bound position; null without one (or an older Community). */
+  position_precision?: PositionPrecision | null;
 }
 
 export interface CommunityMeStats {
@@ -1904,6 +1906,7 @@ export interface CommunityMeStats {
   iata: string;
   concordance: string;
   rank_in_iata: number | null;
+  position_precision?: PositionPrecision | null;
 }
 
 export interface CommunityPublicStats {
