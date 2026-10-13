@@ -1245,6 +1245,37 @@ class TestPositionPrecision:
         assert result.max_distance_km is None
 
     @pytest.mark.asyncio
+    async def test_ear_without_position_placed_by_name_never_makes_a_distance(self, test_db):
+        """Owner decision: a name is no identity, it only places the ear on the map."""
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach([{"observer_id": "x", "observer_name": "Hill"}])
+        entry = result.observers[0]
+        assert (entry.lat, entry.lon, entry.position_precision) == (45.2, 4.0, "rounded")
+        assert entry.public_key is None
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_ear_without_position_with_another_key_is_placed_by_name_only(self, test_db):
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach(
+            [{"observer_id": "x", "observer_name": "Hill", "public_key": "dd" * 32}]
+        )
+        entry = result.observers[0]
+        assert (entry.lat, entry.position_precision, entry.public_key) == (
+            45.2,
+            "rounded",
+            "dd" * 32,
+        )
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_ear_without_position_and_two_named_adverts_stays_unplaced(self, test_db):
+        await self._local_advert("cc" * 32, "Hill")
+        await self._local_advert("dd" * 32, "Hill", lat=45.4)
+        result = await self._reach([{"observer_id": "x", "observer_name": "Hill"}])
+        assert (result.observers[0].lat, result.observers[0].position_precision) == (None, None)
+
+    @pytest.mark.asyncio
     async def test_rounded_ear_without_a_local_advert_is_unchanged(self, test_db):
         # Known contact with that key, but its advert carried no position.
         await self._local_advert("cc" * 32, "Hill", lat=None)

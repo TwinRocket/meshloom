@@ -129,7 +129,7 @@ describe('placedObserverCoordinates', () => {
           },
         ]
       )
-    ).toEqual({ lat: 43.66, lon: 7.15 });
+    ).toEqual({ lat: 43.66, lon: 7.15, byName: true });
   });
 
   it('stays unplaced when neither source has a position', () => {
@@ -161,6 +161,10 @@ describe('meshTestObserverDistanceKm', () => {
 
   it('measures a position without precision (local advert, older backend)', () => {
     expect(meshTestObserverDistanceKm(origin, {}, placed)).toBeCloseTo(111.2, 0);
+  });
+
+  it('never measures a position placed by name only', () => {
+    expect(meshTestObserverDistanceKm(origin, {}, { ...placed, byName: true })).toBe(null);
   });
 
   it('never measures a rounded position', () => {

@@ -145,24 +145,38 @@ export function meshTestDistanceKm(
 export function meshTestObserverDistanceKm(
   origin: { lat: number; lon: number } | null,
   entry: Pick<ObserverReachEntry, 'position_precision'>,
-  placed: { lat: number | null; lon: number | null }
+  placed: PlacedObserverCoordinates
 ): number | null {
-  if (entry.position_precision === 'rounded') return null;
+  if (entry.position_precision === 'rounded' || placed.byName) return null;
   return meshTestDistanceKm(origin, placed.lat, placed.lon);
 }
 
-/** Reach GPS first, then the local advert for the same public key. */
+/**
+ * Where an ear sits on the map. `byName`: placed from a local advert matched
+ * by name only, which may be another node, so it never makes a distance.
+ */
+export interface PlacedObserverCoordinates {
+  lat: number | null;
+  lon: number | null;
+  byName?: boolean;
+}
+
+/**
+ * Reach GPS first, then the local advert for the same public key, then (map
+ * only, `byName`) the one local advert with the same name.
+ */
 export function placedObserverCoordinates(
   entry: Pick<ObserverReachEntry, 'lat' | 'lon' | 'public_key'> & { name?: string | null },
   contacts: Array<Pick<Contact, 'public_key' | 'lat' | 'lon'> & { name?: string | null }>
-): { lat: number | null; lon: number | null } {
+): PlacedObserverCoordinates {
   if (isValidLocation(entry.lat ?? null, entry.lon ?? null)) {
     return { lat: entry.lat ?? null, lon: entry.lon ?? null };
   }
   const local = contactCoordinates(entry.public_key, contacts);
   if (local) return { lat: local.lat, lon: local.lon };
   const named = contactCoordinatesByName(entry.name, contacts);
-  return { lat: named?.lat ?? null, lon: named?.lon ?? null };
+  if (!named) return { lat: null, lon: null };
+  return { lat: named.lat, lon: named.lon, byName: true };
 }
 
 /** Local advert GPS when the reach row itself has none. */
