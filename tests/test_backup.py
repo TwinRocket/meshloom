@@ -177,3 +177,26 @@ class TestBackupExportShape:
             == export.push_conversation_overrides
         )
         assert await AppSettingsRepository.get_vapid_subject() == "mailto:ops@example.com"
+
+
+@pytest.mark.asyncio
+async def test_restore_brings_back_the_radio_workarounds(test_db):
+    """They are restored through update(), so the copy the radio code reads follows."""
+    from app import radio_workarounds
+
+    await AppSettingsRepository.update(
+        force_channel_slot_reconfigure=True, load_with_autoevict=True
+    )
+    export = await export_json()
+    assert export.settings is not None
+    await AppSettingsRepository.update(
+        force_channel_slot_reconfigure=False, load_with_autoevict=False
+    )
+
+    await restore_json(BackupRestoreRequest(confirm=True, settings=export.settings))
+
+    stored = await AppSettingsRepository.get()
+    assert stored.force_channel_slot_reconfigure is True
+    assert stored.load_with_autoevict is True
+    assert stored.enable_message_poll_fallback is False
+    assert radio_workarounds.current().force_channel_slot_reconfigure is True

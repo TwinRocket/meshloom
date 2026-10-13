@@ -1482,6 +1482,29 @@ class AppSettings(BaseModel):
             "as the bulk-delete UI)."
         ),
     )
+    enable_message_poll_fallback: bool = Field(
+        default=False,
+        description=(
+            "Radio workaround: poll the radio for waiting messages every 10 seconds "
+            "instead of auditing once an hour"
+        ),
+    )
+    force_channel_slot_reconfigure: bool = Field(
+        default=False,
+        description=(
+            "Radio workaround: write the channel into its radio slot before every "
+            "channel send instead of reusing cached slots"
+        ),
+    )
+    load_with_autoevict: bool = Field(
+        default=False,
+        description=(
+            "Radio workaround: let the radio overwrite its oldest non-favorite contact "
+            "when its table is full (AUTO_ADD_OVERWRITE_OLDEST). Applies at the next "
+            "connection. Turning it off does not clear that preference on the radio; "
+            "clear it with another MeshCore app"
+        ),
+    )
     auto_update: bool = Field(
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",

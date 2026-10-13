@@ -12,10 +12,13 @@ from urllib.parse import urlparse
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from py_vapid import Vapid
 
-from app.config import DEFAULT_VAPID_SUBJECT, settings
 from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
+
+# Used when Settings → Notifications holds no usable contact. Apple's push service
+# rejects reserved TLDs such as ``.local``, so iPhones need a real one set there.
+DEFAULT_VAPID_SUBJECT = "mailto:noreply@meshcore.local"
 
 _cached_private_key: str = ""
 _cached_public_key: str = ""
@@ -60,18 +63,20 @@ def vapid_subject_is_usable(subject: str) -> bool:
     return False
 
 
-def resolve_vapid_subject(stored: str = "", env_subject: str | None = None) -> str:
-    """Pick the first usable subject: stored, then env, then built-in default."""
-    fallback = settings.vapid_subject if env_subject is None else env_subject
-    for candidate in (stored, fallback, DEFAULT_VAPID_SUBJECT):
-        normalized = normalize_vapid_subject(candidate)
-        if vapid_subject_is_usable(normalized):
-            return normalized
+def resolve_vapid_subject(stored: str = "") -> str:
+    """The stored subject when py-vapid accepts it, otherwise the built-in default.
+
+    ``MESHCORE_VAPID_SUBJECT`` is no longer read here: a leftover value was copied
+    into the database once (``services/legacy_env_settings.py``).
+    """
+    normalized = normalize_vapid_subject(stored)
+    if vapid_subject_is_usable(normalized):
+        return normalized
     return DEFAULT_VAPID_SUBJECT
 
 
 def set_cached_vapid_subject(subject: str) -> None:
-    """Update the in-memory VAPID subject. Empty means fall back to env."""
+    """Update the in-memory VAPID subject. Empty means the built-in default."""
     global _cached_subject
     _cached_subject = normalize_vapid_subject(subject)
 
@@ -123,8 +128,8 @@ def get_vapid_private_key() -> str:
 def get_vapid_claims() -> dict[str, str]:
     """VAPID JWT claims for Web Push.
 
-    Precedence: usable DB-cached subject, then ``MESHCORE_VAPID_SUBJECT``,
-    then ``DEFAULT_VAPID_SUBJECT``. https origins are normalized to scheme +
+    Precedence: usable DB-cached subject (Settings → Notifications), then
+    ``DEFAULT_VAPID_SUBJECT``. https origins are normalized to scheme +
     host so a trailing slash cannot trip py-vapid's ``sub`` regex.
     Apple's push service (APNs) rejects subjects on reserved TLDs such as
     ``.local`` with ``403 BadJwtToken``, so iOS/Safari operators must set this

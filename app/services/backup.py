@@ -216,6 +216,10 @@ async def _restore_settings(settings: AppSettings) -> None:
         auto_update_window_start=settings.auto_update_window_start,
         auto_update_window_end=settings.auto_update_window_end,
         auto_update_weekdays=settings.auto_update_weekdays,
+        # Through update(), so the in-memory copy the radio code reads follows.
+        enable_message_poll_fallback=settings.enable_message_poll_fallback,
+        force_channel_slot_reconfigure=settings.force_channel_slot_reconfigure,
+        load_with_autoevict=settings.load_with_autoevict,
     )
 
 

@@ -14,6 +14,7 @@ from app.models import (
     SendDirectMessageRequest,
 )
 from app.radio import radio_manager
+from app.radio_workarounds import RadioWorkarounds
 from app.repository import (
     AppSettingsRepository,
     ChannelRepository,
@@ -869,7 +870,10 @@ class TestOutgoingChannelBroadcast:
             patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
             patch.object(radio_manager, "_meshcore", mc),
             patch("app.routers.messages.broadcast_event"),
-            patch("app.radio.settings.force_channel_slot_reconfigure", True),
+            patch(
+                "app.radio.radio_workarounds.current",
+                return_value=RadioWorkarounds(force_channel_slot_reconfigure=True),
+            ),
         ):
             await send_channel_message(
                 SendChannelMessageRequest(channel_key=chan_key, text="first send")

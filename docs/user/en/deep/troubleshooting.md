@@ -52,15 +52,15 @@ In both cases the channels and Meshloom's settings stay.
 
 ## "Could not enumerate radio contacts", or a full contact table
 
-A radio keeps only a limited number of contacts. Meshloom loads your favorites and recent contacts onto it so that it can acknowledge direct messages. If the table is full, you can empty it with another MeshCore app, lower **Max Contacts on Radio** in **Settings > Radio**, set `MESHCORE_LOAD_WITH_AUTOEVICT=true` (the radio then removes old contacts by itself), or ignore the warning. **Sending and receiving messages still works.** See [Radio, contacts, and channels](/en/docs/deep/radio/).
+A radio keeps only a limited number of contacts. Meshloom loads your favorites and recent contacts onto it so that it can acknowledge direct messages. If the table is full, you can empty it with another MeshCore app, lower **Max Contacts on Radio** in **Settings > Radio**, turn on **Let the radio evict its oldest contacts** in **Settings → Radio → Advanced** (the radio then removes old contacts by itself), or ignore the warning. **Sending and receiving messages still works.** See [Radio, contacts, and channels](/en/docs/deep/radio/).
 
 ## Messages stay on the radio
 
-Meshloom normally receives messages as the radio announces them, and checks once an hour for ones it missed (and for channel slots that drifted). If messages still pile up on the radio, set `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true`: the check then runs every 10 seconds.
+Meshloom normally receives messages as the radio announces them, and checks once an hour for ones it missed (and for channel slots that drifted). If messages still pile up on the radio, turn on **Check for messages every 10 seconds** in **Settings → Radio → Advanced**: the check then runs every 10 seconds.
 
 ## A message goes out on the wrong channel
 
-Another app is probably changing the channel slots on the radio under Meshloom. Set `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true`: Meshloom then re-writes the channel on the radio before every send. It is reliable but adds a short delay to each message.
+Another app is probably changing the channel slots on the radio under Meshloom. Turn on **Rewrite the channel before every send** in **Settings → Radio → Advanced**: Meshloom then re-writes the channel on the radio before every send. It is reliable but adds a short delay to each message.
 
 ## Serial port contention
 

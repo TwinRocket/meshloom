@@ -88,25 +88,23 @@ def test_get_vapid_claims_defaults_to_meshcore_local():
     assert get_vapid_claims() == {"sub": "mailto:noreply@meshcore.local"}
 
 
-def test_get_vapid_claims_honors_configured_subject(monkeypatch):
-    """MESHCORE_VAPID_SUBJECT overrides the outgoing subject (required for APNs/iOS)."""
-    monkeypatch.setattr("app.config.settings.vapid_subject", "mailto:ops@example.net")
-    assert get_vapid_claims() == {"sub": "mailto:ops@example.net"}
+def test_get_vapid_claims_ignores_the_retired_env_variable(monkeypatch):
+    """MESHCORE_VAPID_SUBJECT is imported once at startup, never read here."""
+    monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "mailto:env@example.net")
+    assert get_vapid_claims() == {"sub": "mailto:noreply@meshcore.local"}
 
 
-def test_get_vapid_claims_prefers_cached_db_subject_over_env(monkeypatch):
-    monkeypatch.setattr("app.config.settings.vapid_subject", "mailto:env@example.net")
+def test_get_vapid_claims_uses_cached_db_subject_then_default():
     set_cached_vapid_subject("mailto:db@example.com")
     assert get_vapid_claims() == {"sub": "mailto:db@example.com"}
     set_cached_vapid_subject("")
-    assert get_vapid_claims() == {"sub": "mailto:env@example.net"}
+    assert get_vapid_claims() == {"sub": "mailto:noreply@meshcore.local"}
 
 
 def test_get_vapid_claims_normalizes_https_trailing_slash(monkeypatch):
     """py-vapid rejects https://host/ — strip the path so instance URLs work."""
     from py_vapid.__init__ import _check_sub
 
-    monkeypatch.setattr("app.config.settings.vapid_subject", "")
     set_cached_vapid_subject("https://radio.meshloom.app/")
     claims = get_vapid_claims()
     assert claims == {"sub": "https://radio.meshloom.app"}
@@ -122,8 +120,7 @@ def test_get_vapid_claims_https_origin_without_slash_is_unchanged(monkeypatch):
     assert _check_sub(claims["sub"]) is True
 
 
-def test_get_vapid_claims_skips_unusable_cache_and_empty_env(monkeypatch):
-    monkeypatch.setattr("app.config.settings.vapid_subject", "")
+def test_get_vapid_claims_skips_unusable_cache(monkeypatch):
     set_cached_vapid_subject("https://")
     assert get_vapid_claims() == {"sub": "mailto:noreply@meshcore.local"}
 
@@ -133,18 +130,9 @@ async def test_ensure_vapid_keys_seeds_subject_cache_from_db(test_db, monkeypatc
     from app.push.vapid import ensure_vapid_keys
     from app.repository.settings import AppSettingsRepository
 
-    monkeypatch.setattr("app.config.settings.vapid_subject", "mailto:env@example.net")
     await AppSettingsRepository.set_vapid_subject("mailto:db@example.com")
     await ensure_vapid_keys()
     assert get_vapid_claims() == {"sub": "mailto:db@example.com"}
-
-
-@pytest.mark.asyncio
-async def test_set_cached_vapid_subject_after_empty_falls_back_to_env(monkeypatch):
-    monkeypatch.setattr("app.config.settings.vapid_subject", "mailto:env@example.net")
-    set_cached_vapid_subject("mailto:db@example.com")
-    set_cached_vapid_subject("")
-    assert get_vapid_claims() == {"sub": "mailto:env@example.net"}
 
 
 def test_build_payload_defaults_to_french_titles():

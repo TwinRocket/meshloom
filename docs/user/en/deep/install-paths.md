@@ -103,7 +103,6 @@ MESHLOOM_HTTP_PORT=8123
 MESHLOOM_DATA_PATH=/opt/docker/meshloom/data
 MESHCORE_DATABASE_PATH=data/meshcore.db
 MESHCORE_DISABLE_BOTS=false
-MESHCORE_VAPID_SUBJECT=mailto:you@example.com
 # MESHLOOM_COMMUNITY=0
 ```
 
@@ -111,7 +110,7 @@ The file also publishes port 5001 (`MESHLOOM_PROXY_PORT`), used by the radio pro
 
 Portainer updates such a stack by copying the new version over the old files, and never deletes a file that was removed from the repository. Meshloom is built to ignore those leftovers. If an update still fails to build, delete the stack and create it again (keep the same variables and data folder: your database is not touched), so it starts from a clean copy. A stack on the published image (`docker-compose.example.yml`) builds nothing and never hits this.
 
-`MESHCORE_VAPID_SUBJECT` is only used when the contact in **Settings → Notifications** is empty. Do not put a real address in a public repository. The radio's address and port are set in the web interface. A new, empty data folder joins Community unless `MESHLOOM_COMMUNITY=0`. See [Meshloom Community](/en/docs/deep/community/).
+The push notification contact is set in **Settings → Notifications**, and the radio's address and port in the web interface. A new, empty data folder joins Community unless `MESHLOOM_COMMUNITY=0`. See [Meshloom Community](/en/docs/deep/community/).
 
 ## From a checkout, for development
 

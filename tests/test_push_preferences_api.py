@@ -25,7 +25,7 @@ async def test_get_preferences_defaults(test_db, client):
 
 @pytest.mark.asyncio
 async def test_patch_preferences_partial_defaults_and_vapid(test_db, client, monkeypatch):
-    monkeypatch.setattr("app.config.settings.vapid_subject", "mailto:env@example.net")
+    monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "mailto:env@example.net")
     response = await client.patch(
         "/api/push/preferences",
         json={
@@ -43,7 +43,8 @@ async def test_patch_preferences_partial_defaults_and_vapid(test_db, client, mon
     cleared = await client.patch("/api/push/preferences", json={"vapid_subject": ""})
     assert cleared.status_code == 200
     assert cleared.json()["vapid_subject"] == ""
-    assert get_vapid_claims() == {"sub": "mailto:env@example.net"}
+    # Cleared: the built-in default, never the retired environment variable.
+    assert get_vapid_claims() == {"sub": "mailto:noreply@meshcore.local"}
 
 
 @pytest.mark.asyncio

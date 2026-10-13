@@ -9,7 +9,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from app.config import DEFAULT_VAPID_SUBJECT, Settings, _UvicornLogHygiene
+from app.config import Settings, _UvicornLogHygiene
 
 
 class TestBasicAuthConfiguration:
@@ -50,23 +50,25 @@ class TestExperimentalAliases:
         assert s.clowntown_do_clock_wraparound is True
 
 
-class TestVapidSubjectEnv:
-    """Blank MESHCORE_VAPID_SUBJECT must not override the built-in default."""
+class TestRetiredVariables:
+    """Settings no longer read the variables whose settings moved to the database."""
 
-    def test_default_subject(self, monkeypatch):
-        monkeypatch.delenv("MESHCORE_VAPID_SUBJECT", raising=False)
+    def test_retired_variables_are_not_settings_fields(self, monkeypatch):
+        for name in (
+            "MESHCORE_VAPID_SUBJECT",
+            "MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK",
+            "MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE",
+            "MESHCORE_LOAD_WITH_AUTOEVICT",
+        ):
+            monkeypatch.setenv(name, "true")
         s = Settings()
-        assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
-
-    def test_empty_env_uses_default(self, monkeypatch):
-        monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "")
-        s = Settings()
-        assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
-
-    def test_whitespace_env_uses_default(self, monkeypatch):
-        monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "   ")
-        s = Settings()
-        assert s.vapid_subject == DEFAULT_VAPID_SUBJECT
+        for field in (
+            "vapid_subject",
+            "enable_message_poll_fallback",
+            "force_channel_slot_reconfigure",
+            "load_with_autoevict",
+        ):
+            assert not hasattr(s, field)
 
 
 class TestUvicornLogHygiene:

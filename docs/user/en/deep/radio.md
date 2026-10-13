@@ -26,7 +26,7 @@ The table can fill up because of adverts, or because another app uses the same r
 
 ### Auto-evict
 
-`MESHCORE_LOAD_WITH_AUTOEVICT=true` makes the radio drop its oldest non-favorite contact by itself when the table is full. Adding contacts then never fails, Meshloom can load contacts even if it could not read the table, and it no longer needs to remove contacts first.
+**Let the radio evict its oldest contacts**, in **Settings → Radio → Advanced**, makes the radio drop its oldest non-favorite contact by itself when the table is full. It applies at the next connection. Turning it off later does not clear that preference on the radio: clear it with another MeshCore app. Adding contacts then never fails, Meshloom can load contacts even if it could not read the table, and it no longer needs to remove contacts first.
 
 The price: contacts loaded by Meshloom are not marked as favorites on the radio, so they can be dropped when a new advert arrives. If you unplug the radio from Meshloom and use it alone, they are no longer protected.
 
@@ -39,13 +39,13 @@ At startup it empties the channel slots of the radio. Afterwards, sending to a c
 Two exceptions to this reuse:
 
 - With a **network (TCP) radio**, every channel send rewrites the channel into the radio, because another program may be using the same radio.
-- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` does the same on every connection type. Use it if the slots seem unstable or if another app changes them. Each channel send then takes a little longer.
+- **Rewrite the channel before every send**, in **Settings → Radio → Advanced**, does the same on every connection type. Use it if the slots seem unstable or if another app changes them. Each channel send then takes a little longer.
 
 ## The hourly audit
 
 Meshloom relies on the radio's events to receive messages, and also runs a slow check once an hour. The check looks for messages left on the radio, and for channel slots that no longer match what Meshloom expects.
 
-If it finds a difference, it shows an error and forgets what it believed about the slots. If you see this error, or if messages on the radio never reach Meshloom, `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` runs the check every 10 seconds instead.
+If it finds a difference, it shows an error and forgets what it believed about the slots. If you see this error, or if messages on the radio never reach Meshloom, **Check for messages every 10 seconds**, in **Settings → Radio → Advanced**, runs the check every 10 seconds instead.
 
 ## Hop width: `path_hash_mode`
 

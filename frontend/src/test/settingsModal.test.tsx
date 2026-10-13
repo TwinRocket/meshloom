@@ -243,7 +243,9 @@ function openRadioSection() {
  * Radix activates a tab on focus, which fireEvent.click does not produce in jsdom,
  * so drive mouseDown as well.
  */
-function openRadioTab(key: 'tabConnection' | 'tabDevice' | 'tabMessaging' | 'tabAdvert') {
+function openRadioTab(
+  key: 'tabConnection' | 'tabDevice' | 'tabMessaging' | 'tabAdvert' | 'tabAdvanced'
+) {
   const label = i18n.t(`settings.radio.${key}`);
   for (const tab of screen.getAllByRole('tab', { name: label })) {
     fireEvent.mouseDown(tab);
@@ -661,6 +663,65 @@ describe('SettingsModal', () => {
     await waitFor(() => {
       expect(onDiscoverRegions).toHaveBeenCalledWith(['11'.repeat(32)]);
     });
+  });
+
+  it('shows the radio workarounds in the Advanced tab and saves each toggle', async () => {
+    const { onSaveAppSettings } = renderModal({
+      appSettings: { ...baseSettings, force_channel_slot_reconfigure: true },
+    });
+    openRadioSection();
+    openRadioTab('tabAdvanced');
+
+    expect(screen.getByText(i18n.t('settings.radio.advancedIntro'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.radio.advancedAutoevictHelp'))).toBeInTheDocument();
+    expect(
+      screen.getByText(i18n.t('settings.radio.advancedAppliesNextConnection'))
+    ).toBeInTheDocument();
+
+    const forceSlot = screen.getByRole('checkbox', {
+      name: i18n.t('settings.radio.advancedForceSlot'),
+    });
+    expect(forceSlot).toHaveAttribute('data-state', 'checked');
+    expect(forceSlot).toHaveAccessibleDescription(i18n.t('settings.radio.advancedForceSlotHelp'));
+
+    const pollFallback = screen.getByRole('checkbox', {
+      name: i18n.t('settings.radio.advancedPollFallback'),
+    });
+    expect(pollFallback).toHaveAttribute('data-state', 'unchecked');
+    fireEvent.click(pollFallback);
+    await waitFor(() => {
+      expect(onSaveAppSettings).toHaveBeenCalledWith({ enable_message_poll_fallback: true });
+    });
+
+    fireEvent.click(forceSlot);
+    await waitFor(() => {
+      expect(onSaveAppSettings).toHaveBeenCalledWith({ force_channel_slot_reconfigure: false });
+    });
+  });
+
+  it('keeps the Advanced tab available before the radio is connected', () => {
+    renderModal({ config: null });
+    openRadioSection();
+    openRadioTab('tabAdvanced');
+
+    expect(
+      screen.getByRole('checkbox', { name: i18n.t('settings.radio.advancedAutoevict') })
+    ).toBeInTheDocument();
+  });
+
+  it('labels the Advanced tab in French', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      renderModal();
+      openRadioSection();
+      expect(screen.getAllByRole('tab', { name: 'Avancé' }).length).toBeGreaterThan(0);
+      openRadioTab('tabAdvanced');
+      expect(
+        screen.getByRole('checkbox', { name: 'Vérifier les messages toutes les 10 secondes' })
+      ).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage(DEFAULT_LOCALE);
+    }
   });
 
   it('adds discovered regions to the known-regions field', () => {

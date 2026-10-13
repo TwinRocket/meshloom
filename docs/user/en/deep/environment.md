@@ -44,12 +44,11 @@ Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIA
 |----------|---------|-------------|
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Path of the SQLite database |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
-| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Contact address used for push notifications when the field in Settings is empty (see below) |
 | `MESHCORE_MANAGED_PORTS` | `false` | Set by a host that decides the listening ports itself, such as the Home Assistant add-on. Settings then shows the proxy port as read-only |
 | `MESHCORE_RADIO_PROXY_PORT` | *(not set)* | Port of the radio proxy chosen by the host. Only used with `MESHCORE_MANAGED_PORTS=true`, where it replaces the saved port at every start. The Home Assistant add-on sets it to `5051` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Lets a page from the same origin show Meshloom in a frame. Home Assistant's sidebar does exactly that. By default Meshloom refuses to be framed, which looks like a blank panel while the log shows a healthy `200` |
 
-The VAPID contact is best set in **Settings → Notifications**. `MESHCORE_VAPID_SUBJECT` is only used when that field is empty. Apple requires a real `mailto:` or `https:` address and rejects the `.local` default with `403 BadJwtToken`. See [Push notifications](/en/docs/deep/push/) and [Apple's documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
+The contact address of push notifications (VAPID subject) is not a variable: set it in **Settings → Notifications**. Apple requires a real `mailto:` or `https:` address and rejects the `.local` default with `403 BadJwtToken`. See [Push notifications](/en/docs/deep/push/).
 
 ## Meshloom Community
 
@@ -84,17 +83,18 @@ The installer sets these for you. You rarely edit them by hand.
 | `MESHLOOM_RUN_AS_USER` | Docker only. A number such as `10001` runs Meshloom as that user instead of root. See [Other install paths](/en/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker only. The image Compose starts, ideally pinned by digest |
 
-## Diagnostics and workarounds
+## Retired variables
 
-These exist to diagnose or work around radios that misbehave. None is needed in normal use.
+These variables no longer change anything. Their settings are in the interface:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Makes the radio audit check for waiting messages every 10 seconds instead of every hour |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Rewrites the channel into the radio before every channel send |
-| `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Lets the radio drop its oldest contacts when its table is full |
+| Variable | Now in |
+|----------|--------|
+| `MESHCORE_VAPID_SUBJECT` | **Settings → Notifications**, VAPID subject field |
+| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | **Settings → Radio → Advanced**, "Check for messages every 10 seconds" |
+| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Settings → Radio → Advanced**, "Rewrite the channel before every send" |
+| `MESHCORE_LOAD_WITH_AUTOEVICT` | **Settings → Radio → Advanced**, "Let the radio evict its oldest contacts" |
 
-The audit always runs; the poll variable only changes how often. Forcing the channel rewrite makes each channel send a little slower.
+If one is still set when you update, Meshloom copies it into its database once, at the first start: the VAPID subject only when the field in Settings is empty, a workaround only when the variable is `true`. Your setup keeps working as before. After that Meshloom never reads them again and writes a warning in its log at each start while one is still set: remove it from your environment, and change the setting in the interface from now on.
 
 ## Settings stored in the database
 
@@ -102,7 +102,7 @@ You change these in the web interface. Nothing here is set through the environme
 
 | Where | What it controls |
 |-------|------------------|
-| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour) |
+| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour). **Advanced** tab: `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict` |
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |

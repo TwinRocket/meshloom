@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 import aiosqlite
 from pydantic import ValidationError
 
+from app import radio_workarounds
 from app.database import db
 from app.models import (
     AppSettings,
@@ -256,7 +257,8 @@ class AppSettingsRepository:
                    notification_destinations,
                    ui_preferences, auto_update,
                    auto_update_window_start, auto_update_window_end,
-                   auto_update_weekdays
+                   auto_update_weekdays, enable_message_poll_fallback,
+                   force_channel_slot_reconfigure, load_with_autoevict
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -418,6 +420,12 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             auto_update_weekdays = list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
+        def _flag(column: str) -> bool:
+            try:
+                return bool(row[column])
+            except (KeyError, TypeError, IndexError):
+                return False
+
         return AppSettings(
             max_radio_contacts=row["max_radio_contacts"],
             auto_decrypt_dm_on_advert=bool(row["auto_decrypt_dm_on_advert"]),
@@ -444,6 +452,9 @@ class AppSettingsRepository:
             auto_update_window_start=auto_update_window_start,
             auto_update_window_end=auto_update_window_end,
             auto_update_weekdays=auto_update_weekdays,
+            enable_message_poll_fallback=_flag("enable_message_poll_fallback"),
+            force_channel_slot_reconfigure=_flag("force_channel_slot_reconfigure"),
+            load_with_autoevict=_flag("load_with_autoevict"),
         )
 
     @staticmethod
@@ -477,6 +488,9 @@ class AppSettingsRepository:
         auto_update_window_start: str | None = None,
         auto_update_window_end: str | None = None,
         auto_update_weekdays: list[int] | None = None,
+        enable_message_poll_fallback: bool | None = None,
+        force_channel_slot_reconfigure: bool | None = None,
+        load_with_autoevict: bool | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -611,6 +625,15 @@ class AppSettingsRepository:
             updates.append("auto_update_weekdays = ?")
             params.append(json.dumps(normalize_weekdays(auto_update_weekdays)))
 
+        for column, flag in (
+            ("enable_message_poll_fallback", enable_message_poll_fallback),
+            ("force_channel_slot_reconfigure", force_channel_slot_reconfigure),
+            ("load_with_autoevict", load_with_autoevict),
+        ):
+            if flag is not None:
+                updates.append(f"{column} = ?")
+                params.append(1 if flag else 0)
+
         if updates:
             query = f"UPDATE app_settings SET {', '.join(updates)} WHERE id = 1"
             async with conn.execute(query, params):
@@ -654,6 +677,9 @@ class AppSettingsRepository:
         auto_update_window_start: str | None = None,
         auto_update_window_end: str | None = None,
         auto_update_weekdays: list[int] | None = None,
+        enable_message_poll_fallback: bool | None = None,
+        force_channel_slot_reconfigure: bool | None = None,
+        load_with_autoevict: bool | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -684,8 +710,13 @@ class AppSettingsRepository:
                 auto_update_window_start=auto_update_window_start,
                 auto_update_window_end=auto_update_window_end,
                 auto_update_weekdays=auto_update_weekdays,
+                enable_message_poll_fallback=enable_message_poll_fallback,
+                force_channel_slot_reconfigure=force_channel_slot_reconfigure,
+                load_with_autoevict=load_with_autoevict,
             )
-            return await AppSettingsRepository._get_in_conn(conn)
+            result = await AppSettingsRepository._get_in_conn(conn)
+        radio_workarounds.apply(result)
+        return result
 
     @staticmethod
     async def get_path_hash_one_byte_opt_in() -> bool:
@@ -994,7 +1025,7 @@ class AppSettingsRepository:
 
     @staticmethod
     async def get_vapid_subject() -> str:
-        """Return the stored VAPID subject. Empty means fall back to env (Vague B)."""
+        """Return the stored VAPID subject. Empty means the built-in default is used."""
         async with db.readonly() as conn:
             async with conn.execute(
                 "SELECT vapid_subject FROM app_settings WHERE id = 1"
@@ -1008,8 +1039,31 @@ class AppSettingsRepository:
             return ""
 
     @staticmethod
+    async def get_legacy_env_settings_imported() -> bool:
+        """True once the one-shot import of the retired MESHCORE_* settings ran."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT legacy_env_settings_imported FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return False
+        try:
+            return bool(row["legacy_env_settings_imported"])
+        except (KeyError, TypeError, IndexError):
+            return False
+
+    @staticmethod
+    async def mark_legacy_env_settings_imported() -> None:
+        """Record that the retired MESHCORE_* settings must never be read again."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET legacy_env_settings_imported = 1 WHERE id = 1"
+            )
+
+    @staticmethod
     async def set_vapid_subject(subject: str) -> str:
-        """Persist the VAPID subject. Empty string clears the DB override."""
+        """Persist the VAPID subject. Empty string falls back to the built-in default."""
         stored = subject or ""
         async with db.tx() as conn:
             await conn.execute(

@@ -52,15 +52,15 @@ Dans les deux cas, les canaux et les réglages de Meshloom restent.
 
 ## « Impossible d’énumérer les contacts de la radio », ou table de contacts pleine
 
-Une radio ne garde qu’un nombre limité de contacts. Meshloom y charge vos favoris et vos contacts récents pour qu’elle puisse accuser réception des messages directs. Si la table est pleine, vous pouvez la vider avec une autre application MeshCore, baisser **Contacts max sur la radio** dans **Réglages > Radio**, définir `MESHCORE_LOAD_WITH_AUTOEVICT=true` (la radio retire alors elle-même les vieux contacts), ou ignorer l’avertissement. **L’envoi et la réception de messages continuent de fonctionner.** Voir [Radio, contacts et canaux](/docs/deep/radio/).
+Une radio ne garde qu’un nombre limité de contacts. Meshloom y charge vos favoris et vos contacts récents pour qu’elle puisse accuser réception des messages directs. Si la table est pleine, vous pouvez la vider avec une autre application MeshCore, baisser **Contacts max sur la radio** dans **Réglages > Radio**, activer **Laisser la radio supprimer ses plus anciens contacts** dans **Réglages → Radio → Avancé** (la radio retire alors elle-même les vieux contacts), ou ignorer l’avertissement. **L’envoi et la réception de messages continuent de fonctionner.** Voir [Radio, contacts et canaux](/docs/deep/radio/).
 
 ## Des messages restent dans la radio
 
-Meshloom reçoit normalement les messages dès que la radio les annonce, et vérifie une fois par heure s’il en a manqué (et si des emplacements de canal ont dérivé). Si des messages s’accumulent quand même dans la radio, définissez `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` : la vérification a alors lieu toutes les 10 secondes.
+Meshloom reçoit normalement les messages dès que la radio les annonce, et vérifie une fois par heure s’il en a manqué (et si des emplacements de canal ont dérivé). Si des messages s’accumulent quand même dans la radio, activez **Vérifier les messages toutes les 10 secondes** dans **Réglages → Radio → Avancé** : la vérification a alors lieu toutes les 10 secondes.
 
 ## Un message part sur le mauvais canal
 
-Une autre application modifie probablement les emplacements de canal de la radio sous les pieds de Meshloom. Définissez `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` : Meshloom réécrit alors le canal dans la radio avant chaque envoi. C’est fiable, mais cela ajoute un court délai à chaque message.
+Une autre application modifie probablement les emplacements de canal de la radio sous les pieds de Meshloom. Activez **Réécrire le salon avant chaque envoi** dans **Réglages → Radio → Avancé** : Meshloom réécrit alors le canal dans la radio avant chaque envoi. C’est fiable, mais cela ajoute un court délai à chaque message.
 
 ## Contention du port série
 

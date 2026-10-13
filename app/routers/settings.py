@@ -91,6 +91,25 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="Auto-resend channel messages once if no echo heard within 2 seconds",
     )
+    enable_message_poll_fallback: bool | None = Field(
+        default=None,
+        description=(
+            "Radio workaround: poll the radio for waiting messages every 10 seconds "
+            "instead of auditing once an hour"
+        ),
+    )
+    force_channel_slot_reconfigure: bool | None = Field(
+        default=None,
+        description="Radio workaround: write the channel into its slot before every channel send",
+    )
+    load_with_autoevict: bool | None = Field(
+        default=None,
+        description=(
+            "Radio workaround: let the radio overwrite its oldest non-favorite contact "
+            "when its table is full. Applies at the next connection. Turning it off "
+            "does not clear the radio's own preference"
+        ),
+    )
     telemetry_interval_hours: int | None = Field(
         default=None,
         description=(
@@ -334,6 +353,24 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     if update.auto_resend_channel is not None:
         kwargs["auto_resend_channel"] = update.auto_resend_channel
 
+    # Radio workarounds (Settings → Radio → Advanced). The repository refreshes the
+    # in-memory copy the radio code reads (app/radio_workarounds.py).
+    poll_fallback_changed = False
+    for field in (
+        "enable_message_poll_fallback",
+        "force_channel_slot_reconfigure",
+        "load_with_autoevict",
+    ):
+        value = getattr(update, field)
+        if value is not None:
+            logger.info("Updating %s to %s", field, value)
+            kwargs[field] = value
+    if update.enable_message_poll_fallback is not None:
+        current_settings = await AppSettingsRepository.get()
+        poll_fallback_changed = (
+            update.enable_message_poll_fallback != current_settings.enable_message_poll_fallback
+        )
+
     # Telemetry interval preference. Invalid values fall back to default
     # rather than 400-ing so a stale client can't brick settings saves.
     if update.telemetry_interval_hours is not None:
@@ -375,6 +412,13 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
 
     if kwargs:
         result = await AppSettingsRepository.update(**kwargs)
+
+        # The poll loop chose its interval before sleeping: restart it so a switch
+        # to (or from) the 10-second fallback applies now, not after an hour.
+        if poll_fallback_changed:
+            from app.radio_sync import restart_message_polling_if_running
+
+            await restart_message_polling_if_running()
 
         # Apply flood scope to radio immediately if changed
         if flood_scope_changed:
