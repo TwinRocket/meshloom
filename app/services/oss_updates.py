@@ -318,15 +318,15 @@ async def _maybe_auto_apply() -> None:
 
 
 async def poll_interval_seconds() -> int:
-    """300 s with Community on, 6 h opted out (GitHub only).
+    """300 s with Community on, 6 h opted out or waiting for a position (GitHub only).
 
     When the Community state cannot be read, assume opted out: the slow
     cadence never polls more often than an opted-out operator agreed to.
     """
-    from app.services.meshloom_community import community_enabled
+    from app.services.meshloom_community import community_active
 
     try:
-        enabled = await community_enabled()
+        enabled = await community_active()
     except Exception:
         logger.debug("Community state unavailable for the update poll", exc_info=True)
         return UPDATE_POLL_INTERVAL_OPTED_OUT_SECONDS

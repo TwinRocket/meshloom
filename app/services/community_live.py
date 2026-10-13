@@ -657,9 +657,9 @@ class CommunityLiveRelay:
         ``iata`` is the regions this session shows (``None`` = every region);
         a heartbeat carries it again, so a change reaches the upstream filter.
         """
-        from app.services.meshloom_community import community_enabled
+        from app.services.meshloom_community import community_active
 
-        enabled = await community_enabled()
+        enabled = await community_active()
         can_open = await self._can_open_live(enabled)
         now = time.monotonic()
         selection = normalize_iata_selection(iata)
@@ -694,15 +694,15 @@ class CommunityLiveRelay:
                 self._idle_close_task = asyncio.create_task(self._idle_close())
             elif (removed or expired) and not empty:
                 self._schedule_filter_check()
-        from app.services.meshloom_community import community_enabled
+        from app.services.meshloom_community import community_active
 
-        return self.snapshot(opted_out=not await community_enabled())
+        return self.snapshot(opted_out=not await community_active())
 
     async def relancer(self) -> dict[str, Any]:
         """Mint a new API JWT and reconnect. Clears a 4002 stop and a given-up 401."""
-        from app.services.meshloom_community import community_enabled
+        from app.services.meshloom_community import community_active
 
-        enabled = await community_enabled()
+        enabled = await community_active()
         can_open = await self._can_open_live(enabled)
         self._clear_auth_error()
         self._filter_rejected_at = None

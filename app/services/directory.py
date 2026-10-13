@@ -192,10 +192,13 @@ def _hit_from_cache(row: object, hash_width: int) -> DirectoryHopHit | None:
 
 
 async def directory_is_available() -> bool:
-    """True only when Meshloom Community is on. There is no manual origin."""
-    from app.services.meshloom_community import community_enabled
+    """True only when Meshloom Community is on and not waiting for a position.
 
-    return await community_enabled()
+    There is no manual origin.
+    """
+    from app.services.meshloom_community import community_active
+
+    return await community_active()
 
 
 async def annotate_directory_available(settings: AppSettings) -> AppSettings:
@@ -209,14 +212,14 @@ async def _community_directory_data(
     method: str = "GET",
     body: dict[str, object] | None = None,
 ) -> object | None:
-    """Stats directory payload when Community is on, else None (directory off)."""
+    """Stats directory payload when Community is active, else None (directory off)."""
     from app.services.meshloom_community import (
-        community_enabled,
+        community_active,
         stats_directory_get,
         stats_directory_post,
     )
 
-    if not await community_enabled():
+    if not await community_active():
         return None
     if method == "POST":
         return await stats_directory_post(path, body or {})

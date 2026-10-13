@@ -97,7 +97,7 @@ Une annonce dit aux autres que vous existez. L’onglet **Annonces** de **Régla
 
 La position dans les annonces se règle avec **Source de position des annonces**, dans l’onglet **Configuration**. Elle n’a que deux choix : **Désactivée**, ou **Inclure la position du nœud**. Le firmware compagnon ne distingue pas une position enregistrée d’un relevé GPS en direct. Quand la radio n’indique pas ce réglage, Meshloom affiche **Désactivée**.
 
-Avec [Meshloom Community](/docs/deep/community/) activé, ce choix fixe aussi la position que reçoit Community : exacte avec **Inclure la position du nœud**, arrondie à environ 1 km avec **Désactivée**. Le changer, ou changer la position de la radio, envoie d’elle-même la nouvelle position à Community.
+Avec [Meshloom Community](/docs/deep/community/) activé, ce choix fixe aussi la position que reçoit Community : exacte avec **Inclure la position du nœud**, arrondie à environ 1 km avec **Désactivée**. Le changer, ou changer la position de la radio, envoie d’elle-même la nouvelle position à Community. Une radio sans position met Community en attente jusqu’à ce qu’elle en ait une (voir [Meshloom Community](/docs/deep/community/)).
 
 ## Proxy radio
 

@@ -61,6 +61,26 @@ describe('SettingsCommunitySection', () => {
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
+  it('waiting for a position: offers Leave, says why, asks no stats', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({
+      ...offStatus,
+      enabled: true,
+      iata: 'CDG',
+      publisher_configured: true,
+      state: 'waiting_for_position',
+    });
+    render(<SettingsCommunitySection />);
+    expect(
+      await screen.findByText(i18n.t('settings.community.waiting.settingsNote'))
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.leave') })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('settings.community.meTitle'))).not.toBeInTheDocument();
+    expect(api.getCommunityStats).not.toHaveBeenCalled();
+    expect(api.getCommunityMeStats).not.toHaveBeenCalled();
+  });
+
   it('follows an opt-out made in another tab without a reload', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, enabled: true, iata: 'CDG' });
     render(<SettingsCommunitySection />);

@@ -1200,6 +1200,29 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET community_status_last = ? WHERE id = 1", (value,)
             )
 
+    @staticmethod
+    async def get_community_waiting_for_position() -> bool:
+        """Last known "Community waits for a position" (migration 092). Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT community_waiting_for_position FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return False
+        try:
+            return bool(row["community_waiting_for_position"])
+        except (KeyError, TypeError, IndexError):
+            return False
+
+    @staticmethod
+    async def set_community_waiting_for_position(waiting: bool) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET community_waiting_for_position = ? WHERE id = 1",
+                (1 if waiting else 0,),
+            )
+
 
 class StatisticsRepository:
     @staticmethod

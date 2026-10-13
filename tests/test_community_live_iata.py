@@ -76,7 +76,7 @@ def _enter(
     effective = AsyncMock(return_value=state or _state())
     stack.enter_context(
         patch(
-            "app.services.meshloom_community.community_enabled",
+            "app.services.meshloom_community.community_active",
             new_callable=AsyncMock,
             return_value=True,
         )

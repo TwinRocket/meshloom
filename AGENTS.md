@@ -99,7 +99,13 @@ How a radio message travels through the program, in and out.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
   module. Opted out means no connection at all to the Community hosts or to
   the airport search: every egress goes through the guard in
-  `meshloom_community.py`, and an opt-out runs `community_teardown()` in a
+  `meshloom_community.py`. The guard has two levels: on but **waiting for a
+  position** (the radio has no position it may publish), only the MQTT status
+  (`state: waiting_for_position`, no packets) and the `PUT /v1/me/iata` binds
+  leave (`community_enrolled_state()`); everything else is cut as if off
+  (`community_egress_state()` answers None). The state is decided right
+  after the identity gate, before the radio key is exported, ends only once
+  a bind carrying a position succeeds, and is persisted (migration 092). An opt-out runs `community_teardown()` in a
   `finally` block, to the end even when the update fails or is cancelled.
   The one exception is `app/services/community_status_clear.py`: when the
   opt-out could not clear the retained MQTT status, it reconnects to the

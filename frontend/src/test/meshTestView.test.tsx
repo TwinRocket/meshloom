@@ -228,4 +228,25 @@ describe('MeshTestView with Community off', () => {
     expect(onOpenCommunitySettings).toHaveBeenCalled();
     expect(apiMocks.getPacketObserverReach).not.toHaveBeenCalled();
   });
+
+  it('waiting for a position: asks for it, polls nothing', async () => {
+    setCommunityStatus({
+      enabled: true,
+      iata: 'LYS',
+      publisher_configured: true,
+      publisher_connected: true,
+      state: 'waiting_for_position',
+    });
+
+    render(<MeshTestView contacts={[]} knownRegions={['nl-gr']} radioConnected />);
+
+    expect(
+      await screen.findByText(i18n.t('settings.community.waiting.featureOff'))
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.waiting.chooseLocation') })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('meshTest.communityOff'))).not.toBeInTheDocument();
+    expect(apiMocks.getPacketObserverReach).not.toHaveBeenCalled();
+  });
 });

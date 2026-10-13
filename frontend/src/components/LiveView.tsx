@@ -13,6 +13,8 @@ import type {
   RadioConfig,
 } from '../types';
 import { useRawPackets } from '../stores/rawPacketStore';
+import { useCommunityWaitingForPosition } from '../stores/communityStore';
+import { useCommunityPositionPicker } from './CommunityPositionPicker';
 import {
   applyLiveStatus,
   liveBannerI18nKey,
@@ -414,10 +416,22 @@ export function LiveView({
     });
   }, []);
 
+  const communityWaiting = useCommunityWaitingForPosition();
+  const {
+    openPicker: openPositionPicker,
+    saving: savingPosition,
+    picker: positionPicker,
+  } = useCommunityPositionPicker();
   const iataKnown = communityIata !== undefined;
   const needsCommunitySetup =
     iataKnown && (!communityEnabled || communityIata.trim() === '' || connection.optOut);
-  const bannerKey = needsCommunitySetup ? 'live.bannerOptOut' : liveBannerI18nKey(connection);
+  // Enrolled but waiting for the radio's position: not an opt-out.
+  const waitingForPosition = needsCommunitySetup && communityWaiting;
+  const bannerKey = waitingForPosition
+    ? 'settings.community.waiting.liveBanner'
+    : needsCommunitySetup
+      ? 'live.bannerOptOut'
+      : liveBannerI18nKey(connection);
   const authRejected = !needsCommunitySetup && connection.banner === 'auth_rejected';
   const livePaused = !bannerKey && connection.paused;
   const skewMinutes =
@@ -446,7 +460,18 @@ export function LiveView({
                 {t('live.retry')}
               </Button>
             )}
-            {!authRejected && onOpenCommunitySettings && (
+            {waitingForPosition && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={openPositionPicker}
+                disabled={savingPosition}
+              >
+                {t('settings.community.waiting.chooseLocation')}
+              </Button>
+            )}
+            {!authRejected && !waitingForPosition && onOpenCommunitySettings && (
               <Button type="button" size="sm" variant="outline" onClick={onOpenCommunitySettings}>
                 {t('settings.community.bannerOpenSettings')}
               </Button>
@@ -454,6 +479,7 @@ export function LiveView({
           </div>
         </LiveBanner>
       )}
+      {positionPicker}
 
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs">
         <label className="flex items-center gap-1.5">

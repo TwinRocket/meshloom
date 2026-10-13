@@ -10,6 +10,14 @@ those connections checks ``community_egress_state()`` first, and HTTP goes
 through ``_community_http()`` so ``community_teardown()`` can cancel what is
 in flight.
 
+Waiting for a position: Community on, but the radio has no position it may
+publish (``observer_position.publishable_position`` is None). The egress guard
+then answers None too (no Live, no HTTP, no release mirror). Only the Community
+MQTT publisher (its retained status says ``state: waiting_for_position``, and
+it sends no packets) and the ``PUT /v1/me/iata`` binds go through the
+enrolled-level check, ``community_enrolled_state()``, so a position chosen
+later can still be bound.
+
 The Community addresses are fixed: ``DEFAULT_BROKER_HOST`` and
 ``DEFAULT_API_BASE`` are the only source, read when the state is built (never
 copied by value elsewhere), and are neither settable nor shown. No environment
@@ -27,7 +35,7 @@ import time
 from collections.abc import Awaitable, Callable, Coroutine
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -100,13 +108,31 @@ _inflight: set[asyncio.Future[httpx.Response]] = set()
 # teardown still runs would otherwise be undone by it (Live closed, publisher
 # stopped while the database says on).
 _update_lock = LoopBoundLock()
-# Set only around the ``PUT /v1/me/iata`` of a join (``bind_community_iata``
-# with ``enable=True`` while Community is off): that one request may leave
-# before the database says on, because the operator just asked to join and the
-# bind must come first. Everything else still sees Community off until the write.
-_joining_state: ContextVar[CommunityEffective | None] = ContextVar(
-    "community_joining_state", default=None
+# Set only around the ``await bind()`` of a ``PUT /v1/me/iata`` (never around
+# the status retire or the publisher restore, which spawn tasks that would
+# inherit it): the bind of a join (``bind_community_iata`` with
+# ``enable=True`` while Community is off), an IATA change, or the automatic
+# re-bind. A join's bind may leave before the database says on, because the
+# operator just asked to join and the bind must come first; any bind may leave
+# while Community waits for a position, since it is how a position chosen
+# later reaches Community. Everything else still sees Community off (or
+# waiting) until the write.
+_bind_state: ContextVar[CommunityEffective | None] = ContextVar(
+    "community_bind_state", default=None
 )
+
+CommunityState = Literal["off", "active", "waiting_for_position"]
+STATE_WAITING_FOR_POSITION: CommunityState = "waiting_for_position"
+# Whether Community waits for a position (meaningful only while it is on).
+# Set as soon as an accepted radio identity reports no publishable position
+# (``note_radio_position``, called right after the identity gate, before the
+# radio key is exported, and on every ``SELF_INFO``); cleared only once a
+# bind carrying a position succeeded (``note_position_bound``), so no packet
+# leaves before Community has the position. Kept while the radio is away or
+# its identity is not accepted yet (no flicker), and persisted in
+# ``app_settings.community_waiting_for_position`` (migration 092), loaded at
+# startup by ``load_position_state()``.
+_position_missing = False
 
 
 class CommunityUpstreamError(HTTPException):
@@ -302,20 +328,19 @@ async def bind_community_iata(
         target = _normalize_iata(requested)
         joining = enable and not before.enabled
         retire_first = before.enabled and bool(before.iata) and target != before.iata
-        token = _joining_state.set(replace(before, enabled=True)) if joining else None
+        # A join binds while still off; an IATA change also binds while
+        # waiting for a position. Off without ``enable``, the guard says 403.
+        bind_state = replace(before, enabled=True) if joining or before.enabled else None
         try:
             # Inside the try: a caller cancelled during the retire (held by
             # _run_to_completion until it is done) still gets the publisher back.
             if retire_first:
                 await _run_to_completion(_retire_status_and_reload(before, restart=False))
-            result = await bind()
+            result = await _with_bind_state(bind_state, bind)
         except BaseException:
             if retire_first:
                 await _run_to_completion(_restore_publisher())
             raise
-        finally:
-            if token is not None:
-                _joining_state.reset(token)
         try:
             # As a tracked task: a caller cancelled between the database write
             # and the publisher reload must not leave Community on without its
@@ -346,15 +371,29 @@ async def rebind_current_iata(
     it never interleaves with an IATA change, a join or an opt-out. None,
     without any request, when Community is off or has no IATA yet, or when
     ``still_needed`` (checked under the lock) says another bind already sent
-    this position.
+    this position. Enrolled-level: it also runs while Community waits for a
+    position, since this is how the chosen position reaches Community.
     """
     async with _update_lock:
-        state = await community_egress_state()
+        state = await community_enrolled_state()
         if state is None or not state.iata:
             return None
         if still_needed is not None and not still_needed():
             return None
-        return await bind(state.iata)
+        return await _with_bind_state(state, lambda: bind(state.iata))
+
+
+async def _with_bind_state(
+    state: CommunityEffective | None, bind: Callable[[], Awaitable[_T]]
+) -> _T:
+    """Run one bind with ``_bind_state`` set, and nothing else."""
+    if state is None:
+        return await bind()
+    token = _bind_state.set(state)
+    try:
+        return await bind()
+    finally:
+        _bind_state.reset(token)
 
 
 async def _restore_publisher() -> None:
@@ -446,7 +485,8 @@ async def _update_community_locked(
         # A running Live socket would otherwise stay on the old IATA or the
         # old API host until it drops; sessions are kept, so it reopens.
         await get_live_relay().close_stats()
-    await sync_community_live(state.enabled)
+    # Waiting for a position counts as off for Live.
+    await sync_community_live(community_state_of(state) == "active")
     if state.enabled and not before.enabled:
         from app.services.oss_updates import nudge_oss_update_poll
 
@@ -680,9 +720,10 @@ def note_sample_quota(*, now: float | None = None) -> None:
 
 
 def reset_stats_client_for_tests() -> None:
-    global _sample_quota_until, _breaker
+    global _sample_quota_until, _breaker, _position_missing
     _sample_quota_until = 0.0
     _breaker = CommunityBreaker()
+    _position_missing = False
 
 
 def _is_quota_http(exc: BaseException) -> bool:
@@ -792,8 +833,8 @@ async def schedule_hashtag_names_publish(
     cleaned = _hashtag_publish_names(names)
     if not cleaned:
         return
-    state = await get_community_effective()
-    if not state.enabled or not state.iata:
+    state = await community_egress_state()
+    if state is None or not state.iata:
         return
     spawn(_put_hashtag_names(cleaned))
 
@@ -827,17 +868,146 @@ async def community_status() -> CommunityStatus:
         iata=state.iata,
         publisher_configured=state.publisher_configured,
         publisher_connected=publisher_connected(),
+        state=community_state_of(state),
     )
+
+
+def community_state_of(state: CommunityEffective) -> CommunityState:
+    """``off``, ``waiting_for_position`` (on, no publishable position) or ``active``."""
+    if not state.enabled:
+        return "off"
+    return STATE_WAITING_FOR_POSITION if _position_missing else "active"
+
+
+def waiting_for_position() -> bool:
+    """True when the last known radio position cannot be published.
+
+    Only meaningful while Community is on (``community_state_of``); the Stats
+    publisher, which runs only then, reads it for its status and packets.
+    """
+    return _position_missing
+
+
+def note_radio_position(info: Any) -> None:
+    """A fresh ``self_info``: enter the waiting state when it has no position.
+
+    Cheap and synchronous. Called right after the identity gate accepts a
+    radio (before its key is exported, so nothing authenticated leaves first)
+    and on every ``SELF_INFO`` (through ``observer_position.note_radio_self_info``).
+    Ignored when ``info`` is not a ``self_info`` or the identity is not
+    accepted: the last known state stays (owner decision Q2, no flicker). A
+    position does not end the wait by itself: the bind that carries it does
+    (``note_position_bound``), except when this very position was already
+    bound since the start.
+    """
+    from app.services.observer_position import position_already_bound, publishable_position
+    from app.services.radio_ingest_gate import ingest_allowed
+
+    if not isinstance(info, dict) or not ingest_allowed():
+        return
+    if publishable_position(info) is None:
+        _set_position_missing(True)
+    elif _position_missing and position_already_bound(info):
+        _set_position_missing(False)
+
+
+def note_position_bound() -> None:
+    """A ``PUT /v1/me/iata`` carrying a position succeeded: the wait is over."""
+    _set_position_missing(False)
+
+
+def _set_position_missing(missing: bool) -> None:
+    global _position_missing
+    if missing == _position_missing:
+        return
+    _position_missing = missing
+    logger.info(
+        "Community %s",
+        "waits for a radio position" if missing else "has the radio position",
+    )
+    spawn(_apply_position_state(), name="community-position-state")
+
+
+async def load_position_state() -> None:
+    """Startup: the waiting state last known before the restart (migration 092)."""
+    global _position_missing
+    from app.repository.settings import AppSettingsRepository
+
+    _position_missing = await AppSettingsRepository.get_community_waiting_for_position()
+
+
+async def _apply_position_state() -> None:
+    """Bring the Community connections in line with the waiting state.
+
+    Saves the state first (also while off), then, under ``_update_lock`` and
+    reading the state again there, so a quick
+    back-and-forth or an opt-out in between ends in the right place. Waiting:
+    requests in flight are cancelled and Live closes. Active again: Live
+    reopens for its sessions. Both ways the Stats publisher re-publishes its
+    retained status at once, and the ``community_live`` status broadcast makes
+    every tab read ``GET /api/community`` again.
+    """
+    global _egress_generation
+    from app.repository.settings import AppSettingsRepository
+    from app.services.community_live import sync_community_live
+
+    # Spawned from inside a bind: never inherit its egress exception.
+    _bind_state.set(None)
+    try:
+        # The latest value, whatever the order these tasks run in.
+        await AppSettingsRepository.set_community_waiting_for_position(_position_missing)
+    except Exception:
+        logger.warning("Could not save the Community waiting state", exc_info=True)
+    async with _update_lock:
+        state = await community_enrolled_state()
+        if state is None:
+            return
+        active = community_state_of(state) == "active"
+        if not active:
+            _egress_generation += 1
+            await _bounded_step("in-flight requests", _cancel_inflight_requests)
+        await _bounded_step("Live relay", lambda: sync_community_live(active))
+        await _bounded_step("MQTT status", _republish_system_status)
+    if active:
+        from app.services.oss_updates import nudge_oss_update_poll
+
+        nudge_oss_update_poll()
+
+
+async def _republish_system_status() -> None:
+    from app.fanout.manager import fanout_manager
+
+    await fanout_manager.republish_system_status()
+
+
+async def community_enrolled_state() -> CommunityEffective | None:
+    """The effective config while Community is on, waiting for a position or not.
+
+    Enrolled-level check, used only by the Stats MQTT publisher (start and
+    every reconnect) and the ``PUT /v1/me/iata`` binds: while Community waits
+    for a position the publisher keeps its status up and a chosen position can
+    still be bound. Everything else uses ``community_egress_state()``.
+    """
+    state = await get_community_effective()
+    return state if state.enabled else None
 
 
 async def community_egress_state() -> CommunityEffective | None:
     """The effective config when Community connections are allowed, else None.
 
     The one check every Community egress makes: HTTP (``stats_request``), the
-    Live socket, the MQTT publisher, the release mirror and the airport search.
+    Live socket, the release mirror and the airport search. None while off and
+    while Community waits for a position (``waiting_for_position``).
     """
-    state = await get_community_effective()
-    return state if state.enabled else None
+    state = await community_enrolled_state()
+    if state is None or community_state_of(state) != "active":
+        return None
+    return state
+
+
+async def community_active() -> bool:
+    """Community on and not waiting for a position: its features may run."""
+    return await community_egress_state() is not None
 
 
 async def _community_http(
@@ -925,8 +1095,8 @@ async def stats_request(
     open this raises 503 without touching the network.
     """
     generation = _egress_generation
-    # A join's bind leaves before the database says on (``_joining_state``).
-    state = _joining_state.get() or await community_egress_state()
+    # A bind may leave while off (join) or waiting for a position (``_bind_state``).
+    state = _bind_state.get() or await community_egress_state()
     if state is None:
         raise HTTPException(status_code=403, detail=COMMUNITY_DISABLED_DETAIL)
     headers: dict[str, str] = {}

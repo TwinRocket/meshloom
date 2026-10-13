@@ -27,6 +27,21 @@ The code is also the region the Live page shows by default; you can add other re
 
 Until a code is saved, a banner stays on screen. Publishing packets, the Live page, publishing hashtag names and channel look-ups wait for that code. The directory (hop names, RF locate, "heard by") does not need it. While Community is off (as on a new install, or after you leave), you can dismiss the banner for good in that browser with **Don't show again**.
 
+## Waiting for a position
+
+Community needs to know roughly where your radio is: it places each observer on its map to show where packets are heard. While Community is on but your radio has **no position** (none set, or MeshCore's "no GPS" `0, 0`), Community **waits for your position**:
+
+- a banner says "Meshloom Community needs your position to work", on every page, the settings included;
+- your server keeps its connection to the Community broker only to publish its **status**, marked as waiting for a position, so Community knows the observer is there;
+- **no packet is published**, and the Live page, the directory (hop names, RF locate, "heard by"), the radio test, the statistics, the hashtag names and channel look-ups, the airport search and the Community release mirror are all off, as if you had left. The Live page, the "heard by" details and the radio test say Community needs your position and offer to choose it.
+
+You can join while your radio has no position: Community then starts in this state. From the banner:
+
+- **Choose my position** opens a map. The point you pick is saved on your radio (as in **Settings → Radio**). If the radio's **Advert Location Source** is **Include Node Location**, its adverts will also broadcast that position over the air to every node in range. As soon as the radio reports it, Meshloom sends it to Community with your code (rounded to about 1 km unless your adverts broadcast it, see below). Only once Community has accepted it does Meshloom publish its status again and bring everything above back, without a restart; if Community cannot be reached, it keeps waiting and tries again.
+- **Learn more** explains why, and offers the same choice or **Leave Community**, which is the usual opt-out.
+
+Meshloom checks the position as soon as it recognises the radio, before anything is sent to Community. If the radio is disconnected, or not yet recognised after a reconnection, Meshloom keeps the last state it knew, also across a restart: the banner does not come and go while the radio reconnects, and nothing is sent to Community before the radio is back. Removing the position from the radio (setting it back to `0, 0`) puts Community back in the waiting state at once.
+
 ## New installs
 
 A **brand-new database** starts with Community off: joining is your choice, made in **Settings → Meshloom Community**. No environment variable turns it on, sets the code or changes the Community servers, which are fixed (`mqtt.meshloom.app` and `api.meshloom.app`).
@@ -38,8 +53,8 @@ A **brand-new database** starts with Community off: joining is your choice, made
 With Community on and a code saved, your server sends:
 
 - **Raw packets**, exactly as they travel over the air, together with the signal strength, your radio's name and its public key. Messages for private channels and direct messages stay encrypted. The text of your conversations never goes through this path.
-- **Your radio's position**, if it has one, with the code: when you join or change the code, and again on its own when the radio reports a new position or a new **Advert Location Source** (re-sending it is not a code change). The radio reports it when it connects or reconnects, when Meshloom sets its position and when that setting changes, not at every GPS move: a radio moving with its GPS on sends its new position at its next reconnection or setting change. It is **exact only if the radio already broadcasts it** in its adverts (**Include Node Location**). Otherwise it is **rounded to about 1 km** (two decimals). Community uses it to check the code, and **shows it on its public map** (Live, directory): the exact one is the position your adverts already make public, the rounded one places your observer near its town, not at its address. A radio with no position sends none.
-- **A status message**, when the connection opens and then every five minutes: your radio's name, public key, model, firmware version and radio settings (frequency, bandwidth, spreading factor, coding rate), the Meshloom version, and the radio's counters when it provides them.
+- **Your radio's position**, if it has one, with the code: when you join or change the code, and again on its own when the radio reports a new position or a new **Advert Location Source** (re-sending it is not a code change). The radio reports it when it connects or reconnects, when Meshloom sets its position and when that setting changes, not at every GPS move: a radio moving with its GPS on sends its new position at its next reconnection or setting change. It is **exact only if the radio already broadcasts it** in its adverts (**Include Node Location**). Otherwise it is **rounded to about 1 km** (two decimals). Community uses it to check the code, and **shows it on its public map** (Live, directory): the exact one is the position your adverts already make public, the rounded one places your observer near its town, not at its address. A radio with no position sends none, and Community then waits for one (see [Waiting for a position](#waiting-for-a-position)).
+- **A status message**, when the connection opens and then every five minutes: your radio's name, public key, model, firmware version and radio settings (frequency, bandwidth, spreading factor, coding rate), the Meshloom version, and the radio's counters when it provides them. While Community waits for a position, it also says so (`state: waiting_for_position`), and it is published again as soon as that changes.
 - **Directory requests.** To name a hop or draw an RF locate zone, your server asks Community about the nodes involved. The browser never talks to Community itself: your server relays. One-byte hops are never sent.
 - **Hashtag channel names.** When you create or adopt a hashtag channel, or when Meshloom finds one, its name (up to 50 at a time) is added to the global list. Names are not grouped by airport. Keys are not shared. A channel whose key does not come from its name is private: its name is never shared, even when it starts with `#`.
 - **Channel look-ups.** To recognize an unknown channel, Meshloom sends the one-byte identifier of the channel to ask which names match. If nothing matches, it may also send one encrypted packet of that channel (once per identifier while Meshloom runs), so the community can try to find its name. Only channels you cannot read are concerned.
@@ -65,7 +80,7 @@ The airport search (`api.fx-port.com`, through your server) is part of Community
 
 ## In the interface
 
-**Settings → Meshloom Community** lets you join or leave, type the IATA code (or search for it once joined), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals.
+**Settings → Meshloom Community** lets you join or leave, type the IATA code (or search for it once joined), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals. While Community waits for a position, the settings say so and show neither the statistics nor the airport search.
 
 The "heard by" details and the radio test measure distances only to observers whose exact position is known. An observer that publishes a rounded position still appears on their maps, but has no distance and never sets the farthest-ear record.
 

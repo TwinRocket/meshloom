@@ -213,6 +213,23 @@ describe('ObserverReachModal with Community off', () => {
     expect(apiMocks.getPacketObserverReach).not.toHaveBeenCalled();
   });
 
+  it('waiting for a position: asks for it instead of "turn Community on"', async () => {
+    setCommunityStatus({ ...communityOn, state: 'waiting_for_position' });
+
+    render(<ObserverReachModal packetHash="AABBCCDDEEFF0011" open onOpenChange={() => {}} />);
+
+    expect(
+      await screen.findByText(i18n.t('settings.community.waiting.featureOff'))
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.waiting.chooseLocation') })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(i18n.t('messageList.observerReachCommunityOff'))
+    ).not.toBeInTheDocument();
+    expect(apiMocks.getPacketObserverReach).not.toHaveBeenCalled();
+  });
+
   it('switches to the message when Community is turned off while it is open', async () => {
     setCommunityStatus(communityOn);
     render(<ObserverReachModal packetHash="AABBCCDDEEFF0011" open onOpenChange={() => {}} />);

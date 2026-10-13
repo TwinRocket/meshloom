@@ -94,9 +94,9 @@ def _env():
         patch("app.fanout.meshloom_stats._generate_jwt_token", return_value="jwt"),
         patch("app.fanout.community_mqtt._generate_jwt_token", return_value="jwt"),
         patch("app.fanout.mqtt_base._broadcast_health"),
-        # The publisher re-checks the egress guard before each connect.
+        # The publisher re-checks the enrolled-level guard before each connect.
         patch(
-            "app.services.meshloom_community.community_egress_state",
+            "app.services.meshloom_community.community_enrolled_state",
             AsyncMock(return_value=SimpleNamespace(enabled=True)),
         ),
         patch("app.websocket.broadcast_success"),

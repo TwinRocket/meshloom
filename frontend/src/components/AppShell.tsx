@@ -2,6 +2,7 @@ import { lazy, useCallback, useEffect, useRef, useState, type ComponentProps } f
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
+import { CommunityWaitingBanner } from './CommunityWaitingBanner';
 import { EdgeSessionExpiredDialog } from './EdgeSessionExpiredDialog';
 import { PathHashOneByteBanner } from './PathHashOneByteBanner';
 import { RadioSetupBanner } from './RadioSetupBanner';
@@ -40,7 +41,11 @@ import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { LazyBoundary } from './LazyBoundary';
-import { refreshCommunityStatus, useCommunityState } from '../stores/communityStore';
+import {
+  communityWaitingForPosition,
+  refreshCommunityStatus,
+  useCommunityState,
+} from '../stores/communityStore';
 
 const SettingsModal = lazy(() =>
   import('./SettingsModal').then((m) => ({ default: m.SettingsModal }))
@@ -409,6 +414,9 @@ export function AppShell({
           onOpenRadioSettings={() => handleOpenSettings('radio')}
         />
       )}
+      {/* Shown everywhere, the Community settings included: nothing but the
+          status leaves until a position is chosen or Community is left. */}
+      {communityWaitingForPosition(communityStatus) && <CommunityWaitingBanner />}
       {communityStatus && !(showSettings && settingsSection === 'community') && (
         <CommunitySetupBanner
           enabled={communityStatus.enabled}

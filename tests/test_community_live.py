@@ -370,7 +370,7 @@ class TestCommunityLiveRelay:
         connect = AsyncMock()
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
@@ -396,7 +396,7 @@ class TestCommunityLiveRelay:
         )
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -429,7 +429,7 @@ class TestCommunityLiveRelay:
 
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -462,7 +462,7 @@ class TestCommunityLiveRelay:
         socket = FakeStatsSocket([])
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -496,7 +496,7 @@ class TestCommunityLiveRelay:
 
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -529,7 +529,7 @@ class TestCommunityLiveRelay:
 
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -556,7 +556,7 @@ class TestCommunityLiveRelay:
         mint = MagicMock(return_value="tok")
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -588,7 +588,7 @@ class TestCommunityLiveRelay:
 
         with (
             patch(
-                "app.services.meshloom_community.community_enabled",
+                "app.services.meshloom_community.community_active",
                 new_callable=AsyncMock,
                 return_value=True,
             ),

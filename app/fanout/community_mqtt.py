@@ -571,6 +571,7 @@ class CommunityMqttPublisher(BaseMqttPublisher):
         status_topic = _build_status_topic(settings, pubkey_hex)
         payload: dict[str, Any] = {
             "status": "online",
+            **self._status_extra(),
             "timestamp": _format_utc_timestamp(),
             "origin": device_name or "MeshCore Device",
             "origin_id": pubkey_hex,
@@ -591,6 +592,14 @@ class CommunityMqttPublisher(BaseMqttPublisher):
 
     async def _on_status_retained(self, settings: CommunityMqttSettings, pubkey_hex: str) -> None:
         """Hook: the retained ``online`` status went out on this connection."""
+
+    def _status_extra(self) -> dict[str, Any]:
+        """Hook: extra keys placed right after ``status`` in the ``online`` payload.
+
+        Empty here, so user ``mqtt_community`` rows send the usual payload;
+        ``MeshloomStatsPublisher`` adds ``state`` while waiting for a position.
+        """
+        return {}
 
     async def _on_connected_async(self, settings: object) -> None:
         """Publish a retained online status message after connecting."""
