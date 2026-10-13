@@ -25,7 +25,7 @@ export interface CommunityStoreState {
 const INITIAL: CommunityStoreState = { status: null, enabled: null };
 
 let state: CommunityStoreState = INITIAL;
-let pending: Promise<CommunityStatus | null> | null = null;
+let pending: Promise<CommunityStatus> | null = null;
 const listeners = new Set<() => void>();
 
 function emit(next: CommunityStoreState): void {
@@ -56,21 +56,27 @@ export function seedCommunityEnabled(enabled: boolean): void {
   emit({ ...state, enabled });
 }
 
-/** Ask the backend. Concurrent callers share one request; failures keep the last state. */
-export function refreshCommunityStatus(): Promise<CommunityStatus | null> {
+/**
+ * Ask the backend. Concurrent callers share one request. A failure keeps the
+ * last state and rejects, so a caller can show why (`formatApiError`).
+ */
+export function loadCommunityStatus(): Promise<CommunityStatus> {
   if (pending) return pending;
   pending = Promise.resolve(api.getCommunity?.())
-    .then(
-      (status) => {
-        if (status) setCommunityStatus(status);
-        return status ?? null;
-      },
-      () => null
-    )
+    .then((status) => {
+      if (!status) throw new Error('No Community status');
+      setCommunityStatus(status);
+      return status;
+    })
     .finally(() => {
       pending = null;
     });
   return pending;
+}
+
+/** Same as `loadCommunityStatus`, for callers that only need the store updated. */
+export function refreshCommunityStatus(): Promise<CommunityStatus | null> {
+  return loadCommunityStatus().catch(() => null);
 }
 
 /**

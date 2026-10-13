@@ -17,7 +17,9 @@ Ce n’est pas une intégration à créer dans **Réglages → MQTT et automatis
 
 1. Ouvrez **Réglages → Meshloom Community**.
 2. Saisissez le **code IATA** de l’aéroport le plus proche : trois lettres, par exemple `CDG`. Si vous ne le connaissez pas, cherchez-le avec **Voir les codes IATA des aéroports** : la recherche d’aéroport (**Trouver un aéroport**) fait partie de Community, elle n’apparaît donc qu’une fois inscrit, pour changer de code.
-3. Enregistrez le code.
+3. Cliquez sur **Rejoindre Meshloom Community**.
+
+Meshloom enregistre d’abord le code auprès de Community, et alors seulement active Community et commence à publier. Si Community refuse le code (par exemple parce que cette radio a déjà changé de code trop souvent ces 7 derniers jours), Community reste désactivé, votre code enregistré ne change pas, et les réglages disent pourquoi.
 
 Ce code est une étiquette grossière de votre région, pas une localisation précise. Meshloom le compare à la position de votre radio et vous dit si les deux concordent. Si vous êtes sûr de votre choix malgré une différence, **Je suis sûr de moi** le confirme. Community limite la fréquence à laquelle le code peut être modifié.
 
