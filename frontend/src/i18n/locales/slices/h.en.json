@@ -18,6 +18,8 @@
     "clockAheadBy_one": "The server clock is about {{count}} minute ahead.",
     "clockAheadBy_other": "The server clock is about {{count}} minutes ahead.",
     "retry": "Retry",
+    "paused": "Live paused",
+    "pausedHelp": "Community has paused the public live feed. It will resume on its own; nothing to do here.",
     "iataFilter": "Regions",
     "iataAll": "All regions",
     "iataMenu": "Regions shown",

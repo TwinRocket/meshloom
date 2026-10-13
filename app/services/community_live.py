@@ -26,6 +26,14 @@ when one session wants every region or the union exceeds
 refuses the parameter (handshake 400) gets the global feed for
 ``FILTER_RETRY_S``; one that ignores it sends the global feed anyway. Either
 way the browser filters again, so the result is the same.
+
+Feed paused: when the Community operator pauses the public Live
+(``KILL_LIVE_PUBLIC``), open sockets are closed with 1013 and handshakes are
+refused with 503 ``{"code": "live_disabled"}``. The relay then reports state
+``paused`` (a discreet status, not an error) and retries every
+``PAUSED_RETRY_MIN_S`` then ``PAUSED_RETRY_MAX_S`` instead of the short
+backoff, until a socket opens again. Every backoff sleep carries
+``±BACKOFF_JITTER`` so instances do not reconnect in step.
 """
 
 from __future__ import annotations
@@ -34,6 +42,7 @@ import asyncio
 import inspect
 import json
 import logging
+import random
 import re
 import time
 import uuid
@@ -51,6 +60,13 @@ IDLE_CLOSE_GRACE_S = 1.5
 RECONNECT_INITIAL_S = 0.5
 RECONNECT_MAX_S = 30.0
 RECONNECT_FACTOR = 2.0
+# Every backoff sleep is spread by +/- this fraction, so the instances that
+# lost the feed at the same moment do not all come back at the same moment.
+BACKOFF_JITTER = 0.2
+# Feed paused by the operator (1013 / 503 live_disabled): first retry after
+# PAUSED_RETRY_MIN_S, then every PAUSED_RETRY_MAX_S (before jitter).
+PAUSED_RETRY_MIN_S = 30.0
+PAUSED_RETRY_MAX_S = 60.0
 # Handshake 401: first retry after AUTH_RETRY_INITIAL_S, doubled each time;
 # stop after AUTH_REJECT_MAX_ATTEMPTS consecutive refusals.
 AUTH_RETRY_INITIAL_S = 2.0
@@ -78,12 +94,23 @@ CLOSE_TIMEOUT_S = 5.0
 CLOSE_SLOT_BUSY = 4003
 CLOSE_RATE_LIMIT = 4004
 CLOSE_SUPERSEDED = 4005
+# Standard "Try Again Later": Community paused the public feed (KILL_LIVE_PUBLIC).
+CLOSE_FEED_PAUSED = 1013
 LIVE_CLOSE_CODES = frozenset(
-    {CLOSE_JWT_EXPIRED, CLOSE_INACTIVE, CLOSE_SLOT_BUSY, CLOSE_RATE_LIMIT, CLOSE_SUPERSEDED}
+    {
+        CLOSE_JWT_EXPIRED,
+        CLOSE_INACTIVE,
+        CLOSE_SLOT_BUSY,
+        CLOSE_RATE_LIMIT,
+        CLOSE_SUPERSEDED,
+        CLOSE_FEED_PAUSED,
+    }
 )
 USER_CLOSE_CODES = frozenset({CLOSE_JWT_EXPIRED, CLOSE_INACTIVE})
 # 401 is deliberately absent: a handshake refusal is not a 4001 (see _run).
-# Any other refusal (403 included) has no close code and reconnects with backoff.
+# A 503 whose body says live_disabled is the paused feed, not a 4004 (see
+# is_feed_paused). Any other refusal (403 included) has no close code and
+# reconnects with backoff.
 HANDSHAKE_TO_CLOSE = {
     409: CLOSE_SUPERSEDED,
     429: CLOSE_RATE_LIMIT,
@@ -114,7 +141,9 @@ PACKET_TYPES = KNOWN_PACKET_TYPES
 _PACKET_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
-LiveState = Literal["connected", "reconnecting", "opted_out", "idle", "auth_rejected"]
+LiveState = Literal["connected", "reconnecting", "paused", "opted_out", "idle", "auth_rejected"]
+# Handshake body code of a 503 while the operator paused the public feed.
+LIVE_DISABLED_CODE = "live_disabled"
 LiveAuthError = Literal["clock_skew", "token_rejected"]
 _HASH8_RE = re.compile(r"^[0-9a-f]{8}$")
 _PACKET_HASH_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -178,6 +207,27 @@ def map_stats_close(*, code: int | None = None, http_status: int | None = None) 
     if mapped == CLOSE_SLOT_BUSY:
         return CLOSE_SUPERSEDED
     return mapped
+
+
+def is_feed_paused(
+    *, code: int | None = None, http_status: int | None = None, body: dict[str, Any] | None = None
+) -> bool:
+    """1013 close, or handshake 503 ``live_disabled``: the operator paused the feed.
+
+    A 503 with another code (``live_viewer_cap``) or no body is a full server,
+    not a pause: it keeps the short backoff.
+    """
+    if code == CLOSE_FEED_PAUSED:
+        return True
+    return http_status == 503 and (body or {}).get("code") == LIVE_DISABLED_CODE
+
+
+def jittered(seconds: float, *, ratio: float | None = None) -> float:
+    """``seconds`` spread uniformly by +/- ``ratio`` (default ``BACKOFF_JITTER``)."""
+    if seconds <= 0:
+        return 0.0
+    spread = BACKOFF_JITTER if ratio is None else ratio
+    return seconds * random.uniform(1.0 - spread, 1.0 + spread)
 
 
 def user_visible_close_code(code: int | None) -> int | None:
@@ -456,6 +506,8 @@ class CommunityLiveRelay:
         self._auth_error: LiveAuthError | None = None
         self._auth_code: str | None = None
         self._clock_skew_s: int | None = None
+        # Community paused the public feed; cleared by the next open socket.
+        self._paused = False
         self._generation = 0
         self._instance_id = uuid.uuid4().hex
 
@@ -498,10 +550,11 @@ class CommunityLiveRelay:
             return "auth_rejected"
         if self._connected:
             return "connected"
+        waiting: LiveState = "paused" if self._paused else "reconnecting"
         if self._reader_task is not None and not self._reader_task.done():
-            return "reconnecting"
+            return waiting
         if self._has_consumers():
-            return "reconnecting"
+            return waiting
         return "idle"
 
     def snapshot(self, *, session_id: str | None = None, opted_out: bool) -> dict[str, Any]:
@@ -674,6 +727,7 @@ class CommunityLiveRelay:
         self._clear_auth_error()
         self._filter_rejected_at = None
         if not enabled:
+            self._paused = False
             self._cancel_filter_check()
             await self.close_stats()
             await self._broadcast_status(opted_out=True)
@@ -811,6 +865,7 @@ class CommunityLiveRelay:
 
         await self._ensure_fanout()
         delay = RECONNECT_INITIAL_S
+        paused_delay = PAUSED_RETRY_MIN_S
         auth_failures = 0
         opted_out = False
         try:
@@ -857,6 +912,7 @@ class CommunityLiveRelay:
                 http_status: int | None = None
                 auth_payload: dict[str, Any] | None = None
                 auth_refused = False
+                feed_paused = False
                 opened_at: float | None = None
                 try:
                     async with await self._connect(url, token) as ws:
@@ -865,6 +921,8 @@ class CommunityLiveRelay:
                         self._ws = ws
                         self._connected = True
                         self._close_code = None
+                        self._paused = False
+                        paused_delay = PAUSED_RETRY_MIN_S
                         opened_at = time.monotonic()
                         auth_failures = 0
                         # A region change that landed during the handshake was
@@ -892,10 +950,13 @@ class CommunityLiveRelay:
                     if http_status == 401:
                         auth_refused = True
                         auth_payload = _handshake_body(exc)
+                    elif is_feed_paused(http_status=http_status, body=_handshake_body(exc)):
+                        feed_paused = True
                     else:
                         close_code = map_stats_close(
                             code=_ws_close_code(exc), http_status=http_status
                         )
+                        feed_paused = is_feed_paused(code=close_code)
                     logger.info(
                         "Community live socket ended (close_code=%s, http=%s)",
                         close_code,
@@ -953,6 +1014,18 @@ class CommunityLiveRelay:
                         min(RECONNECT_MAX_S, AUTH_RETRY_INITIAL_S * 2 ** (auth_failures - 1)),
                     )
                     continue
+                if feed_paused:
+                    # The operator paused the public feed: a discreet status and
+                    # a slow, jittered retry, whatever the socket's uptime.
+                    if not self._paused:
+                        logger.info("Community paused the public Live feed; retrying slowly")
+                    self._paused = True
+                    self._close_code = None
+                    await self._broadcast_status(opted_out=False)
+                    await self._sleep_backoff(generation, paused_delay)
+                    paused_delay = min(PAUSED_RETRY_MAX_S, paused_delay * RECONNECT_FACTOR)
+                    delay = RECONNECT_INITIAL_S
+                    continue
                 if close_code == CLOSE_INACTIVE:
                     # 4002 is reserved and never sent (contract live-events.md):
                     # if it ever arrives, stop this generation until Relancer.
@@ -981,11 +1054,12 @@ class CommunityLiveRelay:
                     logger.debug("community_live status fan-out failed", exc_info=True)
 
     async def _sleep_backoff(self, generation: int, seconds: float) -> None:
+        """Sleep ``seconds`` +/- ``BACKOFF_JITTER``; 0 only yields."""
         if seconds <= 0:
             await asyncio.sleep(0)
             return
         try:
-            await asyncio.sleep(seconds)
+            await asyncio.sleep(jittered(seconds))
         except asyncio.CancelledError:
             raise
         if generation != self._generation:

@@ -727,7 +727,9 @@ export type LiveCloseCode =
   | typeof LIVE_CLOSE_RATE_LIMIT
   | typeof LIVE_CLOSE_SUPERSEDED;
 
-export type LiveRelayState = 'connected' | 'reconnecting' | 'opted_out' | 'idle' | 'auth_rejected';
+/** `paused`: Community paused the public feed (1013 / 503 `live_disabled`); the relay retries slowly. */
+export type LiveRelayState =
+  'connected' | 'reconnecting' | 'paused' | 'opted_out' | 'idle' | 'auth_rejected';
 
 /** Why Community refused the live token for good (state `auth_rejected`). */
 export type LiveAuthError = 'clock_skew' | 'token_rejected';

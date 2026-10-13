@@ -106,6 +106,19 @@ describe('livePacketStore', () => {
     expect(liveBannerI18nKey(getLiveConnectionState())).toBeNull();
   });
 
+  it('reports a paused feed discreetly and clears it on connect', () => {
+    applyLiveStatus({ close_code: null, opted_out: false, connected: false, state: 'paused' });
+    const paused = getLiveConnectionState();
+    expect(paused).toMatchObject({ paused: true, banner: null, authError: null });
+    expect(liveBannerI18nKey(paused)).toBeNull();
+
+    applyLiveStatus({ close_code: null, opted_out: false, connected: true, state: 'connected' });
+    expect(getLiveConnectionState().paused).toBe(false);
+
+    applyLiveStatus({ close_code: null, opted_out: true, connected: false, state: 'paused' });
+    expect(getLiveConnectionState()).toMatchObject({ paused: false, banner: 'opt_out' });
+  });
+
   it('opt-out wins over a token refusal', () => {
     applyLiveStatus({
       close_code: null,

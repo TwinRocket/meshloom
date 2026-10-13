@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveView } from '../components/LiveView';
@@ -274,6 +274,28 @@ describe('LiveView', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     expect(await screen.findByText(i18n.t('live.bannerTokenRejected'))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: i18n.t('live.retry') })).toBeInTheDocument();
+  });
+
+  it('shows a discreet paused chip, not a banner, while Community pauses the feed', async () => {
+    vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
+      session_id: 'live-session',
+      close_code: null,
+      opted_out: false,
+      connected: false,
+      state: 'paused',
+    });
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    const chip = await screen.findByRole('status');
+    expect(chip).toHaveTextContent(i18n.t('live.paused'));
+    expect(chip).toHaveAttribute('title', i18n.t('live.pausedHelp'));
+    expect(screen.queryByText(i18n.t('live.bannerTokenRejected'))).not.toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('live.bannerOptOut'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: i18n.t('live.retry') })).not.toBeInTheDocument();
+
+    act(() => {
+      applyLiveStatus({ close_code: null, opted_out: false, connected: true, state: 'connected' });
+    });
+    await waitFor(() => expect(screen.queryByText(i18n.t('live.paused'))).not.toBeInTheDocument());
   });
 
   it('has no play/pause control', () => {

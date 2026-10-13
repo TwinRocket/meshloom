@@ -419,6 +419,7 @@ export function LiveView({
     iataKnown && (!communityEnabled || communityIata.trim() === '' || connection.optOut);
   const bannerKey = needsCommunitySetup ? 'live.bannerOptOut' : liveBannerI18nKey(connection);
   const authRejected = !needsCommunitySetup && connection.banner === 'auth_rejected';
+  const livePaused = !bannerKey && connection.paused;
   const skewMinutes =
     connection.clockSkewS != null
       ? Math.max(1, Math.round(Math.abs(connection.clockSkewS) / 60))
@@ -483,6 +484,20 @@ export function LiveView({
             ))}
           </select>
         </label>
+        {livePaused && (
+          <span
+            role="status"
+            title={t('live.pausedHelp')}
+            className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.6875rem] text-muted-foreground"
+          >
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground"
+            />
+            {t('live.paused')}
+            <span className="sr-only">{t('live.pausedHelp')}</span>
+          </span>
+        )}
         <LiveIataMenu
           options={iataOptions}
           selection={iataSelection}

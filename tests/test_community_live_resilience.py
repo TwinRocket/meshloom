@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
+from app.models import CommunityLiveStatus
 from app.services.community_live import (
+    BACKOFF_JITTER,
+    CLOSE_FEED_PAUSED,
     CLOSE_INACTIVE,
     CLOSE_SUPERSEDED,
+    PAUSED_RETRY_MAX_S,
+    PAUSED_RETRY_MIN_S,
+    RECONNECT_INITIAL_S,
     CommunityLiveRelay,
+    is_feed_paused,
+    jittered,
     reset_community_live_for_tests,
 )
 from app.services.meshloom_community import CommunityEffective
@@ -197,3 +209,155 @@ class TestCommunityLiveResilience:
             opted = relay.snapshot(opted_out=True)
             assert opted["state"] == "opted_out"
             await relay.close_stats()
+
+
+def _refused_503(code: str | None) -> InvalidStatus:
+    body = {"detail": "x", "code": code, "server_time": 0} if code else None
+    raw = json.dumps(body).encode() if body is not None else b""
+    return InvalidStatus(Response(503, "Service Unavailable", Headers(), raw))
+
+
+def _track_sleeps(relay: CommunityLiveRelay) -> list[float]:
+    """Record the base delay of every backoff sleep, then only yield."""
+    delays: list[float] = []
+    original = relay._sleep_backoff
+
+    async def track(generation: int, seconds: float) -> None:
+        delays.append(seconds)
+        await original(generation, 0)
+
+    relay._sleep_backoff = track  # type: ignore[method-assign]
+    return delays
+
+
+@pytest.mark.asyncio
+class TestFeedPaused:
+    """KILL_LIVE_PUBLIC: 1013 on open sockets, 503 live_disabled on handshakes."""
+
+    async def test_1013_reports_paused_and_waits_bounded_then_connects(self):
+        relay = CommunityLiveRelay()
+        connects: list[int] = []
+        states: list[str] = []
+
+        async def connect(_url: str, _token: str):
+            connects.append(1)
+            if len(connects) == 1:
+                return FakeStatsSocket([], close_exc=_Close(CLOSE_FEED_PAUSED))
+            if len(connects) <= 3:
+                raise _refused_503("live_disabled")
+            return FakeStatsSocket([])
+
+        delays = _track_sleeps(relay)
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            broadcast = stack.enter_context(
+                patch("app.websocket.ws_manager.broadcast", new_callable=AsyncMock)
+            )
+            broadcast.side_effect = lambda kind, data: (
+                states.append(data["state"]) if kind == "community_live" else None
+            )
+            await relay.subscribe()
+            await _wait_until(lambda: len(connects) >= 4 and relay.connected)
+            snap = relay.snapshot(opted_out=False)
+            await relay.close_stats()
+        # Three pauses (one 1013, two 503 live_disabled): slow waits, bounded.
+        assert delays == [PAUSED_RETRY_MIN_S, PAUSED_RETRY_MAX_S, PAUSED_RETRY_MAX_S]
+        assert "paused" in states
+        assert states[-1] == "connected"
+        assert snap["state"] == "connected"
+        assert snap["close_code"] is None
+        assert relay._paused is False
+
+    async def test_503_live_disabled_handshake_is_paused(self):
+        relay = CommunityLiveRelay()
+        gate = asyncio.Event()
+
+        async def connect(_url: str, _token: str):
+            raise _refused_503("live_disabled")
+
+        async def hold(generation: int, seconds: float) -> None:
+            gate.set()
+            await asyncio.Event().wait()
+
+        relay._sleep_backoff = hold  # type: ignore[method-assign]
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            await relay.subscribe()
+            await asyncio.wait_for(gate.wait(), timeout=2)
+            snap = relay.snapshot(opted_out=False)
+            CommunityLiveStatus.model_validate(snap)
+            await relay.close_stats()
+        assert snap["state"] == "paused"
+        assert snap["connected"] is False
+        assert snap["close_code"] is None
+        assert snap["auth_error"] is None
+
+    async def test_503_viewer_cap_keeps_short_backoff(self):
+        relay = CommunityLiveRelay()
+        connects: list[int] = []
+
+        async def connect(_url: str, _token: str):
+            connects.append(1)
+            if len(connects) == 1:
+                raise _refused_503("live_viewer_cap")
+            return FakeStatsSocket([])
+
+        delays = _track_sleeps(relay)
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            await relay.subscribe()
+            await _wait_until(lambda: relay.connected)
+            await relay.close_stats()
+        assert delays == [RECONNECT_INITIAL_S]
+        assert relay._paused is False
+
+    async def test_opt_out_clears_paused(self):
+        relay = CommunityLiveRelay()
+        relay._paused = True
+        relay._sessions["s"] = (0.0, None)
+        with patch("app.websocket.ws_manager.broadcast", new_callable=AsyncMock):
+            await relay.sync_community(False)
+        assert relay._paused is False
+        assert relay.snapshot(opted_out=True)["state"] == "opted_out"
+
+
+class TestFeedPausedHelpers:
+    def test_is_feed_paused(self):
+        assert is_feed_paused(code=CLOSE_FEED_PAUSED)
+        assert is_feed_paused(http_status=503, body={"code": "live_disabled"})
+        assert not is_feed_paused(http_status=503, body={"code": "live_viewer_cap"})
+        assert not is_feed_paused(http_status=503, body=None)
+        assert not is_feed_paused(http_status=429, body={"code": "live_disabled"})
+        assert not is_feed_paused(code=4005)
+
+    def test_jitter_stays_within_bounds(self):
+        for base in (0.5, 2.0, 30.0, PAUSED_RETRY_MAX_S):
+            samples = [jittered(base) for _ in range(500)]
+            assert min(samples) >= base * (1 - BACKOFF_JITTER)
+            assert max(samples) <= base * (1 + BACKOFF_JITTER)
+            # Spread, not a constant: instances do not reconnect in step.
+            assert len({round(x, 6) for x in samples}) > 1
+        assert jittered(0) == 0.0
+
+    def test_jitter_extremes(self):
+        with patch("app.services.community_live.random.uniform", side_effect=lambda a, b: a):
+            assert jittered(PAUSED_RETRY_MIN_S) == pytest.approx(PAUSED_RETRY_MIN_S * 0.8)
+        with patch("app.services.community_live.random.uniform", side_effect=lambda a, b: b):
+            assert jittered(PAUSED_RETRY_MAX_S) == pytest.approx(PAUSED_RETRY_MAX_S * 1.2)
+
+    @pytest.mark.asyncio
+    async def test_sleep_backoff_applies_jitter(self):
+        relay = CommunityLiveRelay()
+        slept: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            slept.append(seconds)
+
+        with patch("app.services.community_live.asyncio.sleep", side_effect=fake_sleep):
+            for _ in range(50):
+                await relay._sleep_backoff(relay._generation, PAUSED_RETRY_MIN_S)
+            await relay._sleep_backoff(relay._generation, 0)
+        assert slept[-1] == 0
+        jitter = slept[:-1]
+        assert all(24.0 <= x <= 36.0 for x in jitter)
+        assert len(set(jitter)) > 1
