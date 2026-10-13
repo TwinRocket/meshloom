@@ -29,11 +29,12 @@ from app.services.community_live import (
 from app.services.meshloom_community import (
     bind_community_iata,
     community_status,
+    get_community_effective,
     search_community_airports,
     stats_json,
     update_community,
 )
-from app.services.observer_position import put_iata_bind
+from app.services.observer_position import note_radio_self_info, put_iata_bind, radio_self_info
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/community", tags=["community"])
@@ -53,12 +54,18 @@ async def search_airports(q: str = "", locale: str = "en") -> CommunityAirportSe
 
 @router.patch("", response_model=CommunityStatus)
 async def patch_community(body: CommunityUpdate) -> CommunityStatus:
+    was_enabled = (await get_community_effective()).enabled
     await update_community(
         enabled=body.enabled,
         iata=body.iata,
         broker_host=body.broker_host,
         api_base=body.api_base,
     )
+    if body.enabled and not was_enabled:
+        # Turned on without a bind (the settings join through PUT /me/iata
+        # instead): check the radio's position the way an appstart does, so a
+        # stale bind is refreshed. The worker sends nothing when nothing moved.
+        note_radio_self_info(radio_self_info())
     return await community_status()
 
 
