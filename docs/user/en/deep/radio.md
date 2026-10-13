@@ -107,6 +107,27 @@ On a radio with a GPS module, the list holds a **GPS** checkbox. When it is on, 
 
 If the list is empty, the radio reports no setting. Very old firmware reports none at all, and Meshloom says so.
 
+## Radio sensors
+
+Below the firmware settings, **Radio sensors** shows what the radio itself reports: its battery voltage, the MCU temperature when the board has a sensor, and the GPS position when the GPS is on. The storage used on the radio is shown too, as used / total KB with a percentage, when the radio reports it. The values are read when you open the tab; **Refresh** reads them again.
+
+## Factory reset
+
+At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. The button needs the radio connected. A window lists what happens, and you must type the radio's name exactly before the confirm button works.
+
+**Erased from the radio:**
+
+- Its identity. A new key pair is generated, so other nodes see a new node.
+- Its contacts and channels.
+- Its radio settings (frequency, bandwidth, SF, CR, TX power). They go back to the firmware defaults: set them again in the **Radio** tab.
+
+**Kept:**
+
+- Meshloom's own database: your messages and contacts.
+- The Wi-Fi credentials, which are built into the firmware. A Wi-Fi radio stays reachable.
+
+The radio restarts and Meshloom reconnects by itself. It then asks whether to adopt the new identity, with the usual identity prompt. This cannot be undone.
+
 ## Radio proxy
 
 **Settings → Proxy** can make Meshloom look like a MeshCore radio on your network, so that a phone app or another Meshloom connects through it. It is off by default. When enabled it listens on port 5001, on every network address, for up to 8 clients at a time. You can change the address, the port and the number of clients.

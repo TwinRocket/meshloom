@@ -14,6 +14,7 @@ from app.models import (
     CONTACT_TYPE_REPEATER,
     Contact,
     ContactUpsert,
+    LppSensor,
     RadioBleDeviceInfo,
     RadioBleScanResponse,
     RadioDiscoveryRequest,
@@ -212,6 +213,25 @@ class RadioCustomVarUpdate(BaseModel):
         if any(not (0x20 <= ord(ch) <= 0x7E) for ch in value) or ":" in value or "," in value:
             raise ValueError("Value must be printable ASCII without ':' or ','")
         return value
+
+
+class RadioSelfTelemetryResponse(BaseModel):
+    sensors: list[LppSensor] = Field(
+        default_factory=list,
+        description="Own CayenneLPP readings (battery, MCU temperature, board sensors)",
+    )
+    battery_mv: int | None = Field(default=None, description="Battery voltage in millivolts")
+    storage_used_kb: int | None = Field(default=None, description="Flash storage used (KB)")
+    storage_total_kb: int | None = Field(default=None, description="Flash storage total (KB)")
+
+
+class RadioFactoryResetRequest(BaseModel):
+    confirm_name: str = Field(description="Must equal the radio's current name exactly")
+
+
+# The firmware only accepts CMD_FACTORY_RESET (0x33) followed by the ASCII bytes "reset".
+# meshcore 2.3.15 confirm_factory_reset() sends 0x33 alone, which the firmware ignores.
+_FACTORY_RESET_FRAME = b"\x33reset"
 
 
 class RadioAdvertiseRequest(BaseModel):
@@ -509,6 +529,75 @@ async def set_radio_custom_var(name: str, update: RadioCustomVarUpdate) -> Radio
         if result is None or result.type == EventType.ERROR:
             raise HTTPException(status_code=422, detail=f"Radio rejected setting {name}")
         return await _read_custom_vars(mc)
+
+
+def _int_or_none(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+@router.get("/self-telemetry", response_model=RadioSelfTelemetryResponse)
+async def get_radio_self_telemetry() -> RadioSelfTelemetryResponse:
+    """Read the radio's own telemetry (LPP sensors) and battery/storage."""
+    radio_manager.require_connected()
+
+    async with radio_manager.radio_operation("get_radio_self_telemetry") as mc:
+        telemetry = await mc.commands.get_self_telemetry()
+        battery = await mc.commands.get_bat()
+
+    sensors: list[LppSensor] = []
+    if telemetry is not None and telemetry.type == EventType.TELEMETRY_RESPONSE:
+        payload = telemetry.payload if isinstance(telemetry.payload, dict) else {}
+        for entry in payload.get("lpp") or []:
+            sensors.append(
+                LppSensor(
+                    channel=entry.get("channel", 0),
+                    type_name=str(entry.get("type", "unknown")),
+                    value=entry.get("value", 0),
+                )
+            )
+
+    battery_mv = storage_used_kb = storage_total_kb = None
+    if battery is not None and battery.type == EventType.BATTERY:
+        payload = battery.payload if isinstance(battery.payload, dict) else {}
+        battery_mv = _int_or_none(payload.get("level"))
+        storage_used_kb = _int_or_none(payload.get("used_kb"))
+        storage_total_kb = _int_or_none(payload.get("total_kb"))
+
+    return RadioSelfTelemetryResponse(
+        sensors=sensors,
+        battery_mv=battery_mv,
+        storage_used_kb=storage_used_kb,
+        storage_total_kb=storage_total_kb,
+    )
+
+
+@router.post("/factory-reset")
+async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
+    """Erase the radio (identity, contacts, channels, settings) after name confirmation."""
+    mc = radio_manager.require_connected()
+    self_info = getattr(mc, "self_info", None)
+    name = self_info.get("name") if isinstance(self_info, dict) else None
+    if not name or request.confirm_name != name:
+        raise HTTPException(status_code=400, detail="Confirmation does not match the radio name")
+
+    public_key = str((self_info or {}).get("public_key") or "")
+    async with radio_manager.radio_operation("factory_reset_radio") as mc:
+        logger.warning("Sending factory reset to radio %s", public_key[:12])
+        try:
+            # The firmware closes its interface before replying: no reply, a timeout
+            # or a dropped connection all mean the reset was sent.
+            result = await mc.commands.send(
+                _FACTORY_RESET_FRAME, [EventType.OK, EventType.ERROR], timeout=5
+            )
+        except (TimeoutError, ConnectionError, OSError):
+            result = None
+        if result is not None and result.type == EventType.ERROR:
+            raise HTTPException(status_code=422, detail="Radio refused the factory reset")
+
+    return {
+        "status": "reset_sent",
+        "message": "Factory reset sent. The radio will reboot with a new identity.",
+    }
 
 
 @router.get("/private-key")

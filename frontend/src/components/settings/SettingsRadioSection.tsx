@@ -46,7 +46,9 @@ import {
   type RadioTransportKind,
   type RadioTransportUpdate,
 } from '../../types';
+import { RadioFactoryReset } from './RadioFactoryReset';
 import { RadioFirmwareSettings } from './RadioFirmwareSettings';
+import { RadioSelfTelemetrySettings } from './RadioSelfTelemetrySettings';
 import { LazyBoundary } from '../LazyBoundary';
 
 const LocationPickerModal = lazy(() =>
@@ -1517,12 +1519,20 @@ export function SettingsRadioSection({
               <>
                 <RadioFirmwareSettings />
                 <Separator />
+                <RadioSelfTelemetrySettings />
+                <Separator />
               </>
             ) : null}
             <RadioWorkaroundsPanel
               appSettings={appSettings}
               onSaveAppSettings={onSaveAppSettings}
             />
+            {config ? (
+              <>
+                <Separator />
+                <RadioFactoryReset radioName={config.name} />
+              </>
+            ) : null}
           </TabsContent>
         ) : null}
 
