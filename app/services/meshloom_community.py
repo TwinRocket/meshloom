@@ -374,12 +374,17 @@ async def bind_community_iata(
             if token is not None:
                 _joining_state.reset(token)
         try:
-            await _update_community_locked(
-                enabled=True if joining else None,
-                iata=result.iata,
-                broker_host=None,
-                api_base=None,
-                status_retired=retire_first,
+            # As a tracked task: a caller cancelled between the database write
+            # and the publisher reload must not leave Community on without its
+            # publisher (or the Live socket on the old IATA).
+            await _run_to_completion(
+                _update_community_locked(
+                    enabled=True if joining else None,
+                    iata=result.iata,
+                    broker_host=None,
+                    api_base=None,
+                    status_retired=retire_first,
+                )
             )
         except BaseException:
             if retire_first:

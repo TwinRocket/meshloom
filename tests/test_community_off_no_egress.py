@@ -881,6 +881,42 @@ class TestJoinBindsFirst:
         assert response.status_code == 403, response.text
         assert egress.events == []
 
+    @pytest.mark.asyncio
+    async def test_join_cancelled_between_the_write_and_the_reload_still_publishes(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.models import CommunityIataBindResult
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="")
+        real_write = AppSettingsRepository.update_community
+        written = asyncio.Event()
+
+        async def write_then_wait(**kwargs: Any) -> None:
+            await real_write(**kwargs)
+            written.set()
+            await asyncio.sleep(0.2)
+
+        bind = AsyncMock(
+            return_value=CommunityIataBindResult(
+                iata="LYS", concordance="ok", honored_for_buckets=True
+            )
+        )
+        with patch.object(AppSettingsRepository, "update_community", write_then_wait):
+            task = asyncio.create_task(
+                meshloom_community.bind_community_iata("LYS", bind, enable=True)
+            )
+            await asyncio.wait_for(written.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        # The database says on: the publisher was started all the same.
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (True, "LYS")
+        assert SYSTEM_MESHLOOM_STATS_ID in fanout_manager._modules
+        await _until(lambda: _online_published(egress, "LYS"))
+
 
 def _stats_publisher() -> MeshloomStatsPublisher:
     module = fanout_manager._modules[SYSTEM_MESHLOOM_STATS_ID][0]
