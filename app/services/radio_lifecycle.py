@@ -280,6 +280,7 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
 
                 from app.config import settings as app_settings_config
 
+                # DEV-ONLY debug switch (MESHCORE_SKIP_POST_CONNECT_SYNC); not a user setting.
                 if app_settings_config.skip_post_connect_sync:
                     logger.info(
                         "Skipping sync/offload/advert/drain (MESHCORE_SKIP_POST_CONNECT_SYNC)"

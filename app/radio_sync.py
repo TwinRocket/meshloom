@@ -925,7 +925,11 @@ async def _query_radio_time(mc: MeshCore) -> int | None:
 
 
 async def _attempt_clock_wraparound(mc: MeshCore, *, now: int, observed_radio_time: int) -> bool:
-    """Try the experimental uint32 wraparound trick, then retry normal time sync."""
+    """Try the experimental uint32 wraparound trick, then retry normal time sync.
+
+    DEV-ONLY: gated by ``__CLOWNTOWN_DO_CLOCK_WRAPAROUND``, not a user setting
+    (see AGENTS.md, "Dev-only variables").
+    """
     logger.warning(
         "Experimental __CLOWNTOWN_DO_CLOCK_WRAPAROUND enabled: attempting uint32 "
         "clock wraparound before normal time sync (radio=%d, system=%d).",

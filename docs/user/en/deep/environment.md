@@ -93,10 +93,8 @@ These exist to diagnose or work around radios that misbehave. None is needed in 
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Makes the radio audit check for waiting messages every 10 seconds instead of every hour |
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Rewrites the channel into the radio before every channel send |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Lets the radio drop its oldest contacts when its table is full |
-| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | After connecting, skips the contact and channel sync, the startup advert, reading the messages waiting on the radio, and the periodic jobs (sync, adverts, audit, telemetry) |
-| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | Very experimental: tries a 32-bit clock wraparound |
 
-The audit always runs; the poll variable only changes how often. Forcing the channel rewrite makes each channel send a little slower. The skip variable is a diagnostic exit: event handlers, key export, clock sync and automatic message fetching still run. The last variable is a last resort for a radio whose clock is stuck in the future, and may not be safe on every board.
+The audit always runs; the poll variable only changes how often. Forcing the channel rewrite makes each channel send a little slower.
 
 ## Settings stored in the database
 

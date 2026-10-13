@@ -93,10 +93,8 @@ Ces variables servent à diagnostiquer ou contourner des radios qui se comporten
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Fait vérifier les messages en attente sur la radio toutes les 10 secondes au lieu de toutes les heures |
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Réécrit le salon dans la radio avant chaque envoi vers un salon |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Laisse la radio supprimer elle-même ses plus anciens contacts quand sa table est pleine |
-| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | Après la connexion, saute la synchronisation des contacts et des salons, l’annonce de démarrage, la lecture des messages en attente sur la radio, et les tâches périodiques (synchronisation, annonces, audit, télémétrie) |
-| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | Très expérimental : tente un débordement d’horloge sur 32 bits |
 
-L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon. La variable « skip » est une sortie de secours pour le diagnostic : les gestionnaires d’événements, l’export de clé, la synchronisation d’horloge et la récupération automatique des messages continuent. La dernière est un dernier recours pour une radio dont l’horloge est coincée dans le futur, et peut ne pas être sûre sur toutes les cartes.
+L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon.
 
 ## Réglages stockés dans la base
 

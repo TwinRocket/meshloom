@@ -36,7 +36,6 @@ These are intended for diagnosing or working around radios that behave oddly, or
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | false | Run aggressive 10-second `get_msg()` fallback polling to check for messages ([docs](#message-poll-fallback)) |
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | false | Disable channel-slot reuse and force `set_channel(...)` before every channel send ([docs](#force-channel-slot-reconfigure)) |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | false | Enable autoevict mode for contact loading ([docs](#autoevict-mode)) |
-| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | false | Highly experimental: if the radio clock is ahead of system time, try forcing the clock to `0xFFFFFFFF`, wait for uint32 wraparound, and then retry normal time sync before falling back to reboot ([docs](#clock-wraparound)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | Enable `GET /api/radio/private-key` to return the in-memory private key as hex for backup or migration. Only enable on a trusted network. Import via `PUT /api/radio/private-key` is always available. ([docs](#private-key-export)) |
 | `MESHLOOM_COMMUNITY` | on for new DBs | Seed Meshloom Community on a brand-new database. Unset or any other value seeds on; `0` / `false` / `off` / `no` seeds opted out. Read only when the database is created; existing databases are never flipped. |
 | `MESHLOOM_COMMUNITY_IATA` | *(none)* | 3-letter IATA code. **Overrides** the stored IATA on every read while set (it is also seeded into a new database), so the value saved in Settings has no effect until you unset it. |
@@ -57,10 +56,6 @@ If you see that warning, or if messages on the radio never show up in the app, t
 ### Force Channel Slot Reconfigure
 
 If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, try `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` to force the radio to validate the channel slot is valid before sending (sending is a little slower, because the radio is written to before each send).
-
-### Clock Wraparound
-
-`__CLOWNTOWN_DO_CLOCK_WRAPAROUND=true` is a last-resort clock remediation for nodes whose RTC is stuck in the future and where rescue-mode time setting or GPS-based time is not available. It intentionally relies on the clock rolling past the 32-bit epoch boundary, which is board-specific behavior and may not be safe or effective on all MeshCore targets. Treat it as highly experimental.
 
 ### Private Key Export
 
