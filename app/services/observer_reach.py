@@ -771,10 +771,15 @@ def _contact_coords(contact: object) -> tuple[float, float] | None:
 _FULL_PUBLIC_KEY_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+def _is_full_public_key(public_key: str | None) -> bool:
+    """64 lowercase hex: the parsers lowercase every key coming from Community."""
+    return public_key is not None and _FULL_PUBLIC_KEY_RE.fullmatch(public_key) is not None
+
+
 async def _local_advert_by_full_key(public_key: str | None) -> tuple[float, float] | None:
     """Position from this radio's own copy of that node's advert, by full key only."""
-    if not public_key or not _FULL_PUBLIC_KEY_RE.fullmatch(public_key):
-        return None
+    if public_key is None or not _is_full_public_key(public_key):
+        return None  # never a prefix
     return _contact_coords(await ContactRepository.get_by_key(public_key))
 
 
@@ -799,8 +804,8 @@ async def _fill_local_contact_coordinates(
     position (owner decision: by public key, never by name), which then
     counts in the distances. That replaces a ``rounded`` position too.
 
-    An ear with no position at all (an observer often publishes only its
-    name) may still be placed on the map from the one local contact with
+    An ear with no position at all and no full key of its own (an observer
+    often publishes only its name) may still be placed on the map from the one local contact with
     that name, but marked ``rounded``: a name match could be another node,
     so it never makes a distance or a record, and lends the ear no key.
     """
@@ -827,7 +832,9 @@ async def _fill_local_contact_coordinates(
                 )
             )
             continue
-        if placed:
+        # An ear with its own full key is that node: a contact with another
+        # key and the same name is another node, never used to place it.
+        if placed or _is_full_public_key(entry.public_key):
             filled.append(entry)
             continue
         named = await _local_advert_by_unique_name(entry.name)

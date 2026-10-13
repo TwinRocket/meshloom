@@ -132,6 +132,15 @@ describe('placedObserverCoordinates', () => {
     ).toEqual({ lat: 43.66, lon: 7.15, byName: true });
   });
 
+  it('never places an ear with its own full key from another key with that name', () => {
+    expect(
+      placedObserverCoordinates(
+        { lat: null, lon: null, public_key: 'EF'.repeat(32), name: 'Hill' },
+        [{ public_key: 'cd'.repeat(32), name: 'Hill', lat: 43.66, lon: 7.15 }]
+      )
+    ).toEqual({ lat: null, lon: null });
+  });
+
   it('stays unplaced when neither source has a position', () => {
     expect(
       placedObserverCoordinates({ lat: null, lon: null, public_key: 'cd'.repeat(32) }, contacts)

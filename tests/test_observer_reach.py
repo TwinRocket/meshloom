@@ -1255,18 +1255,29 @@ class TestPositionPrecision:
         assert result.max_distance_km is None
 
     @pytest.mark.asyncio
-    async def test_ear_without_position_with_another_key_is_placed_by_name_only(self, test_db):
+    async def test_ear_with_its_own_key_is_not_placed_by_another_keys_name(self, test_db):
+        """Same name, other full key: another node, the ear stays unplaced."""
         await self._local_advert("cc" * 32, "Hill")
         result = await self._reach(
             [{"observer_id": "x", "observer_name": "Hill", "public_key": "dd" * 32}]
         )
         entry = result.observers[0]
         assert (entry.lat, entry.position_precision, entry.public_key) == (
-            45.2,
-            "rounded",
+            None,
+            None,
             "dd" * 32,
         )
         assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_uppercase_community_key_matches_the_local_advert(self, test_db):
+        """The parsers lowercase Community keys; the full-key match relies on it."""
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach([self._rounded_ear(observer_id="x", public_key="CC" * 32)])
+        entry = result.observers[0]
+        assert entry.public_key == "cc" * 32
+        assert (entry.lat, entry.position_precision) == (45.2, "exact")
+        assert result.max_distance_km == pytest.approx(22.2, abs=0.2)
 
     @pytest.mark.asyncio
     async def test_ear_without_position_and_two_named_adverts_stays_unplaced(self, test_db):

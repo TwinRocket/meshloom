@@ -151,6 +151,8 @@ export function meshTestObserverDistanceKm(
   return meshTestDistanceKm(origin, placed.lat, placed.lon);
 }
 
+const FULL_PUBLIC_KEY_RE = /^[0-9a-f]{64}$/i;
+
 /**
  * Where an ear sits on the map. `byName`: placed from a local advert matched
  * by name only, which may be another node, so it never makes a distance.
@@ -163,7 +165,8 @@ export interface PlacedObserverCoordinates {
 
 /**
  * Reach GPS first, then the local advert for the same public key, then (map
- * only, `byName`) the one local advert with the same name.
+ * only, `byName`) the one local advert with the same name, when the ear has
+ * no full public key of its own.
  */
 export function placedObserverCoordinates(
   entry: Pick<ObserverReachEntry, 'lat' | 'lon' | 'public_key'> & { name?: string | null },
@@ -174,6 +177,9 @@ export function placedObserverCoordinates(
   }
   const local = contactCoordinates(entry.public_key, contacts);
   if (local) return { lat: local.lat, lon: local.lon };
+  // An ear with its own full key is that node: a same-name advert with
+  // another key is another node.
+  if (FULL_PUBLIC_KEY_RE.test(entry.public_key ?? '')) return { lat: null, lon: null };
   const named = contactCoordinatesByName(entry.name, contacts);
   if (!named) return { lat: null, lon: null };
   return { lat: named.lat, lon: named.lon, byName: true };
