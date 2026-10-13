@@ -2054,9 +2054,11 @@ class CommunityUpdate(BaseModel):
 
 
 class CommunityIataBindRequest(BaseModel):
+    """No position here: the bind sends the radio's own, rounded unless it
+    broadcasts it (``app/services/observer_position.py``). Extra fields such as
+    ``lat``/``lon`` are ignored."""
+
     iata: str = Field(pattern=r"^[A-Za-z]{3}$")
-    lat: float | None = None
-    lon: float | None = None
     # Join: bind with Community first, then turn Community on (only if the bind succeeds).
     enable: bool = False
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -30,11 +29,11 @@ from app.services.community_live import (
 from app.services.meshloom_community import (
     bind_community_iata,
     community_status,
-    radio_gps_or_none,
     search_community_airports,
     stats_json,
     update_community,
 )
+from app.services.observer_position import put_iata_bind
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/community", tags=["community"])
@@ -73,26 +72,12 @@ async def get_me_stats() -> CommunityMeStats:
 
 @router.put("/me/iata", response_model=CommunityIataBindResult)
 async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult:
-    lat = body.lat
-    lon = body.lon
-    if lat is None and lon is None:
-        lat, lon = radio_gps_or_none()
-    json_body: dict[str, Any] = {"iata": body.iata.upper()}
-    if lat is not None and lon is not None:
-        json_body["lat"] = lat
-        json_body["lon"] = lon
-
-    async def bind() -> CommunityIataBindResult:
-        payload = await stats_json(
-            "PUT", "/v1/me/iata", auth=True, json_body=json_body, iata=body.iata
-        )
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=502, detail="Community returned an unexpected body")
-        return CommunityIataBindResult.model_validate(payload)
-
     # Clears the old retained status first, then binds, then reconnects. With
     # ``enable`` (join), Community is turned on only after a successful bind.
-    return await bind_community_iata(body.iata, bind, enable=body.enable)
+    # The bind carries only the publishable position (observer_position).
+    return await bind_community_iata(
+        body.iata, lambda: put_iata_bind(body.iata), enable=body.enable
+    )
 
 
 @router.post("/me/iata/override", response_model=CommunityIataBindResult)

@@ -858,22 +858,6 @@ def mint_stats_jwt(*, audience: str, iata: str = "", require_iata: bool = False)
     return _generate_jwt_token(private_key, public_key, audience=audience, iata=iata)
 
 
-def radio_gps_or_none() -> tuple[float | None, float | None]:
-    from app.services.radio_runtime import radio_runtime as radio_manager
-
-    try:
-        info = radio_manager.meshcore.self_info if radio_manager.meshcore else None
-        if not isinstance(info, dict):
-            return None, None
-        lat = float(info.get("adv_lat") or 0.0)
-        lon = float(info.get("adv_lon") or 0.0)
-        if lat == 0.0 and lon == 0.0:
-            return None, None
-        return lat, lon
-    except (TypeError, ValueError, AttributeError):
-        return None, None
-
-
 def publisher_connected() -> bool:
     from app.fanout.manager import fanout_manager
 

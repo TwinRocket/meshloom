@@ -1878,9 +1878,8 @@ export interface CommunityUpdate {
 }
 
 export interface CommunityIataBindRequest {
+  /** No position: the backend sends the radio's own, rounded unless the radio broadcasts it. */
   iata: string;
-  lat?: number;
-  lon?: number;
   /** Join: bind with Community first, then turn Community on (only if the bind succeeds). */
   enable?: boolean;
 }

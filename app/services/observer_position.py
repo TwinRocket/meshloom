@@ -7,7 +7,8 @@ is read as "off", the safe side.
 
 ``publishable_position`` is the only place the position sent to Community is
 rounded: exact when the radio broadcasts it anyway, rounded to about 1 km
-otherwise.
+otherwise. ``put_iata_bind`` is the only place it leaves, in the body of
+Community's ``PUT /v1/me/iata`` (``lat``, ``lon``, ``position_precision``).
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from __future__ import annotations
 import math
 from typing import Any, Literal, NamedTuple
 
+from fastapi import HTTPException
+
+from app.models import CommunityIataBindResult
 from app.services.directory import is_valid_map_location
 
 
@@ -76,3 +80,50 @@ def _finite(value: Any) -> float | None:
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def radio_self_info() -> dict[str, Any] | None:
+    """The connected radio's cached ``self_info``, or None."""
+    from app.services.radio_runtime import radio_runtime
+
+    try:
+        meshcore = getattr(radio_runtime, "meshcore", None)
+        info = getattr(meshcore, "self_info", None) if meshcore is not None else None
+    except AttributeError:
+        return None
+    return info if isinstance(info, dict) else None
+
+
+def iata_bind_body(iata: str, position: PublishablePosition | None) -> dict[str, Any]:
+    """Body of Community's ``PUT /v1/me/iata``: the IATA, then the position if any.
+
+    The position goes out with its precision, never alone, and nothing about
+    the position goes out when there is none to publish.
+    """
+    body: dict[str, Any] = {"iata": iata.upper()}
+    if position is not None:
+        body["lat"] = position.lat
+        body["lon"] = position.lon
+        body["position_precision"] = position.precision
+    return body
+
+
+async def put_iata_bind(iata: str) -> CommunityIataBindResult:
+    """Send ``PUT /v1/me/iata`` with this radio's publishable position.
+
+    Goes through ``stats_json`` and so through the Community egress guard
+    (403 while off, except inside a join).
+    """
+    from app.services.meshloom_community import stats_json
+
+    position = publishable_position(radio_self_info())
+    payload = await stats_json(
+        "PUT",
+        "/v1/me/iata",
+        auth=True,
+        json_body=iata_bind_body(iata, position),
+        iata=iata,
+    )
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="Community returned an unexpected body")
+    return CommunityIataBindResult.model_validate(payload)

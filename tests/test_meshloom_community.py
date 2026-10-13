@@ -403,15 +403,49 @@ class TestFirstIataBind:
             "honored_for_buckets": False,
             "distance_km": None,
         }
-        with patch(
-            "app.routers.community.stats_json",
-            new=AsyncMock(return_value=payload),
-        ) as stats:
+        with (
+            patch(
+                "app.services.meshloom_community.stats_json",
+                new=AsyncMock(return_value=payload),
+            ) as stats,
+            patch("app.services.observer_position.radio_self_info", return_value=None),
+        ):
             result = await put_me_iata(CommunityIataBindRequest(iata="lys"))
         assert stats.await_args.kwargs["iata"] == "lys"
+        # No radio position: nothing about a position goes out.
+        assert stats.await_args.kwargs["json_body"] == {"iata": "LYS"}
         assert result.iata == "LYS"
         state = await get_community_effective()
         assert state.iata == "LYS"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("policy", "expected"),
+        [
+            (0, {"lat": 45.76, "lon": 4.84, "position_precision": "rounded"}),
+            (None, {"lat": 45.76, "lon": 4.84, "position_precision": "rounded"}),
+            (1, {"lat": 45.764043, "lon": 4.835659, "position_precision": "exact"}),
+        ],
+    )
+    async def test_bind_sends_only_the_publishable_position(self, test_db, policy, expected):
+        await update_community(enabled=True, iata="LYS")
+        payload = {"iata": "LYS", "concordance": "ok", "honored_for_buckets": True}
+        info = {"adv_lat": 45.76404321, "adv_lon": 4.83565912, "adv_loc_policy": policy}
+        with (
+            patch(
+                "app.services.meshloom_community.stats_json",
+                new=AsyncMock(return_value=payload),
+            ) as stats,
+            patch("app.services.observer_position.radio_self_info", return_value=info),
+        ):
+            # A client cannot supply its own position any more: lat/lon are ignored.
+            await put_me_iata(
+                CommunityIataBindRequest.model_validate({"iata": "LYS", "lat": 1.5, "lon": 2.5})
+            )
+        assert stats.await_args.kwargs["json_body"] == {"iata": "LYS", **expected}
+
+    def test_bind_request_has_no_position_fields(self):
+        assert set(CommunityIataBindRequest.model_fields) == {"iata", "enable"}
 
 
 class TestCommunityStatusAndProxies:
