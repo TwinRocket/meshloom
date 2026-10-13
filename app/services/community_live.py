@@ -775,6 +775,7 @@ class CommunityLiveRelay:
             self._ws = None
             self._connected = False
             # No reader left to retry: nothing is paused any more.
+            was_paused = self._paused
             self._paused = False
             self._generation += 1
             task = self._reader_task
@@ -792,6 +793,15 @@ class CommunityLiveRelay:
             done, _pending = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_S)
             if not done:
                 logger.warning("Community live reader did not stop in time; abandoning it")
+        if was_paused:
+            # The stopped reader no longer reports anything: say the pause is over.
+            from app.services.meshloom_community import community_egress_state
+
+            try:
+                opted_out = await community_egress_state() is None
+                await self._broadcast_status(opted_out=opted_out)
+            except Exception:
+                logger.debug("community_live status fan-out failed", exc_info=True)
 
     async def _idle_close(self) -> None:
         try:
@@ -966,11 +976,13 @@ class CommunityLiveRelay:
                     )
                 self._connected = False
                 self._ws = None
-                if not feed_paused:
+                pause_ended = False
+                if not feed_paused and self._paused:
                     # Any other answer (401, 409, 429, 502, live_viewer_cap...)
                     # means the feed is no longer known to be paused: the state
                     # must not stay "paused" through another kind of failure.
                     self._paused = False
+                    pause_ended = True
                 # Only a socket that stayed up earns a fresh backoff; one that is
                 # closed right after opening keeps growing the delay.
                 stayed_up = (
@@ -990,6 +1002,8 @@ class CommunityLiveRelay:
                     )
                     self._filter_rejected_at = time.monotonic()
                     self._active_filter = None
+                    if pause_ended:
+                        await self._broadcast_status(opted_out=False)
                     await self._sleep_backoff(generation, 0)
                     continue
                 if auth_refused:

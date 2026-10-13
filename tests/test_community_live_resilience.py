@@ -392,11 +392,18 @@ class TestFeedPaused:
         relay._sleep_backoff = hold  # type: ignore[method-assign]
         with ExitStack() as stack:
             _enter_enabled(stack, relay, connect)
+            broadcast = stack.enter_context(
+                patch("app.websocket.ws_manager.broadcast", new_callable=AsyncMock)
+            )
             await relay.subscribe()
             await asyncio.wait_for(gate.wait(), timeout=2)
             assert relay._paused is True
+            broadcast.reset_mock()
             await relay.close_stats()
         assert relay._paused is False
+        # The browser hears that the pause is over (the chip goes away).
+        states = [c.args[1]["state"] for c in broadcast.await_args_list]
+        assert states and states[-1] != "paused"
 
     async def test_opt_out_clears_paused(self):
         relay = CommunityLiveRelay()

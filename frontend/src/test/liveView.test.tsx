@@ -301,6 +301,8 @@ describe('LiveView', () => {
       applyLiveStatus({ close_code: null, opted_out: false, connected: true, state: 'connected' });
     });
     await waitFor(() => expect(screen.queryByText(i18n.t('live.paused'))).not.toBeInTheDocument());
+    // The live region stays mounted, empty, so the next pause is announced.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('has no play/pause control', () => {
