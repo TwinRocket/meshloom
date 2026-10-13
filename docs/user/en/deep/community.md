@@ -33,14 +33,14 @@ Community needs to know roughly where your radio is: it places each observer on 
 
 - a banner says "Meshloom Community needs your position to work", on every page, the settings included;
 - your server keeps its connection to the Community broker only to publish its **status**, marked as waiting for a position, so Community knows the observer is there;
-- **no packet is published**, and the Live page, the directory (hop names, RF locate, "heard by"), the radio test, the statistics, the hashtag names and channel look-ups, the airport search and the Community release mirror are all off, as if you had left.
+- **no packet is published**, and the Live page, the directory (hop names, RF locate, "heard by"), the radio test, the statistics, the hashtag names and channel look-ups, the airport search and the Community release mirror are all off, as if you had left. The Live page, the "heard by" details and the radio test say Community needs your position and offer to choose it.
 
 You can join while your radio has no position: Community then starts in this state. From the banner:
 
-- **Choose my position** opens a map. The point you pick is saved on your radio (as in **Settings → Radio**). As soon as the radio reports it, Meshloom sends it to Community with your code (rounded to about 1 km unless your adverts broadcast it, see below), publishes its status again, and everything above comes back, without a restart.
+- **Choose my position** opens a map. The point you pick is saved on your radio (as in **Settings → Radio**). If the radio's **Advert Location Source** is **Include Node Location**, its adverts will also broadcast that position over the air to every node in range. As soon as the radio reports it, Meshloom sends it to Community with your code (rounded to about 1 km unless your adverts broadcast it, see below). Only once Community has accepted it does Meshloom publish its status again and bring everything above back, without a restart; if Community cannot be reached, it keeps waiting and tries again.
 - **Learn more** explains why, and offers the same choice or **Leave Community**, which is the usual opt-out.
 
-If the radio is disconnected, or not yet recognised after a reconnection, Meshloom keeps the last state it knew: the banner does not come and go while the radio reconnects. Removing the position from the radio (setting it back to `0, 0`) puts Community back in the waiting state at once.
+Meshloom checks the position as soon as it recognises the radio, before anything is sent to Community. If the radio is disconnected, or not yet recognised after a reconnection, Meshloom keeps the last state it knew, also across a restart: the banner does not come and go while the radio reconnects, and nothing is sent to Community before the radio is back. Removing the position from the radio (setting it back to `0, 0`) puts Community back in the waiting state at once.
 
 ## New installs
 

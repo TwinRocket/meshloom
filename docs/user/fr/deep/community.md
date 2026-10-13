@@ -33,14 +33,14 @@ Community a besoin de savoir à peu près où se trouve votre radio : il place c
 
 - une bannière indique « Pour fonctionner, Meshloom Community a besoin de votre position », sur toutes les pages, réglages compris ;
 - votre serveur garde sa connexion au broker Community uniquement pour publier son **état**, marqué en attente de position, afin que Community sache que l’observateur est là ;
-- **aucun paquet n’est publié**, et la page Live, l’annuaire (noms de sauts, localisation RF, « entendu par »), le test radio, les statistiques, les noms hashtag et les recherches de canaux, la recherche d’aéroport et le miroir des versions de Community sont tous coupés, comme si vous l’aviez quitté.
+- **aucun paquet n’est publié**, et la page Live, l’annuaire (noms de sauts, localisation RF, « entendu par »), le test radio, les statistiques, les noms hashtag et les recherches de canaux, la recherche d’aéroport et le miroir des versions de Community sont tous coupés, comme si vous l’aviez quitté. La page Live, le détail « entendu par » et le test radio indiquent que Community a besoin de votre position et proposent de la choisir.
 
 Vous pouvez rejoindre alors que votre radio n’a pas de position : Community démarre alors dans cet état. Depuis la bannière :
 
-- **Choisir ma position** ouvre une carte. Le point choisi est enregistré sur votre radio (comme dans **Réglages → Radio**). Dès que la radio le signale, Meshloom l’envoie à Community avec votre code (arrondi à environ 1 km sauf si vos annonces la diffusent, voir plus bas), publie de nouveau son état, et tout ce qui précède revient, sans redémarrage.
+- **Choisir ma position** ouvre une carte. Le point choisi est enregistré sur votre radio (comme dans **Réglages → Radio**). Si la **Source de position des annonces** de la radio est réglée sur **Inclure la position du nœud**, ses annonces diffuseront aussi cette position par les ondes à tous les nœuds à portée. Dès que la radio la signale, Meshloom l’envoie à Community avec votre code (arrondie à environ 1 km sauf si vos annonces la diffusent, voir plus bas). C’est seulement une fois qu’elle est acceptée par Community que Meshloom publie de nouveau son état et que tout ce qui précède revient, sans redémarrage ; si Community est injoignable, l’attente continue et Meshloom réessaie.
 - **En savoir plus** explique pourquoi, et propose le même choix ou **Quitter Community**, qui est la désinscription habituelle.
 
-Si la radio est déconnectée, ou pas encore reconnue après une reconnexion, Meshloom garde le dernier état connu : la bannière ne va et vient pas pendant que la radio se reconnecte. Retirer la position de la radio (la remettre à `0, 0`) remet aussitôt Community en attente.
+Meshloom vérifie la position dès qu’il reconnaît la radio, avant d’envoyer quoi que ce soit à Community. Si la radio est déconnectée, ou pas encore reconnue après une reconnexion, Meshloom garde le dernier état connu, y compris après un redémarrage : la bannière ne va et vient pas pendant que la radio se reconnecte, et rien n’est envoyé à Community avant son retour. Retirer la position de la radio (la remettre à `0, 0`) remet aussitôt Community en attente.
 
 ## Installations neuves
 
