@@ -970,7 +970,20 @@
       "communityTitle": "Community",
       "observersOnline": "Observers online",
       "iataActive": "Active IATA regions",
-      "uniqueHashes24h": "Unique hashes (24h)"
+      "uniqueHashes24h": "Unique hashes (24h)",
+      "waiting": {
+        "banner": "Meshloom Community needs your position to work",
+        "chooseLocation": "Choose my position",
+        "leave": "Leave Community",
+        "learnMore": "Learn more",
+        "title": "Community is waiting for your position",
+        "why": "Community places each radio on its map to show where packets are heard. Until your radio has a position, it only tells Community that it is online: no packet is sent, and Live, the directory and the statistics stay off.",
+        "privacy": "The position is saved on your radio. Community receives it rounded to about 1 km, unless your adverts already broadcast it.",
+        "leaveHelp": "If you would rather not give a position, you can leave Community.",
+        "positionSaved": "Position saved on the radio",
+        "positionFailed": "Could not save the position on the radio",
+        "settingsNote": "Community is waiting for your radio's position: only its online status is sent until you choose one."
+      }
     },
     "about": {
       "madeBy": "Made with love and open source by <author>Pascal M</author>",

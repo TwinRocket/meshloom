@@ -1879,11 +1879,19 @@ export interface StatisticsResponse {
  * Local Meshloom Stats join state. Browser talks only to the Meshloom backend.
  * The Community addresses are fixed in the backend and never exposed.
  */
+/**
+ * `waiting_for_position`: Community is on, but the radio has no position it may
+ * publish. Only its MQTT status leaves, so every Community surface treats it as
+ * off until a position is chosen. Absent from an older backend.
+ */
+export type CommunityState = 'off' | 'active' | 'waiting_for_position';
+
 export interface CommunityStatus {
   enabled: boolean;
   iata: string;
   publisher_configured: boolean;
   publisher_connected: boolean;
+  state?: CommunityState;
 }
 
 export interface CommunityUpdate {

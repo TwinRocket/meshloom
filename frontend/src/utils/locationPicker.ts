@@ -1,5 +1,9 @@
 import { api } from '../api';
-import { getCommunitySnapshot, refreshCommunityStatus } from '../stores/communityStore';
+import {
+  communityStatusActive,
+  getCommunitySnapshot,
+  refreshCommunityStatus,
+} from '../stores/communityStore';
 import { getBrowserTimeZone, locationFromTimeZone } from './ianaTimezoneLocation';
 import { isValidLocation } from './pathUtils';
 
@@ -88,8 +92,8 @@ export async function lookupCommunityIataLocation(): Promise<
     if (snapshot.enabled === false) return null;
     const community = snapshot.status ?? (await refreshCommunityStatus());
     // The IATA stays stored after an opt-out; the airport search is a Community
-    // feature, so it is never asked while Community is off.
-    if (!community?.enabled) return null;
+    // feature, so it is never asked while Community is off or waiting for a position.
+    if (!community || !communityStatusActive(community)) return null;
     const iata = (community.iata ?? '').trim().toUpperCase();
     if (!IATA_RE.test(iata)) return null;
     const hits = await api.searchCommunityAirports(iata);

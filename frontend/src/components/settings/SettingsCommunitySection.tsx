@@ -16,10 +16,13 @@ import { Separator } from '../ui/separator';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { formatNumber } from '../../utils/formatNumber';
 import {
+  communityStatusActive,
+  communityWaitingForPosition,
   loadCommunityStatus,
   setCommunityStatus,
   useCommunityStatus,
 } from '../../stores/communityStore';
+import { useCommunityLeave } from '../../hooks/useCommunityLeave';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
@@ -181,6 +184,10 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   const [communityStats, setCommunityStats] = useState<CommunityPublicStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'join' | 'leave' | 'bind' | 'override' | null>(null);
+  const { leave } = useCommunityLeave();
+  // Waiting for the radio's position: on, but no stats, no airport search.
+  const active = communityStatusActive(status);
+  const waiting = communityWaitingForPosition(status);
 
   // The draft follows the saved IATA whenever it changes (our actions, another
   // tab, the API); typing is left alone while the saved value stays the same.
@@ -231,7 +238,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   }, [loadStatus]);
 
   useEffect(() => {
-    if (!status?.enabled) {
+    if (!status || !communityStatusActive(status)) {
       setMeStats(null);
       setCommunityStats(null);
       setStatsError(null);
@@ -281,11 +288,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   const handleLeave = async () => {
     setBusy('leave');
     try {
-      setCommunityStatus(await api.updateCommunity({ enabled: false }));
-      setBindResult(null);
-      toast.success(t('settings.community.left'));
-    } catch (err) {
-      handleCommunityError(err);
+      if (await leave()) setBindResult(null);
     } finally {
       setBusy(null);
     }
@@ -434,8 +437,14 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
               </Button>
             </div>
             <IataHelp />
-            <IataAirportSearch disabled={busy !== null} onPick={setIataDraft} />
+            {active && <IataAirportSearch disabled={busy !== null} onPick={setIataDraft} />}
           </div>
+
+          {waiting && (
+            <p className="text-[0.8125rem] text-warning">
+              {t('settings.community.waiting.settingsNote')}
+            </p>
+          )}
 
           {!status.publisher_configured && (
             <p className="text-[0.8125rem] text-muted-foreground">
@@ -505,7 +514,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
         </ul>
       </div>
 
-      {status.enabled && (
+      {active && (
         <>
           <Separator className="my-6" />
           <div className="space-y-3">

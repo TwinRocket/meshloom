@@ -14,8 +14,13 @@ import type { CommunityStatus } from '../types';
  * change made while the socket was down sends them nothing.
  *
  * `enabled` is `null` until something has answered. App settings seed it from
- * `directory_available` (the backend computes it from the same flag) so routing
+ * `directory_available` (the backend computes it the same way) so routing
  * can decide on startup; `GET /api/community` then replaces the seed.
+ *
+ * `enabled` means "Community features may run": on and not waiting for a
+ * position (`communityStatusActive`). While Community waits for the radio's
+ * position, every surface treats it as off; only the settings read
+ * `status.enabled` (the opt-in itself) to offer "Leave" and the IATA form.
  */
 export interface CommunityStoreState {
   status: CommunityStatus | null;
@@ -44,10 +49,20 @@ export function getCommunitySnapshot(): CommunityStoreState {
   return state;
 }
 
+/** On and not waiting for a position: the Community features may run. */
+export function communityStatusActive(status: CommunityStatus | null | undefined): boolean {
+  return Boolean(status?.enabled) && status?.state !== 'waiting_for_position';
+}
+
+/** On, but the radio has no position Community may publish. */
+export function communityWaitingForPosition(status: CommunityStatus | null | undefined): boolean {
+  return Boolean(status?.enabled) && status?.state === 'waiting_for_position';
+}
+
 /** Store an answer from the backend (GET or PATCH /api/community). */
 export function setCommunityStatus(status: CommunityStatus): void {
   if (state.status === status) return;
-  emit({ status, enabled: status.enabled });
+  emit({ status, enabled: communityStatusActive(status) });
 }
 
 /** Startup hint from app settings. Ignored once a real status is known. */
@@ -81,8 +96,9 @@ export function refreshCommunityStatus(): Promise<CommunityStatus | null> {
 
 /**
  * A `community_live` status arrived. The backend broadcasts one on every
- * Community settings change (on, off, IATA, hosts), so re-read: another tab or
- * the API may have changed more than the switch. `GET /api/community` is local
+ * Community settings change (on, off, IATA) and on every change of the
+ * waiting-for-position state, so re-read: another tab, the API or the radio may
+ * have changed more than the switch. `GET /api/community` is local
  * and concurrent re-reads share one request.
  */
 export function noteCommunityLiveOptedOut(optedOut: boolean | undefined): void {
@@ -98,9 +114,13 @@ export function useCommunityStatus(): CommunityStatus | null {
   return useCommunityState().status;
 }
 
-/** `true`/`false` once known, `null` before anything answered. */
+/** `true`/`false` once known, `null` before anything answered. False while waiting for a position. */
 export function useCommunityEnabled(): boolean | null {
   return useCommunityState().enabled;
+}
+
+export function useCommunityWaitingForPosition(): boolean {
+  return communityWaitingForPosition(useCommunityState().status);
 }
 
 export function resetCommunityStoreForTests(): void {
