@@ -346,7 +346,10 @@ describe('SettingsModal', () => {
     expect(screen.getByTestId('path-hash-unavailable')).toHaveTextContent(
       i18n.t('settings.radio.pathHashUnavailable')
     );
-    expect(screen.queryByLabelText(i18n.t('settings.radio.pathHashMode'))).toBeNull();
+    expect(
+      screen.getByRole('group', { name: i18n.t('settings.radio.pathHashMode') })
+    ).toBeInTheDocument();
+    expect(document.getElementById('path-hash-mode')).toBeNull();
   });
 
   it('shows the path hash mode selector when the radio reports it', () => {

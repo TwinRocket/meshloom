@@ -1548,9 +1548,22 @@ export function SettingsRadioSection({
                     </select>
                   </SettingsField>
                 ) : (
-                  <div className="space-y-2" data-testid="path-hash-unavailable">
-                    <Label>{t('settings.radio.pathHashMode')}</Label>
-                    <p className="rounded-md border border-warning/50 bg-warning/10 p-3 text-xs text-warning">
+                  <div
+                    role="group"
+                    aria-labelledby="path-hash-unavailable-title"
+                    className="space-y-2"
+                    data-testid="path-hash-unavailable"
+                  >
+                    <p
+                      id="path-hash-unavailable-title"
+                      className="text-sm font-medium leading-none"
+                    >
+                      {t('settings.radio.pathHashMode')}
+                    </p>
+                    <p
+                      role="note"
+                      className="rounded-md border border-warning/50 bg-warning/10 p-3 text-xs text-warning"
+                    >
                       {t('settings.radio.pathHashUnavailable')}
                     </p>
                   </div>

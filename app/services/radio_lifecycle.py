@@ -375,10 +375,11 @@ async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool =
             raise RuntimeError("Post-connect setup timed out") from exc
 
     if setup_outcome == "reconnect":
-        # Setup stopped after a clock reboot: drop the dead transport so the
-        # connection monitor reconnects once the radio is back.
-        if radio_manager.is_connected:
-            await radio_manager.disconnect()
+        # Setup stopped after a clock reboot: drop the dead transport (even if
+        # meshcore already noticed, so its own auto-reconnect stops) and let
+        # the connection monitor reconnect once the radio is back.
+        logger.info("Radio is rebooting to reset its clock; the monitor will reconnect")
+        await radio_manager.disconnect()
         return False
 
     if not radio_manager.connection_desired:
