@@ -13,6 +13,7 @@ import {
   resetLivePacketStore,
 } from '../stores/livePacketStore';
 import { resetRawPacketStore } from '../stores/rawPacketStore';
+import { resetCommunityStoreForTests, setCommunityStatus } from '../stores/communityStore';
 import { LIVE_PACKET_LEGEND_OPEN_KEY } from '../utils/liveLegendPreference';
 import { LIVE_IATA_STORAGE_KEY } from '../utils/liveIataPreference';
 import { resetLocatedLiveRegions } from '../utils/liveRegionCenters';
@@ -177,6 +178,37 @@ describe('LiveView', () => {
     expect(onOpenCommunitySettings).toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'JWT expiré' })).not.toBeInTheDocument();
+  });
+
+  it('waiting for a position: asks for it instead of the opt-out banner', () => {
+    setCommunityStatus({
+      enabled: true,
+      iata: 'LYS',
+      publisher_configured: true,
+      publisher_connected: true,
+      state: 'waiting_for_position',
+    });
+    try {
+      render(
+        <LiveView
+          contacts={[]}
+          config={null}
+          communityEnabled={false}
+          communityIata="LYS"
+          onOpenCommunitySettings={vi.fn()}
+        />
+      );
+      expect(screen.getByText(i18n.t('settings.community.waiting.liveBanner'))).toBeInTheDocument();
+      expect(screen.queryByText(i18n.t('live.bannerOptOut'))).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: i18n.t('settings.community.waiting.chooseLocation') })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: i18n.t('settings.community.bannerOpenSettings') })
+      ).not.toBeInTheDocument();
+    } finally {
+      resetCommunityStoreForTests();
+    }
   });
 
   it('shows the same banner when Community is on but IATA is empty', () => {

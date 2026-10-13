@@ -29,7 +29,8 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { LazyBoundary } from './LazyBoundary';
-import { useCommunityEnabled } from '../stores/communityStore';
+import { useCommunityEnabled, useCommunityWaitingForPosition } from '../stores/communityStore';
+import { CommunityWaitingNotice } from './CommunityPositionPicker';
 
 const EMPTY_CONTACTS: Contact[] = [];
 
@@ -86,6 +87,8 @@ export function ObserverReachModal({
   // Who heard a packet comes from Community. Off, the reach endpoint answers an
   // empty list, which would read as "nobody heard it": say Community is off instead.
   const communityOff = useCommunityEnabled() === false;
+  // Enrolled but waiting for the radio's position: say that, not "turn it on".
+  const waitingForPosition = useCommunityWaitingForPosition();
 
   useEffect(() => {
     if (!open || !packetHash || communityOff) return;
@@ -184,7 +187,10 @@ export function ObserverReachModal({
           <DialogTitle>{t('messageList.observerReachTitle')}</DialogTitle>
           <DialogDescription>{t('messageList.observerReachCaveat')}</DialogDescription>
         </DialogHeader>
-        {communityOff && (
+        {communityOff && waitingForPosition && (
+          <CommunityWaitingNotice testId="observer-reach-community-waiting" />
+        )}
+        {communityOff && !waitingForPosition && (
           <div className="space-y-1" data-testid="observer-reach-community-off">
             <p className="text-sm font-medium">{t('community.offTitle')}</p>
             <p className="text-[0.8125rem] text-muted-foreground">

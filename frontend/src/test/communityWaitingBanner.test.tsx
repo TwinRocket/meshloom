@@ -81,15 +81,29 @@ describe('CommunityWaitingBanner', () => {
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
-  it('says why Community needs a position, in a status region', () => {
+  it('says why Community needs a position, in a named region', () => {
     render(<CommunityWaitingBanner />);
-    const banner = screen.getByTestId('community-waiting-banner');
-    expect(banner).toHaveAttribute('role', 'status');
-    expect(banner).toHaveTextContent(i18n.t('settings.community.waiting.banner'));
-    const choose = within(banner).getByRole('button', {
-      name: i18n.t('settings.community.waiting.chooseLocation'),
+    const banner = screen.getByRole('region', {
+      name: i18n.t('settings.community.waiting.regionLabel'),
     });
-    expect(choose).toHaveAccessibleDescription(i18n.t('settings.community.waiting.banner'));
+    expect(banner).not.toHaveAttribute('role', 'status');
+    expect(banner).toHaveTextContent(i18n.t('settings.community.waiting.banner'));
+    expect(
+      within(banner).getByRole('button', {
+        name: i18n.t('settings.community.waiting.chooseLocation'),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('warns that the radio may broadcast the chosen position', async () => {
+    render(<CommunityWaitingBanner />);
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.community.waiting.learnMore') })
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(i18n.t('settings.radio.includeLocation'));
+    await i18n.changeLanguage('fr');
+    expect(i18n.t('settings.community.waiting.privacy')).toContain('Inclure la position du nœud');
   });
 
   it('reads the French text with "vous"', async () => {

@@ -36,7 +36,8 @@ import {
 } from '../utils/meshTest';
 import { cn } from '../lib/utils';
 import { LazyBoundary } from './LazyBoundary';
-import { useCommunityEnabled } from '../stores/communityStore';
+import { useCommunityEnabled, useCommunityWaitingForPosition } from '../stores/communityStore';
+import { CommunityWaitingNotice } from './CommunityPositionPicker';
 
 /**
  * Send one flood, then listen for ten minutes to see who heard it.
@@ -105,24 +106,33 @@ function MeshTestCommunityOff({
   onOpenCommunitySettings,
 }: Pick<MeshTestViewProps, 'onBackToTools' | 'onOpenCommunitySettings'>) {
   const { t } = useTranslation();
+  // Enrolled but waiting for the radio's position: say that, not "turn it on".
+  const waitingForPosition = useCommunityWaitingForPosition();
   return (
     <div
       className="flex h-full min-h-0 flex-col bg-background"
       data-testid="mesh-test-community-off"
     >
       <ToolPaneHeader title={t('meshTest.title')} onBack={onBackToTools} />
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-        <RadioTower className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-        <p className="text-sm font-medium">{t('community.offTitle')}</p>
-        <p className="max-w-sm text-[0.8125rem] text-muted-foreground">
-          {t('meshTest.communityOff')}
-        </p>
-        {onOpenCommunitySettings && (
-          <Button type="button" variant="outline" size="sm" onClick={onOpenCommunitySettings}>
-            {t('community.openSettings')}
-          </Button>
-        )}
-      </div>
+      {waitingForPosition ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <RadioTower className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <CommunityWaitingNotice testId="mesh-test-community-waiting" />
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <RadioTower className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm font-medium">{t('community.offTitle')}</p>
+          <p className="max-w-sm text-[0.8125rem] text-muted-foreground">
+            {t('meshTest.communityOff')}
+          </p>
+          {onOpenCommunitySettings && (
+            <Button type="button" variant="outline" size="sm" onClick={onOpenCommunitySettings}>
+              {t('community.openSettings')}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

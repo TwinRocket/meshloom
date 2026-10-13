@@ -646,11 +646,14 @@
         "learnMore": "En savoir plus",
         "title": "Community attend votre position",
         "why": "Community place chaque radio sur sa carte pour montrer où les paquets sont entendus. Tant que votre radio n’a pas de position, elle indique seulement à Community qu’elle est en ligne : aucun paquet n’est envoyé, et le Live, l’annuaire et les statistiques restent coupés.",
-        "privacy": "La position est enregistrée sur votre radio. Community la reçoit arrondie à environ 1 km, sauf si vos adverts la diffusent déjà.",
+        "privacy": "La position est enregistrée sur votre radio. Si sa Source de position des annonces est réglée sur Inclure la position du nœud, les annonces de la radio la diffuseront aussi par les ondes à tous les nœuds à portée. Community la reçoit arrondie à environ 1 km, sauf si vos annonces la diffusent déjà.",
         "leaveHelp": "Si vous préférez ne pas donner de position, vous pouvez quitter Community.",
         "positionSaved": "Position enregistrée sur la radio",
         "positionFailed": "Impossible d’enregistrer la position sur la radio",
-        "settingsNote": "Community attend la position de votre radio : seul son statut en ligne est envoyé tant que vous n’en avez pas choisi une."
+        "settingsNote": "Community attend la position de votre radio : seul son statut en ligne est envoyé tant que vous n’en avez pas choisi une.",
+        "featureOff": "Cette fonction vient de Meshloom Community, qui a d’abord besoin de la position de votre radio.",
+        "liveBanner": "Les paquets de Community s’afficheront dès que votre radio aura une position. Les paquets de votre propre radio restent affichés.",
+        "regionLabel": "Meshloom Community a besoin de votre position"
       }
     },
     "proxy": {

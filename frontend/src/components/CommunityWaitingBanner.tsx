@@ -1,10 +1,8 @@
-import { lazy, useId, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { api, formatApiError } from '../api';
 import { useCommunityLeave } from '../hooks/useCommunityLeave';
-import { refreshCommunityStatus } from '../stores/communityStore';
-import { LazyBoundary } from './LazyBoundary';
+import { useCommunityPositionPicker } from './CommunityPositionPicker';
 import { Button } from './ui/button';
 import {
   Dialog,
@@ -14,47 +12,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
-import { toast } from './ui/sonner';
-
-// Leaflet stays out of the entry chunk: the picker loads only when opened.
-const LocationPickerModal = lazy(() =>
-  import('./LocationPickerModal').then((m) => ({ default: m.LocationPickerModal }))
-);
 
 /**
  * Community is on, but the radio has no position it may publish
  * (`CommunityStatus.state === 'waiting_for_position'`): only its MQTT status
  * leaves. The banner offers to choose a position (saved on the radio, which
  * then re-binds with Community) or to leave Community.
+ *
+ * A named region, not a live region: it is mounted with its content and holds
+ * buttons, so a `role="status"` would be read whole, or not at all.
  */
 export function CommunityWaitingBanner() {
   const { t } = useTranslation();
   const { leave, leaving } = useCommunityLeave();
+  const { openPicker, saving, picker } = useCommunityPositionPicker();
   const [explainOpen, setExplainOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const messageId = useId();
 
   const choosePosition = () => {
     setExplainOpen(false);
-    setPickerOpen(true);
-  };
-
-  // The radio stores the position (set_coords + appstart); its fresh self_info
-  // ends the waiting state on the backend, which tells every tab.
-  const savePosition = async (lat: number, lon: number) => {
-    setSaving(true);
-    try {
-      await api.updateRadioConfig({ lat, lon });
-      toast.success(t('settings.community.waiting.positionSaved'));
-      void refreshCommunityStatus();
-    } catch (err) {
-      toast.error(t('settings.community.waiting.positionFailed'), {
-        description: formatApiError(err, t),
-      });
-    } finally {
-      setSaving(false);
-    }
+    openPicker();
   };
 
   const handleLeave = async () => {
@@ -63,12 +39,12 @@ export function CommunityWaitingBanner() {
 
   return (
     <>
-      <div
+      <section
         data-testid="community-waiting-banner"
+        aria-label={t('settings.community.waiting.regionLabel')}
         className="flex flex-col gap-3 border-b border-warning/30 bg-warning/10 px-4 py-3 text-warning sm:flex-row sm:items-center sm:justify-between"
-        role="status"
       >
-        <p id={messageId} className="text-[0.8125rem] font-medium leading-snug">
+        <p className="text-[0.8125rem] font-medium leading-snug">
           {t('settings.community.waiting.banner')}
         </p>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -79,7 +55,6 @@ export function CommunityWaitingBanner() {
             className="border-warning/50 text-warning hover:bg-warning/10"
             onClick={choosePosition}
             disabled={saving || leaving}
-            aria-describedby={messageId}
           >
             {t('settings.community.waiting.chooseLocation')}
           </Button>
@@ -94,7 +69,7 @@ export function CommunityWaitingBanner() {
             {t('settings.community.waiting.learnMore')}
           </Button>
         </div>
-      </div>
+      </section>
 
       <Dialog open={explainOpen} onOpenChange={setExplainOpen}>
         <DialogContent data-testid="community-waiting-dialog">
@@ -122,17 +97,7 @@ export function CommunityWaitingBanner() {
         </DialogContent>
       </Dialog>
 
-      {pickerOpen && (
-        <LazyBoundary fallback={null}>
-          <LocationPickerModal
-            open={pickerOpen}
-            onOpenChange={setPickerOpen}
-            initialLat=""
-            initialLon=""
-            onApply={(lat, lon) => void savePosition(lat, lon)}
-          />
-        </LazyBoundary>
-      )}
+      {picker}
     </>
   );
 }
