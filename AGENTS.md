@@ -237,8 +237,6 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | radio audit every 10 s instead of hourly |
 | `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | `set_channel` before every channel send |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | contact loading with `AUTO_ADD_OVERWRITE_OLDEST` |
-| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | debug: skip post-connect sync/offload and periodic loops |
-| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | experimental clock fix when the radio clock is ahead of the host. Unusual name: no `MESHCORE_` prefix (`config.py`, `radio_sync.py`) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | enables `GET /api/radio/private-key` |
 | `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | fallback when `app_settings.vapid_subject` is empty; Apple rejects `.local` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
@@ -253,6 +251,15 @@ in `app_settings`, edited in the UI.
 | `MESHLOOM_UPDATE_LATEST` / `_HTML_URL` | unset | private test pin: makes the updater believe a given version is the latest, with an optional release page. Never shipped in `meshloom.env` |
 | `MESHLOOM_RUN_AS_USER` | unset | Docker only: numeric uid to drop to (the installer uses `10001`). `docker-entrypoint.sh` hands `/app/data` to that uid and adds the groups of the mapped serial devices. If a device stays unreadable it keeps running as root and logs a warning |
 | `APP_VERSION`, `COMMIT_HASH` | unset | build metadata read by `app/version_info.py`; the Docker image sets `COMMIT_HASH` |
+
+### Dev-only variables
+
+Not user settings: do not document them in `docs/user/**`, the READMEs, `.env.example` or the example composes. Their code is kept for developers and for diagnosis by hand.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | debug: skip post-connect sync/offload/advert and the periodic loops (`app/services/radio_lifecycle.py`) |
+| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | experimental clock fix when the radio clock is ahead of the host: forces `0xFFFFFFFF`, waits for the uint32 wraparound, retries the time sync. Board-specific, may do nothing. Unusual name: no `MESHCORE_` prefix (`app/config.py`, `app/radio_sync.py`) |
 
 ## Delivery flow
 
