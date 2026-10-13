@@ -18,6 +18,8 @@
     "clockAheadBy_one": "L’horloge du serveur avance d’environ {{count}} minute.",
     "clockAheadBy_other": "L’horloge du serveur avance d’environ {{count}} minutes.",
     "retry": "Réessayer",
+    "paused": "Live en pause",
+    "pausedHelp": "Community a mis le Live public en pause. Il reprendra tout seul, rien à faire de votre côté.",
     "iataFilter": "Régions",
     "iataAll": "Toutes les régions",
     "iataMenu": "Régions affichées",

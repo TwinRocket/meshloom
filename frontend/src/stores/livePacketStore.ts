@@ -14,6 +14,8 @@ export interface LiveConnectionState {
   authError: LiveAuthError | null;
   /** Community clock minus ours, seconds, when known. */
   clockSkewS: number | null;
+  /** Community paused the public feed: a discreet status, not a banner. */
+  paused: boolean;
   /** Community opt-out or a given-up token refusal. */
   banner: LiveBannerKind | null;
 }
@@ -22,6 +24,7 @@ const INITIAL_CONNECTION: LiveConnectionState = {
   optOut: false,
   authError: null,
   clockSkewS: null,
+  paused: false,
   banner: null,
 };
 
@@ -56,6 +59,7 @@ function sameConnection(a: LiveConnectionState, b: LiveConnectionState): boolean
     a.optOut === b.optOut &&
     a.authError === b.authError &&
     a.clockSkewS === b.clockSkewS &&
+    a.paused === b.paused &&
     a.banner === b.banner
   );
 }
@@ -106,7 +110,14 @@ export function applyLiveStatus(status: Partial<CommunityLiveStatus> | null | un
       (status?.state === 'auth_rejected' ? 'token_rejected' : null));
   const clockSkewS =
     authError && typeof status?.clock_skew_s === 'number' ? Math.round(status.clock_skew_s) : null;
-  setConnection({ optOut, authError, clockSkewS, banner: liveBanner(optOut, authError) });
+  const paused = !optOut && !authError && status?.state === 'paused';
+  setConnection({
+    optOut,
+    authError,
+    clockSkewS,
+    paused,
+    banner: liveBanner(optOut, authError),
+  });
 }
 
 export function resetLivePacketStore(): void {
