@@ -24,7 +24,7 @@ from app.repository.raw_packets import RawPacketRepository
 from app.repository.settings import AppSettingsRepository
 from app.services.channel_membership import MEMBERSHIP_PENDING
 from app.services.meshloom_community import (
-    get_community_effective,
+    community_egress_state,
     reset_stats_client_for_tests,
     sample_quota_blocked,
     schedule_hashtag_names_publish,
@@ -232,8 +232,8 @@ async def run_catalogue_pass() -> list[str]:
         if not remaining:
             return opened
 
-        state = await get_community_effective()
-        if not state.enabled or not state.iata:
+        state = await community_egress_state()
+        if state is None or not state.iata:
             return opened
 
         resolved = await _resolve_remaining(_normalize_hash_bytes(remaining))

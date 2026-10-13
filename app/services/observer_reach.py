@@ -732,10 +732,10 @@ async def _community_batch_or_fallback(
 
 
 async def get_packet_observer_reach(raw_hash: str) -> PacketObserverReachResponse:
-    from app.services.meshloom_community import community_enabled
+    from app.services.meshloom_community import community_active
 
     hash_lower = validate_packet_hash_param(raw_hash)
-    if not await community_enabled():
+    if not await community_active():
         return PacketObserverReachResponse(directory_enabled=False)
     fetched = await _community_batch_or_fallback([hash_lower])
     reach = fetched.get(hash_lower, ParsedReach(observations=[]))
@@ -850,7 +850,7 @@ async def _finish_observer_reach(
 
 
 async def get_packet_observer_reach_counts(hashes: list[str]) -> PacketObserverReachCountsResponse:
-    from app.services.meshloom_community import community_enabled
+    from app.services.meshloom_community import community_active
 
     if len(hashes) > MESHLOOM_BATCH_MAX:
         raise HTTPException(
@@ -865,7 +865,7 @@ async def get_packet_observer_reach_counts(hashes: list[str]) -> PacketObserverR
             seen.add(hash_lower)
             normalized.append(hash_lower)
 
-    if not await community_enabled():
+    if not await community_active():
         return PacketObserverReachCountsResponse(directory_enabled=False)
     fetched = await _community_batch_or_fallback(normalized)
     geos: dict[str, ObserverGeo] = {}

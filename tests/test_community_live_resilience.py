@@ -51,7 +51,7 @@ def _reset_relay():
 def _enter_enabled(stack: ExitStack, relay: CommunityLiveRelay, connect: object) -> None:
     stack.enter_context(
         patch(
-            "app.services.meshloom_community.community_enabled",
+            "app.services.meshloom_community.community_active",
             new_callable=AsyncMock,
             return_value=True,
         )

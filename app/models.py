@@ -2084,6 +2084,10 @@ class CommunityStatus(BaseModel):
     iata: str
     publisher_configured: bool
     publisher_connected: bool = False
+    # ``off``; ``active``; or ``waiting_for_position``: on, but the radio has no
+    # position Community may publish, so only the MQTT status (and the binds)
+    # leave until one is chosen.
+    state: Literal["off", "active", "waiting_for_position"] = "off"
 
 
 class CommunityUpdate(BaseModel):

@@ -181,6 +181,10 @@ def note_radio_self_info(info: Any) -> None:
     before any request.
     """
     global _rebind_task
+    from app.services.meshloom_community import note_radio_position
+
+    # The waiting-for-position state follows every self_info, bound or not.
+    note_radio_position(info)
     if not isinstance(info, dict) or _bound_key(info) == _last_bound:
         return
     if _rebind_task is not None and not _rebind_task.done():

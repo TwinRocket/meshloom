@@ -67,20 +67,38 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
         return get_public_key() is not None and has_private_key()
 
     async def _pre_connect(self, settings: object) -> bool:
-        """Re-check the Community egress guard before every (re)connect.
+        """Re-check the enrolled-level Community guard before every (re)connect.
 
         ``stop()`` normally ends the loop on opt-out. If a stop ever abandons
         the loop (a DISCONNECT that hangs past ``STOP_TIMEOUT_S``), this keeps
-        the loop from reconnecting to the broker afterwards.
+        the loop from reconnecting to the broker afterwards. Enrolled-level
+        (``community_enrolled_state``): it still connects while Community waits
+        for a position, to say so in its status.
         """
-        from app.services.meshloom_community import community_egress_state
+        from app.services.meshloom_community import community_enrolled_state
 
-        if await community_egress_state() is None:
+        if await community_enrolled_state() is None:
             if self._settings is not None:
                 self._settings.community_mqtt_enabled = False
             self.connected = False
             return False
         return await super()._pre_connect(settings)
+
+    def _status_extra(self) -> dict[str, Any]:
+        """``state: waiting_for_position`` while the radio has no publishable position."""
+        from app.services.meshloom_community import (
+            STATE_WAITING_FOR_POSITION,
+            waiting_for_position,
+        )
+
+        if waiting_for_position():
+            return {"state": STATE_WAITING_FOR_POSITION}
+        return {}
+
+    async def republish_status(self) -> None:
+        """Publish the retained status again at once (a waiting state change)."""
+        if self.connected and self._settings is not None:
+            await self._publish_status(self._settings, refresh_stats=False)
 
     async def _on_status_retained(self, settings: Any, pubkey_hex: str) -> None:
         """Remember the topic, so a restart with another IATA can clear it."""
@@ -164,8 +182,16 @@ class MeshloomStatsModule(FanoutModule):
         """Status topic the last stop cleared (empty retained payload acknowledged)."""
         return self._publisher.retired_status_topic
 
+    async def republish_status(self) -> None:
+        await self._publisher.republish_status()
+
     async def on_raw(self, data: dict) -> None:
+        from app.services.meshloom_community import waiting_for_position
+
         if not self._publisher.connected or self._publisher._settings is None:
+            return
+        # Waiting for a position: the status says so, and no packet leaves.
+        if waiting_for_position():
             return
         state_iata = getattr(self._publisher._settings, "community_mqtt_iata", "")
         await _publish_community_packet(

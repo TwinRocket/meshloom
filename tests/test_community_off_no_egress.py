@@ -22,6 +22,12 @@ uses the same clear for a topic left behind while the app was stopped.
 
 ``TestPositionRebindOff``: the automatic re-bind on a radio position or policy
 change sends nothing while Community is off.
+
+``TestWaitingForPosition``: Community on, but the radio has no position it may
+publish. Nothing leaves but the MQTT status (``state: waiting_for_position``)
+and the ``PUT /v1/me/iata`` binds; no packet, no HTTP, no Live. Both
+transitions re-publish the status at once; a chosen position is bound and the
+packets come back.
 """
 
 from __future__ import annotations
@@ -1470,3 +1476,244 @@ class TestPositionRebindOff:
         # Same IATA: the status topic does not move.
         assert _clear("LYS") not in egress.events
         assert (await get_community_effective()).iata == "LYS"
+
+
+# A flood GRP_TXT (header 0x15, no path): decodable, so it would be published.
+RAW_PACKET = {"data": "1500" + "AB" * 24, "snr": 5.0, "rssi": -90, "payload_type": "GROUP_TEXT"}
+NO_POSITION = {"public_key": PUBKEY_HEX, "adv_lat": 0.0, "adv_lon": 0.0, "adv_loc_policy": 0}
+WITH_POSITION = {"public_key": PUBKEY_HEX, "adv_lat": 45.76, "adv_lon": 4.83, "adv_loc_policy": 0}
+
+
+def _packets_topic(iata: str) -> str:
+    return f"meshcore/{iata}/{PUBKEY_HEX}/packets"
+
+
+def _packets_published(recorder: EgressRecorder, iata: str, since: int = 0) -> int:
+    return sum(
+        1
+        for e in recorder.events[since:]
+        if e[0] == "mqtt_publish" and e[1] == _packets_topic(iata)
+    )
+
+
+def _status_payloads(recorder: EgressRecorder, iata: str, since: int = 0) -> list[dict[str, Any]]:
+    return [
+        json.loads(e[2])
+        for e in recorder.events[since:]
+        if e[0] == "mqtt_publish" and e[1] == _status_topic(iata) and isinstance(e[2], str)
+    ]
+
+
+def _waiting_status_since(recorder: EgressRecorder, iata: str, since: int = 0) -> bool:
+    return any(
+        p.get("status") == "online" and p.get("state") == "waiting_for_position"
+        for p in _status_payloads(recorder, iata, since)
+    )
+
+
+def _active_status_since(recorder: EgressRecorder, iata: str, since: int = 0) -> bool:
+    return any(
+        p.get("status") == "online" and "state" not in p
+        for p in _status_payloads(recorder, iata, since)
+    )
+
+
+async def _send_raw() -> None:
+    entry = fanout_manager._modules.get(SYSTEM_MESHLOOM_STATS_ID)
+    assert entry is not None
+    await entry[0].on_raw(dict(RAW_PACKET))
+
+
+async def _wait_state_applied() -> None:
+    """Let the background transition (``_apply_position_state``) run to its end."""
+    await asyncio.sleep(0.05)
+    async with meshloom_community._update_lock:
+        pass
+
+
+class TestWaitingForPosition:
+    """Owner decisions 2026-10-14: Q2 last known state kept, Q3 join without a position."""
+
+    @pytest.mark.asyncio
+    async def test_waiting_sends_only_the_status(self, test_db, egress, cleanup_community):
+        from app.main import app
+
+        # Q3: Community turned on while the radio has no position.
+        meshloom_community.note_radio_position(NO_POSITION)
+        await _wait_state_applied()
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _waiting_status_since(egress, "CDG"))
+
+        payload = _status_payloads(egress, "CDG")[-1]
+        # Exactly ``status`` then ``state``, then the usual fields.
+        assert list(payload)[:2] == ["status", "state"]
+        assert payload["status"] == "online"
+        assert payload["state"] == "waiting_for_position"
+        assert "origin_id" in payload and "client_version" in payload
+        status = await meshloom_community.community_status()
+        assert (status.enabled, status.state) == (True, "waiting_for_position")
+
+        mark = len(egress.events)
+        async with _RealAsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            for method, template in _swept_routes():
+                if (method, template) == ("PUT", "/api/community/me/iata"):
+                    continue  # a bind: allowed while waiting (test below)
+                path = re.sub(r"\{(\w+)\}", lambda m: _PATH_PARAMS[m.group(1)], template)
+                response = await client.request(
+                    method,
+                    path,
+                    params=_QUERY.get(template),
+                    json=_BODIES.get((method, template)),
+                )
+                assert response.status_code != 422, (method, template, response.text)
+            response = await client.get("/api/settings")
+            assert response.json()["directory_available"] is False
+
+        await _store_unknown_group_text()
+        await run_catalogue_pass()
+        await schedule_hashtag_names_publish(["meshcore"])
+        assert await upload_hashtag_sample("ab", "ab" * 40) is False
+        await subscribe_live()
+        await _send_raw()
+        assert await refresh_oss_update_cache() is None
+        assert await fetch_meshloom_latest() is None
+        assert await search_community_airports("Lyon") == []
+        with pytest.raises(HTTPException) as exc:
+            await stats_json("GET", "/v1/community/stats", auth=False)
+        assert exc.value.status_code == 403
+        await asyncio.sleep(0.05)
+
+        new = egress.events[mark:]
+        # No HTTP to Community, no Live socket, no packet.
+        assert [e for e in new if e[0] == "http" and e[1] != "github.com"] == [], new
+        assert [e for e in new if e[0] == "ws_connect"] == []
+        assert get_live_relay().connected is False
+        assert _packets_published(egress, "CDG") == 0
+        # MQTT: the status topic only.
+        assert {e[1] for e in egress.events if e[0] == "mqtt_publish"} == {_status_topic("CDG")}
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_unknown_radio_keeps_the_last_state(self, test_db, egress, cleanup_community):
+        from app.services.radio_ingest_gate import allow_ingest, deny_ingest
+
+        meshloom_community.note_radio_position(NO_POSITION)
+        await update_community(enabled=True, iata="CDG")
+        assert (await meshloom_community.community_status()).state == "waiting_for_position"
+
+        # Q2: no radio, or an identity not accepted yet: no flicker.
+        meshloom_community.note_radio_position(None)
+        deny_ingest()
+        try:
+            meshloom_community.note_radio_position(WITH_POSITION)
+        finally:
+            allow_ingest()
+        assert (await meshloom_community.community_status()).state == "waiting_for_position"
+
+        meshloom_community.note_radio_position(WITH_POSITION)
+        assert (await meshloom_community.community_status()).state == "active"
+
+    @pytest.mark.asyncio
+    async def test_position_chosen_rebinds_and_packets_come_back(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        from app.services import observer_position
+
+        meshloom_community.note_radio_position(NO_POSITION)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _waiting_status_since(egress, "CDG"))
+        await subscribe_live()
+        await _send_raw()
+        assert _packets_published(egress, "CDG") == 0
+        assert not any(e[0] == "ws_connect" for e in egress.events)
+
+        egress.responses["/v1/me/iata"] = _bind_ok("CDG")
+        info = dict(WITH_POSITION)
+        monkeypatch.setattr(observer_position, "radio_self_info", lambda: info)
+        monkeypatch.setattr(observer_position, "REBIND_DEBOUNCE_S", 0.01)
+        mark = len(egress.events)
+
+        # The operator chose a position: the radio's next appstart reports it.
+        observer_position.note_radio_self_info(info)
+        task = observer_position._rebind_task
+        assert task is not None
+        await asyncio.wait_for(task, 3)
+        await _wait_state_applied()
+
+        new = egress.events[mark:]
+        bind = next(e for e in new if e[0] == "http" and e[1] != "github.com")
+        assert bind[2] == "/v1/me/iata"
+        # Re-published at once, without ``state``.
+        assert _active_status_since(egress, "CDG", mark)
+        assert (await meshloom_community.community_status()).state == "active"
+        # Live reopens for its session, and packets flow again.
+        await _until(lambda: get_live_relay().connected)
+        await _send_raw()
+        assert _packets_published(egress, "CDG", mark) == 1
+        # The status topic never moved, and the publisher did not reconnect.
+        assert _clear("CDG") not in egress.events
+        assert _open_mqtt_connections(egress) == 1
+
+    @pytest.mark.asyncio
+    async def test_position_lost_switches_to_waiting(self, test_db, egress, cleanup_community):
+        meshloom_community.note_radio_position(WITH_POSITION)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _active_status_since(egress, "CDG"))
+        await subscribe_live()
+        await _until(lambda: get_live_relay().connected)
+        socket = egress.sockets[-1]
+        await _send_raw()
+        assert _packets_published(egress, "CDG") == 1
+
+        mark = len(egress.events)
+        meshloom_community.note_radio_position(NO_POSITION)
+        await _until(lambda: _waiting_status_since(egress, "CDG", mark))
+        await _wait_state_applied()
+
+        assert socket.closed.is_set()
+        assert get_live_relay().connected is False
+        assert (await meshloom_community.community_status()).state == "waiting_for_position"
+        await _send_raw()
+        with pytest.raises(HTTPException):
+            await stats_json("GET", "/v1/community/stats", auth=False)
+        await subscribe_live()
+        await asyncio.sleep(0.05)
+        new = egress.events[mark:]
+        assert [e for e in new if e[0] in {"http", "ws_connect", "mqtt_connect"}] == []
+        assert _packets_published(egress, "CDG", mark) == 0
+        assert {e[1] for e in new if e[0] == "mqtt_publish"} == {_status_topic("CDG")}
+
+    @pytest.mark.asyncio
+    async def test_iata_change_binds_while_waiting(self, test_db, egress, cleanup_community):
+        meshloom_community.note_radio_position(NO_POSITION)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _waiting_status_since(egress, "CDG"))
+        egress.responses["/v1/me/iata"] = _bind_ok("LYS")
+
+        response = await _put_me_iata("LYS")
+        assert response.status_code == 200, response.text
+        await _until(lambda: _waiting_status_since(egress, "LYS"))
+        assert [e[2] for e in egress.events if e[0] == "http"] == ["/v1/me/iata"]
+        assert _clear("CDG") in egress.events
+
+    @pytest.mark.asyncio
+    async def test_opt_out_while_waiting_tears_down(self, test_db, egress, cleanup_community):
+        meshloom_community.note_radio_position(NO_POSITION)
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _waiting_status_since(egress, "CDG"))
+
+        await update_community(enabled=False)
+        assert _clear("CDG") in egress.events
+        assert _open_mqtt_connections(egress) == 0
+        assert (await meshloom_community.community_status()).state == "off"
+
+    @pytest.mark.asyncio
+    async def test_user_mqtt_community_rows_never_carry_the_state(self, test_db):
+        from app.fanout.community_mqtt import CommunityMqttPublisher
+
+        meshloom_community.note_radio_position(NO_POSITION)
+        assert CommunityMqttPublisher()._status_extra() == {}
+        assert MeshloomStatsPublisher()._status_extra() == {"state": "waiting_for_position"}
+        await _wait_state_applied()

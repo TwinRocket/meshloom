@@ -161,9 +161,11 @@ class FanoutManager:
 
     async def _sync_system_modules_locked(self) -> None:
         from app.fanout.meshloom_stats import MeshloomStatsModule
-        from app.services.meshloom_community import community_egress_state
+        from app.services.meshloom_community import community_enrolled_state
 
-        state = await community_egress_state()
+        # Enrolled-level: the publisher also runs while Community waits for a
+        # position (its status says so, and it sends no packets).
+        state = await community_enrolled_state()
         existing = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
         if state is None:
             if existing is not None:
@@ -196,6 +198,17 @@ class FanoutManager:
         if callable(retire):
             retire()
         return entry[0]
+
+    async def republish_system_status(self) -> None:
+        """Have the running Stats publisher re-publish its retained status now."""
+        entry = self._modules.get(SYSTEM_MESHLOOM_STATS_ID)
+        if entry is None:
+            return
+        from app.fanout.meshloom_stats import MeshloomStatsModule
+
+        module = entry[0]
+        if isinstance(module, MeshloomStatsModule):
+            await module.republish_status()
 
     def has_system_module(self) -> bool:
         return SYSTEM_MESHLOOM_STATS_ID in self._modules

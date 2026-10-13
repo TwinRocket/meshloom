@@ -453,12 +453,14 @@ class TestCommunityStatusAndProxies:
         status = await get_community()
         assert status.enabled is False
         assert status.publisher_configured is False
+        assert status.state == "off"
         # The Community addresses are neither settable nor shown.
         assert set(status.model_dump()) == {
             "enabled",
             "iata",
             "publisher_configured",
             "publisher_connected",
+            "state",
         }
 
     @pytest.mark.asyncio
