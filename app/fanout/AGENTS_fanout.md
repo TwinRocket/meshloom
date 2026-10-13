@@ -55,7 +55,7 @@ Each integration chooses which messages and packets it receives.
 - `on_raw`: `RawPacketBroadcast` (`app/models.py`). Includes `id` (storage row), `observation_id` (one per RF arrival), `timestamp`, `data` (packet hex), `payload_type`, `snr`, `rssi`, `decrypted`, `decrypted_info` (`channel_key`, `contact_key`, `sender`, `message`, ...), `transport_code`, `region`.
 - `on_contact`: a contact dict (`Contact` fields: `public_key`, `name`, `type`, `lat`, `lon`, `last_seen`, `on_radio`, ...).
 - `on_telemetry`: `{public_key, name, timestamp, **snapshot}`. The snapshot holds repeater status fields or contact LPP data, depending on the source.
-- `on_health`: `radio_stats._build_fanout_payload()` — `connected`, `connection_info`, `public_key`, `name`. When stats are available it adds `noise_floor_dbm`, `battery_mv`, `uptime_secs`, `last_rssi`, `last_snr`, `tx_air_secs`, `rx_air_secs`, `packets_recv`, `packets_sent`, `flood_tx`, `direct_tx`, `flood_rx`, `direct_rx`.
+- `on_health`: `radio_stats._build_fanout_payload()` — `connected`, `connection_info`, `public_key`, `name`. When stats are available it adds `noise_floor_dbm`, `battery_mv`, `uptime_secs`, `last_rssi`, `last_snr`, `tx_air_secs`, `rx_air_secs`, `packets_recv`, `packets_sent`, `flood_tx`, `direct_tx`, `flood_rx`, `direct_rx`, `recv_errors` (`None` when the firmware sends the legacy 26-byte packet-stats frame).
 
 ## Module types
 

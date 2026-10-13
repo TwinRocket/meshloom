@@ -83,8 +83,8 @@ class TestDevicePayload:
 class TestRadioDiscovery:
     def test_produces_discovery_configs(self):
         configs = _radio_discovery_configs("meshcore", "aabbccddeeff1122", "MyRadio")
-        # 1 binary_sensor (connected) + 9 sensors from _RADIO_SENSORS
-        assert len(configs) == 10
+        # 1 binary_sensor (connected) + 10 sensors from _RADIO_SENSORS
+        assert len(configs) == 11
 
         topics = [t for t, _ in configs]
         assert "homeassistant/binary_sensor/meshcore_aabbccddeeff/connected/config" in topics
@@ -95,6 +95,7 @@ class TestRadioDiscovery:
         assert "homeassistant/sensor/meshcore_aabbccddeeff/last_snr/config" in topics
         assert "homeassistant/sensor/meshcore_aabbccddeeff/packets_received/config" in topics
         assert "homeassistant/sensor/meshcore_aabbccddeeff/packets_sent/config" in topics
+        assert "homeassistant/sensor/meshcore_aabbccddeeff/recv_errors/config" in topics
 
     def test_connected_binary_sensor_shape(self):
         configs = _radio_discovery_configs("mc", "aabbccddeeff", "R")
@@ -481,6 +482,7 @@ class TestMqttHaHealth:
                 "last_snr": 9.5,
                 "packets_recv": 500,
                 "packets_sent": 250,
+                "recv_errors": 3,
             }
         )
 
@@ -497,6 +499,7 @@ class TestMqttHaHealth:
         assert payload["last_rssi"] == -85
         assert payload["packets_recv"] == 500
         assert payload["packets_sent"] == 250
+        assert payload["recv_errors"] == 3
 
     @pytest.mark.asyncio
     async def test_on_health_caches_radio_key(self):

@@ -121,6 +121,7 @@ function RadioDetailsCollapsible({ stats }: { stats: RadioStatsSnapshot }) {
     direct_tx: stats.direct_tx,
     flood_rx: stats.flood_rx,
     direct_rx: stats.direct_rx,
+    recv_errors: stats.recv_errors,
   };
 
   return (
@@ -208,6 +209,9 @@ function RadioDetailsCollapsible({ stats }: { stats: RadioStatsSnapshot }) {
         )}
         {packets.direct_rx != null && (
           <StatRow label={t('settings.radio.directRx')} value={String(packets.direct_rx)} />
+        )}
+        {packets.recv_errors != null && (
+          <StatRow label={t('settings.radio.recvErrors')} value={String(packets.recv_errors)} />
         )}
       </div>
     </details>

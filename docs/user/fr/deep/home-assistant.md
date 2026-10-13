@@ -51,6 +51,7 @@ Un appareil portant le nom de votre radio. Il se rafraîchit toutes les 60 secon
 | `sensor.<radio>_last_rssi` et `_last_snr` | Force et qualité du dernier paquet reçu |
 | `sensor.<radio>_tx_airtime` et `_rx_airtime` | Temps passé à émettre et à recevoir, en s |
 | `sensor.<radio>_packets_received` et `_packets_sent` | Compteurs de paquets |
+| `sensor.<radio>_recv_errors` | Paquets captés par la radio mais impossibles à décoder. Un compteur qui grimpe vite signale du brouillage ou un signal trop faible. Vide si votre firmware ne le fournit pas |
 
 ### Répéteurs
 

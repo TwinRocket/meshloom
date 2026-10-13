@@ -226,6 +226,7 @@ export interface RadioStatsSnapshot {
   direct_tx: number | null;
   flood_rx: number | null;
   direct_rx: number | null;
+  recv_errors: number | null;
 }
 
 export interface HealthStatus {

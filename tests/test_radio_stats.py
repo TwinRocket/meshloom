@@ -88,7 +88,7 @@ class TestRadioStatsSamplingLoop:
             "last_snr": 9.5,
             "tx_air_secs": 100,
             "rx_air_secs": 200,
-            "packets": {"recv": 500, "sent": 250},
+            "packets": {"recv": 500, "sent": 250, "recv_errors": 7},
         }
 
         async def fake_sample():
@@ -124,6 +124,7 @@ class TestRadioStatsSamplingLoop:
         assert payload["battery_mv"] == 4100
         assert payload["noise_floor_dbm"] == -118
         assert payload["packets_recv"] == 500
+        assert payload["recv_errors"] == 7
 
 
 class TestSampleAllStats:

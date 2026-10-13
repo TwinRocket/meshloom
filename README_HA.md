@@ -56,6 +56,7 @@ Created as soon as Meshloom knows the radio's identity, which is the first healt
 | `sensor.<radio_name>_last_rssi` / `_last_snr` | Signal | Last received RSSI (dBm) / SNR (dB) |
 | `sensor.<radio_name>_tx_airtime` / `_rx_airtime` | Duration | Transmit / receive airtime (s) |
 | `sensor.<radio_name>_packets_received` / `_packets_sent` | count | Packet counters |
+| `sensor.<radio_name>_recv_errors` | count | Packets the radio picked up but could not decode (CRC errors). Empty with a firmware that does not report it |
 
 ### Repeater Devices
 
