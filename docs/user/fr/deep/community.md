@@ -84,6 +84,6 @@ La recherche d’aéroport (`api.fx-port.com`, par l’intermédiaire de votre s
 
 **Réglages → Meshloom Community** permet de rejoindre ou de quitter, de saisir le code IATA (ou de le chercher une fois inscrit), de voir si le service de publication est connecté, et de lire votre contribution (paquets uniques sur 24 heures et 7 jours, et votre rang dans votre région) à côté des totaux de la communauté. Quand Community attend une position, les réglages l’indiquent et n’affichent ni les statistiques ni la recherche d’aéroport.
 
-Le détail « entendu par » et le test radio ne mesurent de distance que vers les observateurs dont la position exacte est connue. Un observateur qui publie une position arrondie apparaît quand même sur leurs cartes, mais sans distance, et il ne bat jamais le record de l’oreille la plus lointaine.
+Le détail « entendu par » et le test radio ne mesurent de distance que vers les observateurs dont la position exacte est connue. Un observateur qui publie une position arrondie apparaît quand même sur leurs cartes, mais sans distance, et il ne bat jamais le record de l’oreille la plus lointaine. Exception : si votre radio a entendu l’annonce de cet observateur avec sa position (même clé publique, jamais un simple nom identique), Meshloom utilise cette position exacte, et l’observateur compte alors dans les distances.
 
 Voir [Variables et réglages](/docs/deep/environment/) et [Sécurité](/docs/deep/security/).

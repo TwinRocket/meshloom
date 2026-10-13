@@ -6,9 +6,12 @@ observation event. Community off: there is no source and the badge is off.
 Each ear position carries ``position_precision``. Only ``exact`` positions
 count in distances (``max_distance_km``): a ``rounded`` one (about 1 km, an
 ear that does not broadcast its own position) still places the ear on the
-map. A missing field means ``exact`` on ``/v1/directory/packets/*`` (before
-it existed those were advert positions only) and ``rounded`` on
-``/v1/directory/observers`` (rounded by Community already).
+map. A rounded ear whose advert this radio heard (same full public key,
+never by name) takes that advert's position and counts as ``exact``
+(``_fill_local_contact_coordinates``). A missing field means ``exact`` on
+``/v1/directory/packets/*`` (before it existed those were advert positions
+only) and ``rounded`` on ``/v1/directory/observers`` (rounded by Community
+already).
 """
 
 from __future__ import annotations
@@ -764,13 +767,29 @@ def _contact_coords(contact: object) -> tuple[float, float] | None:
     return lat_f, lon_f
 
 
+_FULL_PUBLIC_KEY_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+async def _local_advert_by_full_key(public_key: str | None) -> tuple[float, float] | None:
+    """Position from this radio's own copy of that node's advert, by full key only."""
+    if not public_key or not _FULL_PUBLIC_KEY_RE.fullmatch(public_key):
+        return None
+    return _contact_coords(await ContactRepository.get_by_key(public_key))
+
+
 async def _fill_local_contact_coordinates(
     entries: list[ObserverReachEntry],
 ) -> list[ObserverReachEntry]:
-    """Use a local advert when Community named the ear but did not place it.
+    """Place ears from local adverts when Community did not place them exactly.
 
-    An observer often publishes only its name. The radio that heard that
-    advert already stored the GPS, under the same public key or the same name.
+    An ear with no position: an observer often publishes only its name, and
+    the radio that heard its advert already stored the GPS, under the same
+    public key or (unique) the same name.
+
+    An ear with a ``rounded`` position (about 1 km): replaced by the local
+    advert's position only when the contact has the ear's full public key.
+    Never by name: a name match could replace a real position with another
+    node's, and the result would then count as exact in the distances.
     """
     filled: list[ObserverReachEntry] = []
     for entry in entries:
@@ -779,7 +798,24 @@ async def _fill_local_contact_coordinates(
             and entry.lon is not None
             and _is_valid_map_location(entry.lat, entry.lon)
         ):
-            filled.append(entry)
+            coords_exact = (
+                await _local_advert_by_full_key(entry.public_key)
+                if entry.position_precision != "exact"
+                else None
+            )
+            if coords_exact is None:
+                filled.append(entry)
+                continue
+            filled.append(
+                entry.model_copy(
+                    update={
+                        "lat": coords_exact[0],
+                        "lon": coords_exact[1],
+                        # Heard in that node's own advert, same full key.
+                        "position_precision": "exact",
+                    }
+                )
+            )
             continue
         contact = None
         if entry.public_key:
@@ -826,7 +862,8 @@ async def _finish_observer_reach(
     max_distance_km = None
     if origin_coords is not None:
         for entry in entries:
-            # A rounded position (about 1 km) never makes a distance record.
+            # A rounded position (about 1 km) never makes a distance record; a
+            # rounded ear whose advert this radio heard is already exact here.
             if entry.lat is None or entry.lon is None or entry.position_precision != "exact":
                 continue
             distance = haversine_km(origin_coords[0], origin_coords[1], entry.lat, entry.lon)

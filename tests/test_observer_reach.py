@@ -1182,6 +1182,92 @@ class TestPositionPrecision:
         assert result.observers[0].position_precision == "exact"
         assert result.max_distance_km == pytest.approx(22.2, abs=0.2)
 
+    @staticmethod
+    def _rounded_ear(**fields: object) -> dict:
+        return {"lat": 46.0, "lon": 4.0, "position_precision": "rounded", **fields}
+
+    @staticmethod
+    async def _local_advert(public_key: str, name: str, lat: float | None = 45.2) -> None:
+        from app.repository import ContactRepository
+
+        await ContactRepository.upsert(
+            ContactUpsert(
+                public_key=public_key,
+                name=name,
+                type=2,
+                lat=lat,
+                lon=4.0 if lat is not None else None,
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_rounded_ear_takes_the_local_advert_by_full_key(self, test_db):
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach(
+            [self._rounded_ear(observer_id="x", observer_name="Hill", public_key="cc" * 32)]
+        )
+        entry = result.observers[0]
+        assert (entry.lat, entry.lon, entry.position_precision) == (45.2, 4.0, "exact")
+        assert entry.public_key == "cc" * 32
+        # The advert position, not the rounded 46.0 (111 km).
+        assert result.max_distance_km == pytest.approx(22.2, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_rounded_catalogue_ear_takes_the_local_advert_by_full_key(self, test_db):
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach(
+            [{"observer_id": "obs-1"}],
+            observers=[
+                {"id": "obs-1", "name": "Hill", "public_key": "cc" * 32, "lat": 46.0, "lon": 4.0}
+            ],
+        )
+        assert result.observers[0].position_precision == "exact"
+        assert result.max_distance_km == pytest.approx(22.2, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_rounded_ear_known_by_a_key_prefix_stays_rounded(self, test_db):
+        """No full key on the ear: a prefix never picks a local advert."""
+        await self._local_advert("cc" * 32, "Hill")
+        await self._local_advert("cc" * 6 + "dd" * 26, "Hill 2")
+        result = await self._reach([self._rounded_ear(observer_id="cc" * 6)])
+        entry = result.observers[0]
+        assert (entry.lat, entry.position_precision) == (46.0, "rounded")
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_rounded_ear_matching_only_by_name_stays_rounded(self, test_db):
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach(
+            [self._rounded_ear(observer_id="x", observer_name="Hill", public_key="dd" * 32)]
+        )
+        entry = result.observers[0]
+        assert (entry.lat, entry.position_precision) == (46.0, "rounded")
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_rounded_ear_without_a_local_advert_is_unchanged(self, test_db):
+        # Known contact with that key, but its advert carried no position.
+        await self._local_advert("cc" * 32, "Hill", lat=None)
+        result = await self._reach(
+            [
+                self._rounded_ear(observer_id="x", public_key="cc" * 32),
+                self._rounded_ear(observer_id="y", public_key="ee" * 32),
+            ]
+        )
+        assert [(o.lat, o.position_precision) for o in result.observers] == [
+            (46.0, "rounded"),
+            (46.0, "rounded"),
+        ]
+        assert result.max_distance_km is None
+
+    @pytest.mark.asyncio
+    async def test_exact_ear_keeps_its_own_position_over_a_local_advert(self, test_db):
+        await self._local_advert("cc" * 32, "Hill")
+        result = await self._reach(
+            [{"observer_id": "x", "public_key": "cc" * 32, "lat": 45.5, "lon": 4.0}]
+        )
+        assert (result.observers[0].lat, result.observers[0].position_precision) == (45.5, "exact")
+
 
 class TestDirectoryReachPrecision:
     def test_direct_observer_precision_defaults_to_rounded(self):

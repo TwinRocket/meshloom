@@ -82,6 +82,6 @@ The airport search (`api.fx-port.com`, through your server) is part of Community
 
 **Settings → Meshloom Community** lets you join or leave, type the IATA code (or search for it once joined), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals. While Community waits for a position, the settings say so and show neither the statistics nor the airport search.
 
-The "heard by" details and the radio test measure distances only to observers whose exact position is known. An observer that publishes a rounded position still appears on their maps, but has no distance and never sets the farthest-ear record.
+The "heard by" details and the radio test measure distances only to observers whose exact position is known. An observer that publishes a rounded position still appears on their maps, but has no distance and never sets the farthest-ear record. Exception: if your radio has heard that observer's own advert with its position (same public key, never just the same name), Meshloom uses that exact position, and the observer then counts in the distances.
 
 See [Variables and settings](/en/docs/deep/environment/) and [Security](/en/docs/deep/security/).
