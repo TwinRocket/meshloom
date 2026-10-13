@@ -287,7 +287,12 @@ describe('LiveView', () => {
     render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
     const chip = await screen.findByRole('status');
     expect(chip).toHaveTextContent(i18n.t('live.paused'));
-    expect(chip).toHaveAttribute('title', i18n.t('live.pausedHelp'));
+    expect(chip).toHaveTextContent(i18n.t('live.pausedHelp'));
+    // The tooltip sits on an aria-hidden node: the help is read once, not twice.
+    expect(chip).not.toHaveAttribute('title');
+    const tooltip = chip.querySelector('[title]');
+    expect(tooltip).toHaveAttribute('title', i18n.t('live.pausedHelp'));
+    expect(tooltip).toHaveAttribute('aria-hidden', 'true');
     expect(screen.queryByText(i18n.t('live.bannerTokenRejected'))).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t('live.bannerOptOut'))).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('live.retry') })).not.toBeInTheDocument();
@@ -296,6 +301,8 @@ describe('LiveView', () => {
       applyLiveStatus({ close_code: null, opted_out: false, connected: true, state: 'connected' });
     });
     await waitFor(() => expect(screen.queryByText(i18n.t('live.paused'))).not.toBeInTheDocument());
+    // The live region stays mounted, empty, so the next pause is announced.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('has no play/pause control', () => {

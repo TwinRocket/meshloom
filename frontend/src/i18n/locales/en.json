@@ -930,6 +930,7 @@
       "leave": "Leave Meshloom Community",
       "disableHelp": "Stopping Meshloom Community stops publish, and also stops the online directory: no hop names, no locate anchors, no heard-by counts.",
       "left": "Meshloom Community stopped",
+      "leaving": "Leaving…",
       "iata": "IATA code",
       "iataHelp": "The IATA code is the 3-letter code of the nearest airport (A–Z). It is a coarse region label. Concordance only means it is consistent with your radio position — never a verified location.",
       "iataPlaceholder": "CDG",
@@ -1721,6 +1722,7 @@
   },
   "errors": {
     "radio_not_connected": "Radio not connected",
+    "iata_requires_bind": "The IATA code changes only through Meshloom Community settings (bind or join), never with a plain settings update.",
     "radio_initializing": "Radio is initializing",
     "radio_startup_stuck": "Radio startup appears stuck",
     "reconnection_failed": "Reconnection failed",

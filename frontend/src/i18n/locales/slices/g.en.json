@@ -1,6 +1,7 @@
 {
   "errors": {
     "radio_not_connected": "Radio not connected",
+    "iata_requires_bind": "The IATA code changes only through Meshloom Community settings (bind or join), never with a plain settings update.",
     "radio_initializing": "Radio is initializing",
     "radio_startup_stuck": "Radio startup appears stuck",
     "reconnection_failed": "Reconnection failed",

@@ -311,6 +311,100 @@ class TestFeedPaused:
         assert delays == [RECONNECT_INITIAL_S]
         assert relay._paused is False
 
+    async def test_503_with_an_html_body_is_not_a_pause(self):
+        relay = CommunityLiveRelay()
+        connects: list[int] = []
+
+        async def connect(_url: str, _token: str):
+            connects.append(1)
+            if len(connects) == 1:
+                # A proxy in front of Community, not Community itself.
+                raise InvalidStatus(
+                    Response(
+                        503,
+                        "Service Unavailable",
+                        Headers({"Content-Type": "text/html"}),
+                        b"<html><body>503 Service Temporarily Unavailable</body></html>",
+                    )
+                )
+            return FakeStatsSocket([])
+
+        delays = _track_sleeps(relay)
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            await relay.subscribe()
+            await _wait_until(lambda: relay.connected)
+            await relay.close_stats()
+        assert delays == [RECONNECT_INITIAL_S]
+        assert relay._paused is False
+
+    @pytest.mark.parametrize(
+        ("status", "body"),
+        [
+            (401, {"detail": "x", "code": "token_expired"}),
+            (409, {"detail": "x", "code": "live_superseded"}),
+            (429, {"detail": "x"}),
+            (502, None),
+            (503, {"detail": "x", "code": "live_viewer_cap"}),
+            (503, None),
+        ],
+    )
+    async def test_any_other_handshake_answer_ends_the_pause(self, status, body):
+        relay = CommunityLiveRelay()
+        connects: list[int] = []
+        held = asyncio.Event()
+
+        async def connect(_url: str, _token: str):
+            connects.append(1)
+            if len(connects) == 1:
+                raise _refused_503("live_disabled")
+            raw = json.dumps(body).encode() if body is not None else b""
+            raise InvalidStatus(Response(status, "Refused", Headers(), raw))
+
+        async def sleep(generation: int, seconds: float) -> None:
+            if len(connects) < 2:
+                await asyncio.sleep(0)  # the paused wait: retry at once
+                return
+            held.set()
+            await asyncio.Event().wait()
+
+        relay._sleep_backoff = sleep  # type: ignore[method-assign]
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            await relay.subscribe()
+            await asyncio.wait_for(held.wait(), timeout=2)
+            snap = relay.snapshot(opted_out=False)
+            await relay.close_stats()
+        assert relay._paused is False
+        assert snap["state"] == "reconnecting"
+
+    async def test_closing_the_reader_clears_paused(self):
+        relay = CommunityLiveRelay()
+        gate = asyncio.Event()
+
+        async def connect(_url: str, _token: str):
+            raise _refused_503("live_disabled")
+
+        async def hold(generation: int, seconds: float) -> None:
+            gate.set()
+            await asyncio.Event().wait()
+
+        relay._sleep_backoff = hold  # type: ignore[method-assign]
+        with ExitStack() as stack:
+            _enter_enabled(stack, relay, connect)
+            broadcast = stack.enter_context(
+                patch("app.websocket.ws_manager.broadcast", new_callable=AsyncMock)
+            )
+            await relay.subscribe()
+            await asyncio.wait_for(gate.wait(), timeout=2)
+            assert relay._paused is True
+            broadcast.reset_mock()
+            await relay.close_stats()
+        assert relay._paused is False
+        # The browser hears that the pause is over (the chip goes away).
+        states = [c.args[1]["state"] for c in broadcast.await_args_list]
+        assert states and states[-1] != "paused"
+
     async def test_opt_out_clears_paused(self):
         relay = CommunityLiveRelay()
         relay._paused = True

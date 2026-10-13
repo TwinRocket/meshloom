@@ -881,6 +881,104 @@ class TestJoinBindsFirst:
         assert response.status_code == 403, response.text
         assert egress.events == []
 
+    @pytest.mark.asyncio
+    async def test_join_cancelled_between_the_write_and_the_reload_still_publishes(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.models import CommunityIataBindResult
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="")
+        real_write = AppSettingsRepository.update_community
+        written = asyncio.Event()
+
+        async def write_then_wait(**kwargs: Any) -> None:
+            await real_write(**kwargs)
+            written.set()
+            await asyncio.sleep(0.2)
+
+        bind = AsyncMock(
+            return_value=CommunityIataBindResult(
+                iata="LYS", concordance="ok", honored_for_buckets=True
+            )
+        )
+        with patch.object(AppSettingsRepository, "update_community", write_then_wait):
+            task = asyncio.create_task(
+                meshloom_community.bind_community_iata("LYS", bind, enable=True)
+            )
+            await asyncio.wait_for(written.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        # The database says on: the publisher was started all the same.
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (True, "LYS")
+        assert SYSTEM_MESHLOOM_STATS_ID in fanout_manager._modules
+        await _until(lambda: _online_published(egress, "LYS"))
+
+
+async def _patch_community(body: dict[str, Any]) -> httpx.Response:
+    from app.main import app
+
+    async with _RealAsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        return await client.patch("/api/community", json=body)
+
+
+class TestPatchNeverChangesTheIata:
+    """An IATA change is a bind (PUT /community/me/iata), never a PATCH."""
+
+    @staticmethod
+    def _refused(response: httpx.Response) -> None:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "iata_requires_bind"
+
+    @pytest.mark.asyncio
+    async def test_off_to_on_with_an_iata_is_refused(self, test_db, egress, cleanup_community):
+        self._refused(await _patch_community({"enabled": True, "iata": "LYS"}))
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (False, "")
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    async def test_iata_while_off_then_on_is_refused(self, test_db, egress, cleanup_community):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        # The two-step way around: store another IATA while off, then turn on.
+        self._refused(await _patch_community({"iata": "LYS"}))
+        response = await _patch_community({"enabled": True})
+        assert response.status_code == 200, response.text
+        await _until(lambda: _online_published(egress, "CDG"))
+        assert not _online_published(egress, "LYS")
+        assert (await get_community_effective()).iata == "CDG"
+
+    @pytest.mark.asyncio
+    async def test_iata_while_on_is_refused(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        mark = len(egress.events)
+
+        self._refused(await _patch_community({"iata": "LYS"}))
+        self._refused(await _patch_community({"enabled": True, "iata": "LYS"}))
+        self._refused(await _patch_community({"iata": ""}))
+        await asyncio.sleep(0.05)
+        assert egress.events[mark:] == []
+        assert (await get_community_effective()).iata == "CDG"
+
+    @pytest.mark.asyncio
+    async def test_the_stored_iata_is_accepted(self, test_db, egress, cleanup_community):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        response = await _patch_community({"enabled": True, "iata": "cdg"})
+        assert response.status_code == 200, response.text
+        await _until(lambda: _online_published(egress, "CDG"))
+        response = await _patch_community({"iata": "CDG"})
+        assert response.status_code == 200, response.text
+
 
 def _stats_publisher() -> MeshloomStatsPublisher:
     module = fanout_manager._modules[SYSTEM_MESHLOOM_STATS_ID][0]
