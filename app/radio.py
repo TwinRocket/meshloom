@@ -14,6 +14,7 @@ from serial.tools import list_ports
 from app.config import settings
 from app.keystore import clear_keys
 from app.models import RadioTransportSnapshot
+from app.services.radio_lifecycle import PostConnectSetupOutcome
 from app.services.radio_transport import get_transport, is_tcp
 
 logger = logging.getLogger(__name__)
@@ -325,11 +326,11 @@ class RadioManager:
             finally:
                 self._release_operation_lock(name)
 
-    async def post_connect_setup(self) -> None:
+    async def post_connect_setup(self) -> PostConnectSetupOutcome:
         """Run shared post-connection orchestration after transport setup succeeds."""
         from app.services.radio_lifecycle import run_post_connect_setup
 
-        await run_post_connect_setup(self)
+        return await run_post_connect_setup(self)
 
     def reset_channel_send_cache(self) -> None:
         """Forget any session-local channel-slot reuse state."""

@@ -659,7 +659,7 @@ async def test_post_connect_setup_aborts_own_proxy_model():
         ),
         patch("app.event_handlers.register_event_handlers"),
         patch("app.keystore.export_and_store_private_key", new=AsyncMock()),
-        patch("app.radio_sync.sync_radio_time", new=AsyncMock()),
+        patch("app.radio_sync.sync_radio_time_outcome", new=AsyncMock()),
         patch(
             "app.repository.AppSettingsRepository.get",
             new=AsyncMock(return_value=MagicMock(flood_scope=None)),

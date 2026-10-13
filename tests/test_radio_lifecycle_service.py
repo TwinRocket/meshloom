@@ -58,6 +58,23 @@ class TestPrepareConnectedRadio:
         assert radio_manager._last_connected is True
         mock_broadcast.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_drops_transport_when_setup_rebooted_the_radio(self):
+        radio_manager = MagicMock()
+        radio_manager._last_connected = False
+        radio_manager.connection_desired = True
+        radio_manager.is_connected = True
+        radio_manager.post_connect_setup = AsyncMock(return_value="reconnect")
+        radio_manager.disconnect = AsyncMock()
+
+        with patch("app.websocket.broadcast_health") as mock_broadcast:
+            result = await prepare_connected_radio(radio_manager, broadcast_on_success=True)
+
+        assert result is False
+        radio_manager.disconnect.assert_awaited_once()
+        assert radio_manager._last_connected is False
+        mock_broadcast.assert_not_called()
+
 
 class TestReconnectAndPrepareRadio:
     @pytest.mark.asyncio
@@ -147,7 +164,7 @@ class TestRunPostConnectSetup:
         with (
             patch("app.event_handlers.register_event_handlers") as mock_register_handlers,
             patch("app.keystore.export_and_store_private_key", new=AsyncMock()) as mock_export_key,
-            patch("app.radio_sync.sync_radio_time", new=AsyncMock()) as mock_sync_time,
+            patch("app.radio_sync.sync_radio_time_outcome", new=AsyncMock()) as mock_sync_time,
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new=AsyncMock(return_value=MagicMock(flood_scope=None)),
@@ -167,6 +184,39 @@ class TestRunPostConnectSetup:
         replacement_mc.start_auto_message_fetching.assert_awaited_once()
         initial_mc.start_auto_message_fetching.assert_not_called()
         assert radio_manager.max_channels == 8
+
+    @pytest.mark.asyncio
+    async def test_stops_before_device_query_when_clock_sync_rebooted_the_radio(self):
+        mc = MagicMock()
+        mc.commands.send_device_query = AsyncMock()
+        mc.start_auto_message_fetching = AsyncMock()
+
+        radio_manager = MagicMock()
+        radio_manager.meshcore = mc
+        radio_manager._setup_lock = None
+        radio_manager._setup_in_progress = False
+        radio_manager._setup_complete = False
+        radio_manager._acquire_operation_lock = AsyncMock()
+        radio_manager._release_operation_lock = MagicMock()
+
+        with (
+            patch("app.event_handlers.register_event_handlers"),
+            patch("app.keystore.export_and_store_private_key", new=AsyncMock()),
+            patch(
+                "app.radio_sync.sync_radio_time_outcome",
+                new=AsyncMock(return_value="rebooted"),
+            ),
+            patch("app.radio_sync.sync_and_offload_all", new=AsyncMock()) as mock_sync_all,
+        ):
+            outcome = await run_post_connect_setup(radio_manager)
+
+        assert outcome == "reconnect"
+        mc.commands.send_device_query.assert_not_called()
+        mock_sync_all.assert_not_called()
+        mc.start_auto_message_fetching.assert_not_called()
+        assert radio_manager._setup_complete is False
+        assert radio_manager._setup_in_progress is False
+        radio_manager._release_operation_lock.assert_called_once_with("post_connect_setup")
 
     @pytest.mark.asyncio
     async def test_caches_device_info_metadata_from_device_query(self):
@@ -209,7 +259,7 @@ class TestRunPostConnectSetup:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new=AsyncMock()),
-            patch("app.radio_sync.sync_radio_time", new=AsyncMock()),
+            patch("app.radio_sync.sync_radio_time_outcome", new=AsyncMock()),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new=AsyncMock(return_value=MagicMock(flood_scope=None)),

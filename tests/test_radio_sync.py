@@ -25,6 +25,7 @@ from app.radio_sync import (
     pause_polling,
     sync_and_offload_all,
     sync_radio_time,
+    sync_radio_time_outcome,
     sync_recent_contacts_to_radio,
 )
 from app.repository import (
@@ -230,6 +231,40 @@ class TestSyncRadioTime:
         assert result is False
         mock_mc.commands.get_time.assert_called_once()
         mock_mc.commands.reboot.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_outcome_reports_the_corrective_reboot(self):
+        """Setup needs to know the radio was rebooted, not just that sync failed."""
+        import time as _time
+
+        mock_mc = MagicMock()
+        mock_mc.commands.set_time = AsyncMock(
+            return_value=Event(EventType.ERROR, {"reason": "illegal_arg"})
+        )
+        mock_mc.commands.get_time = AsyncMock(
+            return_value=Event(EventType.CURRENT_TIME, {"time": int(_time.time()) + 86400})
+        )
+        mock_mc.commands.reboot = AsyncMock()
+
+        assert await sync_radio_time_outcome(mock_mc) == "rebooted"
+        # Second session sync: no new reboot, the skew is only reported.
+        assert await sync_radio_time_outcome(mock_mc) == "rejected"
+        mock_mc.commands.reboot.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_outcome_is_rejected_when_reboot_command_fails(self):
+        import time as _time
+
+        mock_mc = MagicMock()
+        mock_mc.commands.set_time = AsyncMock(
+            return_value=Event(EventType.ERROR, {"reason": "illegal_arg"})
+        )
+        mock_mc.commands.get_time = AsyncMock(
+            return_value=Event(EventType.CURRENT_TIME, {"time": int(_time.time()) + 86400})
+        )
+        mock_mc.commands.reboot = AsyncMock(side_effect=RuntimeError("no answer"))
+
+        assert await sync_radio_time_outcome(mock_mc) == "rejected"
 
     @pytest.mark.asyncio
     async def test_wraparound_can_fix_future_skew_before_normal_set(self):
@@ -2041,7 +2076,7 @@ class TestPeriodicSyncLoopRaces:
                 "app.radio_sync.should_run_full_periodic_sync", new_callable=AsyncMock
             ) as mock_check,
             patch("app.radio_sync.sync_and_offload_all", new_callable=AsyncMock) as mock_sync,
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock) as mock_time,
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock) as mock_time,
         ):
             await _periodic_sync_loop()
 
@@ -2067,7 +2102,9 @@ class TestPeriodicSyncLoopRaces:
                     "app.radio_sync.should_run_full_periodic_sync", new_callable=AsyncMock
                 ) as mock_check,
                 patch("app.radio_sync.sync_and_offload_all", new_callable=AsyncMock) as mock_sync,
-                patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock) as mock_time,
+                patch(
+                    "app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock
+                ) as mock_time,
             ):
                 await _periodic_sync_loop()
         finally:
@@ -2096,7 +2133,7 @@ class TestPeriodicSyncLoopRaces:
                 return_value=True,
             ),
             patch("app.radio_sync.sync_and_offload_all", new_callable=AsyncMock) as mock_sync,
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock) as mock_time,
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock) as mock_time,
         ):
             await _periodic_sync_loop()
 
@@ -2120,7 +2157,7 @@ class TestPeriodicSyncLoopRaces:
                 return_value=False,
             ),
             patch("app.radio_sync.sync_and_offload_all", new_callable=AsyncMock) as mock_sync,
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock) as mock_time,
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock) as mock_time,
         ):
             await _periodic_sync_loop()
 

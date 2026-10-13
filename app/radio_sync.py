@@ -976,7 +976,19 @@ async def _attempt_clock_wraparound(mc: MeshCore, *, now: int, observed_radio_ti
     return False
 
 
+TimeSyncOutcome = Literal["synced", "rejected", "rebooted"]
+
+
 async def sync_radio_time(mc: MeshCore, *, warn_on_failure: bool = True) -> bool:
+    """Sync the radio's clock; True if the radio accepted the new time.
+
+    See ``sync_radio_time_outcome`` for the full behaviour, including the
+    one-time corrective reboot.
+    """
+    return await sync_radio_time_outcome(mc, warn_on_failure=warn_on_failure) == "synced"
+
+
+async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True) -> TimeSyncOutcome:
     """Sync the radio's clock with the system time.
 
     The firmware only accepts forward time adjustments (new >= current).
@@ -996,7 +1008,9 @@ async def sync_radio_time(mc: MeshCore, *, warn_on_failure: bool = True) -> bool
     initial skew problem. Periodic maintenance syncs pass ``False`` to avoid
     repeating the same warning every few minutes after startup.
 
-    Returns True if the radio accepted the new time, False otherwise.
+    Returns ``"synced"`` if the radio accepted the new time, ``"rebooted"``
+    if the corrective reboot was sent (the transport is about to drop, so the
+    caller must stop talking to this connection), ``"rejected"`` otherwise.
     """
     global _clock_reboot_attempted  # noqa: PLW0603
     log_failure = logger.warning if warn_on_failure else logger.debug
@@ -1014,13 +1028,13 @@ async def sync_radio_time(mc: MeshCore, *, warn_on_failure: bool = True) -> bool
                     now=now,
                     observed_radio_time=preflight_radio_time,
                 ):
-                    return True
+                    return "synced"
 
         result = await mc.commands.set_time(now)
 
         if result.type == EventType.OK:
             logger.debug("Synced radio time to %d", now)
-            return True
+            return "synced"
 
         # Firmware rejected the time (most likely radio clock is ahead).
         # Query actual radio time so we can report the delta.
@@ -1055,7 +1069,7 @@ async def sync_radio_time(mc: MeshCore, *, warn_on_failure: bool = True) -> bool
                 observed_radio_time=radio_time,
             )
         ):
-            return True
+            return "synced"
 
         # If the clock is significantly ahead and we haven't already tried
         # a corrective reboot this session, reboot the radio.  Boards with
@@ -1071,15 +1085,17 @@ async def sync_radio_time(mc: MeshCore, *, warn_on_failure: bool = True) -> bool
                 await mc.commands.reboot()
             except Exception:
                 log_failure("Reboot command failed", exc_info=True)
+            else:
+                return "rebooted"
         elif _clock_reboot_attempted:
             logger.debug(
                 "Clock skew persists after reboot (hardware RTC); ignoring until next session."
             )
 
-        return False
+        return "rejected"
     except Exception as e:
         log_failure("Failed to sync radio time: %s", e, exc_info=True)
-        return False
+        return "rejected"
 
 
 async def _periodic_sync_loop():

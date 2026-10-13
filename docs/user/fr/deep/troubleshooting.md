@@ -72,6 +72,8 @@ Si la radio est injoignable un instant, Meshloom relance son travail de démarra
 
 ## L’horloge de la radio est bloquée dans le futur
 
+La radio n’accepte qu’une heure postérieure à la sienne. Quand son horloge est en avance, Meshloom la redémarre une fois par démarrage de Meshloom : les cartes dont l’horloge ne survit pas au redémarrage acceptent alors la bonne heure à la connexion suivante. Une carte qui garde son horloge au redémarrage reste en avance, et le log le signale à chaque connexion.
+
 `__CLOWNTOWN_DO_CLOCK_WRAPAROUND=true` est un dernier recours expérimental, quand ni mode de secours ni heure GPS ne permettent de remettre l’horloge à l’heure. Il dépend du matériel et peut ne rien faire. À utiliser en connaissance de cause.
 
 ## `/docs` n’est pas cette documentation
