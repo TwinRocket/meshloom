@@ -1533,7 +1533,7 @@ export function SettingsRadioSection({
                   </div>
                 </div>
 
-                {config.path_hash_mode_supported && (
+                {config.path_hash_mode_supported ? (
                   <SettingsField help={t('settings.radio.pathHashHelp')}>
                     <Label htmlFor="path-hash-mode">{t('settings.radio.pathHashMode')}</Label>
                     <select
@@ -1547,6 +1547,26 @@ export function SettingsRadioSection({
                       <option value="2">{t('settings.radio.pathHash3')}</option>
                     </select>
                   </SettingsField>
+                ) : (
+                  <div
+                    role="group"
+                    aria-labelledby="path-hash-unavailable-title"
+                    className="space-y-2"
+                    data-testid="path-hash-unavailable"
+                  >
+                    <p
+                      id="path-hash-unavailable-title"
+                      className="text-sm font-medium leading-none"
+                    >
+                      {t('settings.radio.pathHashMode')}
+                    </p>
+                    <p
+                      role="note"
+                      className="rounded-md border border-warning/50 bg-warning/10 p-3 text-xs text-warning"
+                    >
+                      {t('settings.radio.pathHashUnavailable')}
+                    </p>
+                  </div>
                 )}
 
                 {/* ── Location ── */}

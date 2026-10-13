@@ -215,6 +215,7 @@
       "pathHash2": "2 bytes — up to 32 hops (recommended)",
       "pathHash3": "3 bytes — up to 21 hops",
       "pathHashHelp": "Meshloom defaults to 2-byte hops. 1-byte hashing is harder to disambiguate on a busy mesh.",
+      "pathHashUnavailable": "The radio did not report its path hash mode, so it cannot be changed here and Meshloom could not apply its 2-byte default. Either the firmware is too old to support it, or the radio did not answer while connecting. Reconnect the radio; if this stays, update its firmware.",
       "location": "Location",
       "getting": "Getting...",
       "useMyLocation": "Use My Location",

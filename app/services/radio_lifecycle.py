@@ -1,12 +1,15 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
 POST_CONNECT_SETUP_TIMEOUT_SECONDS = 300
 POST_CONNECT_SETUP_MAX_ATTEMPTS = 2
 DEFAULT_PATH_HASH_MODE = 1  # 2-byte hops
+
+PostConnectSetupOutcome = Literal["done", "reconnect"]
 
 
 def _clean_device_string(value: object) -> str | None:
@@ -50,8 +53,12 @@ async def apply_default_path_hash_mode(mc, radio_manager) -> None:
     logger.info("Applied default path hash mode: %d (2-byte)", DEFAULT_PATH_HASH_MODE)
 
 
-async def run_post_connect_setup(radio_manager) -> None:
-    """Run shared radio initialization after a transport connection succeeds."""
+async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
+    """Run shared radio initialization after a transport connection succeeds.
+
+    Returns ``"reconnect"`` when setup stopped because the radio was rebooted
+    (its transport is about to drop), ``"done"`` otherwise.
+    """
     from app.event_handlers import register_event_handlers
     from app.keystore import export_and_store_private_key
     from app.radio_sync import (
@@ -62,16 +69,16 @@ async def run_post_connect_setup(radio_manager) -> None:
         start_periodic_sync,
         start_telemetry_collect,
         sync_and_offload_all,
-        sync_radio_time,
+        sync_radio_time_outcome,
     )
 
     if not radio_manager.meshcore:
-        return
+        return "done"
 
     if radio_manager._setup_lock is None:
         radio_manager._setup_lock = asyncio.Lock()
 
-    async def _setup_body() -> None:
+    async def _setup_body() -> PostConnectSetupOutcome | None:
         if not radio_manager.meshcore:
             return
         radio_manager._setup_in_progress = True
@@ -106,8 +113,12 @@ async def run_post_connect_setup(radio_manager) -> None:
 
                 await export_and_store_private_key(mc)
 
-                # Sync radio clock with system time
-                await sync_radio_time(mc)
+                # Sync radio clock with system time. A corrective reboot drops
+                # the transport: stop here instead of querying a radio that is
+                # restarting, and let prepare_connected_radio() reconnect.
+                if await sync_radio_time_outcome(mc) == "rebooted":
+                    logger.warning("Radio rebooted to reset its clock; reconnecting before setup")
+                    return "reconnect"
 
                 # Query path hash mode support (best-effort; older firmware won't report it).
                 # If the library's parsed payload is missing path_hash_mode (e.g. stale
@@ -318,9 +329,12 @@ async def run_post_connect_setup(radio_manager) -> None:
             radio_manager._setup_in_progress = False
 
     async with radio_manager._setup_lock:
-        await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
+        outcome = await asyncio.wait_for(_setup_body(), timeout=POST_CONNECT_SETUP_TIMEOUT_SECONDS)
 
+    if outcome == "reconnect":
+        return "reconnect"
     logger.info("Post-connect setup complete")
+    return "done"
 
 
 async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool = True) -> bool:
@@ -332,9 +346,10 @@ async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool =
             await radio_manager.disconnect()
         return False
 
+    setup_outcome: PostConnectSetupOutcome = "done"
     for attempt in range(1, POST_CONNECT_SETUP_MAX_ATTEMPTS + 1):
         try:
-            await radio_manager.post_connect_setup()
+            setup_outcome = await radio_manager.post_connect_setup()
             break
         except TimeoutError as exc:
             if attempt < POST_CONNECT_SETUP_MAX_ATTEMPTS:
@@ -358,6 +373,14 @@ async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool =
                 code="radio_startup_stuck",
             )
             raise RuntimeError("Post-connect setup timed out") from exc
+
+    if setup_outcome == "reconnect":
+        # Setup stopped after a clock reboot: drop the dead transport (even if
+        # meshcore already noticed, so its own auto-reconnect stops) and let
+        # the connection monitor reconnect once the radio is back.
+        logger.info("Radio is rebooting to reset its clock; the monitor will reconnect")
+        await radio_manager.disconnect()
+        return False
 
     if not radio_manager.connection_desired:
         if radio_manager.is_connected:

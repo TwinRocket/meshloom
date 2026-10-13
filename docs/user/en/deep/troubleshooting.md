@@ -72,6 +72,8 @@ If the radio is unreachable for a moment, Meshloom retries its start-up work eve
 
 ## The radio clock is stuck in the future
 
+The radio only accepts a time later than its own. When its clock is ahead, Meshloom reboots it once per Meshloom start: boards whose clock does not survive a restart then accept the right time at the next connection. A board that keeps its clock across restarts stays ahead, and the log says so at each connection.
+
 `__CLOWNTOWN_DO_CLOCK_WRAPAROUND=true` is an experimental last resort, for when no rescue mode or GPS time is available to reset the clock. It depends on the hardware and may do nothing. Use it knowingly.
 
 ## `/docs` is not this documentation

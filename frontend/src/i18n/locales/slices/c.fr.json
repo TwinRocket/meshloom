@@ -215,6 +215,7 @@
       "pathHash2": "2 octets — jusqu’à 32 sauts (recommandé)",
       "pathHash3": "3 octets — jusqu’à 21 sauts",
       "pathHashHelp": "Meshloom utilise 2 octets par défaut. Le hachage 1 octet est plus ambigu sur un mesh chargé.",
+      "pathHashUnavailable": "La radio n’a pas indiqué son mode de hachage de chemin : impossible de le régler ici, et Meshloom n’a pas pu appliquer son défaut à 2 octets. Soit le firmware est trop ancien pour le gérer, soit la radio n’a pas répondu pendant la connexion. Reconnectez la radio ; si le message reste, mettez à jour son firmware.",
       "location": "Position",
       "getting": "Obtention…",
       "useMyLocation": "Utiliser ma position",

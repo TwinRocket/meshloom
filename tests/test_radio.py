@@ -834,7 +834,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
@@ -879,7 +879,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
@@ -915,7 +915,7 @@ class TestPostConnectSetupOrdering:
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
             patch(
-                "app.radio_sync.sync_radio_time",
+                "app.radio_sync.sync_radio_time_outcome",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("clock failed"),
             ),
@@ -954,7 +954,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
@@ -988,7 +988,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
@@ -1028,7 +1028,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
@@ -1063,7 +1063,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
@@ -1095,7 +1095,7 @@ class TestPostConnectSetupOrdering:
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new_callable=AsyncMock),
-            patch("app.radio_sync.sync_radio_time", new_callable=AsyncMock),
+            patch("app.radio_sync.sync_radio_time_outcome", new_callable=AsyncMock),
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new_callable=AsyncMock,
