@@ -183,6 +183,8 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
   `tests/test_community_golden_vectors.py` must all pass.
 - **Public keys** are 64 hex characters. Prefix lookups use `LIKE 'prefix%'` and
   must be unambiguous.
+- **Retired settings variables** (`MESHCORE_VAPID_SUBJECT`, the three radio
+  workarounds) follow the same one-shot import, see "Environment variables".
 - **Radio transport** is set in the UI (`app_settings.radio_transport`). Legacy
   `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` (with
   `_BAUDRATE`, `_TCP_PORT`, `_BLE_PIN`) are imported once into an existing
@@ -234,11 +236,7 @@ in `app_settings`, edited in the UI.
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | SQLite file; update job files live next to it |
 | `MESHCORE_DISABLE_BOTS` | `false` | disables bot execution and bot config (403) |
 | `MESHCORE_BASIC_AUTH_USERNAME` / `_PASSWORD` | empty | app-wide Basic auth; both or neither (startup error otherwise) |
-| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | radio audit every 10 s instead of hourly |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | `set_channel` before every channel send |
-| `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | contact loading with `AUTO_ADD_OVERWRITE_OLDEST` |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | enables `GET /api/radio/private-key` |
-| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | fallback when `app_settings.vapid_subject` is empty; Apple rejects `.local` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | `frame-ancestors 'self'` instead of `'none'` (HA ingress) |
 | `MESHCORE_MANAGED_PORTS` | `false` | the host owns the proxy port; `PATCH /api/radio/proxy` answers 409 to a port change |
 | `MESHCORE_RADIO_PROXY_PORT` | unset | proxy listen port chosen by the host; only honoured with `MESHCORE_MANAGED_PORTS=true`, where it overrides the stored port at every start (`app/repository/radio_proxy.py`). The add-on sets it from `proxy_port` (5051) |
@@ -260,6 +258,16 @@ Not user settings: do not document them in `docs/user/**`, the READMEs, `.env.ex
 |---|---|---|
 | `MESHCORE_SKIP_POST_CONNECT_SYNC` | `false` | debug: skip post-connect sync/offload/advert and the periodic loops (`app/services/radio_lifecycle.py`) |
 | `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | `false` | experimental clock fix when the radio clock is ahead of the host: forces `0xFFFFFFFF`, waits for the uint32 wraparound, retries the time sync. Board-specific, may do nothing. Unusual name: no `MESHCORE_` prefix (`app/config.py`, `app/radio_sync.py`) |
+
+Retired, no longer read: `MESHCORE_VAPID_SUBJECT` (now `app_settings.vapid_subject`,
+Settings → Notifications) and `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK`,
+`MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE`, `MESHCORE_LOAD_WITH_AUTOEVICT` (now the
+`app_settings` columns of the same name without the prefix, Settings → Radio →
+Advanced). `app/services/legacy_env_settings.py` copies a leftover value once at the
+first start (the subject only into an empty field, a workaround only when `true`),
+sets `app_settings.legacy_env_settings_imported`, and from then on only logs a
+warning while one is still set. Do not add a new environment variable for anything
+a user tunes: put it in `app_settings` and the UI.
 
 ## Delivery flow
 

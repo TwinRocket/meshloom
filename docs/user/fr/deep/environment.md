@@ -44,12 +44,11 @@ Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définis
 |----------|--------|-------------|
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Emplacement de la base SQLite |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR` |
-| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Adresse de contact des notifications push quand le champ des Réglages est vide (voir plus bas) |
 | `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d’écoute, comme l’add-on Home Assistant. Les Réglages affichent alors le port du proxy en lecture seule |
 | `MESHCORE_RADIO_PROXY_PORT` | *(non défini)* | Port du proxy radio choisi par l’hôte. Utilisée seulement avec `MESHCORE_MANAGED_PORTS=true`, où elle remplace le port enregistré à chaque démarrage. L’add-on Home Assistant la fixe à `5051` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Autorise une page de la même origine à afficher Meshloom dans un cadre. La barre latérale de Home Assistant fait exactement cela. Par défaut, Meshloom refuse d’être mis dans un cadre, ce qui donne un panneau blanc alors que le journal montre un `200` parfaitement sain |
 
-Le contact VAPID se règle de préférence dans **Réglages → Notifications**. `MESHCORE_VAPID_SUBJECT` n’est utilisé que si ce champ est vide. Apple exige une adresse `mailto:` ou `https:` réelle et rejette le `.local` par défaut avec `403 BadJwtToken`. Voir [Notifications push](/docs/deep/push/) et la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).
+L’adresse de contact des notifications push (sujet VAPID) n’est pas une variable : elle se règle dans **Réglages → Notifications**. Apple exige une adresse `mailto:` ou `https:` réelle et rejette le `.local` par défaut avec `403 BadJwtToken`. Voir [Notifications push](/docs/deep/push/).
 
 ## Meshloom Community
 
@@ -84,17 +83,18 @@ L’installateur les définit pour vous. On les modifie rarement à la main.
 | `MESHLOOM_RUN_AS_USER` | Docker uniquement. Un nombre comme `10001` fait tourner Meshloom sous cet utilisateur plutôt que root. Voir [Autres chemins d’installation](/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker uniquement. L’image que Compose démarre, idéalement figée par son empreinte |
 
-## Diagnostic et contournements
+## Variables retirées
 
-Ces variables servent à diagnostiquer ou contourner des radios qui se comportent mal. Aucune n’est nécessaire en fonctionnement normal.
+Ces variables ne changent plus rien. Leurs réglages sont dans l’interface :
 
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | `false` | Fait vérifier les messages en attente sur la radio toutes les 10 secondes au lieu de toutes les heures |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | `false` | Réécrit le salon dans la radio avant chaque envoi vers un salon |
-| `MESHCORE_LOAD_WITH_AUTOEVICT` | `false` | Laisse la radio supprimer elle-même ses plus anciens contacts quand sa table est pleine |
+| Variable | Désormais dans |
+|----------|----------------|
+| `MESHCORE_VAPID_SUBJECT` | **Réglages → Notifications**, champ **Sujet VAPID** |
+| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | **Réglages → Radio → Avancé**, « Vérifier les messages toutes les 10 secondes » |
+| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Réglages → Radio → Avancé**, « Réécrire le salon avant chaque envoi » |
+| `MESHCORE_LOAD_WITH_AUTOEVICT` | **Réglages → Radio → Avancé**, « Laisser la radio supprimer ses plus anciens contacts » |
 
-L’audit tourne toujours ; la variable de sondage ne change que sa fréquence. Forcer la réécriture des salons ralentit un peu chaque envoi vers un salon.
+Si l’une d’elles est encore définie au moment de la mise à jour, Meshloom la recopie une seule fois dans sa base, au premier démarrage : le sujet VAPID seulement si le champ des Réglages est vide, un contournement seulement si la variable vaut `true`. Votre installation continue donc de fonctionner comme avant. Ensuite Meshloom ne les lit plus jamais et écrit un avertissement dans son journal à chaque démarrage tant que l’une d’elles reste définie : retirez-la de votre environnement, et changez désormais le réglage dans l’interface.
 
 ## Réglages stockés dans la base
 
@@ -102,7 +102,7 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 
 | Où | Ce que cela commande |
 |----|----------------------|
-| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure) |
+| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure). Onglet **Avancé** : `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict` |
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |

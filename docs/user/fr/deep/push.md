@@ -21,13 +21,11 @@ Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**
 
 Meshloom signe chaque notification avec une paire de clés créée au premier démarrage. La signature porte aussi une adresse de contact, appelée sujet VAPID.
 
-Réglez-la dans **Réglages → Notifications**, champ **Sujet VAPID**. Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise la variable d’environnement `MESHCORE_VAPID_SUBJECT`, dont la valeur par défaut est `mailto:noreply@meshcore.local`.
+Réglez-la dans **Réglages → Notifications**, champ **Sujet VAPID**. Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise `mailto:noreply@meshcore.local`.
 
-**Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans l’interface, ou en repli dans l’environnement :
+**Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans ce champ.
 
-```text
-MESHCORE_VAPID_SUBJECT=mailto:you@example.com
-```
+La variable d’environnement `MESHCORE_VAPID_SUBJECT` n’est plus lue. Si elle était encore définie lors de la mise à jour, Meshloom l’a recopiée une seule fois dans ce champ, au premier démarrage, à condition qu’il soit vide. L’add-on Home Assistant n’a plus d’option `vapid_subject` non plus : vérifiez le champ après la mise à jour.
 
 Voir la [documentation Apple](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). D’autres services de push peuvent accepter la valeur par défaut : le problème n’apparaît donc souvent qu’avec le premier appareil Apple.
 

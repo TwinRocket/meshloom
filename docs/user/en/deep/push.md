@@ -21,13 +21,11 @@ The same rules can also send an **e-mail** or call a **webhook**. Push is on by 
 
 Meshloom signs each notification with a key pair created on first start. The signature also carries a contact address, called the VAPID subject.
 
-Set it in **Settings → Notifications**, in the **VAPID subject** field. It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses the environment variable `MESHCORE_VAPID_SUBJECT`, whose default is `mailto:noreply@meshcore.local`.
+Set it in **Settings → Notifications**, in the **VAPID subject** field. It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses `mailto:noreply@meshcore.local`.
 
-**Apple requires a real address.** APNs rejects a subject that is not a genuine contact and the `.local` default, answering `403 BadJwtToken`. Set a real address in the interface, or as a fallback in the environment:
+**Apple requires a real address.** APNs rejects a subject that is not a genuine contact and the `.local` default, answering `403 BadJwtToken`. Set a real address in that field.
 
-```text
-MESHCORE_VAPID_SUBJECT=mailto:you@example.com
-```
+The environment variable `MESHCORE_VAPID_SUBJECT` is no longer read. If it was still set when you updated, Meshloom copied it into this field once, at the first start, provided the field was empty. The Home Assistant add-on no longer has a `vapid_subject` option either: check the field after updating.
 
 See [Apple's documentation](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers). Other push services may accept the default, so the problem often only shows up with the first Apple device.
 

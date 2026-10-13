@@ -50,7 +50,7 @@ Meshloom cannot assume it is the only program talking to a radio on the network.
 
 ## Bluetooth (BLE)
 
-BLE needs the address and the PIN. In Docker it usually needs manual changes to the Compose file (access to the host's Bluetooth, sometimes extra privileges). With Docker as root on Linux, the installer maps the host's D-Bus socket when it finds one, but this is not always enough. If the radio holds many contacts, the first read of its contact table can time out. Meshloom still loads your favorites and recent contacts as best it can, and `MESHCORE_LOAD_WITH_AUTOEVICT=true` is meant for this case.
+BLE needs the address and the PIN. In Docker it usually needs manual changes to the Compose file (access to the host's Bluetooth, sometimes extra privileges). With Docker as root on Linux, the installer maps the host's D-Bus socket when it finds one, but this is not always enough. If the radio holds many contacts, the first read of its contact table can time out. Meshloom still loads your favorites and recent contacts as best it can, and **Let the radio evict its oldest contacts** (**Settings → Radio → Advanced**) is meant for this case.
 
 ## Share your radio with other apps
 

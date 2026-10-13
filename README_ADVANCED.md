@@ -21,11 +21,23 @@ A variable is read when Meshloom starts, so restart it after changing one.
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | The SQLite file. The package sets `/var/lib/meshloom/meshcore.db` |
 | `MESHCORE_DISABLE_BOTS` | false | Turns the bot system off. Bots run Python code with full access to the machine; the package turns them off by default |
 | `MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD` | empty | Asks for a username and password on everything, including the WebSocket. Both or neither, otherwise Meshloom refuses to start. Use HTTPS with it |
-| `MESHCORE_VAPID_SUBJECT` | `mailto:noreply@meshcore.local` | Contact address sent with Web Push. Apple refuses `.local`, so set a real `mailto:` for iPhones |
 | `MESHLOOM_RUN_AS_USER` | unset | Docker only: a numeric user id (the installer uses `10001`). Meshloom then runs as that user instead of root, after giving it `./data` and the serial devices you mapped. If the radio is still unreadable it stays root and logs a warning. Not for Bluetooth, which needs root on the host |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | See [Private Key Export](#private-key-export) |
 
 The radio itself (USB, network or Bluetooth) is never chosen by a variable: it is set in **Settings > Radio**.
+
+### Retired variables
+
+These variables no longer change anything. Their settings live in Meshloom's database and are edited in the interface:
+
+| Variable | Now in |
+|----------|--------|
+| `MESHCORE_VAPID_SUBJECT` | **Settings > Notifications**, VAPID subject field. Apple refuses `.local`, so set a real `mailto:` for iPhones |
+| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | **Settings > Radio > Advanced**, "Check for messages every 10 seconds" |
+| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Settings > Radio > Advanced**, "Rewrite the channel before every send" |
+| `MESHCORE_LOAD_WITH_AUTOEVICT` | **Settings > Radio > Advanced**, "Let the radio evict its oldest contacts" |
+
+At the first start of a version that retired them, Meshloom copies a value still set into its database once: the VAPID subject when the field in Settings is empty, a workaround when the variable is `true`. After that the variables are never read again, and each start logs a warning while one is still set: remove it from your environment.
 
 ## Remediation & Advanced Environment Variables
 
@@ -33,9 +45,6 @@ These are intended for diagnosing or working around radios that behave oddly, or
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | false | Run aggressive 10-second `get_msg()` fallback polling to check for messages ([docs](#message-poll-fallback)) |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | false | Disable channel-slot reuse and force `set_channel(...)` before every channel send ([docs](#force-channel-slot-reconfigure)) |
-| `MESHCORE_LOAD_WITH_AUTOEVICT` | false | Enable autoevict mode for contact loading ([docs](#autoevict-mode)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | Enable `GET /api/radio/private-key` to return the in-memory private key as hex for backup or migration. Only enable on a trusted network. Import via `PUT /api/radio/private-key` is always available. ([docs](#private-key-export)) |
 | `MESHLOOM_COMMUNITY` | on for new DBs | Seed Meshloom Community on a brand-new database. Unset or any other value seeds on; `0` / `false` / `off` / `no` seeds opted out. Read only when the database is created; existing databases are never flipped. |
 | `MESHLOOM_COMMUNITY_IATA` | *(none)* | 3-letter IATA code. **Overrides** the stored IATA on every read while set (it is also seeded into a new database), so the value saved in Settings has no effect until you unset it. |
@@ -47,15 +56,15 @@ By default the app relies on radio events plus MeshCore auto-fetch for incoming 
 - whether messages were left on the radio without reaching the app through event subscription
 - whether the app's channel-slot expectations still match the radio's actual channel listing
 
-If the audit finds a mismatch, you'll see an error in the application UI and your logs.
+If the audit finds a mismatch, you'll see an error in the application UI and your logs. The workarounds below are switched on in **Settings > Radio > Advanced** (they used to be the `MESHCORE_*` variables listed under [Retired variables](#retired-variables)).
 
 ### Message Poll Fallback
 
-If you see that warning, or if messages on the radio never show up in the app, try `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` to switch that task into a more aggressive 10-second safety net.
+If you see that warning, or if messages on the radio never show up in the app, turn on **Check for messages every 10 seconds** to switch that task into a more aggressive 10-second safety net (`get_msg()` polling). It applies immediately.
 
 ### Force Channel Slot Reconfigure
 
-If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, try `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` to force the radio to validate the channel slot is valid before sending (sending is a little slower, because the radio is written to before each send).
+If room sends appear to be using the wrong channel slot or another client is changing slots underneath this app, turn on **Rewrite the channel before every send**: channel-slot reuse is disabled and `set_channel(...)` runs before every channel send (sending is a little slower, because the radio is written to before each send). It applies immediately. TCP connections always behave this way.
 
 ### Private Key Export
 
@@ -83,12 +92,12 @@ If the radio's contact table is already full (from contacts added by advertiseme
 
 - **Clear the radio's contact table** using another MeshCore client (e.g., the official companion app), then restart Meshloom
 - **Lower "Max Contacts on Radio"** in **Settings > Radio**: the app fills to about 80% of it
-- **Enable autoevict mode** (see below) to let the radio automatically make room
+- **Turn on autoevict mode** (see below) to let the radio automatically make room
 - If you don't need auto-DM acking, you can safely ignore these warnings — **sending and receiving messages is never affected**
 
 ### Autoevict Mode
 
-Setting `MESHCORE_LOAD_WITH_AUTOEVICT=true` enables an alternative contact loading strategy that avoids TABLE_FULL errors entirely. On connect, the app enables the radio's `AUTO_ADD_OVERWRITE_OLDEST` preference, which makes the radio automatically evict the oldest non-favorite contact when the contact table is full. This means:
+**Settings > Radio > Advanced > Let the radio evict its oldest contacts** enables an alternative contact loading strategy that avoids TABLE_FULL errors entirely. It applies at the next connection. On connect, the app enables the radio's `AUTO_ADD_OVERWRITE_OLDEST` preference, which makes the radio automatically evict the oldest non-favorite contact when the contact table is full. This means:
 
 - Contact adds never fail — the radio always makes room by evicting stale contacts
 - The app can load contacts even when it can't enumerate the radio's existing contact table (e.g., on slow BLE connections)

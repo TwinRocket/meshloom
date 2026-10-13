@@ -26,7 +26,7 @@ La table peut se remplir à cause des annonces, ou parce qu’une autre applicat
 
 ### Éviction automatique
 
-`MESHCORE_LOAD_WITH_AUTOEVICT=true` fait supprimer à la radio son plus ancien contact non favori quand la table est pleine. Ajouter des contacts n’échoue alors jamais, Meshloom peut charger des contacts même s’il n’a pas réussi à lire la table, et il n’a plus besoin d’en retirer d’abord.
+**Laisser la radio supprimer ses plus anciens contacts**, dans **Réglages → Radio → Avancé**, fait supprimer à la radio son plus ancien contact non favori quand la table est pleine. L’option s’applique à la prochaine connexion. Ajouter des contacts n’échoue alors jamais, Meshloom peut charger des contacts même s’il n’a pas réussi à lire la table, et il n’a plus besoin d’en retirer d’abord.
 
 Le prix à payer : les contacts chargés par Meshloom ne sont pas marqués comme favoris sur la radio, ils peuvent donc être supprimés quand une nouvelle annonce arrive. Si vous débranchez la radio de Meshloom pour l’utiliser seule, ils ne sont plus protégés.
 
@@ -39,13 +39,13 @@ Au démarrage, il vide les emplacements de salon de la radio. Ensuite, un envoi 
 Deux exceptions à cette réutilisation :
 
 - Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
-- `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE=true` fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
+- **Réécrire le salon avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
 
 ## L’audit horaire
 
 Meshloom s’appuie sur les événements de la radio pour recevoir les messages, et fait en plus une vérification lente, une fois par heure. Elle cherche les messages restés sur la radio, et les emplacements de salon qui ne correspondent plus à ce que Meshloom attend.
 
-S’il trouve un écart, il affiche une erreur et oublie ce qu’il croyait savoir des emplacements. Si vous voyez cette erreur, ou si des messages présents sur la radio n’arrivent jamais dans Meshloom, `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK=true` fait tourner la vérification toutes les 10 secondes.
+S’il trouve un écart, il affiche une erreur et oublie ce qu’il croyait savoir des emplacements. Si vous voyez cette erreur, ou si des messages présents sur la radio n’arrivent jamais dans Meshloom, **Vérifier les messages toutes les 10 secondes**, dans **Réglages → Radio → Avancé**, fait tourner la vérification toutes les 10 secondes.
 
 ## Largeur des sauts : `path_hash_mode`
 
