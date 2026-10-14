@@ -65,6 +65,7 @@ scripts/build/        publish.sh (release), tag_release.sh (recovery), nFPM, Pi 
 scripts/setup/        install.sh (public one-liner), compose update helper, embed sync
 scripts/test/         upgrade matrix (apt and compose upgrades, run by hand)
 scripts/bench/        backend_perf.py, a manual benchmark
+scripts/data/         refresh_iata_airports.py (app/data/iata_airports.json from meshloom-community)
 docs/user/            user docs (en, fr), built by the meshloom.app site from this folder at
                       the latest X.Y.Z tag (release.yml calls docs-site.yml after publishing)
 .github/workflows/    CI (all-quality, codeql, addon), release, packages, repo publication, image, docs-site
@@ -97,8 +98,9 @@ How a radio message travels through the program, in and out.
 - **Community.** `app/services/meshloom_community.py` is the HTTP client. It has a
   circuit breaker, and a timeout or 5xx becomes a 503 for the browser.
   `app/services/community_live.py` is the Live relay. Community MQTT is a fanout
-  module. Opted out means no connection at all to the Community hosts or to
-  the airport search: every egress goes through the guard in
+  module. Opted out means no connection at all to the Community hosts (no
+  outside airport search either: codes are placed from the bundled list
+  `app/data/iata_airports.json`): every egress goes through the guard in
   `meshloom_community.py`. The guard has two levels: on but **waiting for a
   position** (the radio has no position it may publish), only the MQTT status
   (`state: waiting_for_position`, no packets) and the `PUT /v1/me/iata` binds
@@ -109,7 +111,7 @@ How a radio message travels through the program, in and out.
   first sends Community `POST /v1/me/opt-out` (optional reason, 5 s at most;
   nothing may reconnect meanwhile), then runs `community_teardown()` in a
   `finally` block, to the end even when the update fails or is cancelled.
-  There are three exceptions. `app/services/community_status_clear.py`: when
+  There are four exceptions. `app/services/community_status_clear.py`: when
   the opt-out could not clear the retained MQTT status and Community surely did
   not receive the opt-out, it reconnects to the
   broker only to publish the empty retained payload, bounded in attempts and
@@ -118,8 +120,13 @@ How a radio message travels through the program, in and out.
   `PUT /v1/me/iata` while still off (the operator just asked to join, and the
   bind comes first); Community is turned on only if it succeeds. An opt-out
   Community did not confirm is kept as pending (migration 093) and sent again
-  only by hand (`POST /api/community/opt-out/retry`), never on its own. The bind is
-  also the only place this radio's position leaves: exact only when its adverts
+  only by hand (`POST /api/community/opt-out/retry`), never on its own. The
+  settings showing the IATA form ask `GET /api/community/iata/suggest`, which
+  sends the radio's position rounded to 2 decimals to Community's public
+  `GET /v1/iata/suggest` (no JWT) to propose up to two codes (never assigned),
+  also while off or waiting, and falls back to the nearest airport of the
+  bundled list (Community's exclusion rule) when Community does not answer.
+  Apart from that suggestion, the bind is the only place this radio's position leaves: exact only when its adverts
   broadcast it, rounded to about 1 km otherwise (`app/services/observer_position.py`),
   re-sent on its own when the position or the advert location policy changes,
   and only while Community is on. The last status topic

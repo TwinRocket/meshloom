@@ -1,14 +1,17 @@
 """Meshloom Community state, JWT mint, and HTTP client (server code name: Stats).
 
 Community is an explicit opt-in from the UI (a new database starts off). Off
-means no connection at
-all to the Community hosts (HTTP API, Live WS, MQTT broker, release mirror)
-nor to the airport search. Three exceptions, each bounded: if the opt-out could
+means no connection at all to the Community hosts (HTTP API, Live WS, MQTT
+broker, release mirror). Four exceptions, each bounded: if the opt-out could
 not clear the retained MQTT status, ``community_status_clear`` reconnects to
 the broker only to clear it, then never again; a join sends its
-``PUT /v1/me/iata`` before the database says on (``_bind_state``); and an
+``PUT /v1/me/iata`` before the database says on (``_bind_state``); an
 opt-out Community did not confirm can be sent again, by hand only, with
-``retry_opt_out()`` (``_opt_out_state``, ``POST /v1/me/opt-out`` alone). This
+``retry_opt_out()`` (``_opt_out_state``, ``POST /v1/me/opt-out`` alone); and
+the settings showing the IATA form ask ``suggest_iata()`` for codes to propose
+(``_iata_suggest_state``, ``GET /v1/iata/suggest`` alone, the radio's position
+rounded to 2 decimals). Placing an IATA code (``lookup_airport``) reads the
+bundled airport list and sends nothing. This
 module is the egress guard: every one of those connections checks
 ``community_egress_state()`` first, and HTTP goes through
 ``_community_http()`` so ``community_teardown()`` can cancel what is in
@@ -51,9 +54,11 @@ from app.loop_lock import LoopBoundLock
 from app.models import (
     CommunityAirportHit,
     CommunityIataBindResult,
+    CommunityIataSuggestion,
     CommunityOptOutPending,
     CommunityStatus,
 )
+from app.services.iata_airports import airport_position, nearest_airport_iata
 
 if TYPE_CHECKING:
     from app.services.community_status_clear import StatusClearTarget
@@ -70,11 +75,9 @@ DEFAULT_BROKER_PORT = 443
 DEFAULT_WEBSOCKET_PATH = "/mqtt"
 MQTT_KEEPALIVE_SECONDS = 30
 _IATA_RE = re.compile(r"^[A-Z]{3}$")
-AIRPORT_SEARCH_URL = "https://api.fx-port.com/api/v1/flights/airports"
-AIRPORT_SEARCH_TIMEOUT_SECONDS = 5.0
-_AIRPORT_QUERY_MIN = 2
-_AIRPORT_QUERY_MAX = 48
-_AIRPORT_HITS_MAX = 12
+# Community's IATA suggestion (identity.md, § IATA suggestion): public, no JWT.
+IATA_SUGGEST_PATH = "/v1/iata/suggest"
+IATA_SUGGEST_TIMEOUT_SECONDS = 5.0
 _STATS_TIMEOUT_SECONDS = 8.0
 # Stats sample upserts are 30/hour/pubkey. After a 429, stop POSTing until that
 # window has elapsed instead of retrying every catalogue pass.
@@ -147,6 +150,14 @@ _bind_state: ContextVar[CommunityEffective | None] = ContextVar(
 # that path alone.
 _opt_out_state: ContextVar[CommunityEffective | None] = ContextVar(
     "community_opt_out_state", default=None
+)
+# Set only around the ``GET /v1/iata/suggest`` of ``suggest_iata()`` (the
+# settings showing the IATA form): the radio's position, rounded to 2
+# decimals, may then leave while Community is off or waiting for a position, so
+# the join form can propose a code. ``stats_request`` honours it for that path
+# alone.
+_iata_suggest_state: ContextVar[CommunityEffective | None] = ContextVar(
+    "community_iata_suggest_state", default=None
 )
 # True from just before the opt-out's ``POST /v1/me/opt-out`` to the end of
 # its teardown. Community kicks the MQTT session as it answers, before the
@@ -1273,7 +1284,7 @@ async def community_egress_state() -> CommunityEffective | None:
     """The effective config when Community connections are allowed, else None.
 
     The one check every Community egress makes: HTTP (``stats_request``), the
-    Live socket, the release mirror and the airport search. None while off and
+    Live socket and the release mirror. None while off and
     while Community waits for a position (``waiting_for_position``).
     """
     state = await community_enrolled_state()
@@ -1296,7 +1307,7 @@ async def _community_http(
     follow_redirects: bool = False,
     **kwargs: Any,
 ) -> httpx.Response:
-    """The only place an HTTP request to Community (or the airport search) leaves.
+    """The only place an HTTP request to Community leaves.
 
     The request runs as its own task so ``community_teardown()`` can cancel it;
     the caller then gets the same 403 as a request made after the opt-out.
@@ -1373,10 +1384,13 @@ async def stats_request(
     """
     generation = _egress_generation
     # A bind may leave while off (join) or waiting for a position (``_bind_state``);
-    # the opt-out call while leaving or off (``_opt_out_state``), on its path only.
+    # the opt-out call while leaving or off (``_opt_out_state``), and the IATA
+    # suggestion while off or waiting (``_iata_suggest_state``), each on its path only.
     state = _bind_state.get()
     if state is None and path == OPT_OUT_PATH:
         state = _opt_out_state.get()
+    if state is None and path == IATA_SUGGEST_PATH:
+        state = _iata_suggest_state.get()
     if state is None:
         state = await community_egress_state()
     if state is None:
@@ -1556,96 +1570,94 @@ async def stats_directory_post(path: str, json_body: dict[str, Any]) -> object:
     return unwrap_directory_envelope(payload)
 
 
-def _airport_locale(locale: str) -> str:
-    return "fr" if locale.lower().startswith("fr") else "en"
+def lookup_airport(code: str) -> list[CommunityAirportHit]:
+    """Where an IATA code is, from the bundled airport list. No request, ever.
 
-
-def _airport_coords(item: dict[str, object]) -> tuple[float | None, float | None]:
-    raw_lat = item.get("lat")
-    raw_lon = item.get("lng")
-    if raw_lon is None:
-        raw_lon = item.get("lon")
-    if isinstance(raw_lat, bool) or isinstance(raw_lon, bool):
-        return None, None
-    try:
-        lat = float(raw_lat)  # type: ignore[arg-type]
-        lon = float(raw_lon)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None, None
-    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
-        return None, None
-    if lat == 0.0 and lon == 0.0:
-        return None, None
-    return lat, lon
-
-
-def _airport_hit(item: object) -> CommunityAirportHit | None:
-    if not isinstance(item, dict):
-        return None
-    raw_iata = item.get("ap") or item.get("iata") or item.get("id")
-    if not isinstance(raw_iata, str):
-        return None
-    iata = raw_iata.strip().upper()
-    if not _IATA_RE.fullmatch(iata):
-        return None
-    name = item.get("airportname") or item.get("name") or iata
-    city = item.get("cityonly") or item.get("cityname") or ""
-    country = item.get("country") or ""
-    label_raw = item.get("shortdisplayname") or item.get("displayname")
-    label = label_raw.strip() if isinstance(label_raw, str) and label_raw.strip() else iata
-    lat, lon = _airport_coords(item)
-    return CommunityAirportHit(
-        iata=iata,
-        name=name.strip() if isinstance(name, str) and name.strip() else iata,
-        city=city.strip() if isinstance(city, str) else "",
-        country=country.strip() if isinstance(country, str) else "",
-        label=label,
-        lat=lat,
-        lon=lon,
-    )
-
-
-async def search_community_airports(query: str, *, locale: str = "en") -> list[CommunityAirportHit]:
-    """Open FX-Port airport autocomplete. Empty on failure — this is convenience, not directory.
-
-    A Community feature: empty, with no request, while Community is off.
+    One hit for a known code (a heliport or a metropolitan area code such as
+    PAR included), none otherwise.
     """
-    text = (query or "").strip()
-    if len(text) < _AIRPORT_QUERY_MIN:
+    iata = (code or "").strip().upper()
+    if not _IATA_RE.fullmatch(iata):
         return []
-    text = text[:_AIRPORT_QUERY_MAX]
-    generation = _egress_generation
-    if await community_egress_state() is None:
+    position = airport_position(iata)
+    if position is None:
         return []
+    return [CommunityAirportHit(iata=iata, lat=position[0], lon=position[1])]
+
+
+def _suggested_code(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and _IATA_RE.fullmatch(value):
+        return value
+    raise ValueError("not an IATA code")
+
+
+async def _ask_iata_suggestion(
+    state: CommunityEffective, lat: float, lon: float
+) -> tuple[str | None, str | None] | None:
+    """Community's ``(neighbors, nearest_airport)``, or None when it did not answer one.
+
+    The one ``GET /v1/iata/suggest`` call: no JWT, the position as 2-decimal
+    text, ``_iata_suggest_state`` set around this request alone.
+    """
+    token = _iata_suggest_state.set(state)
     try:
-        response = await _community_http(
+        response = await stats_request(
             "GET",
-            AIRPORT_SEARCH_URL,
-            generation=generation,
-            timeout=AIRPORT_SEARCH_TIMEOUT_SECONDS,
-            follow_redirects=True,
-            params={"query": text, "locale": _airport_locale(locale)},
+            IATA_SUGGEST_PATH,
+            auth=False,
+            params={"lat": f"{lat:.2f}", "lon": f"{lon:.2f}"},
+            timeout=IATA_SUGGEST_TIMEOUT_SECONDS,
         )
-    except HTTPException:
-        return []
-    except httpx.RequestError as exc:
-        logger.warning("Airport IATA search failed: %s", exc)
-        return []
+    except HTTPException as exc:
+        logger.info("IATA suggestion unavailable (%s), using the local airport list", exc.detail)
+        return None
+    finally:
+        _iata_suggest_state.reset(token)
     if response.status_code != 200:
-        return []
+        logger.info("IATA suggestion HTTP %s, using the local airport list", response.status_code)
+        return None
+    payload = _response_payload(response)
     try:
-        payload = response.json()
+        if not {"neighbors", "nearest_airport"} <= payload.keys():
+            raise ValueError("missing keys")
+        return (
+            _suggested_code(payload["neighbors"]),
+            _suggested_code(payload["nearest_airport"]),
+        )
     except ValueError:
-        return []
-    items = payload if isinstance(payload, list) else []
-    hits: list[CommunityAirportHit] = []
-    seen: set[str] = set()
-    for item in items:
-        hit = _airport_hit(item)
-        if hit is None or hit.iata in seen:
-            continue
-        seen.add(hit.iata)
-        hits.append(hit)
-        if len(hits) >= _AIRPORT_HITS_MAX:
-            break
-    return hits
+        logger.warning("IATA suggestion: unexpected answer, using the local airport list")
+        return None
+
+
+async def suggest_iata() -> CommunityIataSuggestion:
+    """Up to two IATA codes the join form proposes. Nothing is ever assigned.
+
+    Called only by ``GET /api/community/iata/suggest``, which the settings ask
+    when they show the IATA form. The radio's own position, rounded to 2
+    decimals (about 1 km), goes to Community's ``GET /v1/iata/suggest``, also
+    while Community is off or waiting for a position (the one exception of the
+    egress guard for it, ``_iata_suggest_state``). Not during an opt-out.
+    Without a position nothing leaves and nothing is suggested. When Community
+    does not answer (offline, 429, 503, breaker open...), the nearest airport
+    comes from the bundled list (``iata_airports.nearest_airport_iata``, the
+    same exclusion rule) and ``neighbors`` stays null.
+    """
+    from app.services.observer_position import radio_self_info, suggestion_position
+
+    position = suggestion_position(radio_self_info())
+    if position is None:
+        return CommunityIataSuggestion()
+    lat, lon = position
+    answer: tuple[str | None, str | None] | None = None
+    if not _leaving:
+        answer = await _ask_iata_suggestion(await get_community_effective(), lat, lon)
+    neighbors, nearest = answer if answer is not None else (None, None)
+    if nearest is None:
+        nearest = nearest_airport_iata(lat, lon)
+    return CommunityIataSuggestion(
+        neighbors=neighbors,
+        nearest_airport=nearest,
+        source="community" if answer is not None else "local",
+    )

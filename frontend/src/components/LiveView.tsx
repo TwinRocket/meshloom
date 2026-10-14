@@ -275,8 +275,8 @@ export function LiveView({
   }, [iataSelectionKey]);
 
   // Opening Live, or choosing regions, frames the chosen regions, not the world.
-  // The airport search is Community's: nothing is asked while it is off, and
-  // turning it back on frames the regions again.
+  // Regions are Community's: nothing is framed while it is off, and turning it
+  // back on frames them again. The airports come from the backend's bundled list.
   useEffect(() => {
     const selection = iataSelectionRef.current;
     if (selection === null || !communityEnabled) {

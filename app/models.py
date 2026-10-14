@@ -2175,17 +2175,29 @@ class CommunityHashtagPut(BaseModel):
 
 
 class CommunityAirportHit(BaseModel):
+    """Where an IATA code is, from the bundled airport list (no request)."""
+
     iata: str
-    name: str
-    city: str
-    country: str
-    label: str
-    lat: float | None = None
-    lon: float | None = None
+    lat: float
+    lon: float
 
 
 class CommunityAirportSearchResponse(BaseModel):
     airports: list[CommunityAirportHit]
+
+
+class CommunityIataSuggestion(BaseModel):
+    """Codes the join form proposes; nothing is assigned. Both null without a position.
+
+    ``neighbors``: the IATA most declared by active Community members near the
+    radio (Community only). ``nearest_airport``: the nearest airport, from
+    Community or, when it does not answer, from the bundled list
+    (``source: "local"``). They may be the same code.
+    """
+
+    neighbors: str | None = None
+    nearest_airport: str | None = None
+    source: Literal["community", "local"] | None = None
 
 
 class CommunityPacketHop(BaseModel):

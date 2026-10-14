@@ -1,4 +1,4 @@
-"""Opted out of Community means no connection to Community or to the airport search.
+"""Opted out of Community means no connection to Community, and none to an airport search.
 
 Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
@@ -6,7 +6,8 @@ Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``/api/settings`` and ``/api/updates`` is called (found dynamically from
 ``app.routes``), plus the hashtag catalogue and the update check with GitHub
 answering 503. Any request to ``*.meshloom.app``,
-``api.fx-port.com`` or the effective Community API base fails the test.
+``api.fx-port.com`` (the retired airport search) or the effective Community API
+base fails the test. Placing an IATA code reads the bundled airport list.
 
 The transition tests cover the opt-out itself (on → off) and an IATA change:
 the retained MQTT status is cleared before the DISCONNECT, the Live socket is
@@ -28,6 +29,12 @@ nothing may reconnect); once Community confirmed it (any 2xx), or when the
 call timed out, no status clear retry is armed. When the call fails, the opt-out is kept as pending and only
 the explicit ``POST /api/community/opt-out/retry`` sends it again: nothing
 else leaves, nothing retries on its own, not even after a restart.
+
+``TestIataSuggestion``: the one request the settings make while Community is
+off or waiting, ``GET /v1/iata/suggest`` when they show the IATA form, with the
+radio's position rounded to 2 decimals and no JWT; nothing without a position,
+the bundled airport list when Community does not answer, and nothing else
+leaves. The sweeps leave its route out (``_NOT_SWEPT``).
 
 ``TestWaitingForPosition``: Community on, but the radio has no position it may
 publish. Nothing leaves but the MQTT status (``state: waiting_for_position``)
@@ -64,14 +71,13 @@ from app.services.community_live import (
 )
 from app.services.hashtag_catalogue import run_catalogue_pass
 from app.services.meshloom_community import (
-    AIRPORT_SEARCH_URL,
     community_breaker,
     fetch_meshloom_latest,
     get_community_effective,
+    lookup_airport,
     note_sample_quota,
     sample_quota_blocked,
     schedule_hashtag_names_publish,
-    search_community_airports,
     stats_json,
     update_community,
     upload_hashtag_sample,
@@ -87,7 +93,8 @@ _real_fetch_meshloom_latest = fetch_meshloom_latest
 EGRESS_API_BASE = "https://stats.egress-check.net"
 PUBKEY = bytes(range(32))
 PUBKEY_HEX = PUBKEY.hex().upper()
-FX_PORT_HOST = urlsplit(AIRPORT_SEARCH_URL).hostname
+# The airport search Meshloom once asked (removed): never contacted again.
+FX_PORT_HOST = "api.fx-port.com"
 
 
 def _forbidden(host: str | None) -> bool:
@@ -317,7 +324,7 @@ _PATH_PARAMS = {
     "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
 }
 _QUERY = {
-    "/api/community/airports": {"q": "Lyon", "locale": "fr"},
+    "/api/community/airports": {"q": "LYS"},
     "/api/directory/nodes/search": {"q": "hill"},
 }
 _BODIES: dict[tuple[str, str], Any] = {
@@ -355,7 +362,12 @@ _SWEPT_PREFIXES = (
 
 
 # Local only, and needs the on-disk database the test fixture does not open.
-_NOT_SWEPT = {("GET", "/api/settings/backup/database")}
+# The IATA suggestion is the settings' explicit request while off or waiting
+# (TestIataSuggestion covers it).
+_NOT_SWEPT = {
+    ("GET", "/api/settings/backup/database"),
+    ("GET", "/api/community/iata/suggest"),
+}
 
 
 def _walk_routes(routes: list[Any], prefix: str = "") -> list[tuple[str, APIRoute]]:
@@ -394,6 +406,11 @@ class TestCommunityOffNoEgress:
         assert "/api/settings" in paths
         assert "/api/updates/refresh" in paths
         assert len(routes) >= 50
+        # Left out on purpose: the IATA suggestion (TestIataSuggestion).
+        assert ("GET", "/api/community/iata/suggest") not in routes
+        from app.main import app
+
+        assert "/api/community/iata/suggest" in {path for path, _ in _walk_routes(app.routes)}
 
     @pytest.mark.asyncio
     async def test_no_community_or_airport_egress_when_off(
@@ -441,7 +458,7 @@ class TestCommunityOffNoEgress:
         # The update check, with GitHub down: no fallback to the Community mirror.
         assert await refresh_oss_update_cache() is None
         assert await fetch_meshloom_latest() is None
-        assert await search_community_airports("Lyon") == []
+        assert lookup_airport("LYS")  # bundled list: nothing leaves
 
         assert egress.forbidden() == [], egress.events
         assert set(egress.hosts()) <= {"github.com"}, egress.events
@@ -496,7 +513,7 @@ class TestOptOutTransition:
         with pytest.raises(HTTPException):
             await stats_json("GET", "/v1/community/stats", auth=False)
         assert await fetch_meshloom_latest() is None
-        assert await search_community_airports("Lyon") == []
+        assert lookup_airport("LYS")  # bundled list: nothing leaves
         await subscribe_live()
         await fanout_manager.sync_system_modules()
         await asyncio.sleep(0.05)
@@ -1593,7 +1610,7 @@ class TestWaitingForPosition:
         await _send_raw()
         assert await refresh_oss_update_cache() is None
         assert await fetch_meshloom_latest() is None
-        assert await search_community_airports("Lyon") == []
+        assert lookup_airport("LYS")  # bundled list: nothing leaves
         with pytest.raises(HTTPException) as exc:
             await stats_json("GET", "/v1/community/stats", auth=False)
         assert exc.value.status_code == 403
@@ -1742,7 +1759,7 @@ class TestWaitingForPosition:
             await stats_json("GET", "/v1/hashtags", auth=False)
         assert await active_iata_codes() == {"available": False, "codes": []}
         assert await fetch_meshloom_latest() is None
-        assert await search_community_airports("Lyon") == []
+        assert lookup_airport("LYS")  # bundled list: nothing leaves
         assert [e for e in egress.events[mark:] if e[0] == "http"] == []
 
         # Bound with a position later: saved as active.
@@ -2201,7 +2218,7 @@ class TestOptOutCall:
         mark = len(egress.events)
         await stats_json_forbidden()
         assert await fetch_meshloom_latest() is None
-        assert await search_community_airports("Lyon") == []
+        assert lookup_airport("LYS")  # bundled list: nothing leaves
         await subscribe_live()
         await fanout_manager.sync_system_modules()
         await asyncio.sleep(0.05)
@@ -2261,3 +2278,198 @@ class TestOptOutCall:
         assert await _opt_out_pending() is None
         status = (await _api("GET", "/api/community")).json()
         assert status["enabled"] is True and status["opt_out_pending"] is None
+
+
+# Lyon city centre, more decimals than Community may get.
+SUGGEST_POSITION = {
+    "public_key": PUBKEY_HEX,
+    "adv_lat": 45.764043,
+    "adv_lon": 4.835659,
+    "adv_loc_policy": 1,  # even a broadcast position goes out rounded
+}
+
+
+def _suggest_ok(neighbors: str | None, nearest: str | None) -> httpx.Response:
+    body = {"neighbors": neighbors, "nearest_airport": nearest}
+    return httpx.Response(200, content=json.dumps(body).encode())
+
+
+class TestIataSuggestion:
+    """``GET /api/community/iata/suggest``: the one request while off or waiting.
+
+    Owner decision 2026-10-14: nothing is assigned; the IATA form proposes the
+    neighbours' code and the nearest airport. Community's contract: identity.md,
+    § IATA suggestion (no JWT, position rounded to 2 decimals by the client).
+    """
+
+    @staticmethod
+    def _capture(egress: EgressRecorder) -> list[httpx.Request]:
+        seen: list[httpx.Request] = []
+
+        async def on_http(request: httpx.Request) -> None:
+            seen.append(request)
+
+        egress.on_http = on_http
+        return seen
+
+    @staticmethod
+    async def _suggest(info: Any = SUGGEST_POSITION) -> httpx.Response:
+        with patch("app.services.observer_position.radio_self_info", return_value=info):
+            return await _api("GET", "/api/community/iata/suggest")
+
+    @pytest.mark.asyncio
+    async def test_off_sends_the_rounded_position_once(self, test_db, egress, cleanup_community):
+        await update_community(enabled=False, iata="CDG")
+        seen = self._capture(egress)
+        egress.responses["/v1/iata/suggest"] = _suggest_ok("LYS", "LYN")
+
+        response = await self._suggest()
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {
+            "neighbors": "LYS",
+            "nearest_airport": "LYN",
+            "source": "community",
+        }
+        # One request, to Community's suggestion route, nothing else at all.
+        assert egress.events == [("http", "stats.egress-check.net", "/v1/iata/suggest")]
+        (request,) = seen
+        assert request.method == "GET"
+        assert dict(request.url.params) == {"lat": "45.76", "lon": "4.84"}
+        assert "authorization" not in request.headers
+        assert request.content == b""
+        # Still off, and the exception did not leak: everything else stays cut.
+        assert (await get_community_effective()).enabled is False
+        with pytest.raises(HTTPException) as exc:
+            await stats_json("GET", "/v1/community/stats", auth=False)
+        assert exc.value.status_code == 403
+        assert len(egress.events) == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("info", "lat", "lon"),
+        [
+            ({"adv_lat": -33.868820, "adv_lon": 151.209295}, "-33.87", "151.21"),
+            ({"adv_lat": 48.8566, "adv_lon": 2.3522, "adv_loc_policy": 0}, "48.86", "2.35"),
+            ({"adv_lat": 64.1, "adv_lon": -21.9}, "64.10", "-21.90"),
+        ],
+    )
+    async def test_position_is_always_two_decimals(
+        self, test_db, egress, cleanup_community, info, lat, lon
+    ):
+        seen = self._capture(egress)
+        egress.responses["/v1/iata/suggest"] = _suggest_ok(None, "CDG")
+        response = await self._suggest(info)
+        assert response.status_code == 200
+        assert dict(seen[0].url.params) == {"lat": lat, "lon": lon}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "info",
+        [
+            None,
+            {"public_key": PUBKEY_HEX},
+            {"adv_lat": 0.0, "adv_lon": 0.0},
+            {"adv_lat": 0.004, "adv_lon": -0.003},  # rounds onto "no GPS"
+            {"adv_lat": float("nan"), "adv_lon": 4.8},
+            {"adv_lat": 95.0, "adv_lon": 4.8},
+            {"adv_lat": True, "adv_lon": 4.8},
+        ],
+    )
+    async def test_no_position_sends_nothing(self, test_db, egress, cleanup_community, info):
+        response = await self._suggest(info)
+        assert response.status_code == 200
+        assert response.json() == {"neighbors": None, "nearest_airport": None, "source": None}
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            httpx.Response(429, content=b'{"detail": "public stats rate limit"}'),
+            httpx.Response(503),
+            httpx.Response(400),
+            httpx.Response(200, content=b'{"neighbors": "lyon", "nearest_airport": "LYS"}'),
+            httpx.Response(200, content=b"not json"),
+        ],
+    )
+    async def test_failure_falls_back_to_the_bundled_list(
+        self, test_db, egress, cleanup_community, answer
+    ):
+        egress.responses["/v1/iata/suggest"] = answer
+        response = await self._suggest()
+        assert response.status_code == 200
+        # Lyon-Bron is nearer the city centre than Saint-Exupéry.
+        assert response.json() == {"neighbors": None, "nearest_airport": "LYN", "source": "local"}
+        assert egress.hosts() == ["stats.egress-check.net"]
+
+    @pytest.mark.asyncio
+    async def test_unreachable_or_breaker_open_falls_back(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        async def refuse(_request: httpx.Request) -> None:
+            raise httpx.ConnectError("offline")
+
+        egress.on_http = refuse
+        response = await self._suggest()
+        assert response.json()["nearest_airport"] == "LYN"
+        assert response.json()["source"] == "local"
+
+        breaker = community_breaker()
+        for _ in range(breaker.threshold):
+            breaker.record_failure()
+        mark = len(egress.events)
+        response = await self._suggest()
+        assert response.json() == {"neighbors": None, "nearest_airport": "LYN", "source": "local"}
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_a_null_nearest_airport_is_completed_locally(
+        self, test_db, egress, cleanup_community
+    ):
+        egress.responses["/v1/iata/suggest"] = _suggest_ok("LYS", None)
+        response = await self._suggest()
+        assert response.json() == {
+            "neighbors": "LYS",
+            "nearest_airport": "LYN",
+            "source": "community",
+        }
+
+    @pytest.mark.asyncio
+    async def test_waiting_for_a_position_may_ask(self, test_db, egress, cleanup_community):
+        meshloom_community.note_radio_position(NO_POSITION)
+        await _wait_state_applied()
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _waiting_status_since(egress, "CDG"))
+        mark = len(egress.events)
+        egress.responses["/v1/iata/suggest"] = _suggest_ok("LYS", "LYN")
+
+        response = await self._suggest()
+
+        assert response.json()["neighbors"] == "LYS"
+        assert egress.events[mark:] == [("http", "stats.egress-check.net", "/v1/iata/suggest")]
+        assert (await meshloom_community.community_status()).state == "waiting_for_position"
+
+    @pytest.mark.asyncio
+    async def test_nothing_leaves_during_an_opt_out(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        monkeypatch.setattr(meshloom_community, "_leaving", True)
+        response = await self._suggest()
+        assert response.json() == {"neighbors": None, "nearest_airport": "LYN", "source": "local"}
+        assert egress.events == []
+
+    @pytest.mark.asyncio
+    async def test_only_the_route_asks(self, test_db, egress, cleanup_community):
+        """Nothing in the backend asks a suggestion on its own: off, a restart,
+        the radio's position changing and the background passes send nothing."""
+        await update_community(enabled=False, iata="CDG")
+        with patch("app.services.observer_position.radio_self_info", return_value=SUGGEST_POSITION):
+            meshloom_community.note_radio_position(SUGGEST_POSITION)
+            await _wait_state_applied()
+            await fanout_manager.load_from_db()
+            await run_catalogue_pass()
+            await subscribe_live()
+            await asyncio.sleep(0.05)
+        assert [e for e in egress.events if e[0] == "http" and e[2] == "/v1/iata/suggest"] == []
+        assert egress.forbidden() == []

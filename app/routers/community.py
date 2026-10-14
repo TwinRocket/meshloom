@@ -13,6 +13,7 @@ from app.models import (
     CommunityIataActiveResponse,
     CommunityIataBindRequest,
     CommunityIataBindResult,
+    CommunityIataSuggestion,
     CommunityLiveStatus,
     CommunityLiveSubscribeRequest,
     CommunityMeStats,
@@ -30,9 +31,10 @@ from app.services.meshloom_community import (
     bind_community_iata,
     community_status,
     get_community_effective,
+    lookup_airport,
     retry_opt_out,
-    search_community_airports,
     stats_json,
+    suggest_iata,
     update_community,
 )
 from app.services.observer_position import note_radio_self_info, put_iata_bind, radio_self_info
@@ -47,10 +49,20 @@ async def get_community() -> CommunityStatus:
 
 
 @router.get("/airports", response_model=CommunityAirportSearchResponse)
-async def search_airports(q: str = "", locale: str = "en") -> CommunityAirportSearchResponse:
-    return CommunityAirportSearchResponse(
-        airports=await search_community_airports(q, locale=locale)
-    )
+async def search_airports(q: str = "") -> CommunityAirportSearchResponse:
+    """Where an IATA code is (``q``, 3 letters), from the bundled list: no request."""
+    return CommunityAirportSearchResponse(airports=lookup_airport(q))
+
+
+@router.get("/iata/suggest", response_model=CommunityIataSuggestion)
+async def get_iata_suggestion() -> CommunityIataSuggestion:
+    """Codes the IATA form proposes. The settings ask it when they show the form.
+
+    The one route that may reach Community while it is off or waiting for a
+    position (``GET /v1/iata/suggest``, the radio's position rounded to 2
+    decimals); without a position nothing leaves and nothing is suggested.
+    """
+    return await suggest_iata()
 
 
 @router.patch("", response_model=CommunityStatus)

@@ -1955,14 +1955,20 @@ export interface CommunityHashtagsResponse {
   hashtags: CommunityHashtag[];
 }
 
+/** Where an IATA code is, from the backend's bundled airport list (no request). */
 export interface CommunityAirportHit {
   iata: string;
-  name: string;
-  city: string;
-  country: string;
-  label: string;
-  lat?: number | null;
-  lon?: number | null;
+  lat: number;
+  lon: number;
+}
+
+/** `GET /api/community/iata/suggest`: codes the IATA form proposes, never assigned. */
+export interface CommunityIataSuggestion {
+  /** The IATA most declared by active Community members nearby (Community only). */
+  neighbors: string | null;
+  /** The nearest airport (Community, or the bundled list when it does not answer). */
+  nearest_airport: string | null;
+  source: 'community' | 'local' | null;
 }
 
 export type OssUpdateInstallKind = 'package' | 'compose' | 'addon' | 'container' | 'source';

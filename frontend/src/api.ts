@@ -82,6 +82,7 @@ import type {
   CommunityMeStats,
   CommunityPublicStats,
   CommunityAirportHit,
+  CommunityIataSuggestion,
   CommunityStatus,
   CommunityUpdate,
   OssUpdateSettingsPatch,
@@ -754,17 +755,20 @@ export const api = {
       method: 'POST',
     }),
 
-  searchCommunityAirports: async (
-    query: string,
-    locale?: string
-  ): Promise<CommunityAirportHit[]> => {
-    const params = new URLSearchParams({ q: query });
-    if (locale) params.set('locale', locale);
+  /** Where an IATA code is (bundled airport list in the backend: nothing leaves). */
+  searchCommunityAirports: async (code: string): Promise<CommunityAirportHit[]> => {
+    const params = new URLSearchParams({ q: code });
     const payload = await fetchJson<{ airports: CommunityAirportHit[] }>(
       `/community/airports?${params.toString()}`
     );
     return payload.airports;
   },
+
+  /**
+   * Codes the IATA form proposes. Sends the radio's position, rounded to about
+   * 1 km, to Community, even while it is off: ask only when showing the form.
+   */
+  suggestCommunityIata: () => fetchJson<CommunityIataSuggestion>('/community/iata/suggest'),
 
   // Granular repeater endpoints
   repeaterLogin: (publicKey: string, password: string) =>

@@ -10,7 +10,7 @@ type AirportSearch = (query: string) => Promise<CommunityAirportHit[]>;
 const located = new Map<string, RegionCenter | null>();
 
 // Community turned (back) on: forget what was looked up before, so a lookup
-// made while it was off or unreachable never sticks.
+// that failed meanwhile never sticks.
 let communityWasEnabled = getCommunitySnapshot().enabled;
 subscribeCommunity(() => {
   const enabled = getCommunitySnapshot().enabled;
@@ -21,9 +21,9 @@ subscribeCommunity(() => {
 /**
  * Where the selected Live regions are, from their IATA airport.
  *
- * Codes the search does not place exactly are left out, so the result can be
- * shorter than `codes`, or empty (Community off, search down). A failed request
- * or an empty answer (what the backend sends while Community is off) is not
+ * Codes the bundled airport list (`GET /api/community/airports`, no request
+ * leaves the server) does not place exactly are left out, so the result can be
+ * shorter than `codes`, or empty. A failed request or an empty answer is not
  * remembered, so the next opening asks again.
  */
 export async function locateLiveRegions(

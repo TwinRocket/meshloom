@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '../ui/sonner';
 import { api, ApiError, formatApiError } from '../../api';
 import type {
-  CommunityAirportHit,
   CommunityIataBindResult,
+  CommunityIataSuggestion,
   CommunityMeStats,
   CommunityPublicStats,
   CommunityStatus,
@@ -78,87 +78,83 @@ function IataHelp() {
   );
 }
 
-function IataAirportSearch({
+type SuggestionChip = {
+  code: string;
+  reason:
+    | 'settings.community.suggest.neighbors'
+    | 'settings.community.suggest.nearest'
+    | 'settings.community.suggest.both';
+};
+
+function suggestionChips(suggestion: CommunityIataSuggestion | null): SuggestionChip[] {
+  const neighbors = suggestion?.neighbors ?? null;
+  const nearest = suggestion?.nearest_airport ?? null;
+  if (neighbors && neighbors === nearest) {
+    return [{ code: neighbors, reason: 'settings.community.suggest.both' }];
+  }
+  const chips: SuggestionChip[] = [];
+  if (neighbors) chips.push({ code: neighbors, reason: 'settings.community.suggest.neighbors' });
+  if (nearest) chips.push({ code: nearest, reason: 'settings.community.suggest.nearest' });
+  return chips;
+}
+
+/**
+ * Up to two codes to pick from, never applied on their own. Asked once when the
+ * IATA form shows: the backend sends the radio's position, rounded to about
+ * 1 km, to Community (even while off), or falls back to its own airport list.
+ */
+function IataSuggestions({
+  selected,
   disabled,
   onPick,
 }: {
+  selected: string;
   disabled?: boolean;
   onPick: (iata: string) => void;
 }) {
-  const { t, i18n } = useTranslation();
-  const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<CommunityAirportHit[]>([]);
-  const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
+  const titleId = useId();
+  const [suggestion, setSuggestion] = useState<CommunityIataSuggestion | null>(null);
 
   useEffect(() => {
-    const trimmed = query.trim();
-    if (trimmed.length < 2) {
-      setHits([]);
-      setOpen(false);
-      return;
-    }
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void api.searchCommunityAirports(trimmed, i18n.language).then(
-        (rows) => {
-          if (cancelled) return;
-          setHits(rows);
-          setOpen(rows.length > 0);
-        },
-        () => {
-          if (!cancelled) {
-            setHits([]);
-            setOpen(false);
-          }
-        }
-      );
-    }, 300);
+    void api.suggestCommunityIata().then(
+      (next) => {
+        if (!cancelled) setSuggestion(next);
+      },
+      () => {
+        if (!cancelled) setSuggestion(null);
+      }
+    );
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
     };
-  }, [query, i18n.language]);
+  }, []);
 
+  const chips = suggestionChips(suggestion);
+  if (chips.length === 0) return null;
   return (
-    <div className="space-y-1">
-      <Label htmlFor="community-iata-search">{t('settings.community.iataSearch')}</Label>
-      <Input
-        id="community-iata-search"
-        value={query}
-        disabled={disabled}
-        autoComplete="off"
-        spellCheck={false}
-        placeholder={t('settings.community.iataSearchPlaceholder')}
-        onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => {
-          if (hits.length > 0) setOpen(true);
-        }}
-      />
-      {open && hits.length > 0 && (
-        <ul
-          role="listbox"
-          aria-label={t('settings.community.iataSearch')}
-          className="max-h-48 overflow-auto rounded-md border border-border bg-card py-1"
-        >
-          {hits.map((hit) => (
-            <li key={hit.iata}>
-              <button
-                type="button"
-                role="option"
-                className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-sm hover:bg-accent"
-                onClick={() => {
-                  onPick(hit.iata);
-                  setQuery(hit.label);
-                  setOpen(false);
-                }}
-              >
-                <span>{hit.label}</span>
-                <span className="font-medium text-muted-foreground">{hit.iata}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div role="group" aria-labelledby={titleId} className="space-y-1.5">
+      <p id={titleId} className="text-[0.8125rem] text-muted-foreground">
+        {t('settings.community.suggest.title')}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {chips.map((chip) => (
+          <Button
+            key={chip.code}
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled}
+            aria-pressed={selected === chip.code}
+            onClick={() => onPick(chip.code)}
+            className="h-auto gap-2 py-1"
+          >
+            <span className="font-semibold tracking-wide">{chip.code}</span>{' '}
+            <span className="font-normal text-muted-foreground">{t(chip.reason)}</span>
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -186,7 +182,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
   const [busy, setBusy] = useState<'join' | 'bind' | 'override' | null>(null);
   const [retrying, setRetrying] = useState(false);
   const { requestLeave, leaveDialog } = useCommunityLeave(() => setBindResult(null));
-  // Waiting for the radio's position: on, but no stats, no airport search.
+  // Waiting for the radio's position: on, but no stats.
   const active = communityStatusActive(status);
   const waiting = communityWaitingForPosition(status);
 
@@ -437,6 +433,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
             />
             <IataHelp />
           </div>
+          <IataSuggestions selected={iataDraft} disabled={busy !== null} onPick={setIataDraft} />
           <Button
             type="button"
             onClick={() => void handleJoin()}
@@ -474,7 +471,7 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
               </Button>
             </div>
             <IataHelp />
-            {active && <IataAirportSearch disabled={busy !== null} onPick={setIataDraft} />}
+            <IataSuggestions selected={iataDraft} disabled={busy !== null} onPick={setIataDraft} />
           </div>
 
           {waiting && (

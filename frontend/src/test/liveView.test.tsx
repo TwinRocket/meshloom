@@ -245,10 +245,6 @@ describe('LiveView', () => {
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
         iata: 'LYS',
-        name: 'Lyon',
-        city: 'Lyon',
-        country: 'FR',
-        label: 'LYS',
         lat: 45.72,
         lon: 5.08,
       },

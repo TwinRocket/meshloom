@@ -151,7 +151,7 @@ describe('CommunityWaitingBanner', () => {
     );
     // The banner stays a few seconds (debounce, then the bind): the toast says so.
     expect(i18n.t('settings.community.waiting.positionSaved')).toMatch(/Community/);
-    // The airport search is a Community feature: never asked while waiting.
+    // The Community IATA only places the radio while Community is active.
     expect(api.searchCommunityAirports).not.toHaveBeenCalled();
   });
 
