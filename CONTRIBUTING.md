@@ -182,4 +182,4 @@ npx playwright test
 
 ## Notes For Agent-Assisted Work
 
-Agents start from [`AGENTS.md`](AGENTS.md) at the repository root: it is the canonical guide (map, commands, delivery flow, working rules) and points to the area-specific files. Agent output is welcome, but human review is mandatory.
+Agents start from [`AGENTS.md`](AGENTS.md) at the repository root: it is the canonical guide (working rules, commands, pitfalls, delivery flow) and points to the area-specific `AGENTS.md` files and to the developer reference in `docs/dev/`. Agent output is welcome, but human review is mandatory.
