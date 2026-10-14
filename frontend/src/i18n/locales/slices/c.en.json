@@ -657,7 +657,7 @@
       },
       "optOut": {
         "title": "Leave Meshloom Community?",
-        "intro": "Meshloom stops sending anything to Community and asks it to delete your radio’s position.",
+        "intro": "Meshloom asks Community to delete your radio’s position, then stops publishing to Community.",
         "kept": "The packets your radio already reported stay in Community’s statistics, under your radio’s name.",
         "position": "Your radio’s position is deleted from Community.",
         "advert": "If your radio’s adverts broadcast its position, it stays visible on the map like any other node heard on the mesh.",
@@ -674,7 +674,7 @@
         "cancel": "Cancel",
         "notConfirmedToast": "You left Community, but it did not confirm the deletion",
         "pendingTitle": "Deletion not confirmed",
-        "pendingBody": "You left Community, but Community could not be reached to delete your radio’s position. Nothing else is sent to Community; retry when you like.",
+        "pendingBody": "You left Community, but Community did not confirm that it deleted your radio’s position. Retry when you like: Meshloom never retries on its own.",
         "retry": "Retry",
         "retrying": "Retrying…",
         "retryDone": "Community confirmed the deletion"

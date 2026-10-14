@@ -66,7 +66,9 @@ async def patch_community(body: CommunityUpdate) -> CommunityStatus:
     if body.enabled and not was_enabled:
         # Turned on without a bind (the settings join through PUT /me/iata
         # instead): check the radio's position the way an appstart does, so a
-        # stale bind is refreshed. The worker sends nothing when nothing moved.
+        # stale bind is refreshed. The worker sends nothing when the position
+        # is what the last bind sent, except after an opt-out: the teardown
+        # forgot that bind, so this re-bind runs and lifts Community's refusal.
         note_radio_self_info(radio_self_info())
     return await community_status()
 

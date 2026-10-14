@@ -24,8 +24,8 @@ uses the same clear for a topic left behind while the app was stopped.
 change sends nothing while Community is off.
 
 ``TestOptOutCall``: the opt-out first sends ``POST /v1/me/opt-out`` (while
-nothing may reconnect); when Community cleared the retained status, no status
-clear is armed. When the call fails, the opt-out is kept as pending and only
+nothing may reconnect); once Community confirmed it (any 2xx), or when the
+call timed out, no status clear retry is armed. When the call fails, the opt-out is kept as pending and only
 the explicit ``POST /api/community/opt-out/retry`` sends it again: nothing
 else leaves, nothing retries on its own, not even after a restart.
 
@@ -1973,17 +1973,136 @@ class TestOptOutCall:
         assert await _opt_out_pending() is None
 
     @pytest.mark.asyncio
-    async def test_retained_not_cleared_keeps_the_status_clear(
+    async def test_any_confirmation_arms_no_status_clear(
         self, test_db, egress, cleanup_community, fast_retries
     ):
-        fast_retries(3600.0)
+        fast_retries(0.0)
+        # A 2xx confirms, whatever the body says: Community refuses the key
+        # on the broker seconds later and clears the status itself.
         egress.responses["/v1/me/opt-out"] = _opt_out_answer(
             {"mqtt": {"kicked": True, "retained_cleared": False}}
         )
-        await _opt_out_with_broker_down(egress)
+        mark = await _opt_out_with_broker_down(egress)
         assert await _opt_out_pending() is None
-        # As before: the publisher could not clear, the bounded clear takes over.
+        assert await _pending() == []
+        assert not _status_clear_running()
+        egress.mqtt_connects = True
+        await asyncio.sleep(0.2)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_timed_out_call_arms_no_status_clear_and_stays_pending(
+        self, test_db, egress, cleanup_community, fast_retries, monkeypatch
+    ):
+        fast_retries(0.0)
+        monkeypatch.setattr(meshloom_community, "OPT_OUT_LAST_CALL_TIMEOUT_S", 0.1)
+
+        async def slow(request: httpx.Request) -> None:
+            if request.url.path == "/v1/me/opt-out":
+                await asyncio.sleep(1.0)
+
+        egress.on_http = slow
+        egress.responses["/v1/me/opt-out"] = _opt_out_answer()
+        mark = await _opt_out_with_broker_down(egress)
+        # Community may have recorded it: no clear retry, the manual retry decides.
+        assert await _opt_out_pending() is not None
+        assert await _pending() == []
+        assert not _status_clear_running()
+        egress.mqtt_connects = True
+        await asyncio.sleep(0.2)
+        assert egress.events[mark:] == []
+
+    @pytest.mark.asyncio
+    async def test_refused_call_still_arms_the_status_clear(
+        self, test_db, egress, cleanup_community, fast_retries
+    ):
+        fast_retries(3600.0)
+        # 503 (the default): Community surely did not record it.
+        await _opt_out_with_broker_down(egress)
+        assert await _opt_out_pending() is not None
         assert await _pending_topics() == [_status_topic("CDG")]
+
+    @pytest.mark.asyncio
+    async def test_radio_away_records_the_published_key(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        await _until_async(lambda: _is_last_topic("CDG"))
+        with patch("app.keystore.get_public_key", return_value=None):
+            await update_community(enabled=False)
+        pending = await _opt_out_pending()
+        assert pending is not None and pending["pubkey"] == PUBKEY_HEX
+
+    @pytest.mark.asyncio
+    async def test_retry_refuses_an_unknown_key(self, test_db, egress, cleanup_community):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.set_community_opt_out_pending(
+            {"pubkey": "", "reason": None, "requested_at": "2026-10-14T10:00:00+00:00"}
+        )
+        egress.responses["/v1/me/opt-out"] = _opt_out_answer()
+        mark = len(egress.events)
+        response = await _api("POST", "/api/community/opt-out/retry")
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "opt_out_key_unknown"
+        assert egress.events[mark:] == []
+        assert await _opt_out_pending() is not None
+
+    @pytest.mark.asyncio
+    async def test_retry_waits_longer_than_the_last_call(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.set_community_opt_out_pending(
+            {"pubkey": PUBKEY_HEX, "reason": "other", "requested_at": "2026-10-14T10:00:00+00:00"}
+        )
+        egress.responses["/v1/me/opt-out"] = _opt_out_answer()
+        real = meshloom_community.stats_request
+        seen: list[float] = []
+
+        async def spy(*args: Any, **kwargs: Any) -> httpx.Response:
+            seen.append(kwargs["timeout"])
+            return await real(*args, **kwargs)
+
+        monkeypatch.setattr(meshloom_community, "stats_request", spy)
+        response = await _api("POST", "/api/community/opt-out/retry")
+        assert response.status_code == 200, response.text
+        assert seen == [meshloom_community.OPT_OUT_RETRY_TIMEOUT_S]
+        assert meshloom_community.OPT_OUT_RETRY_TIMEOUT_S >= 20
+        assert ("/v1/me/opt-out", {"reason": "other"}) in egress.bodies
+
+    @pytest.mark.asyncio
+    async def test_turning_back_on_rebinds_to_lift_the_refusal(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        from app.services import observer_position
+
+        info = {"public_key": PUBKEY_HEX, "adv_lat": 45.76, "adv_lon": 4.84, "adv_loc_policy": 0}
+        monkeypatch.setattr(observer_position, "REBIND_DEBOUNCE_S", 0.01)
+        monkeypatch.setattr(observer_position, "radio_self_info", lambda: info)
+        monkeypatch.setattr("app.services.radio_ingest_gate.ingest_allowed", lambda: True)
+        egress.responses["/v1/me/iata"] = _bind_ok("CDG")
+        egress.responses["/v1/me/opt-out"] = _opt_out_answer()
+        await update_community(enabled=True, iata="CDG")
+        await observer_position.put_iata_bind("CDG")
+        binds = sum(
+            1 for e in egress.events if e[:3] == ("http", "stats.egress-check.net", "/v1/me/iata")
+        )
+        await update_community(enabled=False)
+
+        # PATCH {enabled: true}: the position did not move, yet the re-bind
+        # runs, since only a PUT /v1/me/iata lifts Community's refusal.
+        response = await _api("PATCH", "/api/community", {"enabled": True})
+        assert response.status_code == 200, response.text
+        observer_position.note_radio_self_info(info)
+        task = observer_position._rebind_task
+        assert task is not None
+        await asyncio.wait_for(task, 3)
+        after = sum(
+            1 for e in egress.events if e[:3] == ("http", "stats.egress-check.net", "/v1/me/iata")
+        )
+        assert after == binds + 1
+        observer_position.reset_position_rebind_for_tests()
 
     @pytest.mark.asyncio
     async def test_nothing_reconnects_while_leaving(self, test_db, egress, cleanup_community):

@@ -282,6 +282,16 @@ def _rebind_still_needed() -> bool:
     return info is not None and _bound_key(info) != _last_bound
 
 
+def forget_last_bind() -> None:
+    """After an opt-out: Community refuses this key until a bind lifts it.
+
+    The next ``self_info`` (``PATCH {enabled: true}`` notes one) then re-binds
+    even when the position did not move.
+    """
+    global _last_bound
+    _last_bound = _UNKNOWN
+
+
 def reset_position_rebind_for_tests() -> None:
     global _last_bound, _rebind_task, _rebind_retry_wait
     if _rebind_task is not None and not _rebind_task.done():

@@ -657,7 +657,7 @@
       },
       "optOut": {
         "title": "Quitter Meshloom Community ?",
-        "intro": "Meshloom n’envoie plus rien à Community et lui demande de supprimer la position de votre radio.",
+        "intro": "Meshloom demande à Community de supprimer la position de votre radio, puis cesse de publier vers Community.",
         "kept": "Les paquets déjà remontés par votre radio restent dans les statistiques de Community, sous le nom de votre radio.",
         "position": "La position de votre radio est supprimée de Community.",
         "advert": "Si les annonces de votre radio diffusent sa position, elle reste visible sur la carte comme celle de tout autre nœud entendu sur le mesh.",
@@ -674,7 +674,7 @@
         "cancel": "Annuler",
         "notConfirmedToast": "Vous avez quitté Community, mais la suppression n’a pas été confirmée",
         "pendingTitle": "Suppression non confirmée",
-        "pendingBody": "Vous avez quitté Community, mais Community n’a pas pu être joint pour supprimer la position de votre radio. Rien d’autre n’est envoyé à Community ; réessayez quand vous voulez.",
+        "pendingBody": "Vous avez quitté Community, mais Community n’a pas confirmé la suppression de la position de votre radio. Réessayez quand vous voulez : Meshloom ne réessaie jamais de lui-même.",
         "retry": "Réessayer",
         "retrying": "Nouvel essai…",
         "retryDone": "Community a confirmé la suppression"

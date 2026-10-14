@@ -13,6 +13,7 @@
     "mqtt_connected": "MQTT connected",
     "community_mqtt_unavailable": "Community MQTT unavailable",
     "opt_out_other_radio": "Connect the radio that left Community, then retry.",
-    "no_pending_opt_out": "There is no opt-out to send again."
+    "no_pending_opt_out": "There is no opt-out to send again.",
+    "opt_out_key_unknown": "The radio that left Community is not known, so the deletion cannot be sent again from here. Write to privacy@meshloom.app."
   }
 }
