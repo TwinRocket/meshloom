@@ -5,10 +5,15 @@
 adverts carry the position. Anything else (absent, ``None``, a string, a bool)
 is read as "off", the safe side.
 
-``publishable_position`` is the only place the position sent to Community is
-rounded: exact when the radio broadcasts it anyway, rounded to about 1 km
-otherwise. ``put_iata_bind`` is the only place it leaves, in the body of
-Community's ``PUT /v1/me/iata`` (``lat``, ``lon``, ``position_precision``).
+``publishable_position`` is the only place the position bound with Community
+is rounded: exact when the radio broadcasts it anyway, rounded to about 1 km
+otherwise. ``put_iata_bind`` is the only place it leaves for a bind, in the
+body of Community's ``PUT /v1/me/iata`` (``lat``, ``lon``,
+``position_precision``). The one other request that carries it is the IATA
+suggestion (``meshloom_community.suggest_iata``, on the user's click), always
+rounded to about 1 km by ``suggestion_position``: Community stores no code for
+it, but the request, through Cloudflare, shows in its access logs with the
+caller's IP address and that rounded position.
 
 Automatic re-bind: when the radio reports a new ``self_info`` (``SELF_INFO``
 after a connection, a ``set_coords`` or a policy change, all followed by an
@@ -87,6 +92,26 @@ def publishable_position(info: Any) -> PublishablePosition | None:
     if not is_valid_map_location(lat_out, lon_out):
         return None
     return PublishablePosition(lat_out, lon_out, precision)
+
+
+def suggestion_position(info: Any) -> tuple[float, float] | None:
+    """The radio's position for the IATA suggestion, always rounded to 2 decimals.
+
+    Whatever the advert location policy: Community's ``GET /v1/iata/suggest``
+    only ever gets about 1 km (identity.md). None in the same cases as
+    ``publishable_position``: nothing is asked without a position.
+    """
+    if not isinstance(info, dict):
+        return None
+    lat = _finite(info.get("adv_lat"))
+    lon = _finite(info.get("adv_lon"))
+    if lat is None or lon is None or not is_valid_map_location(lat, lon):
+        return None
+    lat_out = round(lat, ROUNDED_DECIMALS)
+    lon_out = round(lon, ROUNDED_DECIMALS)
+    if not is_valid_map_location(lat_out, lon_out):
+        return None
+    return lat_out, lon_out
 
 
 def _finite(value: Any) -> float | None:

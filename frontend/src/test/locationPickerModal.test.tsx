@@ -107,10 +107,6 @@ describe('LocationPickerModal', () => {
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
         iata: 'CDG',
-        name: 'Charles de Gaulle',
-        city: 'Paris',
-        country: 'France',
-        label: 'Paris (CDG)',
         lat: 49.01278,
         lon: 2.55,
       },

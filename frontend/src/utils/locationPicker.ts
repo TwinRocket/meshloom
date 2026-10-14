@@ -91,8 +91,9 @@ export async function lookupCommunityIataLocation(): Promise<
     const snapshot = getCommunitySnapshot();
     if (snapshot.enabled === false) return null;
     const community = snapshot.status ?? (await refreshCommunityStatus());
-    // The IATA stays stored after an opt-out; the airport search is a Community
-    // feature, so it is never asked while Community is off or waiting for a position.
+    // The IATA stays stored after an opt-out, but it only places the radio while
+    // Community is on and not waiting for a position. The lookup itself reads the
+    // backend's bundled airport list: nothing leaves.
     if (!community || !communityStatusActive(community)) return null;
     const iata = (community.iata ?? '').trim().toUpperCase();
     if (!IATA_RE.test(iata)) return null;

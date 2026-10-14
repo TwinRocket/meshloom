@@ -52,6 +52,11 @@ describe('SettingsCommunitySection', () => {
       iata_active: 4,
       unique_hashes_24h: 120,
     });
+    vi.spyOn(api, 'suggestCommunityIata').mockResolvedValue({
+      neighbors: null,
+      nearest_airport: null,
+      source: null,
+    });
   });
 
   afterEach(() => {
@@ -172,16 +177,7 @@ describe('SettingsCommunitySection', () => {
     ).toBeInTheDocument();
   });
 
-  it('explains IATA as the nearest airport and offers a search', async () => {
-    vi.spyOn(api, 'searchCommunityAirports').mockResolvedValue([
-      {
-        iata: 'LYS',
-        name: 'Lyon-Saint-Exupéry',
-        city: 'Lyon',
-        country: 'France',
-        label: 'Lyon, France (LYS)',
-      },
-    ]);
+  it('explains IATA as the nearest airport and links the IATA directory', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       ...offStatus,
       enabled: true,
@@ -195,24 +191,165 @@ describe('SettingsCommunitySection', () => {
     expect(
       screen.getByRole('link', { name: i18n.t('settings.community.iataDirectory') })
     ).toHaveAttribute('href', 'https://www.iata.org/en/publications/directories/code-search/');
+  });
 
-    fireEvent.change(screen.getByLabelText(i18n.t('settings.community.iataSearch')), {
-      target: { value: 'Lyon' },
+  async function clickSuggest() {
+    fireEvent.click(
+      await screen.findByRole('button', { name: i18n.t('settings.community.suggest.button') })
+    );
+  }
+
+  it('asks nothing while the join form shows, only on a click', async () => {
+    render(<SettingsCommunitySection />);
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    const suggest = screen.getByRole('button', {
+      name: i18n.t('settings.community.suggest.button'),
     });
-    fireEvent.click(await screen.findByRole('option', { name: /LYS/ }));
+    // The button says what leaves before anything does.
+    expect(suggest).toHaveAccessibleDescription(i18n.t('settings.community.suggest.help'));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(api.suggestCommunityIata).not.toHaveBeenCalled();
+
+    fireEvent.click(suggest);
+    await waitFor(() => expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1));
+  });
+
+  it('asks nothing right after an opt-out either', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, iata: 'CDG' });
+    render(<SettingsCommunitySection />);
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    expect(api.suggestCommunityIata).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing on display once joined either', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({
+      ...offStatus,
+      enabled: true,
+      iata: 'CDG',
+      publisher_configured: true,
+    });
+    render(<SettingsCommunitySection />);
+    const suggest = await screen.findByRole('button', {
+      name: i18n.t('settings.community.suggest.button'),
+    });
+    expect(api.suggestCommunityIata).not.toHaveBeenCalled();
+    fireEvent.click(suggest);
+    await waitFor(() => expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1));
+  });
+
+  it('proposes the neighbours’ code and the nearest airport, assigning nothing', async () => {
+    vi.mocked(api.suggestCommunityIata).mockResolvedValue({
+      neighbors: 'LYS',
+      nearest_airport: 'LYN',
+      source: 'community',
+    });
+
+    render(<SettingsCommunitySection />);
+    await clickSuggest();
+
+    const group = await screen.findByRole('group', {
+      name: i18n.t('settings.community.suggest.title'),
+    });
+    const neighbours = await screen.findByRole('button', {
+      name: `LYS ${i18n.t('settings.community.suggest.neighbors')}`,
+    });
+    const nearest = screen.getByRole('button', {
+      name: `LYN ${i18n.t('settings.community.suggest.nearest')}`,
+    });
+    expect(group).toContainElement(neighbours);
+    expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1);
+    expect(nearest).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('');
+
+    fireEvent.click(nearest);
+    expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('LYN');
+    expect(nearest).toHaveAttribute('aria-pressed', 'true');
+    expect(neighbours).toHaveAttribute('aria-pressed', 'false');
+    // Picking only fills the field: joining is still the user's click.
+    expect(api.bindCommunityIata).not.toHaveBeenCalled();
+
+    // Another code can still be typed.
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.community.iata')), {
+      target: { value: 'cdg' },
+    });
+    expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('CDG');
+    expect(nearest).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows one code when the neighbours’ code is the nearest airport', async () => {
+    vi.mocked(api.suggestCommunityIata).mockResolvedValue({
+      neighbors: 'CDG',
+      nearest_airport: 'CDG',
+      source: 'community',
+    });
+
+    render(<SettingsCommunitySection />);
+    await clickSuggest();
+
+    expect(
+      await screen.findByRole('button', {
+        name: `CDG ${i18n.t('settings.community.suggest.both')}`,
+      })
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^CDG / })).toHaveLength(1);
+  });
+
+  it('offers the nearest airport alone when Community did not answer', async () => {
+    vi.mocked(api.suggestCommunityIata).mockResolvedValue({
+      neighbors: null,
+      nearest_airport: 'LBG',
+      source: 'local',
+    });
+
+    render(<SettingsCommunitySection />);
+    await clickSuggest();
+
+    expect(
+      await screen.findByRole('button', {
+        name: `LBG ${i18n.t('settings.community.suggest.nearest')}`,
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(i18n.t('settings.community.suggest.neighbors'))
+    ).not.toBeInTheDocument();
+  });
+
+  it('says so when there is no position', async () => {
+    render(<SettingsCommunitySection />);
+    await clickSuggest();
+    expect(await screen.findByText(i18n.t('settings.community.suggest.none'))).toBeInTheDocument();
+    expect(screen.queryByRole('group')).toBeNull();
+  });
+
+  it('says so when the request fails, and the code can still be typed', async () => {
+    vi.mocked(api.suggestCommunityIata).mockRejectedValue(new Error('down'));
+    render(<SettingsCommunitySection />);
+    await clickSuggest();
+    expect(
+      await screen.findByText(i18n.t('settings.community.suggest.failed'))
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('group')).toBeNull();
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.community.iata')), {
+      target: { value: 'lys' },
+    });
     expect(screen.getByLabelText(i18n.t('settings.community.iata'))).toHaveValue('LYS');
   });
 
-  it('offers no airport search while Community is off', async () => {
-    const search = vi.spyOn(api, 'searchCommunityAirports');
+  it('never asks the airport lookup from the settings', async () => {
+    const lookup = vi.spyOn(api, 'searchCommunityAirports');
 
     render(<SettingsCommunitySection />);
 
     expect(
       await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText(i18n.t('settings.community.iataSearch'))).toBeNull();
-    expect(search).not.toHaveBeenCalled();
+    expect(lookup).not.toHaveBeenCalled();
   });
 
   it('explains that publish is off when enabled without IATA', async () => {

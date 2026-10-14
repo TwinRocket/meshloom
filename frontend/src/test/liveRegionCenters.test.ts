@@ -9,7 +9,7 @@ import type { CommunityAirportHit, CommunityStatus } from '../types';
 import { locateLiveRegions, resetLocatedLiveRegions } from '../utils/liveRegionCenters';
 
 function hit(iata: string, lat: number | null, lon: number | null): CommunityAirportHit {
-  return { iata, name: iata, city: '', country: '', label: iata, lat, lon };
+  return { iata, lat, lon } as CommunityAirportHit;
 }
 
 function status(enabled: boolean): CommunityStatus {

@@ -109,19 +109,11 @@ describe('lookupCommunityIataLocation', () => {
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
         iata: 'LYN',
-        name: 'Lyon-Bron',
-        city: 'Lyon',
-        country: 'France',
-        label: 'Lyon (LYN)',
         lat: 45.72,
         lon: 4.94,
       },
       {
         iata: 'LYS',
-        name: 'Lyon-Saint-Exupéry',
-        city: 'Lyon',
-        country: 'France',
-        label: 'Lyon (LYS)',
         lat: 45.7256,
         lon: 5.0811,
       },
@@ -134,7 +126,7 @@ describe('lookupCommunityIataLocation', () => {
     });
   });
 
-  it('returns null when Community has no IATA or the airport has no coords', async () => {
+  it('returns null when Community has no IATA or the code is not a known airport', async () => {
     vi.mocked(api.getCommunity).mockResolvedValue({
       enabled: true,
       iata: '',
@@ -150,15 +142,7 @@ describe('lookupCommunityIataLocation', () => {
       publisher_configured: false,
       publisher_connected: false,
     });
-    vi.mocked(api.searchCommunityAirports).mockResolvedValue([
-      {
-        iata: 'CDG',
-        name: 'Charles de Gaulle',
-        city: 'Paris',
-        country: 'France',
-        label: 'Paris (CDG)',
-      },
-    ]);
+    vi.mocked(api.searchCommunityAirports).mockResolvedValue([]);
     await expect(lookupCommunityIataLocation()).resolves.toBeNull();
   });
 
@@ -172,10 +156,6 @@ describe('lookupCommunityIataLocation', () => {
     vi.mocked(api.searchCommunityAirports).mockResolvedValue([
       {
         iata: 'LYS',
-        name: 'Lyon-Saint-Exupéry',
-        city: 'Lyon',
-        country: 'France',
-        label: 'Lyon (LYS)',
         lat: 45.7256,
         lon: 5.0811,
       },
