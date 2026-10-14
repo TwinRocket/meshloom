@@ -1,13 +1,16 @@
 # Portainer GitOps: Compose path = docker-compose.dev.yaml
-# Portainer never deletes files removed upstream; the build tolerates them
-# (README_ADVANCED.md, "Portainer GitOps").
+# Runs the image CI publishes from main (:edge), so the host never builds.
+# Portainer copies each commit over the previous files and never deletes the
+# ones removed upstream; a build from that copy could pick up stale files
+# (README_ADVANCED.md, "Portainer GitOps"). Pulling the image avoids it.
 # Load the same keys via a .env (local) or the stack Environment section (Portainer).
+# MESHLOOM_IMAGE overrides the image (e.g. a pinned digest, or a local build with
+# `docker compose up --pull never`).
 # Radio transport is configured in the web UI (app_settings), not here.
 services:
   meshloom:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${MESHLOOM_IMAGE:-ghcr.io/twinrocket/meshloom:edge}
+    pull_policy: always
     ports:
       - "${MESHLOOM_HTTP_PORT:-8000}:8000"
       - "${MESHLOOM_PROXY_PORT:-5001}:5001"

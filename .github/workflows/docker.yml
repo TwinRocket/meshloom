@@ -3,7 +3,8 @@ name: Docker
 # Builds and pushes the multi-arch container image to GHCR. Runs on pushes to
 # main (tagged :edge), on published releases and version tags (tagged :latest
 # and :X.Y.Z), and on demand. Pull requests build only, to catch Dockerfile
-# breakage without publishing.
+# breakage without publishing. After a main build, the deploy-edge job calls the
+# redeploy webhooks in EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml).
 #
 # One job per architecture rather than one job building all of them: buildx on a
 # single runner shares four cores between three platforms, two of which run under
@@ -209,3 +210,36 @@ jobs:
           subject-name: ${{ needs.matrix.outputs.image }}
           subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
+
+  # Redeploys the stacks that run :edge (docker-compose.dev.yaml) once the new
+  # image exists. A stack polling Git would redeploy a few minutes too early and
+  # pull the previous :edge. The webhook URLs live in the EDGE_DEPLOY_WEBHOOKS
+  # secret, one per line: anyone holding one can trigger a redeploy, so they never
+  # appear in the repository or in the logs. No secret (forks): nothing to do.
+  deploy-edge:
+    name: Deploy edge
+    if: github.ref == 'refs/heads/main'
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Call the redeploy webhooks
+        env:
+          WEBHOOKS: ${{ secrets.EDGE_DEPLOY_WEBHOOKS }}
+        run: |
+          if [ -z "$WEBHOOKS" ]; then
+            echo "::notice::EDGE_DEPLOY_WEBHOOKS is not set; no stack to redeploy"
+            exit 0
+          fi
+          n=0
+          while IFS= read -r url; do
+            url="${url%%[[:space:]]}"
+            [ -n "$url" ] || continue
+            n=$((n + 1))
+            if curl -fsS -o /dev/null -X POST --max-time 60 --retry 2 --retry-all-errors "$url"; then
+              echo "Webhook $n: redeploy requested"
+            else
+              # A down Portainer must not turn the image build red.
+              echo "::warning::Webhook $n failed; that stack keeps the previous image"
+            fi
+          done <<< "$WEBHOOKS"

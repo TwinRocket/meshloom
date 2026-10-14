@@ -232,13 +232,18 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
     the `.deb`/`.rpm` sets it by default in `/etc/meshloom/meshloom.env`.
   - The radio proxy listens on `0.0.0.0:5001` by default, without
     authentication.
-- **Deployments that never delete files.** A Portainer GitOps stack on
-  `docker-compose.dev.yaml` copies each new commit over its old tree and never
-  removes a file deleted upstream. Hence: `npm run build` type-checks only what
-  `src/main.tsx` reaches (`frontend/tsconfig.build.json`), and a file nothing
-  imports is ignored. Never rename or delete a file that is discovered on
-  disk: `app/migrations/_NNN_*.py` (the runner refuses two files with one
-  number) and `frontend/src/i18n/locales/slices/*.json` (`import.meta.glob`).
+- **Deployments that never delete files.** A Portainer GitOps stack copies
+  each new commit over its old tree and never removes a file deleted upstream.
+  `docker-compose.dev.yaml` therefore pulls `ghcr.io/twinrocket/meshloom:edge`
+  instead of building from that tree. When it built, the old `useCommunityLeave.ts`
+  shadowed the new `.tsx` and broke `tsc` while CI was green. Anyone may still
+  build from such a tree, so keep the old rules: `npm run build` type-checks
+  only what `src/main.tsx` reaches (`frontend/tsconfig.build.json`); never
+  rename or delete a file that is discovered on disk
+  (`app/migrations/_NNN_*.py`, where the runner refuses two files with one
+  number, and `frontend/src/i18n/locales/slices/*.json`, read by
+  `import.meta.glob`); never change a module's extension (`.ts` to `.tsx`),
+  because module resolution prefers `.ts`.
 - **The `meshcore` reader can raise `IndexError`** on a truncated advert in
   `LOG_DATA`. This is a library parsing gap. One packet's task fails and later
   packets still process.
@@ -378,7 +383,10 @@ rotation steps are in `pkg/keys/README.md`.
      release; `workflow_dispatch` on `docs-site.yml` rebuilds it by hand.
 3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
    image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
-   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. Tag builds also get a
+   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. On `main` only, its
+   `Deploy edge` job then POSTs the Portainer webhooks listed in the
+   `EDGE_DEPLOY_WEBHOOKS` secret (stacks on `docker-compose.dev.yaml`). A
+   failure there is a warning, never a red run. Tag builds also get a
    build provenance attestation. Pull requests build without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
    the apt pin. After changing any of them, run

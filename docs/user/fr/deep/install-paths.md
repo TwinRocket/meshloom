@@ -96,7 +96,7 @@ Un fichier Compose écrit à la main ne peut pas être mis à jour depuis l’in
 
 ## Portainer
 
-Le fichier [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) du dépôt est prévu pour une pile qui **construit l’image depuis le dépôt**. Dans Portainer, faites-y pointer la pile et chargez les variables de `.env.example` :
+Le fichier [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) du dépôt est prévu pour une pile qui **suit la version en développement** (`main`), avec l’image publiée à chaque modification (`ghcr.io/twinrocket/meshloom:edge`). Dans Portainer, faites-y pointer la pile et chargez les variables de `.env.example` :
 
 ```text
 MESHLOOM_HTTP_PORT=8123
@@ -105,9 +105,11 @@ MESHCORE_DATABASE_PATH=data/meshcore.db
 MESHCORE_DISABLE_BOTS=false
 ```
 
-Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Si vous ne voulez pas d’une construction sur le serveur, utilisez plutôt `docker-compose.example.yml`.
+Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Pour rester sur les versions publiées, utilisez plutôt `docker-compose.example.yml`.
 
-Portainer met à jour une telle pile en copiant la nouvelle version par-dessus les anciens fichiers, et ne supprime jamais un fichier retiré du dépôt. Meshloom est construit pour ignorer ces restes. Si une mise à jour échoue malgré tout à la construction, supprimez la pile et recréez-la (avec les mêmes variables et le même dossier de données : votre base n’est pas touchée), pour repartir d’une copie propre. Une pile sur l’image publiée (`docker-compose.example.yml`) ne construit rien et n’est pas concernée.
+Rien n’est construit sur votre serveur. L’image est publiée quelques minutes après chaque modification : dans les réglages de mise à jour de la pile, activez **Re-pull image** et **Force redeployment**. Chaque vérification récupère alors la dernière image, et Meshloom ne redémarre que si elle a changé.
+
+Les anciennes versions de ce fichier construisaient l’image sur le serveur. Portainer copie chaque nouvelle version par-dessus les anciens fichiers sans supprimer ceux retirés du dépôt, et un tel reste pouvait faire échouer la construction (`npm run build` qui se termine par `exit code: 2`). Une pile bloquée sur cette erreur reçoit le nouveau fichier à sa prochaine mise à jour. Si elle échoue encore, supprimez la pile et recréez-la avec les mêmes variables et le même dossier de données : votre base n’est pas touchée.
 
 Le contact des notifications push se règle dans **Réglages → Notifications**, l’adresse et le port de la radio dans l’interface web. Un nouveau dossier de données vide démarre avec Community désactivé : rejoignez-le dans les réglages. Voir [Meshloom Community](/docs/deep/community/).
 
