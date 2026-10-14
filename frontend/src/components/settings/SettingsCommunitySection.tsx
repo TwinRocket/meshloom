@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '../ui/sonner';
 import { api, ApiError, formatApiError } from '../../api';
@@ -99,9 +99,10 @@ function suggestionChips(suggestion: CommunityIataSuggestion | null): Suggestion
 }
 
 /**
- * Up to two codes to pick from, never applied on their own. Asked once when the
- * IATA form shows: the backend sends the radio's position, rounded to about
- * 1 km, to Community (even while off), or falls back to its own airport list.
+ * Up to two codes to pick from, never applied on their own. Nothing is asked
+ * until the user clicks "Suggest codes": the backend then sends the radio's
+ * position, rounded to about 1 km, to Community (even while off), or falls
+ * back to its own airport list.
  */
 function IataSuggestions({
   selected,
@@ -114,46 +115,88 @@ function IataSuggestions({
 }) {
   const { t } = useTranslation();
   const titleId = useId();
+  const helpId = useId();
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'done' | 'failed'>('idle');
   const [suggestion, setSuggestion] = useState<CommunityIataSuggestion | null>(null);
-
+  const mounted = useRef(true);
   useEffect(() => {
-    let cancelled = false;
-    void api.suggestCommunityIata().then(
-      (next) => {
-        if (!cancelled) setSuggestion(next);
-      },
-      () => {
-        if (!cancelled) setSuggestion(null);
-      }
-    );
+    mounted.current = true;
     return () => {
-      cancelled = true;
+      mounted.current = false;
     };
   }, []);
 
+  const ask = () => {
+    setPhase('loading');
+    void api.suggestCommunityIata().then(
+      (next) => {
+        if (!mounted.current) return;
+        setSuggestion(next);
+        setPhase('done');
+      },
+      () => {
+        if (!mounted.current) return;
+        setSuggestion(null);
+        setPhase('failed');
+      }
+    );
+  };
+
   const chips = suggestionChips(suggestion);
-  if (chips.length === 0) return null;
   return (
-    <div role="group" aria-labelledby={titleId} className="space-y-1.5">
-      <p id={titleId} className="text-[0.8125rem] text-muted-foreground">
-        {t('settings.community.suggest.title')}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {chips.map((chip) => (
-          <Button
-            key={chip.code}
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            aria-pressed={selected === chip.code}
-            onClick={() => onPick(chip.code)}
-            className="h-auto gap-2 py-1"
-          >
-            <span className="font-semibold tracking-wide">{chip.code}</span>{' '}
-            <span className="font-normal text-muted-foreground">{t(chip.reason)}</span>
-          </Button>
-        ))}
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={ask}
+          disabled={disabled || phase === 'loading'}
+          aria-describedby={helpId}
+        >
+          {phase === 'loading'
+            ? t('settings.community.suggest.loading')
+            : t('settings.community.suggest.button')}
+        </Button>
+        <p id={helpId} className="min-w-0 flex-1 text-[0.8125rem] text-muted-foreground">
+          {t('settings.community.suggest.help')}
+        </p>
+      </div>
+      <div aria-live="polite">
+        {phase === 'done' && chips.length === 0 && (
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.community.suggest.none')}
+          </p>
+        )}
+        {phase === 'failed' && (
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.community.suggest.failed')}
+          </p>
+        )}
+        {phase === 'done' && chips.length > 0 && (
+          <div role="group" aria-labelledby={titleId} className="space-y-1.5">
+            <p id={titleId} className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.community.suggest.title')}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {chips.map((chip) => (
+                <Button
+                  key={chip.code}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled}
+                  aria-pressed={selected === chip.code}
+                  onClick={() => onPick(chip.code)}
+                  className="h-auto gap-2 py-1"
+                >
+                  <span className="font-semibold tracking-wide">{chip.code}</span>{' '}
+                  <span className="font-normal text-muted-foreground">{t(chip.reason)}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

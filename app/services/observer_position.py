@@ -10,8 +10,10 @@ is rounded: exact when the radio broadcasts it anyway, rounded to about 1 km
 otherwise. ``put_iata_bind`` is the only place it leaves for a bind, in the
 body of Community's ``PUT /v1/me/iata`` (``lat``, ``lon``,
 ``position_precision``). The one other request that carries it is the IATA
-suggestion (``meshloom_community.suggest_iata``), always rounded to about 1 km
-by ``suggestion_position`` and never stored by Community.
+suggestion (``meshloom_community.suggest_iata``, on the user's click), always
+rounded to about 1 km by ``suggestion_position``: Community stores no code for
+it, but the request, through Cloudflare, shows in its access logs with the
+caller's IP address and that rounded position.
 
 Automatic re-bind: when the radio reports a new ``self_info`` (``SELF_INFO``
 after a connection, a ``set_coords`` or a policy change, all followed by an

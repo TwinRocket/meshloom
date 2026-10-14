@@ -193,6 +193,56 @@ describe('SettingsCommunitySection', () => {
     ).toHaveAttribute('href', 'https://www.iata.org/en/publications/directories/code-search/');
   });
 
+  async function clickSuggest() {
+    fireEvent.click(
+      await screen.findByRole('button', { name: i18n.t('settings.community.suggest.button') })
+    );
+  }
+
+  it('asks nothing while the join form shows, only on a click', async () => {
+    render(<SettingsCommunitySection />);
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    const suggest = screen.getByRole('button', {
+      name: i18n.t('settings.community.suggest.button'),
+    });
+    // The button says what leaves before anything does.
+    expect(suggest).toHaveAccessibleDescription(i18n.t('settings.community.suggest.help'));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(api.suggestCommunityIata).not.toHaveBeenCalled();
+
+    fireEvent.click(suggest);
+    await waitFor(() => expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1));
+  });
+
+  it('asks nothing right after an opt-out either', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({ ...offStatus, iata: 'CDG' });
+    render(<SettingsCommunitySection />);
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+    ).toBeInTheDocument();
+    expect(api.suggestCommunityIata).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing on display once joined either', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({
+      ...offStatus,
+      enabled: true,
+      iata: 'CDG',
+      publisher_configured: true,
+    });
+    render(<SettingsCommunitySection />);
+    const suggest = await screen.findByRole('button', {
+      name: i18n.t('settings.community.suggest.button'),
+    });
+    expect(api.suggestCommunityIata).not.toHaveBeenCalled();
+    fireEvent.click(suggest);
+    await waitFor(() => expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1));
+  });
+
   it('proposes the neighbours’ code and the nearest airport, assigning nothing', async () => {
     vi.mocked(api.suggestCommunityIata).mockResolvedValue({
       neighbors: 'LYS',
@@ -201,6 +251,7 @@ describe('SettingsCommunitySection', () => {
     });
 
     render(<SettingsCommunitySection />);
+    await clickSuggest();
 
     const group = await screen.findByRole('group', {
       name: i18n.t('settings.community.suggest.title'),
@@ -239,6 +290,7 @@ describe('SettingsCommunitySection', () => {
     });
 
     render(<SettingsCommunitySection />);
+    await clickSuggest();
 
     expect(
       await screen.findByRole('button', {
@@ -256,6 +308,7 @@ describe('SettingsCommunitySection', () => {
     });
 
     render(<SettingsCommunitySection />);
+    await clickSuggest();
 
     expect(
       await screen.findByRole('button', {
@@ -267,22 +320,20 @@ describe('SettingsCommunitySection', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows no suggestion without a position', async () => {
+  it('says so when there is no position', async () => {
     render(<SettingsCommunitySection />);
-    expect(
-      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
-    ).toBeInTheDocument();
-    await waitFor(() => expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1));
+    await clickSuggest();
+    expect(await screen.findByText(i18n.t('settings.community.suggest.none'))).toBeInTheDocument();
     expect(screen.queryByRole('group')).toBeNull();
   });
 
-  it('shows no suggestion when the request fails, and the code can still be typed', async () => {
+  it('says so when the request fails, and the code can still be typed', async () => {
     vi.mocked(api.suggestCommunityIata).mockRejectedValue(new Error('down'));
     render(<SettingsCommunitySection />);
+    await clickSuggest();
     expect(
-      await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
+      await screen.findByText(i18n.t('settings.community.suggest.failed'))
     ).toBeInTheDocument();
-    await waitFor(() => expect(api.suggestCommunityIata).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('group')).toBeNull();
     fireEvent.change(screen.getByLabelText(i18n.t('settings.community.iata')), {
       target: { value: 'lys' },

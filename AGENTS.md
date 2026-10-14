@@ -121,7 +121,8 @@ How a radio message travels through the program, in and out.
   bind comes first); Community is turned on only if it succeeds. An opt-out
   Community did not confirm is kept as pending (migration 093) and sent again
   only by hand (`POST /api/community/opt-out/retry`), never on its own. The
-  settings showing the IATA form ask `GET /api/community/iata/suggest`, which
+  IATA form's "Suggest codes" button (a click, never on display) asks
+  `GET /api/community/iata/suggest`, which
   sends the radio's position rounded to 2 decimals to Community's public
   `GET /v1/iata/suggest` (no JWT) to propose up to two codes (never assigned),
   also while off or waiting, and falls back to the nearest airport of the
