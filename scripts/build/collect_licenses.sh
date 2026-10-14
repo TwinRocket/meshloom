@@ -96,6 +96,12 @@ bundled_licenses() {
     echo
 }
 
+# ── Bundled data (shipped with the app, see each NOTICE) ─────────────
+bundled_data_licenses() {
+    cat "$REPO_ROOT/app/data/NOTICE-iata-airports.md"
+    echo
+}
+
 # ── Assemble ─────────────────────────────────────────────────────────
 {
     echo "# Third-Party Licenses"
@@ -111,6 +117,9 @@ bundled_licenses() {
     echo "## Bundled Assets"
     echo
     bundled_licenses
+    echo "## Bundled Data"
+    echo
+    bundled_data_licenses
 } > "$OUT"
 
 echo "Wrote $OUT" >&2

@@ -1,7 +1,7 @@
 {
 "source":"meshloom-community api/airports/ourairports_snapshot.csv + api/airports/metro_codes.csv",
 "community_commit":"e573675a9882b2176dcd7ba3cff37066c3ae778c",
-"license":"OurAirports (public domain) and OpenTravelData (CC BY 4.0, https://github.com/opentraveldata/opentraveldata)",
+"license":"OurAirports (public domain) and OpenTravelData (CC BY 4.0, https://github.com/opentraveldata/opentraveldata), modified: merged and recomputed; see app/data/NOTICE-iata-airports.md",
 "kinds":["airport", "heliport", "large_airport", "medium_airport", "metro_area", "seaplane_base", "small_airport"],
 "airports":{
 "AAA":[-17.3526,-145.509995,3],

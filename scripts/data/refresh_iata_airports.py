@@ -31,7 +31,9 @@ Usage::
         --community ../meshloom-community [--ref origin/main]
 
 Data: OurAirports (public domain) and OpenTravelData (CC BY 4.0), as merged by
-meshloom-community's ``api/airports/refresh_snapshot.py``.
+meshloom-community's ``api/airports/refresh_snapshot.py``. The attribution ships
+next to the file (``app/data/NOTICE-iata-airports.md``) and in ``LICENSES.md``
+(``scripts/build/collect_licenses.sh``, "Bundled Data").
 """
 
 from __future__ import annotations
@@ -113,7 +115,8 @@ def build(snapshot_text: str, metro_text: str, commit: str) -> str:
         f'"source":{json.dumps(f"meshloom-community {SNAPSHOT_PATH} + {METRO_PATH}")},',
         f'"community_commit":{json.dumps(commit)},',
         '"license":"OurAirports (public domain) and OpenTravelData (CC BY 4.0, '
-        'https://github.com/opentraveldata/opentraveldata)",',
+        'https://github.com/opentraveldata/opentraveldata), modified: merged and recomputed; '
+        'see app/data/NOTICE-iata-airports.md",',
         f'"kinds":{json.dumps(kinds)},',
         '"airports":{',
     ]
