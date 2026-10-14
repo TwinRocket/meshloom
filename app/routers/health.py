@@ -56,6 +56,7 @@ class RadioStatsSnapshot(BaseModel):
     direct_tx: int | None = None
     flood_rx: int | None = None
     direct_rx: int | None = None
+    recv_errors: int | None = None
 
 
 class HealthResponse(BaseModel):
@@ -197,6 +198,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
             "direct_tx": packets.get("direct_tx"),
             "flood_rx": packets.get("flood_rx"),
             "direct_rx": packets.get("direct_rx"),
+            "recv_errors": packets.get("recv_errors"),
         }
 
     return {

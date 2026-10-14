@@ -570,6 +570,7 @@
       "floodRx": "Flood RX",
       "directTx": "Direct TX",
       "directRx": "Direct RX",
+      "recvErrors": "Erreurs RX",
       "identity": "Identité",
       "radioName": "Nom de la radio",
       "publicKey": "Clé publique",

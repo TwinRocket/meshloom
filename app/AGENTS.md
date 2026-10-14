@@ -65,7 +65,7 @@ Services worth knowing before touching a flow:
 | `hashtag_catalogue.py`, `channel_membership.py` | Unlocking unknown GroupText; pending/adopted/refused channels |
 | `install_kind.py`, `update_apply.py`, `oss_updates.py`, `update_window.py` | In-app updater, see "Updates" |
 | `stale_contacts.py` | Hourly housekeeping: stale contacts (`stale_contact_days`, 0 = off), raw-packet retention (`raw_packet_retention_days`, 0 = off), bounded `incremental_vacuum` |
-| `radio_stats.py` | One 60 s loop that samples the local radio (noise floor, battery, airtime, packets). Feeds `GET /health`, the WS `health` frame and the fanout `on_health` hook |
+| `radio_stats.py` | One 60 s loop that samples the local radio (noise floor, battery, airtime, packets, RX errors). Feeds `GET /health`, the WS `health` frame and the fanout `on_health` hook |
 | `radio_commands.py`, `flood_scope.py` | Radio command helpers, including firmware-compatible flood-scope commands |
 | `region_candidates.py` | Tests proposed region names against packets already stored (no airtime) |
 | `test_channel.py` | The built-in `#meshloom-testing` channel used by the radio self-test and by `POST /tools/mesh-test`. It stores no channel and no message |

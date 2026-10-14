@@ -109,6 +109,7 @@ def _build_fanout_payload(stats: dict[str, Any]) -> dict:
         payload["direct_tx"] = packets.get("direct_tx")
         payload["flood_rx"] = packets.get("flood_rx")
         payload["direct_rx"] = packets.get("direct_rx")
+        payload["recv_errors"] = packets.get("recv_errors")
 
     return payload
 

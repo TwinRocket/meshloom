@@ -6,7 +6,7 @@ integration. No custom HA component is needed.
 
 Entity types created:
 - Local radio: binary_sensor (connectivity) + sensors (noise floor, battery,
-  uptime, RSSI, SNR, airtime, packet counts)
+  uptime, RSSI, SNR, airtime, packet counts, RX errors)
 - Per tracked repeater: sensor entities for telemetry fields
 - Per tracked contact: device_tracker for GPS position
 - Messages: event entity for scope-matched messages
@@ -364,6 +364,15 @@ _RADIO_SENSORS: list[dict[str, Any]] = [
         "field": "packets_sent",
         "name": "Packets Sent",
         "object_id": "packets_sent",
+        "device_class": None,
+        "state_class": "total_increasing",
+        "unit": None,
+        "precision": 0,
+    },
+    {
+        "field": "recv_errors",
+        "name": "RX Errors",
+        "object_id": "recv_errors",
         "device_class": None,
         "state_class": "total_increasing",
         "unit": None,

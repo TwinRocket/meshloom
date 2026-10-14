@@ -51,6 +51,7 @@ A device named after your radio. It refreshes every 60 seconds.
 | `sensor.<radio>_last_rssi` and `_last_snr` | Strength and quality of the last packet received |
 | `sensor.<radio>_tx_airtime` and `_rx_airtime` | Time spent sending and receiving, in s |
 | `sensor.<radio>_packets_received` and `_packets_sent` | Packet counts |
+| `sensor.<radio>_recv_errors` | Packets the radio picked up but could not decode. A count that climbs fast points to interference or a weak signal. Empty if your firmware does not report it |
 
 ### Repeaters
 
