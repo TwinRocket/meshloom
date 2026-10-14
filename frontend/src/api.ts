@@ -40,6 +40,7 @@ import type {
   RadioBleDeviceInfo,
   RadioConfig,
   RadioConfigUpdate,
+  RadioCustomVars,
   RadioIdentityActionResponse,
   RadioProxyStatus,
   RadioProxyUpdate,
@@ -222,6 +223,12 @@ export const api = {
     fetchJson<RadioConfig>('/radio/config', {
       method: 'PATCH',
       body: JSON.stringify(config),
+    }),
+  getRadioCustomVars: () => fetchJson<RadioCustomVars>('/radio/custom-vars'),
+  setRadioCustomVar: (name: string, value: string) =>
+    fetchJson<RadioCustomVars>(`/radio/custom-vars/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
     }),
   getPrivateKey: () => fetchJson<{ private_key: string }>('/radio/private-key'),
   setPrivateKey: (privateKey: string) =>

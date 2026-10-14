@@ -99,6 +99,14 @@ La position dans les annonces se règle avec **Source de position des annonces**
 
 Avec [Meshloom Community](/docs/deep/community/) activé, ce choix fixe aussi la position que reçoit Community : exacte avec **Inclure la position du nœud**, arrondie à environ 1 km avec **Désactivée**. Le changer, ou changer la position de la radio, envoie d’elle-même la nouvelle position à Community. Une radio sans position met Community en attente jusqu’à ce qu’elle en ait une (voir [Meshloom Community](/docs/deep/community/)).
 
+## GPS et réglages du firmware
+
+L’onglet **Avancé** de **Réglages → Radio** commence par les **Réglages du firmware** : ceux que le firmware de la radio signale. Ils sont enregistrés sur la radio et s’appliquent tout de suite.
+
+Sur une radio équipée d’un module GPS, la liste contient une case **GPS**. Activée, la radio utilise le GPS pour sa position et règle son horloge dessus. Le firmware ne cherche le GPS qu’au démarrage de la radio : un GPS absent de la liste n’était pas branché à ce moment-là. Éteignez la radio, branchez le GPS, puis rallumez-la. Avec **Inclure la position du nœud** (voir plus haut), les annonces portent alors la position du GPS.
+
+Si la liste est vide, la radio ne signale aucun réglage. Un firmware très ancien n’en signale aucun, et Meshloom le précise.
+
 ## Proxy radio
 
 **Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.

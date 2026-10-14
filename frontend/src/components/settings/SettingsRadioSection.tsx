@@ -46,6 +46,7 @@ import {
   type RadioTransportKind,
   type RadioTransportUpdate,
 } from '../../types';
+import { RadioFirmwareSettings } from './RadioFirmwareSettings';
 import { LazyBoundary } from '../LazyBoundary';
 
 const LocationPickerModal = lazy(() =>
@@ -1515,6 +1516,13 @@ export function SettingsRadioSection({
             (autoevict applies at the next connection), so only the settings gate it. */}
         {appSettings ? (
           <TabsContent value="advanced" className="m-0 space-y-4">
+            {/* Firmware settings come from the radio itself, so they need it connected. */}
+            {config ? (
+              <>
+                <RadioFirmwareSettings />
+                <Separator />
+              </>
+            ) : null}
             <RadioWorkaroundsPanel
               appSettings={appSettings}
               onSaveAppSettings={onSaveAppSettings}
