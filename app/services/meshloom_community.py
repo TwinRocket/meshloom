@@ -8,9 +8,10 @@ the broker only to clear it, then never again; a join sends its
 ``PUT /v1/me/iata`` before the database says on (``_bind_state``); an
 opt-out Community did not confirm can be sent again, by hand only, with
 ``retry_opt_out()`` (``_opt_out_state``, ``POST /v1/me/opt-out`` alone); and
-the settings showing the IATA form ask ``suggest_iata()`` for codes to propose
-(``_iata_suggest_state``, ``GET /v1/iata/suggest`` alone, the radio's position
-rounded to 2 decimals). Placing an IATA code (``lookup_airport``) reads the
+the user's click on "Suggest codes" in the IATA form asks ``suggest_iata()``
+for codes to propose (``_iata_suggest_state``, ``GET /v1/iata/suggest`` alone,
+the radio's position rounded to 2 decimals, never during an opt-out, never fed
+to the breaker). Placing an IATA code (``lookup_airport``) reads the
 bundled airport list and sends nothing. This
 module is the egress guard: every one of those connections checks
 ``community_egress_state()`` first, and HTTP goes through
@@ -152,7 +153,7 @@ _opt_out_state: ContextVar[CommunityEffective | None] = ContextVar(
     "community_opt_out_state", default=None
 )
 # Set only around the ``GET /v1/iata/suggest`` of ``suggest_iata()`` (the
-# settings showing the IATA form): the radio's position, rounded to 2
+# user clicked "Suggest codes" in the IATA form): the radio's position, rounded to 2
 # decimals, may then leave while Community is off or waiting for a position, so
 # the join form can propose a code. ``stats_request`` honours it for that path
 # alone.
@@ -1389,7 +1390,9 @@ async def stats_request(
     state = _bind_state.get()
     if state is None and path == OPT_OUT_PATH:
         state = _opt_out_state.get()
-    if state is None and path == IATA_SUGGEST_PATH:
+    # Read again here, after the caller's awaits: once an opt-out started,
+    # the suggestion never leaves.
+    if state is None and path == IATA_SUGGEST_PATH and not _leaving:
         state = _iata_suggest_state.get()
     if state is None:
         state = await community_egress_state()
@@ -1405,8 +1408,11 @@ async def stats_request(
             f"Bearer {mint_stats_jwt(audience=state.api_audience, iata=mint_iata, require_iata=_path_requires_iata(path))}"
         )
     url = f"{state.api_base}{path}"
+    # The public IATA suggestion never touches the breaker (like the release
+    # mirror): it can neither open it nor spend the half-open trial a join needs.
+    uses_breaker = path != IATA_SUGGEST_PATH
     # Checked last: a half-open trial granted here must reach the network.
-    if not _breaker.allow():
+    if uses_breaker and not _breaker.allow():
         raise HTTPException(status_code=503, detail=COMMUNITY_UNREACHABLE_DETAIL)
     try:
         response = await _community_http(
@@ -1419,13 +1425,17 @@ async def stats_request(
             headers=headers,
         )
     except httpx.RequestError as exc:
-        _breaker.record_failure()
+        if uses_breaker:
+            _breaker.record_failure()
         logger.warning("Community %s %s failed: %s", method, path, exc)
         raise HTTPException(status_code=503, detail=COMMUNITY_UNREACHABLE_DETAIL) from exc
     except BaseException:
         # Cancellation or a local bug: release a half-open trial without judging Community.
-        _breaker.trial_in_flight = False
+        if uses_breaker:
+            _breaker.trial_in_flight = False
         raise
+    if not uses_breaker:
+        return response
     if response.status_code >= 500:
         _breaker.record_failure()
     else:
@@ -1635,12 +1645,13 @@ async def suggest_iata() -> CommunityIataSuggestion:
     """Up to two IATA codes the join form proposes. Nothing is ever assigned.
 
     Called only by ``GET /api/community/iata/suggest``, which the settings ask
-    when they show the IATA form. The radio's own position, rounded to 2
-    decimals (about 1 km), goes to Community's ``GET /v1/iata/suggest``, also
+    only when the user clicks "Suggest codes" in the IATA form. The radio's own
+    position, rounded to 2 decimals (about 1 km), goes to Community's
+    ``GET /v1/iata/suggest`` (never fed to the circuit breaker), also
     while Community is off or waiting for a position (the one exception of the
     egress guard for it, ``_iata_suggest_state``). Not during an opt-out.
     Without a position nothing leaves and nothing is suggested. When Community
-    does not answer (offline, 429, 503, breaker open...), the nearest airport
+    does not answer (offline, 429, 503, opt-out started meanwhile...), the nearest airport
     comes from the bundled list (``iata_airports.nearest_airport_iata``, the
     same exclusion rule) and ``neighbors`` stays null.
     """

@@ -31,7 +31,7 @@ the explicit ``POST /api/community/opt-out/retry`` sends it again: nothing
 else leaves, nothing retries on its own, not even after a restart.
 
 ``TestIataSuggestion``: the one request the settings make while Community is
-off or waiting, ``GET /v1/iata/suggest`` when they show the IATA form, with the
+off or waiting, ``GET /v1/iata/suggest`` when the user clicks "Suggest codes", with the
 radio's position rounded to 2 decimals and no JWT; nothing without a position,
 the bundled airport list when Community does not answer, and nothing else
 leaves. The sweeps leave its route out (``_NOT_SWEPT``).
@@ -2404,24 +2404,60 @@ class TestIataSuggestion:
         assert egress.hosts() == ["stats.egress-check.net"]
 
     @pytest.mark.asyncio
-    async def test_unreachable_or_breaker_open_falls_back(
-        self, test_db, egress, cleanup_community, monkeypatch
+    async def test_unreachable_falls_back_and_never_feeds_the_breaker(
+        self, test_db, egress, cleanup_community
     ):
         async def refuse(_request: httpx.Request) -> None:
             raise httpx.ConnectError("offline")
 
+        breaker = community_breaker()
         egress.on_http = refuse
-        response = await self._suggest()
-        assert response.json()["nearest_airport"] == "LYN"
-        assert response.json()["source"] == "local"
+        for _ in range(breaker.threshold + 1):
+            response = await self._suggest()
+            assert response.json() == {
+                "neighbors": None,
+                "nearest_airport": "LYN",
+                "source": "local",
+            }
+        # Failures of the public suggestion never open the breaker...
+        assert breaker.failures == 0
+        assert not breaker.is_open
+        egress.on_http = None
+        egress.responses["/v1/iata/suggest"] = httpx.Response(503)
+        await self._suggest()
+        assert breaker.failures == 0
 
+    @pytest.mark.asyncio
+    async def test_never_spends_the_half_open_trial(self, test_db, egress, cleanup_community):
         breaker = community_breaker()
         for _ in range(breaker.threshold):
             breaker.record_failure()
-        mark = len(egress.events)
+        assert breaker.is_open
+        egress.responses["/v1/iata/suggest"] = _suggest_ok("LYS", "LYN")
+        response = await self._suggest()
+        # ...and an open breaker neither blocks it nor is touched by it.
+        assert response.json()["source"] == "community"
+        assert breaker.is_open
+        assert breaker.trial_in_flight is False
+        assert breaker.failures == breaker.threshold
+
+    @pytest.mark.asyncio
+    async def test_an_opt_out_started_meanwhile_stops_it(
+        self, test_db, egress, cleanup_community, monkeypatch
+    ):
+        """``_leaving`` is read again after the awaits, right before the request."""
+        real = meshloom_community.get_community_effective
+
+        async def opt_out_starts_meanwhile():
+            state = await real()
+            monkeypatch.setattr(meshloom_community, "_leaving", True)
+            return state
+
+        monkeypatch.setattr(meshloom_community, "get_community_effective", opt_out_starts_meanwhile)
+        egress.responses["/v1/iata/suggest"] = _suggest_ok("LYS", "LYN")
         response = await self._suggest()
         assert response.json() == {"neighbors": None, "nearest_airport": "LYN", "source": "local"}
-        assert egress.events[mark:] == []
+        assert egress.events == []
 
     @pytest.mark.asyncio
     async def test_a_null_nearest_airport_is_completed_locally(

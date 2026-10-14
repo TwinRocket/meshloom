@@ -56,7 +56,7 @@ async def search_airports(q: str = "") -> CommunityAirportSearchResponse:
 
 @router.get("/iata/suggest", response_model=CommunityIataSuggestion)
 async def get_iata_suggestion() -> CommunityIataSuggestion:
-    """Codes the IATA form proposes. The settings ask it when they show the form.
+    """Codes the IATA form proposes. The settings ask it only on a click ("Suggest codes").
 
     The one route that may reach Community while it is off or waiting for a
     position (``GET /v1/iata/suggest``, the radio's position rounded to 2
