@@ -151,7 +151,7 @@ Detail, constants and owner decisions: `docs/dev/community-client.md`. Contracts
   bind never turns into a 500.
 - **Live relay** (`community_live.py`): one process-wide upstream socket; frames go
   to every WS client and the browser filters them; the guard runs before every
-  attempt; a 4002 close is terminal until `POST /community/live/relancer`; 4003–4005
+  attempt; a 4002 close is terminal until `POST /community/live/restart`; 4003–4005
   are never shown to the user; the radio's IATA is always in the upstream filter.
 - `tests/test_community_off_no_egress.py` sweeps the routes and checks that
   nothing leaves while off or waiting: keep any new call path covered there.
