@@ -140,7 +140,7 @@ describe('wsEvents', () => {
     expect(isDispatchableWsEvent(event)).toBe(true);
   });
 
-  it('parses community_live close codes for Relancer banners', () => {
+  it('parses community_live close codes for restart banners', () => {
     const live = parseWsEvent(
       JSON.stringify({
         type: 'community_live',

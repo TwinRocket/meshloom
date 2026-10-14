@@ -439,7 +439,7 @@ export function LiveView({
       ? Math.max(1, Math.round(Math.abs(connection.clockSkewS) / 60))
       : null;
   const retryLive = useCallback(() => {
-    void api.relancerCommunityLive().then(applyLiveStatus, () => {});
+    void api.restartCommunityLive().then(applyLiveStatus, () => {});
   }, []);
 
   return (

@@ -23,7 +23,7 @@ vi.mock('../api', () => ({
   api: {
     subscribeCommunityLive: vi.fn(),
     unsubscribeCommunityLive: vi.fn(),
-    relancerCommunityLive: vi.fn(),
+    restartCommunityLive: vi.fn(),
     getLiveDirectoryMapNodes: vi.fn(),
     getCommunityActiveIata: vi.fn(),
     searchCommunityAirports: vi.fn(async () => []),
@@ -119,7 +119,7 @@ describe('LiveView', () => {
       opted_out: false,
       connected: false,
     });
-    vi.mocked(api.relancerCommunityLive).mockResolvedValue({
+    vi.mocked(api.restartCommunityLive).mockResolvedValue({
       session_id: null,
       close_code: null,
       opted_out: false,
@@ -270,7 +270,7 @@ describe('LiveView', () => {
     expect(screen.queryByRole('button', { name: 'Inactif 24 h' })).not.toBeInTheDocument();
   });
 
-  it('explains a given-up clock-skew refusal and retries through Relancer', async () => {
+  it('explains a given-up clock-skew refusal and retries through a restart', async () => {
     vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
       session_id: 'live-session',
       close_code: null,
@@ -285,7 +285,7 @@ describe('LiveView', () => {
     expect(await screen.findByText(i18n.t('live.bannerClockSkew'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('live.clockAheadBy', { count: 10 }))).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: i18n.t('live.retry') }));
-    expect(api.relancerCommunityLive).toHaveBeenCalledTimes(1);
+    expect(api.restartCommunityLive).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(screen.queryByText(i18n.t('live.bannerClockSkew'))).not.toBeInTheDocument()
     );
