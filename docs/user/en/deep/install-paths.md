@@ -96,7 +96,7 @@ A Compose file written by hand cannot be updated from the interface. The install
 
 ## Portainer
 
-The repository's [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) is meant for a stack that **builds the image from the repository**. In Portainer, point the stack at it and load the variables of `.env.example`:
+The repository's [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshloom/blob/main/docker-compose.dev.yaml) is meant for a stack that **follows the development version** (`main`), using the image published for each change (`ghcr.io/twinrocket/meshloom:edge`). In Portainer, point the stack at it and load the variables of `.env.example`:
 
 ```text
 MESHLOOM_HTTP_PORT=8123
@@ -105,9 +105,11 @@ MESHCORE_DATABASE_PATH=data/meshcore.db
 MESHCORE_DISABLE_BOTS=false
 ```
 
-The file also publishes port 5001 (`MESHLOOM_PROXY_PORT`), used by the radio proxy once you enable it. If you do not want a build on the server, use `docker-compose.example.yml` instead.
+The file also publishes port 5001 (`MESHLOOM_PROXY_PORT`), used by the radio proxy once you enable it. To stay on released versions, use `docker-compose.example.yml` instead.
 
-Portainer updates such a stack by copying the new version over the old files, and never deletes a file that was removed from the repository. Meshloom is built to ignore those leftovers. If an update still fails to build, delete the stack and create it again (keep the same variables and data folder: your database is not touched), so it starts from a clean copy. A stack on the published image (`docker-compose.example.yml`) builds nothing and never hits this.
+Nothing is built on your server. The image is published a few minutes after each change, so in the stack's update settings turn on **Re-pull image** and **Force redeployment**: each check then fetches the latest image, and Meshloom restarts only when it changed.
+
+Older versions of this file built the image on the server. Portainer copies each new version over the old files without deleting the ones removed from the repository, and such a leftover could make the build fail (`npm run build` ending with `exit code: 2`). A stack stuck on that error gets the new file at its next update. If it still fails, delete the stack and create it again with the same variables and data folder: your database is not touched.
 
 The push notification contact is set in **Settings → Notifications**, and the radio's address and port in the web interface. A new, empty data folder starts with Community off: join it in the settings. See [Meshloom Community](/en/docs/deep/community/).
 
