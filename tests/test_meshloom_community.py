@@ -509,6 +509,27 @@ class TestCommunityHashtagProxies:
         stats.assert_not_awaited()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "path", ["/api/community/live/restart", "/api/community/live/relancer"]
+    )
+    async def test_live_restart_route_and_its_hidden_french_alias(self, client, path):
+        """``/live/relancer`` is the deprecated pre-rename path: same handler, not documented."""
+        from app.main import app
+
+        status = {"session_id": None, "close_code": None, "opted_out": False, "connected": True}
+        restart = AsyncMock(return_value=status)
+        with patch("app.routers.community.restart_live", new=restart):
+            async with client:
+                response = await client.post(path)
+
+        assert response.status_code == 200
+        assert response.json()["connected"] is True
+        restart.assert_awaited_once_with()
+        paths = app.openapi()["paths"]
+        assert "/api/community/live/restart" in paths
+        assert "/api/community/live/relancer" not in paths
+
+    @pytest.mark.asyncio
     async def test_put_me_hashtags_is_authenticated(self):
         payload = {"hashtags": [{"name": "meshcore", "hash_byte": "d9"}]}
         with patch(

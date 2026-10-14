@@ -166,7 +166,7 @@ class TestCommunityLiveResilience:
             await relay.close_stats()
         assert len(connects) == 1
 
-    async def test_relancer_reconnects_after_4002(self):
+    async def test_restart_reconnects_after_4002(self):
         relay = CommunityLiveRelay()
         connects: list[int] = []
 
@@ -180,7 +180,7 @@ class TestCommunityLiveResilience:
             _enter_enabled(stack, relay, connect)
             await relay.subscribe()
             await _wait_until(lambda: relay.close_code == CLOSE_INACTIVE)
-            await relay.relancer()
+            await relay.restart()
             await _wait_until(lambda: len(connects) >= 2)
             await relay.close_stats()
         assert len(connects) >= 2

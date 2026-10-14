@@ -698,7 +698,7 @@ class CommunityLiveRelay:
 
         return self.snapshot(opted_out=not await community_active())
 
-    async def relancer(self) -> dict[str, Any]:
+    async def restart(self) -> dict[str, Any]:
         """Mint a new API JWT and reconnect. Clears a 4002 stop and a given-up 401."""
         from app.services.meshloom_community import community_active
 
@@ -1018,7 +1018,7 @@ class CommunityLiveRelay:
                         reason,
                         auth_failures,
                         AUTH_REJECT_MAX_ATTEMPTS,
-                        "; giving up until Relancer or a settings change" if give_up else "",
+                        "; giving up until a restart or a settings change" if give_up else "",
                     )
                     self._close_code = None
                     if give_up:
@@ -1049,7 +1049,7 @@ class CommunityLiveRelay:
                     continue
                 if close_code == CLOSE_INACTIVE:
                     # 4002 is reserved and never sent (contract live-events.md):
-                    # if it ever arrives, stop this generation until Relancer.
+                    # if it ever arrives, stop this generation until a restart.
                     self._close_code = user_visible_close_code(close_code)
                     await self._broadcast_status(opted_out=False)
                     return
@@ -1180,8 +1180,8 @@ async def unsubscribe_live(session_id: str) -> dict[str, Any]:
     return await get_live_relay().unsubscribe(session_id)
 
 
-async def relancer_live() -> dict[str, Any]:
-    return await get_live_relay().relancer()
+async def restart_live() -> dict[str, Any]:
+    return await get_live_relay().restart()
 
 
 async def sync_community_live(enabled: bool) -> None:
