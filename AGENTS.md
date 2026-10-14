@@ -110,8 +110,8 @@ How a radio message travels through the program, in and out.
   nothing may reconnect meanwhile), then runs `community_teardown()` in a
   `finally` block, to the end even when the update fails or is cancelled.
   There are three exceptions. `app/services/community_status_clear.py`: when
-  the opt-out could not clear the retained MQTT status (and Community did not
-  clear it either), it reconnects to the
+  the opt-out could not clear the retained MQTT status and Community surely did
+  not receive the opt-out, it reconnects to the
   broker only to publish the empty retained payload, bounded in attempts and
   to 24 h, persisted across restarts, then never again. Joining:
   `PUT /api/community/me/iata` with `enable` sends Community's
