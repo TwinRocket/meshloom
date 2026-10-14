@@ -236,10 +236,20 @@ jobs:
             url="${url%%[[:space:]]}"
             [ -n "$url" ] || continue
             n=$((n + 1))
-            if curl -fsS -o /dev/null -X POST --max-time 60 --retry 2 --retry-all-errors "$url"; then
-              echo "Webhook $n: redeploy requested"
+            headers="$(mktemp)"
+            # No -f/-L: a redirect or a challenge page (a proxy in front of
+            # Portainer) must show up as a failure, not as a success.
+            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST \
+              --max-time 60 --retry 2 --retry-all-errors "$url")" || true
+            code="${code:-000}"
+            # Never print the URL; the status and a few response headers are enough.
+            info="$(grep -iE '^(server|cf-mitigated|location|content-type):' "$headers" \
+              | sed -E 's#^(location:[[:space:]]*https?://[^/]+).*#\1/...#I' | tr -d '\r' | paste -sd ';' -)" || true
+            rm -f "$headers"
+            if [[ "$code" == 2* ]]; then
+              echo "Webhook $n: HTTP $code, redeploy requested ($info)"
             else
               # A down Portainer must not turn the image build red.
-              echo "::warning::Webhook $n failed; that stack keeps the previous image"
+              echo "::warning::Webhook $n: HTTP $code ($info); that stack keeps the previous image"
             fi
           done <<< "$WEBHOOKS"
