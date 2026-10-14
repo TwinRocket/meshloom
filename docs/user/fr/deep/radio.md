@@ -107,6 +107,27 @@ Sur une radio équipée d’un module GPS, la liste contient une case **GPS**. A
 
 Si la liste est vide, la radio ne signale aucun réglage. Un firmware très ancien n’en signale aucun, et Meshloom le précise.
 
+## Capteurs de la radio
+
+Sous les réglages du firmware, **Capteurs de la radio** montre ce que la radio signale d’elle-même : la tension de sa batterie, la température du microcontrôleur si la carte a un capteur, et la position GPS quand le GPS est activé. Le stockage utilisé sur la radio s’affiche aussi, en Ko utilisés / total avec un pourcentage, quand la radio le signale. Les valeurs sont lues à l’ouverture de l’onglet ; **Actualiser** les relit.
+
+## Remise à zéro usine
+
+Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio. Le bouton demande que la radio soit connectée. Une fenêtre liste ce qui va se passer, et vous devez saisir exactement le nom de la radio pour activer le bouton de confirmation.
+
+**Effacé de la radio :**
+
+- Son identité. Une nouvelle paire de clés est générée : les autres nœuds voient donc un nouveau nœud.
+- Ses contacts et ses canaux.
+- Ses réglages radio (fréquence, bande passante, SF, CR, puissance d’émission). Ils reviennent aux valeurs par défaut du firmware : saisissez-les de nouveau dans l’onglet **Radio**.
+
+**Conservé :**
+
+- La base de données de Meshloom : vos messages et vos contacts.
+- Les identifiants Wi-Fi, intégrés au firmware. Une radio Wi-Fi reste joignable.
+
+La radio redémarre et Meshloom se reconnecte tout seul. Il vous demande ensuite s’il faut adopter la nouvelle identité, avec l’invite d’identité habituelle. Cette action est irréversible.
+
 ## Proxy radio
 
 **Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.

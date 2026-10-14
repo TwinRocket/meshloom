@@ -41,6 +41,8 @@ import type {
   RadioConfig,
   RadioConfigUpdate,
   RadioCustomVars,
+  RadioFactoryResetResponse,
+  RadioSelfTelemetry,
   RadioIdentityActionResponse,
   RadioProxyStatus,
   RadioProxyUpdate,
@@ -229,6 +231,12 @@ export const api = {
     fetchJson<RadioCustomVars>(`/radio/custom-vars/${encodeURIComponent(name)}`, {
       method: 'PUT',
       body: JSON.stringify({ value }),
+    }),
+  getRadioSelfTelemetry: () => fetchJson<RadioSelfTelemetry>('/radio/self-telemetry'),
+  factoryResetRadio: (confirmName: string) =>
+    fetchJson<RadioFactoryResetResponse>('/radio/factory-reset', {
+      method: 'POST',
+      body: JSON.stringify({ confirm_name: confirmName }),
     }),
   getPrivateKey: () => fetchJson<{ private_key: string }>('/radio/private-key'),
   setPrivateKey: (privateKey: string) =>

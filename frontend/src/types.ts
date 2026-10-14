@@ -1638,6 +1638,19 @@ export interface LppSensor {
   value: number | Record<string, number>;
 }
 
+/** The radio's own telemetry (`GET /api/radio/self-telemetry`). */
+export interface RadioSelfTelemetry {
+  sensors: LppSensor[];
+  battery_mv: number | null;
+  storage_used_kb: number | null;
+  storage_total_kb: number | null;
+}
+
+export interface RadioFactoryResetResponse {
+  status: 'reset_sent';
+  message: string;
+}
+
 export interface RepeaterLppTelemetryResponse {
   sensors: LppSensor[];
 }

@@ -204,7 +204,7 @@ Source of truth: `app/routers/*.py` and `app.include_router(...)` in `main.py`. 
 |---|---|
 | health | `GET /health` |
 | debug | `GET /debug` |
-| radio | `GET,PATCH /radio/config` · `GET /radio/custom-vars` · `PUT /radio/custom-vars/{name}` (firmware custom vars such as `gps`; name 400, value 422, radio ERROR 422) · `GET,PUT /radio/private-key` (GET needs `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`) · `POST /radio/advertise` · `POST /radio/discover` · `POST /radio/regions/verify` · `POST /radio/discover-regions` · `POST /radio/trace` · `GET,PUT /radio/transport` · `POST /radio/transport/ble-scan` · `GET,PATCH /radio/proxy` (409 on port change when `MESHCORE_MANAGED_PORTS`) · `POST /radio/identity/adopt` · `POST /radio/identity/reject` · `POST /radio/disconnect` · `POST /radio/reboot` · `POST /radio/reconnect` |
+| radio | `GET,PATCH /radio/config` · `GET /radio/custom-vars` · `PUT /radio/custom-vars/{name}` (firmware custom vars such as `gps`; name 400, value 422, radio ERROR 422) · `GET /radio/self-telemetry` (own LPP sensors + battery/storage; empty/null when the radio does not answer) · `POST /radio/factory-reset` (body `confirm_name` must equal the radio name: 400 otherwise, nothing sent; radio ERROR 422; no reply or dropped link = `reset_sent`) · `GET,PUT /radio/private-key` (GET needs `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`) · `POST /radio/advertise` · `POST /radio/discover` · `POST /radio/regions/verify` · `POST /radio/discover-regions` · `POST /radio/trace` · `GET,PUT /radio/transport` · `POST /radio/transport/ble-scan` · `GET,PATCH /radio/proxy` (409 on port change when `MESHCORE_MANAGED_PORTS`) · `POST /radio/identity/adopt` · `POST /radio/identity/reject` · `POST /radio/disconnect` · `POST /radio/reboot` · `POST /radio/reconnect` |
 | contacts | `GET,POST /contacts` · `GET /contacts/analytics` · `GET /contacts/repeaters/advert-paths` · `POST /contacts/bulk-delete` · `DELETE /contacts/{pk}` · `POST /contacts/{pk}/mark-read` · `POST /contacts/{pk}/trace` · `POST /contacts/{pk}/path-discovery` · `POST /contacts/{pk}/routing-override` · `POST /contacts/{pk}/telemetry` · `GET /contacts/{pk}/telemetry-history` |
 | contact_groups | `GET,POST /contact-groups` · `PATCH,DELETE /contact-groups/{id}` · `PUT /contact-groups/{id}/members` |
 | repeaters | `POST /contacts/{pk}/repeater/{login,status,lpp-telemetry,neighbors,acl,node-info,radio-settings,advert-intervals,owner-info,regions}` · `GET /contacts/{pk}/repeater/cache` · `GET /contacts/{pk}/repeater/telemetry-history` · `POST /contacts/{pk}/command` |
@@ -232,6 +232,7 @@ When a change touches the API or WS payloads, update `frontend/src/types.ts` and
 
 ## Known non-issues
 
+- `meshcore` 2.3.15 `confirm_factory_reset()` sends `0x33` without the `reset` suffix the firmware requires, so it does nothing; Meshloom sends the raw frame `b"\x33reset"` through `mc.commands.send()`.
 - `sender_timestamp` is 4-byte Unix seconds on the wire. Dedup is per second, and switching to milliseconds would break echo dedup.
 - Our own DM heard back over RF (`try_decrypt_dm` with `is_outbound`) attaches `packet_hash` to the plaintext row stored by the send endpoint. It does not create a second row.
 - Contact lat/lon `0.0` is MeshCore's "no GPS" value and overwrites older coordinates on purpose.
