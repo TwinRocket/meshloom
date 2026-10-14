@@ -93,6 +93,13 @@ TEARDOWN_STEP_TIMEOUT_S = 20.0
 OPT_OUT_LAST_CALL_TIMEOUT_S = 5.0
 # The manual retry: the operator is waiting for the answer, Community may be slow.
 OPT_OUT_RETRY_TIMEOUT_S = 20.0
+# HTTP timeouts of the opt-out POST. The connect timeout ends well before the
+# bound above, so a connection that never opens (blackholed) fails as a
+# ConnectTimeout: the request surely never left, the leftover status clear may
+# be armed. The read timeout of the last call is a little longer than its
+# bound, so a slow answer ends as a timeout (Community may have recorded it).
+OPT_OUT_LAST_CALL_HTTP_TIMEOUT = httpx.Timeout(OPT_OUT_LAST_CALL_TIMEOUT_S + 1, connect=2.5)
+OPT_OUT_RETRY_HTTP_TIMEOUT = httpx.Timeout(OPT_OUT_RETRY_TIMEOUT_S, connect=3.0)
 OPT_OUT_PATH = "/v1/me/opt-out"
 OptOutReason = Literal["privacy", "not_useful", "technical_issue", "other"]
 # Circuit breaker: after this many consecutive transport failures or 5xx, stop
@@ -581,7 +588,7 @@ def opt_out_in_progress() -> bool:
     return _leaving
 
 
-async def _post_opt_out(reason: OptOutReason | None, *, timeout: float) -> None:
+async def _post_opt_out(reason: OptOutReason | None, *, timeout: httpx.Timeout) -> None:
     """``POST /v1/me/opt-out``. Any 2xx confirms it; the body is not needed.
 
     Community deletes the bind's position, kicks the MQTT session, clears the
@@ -633,12 +640,13 @@ async def _announce_opt_out(state: CommunityEffective, reason: OptOutReason | No
     """
     try:
         await _set_opt_out_pending(await _pending_entry(state, reason))
-        # The HTTP timeout is a little longer, so a slow answer ends here, as
-        # a timeout (Community may have recorded it), not as "unreachable".
+        # See OPT_OUT_LAST_CALL_HTTP_TIMEOUT: a connection that never opens
+        # fails first (ConnectTimeout, "failed"); a slow answer ends here, as a
+        # timeout ("maybe": Community may have recorded it).
         await asyncio.wait_for(
             _with_opt_out_state(
                 replace(state, enabled=True),
-                lambda: _post_opt_out(reason, timeout=OPT_OUT_LAST_CALL_TIMEOUT_S + 1),
+                lambda: _post_opt_out(reason, timeout=OPT_OUT_LAST_CALL_HTTP_TIMEOUT),
             ),
             timeout=OPT_OUT_LAST_CALL_TIMEOUT_S,
         )
@@ -749,7 +757,7 @@ async def retry_opt_out() -> None:
             )
         await _with_opt_out_state(
             replace(state, enabled=True),
-            lambda: _post_opt_out(_pending_reason(pending), timeout=OPT_OUT_RETRY_TIMEOUT_S),
+            lambda: _post_opt_out(_pending_reason(pending), timeout=OPT_OUT_RETRY_HTTP_TIMEOUT),
         )
         await _set_opt_out_pending(None)
         logger.info("Community confirmed the opt-out (retry)")
@@ -1284,7 +1292,7 @@ async def _community_http(
     url: str,
     *,
     generation: int,
-    timeout: float,
+    timeout: float | httpx.Timeout,
     follow_redirects: bool = False,
     **kwargs: Any,
 ) -> httpx.Response:
@@ -1356,7 +1364,7 @@ async def stats_request(
     params: dict[str, str | int] | None = None,
     json_body: dict[str, Any] | None = None,
     iata: str | None = None,
-    timeout: float = _STATS_TIMEOUT_SECONDS,
+    timeout: float | httpx.Timeout = _STATS_TIMEOUT_SECONDS,
 ) -> httpx.Response:
     """HTTP to Community. Raises 403 when community is off (never calls).
 

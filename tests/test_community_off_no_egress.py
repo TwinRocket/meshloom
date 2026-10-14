@@ -2013,6 +2013,36 @@ class TestOptOutCall:
         assert egress.events[mark:] == []
 
     @pytest.mark.asyncio
+    async def test_connection_that_never_opens_fails_and_arms_the_status_clear(
+        self, test_db, egress, cleanup_community, fast_retries, monkeypatch
+    ):
+        fast_retries(3600.0)
+        real = meshloom_community.stats_request
+        seen: list[Any] = []
+
+        async def spy(*args: Any, **kwargs: Any) -> httpx.Response:
+            seen.append(kwargs["timeout"])
+            return await real(*args, **kwargs)
+
+        async def blackholed(request: httpx.Request) -> None:
+            if request.url.path == "/v1/me/opt-out":
+                raise httpx.ConnectTimeout("connect timed out", request=request)
+
+        monkeypatch.setattr(meshloom_community, "stats_request", spy)
+        egress.on_http = blackholed
+        await _opt_out_with_broker_down(egress)
+        # The connect timeout ends before the 5 s bound: the request surely
+        # never left, so this is a plain failure and the clear retry is armed.
+        timeout = seen[0]
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.connect is not None
+        assert timeout.connect < meshloom_community.OPT_OUT_LAST_CALL_TIMEOUT_S
+        assert timeout.read is not None
+        assert timeout.read > meshloom_community.OPT_OUT_LAST_CALL_TIMEOUT_S
+        assert await _opt_out_pending() is not None
+        assert await _pending_topics() == [_status_topic("CDG")]
+
+    @pytest.mark.asyncio
     async def test_refused_call_still_arms_the_status_clear(
         self, test_db, egress, cleanup_community, fast_retries
     ):
@@ -2067,8 +2097,8 @@ class TestOptOutCall:
         monkeypatch.setattr(meshloom_community, "stats_request", spy)
         response = await _api("POST", "/api/community/opt-out/retry")
         assert response.status_code == 200, response.text
-        assert seen == [meshloom_community.OPT_OUT_RETRY_TIMEOUT_S]
-        assert meshloom_community.OPT_OUT_RETRY_TIMEOUT_S >= 20
+        assert seen == [meshloom_community.OPT_OUT_RETRY_HTTP_TIMEOUT]
+        assert seen[0].read >= 20 and seen[0].connect <= 3
         assert ("/v1/me/opt-out", {"reason": "other"}) in egress.bodies
 
     @pytest.mark.asyncio
