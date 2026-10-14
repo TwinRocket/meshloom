@@ -147,6 +147,8 @@ The file runs `ghcr.io/twinrocket/meshloom:edge`, the image CI publishes for eve
 
 `:edge` is published a few minutes after the commit lands, so a redeploy triggered by the commit alone can still pull the previous image. In the stack's GitOps settings, turn on **Re-pull image** and **Force redeployment** so each check pulls the latest `:edge`; the container is recreated only when the image changed.
 
+The maintainers' own stacks do not poll. Their Portainer webhooks are stored in the repository secret `EDGE_DEPLOY_WEBHOOKS`, one URL per line. The `Deploy edge` job of `docker.yml` calls them once the new `:edge` manifest is pushed, so the redeploy never runs ahead of the image. Set those stacks' GitOps update mechanism to **Webhook** instead of polling. A failed call only raises a warning on the run, and the stack keeps the previous image.
+
 A stack created before this change that is stuck on that build error picks up the new file at its next update. If it still fails, delete the stack and create it again with the same variables and data folder (the database is not touched).
 
 To run the **published image** instead, start from [`docker-compose.example.yml`](docker-compose.example.yml) and pin `MESHLOOM_IMAGE` (see the Update section of the [README](README.md)).

@@ -375,7 +375,10 @@ rotation steps are in `pkg/keys/README.md`.
      release; `workflow_dispatch` on `docs-site.yml` rebuilds it by hand.
 3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
    image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
-   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. Tag builds also get a
+   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. On `main` only, its
+   `Deploy edge` job then POSTs the Portainer webhooks listed in the
+   `EDGE_DEPLOY_WEBHOOKS` secret (stacks on `docker-compose.dev.yaml`). A
+   failure there is a warning, never a red run. Tag builds also get a
    build provenance attestation. Pull requests build without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
    the apt pin. After changing any of them, run
