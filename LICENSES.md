@@ -2691,5 +2691,6 @@ meshloom-community (`api/airports/ourairports_snapshot.csv` and `metro_codes.csv
   and recomputed (positions and types taken from OurAirports where they match,
   metropolitan area codes placed at the mean of their airports).
 - Metropolitan area codes: from Wikivoyage's list of IATA metropolitan area codes,
-  as versioned in meshloom-community.
+  as versioned in meshloom-community. Only the codes (facts) are used; Wikivoyage's
+  text is licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
 

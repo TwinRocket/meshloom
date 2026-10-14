@@ -30,6 +30,7 @@ frontend/src/test/
 *.md
 !README.md
 !LICENSES.md
+!app/data/NOTICE-*.md
 
 # Other
 references/
