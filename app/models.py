@@ -2077,6 +2077,20 @@ def _known_position_precision(value: object) -> object:
     return value if value in ("exact", "rounded") else None
 
 
+CommunityOptOutReason = Literal["privacy", "not_useful", "technical_issue", "other"]
+
+
+class CommunityOptOutPending(BaseModel):
+    """An opt-out Community did not confirm: Meshloom left, Community may not know.
+
+    Shown as "Deletion not confirmed" with a manual retry
+    (``POST /api/community/opt-out/retry``); never retried automatically.
+    """
+
+    requested_at: str
+    reason: CommunityOptOutReason | None = None
+
+
 class CommunityStatus(BaseModel):
     """Local Meshloom Stats community join state (OSS-owned, not a fanout row)."""
 
@@ -2088,6 +2102,9 @@ class CommunityStatus(BaseModel):
     # position Community may publish, so only the MQTT status (and the binds)
     # leave until one is chosen.
     state: Literal["off", "active", "waiting_for_position"] = "off"
+    # Set after an opt-out whose ``POST /v1/me/opt-out`` failed, until a retry
+    # succeeds or Community is joined again.
+    opt_out_pending: CommunityOptOutPending | None = None
 
 
 class CommunityUpdate(BaseModel):
@@ -2095,6 +2112,8 @@ class CommunityUpdate(BaseModel):
 
     enabled: bool | None = None
     iata: str | None = Field(default=None, max_length=3)
+    # Optional reason sent with the opt-out (``enabled: false``), ignored otherwise.
+    opt_out_reason: CommunityOptOutReason | None = None
 
 
 class CommunityIataBindRequest(BaseModel):

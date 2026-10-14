@@ -463,7 +463,9 @@ class TestObserverRoleAndRssi:
 
         assert filled[0].lat == 43.66
         assert filled[0].lon == 7.15
-        assert filled[0].public_key == "cd" * 32
+        # A name is no identity: map only, no distance, no borrowed key.
+        assert filled[0].position_precision == "rounded"
+        assert filled[0].public_key is None
 
     @pytest.mark.asyncio
     async def test_two_adverts_with_the_same_name_are_not_guessed(self, test_db):

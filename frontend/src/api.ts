@@ -729,6 +729,10 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(update),
     }),
+  retryCommunityOptOut: () =>
+    fetchJson<CommunityStatus>('/community/opt-out/retry', {
+      method: 'POST',
+    }),
   getCommunityMeStats: () => fetchJson<CommunityMeStats>('/community/me/stats'),
   bindCommunityIata: (body: CommunityIataBindRequest) =>
     fetchJson<CommunityIataBindResult>('/community/me/iata', {

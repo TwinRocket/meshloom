@@ -192,6 +192,7 @@
       "floodRx": "Flood RX",
       "directTx": "Direct TX",
       "directRx": "Direct RX",
+      "recvErrors": "RX errors",
       "identity": "Identity",
       "radioName": "Radio Name",
       "publicKey": "Public Key",
@@ -696,12 +697,36 @@
         "why": "Community places each radio on its map to show where packets are heard. Until your radio has a position, it only tells Community that it is online: no packet is sent, and Live, the directory and the statistics stay off.",
         "privacy": "The position is saved on your radio. If its Advert Location Source is set to Include Node Location, the radio's adverts will also broadcast it over the air to every node in range. Community receives it rounded to about 1 km, unless your adverts already broadcast it.",
         "leaveHelp": "If you would rather not give a position, you can leave Community.",
-        "positionSaved": "Position saved on the radio",
+        "positionSaved": "Position saved on the radio. It is being sent to Community: the banner goes away in a few seconds.",
         "positionFailed": "Could not save the position on the radio",
         "settingsNote": "Community is waiting for your radio's position: only its online status is sent until you choose one.",
         "featureOff": "This comes from Meshloom Community, which first needs your radio's position.",
         "liveBanner": "Community packets will show once your radio has a position. Your own radio's packets still appear.",
         "regionLabel": "Meshloom Community needs your position"
+      },
+      "optOut": {
+        "title": "Leave Meshloom Community?",
+        "intro": "Meshloom asks Community to delete your radio’s position, then stops publishing to Community.",
+        "kept": "The packets your radio already reported stay in Community’s statistics, under your radio’s name.",
+        "position": "Your radio’s position is deleted from Community.",
+        "advert": "If your radio’s adverts broadcast its position, it stays visible on the map like any other node heard on the mesh.",
+        "fullDeletion": "To have everything deleted, write to <email>privacy@meshloom.app</email>.",
+        "reasonLabel": "Why are you leaving? (optional)",
+        "reasons": {
+          "none": "Rather not say",
+          "privacy": "Privacy",
+          "not_useful": "Not useful to me",
+          "technical_issue": "Technical issue",
+          "other": "Other"
+        },
+        "confirm": "Leave Community",
+        "cancel": "Cancel",
+        "notConfirmedToast": "You left Community, but it did not confirm the deletion",
+        "pendingTitle": "Deletion not confirmed",
+        "pendingBody": "You left Community, but Community did not confirm that it deleted your radio’s position. Retry when you like: Meshloom never retries on its own.",
+        "retry": "Retry",
+        "retrying": "Retrying…",
+        "retryDone": "Community confirmed the deletion"
       }
     },
     "proxy": {

@@ -147,6 +147,7 @@ class TestHealthEndpoint:
                 "direct_tx": 150,
                 "flood_rx": 300,
                 "direct_rx": 200,
+                "recv_errors": 12,
             },
         }
 
@@ -174,6 +175,7 @@ class TestHealthEndpoint:
             assert stats["noise_floor"] == -120
             assert stats["packets_recv"] == 500
             assert stats["packets_sent"] == 250
+            assert stats["recv_errors"] == 12
 
     def test_health_radio_stats_null_when_no_data(self):
         """Health endpoint returns null radio_stats when cache is empty."""

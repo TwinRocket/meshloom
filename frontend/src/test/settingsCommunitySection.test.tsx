@@ -128,6 +128,9 @@ describe('SettingsCommunitySection', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: i18n.t('settings.community.leave') })
     );
+    fireEvent.click(
+      await screen.findByRole('button', { name: i18n.t('settings.community.optOut.confirm') })
+    );
 
     await waitFor(() => {
       expect(api.updateCommunity).toHaveBeenCalledWith({ enabled: false });
@@ -153,6 +156,9 @@ describe('SettingsCommunitySection', () => {
     });
     expect(leave).toHaveAccessibleDescription(i18n.t('settings.community.disableHelp'));
     fireEvent.click(leave);
+    fireEvent.click(
+      await screen.findByRole('button', { name: i18n.t('settings.community.optOut.confirm') })
+    );
 
     const leaving = await screen.findByRole('button', {
       name: i18n.t('settings.community.leaving'),

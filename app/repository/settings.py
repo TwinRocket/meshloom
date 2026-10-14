@@ -1223,6 +1223,34 @@ class AppSettingsRepository:
                 (1 if waiting else 0,),
             )
 
+    @staticmethod
+    async def get_community_opt_out_pending() -> dict[str, Any] | None:
+        """An opt-out Community did not confirm (migration 093). Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT community_opt_out_pending FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        try:
+            raw = row["community_opt_out_pending"]
+        except (KeyError, TypeError, IndexError):
+            return None
+        try:
+            parsed = json.loads(raw or "null")
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    @staticmethod
+    async def set_community_opt_out_pending(entry: dict[str, Any] | None) -> None:
+        value = "" if entry is None else json.dumps(entry, separators=(",", ":"), sort_keys=True)
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET community_opt_out_pending = ? WHERE id = 1", (value,)
+            )
+
 
 class StatisticsRepository:
     @staticmethod
