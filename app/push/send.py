@@ -221,7 +221,7 @@ async def send_push(
         HTTP status code from the push service.
 
     Raises:
-        WebPushException: on push service error (caller handles 404/410 cleanup).
+        WebPushException: on push service error (caller handles 403/404/410 cleanup).
     """
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(

@@ -1,8 +1,8 @@
 name: Docker
 
 # Builds and pushes the multi-arch container image to GHCR. Runs on pushes to
-# main (tagged :edge), on published releases and version tags (tagged :latest
-# and :X.Y.Z), and on demand. Pull requests build only, to catch Dockerfile
+# main (tagged :edge), on version tags (tagged :latest, :X.Y.Z and :X.Y), and
+# on demand. Pull requests build only, to catch Dockerfile
 # breakage without publishing. After a main build, the deploy-edge job calls the
 # redeploy webhooks in EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml).
 #

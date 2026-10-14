@@ -27,7 +27,7 @@ The rules that keep changes safe: check the code rather than trust the docs, res
   `tests/fixtures/community_golden_vectors.json`, a byte-for-byte copy of
   `docs/contracts/vectors/golden.json` pinned by sha256 in
   `tests/test_community_golden_vectors.py`. Change a contract, or its copy here,
-  in a dedicated commit and call it out in the PR description. Refresh copies,
+  in a dedicated commit prefixed `CONTRACTS:` and call it out in the PR description. Refresh copies,
   never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
@@ -62,13 +62,16 @@ pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper app
 pkg/rpi/              Raspberry Pi image and kiosk files
 scripts/quality/      all_quality.sh (gate), extended_quality.sh, e2e.sh, docker_ci.sh
 scripts/build/        publish.sh (release), tag_release.sh (recovery), nFPM, Pi images, signing and version checks
-scripts/setup/        install.sh (public one-liner), compose update helper, embed sync
+scripts/setup/        install.sh (public one-liner), compose update helper, embed sync,
+                      install_docker.sh, install_service.sh, fetch_prebuilt_frontend.py,
+                      start/stop_ha_test_env.sh
 scripts/test/         upgrade matrix (apt and compose upgrades, run by hand)
 scripts/bench/        backend_perf.py, a manual benchmark
 scripts/data/         refresh_iata_airports.py (app/data/iata_airports.json from meshloom-community)
 docs/user/            user docs (en, fr), built by the meshloom.app site from this folder at
                       the latest X.Y.Z tag (release.yml calls docs-site.yml after publishing)
-.github/workflows/    CI (all-quality, codeql, addon), release, packages, repo publication, image, docs-site
+.github/workflows/    CI (all-quality, codeql, addon, nfpm on PR paths), release, armhf package and
+                      Pi image (dispatch), repo publication, manifest, image, docs-site
 ```
 
 ## Architecture
@@ -87,7 +90,9 @@ How a radio message travels through the program, in and out.
   and call `meshcore` commands. Outgoing messages are stored with `outgoing=1`.
 - **Background work.** Fire-and-forget work goes through
   `app.background_tasks.spawn()`, never a bare `asyncio.create_task`. `spawn()`
-  keeps a strong reference, logs exceptions and is drained at shutdown.
+  keeps a strong reference, logs exceptions and is drained at shutdown. A
+  long-lived loop may use `create_task` only if it keeps the task in an
+  attribute and cancels it at shutdown.
 - **Storage.** SQLite, by default at `data/meshcore.db`. Runtime settings,
   including the radio transport, live in `app_settings` and are edited in the UI,
   not through environment variables. Fanout configs live in `fanout_configs`.
@@ -230,8 +235,8 @@ Rules about identifiers, message duplicates and settings that are easy to get wr
   - Bots run user Python through `exec()` with full builtins
     (`app/fanout/bot_exec.py`). `MESHCORE_DISABLE_BOTS=true` turns them off;
     the `.deb`/`.rpm` sets it by default in `/etc/meshloom/meshloom.env`.
-  - The radio proxy listens on `0.0.0.0:5001` by default, without
-    authentication.
+  - The radio proxy is off by default; once enabled it binds `0.0.0.0:5001`
+    by default, without authentication.
 - **Deployments that never delete files.** A Portainer GitOps stack copies
   each new commit over its old tree and never removes a file deleted upstream.
   `docker-compose.dev.yaml` therefore pulls `ghcr.io/twinrocket/meshloom:edge`
@@ -277,7 +282,7 @@ in `app_settings`, edited in the UI.
 | `MESHLOOM_UPDATE_HELPER` | unset | `compose` marks a compose install with its helper; `none` forces "apply not supported" (`app/services/install_kind.py`) |
 | `MESHLOOM_UPDATE_STATUS_PATH` | unset | where the compose helper's read-only status file is mounted (`app/services/update_apply.py`). Without it the package path `/var/lib/meshloom-update/status.json` is used |
 | `MESHLOOM_UPDATE_JOB_PATH` | unset | overrides the location of the legacy `update-job.json` (and so of `request-update`, which sits next to it) |
-| `MESHLOOM_UPDATE_LATEST` / `_HTML_URL` | unset | private test pin: makes the updater believe a given version is the latest, with an optional release page. Never shipped in `meshloom.env` |
+| `MESHLOOM_UPDATE_LATEST` / `MESHLOOM_UPDATE_HTML_URL` | unset | private test pin: makes the updater believe a given version is the latest, with an optional release page. Never shipped in `meshloom.env` |
 | `MESHLOOM_RUN_AS_USER` | unset | Docker only: numeric uid to drop to (the installer uses `10001`). `docker-entrypoint.sh` hands `/app/data` to that uid and adds the groups of the mapped serial devices. If a device stays unreadable it keeps running as root and logs a warning |
 | `APP_VERSION`, `COMMIT_HASH` | unset | build metadata read by `app/version_info.py`; the Docker image sets `COMMIT_HASH` |
 
@@ -325,7 +330,8 @@ The steps from an idea to a change merged on `main`.
    creation, update and deletion of `X.Y.Z` tags to admins. No workflow pushes `main` or creates a
    tag.
 7. Merge with a **merge commit** (not squash, not rebase), only after a human
-   approves.
+   approves. The ruleset requires no approving review: this is a convention,
+   not an enforced rule.
 
 ## Signed release chain
 
@@ -349,8 +355,8 @@ rotation steps are in `pkg/keys/README.md`.
      `LICENSES.md`, bumps the version sources (`pyproject.toml`,
      `frontend/package.json`, `meshloom/config.yaml`, the `FROM` tag in
      `meshloom/Dockerfile`) and `uv.lock`, checks them with
-     `check_version_consistency.sh`, commits exactly those files and
-     `CHANGELOG.md` ("Updating changelog + build for X.Y.Z"), pushes `main`,
+     `check_version_consistency.sh`, commits exactly those files,
+     `CHANGELOG.md` and `LICENSES.md` (unless `--skip-licenses`) ("Updating changelog + build for X.Y.Z"), pushes `main`,
      then creates and pushes an annotated, unsigned tag (the artifacts are what
      the release key signs). The tag is pushed only after `main` is.
    - `scripts/build/tag_release.sh X.Y.Z` is the recovery tool for a run that

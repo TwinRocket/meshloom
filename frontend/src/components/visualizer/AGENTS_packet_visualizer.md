@@ -16,6 +16,7 @@ Read this only when you change the 3D visualizer. Its numbers come from the code
 | `components/visualizer/VisualizerTooltip.tsx`   | Hover/pin details. "Traffic exchanged with" uses the canonical adjacency, so hidden neighbors still appear.                                                                                                                                                   |
 | `components/visualizer/shared.ts`               | `GraphNode` / `GraphLink` types, node colors, legend.                                                                                                                                                                                                         |
 | `utils/visualizerSettings.ts`                   | Options persisted in localStorage (`meshloom-visualizer-settings`), with their defaults.                                                                                                                                                                      |
+| `components/PacketVisualizer3D.tsx`             | The visualizer component that `VisualizerView` mounts; wires the two hooks above and the controls.                                                                                                                                                            |
 | `types/d3-force-3d.d.ts`                        | Minimal type declarations for `d3-force-3d`.                                                                                                                                                                                                                  |
 
 `VisualizerView` mounts **exactly one** `PacketVisualizer3D`. The tab layout and the split layout place the same nodes in two CSS arrangements. A second instance would cost a second WebGL context and a second simulation.
@@ -37,7 +38,7 @@ Read this only when you change the 3D visualizer. Its numbers come from the code
 
 - When only a short hop token is known, the node ID is `?{hop}`. 2- and 3-byte tokens stay separate and are never shortened to their first byte. A node identified as a repeater is drawn blue even when it is ambiguous.
 - **Advert-path hints** (`pickLikelyRepeaterByAdvertPath`): the data comes from `GET /api/contacts/repeaters/advert-paths` (backend table `contact_advert_paths`). A candidate wins when its `heard_count` total is at least 2 and at least twice the runner-up's. It sets a `probableIdentity` label and leaves the node ID unchanged.
-- **Traffic splitting**: the node is split into `?{hop}:>{nextHop}` only when every group of sources (one group per next hop) is disjoint from the others and has at least `MIN_OBSERVATIONS_TO_SPLIT` (20) unique sources. The last repeater before self is never split. A display name set by an advert-path hint is not overwritten.
+- **Traffic splitting**: the node is split into `?{hop}:>{nextHop}` only when every group of sources (one group per next hop) is disjoint from the others and has at least `MIN_OBSERVATIONS_TO_SPLIT` (20, `utils/visualizerUtils.ts`) unique sources. The last repeater before self is never split. A display name set by an advert-path hint is not overwritten.
 
 ## Simulation (`useVisualizerData3D.ts`)
 
