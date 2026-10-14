@@ -3,7 +3,7 @@
  *
  * Provenance: tests/fixtures/community_golden_vectors.json at the repo root is a
  * byte-for-byte copy of TwinRocket/meshloom-community
- * docs/contracts/vectors/golden.json (branch fix/L10-contracts, vectors version 1),
+ * docs/contracts/vectors/golden.json on main (commit 18b046a, vectors version 1),
  * sha256 8e777e64aee4e5e250057419c0c4184537d04321de7d1b0e4408a90521279cbb.
  * Never edit the copy to make a test pass: a failure is a divergence to report.
  *

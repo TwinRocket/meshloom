@@ -1,8 +1,8 @@
 """Shared golden vectors for the packet hash and the hashtag key (issue #51).
 
 Provenance: tests/fixtures/community_golden_vectors.json is a byte-for-byte copy
-of TwinRocket/meshloom-community docs/contracts/vectors/golden.json (branch
-fix/L10-contracts, vectors version 1). sha256 below. To update, copy the
+of TwinRocket/meshloom-community docs/contracts/vectors/golden.json on main
+(commit 18b046a, vectors version 1). sha256 below. To update, copy the
 file again and change the hash; never edit the copy to make a test pass.
 A failure is a divergence between Meshloom and Community: report it.
 """
