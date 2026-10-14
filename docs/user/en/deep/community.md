@@ -37,8 +37,8 @@ Community needs to know roughly where your radio is: it places each observer on 
 
 You can join while your radio has no position: Community then starts in this state. From the banner:
 
-- **Choose my position** opens a map. The point you pick is saved on your radio (as in **Settings → Radio**). If the radio's **Advert Location Source** is **Include Node Location**, its adverts will also broadcast that position over the air to every node in range. As soon as the radio reports it, Meshloom sends it to Community with your code (rounded to about 1 km unless your adverts broadcast it, see below). Only once Community has accepted it does Meshloom publish its status again and bring everything above back, without a restart; if Community cannot be reached, it keeps waiting and tries again.
-- **Learn more** explains why, and offers the same choice or **Leave Community**, which is the usual opt-out.
+- **Choose my position** opens a map. The point you pick is saved on your radio (as in **Settings → Radio**). If the radio's **Advert Location Source** is **Include Node Location**, its adverts will also broadcast that position over the air to every node in range. As soon as the radio reports it, Meshloom sends it to Community with your code (rounded to about 1 km unless your adverts broadcast it, see below): the confirmation says the position is being sent, and the banner goes away a few seconds later. Only once Community has accepted it does Meshloom publish its status again and bring everything above back, without a restart. If Community cannot be reached, it keeps waiting and tries again after 1 minute, 5 minutes and 30 minutes, then every 30 minutes for as long as Community waits for the position.
+- **Learn more** explains why, and offers the same choice or **Leave Community**, which is the usual opt-out (see [Leaving](#leaving)).
 
 Meshloom checks the position as soon as it recognises the radio, before anything is sent to Community. If the radio is disconnected, or not yet recognised after a reconnection, Meshloom keeps the last state it knew, also across a restart: the banner does not come and go while the radio reconnects, and nothing is sent to Community before the radio is back. Removing the position from the radio (setting it back to `0, 0`) puts Community back in the waiting state at once.
 
@@ -61,9 +61,22 @@ With Community on and a code saved, your server sends:
 
 Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
-**Turning Community off cuts every connection to Community** (`*.meshloom.app`) and the airport search, at once and without a restart, with the single exception described in the first point:
+## Leaving
 
-- your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. If the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone, and that `offline` would stay. This is the **only connection made after you leave**: Meshloom reconnects to the broker, alone, to delete that leftover status and nothing else (no packets, no status, no other request). It tries at most 6 times over about 13 hours (after 1 minute, then 5 minutes, 15 minutes, 1 hour, 4 hours and 8 hours), survives a restart, and gives up for good after 24 hours. Once the status is deleted, or once it gives up, nothing connects to Community any more;
+**Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first shows what leaving means:
+
+- the packets your radio already reported stay in Community's statistics, under your radio's name;
+- your radio's position is deleted from Community;
+- if your radio's adverts broadcast its position, it stays visible on the map like any other node heard on the mesh;
+- to have everything deleted, write to [privacy@meshloom.app](mailto:privacy@meshloom.app).
+
+You can also say why you leave (privacy, not useful, technical issue, other); this is optional. Once you confirm, Meshloom sends one last request to Community to record the opt-out, with the reason if you gave one: Community deletes your radio's position, clears its status on the broker (at once, or shortly after) and refuses this radio until it joins again. Then Meshloom cuts everything, as described below.
+
+If Community does not confirm within 5 seconds, **you leave anyway**, and the settings show **Deletion not confirmed** with a **Retry** button. Meshloom never sends the opt-out again on its own, not even after a restart: only that button does, and sending it twice is harmless. It needs the same radio, since the request is signed with its key; if Meshloom does not know which radio left (it was disconnected and had never published), the button cannot help: write to [privacy@meshloom.app](mailto:privacy@meshloom.app). Joining again makes it moot: Community lifts the opt-out when you join again.
+
+**Turning Community off cuts every connection to Community** (`*.meshloom.app`) and the airport search, at once and without a restart, with the exceptions described in the first point and in [Leaving](#leaving) (the **Retry** button):
+
+- your node's status on the broker turns `offline` and is then cleared, before the MQTT connection closes, so it does not stay listed as online. When Community confirmed the opt-out, it clears that status itself (at once, or shortly after), and Meshloom makes no further attempt; the same goes when the opt-out request timed out, since Community may have recorded it (use **Retry**). Otherwise, if the broker cannot be reached at that moment, nothing can be sent: the broker then marks the node `offline` itself once it notices the connection is gone, and that `offline` would stay. This is the **only connection Meshloom makes on its own after you leave**, and only when Community surely did not receive the opt-out: Meshloom reconnects to the broker, alone, to delete that leftover status and nothing else (no packets, no status, no other request). It tries at most 6 times over about 13 hours (after 1 minute, then 5 minutes, 15 minutes, 1 hour, 4 hours and 8 hours), survives a restart, and gives up for good after 24 hours. Once the status is deleted, or once it gives up, nothing connects to Community any more;
 - the Live feed closes, and Community requests still in flight are cancelled;
 - the "heard by" counts and the radio test say Community is off instead of showing an empty result.
 

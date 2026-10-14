@@ -149,6 +149,8 @@ describe('CommunityWaitingBanner', () => {
         i18n.t('settings.community.waiting.positionSaved')
       )
     );
+    // The banner stays a few seconds (debounce, then the bind): the toast says so.
+    expect(i18n.t('settings.community.waiting.positionSaved')).toMatch(/Community/);
     // The airport search is a Community feature: never asked while waiting.
     expect(api.searchCommunityAirports).not.toHaveBeenCalled();
   });
@@ -178,6 +180,14 @@ describe('CommunityWaitingBanner', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(
       within(dialog).getByRole('button', { name: i18n.t('settings.community.waiting.leave') })
+    );
+
+    // The exit dialog first: nothing is sent before it is confirmed.
+    const exit = await screen.findByTestId('community-leave-dialog');
+    expect(exit).toHaveAccessibleName(i18n.t('settings.community.optOut.title'));
+    expect(api.updateCommunity).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(exit).getByRole('button', { name: i18n.t('settings.community.optOut.confirm') })
     );
 
     await waitFor(() => expect(api.updateCommunity).toHaveBeenCalledWith({ enabled: false }));

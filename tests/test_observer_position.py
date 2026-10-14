@@ -240,6 +240,27 @@ class TestAutomaticRebind:
         assert failing.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_waiting_for_position_keeps_retrying_past_the_last_delay(
+        self, test_db, radio, monkeypatch
+    ):
+        from app.services import meshloom_community
+
+        monkeypatch.setattr(observer_position, "REBIND_WAITING_RETRY_S", 0.01)
+        await update_community(enabled=True, iata="LYS")
+        # Community waits for this position: every feature is held back until
+        # a bind carrying it succeeds, so the worker does not give up.
+        monkeypatch.setattr(meshloom_community, "_position_missing", True)
+        down = HTTPException(status_code=503, detail="down")
+        flaky = AsyncMock(side_effect=[down, down, down, down, down, BIND_OK])
+        with patch("app.services.meshloom_community.stats_json", new=flaky):
+            note_radio_self_info(radio["info"])
+            await _settle()
+
+        # The first try, the two retries, two more at the waiting pace, then the bind.
+        assert flaky.await_count == 6
+        assert meshloom_community.waiting_for_position() is False
+
+    @pytest.mark.asyncio
     async def test_failure_then_success(self, test_db, radio):
         await update_community(enabled=True, iata="LYS")
         flaky = AsyncMock(side_effect=[HTTPException(status_code=503, detail="down"), BIND_OK])

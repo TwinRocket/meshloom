@@ -73,7 +73,10 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
         the loop (a DISCONNECT that hangs past ``STOP_TIMEOUT_S``), this keeps
         the loop from reconnecting to the broker afterwards. Enrolled-level
         (``community_enrolled_state``): it still connects while Community waits
-        for a position, to say so in its status.
+        for a position, to say so in its status. It answers None as soon as an
+        opt-out starts (``opt_out_in_progress``): Community kicks this session
+        while answering ``POST /v1/me/opt-out``, before the local teardown
+        stops the publisher, and refuses the key from then on.
         """
         from app.services.meshloom_community import community_enrolled_state
 
@@ -116,6 +119,12 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
             await note_published(target)
         except Exception:
             logger.warning("Could not record the Community status topic", exc_info=True)
+
+    def _error_toast_allowed(self) -> bool:
+        """No toast for the connection Community drops during an opt-out."""
+        from app.services.meshloom_community import opt_out_in_progress
+
+        return not opt_out_in_progress()
 
     def _on_not_configured(self) -> None:
         # No IATA nag — LetsMesh mqtt_community already owns that prompt.

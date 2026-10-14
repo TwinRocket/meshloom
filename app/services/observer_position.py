@@ -157,6 +157,10 @@ REBIND_DEBOUNCE_S = 5.0
 # After a failed re-bind (Community down, rate limit, no radio key yet). A new
 # radio change cuts a retry wait short.
 REBIND_RETRY_DELAYS_S = (60.0, 300.0, 1800.0)
+# Once those are spent, while Community still waits for a position (every
+# Community feature is held back until a bind carrying it succeeds), keep
+# trying at this pace instead of giving up until the next radio change.
+REBIND_WAITING_RETRY_S = 1800.0
 
 _UNKNOWN: Any = object()
 # (radio public key, position) sent by the last successful bind, in memory.
@@ -223,11 +227,14 @@ async def _rebind_worker() -> None:
                 failures = 0
                 delay = REBIND_DEBOUNCE_S
                 continue
-            if failures >= len(REBIND_RETRY_DELAYS_S):
+            if failures < len(REBIND_RETRY_DELAYS_S):
+                delay = REBIND_RETRY_DELAYS_S[failures]
+                failures += 1
+            elif _waiting_for_position():
+                delay = REBIND_WAITING_RETRY_S
+            else:
                 logger.warning("Community position re-bind gave up until the next radio change")
                 return
-            delay = REBIND_RETRY_DELAYS_S[failures]
-            failures += 1
             _rebind_retry_wait = True
             logger.info("Community position re-bind failed, retrying in %.0f s", delay)
     finally:
@@ -264,9 +271,25 @@ async def _rebind_once() -> RebindOutcome:
     return "sent"
 
 
+def _waiting_for_position() -> bool:
+    from app.services.meshloom_community import waiting_for_position
+
+    return waiting_for_position()
+
+
 def _rebind_still_needed() -> bool:
     info = radio_self_info()
     return info is not None and _bound_key(info) != _last_bound
+
+
+def forget_last_bind() -> None:
+    """After an opt-out: Community refuses this key until a bind lifts it.
+
+    The next ``self_info`` (``PATCH {enabled: true}`` notes one) then re-binds
+    even when the position did not move.
+    """
+    global _last_bound
+    _last_bound = _UNKNOWN
 
 
 def reset_position_rebind_for_tests() -> None:
