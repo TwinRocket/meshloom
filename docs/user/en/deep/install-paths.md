@@ -107,7 +107,7 @@ MESHCORE_DISABLE_BOTS=false
 
 The file also publishes port 5001 (`MESHLOOM_PROXY_PORT`), used by the radio proxy once you enable it. To stay on released versions, use `docker-compose.example.yml` instead.
 
-Nothing is built on your server. The image is published a few minutes after each change, so in the stack's update settings turn on **Re-pull image** and **Force redeployment**: each check then fetches the latest image, and Meshloom restarts only when it changed.
+Nothing is built on your server. The image is published a few minutes after each change, but Portainer updates the stack as soon as it sees the change, so it usually fetches the previous image and keeps it until the next change. To get the latest one, redeploy the stack by hand a few minutes later: Meshloom fetches the newest image at each deployment. Portainer Business Edition can also do it on its own with **Force redeployment**.
 
 Older versions of this file built the image on the server. Portainer copies each new version over the old files without deleting the ones removed from the repository, and such a leftover could make the build fail (`npm run build` ending with `exit code: 2`). A stack stuck on that error gets the new file at its next update. If it still fails, delete the stack and create it again with the same variables and data folder: your database is not touched.
 

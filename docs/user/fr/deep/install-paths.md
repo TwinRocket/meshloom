@@ -107,7 +107,7 @@ MESHCORE_DISABLE_BOTS=false
 
 Le fichier publie aussi le port 5001 (`MESHLOOM_PROXY_PORT`), utilisé par le proxy radio une fois activé. Pour rester sur les versions publiées, utilisez plutôt `docker-compose.example.yml`.
 
-Rien n’est construit sur votre serveur. L’image est publiée quelques minutes après chaque modification : dans les réglages de mise à jour de la pile, activez **Re-pull image** et **Force redeployment**. Chaque vérification récupère alors la dernière image, et Meshloom ne redémarre que si elle a changé.
+Rien n’est construit sur votre serveur. L’image est publiée quelques minutes après chaque modification, mais Portainer met la pile à jour dès qu’il voit la modification : il récupère donc en général l’image précédente, et la garde jusqu’à la modification suivante. Pour avoir la dernière, redéployez la pile à la main quelques minutes plus tard : Meshloom récupère l’image la plus récente à chaque déploiement. Portainer Business Edition peut aussi le faire tout seul avec **Force redeployment**.
 
 Les anciennes versions de ce fichier construisaient l’image sur le serveur. Portainer copie chaque nouvelle version par-dessus les anciens fichiers sans supprimer ceux retirés du dépôt, et un tel reste pouvait faire échouer la construction (`npm run build` qui se termine par `exit code: 2`). Une pile bloquée sur cette erreur reçoit le nouveau fichier à sa prochaine mise à jour. Si elle échoue encore, supprimez la pile et recréez-la avec les mêmes variables et le même dossier de données : votre base n’est pas touchée.
 
