@@ -19,6 +19,7 @@ The **environment** holds what must be known before anything starts: where to wr
 | Service installed from a source checkout | No file. Add `Environment=NAME=value` lines under `[Service]` with `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
 | Docker | `environment:` block of the Compose file, or a `.env` next to it | `docker compose up -d` |
 | Checkout run by hand | The environment of the shell that runs `uv run uvicorn` | Restart the command |
+| Home Assistant add-on | No variable to edit: the add-on's options (log level, password, bots) become variables, and the add-on sets the others itself. See [On Home Assistant](/en/docs/install/#on-home-assistant) | Restart the add-on |
 
 Re-running `install_service.sh` rewrites the main systemd unit of a source install. A drop-in created with `systemctl edit` is kept, and `meshloom.env` is not involved.
 
@@ -36,13 +37,13 @@ The connection is chosen in **Settings → Radio** and stored in the database:
 | `radio_ble_address` | empty | Bluetooth address of the radio |
 | `radio_ble_pin` | empty | Bluetooth PIN, required with Bluetooth |
 
-Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` or `MESHCORE_BLE_ADDRESS`. A new database ignores them. An existing database without a saved connection copies them once, to carry over an old setup, and never reads them again.
+Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` or `MESHCORE_BLE_ADDRESS` (nor their companions `MESHCORE_SERIAL_BAUDRATE`, `MESHCORE_TCP_PORT` and `MESHCORE_BLE_PIN`). A new database ignores them. An existing database without a saved connection copies them once, to carry over an old setup, and never reads them again. If more than one of the three is set, none is copied.
 
 ## Server and data
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Path of the SQLite database |
+| `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Path of the SQLite database. The Linux package sets `/var/lib/meshloom/meshcore.db`, the Home Assistant add-on `/config/meshcore.db` |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `MESHCORE_MANAGED_PORTS` | `false` | Set by a host that decides the listening ports itself, such as the Home Assistant add-on. Settings then shows the proxy port as read-only |
 | `MESHCORE_RADIO_PROXY_PORT` | *(not set)* | Port of the radio proxy chosen by the host. Only used with `MESHCORE_MANAGED_PORTS=true`, where it replaces the saved port at every start. The Home Assistant add-on sets it to `5051` |
@@ -62,10 +63,10 @@ See [Meshloom Community](/en/docs/deep/community/).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. The Linux package sets it to `true` in `meshloom.env` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application |
+| `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
+| `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
-| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Allows `GET /api/radio/private-key` |
+| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Allows `GET /api/radio/private-key`, which returns the radio's private key as hexadecimal text, for a backup or a move. Turn it on only on a trusted network, then off again |
 
 The two password variables must be set together. Setting only one stops Meshloom at startup. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 

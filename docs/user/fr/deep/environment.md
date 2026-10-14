@@ -19,6 +19,7 @@ Les **réglages** vivent dans la base de données. On les change dans l’interf
 | Service installé depuis un dépôt cloné | Pas de fichier. Ajoutez des lignes `Environment=NOM=valeur` sous `[Service]` avec `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
 | Docker | bloc `environment:` du fichier Compose, ou un `.env` à côté | `docker compose up -d` |
 | Dépôt cloné lancé à la main | L’environnement du shell qui lance `uv run uvicorn` | Relancer la commande |
+| Add-on Home Assistant | Aucune variable à modifier : les options de l’add-on (niveau de journal, mot de passe, bots) deviennent des variables, et l’add-on définit lui-même les autres. Voir [Sur Home Assistant](/docs/install/#sur-home-assistant) | Redémarrer l’add-on |
 
 Rejouer `install_service.sh` réécrit l’unité systemd principale d’une installation depuis les sources. Un fichier complémentaire créé avec `systemctl edit` est conservé, et `meshloom.env` n’est pas concerné.
 
@@ -36,13 +37,13 @@ La connexion se choisit dans **Réglages → Radio** et se stocke dans la base :
 | `radio_ble_address` | vide | Adresse Bluetooth de la radio |
 | `radio_ble_pin` | vide | Code PIN Bluetooth, obligatoire en Bluetooth |
 
-Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS`. Une base neuve les ignore. Une base existante sans connexion enregistrée les recopie une seule fois, pour reprendre une ancienne configuration, puis ne les lit plus jamais.
+Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS` (ni leurs compléments `MESHCORE_SERIAL_BAUDRATE`, `MESHCORE_TCP_PORT` et `MESHCORE_BLE_PIN`). Une base neuve les ignore. Une base existante sans connexion enregistrée les recopie une seule fois, pour reprendre une ancienne configuration, puis ne les lit plus jamais. Si plusieurs des trois sont définies, aucune n’est recopiée.
 
 ## Serveur et données
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Emplacement de la base SQLite |
+| `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Emplacement de la base SQLite. Le paquet Linux la place dans `/var/lib/meshloom/meshcore.db`, l’add-on Home Assistant dans `/config/meshcore.db` |
 | `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR` |
 | `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d’écoute, comme l’add-on Home Assistant. Les Réglages affichent alors le port du proxy en lecture seule |
 | `MESHCORE_RADIO_PROXY_PORT` | *(non défini)* | Port du proxy radio choisi par l’hôte. Utilisée seulement avec `MESHCORE_MANAGED_PORTS=true`, où elle remplace le port enregistré à chaque démarrage. L’add-on Home Assistant la fixe à `5051` |
@@ -62,10 +63,10 @@ Voir [Meshloom Community](/docs/deep/community/).
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Le paquet Linux la met à `true` dans `meshloom.env` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application |
+| `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
+| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
-| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Autorise `GET /api/radio/private-key` |
+| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Autorise `GET /api/radio/private-key`, qui renvoie la clé privée de la radio en hexadécimal, pour une sauvegarde ou un déménagement. À n’activer que sur un réseau de confiance, puis à désactiver |
 
 Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
