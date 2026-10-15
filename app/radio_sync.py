@@ -1039,6 +1039,9 @@ async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True)
     Returns ``"synced"`` if the radio accepted the new time, ``"rebooted"``
     if the corrective reboot was sent (the transport is about to drop, so the
     caller must stop talking to this connection), ``"rejected"`` otherwise.
+    A sent reboot is recorded with ``radio_manager.note_expected_reboot``: the
+    connection monitor then reconnects and reruns setup, and reconnect failures
+    stay quiet for ``EXPECTED_REBOOT_GRACE_SECONDS``.
     """
     global _clock_reboot_attempted  # noqa: PLW0603
     log_failure = logger.warning if warn_on_failure else logger.debug
@@ -1114,6 +1117,9 @@ async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True)
             except Exception:
                 log_failure("Reboot command failed", exc_info=True)
             else:
+                # Whoever called (setup, periodic sync, config update), the radio
+                # restarts: its reconnect is planned and setup must run again.
+                radio_manager.note_expected_reboot("clock_sync")
                 return "rebooted"
         elif _clock_reboot_attempted:
             logger.debug(

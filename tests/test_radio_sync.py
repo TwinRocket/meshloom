@@ -247,7 +247,15 @@ class TestSyncRadioTime:
         )
         mock_mc.commands.reboot = AsyncMock()
 
+        from app.radio import radio_manager as manager
+
+        manager._setup_complete = True
         assert await sync_radio_time_outcome(mock_mc) == "rebooted"
+        # Whoever called, the reboot is recorded: setup must run again and the
+        # monitor drops a transport that survived it.
+        assert manager.expected_reboot == "clock_sync"
+        assert manager.is_setup_complete is False
+        assert manager.take_expected_reboot_teardown() is True
         # Second session sync: no new reboot, the skew is only reported.
         assert await sync_radio_time_outcome(mock_mc) == "rejected"
         mock_mc.commands.reboot.assert_called_once()
@@ -266,6 +274,9 @@ class TestSyncRadioTime:
         mock_mc.commands.reboot = AsyncMock(side_effect=RuntimeError("no answer"))
 
         assert await sync_radio_time_outcome(mock_mc) == "rejected"
+        from app.radio import radio_manager as manager
+
+        assert manager.expected_reboot is None
 
     @pytest.mark.asyncio
     async def test_wraparound_can_fix_future_skew_before_normal_set(self):

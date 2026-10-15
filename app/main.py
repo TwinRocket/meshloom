@@ -94,6 +94,7 @@ from app.services.hashtag_catalogue import (
     stop_hashtag_catalogue_polling,
 )
 from app.services.oss_updates import start_oss_update_polling, stop_oss_update_polling
+from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import start_radio_stats_sampling, stop_radio_stats_sampling
 from app.services.stale_contacts import start_stale_contact_purge, stop_stale_contact_purge
@@ -118,6 +119,11 @@ async def _startup_radio_connect_and_setup() -> None:
         connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
         if connected:
             logger.info("Connected to radio")
+        elif expected_reboot_reason(radio_manager) == "clock_sync":
+            logger.info(
+                "Radio is rebooting to reset its clock; the connection monitor will "
+                "reconnect it and finish setup"
+            )
         else:
             logger.warning("Failed to connect to radio on startup")
     except Exception:

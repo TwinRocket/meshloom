@@ -3,6 +3,7 @@ import glob
 import logging
 import platform
 import re
+import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
@@ -14,7 +15,11 @@ from serial.tools import list_ports
 from app import radio_workarounds
 from app.keystore import clear_keys
 from app.models import RadioTransportSnapshot
-from app.services.radio_lifecycle import PostConnectSetupOutcome
+from app.services.radio_lifecycle import (
+    EXPECTED_REBOOT_GRACE_SECONDS,
+    ExpectedRebootReason,
+    PostConnectSetupOutcome,
+)
 from app.services.radio_transport import get_transport, is_tcp
 
 logger = logging.getLogger(__name__)
@@ -199,6 +204,9 @@ class RadioManager:
         self._setup_in_progress: bool = False
         self._setup_complete: bool = False
         self._frontend_reconnect_error_broadcasts: int = 0
+        self._expected_reboot_reason: ExpectedRebootReason | None = None
+        self._expected_reboot_deadline: float | None = None
+        self._expected_reboot_teardown_pending: bool = False
         self.device_info_loaded: bool = False
         self.max_contacts: int | None = None
         self.device_model: str | None = None
@@ -479,6 +487,51 @@ class RadioManager:
     def connection_desired(self, value: bool) -> None:
         self._connection_desired = bool(value)
 
+    @property
+    def expected_reboot(self) -> ExpectedRebootReason | None:
+        """Why the radio is rebooting on Meshloom's request, while that is still expected."""
+        if self._expected_reboot_deadline is None or not self._connection_desired:
+            return None
+        if time.monotonic() >= self._expected_reboot_deadline:
+            return None
+        return self._expected_reboot_reason
+
+    def note_expected_reboot(self, reason: ExpectedRebootReason) -> None:
+        """Record a reboot Meshloom just sent, so its reconnect is treated as planned.
+
+        Called with the radio lock held (clock sync), so it only flips state: setup
+        must run again, and the connection monitor drops a transport that survived
+        the reboot (a serial bridge keeps the port open) and reconnects.
+        """
+        from app.services.radio_ingest_gate import deny_ingest
+
+        self._expected_reboot_reason = reason
+        self._expected_reboot_deadline = time.monotonic() + EXPECTED_REBOOT_GRACE_SECONDS
+        self._expected_reboot_teardown_pending = True
+        self._setup_complete = False
+        deny_ingest()
+
+    def clear_expected_reboot(self) -> None:
+        self._expected_reboot_reason = None
+        self._expected_reboot_deadline = None
+        self._expected_reboot_teardown_pending = False
+
+    def take_expected_reboot_teardown(self) -> bool:
+        """Return True once if the transport must be dropped after an expected reboot."""
+        pending = self._expected_reboot_teardown_pending
+        self._expected_reboot_teardown_pending = False
+        return pending
+
+    def expire_expected_reboot(self) -> ExpectedRebootReason | None:
+        """Forget an expected reboot whose grace period ran out; return its reason."""
+        if self._expected_reboot_deadline is None:
+            return None
+        if self._connection_desired and time.monotonic() < self._expected_reboot_deadline:
+            return None
+        reason = self._expected_reboot_reason if self._connection_desired else None
+        self.clear_expected_reboot()
+        return reason
+
     def resume_connection(self) -> None:
         """Allow connection monitor and manual reconnects to establish transport again."""
         self._connection_desired = True
@@ -487,6 +540,7 @@ class RadioManager:
         """Stop automatic reconnect attempts and tear down any current transport."""
         self._connection_desired = False
         self._last_connected = False
+        self.clear_expected_reboot()
         await self.disconnect()
 
     def _reset_reconnect_error_broadcasts(self) -> None:
@@ -494,6 +548,11 @@ class RadioManager:
 
     def _broadcast_reconnect_error_if_needed(self, details: str) -> None:
         from app.websocket import broadcast_error
+
+        if self.expected_reboot is not None:
+            # The radio is still restarting after a reboot Meshloom sent: failures
+            # are expected and not counted. Past the grace period they surface.
+            return
 
         self._frontend_reconnect_error_broadcasts += 1
         if self._frontend_reconnect_error_broadcasts > MAX_FRONTEND_RECONNECT_ERROR_BROADCASTS:
@@ -673,6 +732,7 @@ class RadioManager:
 
         clear_keys()
         self._reset_reconnect_error_broadcasts()
+        self._expected_reboot_teardown_pending = False
         if self._meshcore is None:
             return
 
@@ -759,7 +819,10 @@ class RadioManager:
                     snapshot=self._transport_snapshot,
                     connection_info=self._connection_info,
                 )
-                logger.warning(log_message, exc_info=include_traceback)
+                if self.expected_reboot is not None:
+                    logger.info("Radio not back yet after its expected reboot: %s", log_message)
+                else:
+                    logger.warning(log_message, exc_info=include_traceback)
                 self._broadcast_reconnect_error_if_needed(frontend_detail)
                 return False
 
@@ -783,6 +846,9 @@ class RadioManager:
 
         await self.stop_connection_monitor()
         deny_ingest()
+        # A transport or identity change supersedes a pending clock-fix reboot:
+        # its grace period must not silence errors from the new connection.
+        self.clear_expected_reboot()
         try:
             yield
         finally:

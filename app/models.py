@@ -1955,6 +1955,7 @@ RadioIdentityState = Literal["identity_mismatch", "identity_unbound_legacy"]
 RadioHealthState = Literal[
     "connected",
     "initializing",
+    "rebooting",
     "connecting",
     "disconnected",
     "paused",

@@ -18,6 +18,7 @@ from app.radio_sync import get_contacts_selected_for_radio_sync, get_radio_chann
 from app.repository import AppSettingsRepository, MessageRepository, StatisticsRepository
 from app.routers.health import FanoutStatusResponse, build_health_data
 from app.services.legacy_env_settings import RETIRED_ENV
+from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime
 from app.services.radio_transport import get_transport
 from app.version_info import get_app_build_info, git_output
@@ -270,9 +271,12 @@ def _derive_debug_radio_state(
     setup_in_progress: bool,
     setup_complete: bool,
     is_reconnecting: bool,
+    expected_reboot: bool = False,
 ) -> str:
     if not connection_desired:
         return "paused"
+    if expected_reboot:
+        return "rebooting"
     if radio_connected and (setup_in_progress or not setup_complete):
         return "initializing"
     if radio_connected:
@@ -437,6 +441,7 @@ async def debug_support_snapshot() -> DebugSnapshotResponse:
         setup_in_progress=setup_in_progress,
         setup_complete=setup_complete,
         is_reconnecting=is_reconnecting,
+        expected_reboot=expected_reboot_reason(radio_runtime) is not None,
     )
     return DebugSnapshotResponse(
         captured_at=datetime.now(UTC).isoformat(),
