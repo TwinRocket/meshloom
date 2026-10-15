@@ -13,6 +13,7 @@ import type {
   RadioConfigUpdate,
   RadioDiscoveryResponse,
   RadioDiscoveryTarget,
+  RadioReconnectResponse,
   RadioRegionDiscoveryResponse,
 } from '../types';
 import {
@@ -48,7 +49,9 @@ interface SettingsModalBaseProps {
   onSetPrivateKey: (key: string) => Promise<void>;
   onReboot: () => Promise<void>;
   onDisconnect: () => Promise<void>;
-  onReconnect: () => Promise<void>;
+  /** Resolves with the backend answer: `code: 'radio_rebooting'` means the radio is
+   * restarting after a clock fix and comes back on its own. */
+  onReconnect: () => Promise<RadioReconnectResponse | void>;
   onAdvertise: (mode: RadioAdvertMode) => Promise<void>;
   meshDiscovery: RadioDiscoveryResponse | null;
   meshDiscoveryLoadingTarget: RadioDiscoveryTarget | null;

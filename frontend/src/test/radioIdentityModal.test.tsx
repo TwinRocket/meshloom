@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -76,6 +77,33 @@ describe('RadioIdentityModal', () => {
     );
 
     expect(screen.queryByText(i18n.t('radioIdentity.mismatchTitle'))).not.toBeInTheDocument();
+  });
+
+  it('says the radio is rebooting when setup reset its clock after the adopt', async () => {
+    const user = userEvent.setup();
+    const onAdopted = vi.fn();
+    mocks.adoptRadioIdentity.mockResolvedValue({
+      status: 'ok',
+      radio_state: 'rebooting',
+      bound_public_key: identity.new_public_key,
+      connected: false,
+    });
+
+    render(
+      <RadioIdentityModal
+        health={{ ...baseHealth, radio_state: 'identity_unbound_legacy' }}
+        onAdopted={onAdopted}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: i18n.t('radioIdentity.bindWithoutWipe') }));
+    await waitFor(() => {
+      expect(mocks.toast.info).toHaveBeenCalledWith(i18n.t('toast.radioRebooting'), {
+        description: i18n.t('toast.radioRebootingDetail'),
+      });
+      expect(onAdopted).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.toast.error).not.toHaveBeenCalled();
   });
 
   it('blocks mismatch until the operator rejects or wipes', async () => {

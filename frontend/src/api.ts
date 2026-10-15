@@ -44,6 +44,7 @@ import type {
   RadioFactoryResetResponse,
   RadioSelfTelemetry,
   RadioIdentityActionResponse,
+  RadioReconnectResponse,
   RadioProxyStatus,
   RadioProxyUpdate,
   RadioTransportConfig,
@@ -286,7 +287,7 @@ export const api = {
       }
     ),
   reconnectRadio: () =>
-    fetchJson<{ status: string; message: string; connected: boolean }>('/radio/reconnect', {
+    fetchJson<RadioReconnectResponse>('/radio/reconnect', {
       method: 'POST',
     }),
   getRadioTransport: () => fetchJson<RadioTransportConfig>('/radio/transport'),

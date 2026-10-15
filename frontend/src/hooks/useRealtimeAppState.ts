@@ -209,6 +209,11 @@ export function useRealtimeAppState({
           } else {
             if (nextRadioState === 'paused') {
               toast.success(i18n.t('toast.radioPaused'));
+            } else if (nextRadioState === 'rebooting') {
+              // Meshloom rebooted the radio itself (clock fix): not a failure.
+              toast.info(i18n.t('toast.radioRebooting'), {
+                description: i18n.t('toast.radioRebootingDetail'),
+              });
             } else if (
               nextRadioState !== 'identity_mismatch' &&
               nextRadioState !== 'identity_unbound_legacy'

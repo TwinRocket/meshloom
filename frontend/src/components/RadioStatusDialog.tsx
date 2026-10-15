@@ -60,14 +60,17 @@ export function RadioStatusDialog({
 
   const state = health?.radio_state;
   const connected = health?.radio_connected === true;
-  const settling = state === 'connecting' || state === 'initializing';
-  const stateLabel = settling
-    ? t('statusBar.radioConnecting')
-    : state === 'paused'
-      ? t('statusBar.radioPaused')
-      : connected
-        ? t('statusBar.radioOk')
-        : t('statusBar.radioDisconnected');
+  const rebooting = state === 'rebooting';
+  const settling = state === 'connecting' || state === 'initializing' || rebooting;
+  const stateLabel = rebooting
+    ? t('statusBar.radioRebooting')
+    : settling
+      ? t('statusBar.radioConnecting')
+      : state === 'paused'
+        ? t('statusBar.radioPaused')
+        : connected
+          ? t('statusBar.radioOk')
+          : t('statusBar.radioDisconnected');
 
   const device = health?.radio_device_info;
   const proxy = health?.radio_proxy;

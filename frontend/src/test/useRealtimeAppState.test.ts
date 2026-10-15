@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useRealtimeAppState } from '../hooks/useRealtimeAppState';
+import i18n from '../i18n';
 import {
   getRawPacketStatsSession,
   getRawPackets,
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   toast: Object.assign(vi.fn(), {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   }),
 }));
 
@@ -454,6 +456,37 @@ describe('useRealtimeAppState', () => {
     });
 
     expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it('announces the clock-fix reboot as information, not as a lost radio', () => {
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    const connected = {
+      status: 'ok',
+      radio_connected: true,
+      radio_initializing: false,
+      radio_state: 'connected',
+      connection_info: 'BLE: AA:BB:CC:DD:EE:FF',
+      database_size_mb: 1,
+      oldest_undecrypted_timestamp: null,
+      fanout_statuses: {},
+      bots_disabled: false,
+    } as HealthStatus;
+
+    act(() => {
+      result.current.onHealth?.(connected);
+      result.current.onHealth?.({
+        ...connected,
+        status: 'degraded',
+        radio_connected: false,
+        radio_state: 'rebooting',
+      });
+    });
+
+    expect(mocks.toast.info).toHaveBeenCalledWith(i18n.t('toast.radioRebooting'), {
+      description: i18n.t('toast.radioRebootingDetail'),
+    });
+    expect(mocks.toast.error).not.toHaveBeenCalled();
   });
 
   it('routes message_deleted to removeMessage', () => {

@@ -39,6 +39,7 @@ import {
   type RadioConfigUpdate,
   type RadioDiscoveryResponse,
   type RadioDiscoveryTarget,
+  type RadioReconnectResponse,
   type RadioRegionDiscoveryResponse,
   type RadioRegionVerifyResponse,
   type RadioStatsSnapshot,
@@ -660,7 +661,9 @@ export function SettingsRadioSection({
   onSetPrivateKey: (key: string) => Promise<void>;
   onReboot: () => Promise<void>;
   onDisconnect: () => Promise<void>;
-  onReconnect: () => Promise<void>;
+  /** Resolves with the backend answer: `code: 'radio_rebooting'` means the radio is
+   * restarting after a clock fix and comes back on its own. */
+  onReconnect: () => Promise<RadioReconnectResponse | void>;
   onAdvertise: (mode: RadioAdvertMode) => Promise<void>;
   meshDiscovery: RadioDiscoveryResponse | null;
   meshDiscoveryLoadingTarget: RadioDiscoveryTarget | null;
@@ -1347,19 +1350,23 @@ export function SettingsRadioSection({
         ? t('settings.radio.initializing', {
             info: health?.connection_info || t('settings.radio.radioNoun'),
           })
-        : radioState === 'connecting'
-          ? health?.connection_info
-            ? t('settings.radio.connectingTo', { info: health.connection_info })
-            : t('settings.radio.connecting')
-          : radioState === 'paused'
+        : radioState === 'rebooting'
+          ? t('settings.radio.rebootingClockFix', {
+              info: health?.connection_info || t('settings.radio.radioNoun'),
+            })
+          : radioState === 'connecting'
             ? health?.connection_info
-              ? t('settings.radio.pausedWith', { info: health.connection_info })
-              : t('settings.radio.paused')
-            : radioState === 'identity_mismatch'
-              ? t('settings.radio.identityMismatch')
-              : radioState === 'identity_unbound_legacy'
-                ? t('settings.radio.identityUnbound')
-                : t('settings.radio.notConnected');
+              ? t('settings.radio.connectingTo', { info: health.connection_info })
+              : t('settings.radio.connecting')
+            : radioState === 'paused'
+              ? health?.connection_info
+                ? t('settings.radio.pausedWith', { info: health.connection_info })
+                : t('settings.radio.paused')
+              : radioState === 'identity_mismatch'
+                ? t('settings.radio.identityMismatch')
+                : radioState === 'identity_unbound_legacy'
+                  ? t('settings.radio.identityUnbound')
+                  : t('settings.radio.notConnected');
 
   const deviceInfoLabel = useMemo(() => {
     const info = health?.radio_device_info;
@@ -1408,8 +1415,12 @@ export function SettingsRadioSection({
     setConnectionBusy(true);
     try {
       if (radioState === 'paused') {
-        await onReconnect();
-        toast.success(t('settings.radio.reconnectRequested'));
+        const result = await onReconnect();
+        if (result?.code === 'radio_rebooting') {
+          toast.info(t('settings.radio.rebootingReconnectRequested'));
+        } else {
+          toast.success(t('settings.radio.reconnectRequested'));
+        }
       } else {
         await onDisconnect();
         toast.success(t('settings.radio.connectionPaused'));
@@ -1467,6 +1478,7 @@ export function SettingsRadioSection({
                   radioState === 'connected'
                     ? 'bg-status-connected'
                     : radioState === 'initializing' ||
+                        radioState === 'rebooting' ||
                         radioState === 'connecting' ||
                         isRadioIdentityGate(radioState)
                       ? 'bg-warning'

@@ -10,6 +10,7 @@ import type {
   RadioConfigUpdate,
   RadioDiscoveryResponse,
   RadioDiscoveryTarget,
+  RadioReconnectResponse,
   RadioRegionDiscoveryResponse,
 } from '../types';
 
@@ -89,13 +90,14 @@ export function useRadioControl() {
     setHealth(pausedHealth);
   }, []);
 
-  const handleReconnect = useCallback(async () => {
-    await api.reconnectRadio();
+  const handleReconnect = useCallback(async (): Promise<RadioReconnectResponse> => {
+    const result = await api.reconnectRadio();
     const refreshedHealth = await api.getHealth();
     setHealth(refreshedHealth);
     if (refreshedHealth.radio_connected) {
       await fetchConfig();
     }
+    return result;
   }, [fetchConfig]);
 
   const handleAdvertise = useCallback(async (mode: RadioAdvertMode = 'flood') => {
