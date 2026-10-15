@@ -85,13 +85,16 @@ you.
 
 ## Meshloom Community
 
-A new install starts with Meshloom Community on; the add-on has no option for
-it. Community receives the raw packets your radio hears, and in return names
-hops, draws RF locate zones and feeds the Live page. To leave, untick it in
-**Settings → Meshloom Community**: every connection to Community stops at once,
-without a restart, and the update check then asks GitHub only, every 6 hours.
-The one exception: if the broker could not be reached at that moment, Meshloom
-reconnects once, only to delete your node's leftover status, a few tries within
+A new install starts with Meshloom Community off; the add-on has no option for
+it. Joining is your choice: in **Settings → Meshloom Community**, enter the
+3-letter IATA code of the nearest airport and click **Join Meshloom Community**.
+Community then receives the raw packets your radio hears, and in return names
+hops, draws RF locate zones and feeds the Live page. To leave, click **Leave
+Meshloom Community** in the same place and confirm: every connection to
+Community stops at once, without a restart, and the update check then asks
+GitHub only, every 6 hours. The one exception: if Community surely did not get
+the opt-out and the broker could not be reached at that moment, Meshloom
+reconnects, only to delete your node's leftover status, a few tries within
 24 hours at most, then never again.
 Details: <https://meshloom.app/en/docs/deep/community/>.
 

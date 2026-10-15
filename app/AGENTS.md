@@ -132,9 +132,10 @@ Detail, constants and owner decisions: `docs/dev/community-client.md`. Contracts
   (`_opt_out_state`), and the on-click IATA suggestion (`_iata_suggest_state`,
   never during an opt-out). Do not add a fifth without an owner decision.
 - **IATA changes.** `PATCH /community` never changes the IATA (another code →
-  409 `iata_requires_bind`). An IATA change, or a join (`enable: true`), is
-  `PUT /community/me/iata`: retire the old status → bind → save and reconnect,
-  under `_update_lock`. A refused bind changes nothing.
+  409 `iata_requires_bind`) and never turns Community on (off → on: 409
+  `join_requires_bind`, nothing written, nothing sent). An IATA change, or a
+  join (`enable: true`), is `PUT /community/me/iata`: retire the old status →
+  bind → save and reconnect, under `_update_lock`. A refused bind changes nothing.
 - **Opt-out.** `community_teardown()` runs in a `finally` through
   `_run_to_completion()`: a failure or a cancelled caller still gets the whole
   teardown (fail closed). An unconfirmed opt-out is kept as pending and resent only

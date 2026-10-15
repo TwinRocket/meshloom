@@ -310,8 +310,9 @@ def _rebind_still_needed() -> bool:
 def forget_last_bind() -> None:
     """After an opt-out: Community refuses this key until a bind lifts it.
 
-    The next ``self_info`` (``PATCH {enabled: true}`` notes one) then re-binds
-    even when the position did not move.
+    Coming back on is a join, whose bind sends the position again even when
+    it did not move; forgetting it also keeps any later ``self_info`` from
+    taking the key as already bound.
     """
     global _last_bound
     _last_bound = _UNKNOWN
