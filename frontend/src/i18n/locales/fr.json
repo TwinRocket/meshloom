@@ -1827,6 +1827,8 @@
     "radio_rebooting": "La radio redémarre pour remettre son horloge à l’heure. Meshloom se reconnecte automatiquement.",
     "radio_reboot_timeout": "La radio n’est pas revenue après son redémarrage pour remettre son horloge à l’heure",
     "radio_startup_stuck": "Le démarrage de la radio semble bloqué",
+    "radio_reboot_timeoutDetail": "Vérifiez l’alimentation et la connexion de la radio.",
+    "radio_startup_stuckDetail": "Le premier déchargement de la radio a pris trop de temps. Redémarrez la radio et le serveur.",
     "reconnection_failed": "Échec de la reconnexion",
     "radio_no_response_after_send": "La commande d'envoi a été transmise à la radio, mais aucune réponse n'a été reçue. Le message a peut-être été envoyé, ou non.",
     "cannot_decrypt_historical_dms": "Impossible de déchiffrer les messages privés historiques",

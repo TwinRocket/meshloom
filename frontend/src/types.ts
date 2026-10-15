@@ -7,6 +7,9 @@ interface RadioSettings {
 
 export type RadioTransportKind = 'serial' | 'tcp' | 'ble';
 
+/** Toast id for "radio rebooting to reset its clock": one toast, whoever announces it. */
+export const RADIO_REBOOTING_TOAST_ID = 'radio-rebooting';
+
 export type RadioIdentityGateState = 'identity_mismatch' | 'identity_unbound_legacy';
 
 export function isRadioIdentityGate(

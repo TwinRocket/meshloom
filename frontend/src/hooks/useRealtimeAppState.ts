@@ -10,6 +10,7 @@ import { api } from '../api';
 import type { UseWebSocketOptions } from '../useWebSocket';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
+import { RADIO_REBOOTING_TOAST_ID } from '../types';
 import { getStateKey } from '../utils/conversationState';
 import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
@@ -210,8 +211,10 @@ export function useRealtimeAppState({
             if (nextRadioState === 'paused') {
               toast.success(i18n.t('toast.radioPaused'));
             } else if (nextRadioState === 'rebooting') {
-              // Meshloom rebooted the radio itself (clock fix): not a failure.
+              // Meshloom rebooted the radio itself (clock fix): not a failure. Same
+              // id as the identity modal's toast, so the two never stack.
               toast.info(i18n.t('toast.radioRebooting'), {
+                id: RADIO_REBOOTING_TOAST_ID,
                 description: i18n.t('toast.radioRebootingDetail'),
               });
             } else if (
@@ -237,8 +240,12 @@ export function useRealtimeAppState({
       }) => {
         const key = error.code ? `errors.${error.code}` : '';
         const translated = key ? i18n.t(key, error.params) : error.message;
+        // `errors.<code>Detail`, when defined, replaces the backend's English details.
+        const detailKey = key ? `${key}Detail` : '';
+        const translatedDetail = detailKey ? i18n.t(detailKey, error.params) : '';
         toast.error(key && translated !== key ? translated : error.message, {
-          description: error.details,
+          description:
+            detailKey && translatedDetail !== detailKey ? translatedDetail : error.details,
         });
       },
       onSuccess: (success: {

@@ -98,7 +98,9 @@ describe('RadioIdentityModal', () => {
 
     await user.click(screen.getByRole('button', { name: i18n.t('radioIdentity.bindWithoutWipe') }));
     await waitFor(() => {
+      // Same id as the health-driven toast, so the two never stack.
       expect(mocks.toast.info).toHaveBeenCalledWith(i18n.t('toast.radioRebooting'), {
+        id: 'radio-rebooting',
         description: i18n.t('toast.radioRebootingDetail'),
       });
       expect(onAdopted).toHaveBeenCalledTimes(1);

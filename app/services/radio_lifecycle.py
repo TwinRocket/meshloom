@@ -416,6 +416,14 @@ async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool =
             await radio_manager.disconnect()
         return False
 
+    if not (radio_manager.is_connected and radio_manager.is_setup_complete):
+        # Setup returned without running: the transport went away while it waited
+        # for the setup lock (e.g. a concurrent setup rebooted the radio for its
+        # clock and disconnected). Never report that as healthy, and keep the
+        # expected reboot so its grace period still applies.
+        logger.info("Radio not connected after setup; the monitor will reconnect")
+        return False
+
     radio_manager._last_connected = True
     radio_manager.clear_expected_reboot()
     if broadcast_on_success:
@@ -464,6 +472,9 @@ async def connection_monitor_loop(radio_manager) -> None:
                     "Check the radio's power and connection.",
                     code="radio_reboot_timeout",
                 )
+                # One message for this pass: the next pass retries and reports a
+                # reconnect failure the usual way.
+                continue
 
             if radio_manager.take_expected_reboot_teardown() and radio_manager.is_connected:
                 # The clock fix rebooted the radio outside setup (periodic sync,

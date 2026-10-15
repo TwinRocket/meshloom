@@ -60,12 +60,19 @@ and the OpenAPI page (`/docs`), not a table here.
 - Whoever triggered that reboot (setup, the periodic sync, `PATCH /radio/config`),
   `RadioManager.note_expected_reboot()` records it for
   `EXPECTED_REBOOT_GRACE_SECONDS` (90 s): health says `radio_state: "rebooting"`,
-  reconnect failures are not broadcast, `POST /radio/reconnect` answers 200
-  `pending` with `code: "radio_rebooting"` instead of racing the monitor, and the
-  monitor drops a transport that survived the reboot (a serial bridge keeps the
-  port open) so setup runs again on a new session. The first completed setup
-  clears it; past the bound the monitor broadcasts `radio_reboot_timeout` and
-  reconnect errors surface again.
+  reconnect failures are not broadcast, `POST /radio/reconnect` (and
+  `POST /radio/reboot` while disconnected) answers 200 `pending` with
+  `code: "radio_rebooting"` instead of racing the monitor,
+  `POST /radio/identity/adopt` returns `radio_state: "rebooting"` instead of
+  `"paused"`, and the monitor drops a transport that survived the reboot (a
+  serial bridge keeps the port open) so setup runs again on a new session. The
+  first completed setup clears it (`prepare_connected_radio` reports healthy only
+  when the transport is up and setup completed, never after a setup that found
+  no transport); past the bound the monitor broadcasts only
+  `radio_reboot_timeout` on that pass, then reconnect errors surface again.
+- A broadcast `error` with a `code` is translated by the frontend from
+  `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
+  else the backend's `details` are shown as sent.
 - The message poll task always runs: an hourly audit, or every 10 s with
   `enable_message_poll_fallback`. It also detects channel-slot cache drift.
 - `sync_recent_contacts_to_radio()` sets `_last_contact_sync` before the sync

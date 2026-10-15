@@ -568,8 +568,31 @@ class TestConnectionMonitorAfterClockReboot:
 
         _mock_health, mock_error = await self._run_monitor(rm, ticks=1)
 
-        assert _error_codes(mock_error) == ["radio_reboot_timeout", "reconnection_failed"]
+        # One message on the pass where the bound runs out; no reconnect on it.
+        assert _error_codes(mock_error) == ["radio_reboot_timeout"]
+        rm.connect.assert_not_awaited()
         rm.post_connect_setup.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_setup_that_finds_no_transport_is_not_reported_healthy(self):
+        """Startup race: the monitor's setup waited on the setup lock while the
+        startup setup rebooted the radio and disconnected. It must not report
+        "connected" nor clear the expected reboot."""
+        from app.radio import RadioManager
+        from app.services.radio_lifecycle import prepare_connected_radio
+
+        rm = RadioManager()
+        rm._connection_info = "BLE: AA:BB:CC:DD:EE:FF"
+        rm._meshcore = None
+        rm.note_expected_reboot("clock_sync")
+
+        with patch("app.websocket.broadcast_health") as mock_health:
+            ok = await prepare_connected_radio(rm, broadcast_on_success=True)
+
+        assert ok is False
+        assert rm._last_connected is False
+        assert rm.expected_reboot == "clock_sync"
+        assert [c.args[0] for c in mock_health.call_args_list if c.args[0] is True] == []
 
 
 class TestReconnectLock:
@@ -1364,7 +1387,19 @@ class TestPostConnectSetupOrdering:
 
         rm = RadioManager()
         rm._connection_info = "Serial: /dev/ttyUSB0"
-        rm.post_connect_setup = AsyncMock(side_effect=[TimeoutError(), None])
+        rm._meshcore = _connected_mc()
+
+        attempts = 0
+
+        async def _setup():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError()
+            rm._setup_complete = True
+            return "done"
+
+        rm.post_connect_setup = AsyncMock(side_effect=_setup)
 
         with (
             patch("app.websocket.broadcast_error") as mock_broadcast_error,

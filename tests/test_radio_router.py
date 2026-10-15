@@ -1169,8 +1169,17 @@ class TestRebootAndReconnect:
         mock_rm.is_connected = False
         mock_rm.meshcore = None
         mock_rm.is_reconnecting = False
-        mock_rm.reconnect = AsyncMock(return_value=True)
-        mock_rm.post_connect_setup = AsyncMock()
+
+        async def _reconnect(**_kwargs):
+            mock_rm.is_connected = True
+            return True
+
+        async def _setup():
+            mock_rm.is_setup_complete = True
+            return "done"
+
+        mock_rm.reconnect = AsyncMock(side_effect=_reconnect)
+        mock_rm.post_connect_setup = AsyncMock(side_effect=_setup)
         mock_rm.radio_operation = _noop_radio_operation()
         mock_rm.connection_info = "TCP: test:4000"
 
