@@ -72,7 +72,7 @@ Si la radio est injoignable un instant, Meshloom relance son travail de démarra
 
 ## L’horloge de la radio est bloquée dans le futur
 
-La radio n’accepte qu’une heure postérieure à la sienne. Quand son horloge est en avance, Meshloom la redémarre une fois par démarrage de Meshloom : les cartes dont l’horloge ne survit pas au redémarrage acceptent alors la bonne heure à la connexion suivante. Une carte qui garde son horloge au redémarrage reste en avance, et le log le signale à chaque connexion.
+La radio n’accepte qu’une heure postérieure à la sienne. Quand son horloge est en avance, Meshloom la redémarre une fois par démarrage de Meshloom, que ce soit à la connexion, pendant la synchronisation périodique ou après une modification dans **Réglages > Radio** : les cartes dont l’horloge ne survit pas au redémarrage acceptent alors la bonne heure à la connexion suivante. Pendant que la radio redémarre, la barre d’état affiche **Radio en redémarrage** et Meshloom se reconnecte tout seul, puis refait son travail de démarrage. Inutile d’appuyer sur **Reconnecter** : pendant le redémarrage, il répond seulement que la radio redémarre. Si la radio n’est pas revenue au bout de 90 secondes, Meshloom le signale et affiche de nouveau les erreurs de reconnexion. Une carte qui garde son horloge au redémarrage reste en avance, et le log le signale à chaque connexion.
 
 ## `/docs` n’est pas cette documentation
 
