@@ -157,14 +157,6 @@ async def get_active_iata() -> CommunityIataActiveResponse:
 
 
 @router.post("/live/restart", response_model=CommunityLiveStatus)
-# Deprecated alias of the old French path, kept hidden so scripts that call it
-# keep working; to be removed in a later release.
-@router.post(
-    "/live/relancer",
-    response_model=CommunityLiveStatus,
-    include_in_schema=False,
-    deprecated=True,
-)
 async def post_live_restart() -> CommunityLiveStatus:
     """Mint a new live token and reconnect; clears a 4002 stop and a given-up 401."""
     return CommunityLiveStatus.model_validate(await restart_live())
