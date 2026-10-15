@@ -78,13 +78,21 @@ class TestWebSocketBroadcast:
         async def hang(_):
             await asyncio.sleep(3600)
 
+        closed = asyncio.Event()
+
+        async def record_close(**_):
+            closed.set()
+
         slow_ws.send_text.side_effect = hang
+        slow_ws.close.side_effect = record_close
         await ws_manager.connect(good_ws)
         await ws_manager.connect(slow_ws)
 
         with patch("app.websocket.SEND_TIMEOUT_SECONDS", 0.05):
             await ws_manager.broadcast("test", {})
-            await asyncio.sleep(0.15)
+            # Wait for the eviction's close instead of a fixed sleep; the bound
+            # only matters if the code is broken, a healthy run returns at once.
+            await asyncio.wait_for(closed.wait(), timeout=10)
             await _flush()
 
         assert list(ws_manager.active_connections) == [good_ws]
