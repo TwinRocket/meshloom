@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useRealtimeAppState } from '../hooks/useRealtimeAppState';
+import i18n from '../i18n';
+import { RADIO_REBOOTING_TOAST_ID } from '../types';
 import {
   getRawPacketStatsSession,
   getRawPackets,
@@ -17,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   toast: Object.assign(vi.fn(), {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   }),
 }));
 
@@ -454,6 +457,64 @@ describe('useRealtimeAppState', () => {
     });
 
     expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it('announces the clock-fix reboot as information, not as a lost radio', () => {
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    const connected = {
+      status: 'ok',
+      radio_connected: true,
+      radio_initializing: false,
+      radio_state: 'connected',
+      connection_info: 'BLE: AA:BB:CC:DD:EE:FF',
+      database_size_mb: 1,
+      oldest_undecrypted_timestamp: null,
+      fanout_statuses: {},
+      bots_disabled: false,
+    } as HealthStatus;
+
+    act(() => {
+      result.current.onHealth?.(connected);
+      result.current.onHealth?.({
+        ...connected,
+        status: 'degraded',
+        radio_connected: false,
+        radio_state: 'rebooting',
+      });
+    });
+
+    expect(mocks.toast.info).toHaveBeenCalledWith(i18n.t('toast.radioRebooting'), {
+      id: RADIO_REBOOTING_TOAST_ID,
+      description: i18n.t('toast.radioRebootingDetail'),
+    });
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it('translates the details of a coded error when a Detail key exists', () => {
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onError?.({
+        message: 'Radio did not come back after its clock reboot',
+        details: "Check the radio's power and connection.",
+        code: 'radio_reboot_timeout',
+      });
+      result.current.onError?.({
+        message: 'Reconnection failed',
+        details: 'Could not connect to serial port /dev/ttyUSB0.',
+        code: 'reconnection_failed',
+      });
+    });
+
+    expect(mocks.toast.error).toHaveBeenNthCalledWith(1, i18n.t('errors.radio_reboot_timeout'), {
+      description: i18n.t('errors.radio_reboot_timeoutDetail'),
+    });
+    // No Detail key: the backend's own details (here the real cause) stay.
+    expect(mocks.toast.error).toHaveBeenNthCalledWith(2, i18n.t('errors.reconnection_failed'), {
+      description: 'Could not connect to serial port /dev/ttyUSB0.',
+    });
   });
 
   it('routes message_deleted to removeMessage', () => {

@@ -246,7 +246,8 @@ export function RadioStatusChip({
 
   const state = health?.radio_state;
   const connected = health?.radio_connected === true;
-  const settling = state === 'connecting' || state === 'initializing';
+  const rebooting = state === 'rebooting';
+  const settling = state === 'connecting' || state === 'initializing' || rebooting;
   const batteryMv = radioBatteryMv(health);
   const batteryChip =
     batteryMv != null
@@ -257,21 +258,25 @@ export function RadioStatusChip({
       ? formatBatteryLabel(batteryMv, batteryPrefs.percent, batteryPrefs.voltage)
       : null;
 
-  const label = settling
-    ? t('statusBar.radioConnecting')
-    : state === 'paused'
-      ? t('statusBar.radioPaused')
-      : connected
-        ? t('statusBar.radioOk')
-        : t('statusBar.radioDisconnected');
+  const label = rebooting
+    ? t('statusBar.radioRebooting')
+    : settling
+      ? t('statusBar.radioConnecting')
+      : state === 'paused'
+        ? t('statusBar.radioPaused')
+        : connected
+          ? t('statusBar.radioOk')
+          : t('statusBar.radioDisconnected');
 
-  const shortLabel = settling
-    ? t('statusBar.radioConnectingShort')
-    : state === 'paused'
-      ? t('statusBar.radioPausedShort')
-      : connected
-        ? t('statusBar.radioOkShort')
-        : t('statusBar.radioDisconnectedShort');
+  const shortLabel = rebooting
+    ? t('statusBar.radioRebootingShort')
+    : settling
+      ? t('statusBar.radioConnectingShort')
+      : state === 'paused'
+        ? t('statusBar.radioPausedShort')
+        : connected
+          ? t('statusBar.radioOkShort')
+          : t('statusBar.radioDisconnectedShort');
 
   const hint = radioTransportHint(health?.connection_info);
   const title = compact

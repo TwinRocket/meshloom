@@ -58,6 +58,16 @@ describe('RadioStatusChip', () => {
     expect(screen.getByText(i18n.t('statusBar.radioOk'))).toBeInTheDocument();
   });
 
+  it('names the clock-fix reboot instead of a disconnection', () => {
+    render(
+      <RadioStatusChip
+        health={{ ...connected, radio_connected: false, radio_state: 'rebooting' }}
+      />
+    );
+    expect(screen.getByText(i18n.t('statusBar.radioRebooting'))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('statusBar.radioDisconnected'))).not.toBeInTheDocument();
+  });
+
   it('shows the short word and the transport on the rail, not a coloured dot', () => {
     render(<RadioStatusChip health={connected} compact />);
     const status = screen.getByRole('status');

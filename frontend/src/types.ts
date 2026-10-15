@@ -7,6 +7,9 @@ interface RadioSettings {
 
 export type RadioTransportKind = 'serial' | 'tcp' | 'ble';
 
+/** Toast id for "radio rebooting to reset its clock": one toast, whoever announces it. */
+export const RADIO_REBOOTING_TOAST_ID = 'radio-rebooting';
+
 export type RadioIdentityGateState = 'identity_mismatch' | 'identity_unbound_legacy';
 
 export function isRadioIdentityGate(
@@ -95,11 +98,21 @@ export interface RadioIdentityInfo {
   last_activity: number | null;
 }
 
+/** `POST /radio/reconnect`. `code: 'radio_rebooting'` (status `pending`): the radio is
+ * restarting after Meshloom reset its clock, and the backend reconnects on its own. */
+export interface RadioReconnectResponse {
+  status: string;
+  message: string;
+  connected: boolean;
+  code?: string;
+}
+
 export interface RadioIdentityActionResponse {
   status: string;
   radio_state:
     | 'connected'
     | 'initializing'
+    | 'rebooting'
     | 'connecting'
     | 'disconnected'
     | 'paused'
@@ -242,6 +255,7 @@ export interface HealthStatus {
   radio_state?:
     | 'connected'
     | 'initializing'
+    | 'rebooting'
     | 'connecting'
     | 'disconnected'
     | 'paused'

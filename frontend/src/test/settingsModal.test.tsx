@@ -36,6 +36,7 @@ import type {
   RadioConfigUpdate,
   RadioDiscoveryResponse,
   RadioDiscoveryTarget,
+  RadioReconnectResponse,
   RadioRegionDiscoveryResponse,
   RadioTransportConfig,
   StatisticsResponse,
@@ -46,6 +47,7 @@ import {
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
 import { api } from '../api';
+import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
 import { SHOW_PATH_HOP_WIDTH_KEY } from '../utils/pathHopWidthPreference';
 import { DEFAULT_LOCALE, LANGUAGE_STORAGE_KEY } from '../utils/languagePreference';
@@ -137,7 +139,7 @@ function renderModal(overrides?: {
   onSetPrivateKey?: (key: string) => Promise<void>;
   onReboot?: () => Promise<void>;
   onDisconnect?: () => Promise<void>;
-  onReconnect?: () => Promise<void>;
+  onReconnect?: () => Promise<RadioReconnectResponse | void>;
   onAdvertise?: (mode: RadioAdvertMode) => Promise<void>;
   meshDiscovery?: RadioDiscoveryResponse | null;
   meshDiscoveryLoadingTarget?: RadioDiscoveryTarget | null;
@@ -160,7 +162,8 @@ function renderModal(overrides?: {
   const onSetPrivateKey = overrides?.onSetPrivateKey ?? vi.fn(async () => {});
   const onReboot = overrides?.onReboot ?? vi.fn(async () => {});
   const onDisconnect = overrides?.onDisconnect ?? vi.fn(async () => {});
-  const onReconnect = overrides?.onReconnect ?? vi.fn(async () => {});
+  const onReconnect =
+    overrides?.onReconnect ?? vi.fn(async (): Promise<RadioReconnectResponse | void> => {});
   const onAdvertise = overrides?.onAdvertise ?? vi.fn(async (_mode: RadioAdvertMode) => {});
   const onDiscoverMesh = overrides?.onDiscoverMesh ?? vi.fn(async () => {});
   const onDiscoverRegions = vi.fn(async () => {});
@@ -567,6 +570,44 @@ describe('SettingsModal', () => {
           })
       )
     ).toBeInTheDocument();
+  });
+
+  it('says the radio is rebooting for its clock fix instead of not connected', () => {
+    renderModal({
+      health: { ...baseHealth, radio_connected: false, radio_state: 'rebooting' },
+    });
+    openRadioSection();
+    openRadioTab('tabConnection');
+
+    expect(
+      screen.getByText(i18n.t('settings.radio.rebootingClockFix', { info: 'Serial: /dev/ttyUSB0' }))
+    ).toBeInTheDocument();
+  });
+
+  it('tells a reconnect that hit the clock-fix reboot that the radio comes back by itself', async () => {
+    const info = vi.spyOn(toast, 'info');
+    const success = vi.spyOn(toast, 'success');
+    const onReconnect = vi.fn(async (): Promise<RadioReconnectResponse> => ({
+      status: 'pending',
+      code: 'radio_rebooting',
+      message: 'The radio is rebooting to reset its clock',
+      connected: false,
+    }));
+    renderModal({
+      health: { ...baseHealth, radio_connected: false, radio_state: 'paused' },
+      onReconnect,
+    });
+    openRadioSection();
+    openRadioTab('tabConnection');
+
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.reconnect') }));
+
+    await waitFor(() => {
+      expect(info).toHaveBeenCalledWith(i18n.t('settings.radio.rebootingReconnectRequested'));
+    });
+    expect(success).not.toHaveBeenCalledWith(i18n.t('settings.radio.reconnectRequested'));
+    info.mockRestore();
+    success.mockRestore();
   });
 
   it('shows reconnect action when radio connection is paused', () => {

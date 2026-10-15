@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
 from app.repository import RawPacketRepository
+from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import get_latest_radio_stats
 from app.version_info import get_app_build_info
@@ -140,6 +141,9 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
     radio_initializing = bool(radio_connected and (setup_in_progress or not setup_complete))
     if not connection_desired:
         radio_state = "paused"
+    elif expected_reboot_reason(radio_manager) is not None:
+        # Rebooting on Meshloom's request (clock fix) until setup completes again.
+        radio_state = "rebooting"
     elif radio_initializing:
         radio_state = "initializing"
     elif radio_connected:

@@ -159,6 +159,25 @@ class TestHealthFanoutStatus:
         assert data["radio_connected"] is False
 
     @pytest.mark.asyncio
+    async def test_health_state_rebooting_during_expected_clock_reboot(self, test_db):
+        """The clock fix reboot reads as rebooting, not as a lost radio."""
+        with (
+            patch(
+                "app.routers.health.RawPacketRepository.get_oldest_undecrypted", return_value=None
+            ),
+            patch("app.routers.health.radio_manager") as mock_rm,
+        ):
+            mock_rm.is_setup_in_progress = False
+            mock_rm.is_setup_complete = False
+            mock_rm.connection_desired = True
+            mock_rm.is_reconnecting = True
+            mock_rm.expected_reboot = "clock_sync"
+            data = await build_health_data(False, "BLE: AA:BB:CC:DD:EE:FF")
+
+        assert data["radio_state"] == "rebooting"
+        assert data["radio_connected"] is False
+
+    @pytest.mark.asyncio
     async def test_health_state_connecting_while_reconnect_in_progress(self, test_db):
         """Health reports connecting while retries are active but transport is not up yet."""
         with (

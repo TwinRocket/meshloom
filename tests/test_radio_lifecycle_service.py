@@ -61,7 +61,7 @@ class TestPrepareConnectedRadio:
     @pytest.mark.asyncio
     async def test_drops_transport_when_setup_rebooted_the_radio(self):
         radio_manager = MagicMock()
-        radio_manager._last_connected = False
+        radio_manager._last_connected = True
         radio_manager.connection_desired = True
         radio_manager.is_connected = True
         radio_manager.post_connect_setup = AsyncMock(return_value="reconnect")
@@ -73,7 +73,9 @@ class TestPrepareConnectedRadio:
         assert result is False
         radio_manager.disconnect.assert_awaited_once()
         assert radio_manager._last_connected is False
-        mock_broadcast.assert_not_called()
+        # Health goes out as disconnected (radio_state "rebooting"), never healthy.
+        mock_broadcast.assert_called_once_with(False, radio_manager.connection_info)
+        radio_manager.clear_expected_reboot.assert_not_called()
 
 
 class TestReconnectAndPrepareRadio:

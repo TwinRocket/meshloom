@@ -164,6 +164,20 @@ def _reset_radio_ingest_gate():
 
 
 @pytest.fixture(autouse=True)
+def _reset_expected_reboot():
+    """Forget an expected radio reboot (clock fix) recorded by a previous test.
+
+    It lives on the process-wide manager: left set, it turns every later health
+    payload into "rebooting" and silences reconnect errors in the same worker.
+    """
+    from app.radio import radio_manager
+
+    radio_manager.clear_expected_reboot()
+    yield
+    radio_manager.clear_expected_reboot()
+
+
+@pytest.fixture(autouse=True)
 def _reset_radio_channel_slots():
     """Hand every test an empty channel slot cache.
 

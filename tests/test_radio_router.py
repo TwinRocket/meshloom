@@ -1169,8 +1169,17 @@ class TestRebootAndReconnect:
         mock_rm.is_connected = False
         mock_rm.meshcore = None
         mock_rm.is_reconnecting = False
-        mock_rm.reconnect = AsyncMock(return_value=True)
-        mock_rm.post_connect_setup = AsyncMock()
+
+        async def _reconnect(**_kwargs):
+            mock_rm.is_connected = True
+            return True
+
+        async def _setup():
+            mock_rm.is_setup_complete = True
+            return "done"
+
+        mock_rm.reconnect = AsyncMock(side_effect=_reconnect)
+        mock_rm.post_connect_setup = AsyncMock(side_effect=_setup)
         mock_rm.radio_operation = _noop_radio_operation()
         mock_rm.connection_info = "TCP: test:4000"
 
@@ -1214,6 +1223,76 @@ class TestRebootAndReconnect:
                 await reconnect_radio()
 
         assert exc.value.status_code == 423
+
+    @pytest.mark.asyncio
+    async def test_reconnect_during_expected_reboot_says_so_without_racing_the_monitor(self):
+        mock_rm = MagicMock()
+        mock_rm.is_connected = False
+        mock_rm.is_reconnecting = False
+        mock_rm.expected_reboot = "clock_sync"
+        mock_rm.reconnect = AsyncMock(return_value=False)
+
+        with (
+            patch("app.routers.radio.radio_manager", _runtime(mock_rm)),
+            _patch_configured_transport(),
+        ):
+            result = await reconnect_radio()
+
+        assert result["status"] == "pending"
+        assert result["code"] == "radio_rebooting"
+        assert result["connected"] is False
+        mock_rm.reconnect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconnect_that_triggers_the_clock_reboot_is_not_a_failure(self):
+        """Setup rebooted the radio to reset its clock: 200 pending, not 423."""
+        mock_rm = MagicMock()
+        mock_rm.is_connected = False
+        mock_rm.is_reconnecting = False
+        mock_rm.connection_desired = True
+        mock_rm.expected_reboot = None
+        mock_rm.reconnect = AsyncMock(return_value=True)
+        mock_rm.disconnect = AsyncMock()
+
+        async def _setup():
+            mock_rm.expected_reboot = "clock_sync"
+            return "reconnect"
+
+        mock_rm.post_connect_setup = AsyncMock(side_effect=_setup)
+
+        with (
+            patch("app.routers.radio.radio_manager", _runtime(mock_rm)),
+            _patch_configured_transport(),
+            patch("app.websocket.broadcast_health"),
+        ):
+            result = await reconnect_radio()
+
+        assert result["status"] == "pending"
+        assert result["code"] == "radio_rebooting"
+        mock_rm.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_setup_retry_that_triggers_the_clock_reboot_is_not_paused(self):
+        mock_rm = MagicMock()
+        mock_rm.is_connected = True
+        mock_rm.is_setup_complete = False
+        mock_rm.connection_desired = True
+        mock_rm.expected_reboot = None
+        mock_rm.disconnect = AsyncMock()
+
+        async def _setup():
+            mock_rm.expected_reboot = "clock_sync"
+            return "reconnect"
+
+        mock_rm.post_connect_setup = AsyncMock(side_effect=_setup)
+
+        with (
+            patch("app.routers.radio.radio_manager", _runtime(mock_rm)),
+            patch("app.websocket.broadcast_health"),
+        ):
+            result = await reconnect_radio()
+
+        assert result["code"] == "radio_rebooting"
 
     @pytest.mark.asyncio
     async def test_reconnect_409_when_transport_unconfigured(self):
@@ -1621,6 +1700,33 @@ class TestRadioIdentityRoutes:
         snapshot = await RadioTransportRepository.get()
         assert snapshot.bound_public_key == "aa" * 32
         assert snapshot.identity_state == "identity_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_adopt_reports_rebooting_when_setup_reset_the_clock(self, test_db):
+        from app.repository.radio_transport import RadioTransportRepository
+
+        await RadioTransportRepository.save(
+            RadioTransportSnapshot(
+                transport="serial",
+                serial_port="/dev/ttyUSB0",
+                identity_state="identity_unbound_legacy",
+            )
+        )
+        mock_rm = MagicMock()
+        mock_rm.lifecycle_transition = _noop_lifecycle
+        mock_rm.expected_reboot = "clock_sync"
+
+        with (
+            patch("app.routers.radio.radio_manager", _runtime(mock_rm)),
+            patch(
+                "app.routers.radio._reconnect_and_prepare",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            result = await adopt_radio_identity(RadioIdentityAdoptRequest(confirm_wipe=False))
+
+        assert result.radio_state == "rebooting"
+        assert result.connected is False
 
     @pytest.mark.asyncio
     async def test_reject_restores_ble_pin(self, test_db):

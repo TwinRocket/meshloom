@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../api';
 import {
   isRadioIdentityGate,
+  RADIO_REBOOTING_TOAST_ID,
   publicKeyPrefix,
   type HealthStatus,
   type RadioIdentityInfo,
@@ -65,7 +66,14 @@ export function RadioIdentityModal({
   const handleAdopt = async (confirmWipe: boolean) => {
     setBusy('adopt');
     try {
-      await api.adoptRadioIdentity({ confirm_wipe: confirmWipe });
+      const result = await api.adoptRadioIdentity({ confirm_wipe: confirmWipe });
+      if (result?.radio_state === 'rebooting') {
+        // Setup reset the radio's clock by rebooting it: it comes back on its own.
+        toast.info(t('toast.radioRebooting'), {
+          id: RADIO_REBOOTING_TOAST_ID,
+          description: t('toast.radioRebootingDetail'),
+        });
+      }
       await onAdopted();
       await onResolved?.();
     } catch (err) {

@@ -66,6 +66,7 @@ from app.services.radio_commands import (
     apply_radio_config_update,
     import_private_key_and_refresh_keystore,
 )
+from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_transport import (
     build_transport_response,
@@ -1021,10 +1022,34 @@ async def _require_transport_ready() -> None:
         )
 
 
+RADIO_REBOOTING_MESSAGE = (
+    "The radio is rebooting to reset its clock; Meshloom reconnects automatically."
+)
+
+
+def _rebooting_response() -> dict | None:
+    """Answer for a reconnect request while the radio is in an expected reboot.
+
+    The connection monitor brings the radio back on its own: a reconnect request
+    then is neither a failure nor a reason to race the monitor for the transport.
+    """
+    if expected_reboot_reason(radio_manager) is None:
+        return None
+    return {
+        "status": "pending",
+        "code": "radio_rebooting",
+        "message": RADIO_REBOOTING_MESSAGE,
+        "connected": False,
+    }
+
+
 async def _attempt_reconnect() -> dict:
     """Shared reconnection logic for reboot and reconnect endpoints."""
     await _require_transport_ready()
     radio_manager.resume_connection()
+
+    if rebooting := _rebooting_response():
+        return rebooting
 
     if radio_manager.is_reconnecting:
         return {
@@ -1043,6 +1068,9 @@ async def _attempt_reconnect() -> dict:
         ) from e
 
     if not success:
+        # Setup itself may have rebooted the radio to reset its clock.
+        if rebooting := _rebooting_response():
+            return rebooting
         raise HTTPException(
             status_code=423, detail="Failed to reconnect. Check radio connection and power."
         )
@@ -1235,7 +1263,11 @@ async def adopt_radio_identity(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return RadioIdentityActionResponse(
         status="ok",
-        radio_state="connected" if connected else "paused",
+        radio_state="connected"
+        if connected
+        else "rebooting"
+        if expected_reboot_reason(radio_manager) is not None
+        else "paused",
         bound_public_key=snapshot.bound_public_key,
         connected=bool(connected),
     )
@@ -1324,6 +1356,9 @@ async def reconnect_radio() -> dict:
     if no specific port is configured. Useful when the radio has been disconnected
     or power-cycled.
     """
+    if rebooting := _rebooting_response():
+        return rebooting
+
     if radio_manager.is_connected:
         if radio_manager.is_setup_complete:
             return {"status": "ok", "message": "Already connected", "connected": True}
@@ -1331,6 +1366,8 @@ async def reconnect_radio() -> dict:
         logger.info("Radio connected but setup incomplete, retrying setup")
         try:
             if not await _prepare_connected(broadcast_on_success=True):
+                if rebooting := _rebooting_response():
+                    return rebooting
                 raise HTTPException(status_code=423, detail="Radio connection is paused")
             return {"status": "ok", "message": "Setup completed", "connected": True}
         except HTTPException:

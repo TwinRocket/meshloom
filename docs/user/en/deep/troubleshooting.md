@@ -72,7 +72,7 @@ If the radio is unreachable for a moment, Meshloom retries its start-up work eve
 
 ## The radio clock is stuck in the future
 
-The radio only accepts a time later than its own. When its clock is ahead, Meshloom reboots it once per Meshloom start: boards whose clock does not survive a restart then accept the right time at the next connection. A board that keeps its clock across restarts stays ahead, and the log says so at each connection.
+The radio only accepts a time later than its own. When its clock is ahead, Meshloom reboots it once per Meshloom start, whether this happens at connection, during the periodic sync or after a change in **Settings > Radio**: boards whose clock does not survive a restart then accept the right time at the next connection. While the radio restarts, the status bar says **Radio Rebooting** and Meshloom reconnects by itself, then redoes its start-up work. You do not need to press **Reconnect**: during the reboot it only answers that the radio is rebooting. If the radio has not come back after 90 seconds, Meshloom says so and reports the reconnection errors again. A board that keeps its clock across restarts stays ahead, and the log says so at each connection.
 
 ## `/docs` is not this documentation
 

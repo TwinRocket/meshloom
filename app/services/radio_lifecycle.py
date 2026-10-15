@@ -8,8 +8,21 @@ logger = logging.getLogger(__name__)
 POST_CONNECT_SETUP_TIMEOUT_SECONDS = 300
 POST_CONNECT_SETUP_MAX_ATTEMPTS = 2
 DEFAULT_PATH_HASH_MODE = 1  # 2-byte hops
+# How long a reboot Meshloom sent itself (the clock fix) counts as expected: reconnect
+# failures stay quiet and reconnect requests are told the radio is rebooting. Past this
+# bound a radio that never came back surfaces errors again.
+EXPECTED_REBOOT_GRACE_SECONDS = 90
 
 PostConnectSetupOutcome = Literal["done", "reconnect"]
+# Reboots Meshloom sends on its own and then waits for (see RadioManager.note_expected_reboot).
+ExpectedRebootReason = Literal["clock_sync"]
+
+
+def expected_reboot_reason(radio_manager) -> ExpectedRebootReason | None:
+    """The reason of the reboot the radio is expected to come back from, if any."""
+    if getattr(radio_manager, "expected_reboot", None) == "clock_sync":
+        return "clock_sync"
+    return None
 
 
 def _clean_device_string(value: object) -> str | None:
@@ -393,6 +406,9 @@ async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool =
         # the connection monitor reconnect once the radio is back.
         logger.info("Radio is rebooting to reset its clock; the monitor will reconnect")
         await radio_manager.disconnect()
+        radio_manager._last_connected = False
+        # Every tab learns the radio is rebooting (health radio_state "rebooting").
+        broadcast_health(False, radio_manager.connection_info)
         return False
 
     if not radio_manager.connection_desired:
@@ -400,7 +416,16 @@ async def prepare_connected_radio(radio_manager, *, broadcast_on_success: bool =
             await radio_manager.disconnect()
         return False
 
+    if not (radio_manager.is_connected and radio_manager.is_setup_complete):
+        # Setup returned without running: the transport went away while it waited
+        # for the setup lock (e.g. a concurrent setup rebooted the radio for its
+        # clock and disconnected). Never report that as healthy, and keep the
+        # expected reboot so its grace period still applies.
+        logger.info("Radio not connected after setup; the monitor will reconnect")
+        return False
+
     radio_manager._last_connected = True
+    radio_manager.clear_expected_reboot()
     if broadcast_on_success:
         broadcast_health(True, radio_manager.connection_info)
     return True
@@ -421,7 +446,7 @@ async def reconnect_and_prepare_radio(
 
 async def connection_monitor_loop(radio_manager) -> None:
     """Monitor radio health and keep transport/setup state converged."""
-    from app.websocket import broadcast_health
+    from app.websocket import broadcast_error, broadcast_health
 
     check_interval_seconds = 5
     unresponsive_threshold = 3
@@ -431,11 +456,46 @@ async def connection_monitor_loop(radio_manager) -> None:
         try:
             await asyncio.sleep(check_interval_seconds)
 
+            # A radio that reconnected and is still in setup (a long offload) is
+            # back: only a radio still unreachable past the bound is reported.
+            if (
+                radio_manager.expire_expected_reboot() is not None
+                and not radio_manager.is_connected
+            ):
+                logger.warning(
+                    "Radio has not come back %ds after rebooting to reset its clock; "
+                    "reconnect failures are reported again",
+                    EXPECTED_REBOOT_GRACE_SECONDS,
+                )
+                broadcast_error(
+                    "Radio did not come back after its clock reboot",
+                    "Check the radio's power and connection.",
+                    code="radio_reboot_timeout",
+                )
+                # One message for this pass: the next pass retries and reports a
+                # reconnect failure the usual way.
+                continue
+
+            if radio_manager.take_expected_reboot_teardown() and radio_manager.is_connected:
+                # The clock fix rebooted the radio outside setup (periodic sync,
+                # config update) and the transport survived it, as a serial bridge
+                # does. Drop it now and reconnect on the next pass, once the radio
+                # has had time to boot, so setup runs again on the new session.
+                logger.info("Radio rebooted to reset its clock; reconnecting to run setup again")
+                await radio_manager.disconnect()
+                radio_manager._last_connected = False
+                broadcast_health(False, radio_manager.connection_info)
+                consecutive_setup_failures = 0
+                continue
+
             current_connected = radio_manager.is_connected
             connection_desired = radio_manager.connection_desired
 
             if radio_manager._last_connected and not current_connected:
-                logger.warning("Radio connection lost, broadcasting status change")
+                if expected_reboot_reason(radio_manager) is not None:
+                    logger.info("Radio transport dropped for its expected reboot")
+                else:
+                    logger.warning("Radio connection lost, broadcasting status change")
                 broadcast_health(False, radio_manager.connection_info)
                 radio_manager._last_connected = False
                 consecutive_setup_failures = 0

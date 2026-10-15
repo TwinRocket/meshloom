@@ -353,6 +353,248 @@ class TestConnectionMonitor:
         rm.post_connect_setup.assert_not_called()
 
 
+def _connected_mc() -> MagicMock:
+    mc = MagicMock()
+    mc.is_connected = True
+    mc.disconnect = AsyncMock()
+    mc.connection_manager = None
+    return mc
+
+
+def _error_codes(mock_broadcast_error: MagicMock) -> list[str | None]:
+    return [c.kwargs.get("code") for c in mock_broadcast_error.call_args_list]
+
+
+class TestExpectedReboot:
+    """The clock-fix reboot Meshloom sends is a planned reconnect, within a bound."""
+
+    def test_expected_while_within_grace_period(self):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm._setup_complete = True
+        rm.note_expected_reboot("clock_sync")
+
+        assert rm.expected_reboot == "clock_sync"
+        assert rm.is_setup_complete is False
+
+    def test_no_longer_expected_past_the_grace_period(self):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm.note_expected_reboot("clock_sync")
+        rm._expected_reboot_deadline = 0.0
+
+        assert rm.expected_reboot is None
+        assert rm.expire_expected_reboot() == "clock_sync"
+        assert rm.expire_expected_reboot() is None
+
+    @pytest.mark.asyncio
+    async def test_pausing_forgets_the_expected_reboot(self):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm.note_expected_reboot("clock_sync")
+        await rm.pause_connection()
+
+        assert rm.expected_reboot is None
+        assert rm.take_expected_reboot_teardown() is False
+
+    @pytest.mark.asyncio
+    async def test_transport_or_identity_change_forgets_the_expected_reboot(self):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm.note_expected_reboot("clock_sync")
+        async with rm.lifecycle_transition("put_transport"):
+            assert rm.expected_reboot is None
+        await rm.stop_connection_monitor()
+
+    def test_reconnect_errors_stay_quiet_then_surface_past_the_bound(self):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm.note_expected_reboot("clock_sync")
+        with patch("app.websocket.broadcast_error") as mock_broadcast_error:
+            for _ in range(5):
+                rm._broadcast_reconnect_error_if_needed("Could not connect")
+            assert mock_broadcast_error.call_count == 0
+
+            rm._expected_reboot_deadline = 0.0
+            rm._broadcast_reconnect_error_if_needed("Could not connect")
+
+        assert _error_codes(mock_broadcast_error) == ["reconnection_failed"]
+
+
+class TestConnectionMonitorAfterClockReboot:
+    """Drive the real monitor, prepare and reconnect code through a clock reboot."""
+
+    @staticmethod
+    def _sleep_until(ticks: int):
+        count = 0
+
+        async def _sleep(_seconds: float):
+            nonlocal count
+            count += 1
+            if count > ticks:
+                raise asyncio.CancelledError()
+
+        return _sleep
+
+    @staticmethod
+    async def _run_monitor(rm, ticks: int):
+        with (
+            patch(
+                "app.radio.asyncio.sleep",
+                side_effect=TestConnectionMonitorAfterClockReboot._sleep_until(ticks),
+            ),
+            patch("app.websocket.broadcast_health") as mock_health,
+            patch("app.websocket.broadcast_error") as mock_error,
+        ):
+            await rm.start_connection_monitor()
+            try:
+                await rm._reconnect_task
+            finally:
+                await rm.stop_connection_monitor()
+        return mock_health, mock_error
+
+    @pytest.mark.asyncio
+    async def test_setup_reconnect_result_reconnects_quietly_and_reruns_setup(self):
+        """Setup returns "reconnect": the monitor drops the transport, waits out a
+        failed attempt without an error toast, then reconnects and runs setup."""
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm._connection_info = "BLE: AA:BB:CC:DD:EE:FF"
+        first_mc = _connected_mc()
+        rm._meshcore = first_mc
+        rm._last_connected = False  # transport up, setup not run yet
+
+        setup_outcomes: list[str] = []
+
+        async def _setup():
+            if not setup_outcomes:
+                rm.note_expected_reboot("clock_sync")  # what sync_radio_time_outcome does
+                setup_outcomes.append("reconnect")
+                return "reconnect"
+            rm._setup_complete = True
+            setup_outcomes.append("done")
+            return "done"
+
+        connect_calls = 0
+
+        async def _connect():
+            nonlocal connect_calls
+            connect_calls += 1
+            if connect_calls == 1:
+                raise RuntimeError("Failed to open BLE connection")  # still booting
+            rm._meshcore = _connected_mc()
+
+        rm.post_connect_setup = AsyncMock(side_effect=_setup)
+        rm.connect = AsyncMock(side_effect=_connect)
+
+        mock_health, mock_error = await self._run_monitor(rm, ticks=3)
+
+        assert setup_outcomes == ["reconnect", "done"]
+        first_mc.disconnect.assert_awaited()
+        assert connect_calls == 2
+        assert _error_codes(mock_error) == []
+        assert [c.args[0] for c in mock_health.call_args_list] == [False, True]
+        assert rm.expected_reboot is None
+        assert rm.is_setup_complete is True
+
+    @pytest.mark.asyncio
+    async def test_reboot_outside_setup_with_surviving_transport_reruns_setup(self):
+        """Periodic sync or a config update rebooted the radio behind a serial
+        bridge that kept the port open: the monitor reconnects and reruns setup."""
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm._connection_info = "Serial: /dev/ttyUSB0"
+        old_mc = _connected_mc()
+        rm._meshcore = old_mc
+        rm._last_connected = True
+        rm._setup_complete = True
+        rm.note_expected_reboot("clock_sync")
+
+        async def _setup():
+            rm._setup_complete = True
+            return "done"
+
+        async def _connect():
+            rm._meshcore = _connected_mc()
+
+        rm.post_connect_setup = AsyncMock(side_effect=_setup)
+        rm.connect = AsyncMock(side_effect=_connect)
+
+        mock_health, mock_error = await self._run_monitor(rm, ticks=2)
+
+        old_mc.disconnect.assert_awaited()
+        rm.post_connect_setup.assert_awaited_once()
+        assert [c.args[0] for c in mock_health.call_args_list] == [False, True]
+        assert _error_codes(mock_error) == []
+        assert rm.expected_reboot is None
+
+    @pytest.mark.asyncio
+    async def test_bound_passing_during_a_long_setup_is_not_reported(self):
+        """The radio came back and setup (offload) outlasts the bound: no timeout error."""
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm._connection_info = "Serial: /dev/ttyACM0"
+        rm._meshcore = _connected_mc()
+        rm._last_connected = True
+        rm.note_expected_reboot("clock_sync")
+        rm._expected_reboot_teardown_pending = False  # already reconnected
+        rm._expected_reboot_deadline = 0.0
+        rm._setup_in_progress = True  # setup still running elsewhere
+        rm.post_connect_setup = AsyncMock()
+
+        _mock_health, mock_error = await self._run_monitor(rm, ticks=1)
+
+        assert _error_codes(mock_error) == []
+        assert rm.expected_reboot is None
+
+    @pytest.mark.asyncio
+    async def test_radio_that_never_comes_back_surfaces_errors_past_the_bound(self):
+        from app.radio import RadioManager
+
+        rm = RadioManager()
+        rm._connection_info = "Serial: /dev/ttyACM0"
+        rm.note_expected_reboot("clock_sync")
+        rm._expected_reboot_deadline = 0.0  # grace period over
+        rm.connect = AsyncMock(side_effect=RuntimeError("Failed to open serial connection"))
+        rm.post_connect_setup = AsyncMock()
+
+        _mock_health, mock_error = await self._run_monitor(rm, ticks=1)
+
+        # One message on the pass where the bound runs out; no reconnect on it.
+        assert _error_codes(mock_error) == ["radio_reboot_timeout"]
+        rm.connect.assert_not_awaited()
+        rm.post_connect_setup.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_setup_that_finds_no_transport_is_not_reported_healthy(self):
+        """Startup race: the monitor's setup waited on the setup lock while the
+        startup setup rebooted the radio and disconnected. It must not report
+        "connected" nor clear the expected reboot."""
+        from app.radio import RadioManager
+        from app.services.radio_lifecycle import prepare_connected_radio
+
+        rm = RadioManager()
+        rm._connection_info = "BLE: AA:BB:CC:DD:EE:FF"
+        rm._meshcore = None
+        rm.note_expected_reboot("clock_sync")
+
+        with patch("app.websocket.broadcast_health") as mock_health:
+            ok = await prepare_connected_radio(rm, broadcast_on_success=True)
+
+        assert ok is False
+        assert rm._last_connected is False
+        assert rm.expected_reboot == "clock_sync"
+        assert [c.args[0] for c in mock_health.call_args_list if c.args[0] is True] == []
+
+
 class TestReconnectLock:
     """Tests for reconnect() lock serialization — no duplicate reconnections."""
 
@@ -1145,7 +1387,19 @@ class TestPostConnectSetupOrdering:
 
         rm = RadioManager()
         rm._connection_info = "Serial: /dev/ttyUSB0"
-        rm.post_connect_setup = AsyncMock(side_effect=[TimeoutError(), None])
+        rm._meshcore = _connected_mc()
+
+        attempts = 0
+
+        async def _setup():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError()
+            rm._setup_complete = True
+            return "done"
+
+        rm.post_connect_setup = AsyncMock(side_effect=_setup)
 
         with (
             patch("app.websocket.broadcast_error") as mock_broadcast_error,
