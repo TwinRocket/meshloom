@@ -10,7 +10,7 @@ export type LiveBannerKind = 'opt_out' | 'auth_rejected';
 /** What LiveView needs from the relay status: close codes never reach the user. */
 export interface LiveConnectionState {
   optOut: boolean;
-  /** Community refused the live token and the relay gave up (until Relancer). */
+  /** Community refused the live token and the relay gave up (until a restart). */
   authError: LiveAuthError | null;
   /** Community clock minus ours, seconds, when known. */
   clockSkewS: number | null;

@@ -237,7 +237,7 @@ class TestRelayFilter:
             await relay.close_stats()
         assert upstream.urls == [f"{BASE}?iata=LYS,NCE", BASE]
 
-    async def test_relancer_tries_the_filter_again(self):
+    async def test_restart_tries_the_filter_again(self):
         relay = CommunityLiveRelay()
         upstream = Upstream(refuse_filtered=True)
         with ExitStack() as stack:
@@ -245,7 +245,7 @@ class TestRelayFilter:
             await relay.subscribe(None, ["NCE"])
             await _wait_until(lambda: relay.connected)
             upstream.refuse_filtered = False
-            await relay.relancer()
+            await relay.restart()
             await _wait_until(lambda: len(upstream.urls) >= 3 and relay.connected)
             await relay.close_stats()
         assert upstream.urls == [f"{BASE}?iata=LYS,NCE", BASE, f"{BASE}?iata=LYS,NCE"]

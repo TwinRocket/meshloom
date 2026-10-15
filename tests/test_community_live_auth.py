@@ -184,7 +184,7 @@ class TestHandshake401:
         assert relay._auth_error == "token_rejected"
         assert relay._auth_code == "token_signature"
 
-    async def test_new_tab_does_not_restart_but_relancer_does(self):
+    async def test_new_tab_does_not_restart_but_restart_does(self):
         relay = CommunityLiveRelay()
         connects: list[int] = []
 
@@ -203,7 +203,7 @@ class TestHandshake401:
             await asyncio.sleep(0.05)
             assert len(connects) == 1
             assert status["state"] == "auth_rejected"
-            after = await relay.relancer()
+            after = await relay.restart()
             assert after["auth_error"] is None
             await _wait_until(lambda: relay.connected)
             await relay.close_stats()

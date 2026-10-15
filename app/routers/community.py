@@ -23,7 +23,7 @@ from app.models import (
 )
 from app.services.community_live import (
     active_iata_codes,
-    relancer_live,
+    restart_live,
     subscribe_live,
     unsubscribe_live,
 )
@@ -156,9 +156,10 @@ async def get_active_iata() -> CommunityIataActiveResponse:
     return CommunityIataActiveResponse.model_validate(await active_iata_codes())
 
 
-@router.post("/live/relancer", response_model=CommunityLiveStatus)
-async def post_live_relancer() -> CommunityLiveStatus:
-    return CommunityLiveStatus.model_validate(await relancer_live())
+@router.post("/live/restart", response_model=CommunityLiveStatus)
+async def post_live_restart() -> CommunityLiveStatus:
+    """Mint a new live token and reconnect; clears a 4002 stop and a given-up 401."""
+    return CommunityLiveStatus.model_validate(await restart_live())
 
 
 @router.put("/me/hashtags", response_model=CommunityHashtagsResponse)

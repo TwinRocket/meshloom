@@ -747,7 +747,7 @@ export interface CommunityLiveStatus {
   opted_out: boolean;
   connected: boolean;
   state?: LiveRelayState;
-  /** Set with state `auth_rejected`; the relay stopped retrying until Relancer. */
+  /** Set with state `auth_rejected`; the relay stopped retrying until a restart. */
   auth_error?: LiveAuthError | null;
   /** Community 401 `code` behind auth_error, when the server sent one. */
   auth_code?: string | null;

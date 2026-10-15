@@ -765,8 +765,8 @@ export const api = {
     fetchJson<CommunityLiveStatus>(`/community/live/subscribe/${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',
     }),
-  relancerCommunityLive: () =>
-    fetchJson<CommunityLiveStatus>('/community/live/relancer', {
+  restartCommunityLive: () =>
+    fetchJson<CommunityLiveStatus>('/community/live/restart', {
       method: 'POST',
     }),
 

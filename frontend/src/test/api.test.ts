@@ -725,7 +725,7 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls[1][1].body).toBe(JSON.stringify({ names: ['mesh'] }));
     });
 
-    it('subscribes, unsubscribes, and Relancer the Stats live relay', async () => {
+    it('subscribes, unsubscribes, and restarts the Stats live relay', async () => {
       installMockFetch();
       mockFetch.mockResolvedValue({
         ok: true,
@@ -741,14 +741,14 @@ describe('fetchJson (via api methods)', () => {
       await api.subscribeCommunityLive();
       await api.subscribeCommunityLive('s1');
       await api.unsubscribeCommunityLive('s1');
-      await api.relancerCommunityLive();
+      await api.restartCommunityLive();
 
       expect(mockFetch.mock.calls[0][0]).toBe('./api/community/live/subscribe');
       expect(mockFetch.mock.calls[0][1].method).toBe('POST');
       expect(mockFetch.mock.calls[1][1].body).toBe(JSON.stringify({ session_id: 's1' }));
       expect(mockFetch.mock.calls[2][0]).toBe('./api/community/live/subscribe/s1');
       expect(mockFetch.mock.calls[2][1].method).toBe('DELETE');
-      expect(mockFetch.mock.calls[3][0]).toBe('./api/community/live/relancer');
+      expect(mockFetch.mock.calls[3][0]).toBe('./api/community/live/restart');
       expect(mockFetch.mock.calls[3][1].method).toBe('POST');
     });
 

@@ -517,7 +517,7 @@ class TestCommunityLiveRelay:
         assert connects[0] == "first"
         assert connects[1] == "second"
 
-    async def test_relancer_mints_a_second_jwt(self):
+    async def test_restart_mints_a_second_jwt(self):
         relay = CommunityLiveRelay()
         sockets = [FakeStatsSocket([]), FakeStatsSocket([])]
         mint = MagicMock(side_effect=["first", "second", "third"])
@@ -545,7 +545,7 @@ class TestCommunityLiveRelay:
             await relay.subscribe()
             await asyncio.sleep(0.02)
             assert mint.call_count == 1
-            await relay.relancer()
+            await relay.restart()
             await asyncio.sleep(0.02)
             await relay.close_stats()
         assert mint.call_count >= 2
