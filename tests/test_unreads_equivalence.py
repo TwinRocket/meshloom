@@ -128,7 +128,7 @@ async def legacy_get_unread_counts(
 
         # Oldest unread message per conversation. ROW_NUMBER rather than
         # MIN(received_at) with a bare id: sender timestamps are whole seconds
-        # (a protocol constraint, see AGENTS.md), so several unread messages
+        # (a protocol constraint, see app/AGENTS.md), so several unread messages
         # routinely share the oldest second and SQLite's bare-column rule only
         # promises *a* row holding the minimum. Ordering by (received_at, id)
         # picks the same message the client's own ordering does.
