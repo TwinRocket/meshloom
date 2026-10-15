@@ -554,10 +554,8 @@ async def _update_community_locked(
     if opting_out:
         return state
     if state.enabled and not before.enabled:
-        # Joined again: Community lifts its opt-out on the next bind (the
-        # join's own, or the automatic re-bind after a PATCH, which always
-        # runs after an opt-out since the teardown forgot the last bind), so
-        # an unconfirmed opt-out no longer matters.
+        # Joined again: Community lifts its opt-out on the join's own bind,
+        # so an unconfirmed opt-out no longer matters.
         await _set_opt_out_pending(None)
     if not topic_moved:
         await _reload_system_publisher()

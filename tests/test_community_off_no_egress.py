@@ -1049,11 +1049,13 @@ class TestPatchNeverJoins:
         from app.repository.settings import AppSettingsRepository
 
         await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        modules_before = dict(fanout_manager._modules)
         self._refused(await _patch_community({"enabled": True}))
         self._refused(await _patch_community({"enabled": True, "iata": "CDG"}))
         await asyncio.sleep(0.05)
         assert egress.events == []
-        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+        # No publisher was started (or reloaded) by the refused PATCH.
+        assert fanout_manager._modules == modules_before
         state = await get_community_effective()
         assert (state.enabled, state.iata) == (False, "CDG")
 
@@ -2180,7 +2182,10 @@ class TestOptOutCall:
         binds = sum(
             1 for e in egress.events if e[:3] == ("http", "stats.egress-check.net", "/v1/me/iata")
         )
+        assert observer_position._last_bound is not observer_position._UNKNOWN
         await update_community(enabled=False)
+        # The teardown forgot the last bind: nothing takes the key as bound.
+        assert observer_position._last_bound is observer_position._UNKNOWN
 
         # A PATCH cannot turn Community back on: it would connect before the
         # PUT /v1/me/iata that lifts Community's refusal.
