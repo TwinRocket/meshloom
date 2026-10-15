@@ -1823,6 +1823,7 @@
   "errors": {
     "radio_not_connected": "Radio not connected",
     "iata_requires_bind": "The IATA code changes only through Meshloom Community settings (bind or join), never with a plain settings update.",
+    "join_requires_bind": "Join Meshloom Community from its settings: the IATA code is bound first, then Community is turned on.",
     "radio_initializing": "Radio is initializing",
     "radio_rebooting": "The radio is rebooting to reset its clock. Meshloom reconnects automatically.",
     "radio_reboot_timeout": "The radio did not come back after rebooting to reset its clock",

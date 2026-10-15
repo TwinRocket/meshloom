@@ -322,6 +322,7 @@ async def update_community(
     enabled: bool | None = None,
     iata: str | None = None,
     iata_through_bind: bool = False,
+    enable_through_bind: bool = False,
     opt_out_reason: OptOutReason | None = None,
 ) -> CommunityEffective:
     """Write the Community settings under ``_update_lock``.
@@ -329,6 +330,10 @@ async def update_community(
     ``iata_through_bind`` (the ``PATCH /community`` route): an IATA other than
     the stored one is refused with 409 ``iata_requires_bind``, whatever the
     state and whether ``enabled`` is sent; the same IATA is accepted.
+    ``enable_through_bind`` (same route): turning Community on from off is
+    refused with 409 ``join_requires_bind``; a join is ``PUT /community/me/iata``
+    with ``enable: true``, which binds before anything is written. Checked
+    under the lock, so it cannot race a join or an opt-out.
     ``opt_out_reason`` goes with the ``POST /v1/me/opt-out`` of an opt-out.
     """
     async with _update_lock:
@@ -347,6 +352,18 @@ async def update_community(
                         "(enable: true to join)",
                     },
                 )
+        if enable_through_bind and enabled is True and not (await get_community_record()).enabled:
+            # Turned on without a bind, the publisher would connect with the
+            # stored IATA before Community knows it (or after a bind whose
+            # answer was lost, with another one): ``iata_mismatch``, and after
+            # an opt-out a key Community still refuses. Nothing is written.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "join_requires_bind",
+                    "message": "Join with PUT /api/community/me/iata (enable: true)",
+                },
+            )
         return await _update_community_locked(
             enabled=enabled, iata=iata, opt_out_reason=opt_out_reason
         )
@@ -537,10 +554,8 @@ async def _update_community_locked(
     if opting_out:
         return state
     if state.enabled and not before.enabled:
-        # Joined again: Community lifts its opt-out on the next bind (the
-        # join's own, or the automatic re-bind after a PATCH, which always
-        # runs after an opt-out since the teardown forgot the last bind), so
-        # an unconfirmed opt-out no longer matters.
+        # Joined again: Community lifts its opt-out on the join's own bind,
+        # so an unconfirmed opt-out no longer matters.
         await _set_opt_out_pending(None)
     if not topic_moved:
         await _reload_system_publisher()
@@ -932,8 +947,9 @@ async def community_teardown(
     (besides the manual ``retry_opt_out``). It is armed only when the
     opt-out's ``POST /v1/me/opt-out`` surely did not reach Community
     (``opt_out == "failed"``). The radio's last bound position is forgotten,
-    so a later ``PATCH {enabled: true}`` re-binds (``PUT /v1/me/iata``), which
-    is what lifts Community's refusal of the key.
+    so nothing takes the key as still bound: only a join (``PUT /v1/me/iata``
+    with ``enable``; ``PATCH {enabled: true}`` is refused) turns Community on
+    again, and that bind is what lifts Community's refusal of the key.
     """
     global _egress_generation
     _egress_generation += 1
