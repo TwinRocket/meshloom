@@ -30,14 +30,13 @@ from app.services.community_live import (
 from app.services.meshloom_community import (
     bind_community_iata,
     community_status,
-    get_community_effective,
     lookup_airport,
     retry_opt_out,
     stats_json,
     suggest_iata,
     update_community,
 )
-from app.services.observer_position import note_radio_self_info, put_iata_bind, radio_self_info
+from app.services.observer_position import put_iata_bind
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/community", tags=["community"])
@@ -67,21 +66,15 @@ async def get_iata_suggestion() -> CommunityIataSuggestion:
 
 @router.patch("", response_model=CommunityStatus)
 async def patch_community(body: CommunityUpdate) -> CommunityStatus:
-    was_enabled = (await get_community_effective()).enabled
     await update_community(
         enabled=body.enabled,
         iata=body.iata,
         # Another IATA: 409, an IATA change is PUT /community/me/iata (a bind).
         iata_through_bind=True,
+        # Off to on: 409, a join is PUT /community/me/iata with enable (bind first).
+        enable_through_bind=True,
         opt_out_reason=body.opt_out_reason,
     )
-    if body.enabled and not was_enabled:
-        # Turned on without a bind (the settings join through PUT /me/iata
-        # instead): check the radio's position the way an appstart does, so a
-        # stale bind is refreshed. The worker sends nothing when the position
-        # is what the last bind sent, except after an opt-out: the teardown
-        # forgot that bind, so this re-bind runs and lifts Community's refusal.
-        note_radio_self_info(radio_self_info())
     return await community_status()
 
 

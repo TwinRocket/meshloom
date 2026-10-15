@@ -997,11 +997,14 @@ class TestPatchNeverChangesTheIata:
         await AppSettingsRepository.update_community(enabled=False, iata="CDG")
         # The two-step way around: store another IATA while off, then turn on.
         self._refused(await _patch_community({"iata": "LYS"}))
+        # Turning on is a join (bind first), never a PATCH either.
         response = await _patch_community({"enabled": True})
-        assert response.status_code == 200, response.text
-        await _until(lambda: _online_published(egress, "CDG"))
-        assert not _online_published(egress, "LYS")
-        assert (await get_community_effective()).iata == "CDG"
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "join_requires_bind"
+        await asyncio.sleep(0.05)
+        assert egress.events == []
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (False, "CDG")
 
     @pytest.mark.asyncio
     async def test_iata_while_on_is_refused(self, test_db, egress, cleanup_community):
@@ -1021,11 +1024,53 @@ class TestPatchNeverChangesTheIata:
         from app.repository.settings import AppSettingsRepository
 
         await AppSettingsRepository.update_community(enabled=False, iata="CDG")
-        response = await _patch_community({"enabled": True, "iata": "cdg"})
+        response = await _patch_community({"iata": "cdg"})
         assert response.status_code == 200, response.text
+        assert egress.events == []
+        await update_community(enabled=True, iata="CDG")
         await _until(lambda: _online_published(egress, "CDG"))
-        response = await _patch_community({"iata": "CDG"})
+        response = await _patch_community({"enabled": True, "iata": "CDG"})
         assert response.status_code == 200, response.text
+
+
+class TestPatchNeverJoins:
+    """Turning Community on is a join (PUT /community/me/iata, enable: true),
+    which binds first. A PATCH would start the publisher before any bind."""
+
+    @staticmethod
+    def _refused(response: httpx.Response) -> None:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "join_requires_bind"
+
+    @pytest.mark.asyncio
+    async def test_off_to_on_is_refused_and_nothing_leaves(
+        self, test_db, egress, cleanup_community
+    ):
+        from app.repository.settings import AppSettingsRepository
+
+        await AppSettingsRepository.update_community(enabled=False, iata="CDG")
+        self._refused(await _patch_community({"enabled": True}))
+        self._refused(await _patch_community({"enabled": True, "iata": "CDG"}))
+        await asyncio.sleep(0.05)
+        assert egress.events == []
+        assert SYSTEM_MESHLOOM_STATS_ID not in fanout_manager._modules
+        state = await get_community_effective()
+        assert (state.enabled, state.iata) == (False, "CDG")
+
+    @pytest.mark.asyncio
+    async def test_off_to_on_without_an_iata_is_refused(self, test_db, egress, cleanup_community):
+        self._refused(await _patch_community({"enabled": True}))
+        await asyncio.sleep(0.05)
+        assert egress.events == []
+        assert not (await get_community_effective()).enabled
+
+    @pytest.mark.asyncio
+    async def test_enabled_true_while_on_is_a_no_op(self, test_db, egress, cleanup_community):
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        response = await _patch_community({"enabled": True})
+        assert response.status_code == 200, response.text
+        assert response.json()["enabled"] is True
 
 
 def _stats_publisher() -> MeshloomStatsPublisher:
@@ -2119,7 +2164,7 @@ class TestOptOutCall:
         assert ("/v1/me/opt-out", {"reason": "other"}) in egress.bodies
 
     @pytest.mark.asyncio
-    async def test_turning_back_on_rebinds_to_lift_the_refusal(
+    async def test_turning_back_on_is_a_join_that_binds_first(
         self, test_db, egress, cleanup_community, monkeypatch
     ):
         from app.services import observer_position
@@ -2137,18 +2182,21 @@ class TestOptOutCall:
         )
         await update_community(enabled=False)
 
-        # PATCH {enabled: true}: the position did not move, yet the re-bind
-        # runs, since only a PUT /v1/me/iata lifts Community's refusal.
+        # A PATCH cannot turn Community back on: it would connect before the
+        # PUT /v1/me/iata that lifts Community's refusal.
         response = await _api("PATCH", "/api/community", {"enabled": True})
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "join_requires_bind"
+        assert not (await get_community_effective()).enabled
+
+        # The join binds first, even with the position unchanged.
+        response = await _put_me_iata("CDG", enable=True)
         assert response.status_code == 200, response.text
-        observer_position.note_radio_self_info(info)
-        task = observer_position._rebind_task
-        assert task is not None
-        await asyncio.wait_for(task, 3)
         after = sum(
             1 for e in egress.events if e[:3] == ("http", "stats.egress-check.net", "/v1/me/iata")
         )
         assert after == binds + 1
+        assert (await get_community_effective()).enabled
         observer_position.reset_position_rebind_for_tests()
 
     @pytest.mark.asyncio
