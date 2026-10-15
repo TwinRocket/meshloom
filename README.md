@@ -26,7 +26,7 @@ Then open http://127.0.0.1:8000 and choose the radio under **Settings > Radio**.
 
 A **Raspberry Pi** can skip the one-liner: flash `meshloom-rpi-lite-arm64.img.xz` from the release (Lite 64-bit, Pi 3 and later). The Release workflow builds that image after the arm64 `.deb`. Open the shipped `meshloom.rpi-imager-manifest` in **Raspberry Pi Imager 2.0.6+** so Wi-Fi, user, and SSH are written (`Use custom` alone skips them). A connected screen shows `http://meshloom.local:8000`. Details: [Raspberry Pi image](docs/user/en/rpi.md).
 
-From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/twinrocket/meshloom`. Portainer, HTTPS, systemd, and extra environment variables: [README_ADVANCED.md](README_ADVANCED.md).
+From a checkout (development): [CONTRIBUTING.md](CONTRIBUTING.md). Docker image: `ghcr.io/twinrocket/meshloom`. Portainer, HTTPS and systemd: [README_ADVANCED.md](README_ADVANCED.md). Environment variables: [Variables and settings](docs/user/en/deep/environment.md).
 
 ### On Home Assistant
 

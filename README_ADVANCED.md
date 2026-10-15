@@ -1,61 +1,23 @@
 # Advanced Setup And Troubleshooting
 
-This page collects what goes beyond a normal install: environment variables, fixes for radios that behave oddly, HTTPS, reverse proxies and debug logs. Once the backend is running, FastAPI serves interactive API docs at `/docs` on the same host and port as the web UI. For a default local launch, that is http://localhost:8000/docs.
+This page collects what goes beyond a normal install: fixes for radios that behave oddly, HTTPS, reverse proxies and debug logs. Once the backend is running, FastAPI serves interactive API docs at `/docs` on the same host and port as the web UI. For a default local launch, that is http://localhost:8000/docs.
 
-## Where to set an environment variable
+## Environment variables
 
-A variable is read when Meshloom starts, so restart it after changing one.
+The user documentation is the single reference for environment variables: where to set them for each kind of install, the ones you can set, the retired ones and what replaced them, and the settings that live in the database instead. Read [Variables and settings](docs/user/en/deep/environment.md) ([français](docs/user/fr/deep/environment.md)), also published on meshloom.app.
 
-| Install | Where |
-|---|---|
-| Package (`.deb` / `.rpm`) | `/etc/meshloom/meshloom.env`, then `sudo systemctl restart meshloom` |
-| Docker Compose | the `environment:` block of your `docker-compose.yml`, then `docker compose up -d` |
-| Checkout installed with `install_service.sh` | `Environment=` lines in the `meshloom` unit |
-| Home Assistant add-on | the add-on options, see [`meshloom/DOCS.md`](meshloom/DOCS.md) |
-
-## Everyday environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
-| `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | The SQLite file. The package sets `/var/lib/meshloom/meshcore.db` |
-| `MESHCORE_DISABLE_BOTS` | false | Turns the bot system off. Bots run Python code with full access to the machine; the package turns them off by default |
-| `MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD` | empty | Asks for a username and password on everything, including the WebSocket. Both or neither, otherwise Meshloom refuses to start. Use HTTPS with it |
-| `MESHLOOM_RUN_AS_USER` | unset | Docker only: a numeric user id (the installer uses `10001`). Meshloom then runs as that user instead of root, after giving it `./data` and the serial devices you mapped. If the radio is still unreadable it stays root and logs a warning. Not for Bluetooth, which needs root on the host |
-| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | See [Private Key Export](#private-key-export) |
-
-The radio itself (USB, network or Bluetooth) is never chosen by a variable: it is set in **Settings > Radio**.
-
-### Retired variables
-
-These variables no longer change anything. Their settings live in Meshloom's database and are edited in the interface:
-
-| Variable | Now in |
-|----------|--------|
-| `MESHCORE_VAPID_SUBJECT` | **Settings > Notifications**, VAPID subject field. Apple refuses `.local`, so set a real `mailto:` for iPhones |
-| `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | **Settings > Radio > Advanced**, "Check for messages every 10 seconds" |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Settings > Radio > Advanced**, "Rewrite the channel before every send" |
-| `MESHCORE_LOAD_WITH_AUTOEVICT` | **Settings > Radio > Advanced**, "Let the radio evict its oldest contacts" |
-
-At the first start of a version that retired them, Meshloom copies a value still set into its database once: the VAPID subject when the field in Settings is empty, a workaround when the variable is `true`. After that the variables are never read again, and each start logs a warning while one is still set: remove it from your environment.
-
-Meshloom Community is not set through the environment: it is an opt-in in **Settings > Meshloom Community** (a new database starts with it off), and its servers are fixed. `MESHLOOM_COMMUNITY`, `MESHLOOM_COMMUNITY_IATA`, `MESHLOOM_COMMUNITY_BROKER_HOST` and `MESHLOOM_COMMUNITY_API_BASE` are no longer read: an existing install that still sets `MESHLOOM_COMMUNITY_IATA` has its code copied once into the database at the first start after the upgrade, and each start logs a warning while any of them is set. See [Variables and settings](docs/user/en/deep/environment.md).
+A variable is read when Meshloom starts, so restart it after changing one. The radio itself (USB, network or Bluetooth) is never chosen by a variable: it is set in **Settings > Radio**.
 
 ## Remediation & Advanced Environment Variables
 
 These are intended for diagnosing or working around radios that behave oddly, or enabling advanced functionality.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | false | Enable `GET /api/radio/private-key` to return the in-memory private key as hex for backup or migration. Only enable on a trusted network. Import via `PUT /api/radio/private-key` is always available. ([docs](#private-key-export)) |
-
 
 By default the app relies on radio events plus MeshCore auto-fetch for incoming messages, and also runs a low-frequency hourly audit poll. That audit checks both:
 
 - whether messages were left on the radio without reaching the app through event subscription
 - whether the app's channel-slot expectations still match the radio's actual channel listing
 
-If the audit finds a mismatch, you'll see an error in the application UI and your logs. The workarounds below are switched on in **Settings > Radio > Advanced** (they used to be the `MESHCORE_*` variables listed under [Retired variables](#retired-variables)).
+If the audit finds a mismatch, you'll see an error in the application UI and your logs. The workarounds below are switched on in **Settings > Radio > Advanced** (they used to be `MESHCORE_*` variables, now retired: see [Variables and settings](docs/user/en/deep/environment.md)).
 
 ### Message Poll Fallback
 
