@@ -1,5 +1,6 @@
 # Weekly update PRs. Minor and patch bumps are grouped into one PR per
-# ecosystem; majors stay individual so each one is reviewed on its own.
+# ecosystem; majors stay individual so each one is reviewed on its own (except
+# the CodeQL actions, which must move together).
 # GitHub Actions and Docker base images are pinned by digest/SHA: Dependabot
 # bumps the pin and keeps the version comment in step.
 version: 2
@@ -11,6 +12,11 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # init/autobuild/analyze must share one version: a split bump fails
+      # ("Loaded a configuration file for version 3…, but running version 4…").
+      # No update-types, so majors land here too, in one PR.
+      codeql:
+        patterns: ["github/codeql-action*"]
       actions-minor-patch:
         update-types: [minor, patch]
 
