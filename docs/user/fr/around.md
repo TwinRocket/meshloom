@@ -69,6 +69,8 @@ Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs 
 
 Meshloom Community peut mettre son flux public en pause pendant un moment. Une petite étiquette **Live en pause** s’affiche alors à côté du réglage du son, et seuls les paquets de votre propre radio sont dessinés. Il n’y a rien à faire : votre serveur revérifie à peu près chaque minute et les paquets de Community reviennent d’eux-mêmes quand le flux reprend.
 
+Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/fr/docs/deep/community/#si-votre-radio-est-bannie).
+
 ## Le journal de contrôle
 
 Le **journal de contrôle** rassemble le trafic qui n’est pas une conversation : requêtes, réponses, requêtes anonymes (comme les connexions) et données de groupe. Les paquets sont regroupés par nœud concerné. Quand le contenu reste chiffré, on voit l’enveloppe, pas le contenu.
