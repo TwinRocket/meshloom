@@ -9,16 +9,15 @@ NC='\033[0m'
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# vite 8 requires Node >= 20.19 (older Node lacks the global CustomEvent its CLI
-# uses), so Node 18 is intentionally no longer exercised.
-NODE_VERSIONS=("20" "22" "24")
+# Floor: Node 22 / npm 10, the same minimum install_service.sh enforces for a
+# local build (vite 8 needs Node >= 22.12 on the 22 line; Node 20 is EOL).
+# Node 26 is what CI, the Docker image, the .deb and the release zip use.
+NODE_VERSIONS=("22" "24" "26")
 # Use explicit npm patch versions so resolver regressions are caught.
-NPM_VERSIONS=("9.1.1" "9.9.4" "10.9.5" "11.6.2")
+NPM_VERSIONS=("10.9.5" "11.6.2")
 EXTRA_CASES=(
-    "20|8.19.4"
     "24|11.12.0"
-    "25|11.6.2"
-    "25|11.12.0"
+    "26|11.20.0"
 )
 
 run_combo() {

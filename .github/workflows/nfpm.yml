@@ -14,6 +14,7 @@ on:
       - "Dockerfile.nfpm-armhf"
       - "Dockerfile.nfpm-armhf.dockerignore"
       - "app/**"
+      - ".nvmrc"
       - "pyproject.toml"
       - "uv.lock"
       - "frontend/**"

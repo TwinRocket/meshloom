@@ -77,20 +77,33 @@ echo -e "  Service name       : ${CYAN}${SERVICE_NAME}${NC}"
 echo -e "  uv                 : ${CYAN}${UV_BIN}${NC}"
 echo
 
-version_major() {
-    local version="$1"
-    version="${version#v}"
-    printf '%s' "${version%%.*}"
+# Succeeds when version $1 (e.g. "v22.12.0" or "10.9.5") is at least
+# major.minor $2 (e.g. "22.12"). Unparseable versions fail.
+version_at_least() {
+    local version="${1#v}"
+    local minimum="$2"
+    local major minor min_major min_minor
+    major="${version%%.*}"
+    minor="${version#*.}"
+    minor="${minor%%.*}"
+    [ "$minor" = "$version" ] && minor=0
+    min_major="${minimum%%.*}"
+    min_minor="${minimum#*.}"
+    [ "$min_minor" = "$minimum" ] && min_minor=0
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+    if [ "$major" -ne "$min_major" ]; then
+        [ "$major" -gt "$min_major" ]
+        return
+    fi
+    [ "$minor" -ge "$min_minor" ]
 }
 
 require_minimum_version() {
     local tool_name="$1"
     local detected_version="$2"
-    local minimum_major="$3"
-    local major
-    major="$(version_major "$detected_version")"
-    if ! [[ "$major" =~ ^[0-9]+$ ]] || [ "$major" -lt "$minimum_major" ]; then
-        echo -e "${RED}Error: ${tool_name} ${minimum_major}+ is required for a local frontend build, but found ${detected_version}.${NC}"
+    local minimum="$3"
+    if ! version_at_least "$detected_version" "$minimum"; then
+        echo -e "${RED}Error: ${tool_name} ${minimum}+ is required for a local frontend build, but found ${detected_version}.${NC}"
         exit 1
     fi
 }
@@ -147,18 +160,20 @@ echo
 if [ "$FRONTEND_MODE" = "build" ]; then
     if ! command -v node &>/dev/null; then
         echo -e "${RED}Error: node is required for a local frontend build but was not found.${NC}"
-        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 22+ and npm 10+."
+        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 22.12+ and npm 10+."
         exit 1
     fi
     if ! command -v npm &>/dev/null; then
         echo -e "${RED}Error: npm is required for a local frontend build but was not found.${NC}"
-        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 22+ and npm 10+."
+        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 22.12+ and npm 10+."
         exit 1
     fi
 
     NODE_VERSION="$(node -v)"
     NPM_VERSION="$(npm -v)"
-    require_minimum_version "Node.js" "$NODE_VERSION" 22
+    # vite 8 / rolldown declare engines ^20.19.0 || >=22.12.0; 22.12 is the
+    # floor here because Node 20 is end-of-life.
+    require_minimum_version "Node.js" "$NODE_VERSION" 22.12
     require_minimum_version "npm" "$NPM_VERSION" 10
 
     echo -e "${YELLOW}Building frontend locally with Node ${NODE_VERSION} and npm ${NPM_VERSION}...${NC}"

@@ -38,7 +38,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    # Odd Node majors are not LTS; add "~> 29.0" later.
+    # Odd Node majors are not LTS; add "~> 29.0" later. A node major bump
+    # here must change .nvmrc in the same PR (CI, .deb and release zip use it).
     ignore:
       - dependency-name: node
         versions: ["~> 27.0"]
