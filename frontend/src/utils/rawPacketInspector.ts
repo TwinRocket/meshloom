@@ -287,7 +287,6 @@ export function decodePacketSummary(
     const clientDecoded = isPacketClientDecoded(packet, decoded, groupData);
 
     let summary = labelPayloadType(payloadTypeName);
-    let details: string | undefined;
 
     switch (decoded.payloadType) {
       case PayloadType.TextMessage: {
@@ -453,7 +452,7 @@ export function decodePacketSummary(
         break;
     }
 
-    return { summary, routeType, payloadType: payloadTypeName, clientDecoded, details };
+    return { summary, routeType, payloadType: payloadTypeName, clientDecoded };
   } catch {
     return {
       summary: i18n.t('rawPacket.decodeError'),

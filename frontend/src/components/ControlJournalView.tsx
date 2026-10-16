@@ -217,7 +217,7 @@ function buildJournalEntries(
       canonicalControlJournalType(decodedName) ?? canonicalControlJournalType(packet.payload_type);
     if (!journalType) continue;
 
-    let decoded: ReturnType<typeof MeshCoreDecoder.decode> | null = null;
+    let decoded: ReturnType<typeof MeshCoreDecoder.decode> | null;
     try {
       decoded = MeshCoreDecoder.decode(packet.data);
     } catch {
