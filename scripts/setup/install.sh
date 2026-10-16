@@ -2139,7 +2139,18 @@ run_service_from_source() {
     ensure_cmd python3 "python3"
     ensure_uv
     export MESHLOOM_NONINTERACTIVE=1
+    # Build locally only with a toolchain install_service.sh accepts (Node
+    # 22.12+, the vite 8 floor, and npm 10+); an older distro Node falls back
+    # to the prebuilt frontend instead of failing the install.
+    local node_major="" node_minor="" npm_major=""
     if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        node_major="$(node -v 2>/dev/null | sed 's/^v//; s/\..*//')"
+        node_minor="$(node -v 2>/dev/null | sed 's/^v[0-9]*\.//; s/\..*//')"
+        npm_major="$(npm -v 2>/dev/null | sed 's/\..*//')"
+    fi
+    if [[ "$node_major" =~ ^[0-9]+$ ]] && [[ "$node_minor" =~ ^[0-9]+$ ]] \
+        && { [ "$node_major" -gt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -ge 12 ]; }; } \
+        && [[ "$npm_major" =~ ^[0-9]+$ ]] && [ "$npm_major" -ge 10 ]; then
         export MESHLOOM_FRONTEND_MODE="build"
     else
         export MESHLOOM_FRONTEND_MODE="prebuilt"

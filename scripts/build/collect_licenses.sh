@@ -7,7 +7,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${1:-$REPO_ROOT/LICENSES.md}"
-FRONTEND_LICENSE_IMAGE="${FRONTEND_LICENSE_IMAGE:-node:24-slim}"
+FRONTEND_LICENSE_IMAGE="${FRONTEND_LICENSE_IMAGE:-node:26-slim}"
 FRONTEND_LICENSE_NPM="${FRONTEND_LICENSE_NPM:-10.9.5}"
 
 # ── Backend (Python) — uses pip-licenses ─────────────────────────────

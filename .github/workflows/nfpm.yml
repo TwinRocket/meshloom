@@ -14,6 +14,7 @@ on:
       - "Dockerfile.nfpm-armhf"
       - "Dockerfile.nfpm-armhf.dockerignore"
       - "app/**"
+      - ".nvmrc"
       - "pyproject.toml"
       - "uv.lock"
       - "frontend/**"
@@ -33,7 +34,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 

@@ -24,6 +24,12 @@ updates:
     directory: "/frontend"
     schedule:
       interval: weekly
+    # @types/node follows the Node runtime (26 LTS, see .nvmrc): majors are
+    # manual decisions. From Node 27 on, every major becomes LTS (Current in
+    # April, LTS in October); move once it reaches LTS, with .nvmrc.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
@@ -40,6 +46,12 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Node majors are manual decisions: from Node 27 on, every major becomes
+    # LTS (Current in April, LTS in October); move once it reaches LTS. A node
+    # major bump must change .nvmrc in the same PR (CI, .deb and release zip).
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
     groups:
       docker-minor-patch:
         update-types: [minor, patch]
