@@ -37,6 +37,10 @@ host without NTP). `recordRawPacket` adds a client-only `received_at_ms` (browse
 which are historical on purpose. Displaying a packet's absolute time keeps using
 `timestamp`. A server behind by more than the prune delay once wiped every
 visualizer node within a second; `src/test/clockSkewPrune.test.ts` covers it.
+The reverse direction applies to bounds sent to the server: the `#raw` history
+replay presets ("last 1h/24h/7d") are filtered on the server `timestamp`, so
+`utils/rawPacketHistoryBounds.ts` shifts `since` by the skew measured on buffered
+live packets (`received_at_ms` minus `timestamp`) and sends no `until`.
 
 ### Lazy loading
 

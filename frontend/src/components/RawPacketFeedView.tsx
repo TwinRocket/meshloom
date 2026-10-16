@@ -58,7 +58,13 @@ import {
   useReplayActive,
   useReplayPackets,
 } from '../stores/rawPacketReplayStore';
-import { useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
+import { getRawPackets, useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
+import {
+  estimateServerClockOffsetSec,
+  HISTORY_PERIODS,
+  resolveHistoryBounds,
+  type HistoryPeriod,
+} from '../utils/rawPacketHistoryBounds';
 import { setVisualizerFocusHandoff } from '../utils/visualizerFocusHandoff';
 import { getContactDisplayName } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
@@ -518,38 +524,6 @@ function DisplayCapPill({
 
 const HISTORY_PREVIEW_LIMIT = 1;
 const HISTORY_API_MAX_LIMIT = 5000;
-const HISTORY_PERIODS = ['1h', '24h', '7d', 'custom'] as const;
-type HistoryPeriod = (typeof HISTORY_PERIODS)[number];
-const HISTORY_PERIOD_SECONDS: Record<Exclude<HistoryPeriod, 'custom'>, number> = {
-  '1h': 3600,
-  '24h': 86_400,
-  '7d': 7 * 86_400,
-};
-
-function toUnixSeconds(localValue: string): number | undefined {
-  if (!localValue) return undefined;
-  const ms = new Date(localValue).getTime();
-  if (Number.isNaN(ms)) return undefined;
-  return Math.floor(ms / 1000);
-}
-
-function resolveHistoryBounds(
-  period: HistoryPeriod,
-  customSince: string,
-  customUntil: string
-): { since?: number; until?: number; invalid: boolean } {
-  if (period === 'custom') {
-    const since = toUnixSeconds(customSince);
-    const until = toUnixSeconds(customUntil);
-    return {
-      since,
-      until,
-      invalid: since !== undefined && until !== undefined && since > until,
-    };
-  }
-  const now = Math.floor(Date.now() / 1000);
-  return { since: now - HISTORY_PERIOD_SECONDS[period], until: now, invalid: false };
-}
 
 function matchesHistorySourceFilter(packet: RawPacket, raw: string): boolean {
   const trimmed = raw.trim();
@@ -672,7 +646,15 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
   const loadAbortRef = useRef<AbortController | null>(null);
 
   const bounds = useMemo(
-    () => resolveHistoryBounds(period, customSince, customUntil),
+    // Read the buffer once per period change: the offset only needs a recent sample,
+    // and subscribing would refetch the preview on every live packet.
+    () =>
+      resolveHistoryBounds(
+        period,
+        customSince,
+        customUntil,
+        estimateServerClockOffsetSec(getRawPackets())
+      ),
     [customSince, customUntil, period]
   );
   const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
