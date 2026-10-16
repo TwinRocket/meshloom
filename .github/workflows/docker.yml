@@ -216,6 +216,10 @@ jobs:
   # pull the previous :edge. The webhook URLs live in the EDGE_DEPLOY_WEBHOOKS
   # secret, one per line: anyone holding one can trigger a redeploy, so they never
   # appear in the repository or in the logs. No secret (forks): nothing to do.
+  # Portainer sits behind Cloudflare Access, which redirects GitHub-hosted runners
+  # to its login page (HTTP 302). CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET hold
+  # an Access service token that the Access application accepts (Service Auth
+  # policy); when both are set, every call sends them as CF-Access-Client-* headers.
   deploy-edge:
     name: Deploy edge
     if: github.ref == 'refs/heads/main'
@@ -226,10 +230,21 @@ jobs:
       - name: Call the redeploy webhooks
         env:
           WEBHOOKS: ${{ secrets.EDGE_DEPLOY_WEBHOOKS }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           if [ -z "$WEBHOOKS" ]; then
             echo "::notice::EDGE_DEPLOY_WEBHOOKS is not set; no stack to redeploy"
             exit 0
+          fi
+          # The token goes through a private header file, never through argv.
+          access="$(mktemp)"
+          trap 'rm -f "$access"' EXIT
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' \
+              "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" > "$access"
+          else
+            echo "::notice::No Cloudflare Access service token; webhooks are called without one"
           fi
           n=0
           while IFS= read -r url; do
@@ -240,7 +255,7 @@ jobs:
             # No -f/-L: a redirect or a challenge page (a proxy in front of
             # Portainer) must show up as a failure, not as a success.
             code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST \
-              --max-time 60 --retry 2 --retry-all-errors "$url")" || true
+              -H @"$access" --max-time 60 --retry 2 --retry-all-errors "$url")" || true
             code="${code:-000}"
             # Never print the URL; the status and a few response headers are enough.
             info="$(grep -iE '^(server|cf-mitigated|location|content-type):' "$headers" \
