@@ -2103,6 +2103,10 @@ class CommunityStatus(BaseModel):
     # position Community may publish, so only the MQTT status (and the binds)
     # leave until one is chosen.
     state: Literal["off", "active", "waiting_for_position"] = "off"
+    # Community refused this radio key with 403 ``banned`` (services/community_ban.py):
+    # writes, Live and the Stats publisher are stopped until a restart, a settings
+    # change, or 12 h.
+    banned: bool = False
     # Set after an opt-out whose ``POST /v1/me/opt-out`` failed, until a retry
     # succeeds or Community is joined again.
     opt_out_pending: CommunityOptOutPending | None = None
@@ -2242,9 +2246,9 @@ class CommunityLiveStatus(BaseModel):
     close_code: int | None = None
     opted_out: bool
     connected: bool
-    state: Literal["connected", "reconnecting", "paused", "opted_out", "idle", "auth_rejected"] = (
-        "idle"
-    )
+    state: Literal[
+        "connected", "reconnecting", "paused", "opted_out", "idle", "auth_rejected", "banned"
+    ] = "idle"
     auth_error: Literal["clock_skew", "token_rejected"] | None = Field(
         default=None,
         description=(

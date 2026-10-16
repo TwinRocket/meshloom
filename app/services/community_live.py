@@ -34,6 +34,11 @@ refused with 503 ``{"code": "live_disabled"}``. The relay then reports state
 ``PAUSED_RETRY_MIN_S`` then ``PAUSED_RETRY_MAX_S`` instead of the short
 backoff, until a socket opens again. Every backoff sleep carries
 ``±BACKOFF_JITTER`` so instances do not reconnect in step.
+
+Banned key: a handshake 403 ``{"code": "banned"}`` (or a ban answered on an
+HTTP route, ``services/community_ban.py``) stops the relay with state
+``banned``. It opens nothing while the ban state holds; a restart, a settings
+change or ``POST /community/live/restart`` ends it.
 """
 
 from __future__ import annotations
@@ -109,8 +114,8 @@ LIVE_CLOSE_CODES = frozenset(
 USER_CLOSE_CODES = frozenset({CLOSE_JWT_EXPIRED, CLOSE_INACTIVE})
 # 401 is deliberately absent: a handshake refusal is not a 4001 (see _run).
 # A 503 whose body says live_disabled is the paused feed, not a 4004 (see
-# is_feed_paused). Any other refusal (403 included) has no close code and
-# reconnects with backoff.
+# is_feed_paused). A 403 ``banned`` stops the relay (community_ban); any other
+# refusal (403 included) has no close code and reconnects with backoff.
 HANDSHAKE_TO_CLOSE = {
     409: CLOSE_SUPERSEDED,
     429: CLOSE_RATE_LIMIT,
@@ -141,7 +146,9 @@ PACKET_TYPES = KNOWN_PACKET_TYPES
 _PACKET_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 HOP_CONFIDENCES = frozenset({"exact", "probable", "unresolved"})
 EAR_SOURCES = frozenset({"advert", "iata"})
-LiveState = Literal["connected", "reconnecting", "paused", "opted_out", "idle", "auth_rejected"]
+LiveState = Literal[
+    "connected", "reconnecting", "paused", "opted_out", "idle", "auth_rejected", "banned"
+]
 # Handshake body code of a 503 while the operator paused the public feed.
 LIVE_DISABLED_CODE = "live_disabled"
 LiveAuthError = Literal["clock_skew", "token_rejected"]
@@ -544,8 +551,12 @@ class CommunityLiveRelay:
         return bool(self._sessions)
 
     def _live_state(self, *, opted_out: bool) -> LiveState:
+        from app.services.community_ban import community_banned
+
         if opted_out:
             return "opted_out"
+        if community_banned():
+            return "banned"
         if self._auth_error is not None:
             return "auth_rejected"
         if self._connected:
@@ -641,7 +652,9 @@ class CommunityLiveRelay:
         # socket against our own pubkey slot (measured production deadlock).
         if not self._lock.locked():
             raise RuntimeError("reader claim requires the relay lock")
-        if self._auth_error is not None:
+        from app.services.community_ban import community_banned
+
+        if self._auth_error is not None or community_banned():
             return
         if self._reader_task is not None and not self._reader_task.done():
             return
@@ -699,9 +712,12 @@ class CommunityLiveRelay:
         return self.snapshot(opted_out=not await community_active())
 
     async def restart(self) -> dict[str, Any]:
-        """Mint a new API JWT and reconnect. Clears a 4002 stop and a given-up 401."""
+        """Mint a new API JWT and reconnect. Clears a 4002 stop, a given-up 401 and a ban state."""
+        from app.services.community_ban import clear_ban
         from app.services.meshloom_community import community_active
 
+        # A user action: the next handshake checks whether the ban was lifted.
+        clear_ban()
         enabled = await community_active()
         can_open = await self._can_open_live(enabled)
         self._clear_auth_error()
@@ -739,6 +755,13 @@ class CommunityLiveRelay:
         async with self._lock:
             self._prune(time.monotonic())
             self._ensure_reader_locked()
+        await self._broadcast_status(opted_out=False)
+
+    async def stop_for_ban(self) -> None:
+        """Community banned this key: close the socket and say so to every tab."""
+        self._paused = False
+        self._cancel_filter_check()
+        await self.close_stats()
         await self._broadcast_status(opted_out=False)
 
     async def release_all_consumers(self) -> None:
@@ -869,6 +892,7 @@ class CommunityLiveRelay:
         return websockets.connect(url, **_connect_header_kwargs(headers))
 
     async def _run(self, generation: int) -> None:
+        from app.services.community_ban import community_banned, is_banned_answer, note_banned
         from app.services.meshloom_community import (
             classify_auth_rejection,
             community_egress_state,
@@ -883,6 +907,8 @@ class CommunityLiveRelay:
         try:
             while generation == self._generation:
                 if not self._has_consumers() or self._auth_error is not None:
+                    return
+                if community_banned():
                     return
                 try:
                     state = await community_egress_state()
@@ -925,6 +951,7 @@ class CommunityLiveRelay:
                 auth_payload: dict[str, Any] | None = None
                 auth_refused = False
                 feed_paused = False
+                banned = False
                 opened_at: float | None = None
                 try:
                     async with await self._connect(url, token) as ws:
@@ -962,6 +989,8 @@ class CommunityLiveRelay:
                     if http_status == 401:
                         auth_refused = True
                         auth_payload = _handshake_body(exc)
+                    elif is_banned_answer(http_status, _handshake_body(exc)):
+                        banned = True
                     elif is_feed_paused(http_status=http_status, body=_handshake_body(exc)):
                         feed_paused = True
                     else:
@@ -991,6 +1020,12 @@ class CommunityLiveRelay:
                 )
                 if stayed_up:
                     delay = RECONNECT_INITIAL_S
+                if banned:
+                    # No retry can lift a ban: stop until the ban state ends
+                    # (the finally below reports state ``banned``).
+                    note_banned()
+                    self._close_code = None
+                    return
                 if generation != self._generation or not self._has_consumers():
                     return
                 if wanted is not None and http_status == 400:
