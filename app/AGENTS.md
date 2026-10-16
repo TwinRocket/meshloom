@@ -98,8 +98,10 @@ and the OpenAPI page (`/docs`), not a table here.
   browser-clock age, authoritative for the window): the 30 s check then uses it,
   and the server clock only refuses messages older than 300 s
   (`RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS`). Without it (bots, older
-  clients) the 30 s window is measured on the server clock, as before. The echo
-  watchdog (auto-resend) stays on the server clock.
+  clients, or the UI when it has not measured the clock skew) the 30 s window is
+  measured on the server clock, as before. Expiry is a coded 400
+  (`resend_window_expired` / `resend_window_expired_server`, `params.seconds`).
+  The echo watchdog (auto-resend) stays on the server clock.
 - Repeater/room login (`prepare_authenticated_contact_connection`): one try on the
   effective route, then exactly one flood retry, only on timeout and only when the
   route was not already flood. Deliberate: the server relearns the return path on

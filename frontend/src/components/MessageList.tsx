@@ -38,8 +38,8 @@ import { ObserverReachBadge } from './ObserverReachBadge';
 import { ObserverReachModal } from './ObserverReachModal';
 import { HopCountBadge } from './messagePath/HopCountBadge';
 import { useVisibleObserverReach } from '../hooks/useVisibleObserverReach';
-import { getServerClockOffsetSec } from '../stores/rawPacketStore';
-import { RESEND_WINDOW_SECONDS, resendAgeSec } from '../utils/resendWindow';
+import { getMeasuredServerClockOffsetSec } from '../stores/rawPacketStore';
+import { RESEND_WINDOW_SECONDS, resendAge } from '../utils/resendWindow';
 import { isObserverReachEligible } from '../utils/observerReach';
 import {
   MessagePathModalHost,
@@ -1155,15 +1155,15 @@ export function MessageList({
     if (!onResendChannelMessage) return;
 
     const nowMs = Date.now();
-    const offsetSec = getServerClockOffsetSec();
+    const offsetSec = getMeasuredServerClockOffsetSec();
     const newResendable = new Set<number>();
     const timers = resendTimersRef.current;
 
     for (const msg of messages) {
       if (!msg.outgoing || msg.type !== 'CHAN') continue;
-      const ageSec = resendAgeSec(msg, nowMs, offsetSec);
-      if (ageSec === null) continue;
-      const remaining = RESEND_WINDOW_SECONDS - ageSec;
+      const age = resendAge(msg, nowMs, offsetSec);
+      if (age === null) continue;
+      const remaining = RESEND_WINDOW_SECONDS - age.ageSec;
       if (remaining <= 0) continue;
 
       newResendable.add(msg.id);
@@ -1206,7 +1206,8 @@ export function MessageList({
   }, [messages, onResendChannelMessage]);
 
   // Byte-perfect resends carry the browser-clock age so the backend applies the
-  // window as the browser sees it (client_age_seconds).
+  // window as the browser sees it (client_age_seconds). Only an authoritative age
+  // is sent: with an unknown skew the backend checks its own clock.
   const handleResendFromModal = useCallback(
     (messageId: number, newTimestamp?: boolean) => {
       if (!onResendChannelMessage) return;
@@ -1215,8 +1216,8 @@ export function MessageList({
         return;
       }
       const msg = messages.find((entry) => entry.id === messageId);
-      const ageSec = msg ? resendAgeSec(msg, Date.now(), getServerClockOffsetSec()) : null;
-      onResendChannelMessage(messageId, false, ageSec ?? undefined);
+      const age = msg ? resendAge(msg, Date.now(), getMeasuredServerClockOffsetSec()) : null;
+      onResendChannelMessage(messageId, false, age?.authoritative ? age.ageSec : undefined);
     },
     [messages, onResendChannelMessage]
   );

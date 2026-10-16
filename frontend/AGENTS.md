@@ -53,10 +53,16 @@ Other server timestamps compared with `Date.now()`:
 - The 30 s byte-perfect channel resend window is decided by the browser clock
   (owner decision 2026-10-17; `utils/resendWindow.ts`). A message is anchored on
   the earliest browser time this tab saw it live (`noteLiveOutgoingChannelMessage`:
-  just before the send request, or on the WS `message` event), else on
-  `sender_timestamp + getServerClockOffsetSec()`. `MessageList` times the Resend
-  button with `resendAgeSec` and sends that age as `client_age_seconds`, so the
-  backend checks the window against the browser's age, not its own clock.
+  the WS `message` event, or after a send the `sendAnchorMs` anchor, i.e. the
+  server stamp converted with the measured skew and bounded by request start and
+  response, else the response time; the server stamps once it holds the radio
+  lock, not on arrival), else on `sender_timestamp + offset` with the offset from
+  `getMeasuredServerClockOffsetSec()` (null when no live packet is buffered).
+  `MessageList` times the Resend button with `resendAge`. Only an authoritative
+  age (live sighting or measured skew) is sent as `client_age_seconds`; with an
+  unknown skew none is sent and the backend checks its own clock, and a stamp more
+  than 2 s in the future hides the button. Expiry errors are coded
+  (`errors.resend_window_expired`, `errors.resend_window_expired_server`).
 
 ### Lazy loading
 

@@ -21,13 +21,18 @@ const OFFSET_SAMPLE_SIZE = 15;
  * live packet is buffered (history-replayed packets have no receipt time).
  */
 export function estimateServerClockOffsetSec(packets: readonly RawPacket[]): number {
+  return measureServerClockOffsetSec(packets) ?? 0;
+}
+
+/** Like `estimateServerClockOffsetSec`, but null when no live packet is buffered. */
+export function measureServerClockOffsetSec(packets: readonly RawPacket[]): number | null {
   const samples: number[] = [];
   for (let i = packets.length - 1; i >= 0 && samples.length < OFFSET_SAMPLE_SIZE; i -= 1) {
     const packet = packets[i];
     if (packet.received_at_ms === undefined || !Number.isFinite(packet.timestamp)) continue;
     samples.push(Math.floor(packet.received_at_ms / 1000) - packet.timestamp);
   }
-  if (samples.length === 0) return 0;
+  if (samples.length === 0) return null;
   samples.sort((a, b) => a - b);
   return samples[Math.floor(samples.length / 2)];
 }

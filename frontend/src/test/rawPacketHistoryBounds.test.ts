@@ -4,6 +4,7 @@ import type { RawPacket } from '../types';
 import {
   estimateServerClockOffsetSec,
   HISTORY_PERIOD_SECONDS,
+  measureServerClockOffsetSec,
   resolveHistoryBounds,
 } from '../utils/rawPacketHistoryBounds';
 
@@ -44,6 +45,11 @@ describe('estimateServerClockOffsetSec', () => {
   it('returns 0 without live packets', () => {
     expect(estimateServerClockOffsetSec([])).toBe(0);
     expect(estimateServerClockOffsetSec([packet(SERVER_NOW_S)])).toBe(0);
+  });
+
+  it('tells "not measured" (null) apart from a measured zero skew', () => {
+    expect(measureServerClockOffsetSec([packet(SERVER_NOW_S)])).toBeNull();
+    expect(measureServerClockOffsetSec(livePackets(0))).toBe(0);
   });
 
   for (const skewSec of [0, 8 * 60, -8 * 60, 2 * 3600, -2 * 3600]) {

@@ -5,7 +5,8 @@ import i18n from '../i18n';
 import type { MessageInputHandle } from '../components/MessageInput';
 import type { Channel, Contact, Conversation, Message, PathDiscoveryResponse } from '../types';
 import { mergeContactIntoList } from '../utils/contactMerge';
-import { noteLiveOutgoingChannelMessage } from '../utils/resendWindow';
+import { getMeasuredServerClockOffsetSec } from '../stores/rawPacketStore';
+import { noteLiveOutgoingChannelMessage, sendAnchorMs } from '../utils/resendWindow';
 
 interface UseConversationActionsArgs {
   activeConversation: Conversation | null;
@@ -64,15 +65,24 @@ export function useConversationActions({
       if (!activeConversation) return;
 
       const conversationId = activeConversation.id;
-      // Browser time just before the request: the server stamps sender_timestamp on
-      // arrival, so this anchors the resend window on the browser clock.
+      // The server stamps sender_timestamp once it holds the radio lock, somewhere
+      // between these two browser times (sendAnchorMs picks the anchor).
       const startedAtMs = Date.now();
       const sent =
         activeConversation.type === 'channel'
           ? await api.sendChannelMessage(activeConversation.id, text)
           : await api.sendDirectMessage(activeConversation.id, text);
 
-      noteLiveOutgoingChannelMessage(sent, startedAtMs);
+      const respondedAtMs = Date.now();
+      noteLiveOutgoingChannelMessage(
+        sent,
+        sendAnchorMs(
+          sent.sender_timestamp,
+          startedAtMs,
+          respondedAtMs,
+          getMeasuredServerClockOffsetSec()
+        )
+      );
       if (activeConversationRef.current?.id === conversationId) {
         observeMessage(sent);
       }
