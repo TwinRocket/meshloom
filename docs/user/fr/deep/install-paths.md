@@ -65,7 +65,7 @@ Depuis une copie du code :
 bash scripts/setup/install_service.sh
 ```
 
-Il faut `uv` et Python 3.11 ou plus récent. Le script demande s’il faut construire l’interface avec Node.js 20 et npm 9 ou plus récents, ou en télécharger une toute prête. Il écrit ensuite `/etc/systemd/system/meshloom.service`, le démarre sous votre utilisateur, et donne à cet utilisateur l’accès aux périphériques série et Bluetooth.
+Il faut `uv` et Python 3.11 ou plus récent. Le script demande s’il faut construire l’interface avec Node.js 22 et npm 10 ou plus récents, ou en télécharger une toute prête. Il écrit ensuite `/etc/systemd/system/meshloom.service`, le démarre sous votre utilisateur, et donne à cet utilisateur l’accès aux périphériques série et Bluetooth.
 
 On peut le rejouer après une mise à jour du code : il arrête le service, réécrit l’unité, recharge systemd et le redémarre. Il ne configure ni les bots ni un mot de passe. Pour définir des variables, voir [Variables et réglages](/docs/deep/environment/).
 

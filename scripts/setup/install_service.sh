@@ -147,19 +147,19 @@ echo
 if [ "$FRONTEND_MODE" = "build" ]; then
     if ! command -v node &>/dev/null; then
         echo -e "${RED}Error: node is required for a local frontend build but was not found.${NC}"
-        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 20+ and npm 9+."
+        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 22+ and npm 10+."
         exit 1
     fi
     if ! command -v npm &>/dev/null; then
         echo -e "${RED}Error: npm is required for a local frontend build but was not found.${NC}"
-        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 20+ and npm 9+."
+        echo -e "${YELLOW}Tip:${NC} Re-run the installer and choose the prebuilt frontend option, or install Node.js 22+ and npm 10+."
         exit 1
     fi
 
     NODE_VERSION="$(node -v)"
     NPM_VERSION="$(npm -v)"
-    require_minimum_version "Node.js" "$NODE_VERSION" 20
-    require_minimum_version "npm" "$NPM_VERSION" 9
+    require_minimum_version "Node.js" "$NODE_VERSION" 22
+    require_minimum_version "npm" "$NPM_VERSION" 10
 
     echo -e "${YELLOW}Building frontend locally with Node ${NODE_VERSION} and npm ${NPM_VERSION}...${NC}"
     (
