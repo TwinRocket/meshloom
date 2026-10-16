@@ -62,7 +62,9 @@ rotation steps are in `pkg/keys/README.md`.
    image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
    `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. On `main` only, its
    `Deploy edge` job then POSTs the Portainer webhooks listed in the
-   `EDGE_DEPLOY_WEBHOOKS` secret (stacks on `docker-compose.dev.yaml`). A
+   `EDGE_DEPLOY_WEBHOOKS` secret (stacks on `docker-compose.dev.yaml`), with
+   the Cloudflare Access service token from `CF_ACCESS_CLIENT_ID` /
+   `CF_ACCESS_CLIENT_SECRET` when set (Portainer is behind Access). A
    failure there is a warning, never a red run. Tag builds also get a
    build provenance attestation. Pull requests build without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
