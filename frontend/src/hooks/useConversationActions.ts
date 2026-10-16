@@ -5,6 +5,7 @@ import i18n from '../i18n';
 import type { MessageInputHandle } from '../components/MessageInput';
 import type { Channel, Contact, Conversation, Message, PathDiscoveryResponse } from '../types';
 import { mergeContactIntoList } from '../utils/contactMerge';
+import { noteLiveOutgoingChannelMessage } from '../utils/resendWindow';
 
 interface UseConversationActionsArgs {
   activeConversation: Conversation | null;
@@ -17,7 +18,11 @@ interface UseConversationActionsArgs {
 
 interface UseConversationActionsResult {
   handleSendMessage: (text: string) => Promise<void>;
-  handleResendChannelMessage: (messageId: number, newTimestamp?: boolean) => Promise<void>;
+  handleResendChannelMessage: (
+    messageId: number,
+    newTimestamp?: boolean,
+    clientAgeSec?: number
+  ) => Promise<void>;
   handleSetChannelFloodScopeOverride: (
     channelKey: string,
     floodScopeOverride: string
@@ -59,11 +64,15 @@ export function useConversationActions({
       if (!activeConversation) return;
 
       const conversationId = activeConversation.id;
+      // Browser time just before the request: the server stamps sender_timestamp on
+      // arrival, so this anchors the resend window on the browser clock.
+      const startedAtMs = Date.now();
       const sent =
         activeConversation.type === 'channel'
           ? await api.sendChannelMessage(activeConversation.id, text)
           : await api.sendDirectMessage(activeConversation.id, text);
 
+      noteLiveOutgoingChannelMessage(sent, startedAtMs);
       if (activeConversationRef.current?.id === conversationId) {
         observeMessage(sent);
       }
@@ -72,9 +81,9 @@ export function useConversationActions({
   );
 
   const handleResendChannelMessage = useCallback(
-    async (messageId: number, newTimestamp?: boolean) => {
+    async (messageId: number, newTimestamp?: boolean, clientAgeSec?: number) => {
       try {
-        const resent = await api.resendChannelMessage(messageId, newTimestamp);
+        const resent = await api.resendChannelMessage(messageId, newTimestamp, clientAgeSec);
         const resentMessage = resent.message;
         if (
           newTimestamp &&

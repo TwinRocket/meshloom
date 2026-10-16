@@ -94,7 +94,12 @@ and the OpenAPI page (`/docs`), not a table here.
   (`reset_path`). The first ACK is terminal: sibling ACK codes are cleared.
   ACKs never update routes.
 - Channel resend: byte-perfect within 30 s; `?new_timestamp=true` has no time
-  limit and creates a new row.
+  limit and creates a new row. The web UI sends `?client_age_seconds=` (its
+  browser-clock age, authoritative for the window): the 30 s check then uses it,
+  and the server clock only refuses messages older than 300 s
+  (`RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS`). Without it (bots, older
+  clients) the 30 s window is measured on the server clock, as before. The echo
+  watchdog (auto-resend) stays on the server clock.
 - Repeater/room login (`prepare_authenticated_contact_connection`): one try on the
   effective route, then exactly one flood retry, only on timeout and only when the
   route was not already flood. Deliberate: the server relearns the return path on

@@ -50,6 +50,13 @@ Other server timestamps compared with `Date.now()`:
 - The mesh test listen window is timed from `startedAtMs`, the browser time taken
   just before the send request, not from the server `sent_at`
   (`meshTestAgeMs` in `utils/meshTest.ts`).
+- The 30 s byte-perfect channel resend window is decided by the browser clock
+  (owner decision 2026-10-17; `utils/resendWindow.ts`). A message is anchored on
+  the earliest browser time this tab saw it live (`noteLiveOutgoingChannelMessage`:
+  just before the send request, or on the WS `message` event), else on
+  `sender_timestamp + getServerClockOffsetSec()`. `MessageList` times the Resend
+  button with `resendAgeSec` and sends that age as `client_age_seconds`, so the
+  backend checks the window against the browser's age, not its own clock.
 
 ### Lazy loading
 

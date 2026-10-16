@@ -849,6 +849,39 @@ class TestMessagesEndpoint:
         assert mock_mc.commands.send_chan_msg.await_count == 0
 
     @pytest.mark.asyncio
+    async def test_resend_channel_message_client_age_query(self, test_db, client):
+        """client_age_seconds is read from the query string and wins over the server clock."""
+        chan_key = "CE" * 16
+        await ChannelRepository.upsert(key=chan_key, name="#skew")
+        sent_at = int(time.time()) - 60
+        msg_id = await MessageRepository.create(
+            msg_type="CHAN",
+            text="TestNode: skewed",
+            conversation_key=chan_key,
+            sender_timestamp=sent_at,
+            received_at=sent_at,
+            outgoing=True,
+        )
+        assert msg_id is not None
+
+        mock_mc = MagicMock()
+        mock_mc.self_info = {"name": "TestNode"}
+        mock_mc.commands = MagicMock()
+        mock_mc.commands.set_channel = AsyncMock()
+        mock_mc.commands.send_chan_msg = AsyncMock()
+
+        with _patch_require_connected(mock_mc):
+            refused = await client.post(
+                f"/api/messages/channel/{msg_id}/resend?client_age_seconds=31"
+            )
+            negative = await client.post(
+                f"/api/messages/channel/{msg_id}/resend?client_age_seconds=-1"
+            )
+        assert refused.status_code == 400
+        assert negative.status_code == 422
+        assert mock_mc.commands.send_chan_msg.await_count == 0
+
+    @pytest.mark.asyncio
     async def test_resend_channel_message_returns_404_for_missing(self, test_db, client):
         """Resend endpoint returns 404 for nonexistent message ID."""
         mock_mc = MagicMock()

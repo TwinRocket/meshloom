@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -184,6 +185,12 @@ async def send_channel_message(request: SendChannelMessageRequest) -> Message:
 
 
 RESEND_WINDOW_SECONDS = 30
+# Upper bound on the server's own clock when the caller supplies its own age.
+# The browser is authoritative for the 30 s window (its clock may disagree with
+# the server's), but a byte-perfect resend of a stale packet would re-flood an
+# old message once repeaters have forgotten its hash, so a client with a broken
+# clock or anchor must not be able to resend an arbitrarily old message.
+RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS = 300
 
 
 @router.post(
@@ -194,11 +201,26 @@ RESEND_WINDOW_SECONDS = 30
 async def resend_channel_message(
     message_id: int,
     new_timestamp: bool = Query(default=False),
+    client_age_seconds: Annotated[
+        float | None,
+        Query(
+            ge=0,
+            description=(
+                "Age of the message measured by the caller's own clock, in seconds. "
+                "When set, the 30 s byte-perfect window is checked against this value "
+                "instead of the server clock (the server only refuses messages older "
+                "than 300 s on its own clock). Ignored when new_timestamp=true."
+            ),
+        ),
+    ] = None,
 ) -> ResendChannelMessageResponse:
     """Resend a channel message.
 
     When new_timestamp=False (default): byte-perfect resend using the original timestamp.
-    Only allowed within 30 seconds of the original send.
+    Only allowed within 30 seconds of the original send. Without client_age_seconds the
+    age is measured on the server clock. With client_age_seconds (sent by the web UI,
+    whose clock is authoritative for this window) the 30 s check uses that value, and
+    the server clock only enforces a 300 s safety bound.
 
     When new_timestamp=True: resend with a fresh timestamp so repeaters treat it as a
     new packet. Creates a new message row in the database. No time window restriction.
@@ -220,11 +242,28 @@ async def resend_channel_message(
     if msg.sender_timestamp is None:
         raise HTTPException(status_code=400, detail="Message has no timestamp")
 
-    # Byte-perfect resend enforces the 30s window; new-timestamp resend does not
+    # Byte-perfect resend enforces the 30s window; new-timestamp resend does not.
+    # The caller's own age, when given, is authoritative (see client_age_seconds).
     if not new_timestamp:
         elapsed = int(time.time()) - msg.sender_timestamp
-        if elapsed > RESEND_WINDOW_SECONDS:
-            raise HTTPException(status_code=400, detail="Resend window has expired (30 seconds)")
+        if client_age_seconds is None:
+            if elapsed > RESEND_WINDOW_SECONDS:
+                raise HTTPException(
+                    status_code=400, detail="Resend window has expired (30 seconds)"
+                )
+        else:
+            if client_age_seconds > RESEND_WINDOW_SECONDS:
+                raise HTTPException(
+                    status_code=400, detail="Resend window has expired (30 seconds)"
+                )
+            if elapsed > RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Resend window has expired (message older than "
+                        f"{RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS} seconds on the server)"
+                    ),
+                )
 
     db_channel = await ChannelRepository.get_by_key(msg.conversation_key)
     if not db_channel:

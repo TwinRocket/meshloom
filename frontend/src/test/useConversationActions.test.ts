@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useConversationActions } from '../hooks/useConversationActions';
+import { resendAgeSec, resetLiveOutgoingSightings } from '../utils/resendWindow';
 import type { Channel, Contact, Conversation, Message, PathDiscoveryResponse } from '../types';
 
 const mocks = vi.hoisted(() => ({
@@ -116,6 +117,36 @@ describe('useConversationActions', () => {
     expect(args.observeMessage).not.toHaveBeenCalled();
   });
 
+  it('anchors the resend window on the browser time the send started', async () => {
+    resetLiveOutgoingSightings();
+    const startMs = 1_800_000_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startMs);
+    // Server clock 10 min ahead of the browser.
+    const skewed = { ...sentMessage, id: 77, sender_timestamp: startMs / 1000 + 600 };
+    mocks.api.sendChannelMessage.mockResolvedValue(skewed);
+    const args = createArgs();
+    const { result } = renderHook(() => useConversationActions(args));
+
+    await act(async () => {
+      await result.current.handleSendMessage(skewed.text);
+    });
+
+    expect(resendAgeSec(skewed, startMs + 8_000, 0)).toBe(8);
+    nowSpy.mockRestore();
+    resetLiveOutgoingSightings();
+  });
+
+  it('forwards the browser-clock age of a byte-perfect resend', async () => {
+    mocks.api.resendChannelMessage.mockResolvedValue({ status: 'ok', message_id: 42 });
+    const { result } = renderHook(() => useConversationActions(createArgs()));
+
+    await act(async () => {
+      await result.current.handleResendChannelMessage(42, false, 4.5);
+    });
+
+    expect(mocks.api.resendChannelMessage).toHaveBeenCalledWith(42, false, 4.5);
+  });
+
   it('appends sender mentions into the message input', () => {
     const args = createArgs();
     const { result } = renderHook(() => useConversationActions(args));
@@ -159,7 +190,7 @@ describe('useConversationActions', () => {
       await result.current.handleResendChannelMessage(sentMessage.id, true);
     });
 
-    expect(mocks.api.resendChannelMessage).toHaveBeenCalledWith(sentMessage.id, true);
+    expect(mocks.api.resendChannelMessage).toHaveBeenCalledWith(sentMessage.id, true, undefined);
     expect(args.observeMessage).toHaveBeenCalledWith(resentMessage);
   });
 

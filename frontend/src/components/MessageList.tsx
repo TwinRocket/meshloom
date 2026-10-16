@@ -38,6 +38,8 @@ import { ObserverReachBadge } from './ObserverReachBadge';
 import { ObserverReachModal } from './ObserverReachModal';
 import { HopCountBadge } from './messagePath/HopCountBadge';
 import { useVisibleObserverReach } from '../hooks/useVisibleObserverReach';
+import { getServerClockOffsetSec } from '../stores/rawPacketStore';
+import { RESEND_WINDOW_SECONDS, resendAgeSec } from '../utils/resendWindow';
 import { isObserverReachEligible } from '../utils/observerReach';
 import {
   MessagePathModalHost,
@@ -88,7 +90,11 @@ interface MessageListProps {
   /** Send a formatted Open reaction (or any other plaintext) through the existing send path. */
   onSendMessage?: (text: string) => Promise<void>;
   onLoadOlder?: () => void;
-  onResendChannelMessage?: (messageId: number, newTimestamp?: boolean) => void;
+  onResendChannelMessage?: (
+    messageId: number,
+    newTimestamp?: boolean,
+    clientAgeSec?: number
+  ) => void;
   onChannelReferenceClick?: (channelName: string) => void;
   radioName?: string;
   config?: RadioConfig | null;
@@ -700,8 +706,6 @@ function RegionBadge({ region, className }: { region: string; className?: string
   );
 }
 
-const RESEND_WINDOW_SECONDS = 30;
-
 function hasUnexpectedControlChars(text: string): boolean {
   for (const char of text) {
     const code = char.charCodeAt(0);
@@ -1145,17 +1149,21 @@ export function MessageList({
     }
   }, [messages.length]);
 
-  // Track resendable outgoing CHAN messages (within 30s window)
+  // Track resendable outgoing CHAN messages (within the 30 s window, browser clock:
+  // see utils/resendWindow.ts).
   useEffect(() => {
     if (!onResendChannelMessage) return;
 
-    const now = Math.floor(Date.now() / 1000);
+    const nowMs = Date.now();
+    const offsetSec = getServerClockOffsetSec();
     const newResendable = new Set<number>();
     const timers = resendTimersRef.current;
 
     for (const msg of messages) {
-      if (!msg.outgoing || msg.type !== 'CHAN' || msg.sender_timestamp === null) continue;
-      const remaining = RESEND_WINDOW_SECONDS - (now - msg.sender_timestamp);
+      if (!msg.outgoing || msg.type !== 'CHAN') continue;
+      const ageSec = resendAgeSec(msg, nowMs, offsetSec);
+      if (ageSec === null) continue;
+      const remaining = RESEND_WINDOW_SECONDS - ageSec;
       if (remaining <= 0) continue;
 
       newResendable.add(msg.id);
@@ -1196,6 +1204,22 @@ export function MessageList({
       timers.clear();
     };
   }, [messages, onResendChannelMessage]);
+
+  // Byte-perfect resends carry the browser-clock age so the backend applies the
+  // window as the browser sees it (client_age_seconds).
+  const handleResendFromModal = useCallback(
+    (messageId: number, newTimestamp?: boolean) => {
+      if (!onResendChannelMessage) return;
+      if (newTimestamp) {
+        onResendChannelMessage(messageId, true);
+        return;
+      }
+      const msg = messages.find((entry) => entry.id === messageId);
+      const ageSec = msg ? resendAgeSec(msg, Date.now(), getServerClockOffsetSec()) : null;
+      onResendChannelMessage(messageId, false, ageSec ?? undefined);
+    },
+    [messages, onResendChannelMessage]
+  );
 
   /**
    * Located by message id, not by timestamp. The previous `received_at > boundary`
@@ -2059,7 +2083,7 @@ export function MessageList({
         config={config ?? null}
         resendableIds={resendableIds}
         directoryEnabled={directoryEnabled}
-        onResend={onResendChannelMessage}
+        onResend={onResendChannelMessage ? handleResendFromModal : undefined}
         onAnalyzePacket={(messageId) => {
           const message = messages.find((entry) => entry.id === messageId);
           if (message) {

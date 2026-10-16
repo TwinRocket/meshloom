@@ -457,11 +457,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ channel_key: channelKey, text }),
     }),
-  resendChannelMessage: (messageId: number, newTimestamp?: boolean) =>
-    fetchJson<ResendChannelMessageResponse>(
-      `/messages/channel/${messageId}/resend${newTimestamp ? '?new_timestamp=true' : ''}`,
+  resendChannelMessage: (messageId: number, newTimestamp?: boolean, clientAgeSec?: number) => {
+    // clientAgeSec: browser-clock age, authoritative for the byte-perfect window
+    // (utils/resendWindow.ts). Not sent with new_timestamp, which has no window.
+    const params = new URLSearchParams();
+    if (newTimestamp) params.set('new_timestamp', 'true');
+    else if (clientAgeSec !== undefined && Number.isFinite(clientAgeSec)) {
+      params.set('client_age_seconds', String(Math.max(0, Math.round(clientAgeSec * 1000) / 1000)));
+    }
+    const query = params.toString();
+    return fetchJson<ResendChannelMessageResponse>(
+      `/messages/channel/${messageId}/resend${query ? `?${query}` : ''}`,
       { method: 'POST' }
-    ),
+    );
+  },
   deleteMessage: (messageId: number) =>
     fetchJson<{ status: string }>(`/messages/${messageId}`, { method: 'DELETE' }),
 
