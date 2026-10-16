@@ -2,6 +2,10 @@
 
 import asyncio
 import logging
+import math
+import time
+from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import WebSocket
@@ -20,14 +24,39 @@ SEND_TIMEOUT_SECONDS = 5.0
 # rather than letting its backlog grow without bound.
 CLIENT_QUEUE_MAX = 2048
 
-# ``raw_packet`` frames feed the best-effort packet feed and arrive in bursts.
-# Past this backlog they are dropped for that client instead of queued, which
-# keeps headroom below CLIENT_QUEUE_MAX for state-bearing frames (messages,
-# contacts, acks) and avoids evict/reconnect loops during RF bursts.
+# Best-effort frames are dropped for a lagging client instead of queued once its
+# backlog reaches the type's limit (drop-newest: the queue keeps what it holds).
+# Everything else (health, message, contact, message_acked, channel, *_deleted,
+# community_live status, toasts) carries state and is never dropped: it fills
+# the headroom up to CLIENT_QUEUE_MAX, then the client is evicted.
+#
+# ``raw_packet`` feeds the local packet feed and arrives in bursts. Shedding it
+# past this backlog keeps headroom for state-bearing frames and avoids
+# evict/reconnect loops during RF bursts.
 CLIENT_RAW_PACKET_BACKLOG_MAX = 1024
 
+# ``community_packet`` is the Community live feed (other regions included). It
+# only drives the Live map and live "heard by" bumps, which REST reconciles, so
+# it is shed first, at a smaller backlog. The upstream relay queue
+# (``community_live.FANOUT_QUEUE_MAX``) is drained at once into these per-client
+# queues, so this is the bound that protects a slow reader.
+CLIENT_COMMUNITY_PACKET_BACKLOG_MAX = 256
+
 # Event types that may be dropped (never cause eviction) under backpressure.
-_DROPPABLE_EVENTS = frozenset({"raw_packet"})
+_DROPPABLE_EVENTS = frozenset({"raw_packet", "community_packet"})
+
+# A lagging client logs its dropped-frame counts at most once per interval: the
+# first drop logs at once, later ones are summed and logged when the interval is
+# up (on the next frame for that client), or when the client leaves.
+DROP_LOG_INTERVAL_SECONDS = 60.0
+
+
+def _backlog_limit(event_type: str) -> int:
+    """Backlog at which a droppable frame is shed (read at call time for tests)."""
+    if event_type == "community_packet":
+        return CLIENT_COMMUNITY_PACKET_BACKLOG_MAX
+    return CLIENT_RAW_PACKET_BACKLOG_MAX
+
 
 # Close code sent to an evicted client: 1013 "Try Again Later". The frontend
 # reconnects on any close and refetches state, so nothing is lost.
@@ -42,21 +71,26 @@ class _Client:
     client costs at most ``CLIENT_QUEUE_MAX`` frames of memory.
     """
 
-    __slots__ = ("websocket", "queue", "writer", "dropped")
+    __slots__ = ("websocket", "queue", "writer", "unreported", "last_drop_log")
 
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
         self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAX)
         self.writer: asyncio.Task[None] | None = None
-        self.dropped = 0
+        # Dropped frames per event type not yet logged.
+        self.unreported: Counter[str] = Counter()
+        self.last_drop_log = -math.inf
 
 
 class WebSocketManager:
     """Manages WebSocket connections and broadcasts events."""
 
-    def __init__(self):
+    def __init__(self, clock: Callable[[], float] = time.monotonic):
         self.active_connections: dict[WebSocket, _Client] = {}
         self._lock = asyncio.Lock()
+        self._clock = clock
+        # Process-wide count of dropped best-effort frames, per event type.
+        self.dropped_frames: Counter[str] = Counter()
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -74,6 +108,7 @@ class WebSocketManager:
             empty = not self.active_connections
         if client is not None:
             self._stop_writer(client)
+            self._log_drops(client, final=True)
         logger.info("WebSocket client disconnected (%d remaining)", len(self.active_connections))
         if empty and self is ws_manager:
             from app.services.community_live import release_live_on_app_ws_empty
@@ -113,6 +148,7 @@ class WebSocketManager:
             "Evicting WebSocket client (%s); %d remaining", reason, len(self.active_connections)
         )
         self._stop_writer(client)
+        self._log_drops(client, final=True)
         spawn(self._close_quietly(client.websocket), name="ws-close-evicted")
 
     @staticmethod
@@ -124,31 +160,46 @@ class WebSocketManager:
         except Exception as e:
             logger.debug("Closing evicted WebSocket failed: %s", e)
 
-    def _enqueue(self, client: _Client, message: str, *, droppable: bool = False) -> None:
-        if droppable and client.queue.qsize() >= CLIENT_RAW_PACKET_BACKLOG_MAX:
-            if client.dropped == 0:
-                logger.info("WebSocket client is lagging; dropping raw_packet frames")
-            client.dropped += 1
+    def _log_drops(self, client: _Client, *, final: bool = False) -> None:
+        """Log a client's unreported drops, at most once per interval unless final."""
+        if not client.unreported:
             return
+        now = self._clock()
+        if not final and now - client.last_drop_log < DROP_LOG_INTERVAL_SECONDS:
+            return
+        counts = ", ".join(f"{n} {t}" for t, n in sorted(client.unreported.items()))
+        logger.info(
+            "WebSocket client lagging: dropped %s frame(s) (backlog %d)",
+            counts,
+            client.queue.qsize(),
+        )
+        client.unreported.clear()
+        client.last_drop_log = now
+
+    def _enqueue(self, client: _Client, message: str, *, event_type: str | None = None) -> None:
+        if event_type in _DROPPABLE_EVENTS:
+            limit = _backlog_limit(event_type)
+            if client.queue.qsize() >= limit:
+                client.unreported[event_type] += 1
+                self.dropped_frames[event_type] += 1
+                self._log_drops(client)
+                return
         try:
             client.queue.put_nowait(message)
         except asyncio.QueueFull:
             self._evict(client, f"outbound queue full ({CLIENT_QUEUE_MAX} frames)")
             return
-        if client.dropped and client.queue.qsize() < CLIENT_RAW_PACKET_BACKLOG_MAX // 2:
-            logger.info(
-                "WebSocket client caught up; %d raw_packet frame(s) dropped", client.dropped
-            )
-            client.dropped = 0
+        if client.unreported:
+            # Drops still unreported (rate limit): log them once the interval is up.
+            self._log_drops(client)
 
     def broadcast_nowait(self, event_type: str, data: Any) -> None:
         """Queue an event for every connected client, in call order."""
         if not self.active_connections:
             return
         message = dump_ws_event(event_type, data)
-        droppable = event_type in _DROPPABLE_EVENTS
         for client in list(self.active_connections.values()):
-            self._enqueue(client, message, droppable=droppable)
+            self._enqueue(client, message, event_type=event_type)
 
     async def broadcast(self, event_type: str, data: Any) -> None:
         """Queue an event for every connected client (never blocks on I/O)."""
