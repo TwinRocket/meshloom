@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../../api';
 import { useDistanceUnit } from '../../contexts/DistanceUnitContext';
@@ -41,7 +41,7 @@ export function RadioSelfTelemetrySettings() {
   const sensors = data?.sensors ?? [];
   const isEmpty = data !== null && sensors.length === 0 && !hasBattery && !hasStorage;
 
-  let body = null;
+  let body: ReactNode;
   if (data === null) {
     body = loading ? (
       <p className="text-[0.8125rem] text-muted-foreground" role="status">
