@@ -304,6 +304,20 @@ describe('LiveView', () => {
     expect(screen.getByRole('button', { name: i18n.t('live.retry') })).toBeInTheDocument();
   });
 
+  it('says the radio is banned, without a retry button', async () => {
+    vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
+      session_id: 'live-session',
+      close_code: null,
+      opted_out: false,
+      connected: false,
+      state: 'banned',
+    });
+    render(<LiveView contacts={[]} config={null} communityEnabled communityIata="LYS" />);
+    expect(await screen.findByText(i18n.t('live.bannerBanned'))).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: i18n.t('live.retry') })).not.toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('live.paused'))).not.toBeInTheDocument();
+  });
+
   it('shows a discreet paused chip, not a banner, while Community pauses the feed', async () => {
     vi.mocked(api.subscribeCommunityLive).mockResolvedValue({
       session_id: 'live-session',

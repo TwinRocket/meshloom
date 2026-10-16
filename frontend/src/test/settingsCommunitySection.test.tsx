@@ -433,6 +433,52 @@ describe('SettingsCommunitySection', () => {
     ).toBeInTheDocument();
   });
 
+  it('says the radio is banned, calmly, with the contact address', async () => {
+    vi.mocked(api.getCommunity).mockResolvedValue({
+      ...offStatus,
+      enabled: true,
+      iata: 'CDG',
+      publisher_configured: true,
+      state: 'active',
+      banned: true,
+    });
+    render(<SettingsCommunitySection />);
+
+    const notice = await screen.findByTestId('community-banned');
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent(i18n.t('settings.community.banned.title'));
+    const link = screen.getByRole('link', { name: 'privacy@meshloom.app' });
+    expect(link).toHaveAttribute('href', 'mailto:privacy@meshloom.app');
+    // Leaving stays possible.
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.community.leave') })
+    ).toBeInTheDocument();
+  });
+
+  it('shows no ban notice otherwise', async () => {
+    render(<SettingsCommunitySection />);
+    await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') });
+    expect(screen.queryByTestId('community-banned')).toBeNull();
+  });
+
+  it('translates a join refused because the radio is banned', async () => {
+    vi.mocked(api.bindCommunityIata).mockRejectedValue(
+      new ApiError('This radio has been banned from Meshloom Community', 403, {
+        code: 'community_banned',
+        message: 'This radio has been banned from Meshloom Community',
+      })
+    );
+    render(<SettingsCommunitySection />);
+
+    const iata = await screen.findByLabelText(i18n.t('settings.community.iata'));
+    fireEvent.change(iata, { target: { value: 'lys' } });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.community.joinCta') }));
+
+    await waitFor(() => {
+      expect(toastMocks.error).toHaveBeenCalledWith(i18n.t('errors.community_banned'));
+    });
+  });
+
   it('shows why the status could not be loaded', async () => {
     vi.mocked(api.getCommunity).mockRejectedValue(new ApiError('Radio key is not available', 503));
     render(<SettingsCommunitySection />);

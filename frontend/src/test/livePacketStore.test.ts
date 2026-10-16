@@ -119,6 +119,24 @@ describe('livePacketStore', () => {
     expect(getLiveConnectionState()).toMatchObject({ paused: false, banner: 'opt_out' });
   });
 
+  it('reports a ban as a banner that wins over a pause, and clears it on connect', () => {
+    applyLiveStatus({ close_code: null, opted_out: false, connected: false, state: 'banned' });
+    const banned = getLiveConnectionState();
+    expect(banned).toMatchObject({
+      banned: true,
+      paused: false,
+      banner: 'banned',
+      authError: null,
+    });
+    expect(liveBannerI18nKey(banned)).toBe('live.bannerBanned');
+
+    applyLiveStatus({ close_code: null, opted_out: false, connected: true, state: 'connected' });
+    expect(getLiveConnectionState()).toMatchObject({ banned: false, banner: null });
+
+    applyLiveStatus({ close_code: null, opted_out: true, connected: false, state: 'banned' });
+    expect(getLiveConnectionState()).toMatchObject({ banned: false, banner: 'opt_out' });
+  });
+
   it('opt-out wins over a token refusal', () => {
     applyLiveStatus({
       close_code: null,

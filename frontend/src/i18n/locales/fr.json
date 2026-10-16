@@ -1070,6 +1070,10 @@
         "retry": "Réessayer",
         "retrying": "Nouvel essai…",
         "retryDone": "Community a confirmé la suppression"
+      },
+      "banned": {
+        "title": "Radio bannie de Meshloom Community",
+        "body": "Cette radio a été bannie de Meshloom Community. Elle ne partage plus ses paquets, ses hashtags ni sa position avec Community, et le flux live est coupé. Le reste de Meshloom fonctionne normalement. Si vous pensez qu’il s’agit d’une erreur, écrivez à <email>privacy@meshloom.app</email>."
       }
     },
     "about": {
@@ -1824,6 +1828,7 @@
     "radio_not_connected": "Radio non connectée",
     "iata_requires_bind": "Le code IATA ne change que par les réglages Meshloom Community (enregistrement ou adhésion), jamais par une simple mise à jour des réglages.",
     "join_requires_bind": "Rejoignez Meshloom Community depuis ses réglages : le code IATA est d’abord enregistré, puis Community est activé.",
+    "community_banned": "Cette radio a été bannie de Meshloom Community. Si vous pensez qu’il s’agit d’une erreur, écrivez à privacy@meshloom.app.",
     "radio_initializing": "Radio en cours d'initialisation",
     "radio_rebooting": "La radio redémarre pour remettre son horloge à l’heure. Meshloom se reconnecte automatiquement.",
     "radio_reboot_timeout": "La radio n’est pas revenue après son redémarrage pour remettre son horloge à l’heure",
