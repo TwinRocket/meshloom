@@ -972,7 +972,7 @@ class TestResendChannelMessage:
             await resend_channel_message(msg_id, new_timestamp=False)
 
         assert exc_info.value.status_code == 400
-        assert "expired" in exc_info.value.detail.lower()
+        assert exc_info.value.detail["code"] == "resend_window_expired"
 
     @pytest.mark.asyncio
     async def test_resend_uses_current_channel_flood_scope_override(self, test_db):
@@ -1334,7 +1334,7 @@ class TestResendChannelMessage:
             await resend_channel_message(msg_id, new_timestamp=False)
 
         assert exc_info.value.status_code == 400
-        assert "expired" in exc_info.value.detail.lower()
+        assert exc_info.value.detail["code"] == "resend_window_expired"
 
     async def _make_outgoing_chan(self, chan_key: str, age_seconds: int) -> int:
         await ChannelRepository.upsert(key=chan_key, name="#skew")
@@ -1380,7 +1380,7 @@ class TestResendChannelMessage:
             await resend_channel_message(msg_id, new_timestamp=False, client_age_seconds=45.0)
 
         assert exc_info.value.status_code == 400
-        assert "expired" in exc_info.value.detail.lower()
+        assert exc_info.value.detail["code"] == "resend_window_expired"
         mc.commands.send_chan_msg.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -1396,7 +1396,8 @@ class TestResendChannelMessage:
             await resend_channel_message(msg_id, new_timestamp=False, client_age_seconds=1.0)
 
         assert exc_info.value.status_code == 400
-        assert "300 seconds" in exc_info.value.detail
+        assert exc_info.value.detail["code"] == "resend_window_expired_server"
+        assert "300 seconds" in exc_info.value.detail["message"]
         mc.commands.send_chan_msg.assert_not_awaited()
 
 

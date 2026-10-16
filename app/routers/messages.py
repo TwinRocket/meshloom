@@ -193,6 +193,25 @@ RESEND_WINDOW_SECONDS = 30
 RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS = 300
 
 
+def _resend_window_expired_detail(
+    seconds: int = RESEND_WINDOW_SECONDS, *, on_server: bool = False
+) -> dict:
+    """Coded 400 detail, translated by the UI under errors.<code>."""
+    if on_server:
+        return {
+            "code": "resend_window_expired_server",
+            "message": (
+                f"Resend window has expired (message older than {seconds} seconds on the server)"
+            ),
+            "params": {"seconds": seconds},
+        }
+    return {
+        "code": "resend_window_expired",
+        "message": f"Resend window has expired ({seconds} seconds)",
+        "params": {"seconds": seconds},
+    }
+
+
 @router.post(
     "/channel/{message_id}/resend",
     response_model=ResendChannelMessageResponse,
@@ -246,24 +265,19 @@ async def resend_channel_message(
     # The caller's own age, when given, is authoritative (see client_age_seconds).
     if not new_timestamp:
         elapsed = int(time.time()) - msg.sender_timestamp
-        if client_age_seconds is None:
-            if elapsed > RESEND_WINDOW_SECONDS:
-                raise HTTPException(
-                    status_code=400, detail="Resend window has expired (30 seconds)"
-                )
-        else:
-            if client_age_seconds > RESEND_WINDOW_SECONDS:
-                raise HTTPException(
-                    status_code=400, detail="Resend window has expired (30 seconds)"
-                )
-            if elapsed > RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "Resend window has expired (message older than "
-                        f"{RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS} seconds on the server)"
-                    ),
-                )
+        age = elapsed if client_age_seconds is None else client_age_seconds
+        if age > RESEND_WINDOW_SECONDS:
+            raise HTTPException(status_code=400, detail=_resend_window_expired_detail())
+        if (
+            client_age_seconds is not None
+            and elapsed > RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=_resend_window_expired_detail(
+                    RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS, on_server=True
+                ),
+            )
 
     db_channel = await ChannelRepository.get_by_key(msg.conversation_key)
     if not db_channel:

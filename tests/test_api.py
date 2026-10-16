@@ -844,7 +844,7 @@ class TestMessagesEndpoint:
             response = await client.post(f"/api/messages/channel/{msg_id}/resend")
 
         assert response.status_code == 400
-        assert "expired" in response.json()["detail"].lower()
+        assert response.json()["detail"]["code"] == "resend_window_expired"
         assert mock_mc.commands.set_channel.await_count == 0
         assert mock_mc.commands.send_chan_msg.await_count == 0
 
