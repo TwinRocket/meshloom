@@ -40,7 +40,16 @@ visualizer node within a second; `src/test/clockSkewPrune.test.ts` covers it.
 The reverse direction applies to bounds sent to the server: the `#raw` history
 replay presets ("last 1h/24h/7d") are filtered on the server `timestamp`, so
 `utils/rawPacketHistoryBounds.ts` shifts `since` by the skew measured on buffered
-live packets (`received_at_ms` minus `timestamp`) and sends no `until`.
+live packets (`received_at_ms` minus `timestamp`, read with
+`getServerClockOffsetSec()` from `stores/rawPacketStore.ts`, 0 when nothing is
+buffered) and sends no `until`. The modal recomputes the bounds on every open.
+Other server timestamps compared with `Date.now()`:
+- A message's `received_at` (server clock) drives the observer reach windows
+  (`useVisibleObserverReach`: live ticks only while young, 2 s/60 s polling). Ages
+  go through `messageAgeMs(msg, now, getServerClockOffsetSec())`.
+- The mesh test listen window is timed from `startedAtMs`, the browser time taken
+  just before the send request, not from the server `sent_at`
+  (`meshTestAgeMs` in `utils/meshTest.ts`).
 
 ### Lazy loading
 

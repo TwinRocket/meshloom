@@ -6,13 +6,17 @@ import {
   saveLastViewedConversation,
 } from '../utils/lastViewedConversation';
 import {
+  meshTestAgeMs,
   meshTestListenState,
   meshTestObserverDistanceKm,
   meshTestPathPoints,
   placedObserverCoordinates,
   preselectedFloodScope,
+  readMeshTestRun,
+  saveMeshTestRun,
   sortMeshTestObservers,
   type MeshTestObserver,
+  type MeshTestRun,
 } from '../utils/meshTest';
 
 function observer(overrides: Partial<MeshTestObserver> = {}): MeshTestObserver {
@@ -180,5 +184,46 @@ describe('meshTestObserverDistanceKm', () => {
     expect(meshTestObserverDistanceKm(origin, { position_precision: 'rounded' }, placed)).toBe(
       null
     );
+  });
+});
+
+describe('meshTestAgeMs', () => {
+  const browserNowMs = 1_800_000_000_000;
+  const run = (overrides: Partial<MeshTestRun> = {}): MeshTestRun => ({
+    packetHash: 'AABBCCDDEEFF0011',
+    sentAt: browserNowMs / 1000,
+    floodScope: '',
+    originLat: null,
+    originLon: null,
+    ...overrides,
+  });
+
+  it('times the window on the browser clock when the server is 15 min behind', () => {
+    const skewed = run({ sentAt: browserNowMs / 1000 - 900, startedAtMs: browserNowMs });
+    expect(meshTestAgeMs(skewed, browserNowMs + 1_000)).toBe(1_000);
+    expect(meshTestListenState(meshTestAgeMs(skewed, browserNowMs + 1_000), false)).toBe(
+      'listening'
+    );
+    expect(meshTestListenState(meshTestAgeMs(skewed, browserNowMs + MID_REACH_MS), false)).toBe(
+      'stopped'
+    );
+  });
+
+  it('closes the window on time when the server is ahead', () => {
+    const skewed = run({ sentAt: browserNowMs / 1000 + 900, startedAtMs: browserNowMs });
+    expect(meshTestListenState(meshTestAgeMs(skewed, browserNowMs + MID_REACH_MS), false)).toBe(
+      'stopped'
+    );
+  });
+
+  it('falls back to sentAt for a run saved without startedAtMs', () => {
+    expect(meshTestAgeMs(run(), browserNowMs + 5_000)).toBe(5_000);
+  });
+
+  it('keeps startedAtMs across a tab reload', () => {
+    saveMeshTestRun(run({ startedAtMs: browserNowMs }));
+    expect(readMeshTestRun()?.startedAtMs).toBe(browserNowMs);
+    saveMeshTestRun(run());
+    expect(readMeshTestRun()).not.toHaveProperty('startedAtMs');
   });
 });

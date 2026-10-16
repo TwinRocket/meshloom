@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '../types';
 import {
   isObserverReachEligible,
+  isOutgoingReachReady,
+  messageAgeMs,
   MID_POLL_MS,
   MID_REACH_MS,
   observerReachPollIntervalMs,
@@ -96,5 +98,33 @@ describe('observerReachPollIntervalMs', () => {
   it('stops polling after ten minutes', () => {
     expect(observerReachPollIntervalMs(MID_REACH_MS)).toBeNull();
     expect(observerReachPollIntervalMs(15 * 60_000)).toBeNull();
+  });
+});
+
+describe('messageAgeMs and server clock skew', () => {
+  // received_at is stamped by the server clock; nowMs comes from the browser.
+  const browserNowMs = 1_800_000_000_000;
+  const browserNowSec = browserNowMs / 1000;
+
+  it('measures a just-received message as zero old with the server 2 min behind', () => {
+    const msg = message({ received_at: browserNowSec - 120 });
+    expect(messageAgeMs(msg, browserNowMs)).toBe(120_000);
+    expect(messageAgeMs(msg, browserNowMs, 120)).toBe(0);
+    expect(observerReachPollIntervalMs(messageAgeMs(msg, browserNowMs, 120))).toBe(YOUNG_POLL_MS);
+  });
+
+  it('measures a just-received message as zero old with the server 15 min ahead', () => {
+    const msg = message({ received_at: browserNowSec + 900 });
+    expect(messageAgeMs(msg, browserNowMs, -900)).toBe(0);
+    expect(messageAgeMs(msg, browserNowMs + 61_000, -900)).toBe(61_000);
+    expect(observerReachPollIntervalMs(messageAgeMs(msg, browserNowMs + 61_000, -900))).toBe(
+      MID_POLL_MS
+    );
+  });
+
+  it('treats an outgoing message as ready at once when the server clock is ahead', () => {
+    const msg = message({ outgoing: true, received_at: browserNowSec + 300 });
+    expect(isOutgoingReachReady(msg, browserNowMs)).toBe(false);
+    expect(isOutgoingReachReady(msg, browserNowMs, -300)).toBe(true);
   });
 });

@@ -17,8 +17,14 @@ export const MESH_TEST_RUN_KEY = 'meshloom-mesh-test-run';
 
 export interface MeshTestRun {
   packetHash: string;
-  /** Unix seconds, from the send response. */
+  /** Unix seconds, from the send response (server clock). */
   sentAt: number;
+  /**
+   * Browser-clock ms when the send was requested. The listen window is timed from
+   * here, so a skewed server clock neither closes it early nor stretches it. Absent
+   * on runs saved before this field existed: those fall back to `sentAt`.
+   */
+  startedAtMs?: number;
   floodScope: string;
   originLat: number | null;
   originLon: number | null;
@@ -69,6 +75,9 @@ export function readMeshTestRun(): MeshTestRun | null {
     return {
       packetHash: parsed.packetHash,
       sentAt: parsed.sentAt,
+      ...(typeof parsed.startedAtMs === 'number' && Number.isFinite(parsed.startedAtMs)
+        ? { startedAtMs: parsed.startedAtMs }
+        : {}),
       floodScope: typeof parsed.floodScope === 'string' ? parsed.floodScope : '',
       originLat: typeof parsed.originLat === 'number' ? parsed.originLat : null,
       originLon: typeof parsed.originLon === 'number' ? parsed.originLon : null,
@@ -101,6 +110,11 @@ export function meshTestOrigin(run: MeshTestRun | null): { lat: number; lon: num
 
 export function observerRowKey(observer: ObserverReachEntry, index: number): string {
   return `${observer.public_key ?? observer.name}-${index}`;
+}
+
+/** Age of the run on the browser clock, the one `nowMs` comes from. */
+export function meshTestAgeMs(run: MeshTestRun, nowMs: number = Date.now()): number {
+  return nowMs - (run.startedAtMs ?? run.sentAt * 1000);
 }
 
 /**

@@ -11,13 +11,26 @@ export function isObserverReachEligible(msg: Message): boolean {
   return msg.observer_reach_eligible !== false;
 }
 
-export function isOutgoingReachReady(msg: Message, nowMs: number = Date.now()): boolean {
-  if (!msg.outgoing) return true;
-  return nowMs - msg.received_at * 1000 >= OUTGOING_REACH_DELAY_MS;
+/**
+ * `received_at` is stamped by the server clock while `nowMs` comes from the browser.
+ * `serverClockOffsetSec` is how far the browser is ahead of the server (see
+ * `estimateServerClockOffsetSec`), so the age is measured on one clock.
+ */
+export function messageAgeMs(
+  msg: Message,
+  nowMs: number = Date.now(),
+  serverClockOffsetSec: number = 0
+): number {
+  return nowMs - (msg.received_at + serverClockOffsetSec) * 1000;
 }
 
-export function messageAgeMs(msg: Message, nowMs: number = Date.now()): number {
-  return nowMs - msg.received_at * 1000;
+export function isOutgoingReachReady(
+  msg: Message,
+  nowMs: number = Date.now(),
+  serverClockOffsetSec: number = 0
+): boolean {
+  if (!msg.outgoing) return true;
+  return messageAgeMs(msg, nowMs, serverClockOffsetSec) >= OUTGOING_REACH_DELAY_MS;
 }
 
 /** Poll cadence while a flood is still young. Null means keep the last snapshot. */

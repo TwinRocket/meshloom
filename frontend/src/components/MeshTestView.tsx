@@ -22,6 +22,7 @@ import { observerReachPollIntervalMs } from '../utils/observerReach';
 import {
   clearMeshTestRun,
   meshTestObserverDistanceKm,
+  meshTestAgeMs,
   meshTestListenState,
   meshTestOrigin,
   meshTestSummary,
@@ -166,7 +167,7 @@ function MeshTestRunView({
     return () => window.clearInterval(timer);
   }, []);
 
-  const ageMs = run ? nowMs - run.sentAt * 1000 : 0;
+  const ageMs = run ? meshTestAgeMs(run, nowMs) : 0;
   const listenState = run ? meshTestListenState(ageMs, sealed) : 'stopped';
   const origin = useMemo(() => meshTestOrigin(run), [run]);
 
@@ -192,7 +193,7 @@ function MeshTestRunView({
         setError(formatApiError(err, i18n.t));
       }
       if (cancelled) return;
-      const interval = observerReachPollIntervalMs(Date.now() - run.sentAt * 1000);
+      const interval = observerReachPollIntervalMs(meshTestAgeMs(run));
       if (interval == null) return;
       timer = window.setTimeout(() => void poll(), interval);
     };
@@ -277,11 +278,15 @@ function MeshTestRunView({
   const handleRun = useCallback(
     async (region: string) => {
       setSending(true);
+      // Taken before the request: the server stamps sent_at on arrival, before the
+      // radio send, so this is the same instant on the browser clock.
+      const startedAtMs = Date.now();
       try {
         const response = await api.runMeshTest(region);
         const next: MeshTestRun = {
           packetHash: response.packet_hash,
           sentAt: response.sent_at,
+          startedAtMs,
           floodScope: response.flood_scope,
           originLat: response.origin_lat,
           originLon: response.origin_lon,

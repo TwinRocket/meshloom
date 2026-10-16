@@ -58,9 +58,12 @@ import {
   useReplayActive,
   useReplayPackets,
 } from '../stores/rawPacketReplayStore';
-import { getRawPackets, useRawPacketStatsSession, useRawPackets } from '../stores/rawPacketStore';
 import {
-  estimateServerClockOffsetSec,
+  getServerClockOffsetSec,
+  useRawPacketStatsSession,
+  useRawPackets,
+} from '../stores/rawPacketStore';
+import {
   HISTORY_PERIODS,
   resolveHistoryBounds,
   type HistoryPeriod,
@@ -646,16 +649,13 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
   const loadAbortRef = useRef<AbortController | null>(null);
 
   const bounds = useMemo(
-    // Read the buffer once per period change: the offset only needs a recent sample,
-    // and subscribing would refetch the preview on every live packet.
-    () =>
-      resolveHistoryBounds(
-        period,
-        customSince,
-        customUntil,
-        estimateServerClockOffsetSec(getRawPackets())
-      ),
-    [customSince, customUntil, period]
+    // The modal stays mounted while closed, so recompute on every open: a preset is
+    // relative to "now", and the clock offset needs the packets buffered since. The
+    // buffer is read, not subscribed to, so the preview is not refetched per packet.
+    () => resolveHistoryBounds(period, customSince, customUntil, getServerClockOffsetSec()),
+    // `open` is a deliberate re-evaluation trigger, not an input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [customSince, customUntil, period, open]
   );
   const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
 
