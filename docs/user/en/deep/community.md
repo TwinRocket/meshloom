@@ -101,7 +101,7 @@ Changing the IATA code clears the status left under the old code the same way, w
 
 The Meshloom Community team can ban a radio that misbehaves. Community then refuses that radio: it no longer accepts its packets, its status, its code changes or its hashtag names, and it no longer opens the Live feed for it. Meshloom notices it on the first refusal (a refused connection to the broker included: Meshloom then asks Community once whether the radio is banned) and stops trying, so it does not hammer Community with requests that cannot succeed: no new connection to the broker, no Live feed, no code or hashtag update. Everything else in Meshloom keeps working, and you can still leave Community.
 
-**Settings → Meshloom Community** then says **Radio banned from Meshloom Community**, and the Live tab says so in its banner. If you think this is a mistake, write to [privacy@meshloom.app](mailto:privacy@meshloom.app). Meshloom checks again on its own after 12 hours (and finds the ban again at once if it still holds), at the next restart, or when you act in the Community settings (joining, changing the code).
+**Settings → Meshloom Community** then says **Radio banned from Meshloom Community**, and the Live tab says so in its banner. If you think this is a mistake, write to [ban@meshloom.app](mailto:ban@meshloom.app). Meshloom checks again on its own after 12 hours (and finds the ban again at once if it still holds), at the next restart, or when you act in the Community settings (joining, changing the code).
 
 ## In the interface
 

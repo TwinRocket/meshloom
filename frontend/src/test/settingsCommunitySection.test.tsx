@@ -447,8 +447,8 @@ describe('SettingsCommunitySection', () => {
     const notice = await screen.findByTestId('community-banned');
     expect(notice).toHaveAttribute('role', 'status');
     expect(notice).toHaveTextContent(i18n.t('settings.community.banned.title'));
-    const link = screen.getByRole('link', { name: 'privacy@meshloom.app' });
-    expect(link).toHaveAttribute('href', 'mailto:privacy@meshloom.app');
+    const link = screen.getByRole('link', { name: 'ban@meshloom.app' });
+    expect(link).toHaveAttribute('href', 'mailto:ban@meshloom.app');
     // Leaving stays possible.
     expect(
       screen.getByRole('button', { name: i18n.t('settings.community.leave') })

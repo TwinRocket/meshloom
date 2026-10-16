@@ -26,7 +26,7 @@ import { useCommunityLeave } from '../../hooks/useCommunityLeave';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
 // The address the opt-out dialog gives too (CommunityLeaveDialog).
-const COMMUNITY_CONTACT_EMAIL = 'privacy@meshloom.app';
+const COMMUNITY_CONTACT_EMAIL = 'ban@meshloom.app';
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
 
 function normalizeIata(raw: string): string {
