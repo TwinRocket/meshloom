@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -159,7 +160,8 @@ class TestHttpBan:
 
     async def test_after_the_hold_one_call_checks_again(self):
         http = AsyncMock(return_value=httpx.Response(200, json={}))
-        note_banned(now=0.0)  # long expired on the monotonic clock
+        # Expired, whatever the monotonic clock reads (a fresh CI runner starts near 0).
+        note_banned(now=time.monotonic() - BANNED_HOLD_S - 1)
         with ExitStack() as stack:
             _enter_on(stack, http)
             await stats_request("PUT", "/v1/me/hashtags", auth=True, json_body={})
