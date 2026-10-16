@@ -199,7 +199,7 @@ function parseGroupDataPlaintext(plaintext: Uint8Array): GroupDataPlaintext | nu
     return null;
   }
   const data = plaintext.subarray(3, 3 + dataLen);
-  let dataText: string | null = null;
+  let dataText: string | null;
   try {
     dataText = new TextDecoder('utf-8', { fatal: true }).decode(data);
   } catch {

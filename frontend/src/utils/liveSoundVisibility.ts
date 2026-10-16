@@ -36,8 +36,8 @@ export function segmentIntersectsViewport(
   while (out0 | out1) {
     if (out0 & out1) return false;
     const out = out0 || out1;
-    let x = 0;
-    let y = 0;
+    let x: number;
+    let y: number;
     if (out & 8) {
       x = x0 + ((x1 - x0) * (height - y0)) / (y1 - y0 || 1);
       y = height;
