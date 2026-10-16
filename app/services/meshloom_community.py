@@ -1486,6 +1486,28 @@ async def stats_request(
     return response
 
 
+BAN_PROBE_PATH = "/v1/hashtags/resolve"
+
+
+async def probe_community_ban() -> bool:
+    """Ask Community once whether it banned this key. True when banned.
+
+    For the Stats publisher, whose broker connection a ban refuses without
+    saying why. ``POST /v1/hashtags/resolve`` with no hash byte: Community
+    refuses it with 403 ``banned`` for a banned key (``stats_request`` then
+    starts the banned state) and otherwise answers an empty list. No position,
+    no IATA change, nothing stored. Any other failure (off, waiting for a
+    position, unreachable) answers False: the ban is not known.
+    """
+    try:
+        await stats_request("POST", BAN_PROBE_PATH, auth=True, json_body={"hash_bytes": []})
+    except HTTPException:
+        pass
+    except Exception:
+        logger.warning("Community ban probe failed", exc_info=True)
+    return community_banned()
+
+
 async def _apply_ban() -> None:
     """Community banned this key: stop the Live relay and tell every tab."""
     from app.services.community_live import get_live_relay

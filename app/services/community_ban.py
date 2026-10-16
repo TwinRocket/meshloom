@@ -17,11 +17,22 @@ banned state (in memory, not persisted) for ``BANNED_HOLD_S``:
 - the Stats publisher does not reconnect to the broker
   (``MeshloomStatsPublisher._pre_connect``) and shows no error toast.
 
+The ban also reaches a process that makes none of those calls: when the
+broker refuses the Stats publisher's credentials (the MQTT auth of a banned
+key), the publisher sends one probe (``probe_community_ban`` in
+``meshloom_community``: ``POST /v1/hashtags/resolve`` with no hash byte, which
+Community refuses for a banned key and otherwise answers with an empty list,
+without any side effect), at most once per ``BAN_PROBE_MIN_INTERVAL_S``, before
+it decides on the error toast.
+
 The state ends on a restart, on a user action that changes the Community
 settings (a join or an IATA change, ``PATCH /community``, an opt-out) or
 restarts Live (``POST /community/live/restart``), and on its own after
 ``BANNED_HOLD_S``: then the next call checks again, once, whether the ban was
-lifted. ``GET /community`` reports it as ``banned: true``.
+lifted. Nothing else has to make that call: the Stats publisher connects
+again, and a refusal from the broker sends the probe above, which starts the
+banned state again while the ban holds. ``GET /community`` reports it as
+``banned: true``.
 """
 
 from __future__ import annotations
@@ -54,7 +65,13 @@ BANNED_REFUSED_ROUTES: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+# Least time between two probes sent after a broker auth refusal: a refusal
+# for another reason (a bad clock, a broker problem) must not turn every
+# reconnect into an HTTP request.
+BAN_PROBE_MIN_INTERVAL_S = 3600.0
+
 _banned_until: float | None = None
+_last_probe_at: float | None = None
 
 
 def _now(now: float | None) -> float:
@@ -96,11 +113,25 @@ def note_banned(*, now: float | None = None) -> bool:
 
 
 def clear_ban() -> bool:
-    """End the banned state (a user action). True when one was active."""
-    global _banned_until
+    """End the banned state (a user action). True when one was active.
+
+    It also lets the next broker auth refusal probe again at once.
+    """
+    global _banned_until, _last_probe_at
     was = community_banned()
     _banned_until = None
+    _last_probe_at = None
     return was
+
+
+def take_ban_probe(*, now: float | None = None) -> bool:
+    """True (and counted) when a ban probe may go now, else False."""
+    global _last_probe_at
+    current = _now(now)
+    if _last_probe_at is not None and current - _last_probe_at < BAN_PROBE_MIN_INTERVAL_S:
+        return False
+    _last_probe_at = current
+    return True
 
 
 def banned_http_exception() -> HTTPException:
@@ -111,5 +142,6 @@ def banned_http_exception() -> HTTPException:
 
 
 def reset_community_ban_for_tests() -> None:
-    global _banned_until
+    global _banned_until, _last_probe_at
     _banned_until = None
+    _last_probe_at = None
