@@ -79,6 +79,8 @@ Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (d
 
 Dans **Réglages → Notifications → Destinations de livraison**, saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
 
+Meshloom refuse un webhook sur un réseau privé (votre réseau local, cette machine, `localhost`, le NAT d’opérateur, les adresses lien-local) sauf si vous cochez **Autoriser une destination sur un réseau privé (réseau local, localhost)** sous l’adresse : Home Assistant, Node-RED ou un script sur votre réseau en ont besoin. La vérification a lieu à l’enregistrement de l’adresse puis avant chaque envoi, et Meshloom se connecte ensuite uniquement à l’adresse vérifiée : une réponse DNS qui change entre-temps ne peut pas détourner l’appel. Les adresses de métadonnées cloud (`169.254.169.254` et ses équivalents) sont toujours refusées. Si le nom d’hôte est introuvable, saisissez plutôt l’adresse IP. Un webhook enregistré avant cette vérification continue de fonctionner : la case est cochée pour lui, et un avis unique le signale.
+
 L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage dans le message (image intégrée) : ouvrir l’e-mail ne charge rien depuis Internet, et il ne contient aucun lien.
 
 ## En coulisses
@@ -103,11 +105,15 @@ L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage
 
 Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant. Les anciennes routes `/api/push/conversations` n’existent plus.
 
+### Services push sur un réseau privé
+
+Les services push des navigateurs (Google, Mozilla, Apple) sont sur Internet. `POST /api/push/subscribe` refuse une adresse sur un réseau privé (réponse `400`, code `egress_private_address`), et Meshloom n’y envoie jamais rien, sauf si **Accepter les points de terminaison push sur un réseau privé** est coché dans **Réglages → Notifications** (réglage `push_allow_private_endpoints` de `/api/settings`). Cochez-le uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Comme pour le webhook, chaque push part uniquement vers l’adresse vérifiée par Meshloom, et une redirection n’est jamais suivie.
+
 ## Quand rien n’arrive
 
 1. Vérifiez que la page est servie en HTTPS (ou depuis `localhost`).
 2. Vérifiez l’autorisation de notifications dans votre navigateur et votre système.
-3. Envoyez un test depuis **Réglages → Notifications**. Quand un test échoue, Meshloom indique seulement si le service est injoignable ou l’a refusé, n’a pas répondu à temps, ou n’accepte plus l’abonnement ; il n’affiche jamais l’erreur réseau elle-même (une page ne peut donc pas se servir du test pour sonder votre réseau). Le journal du serveur indique le type d’erreur, ainsi que l’hôte et le statut HTTP du webhook, sous `Test push failed` ou `Notification test (webhook) failed` ; il n’enregistre jamais l’adresse du webhook ni son jeton.
+3. Envoyez un test depuis **Réglages → Notifications**. Une destination sur un réseau privé non autorisée est refusée tout de suite, avant toute connexion. Une fois cette vérification passée, quand un test échoue, Meshloom indique seulement le type d’échec (injoignable, pas de réponse à temps, échec TLS, statut HTTP renvoyé par le webhook, ou abonnement que le service push n’accepte plus) ; il n’affiche jamais l’erreur réseau elle-même, un nom d’hôte ni une adresse (une page ne peut donc pas se servir du test pour sonder votre réseau). Le journal du serveur indique le type d’erreur, ainsi que l’hôte et le statut HTTP du webhook, sous `Test push failed` ou `Notification test (webhook) failed` ; il n’enregistre jamais l’adresse du webhook ni son jeton.
 4. Vérifiez les valeurs par défaut et les exceptions, visibles aussi sur `/api/push/preferences`. Un salon à clé privée reste muet sans exception qui l’active. Un salon en sourdine reste muet quels que soient les réglages.
 5. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
 6. Vérifiez que le serveur peut joindre Internet.
