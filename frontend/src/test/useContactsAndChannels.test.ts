@@ -70,12 +70,11 @@ describe('useContactsAndChannels', () => {
   const setActiveConversation = vi.fn();
   const removeConversationMessages = vi.fn();
   const pendingDeleteFallbackRef = { current: false };
-  const hasSetDefaultConversation = { current: false };
+  const markDefaultConversationSet = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     pendingDeleteFallbackRef.current = false;
-    hasSetDefaultConversation.current = false;
   });
 
   afterEach(() => {
@@ -87,7 +86,7 @@ describe('useContactsAndChannels', () => {
       useContactsAndChannels({
         setActiveConversation,
         pendingDeleteFallbackRef,
-        hasSetDefaultConversation,
+        markDefaultConversationSet,
         removeConversationMessages,
       })
     );
@@ -265,6 +264,29 @@ describe('useContactsAndChannels', () => {
         id: 'discovered',
         name: expect.any(String),
       });
+    });
+  });
+
+  describe('delete fallback', () => {
+    it('marks the default conversation as set before falling back to Public', async () => {
+      const { api } = await import('../api');
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.mocked(api.deleteChannel).mockResolvedValueOnce({ status: 'ok' });
+      vi.mocked(api.getChannels).mockResolvedValueOnce([]);
+
+      const { result } = renderUseContactsAndChannels();
+      await act(async () => {
+        await result.current.handleDeleteChannel('CC'.repeat(16));
+      });
+
+      expect(pendingDeleteFallbackRef.current).toBe(true);
+      expect(markDefaultConversationSet).toHaveBeenCalledTimes(1);
+      expect(markDefaultConversationSet.mock.invocationCallOrder[0]).toBeLessThan(
+        setActiveConversation.mock.invocationCallOrder[0]
+      );
+      expect(setActiveConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'channel' })
+      );
     });
   });
 });

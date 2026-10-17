@@ -10,14 +10,15 @@ import type { BulkCreateHashtagChannelsResult, Channel, Contact, Conversation } 
 interface UseContactsAndChannelsArgs {
   setActiveConversation: (conv: Conversation | null) => void;
   pendingDeleteFallbackRef: MutableRefObject<boolean>;
-  hasSetDefaultConversation: MutableRefObject<boolean>;
+  /** Tells the router the initial-load phases must not re-resolve a conversation. */
+  markDefaultConversationSet: () => void;
   removeConversationMessages: (conversationId: string) => void;
 }
 
 export function useContactsAndChannels({
   setActiveConversation,
   pendingDeleteFallbackRef,
-  hasSetDefaultConversation,
+  markDefaultConversationSet,
   removeConversationMessages,
 }: UseContactsAndChannelsArgs) {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -141,7 +142,7 @@ export function useContactsAndChannels({
         const refreshedChannels = await api.getChannels();
         setChannels(refreshedChannels);
         const publicChannel = findPublicChannel(refreshedChannels);
-        hasSetDefaultConversation.current = true;
+        markDefaultConversationSet();
         setActiveConversation({
           type: 'channel',
           id: publicChannel?.key || PUBLIC_CHANNEL_KEY,
@@ -156,7 +157,7 @@ export function useContactsAndChannels({
       }
     },
     [
-      hasSetDefaultConversation,
+      markDefaultConversationSet,
       pendingDeleteFallbackRef,
       removeConversationMessages,
       setActiveConversation,
@@ -174,7 +175,7 @@ export function useContactsAndChannels({
         const refreshedChannels = await api.getChannels();
         setChannels(refreshedChannels);
         const publicChannel = findPublicChannel(refreshedChannels);
-        hasSetDefaultConversation.current = true;
+        markDefaultConversationSet();
         setActiveConversation({
           type: 'channel',
           id: publicChannel?.key || PUBLIC_CHANNEL_KEY,
@@ -189,7 +190,7 @@ export function useContactsAndChannels({
       }
     },
     [
-      hasSetDefaultConversation,
+      markDefaultConversationSet,
       pendingDeleteFallbackRef,
       removeConversationMessages,
       setActiveConversation,

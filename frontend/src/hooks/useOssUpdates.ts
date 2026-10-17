@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { ApiError, api } from '../api';
 import { toast } from '../components/ui/sonner';
@@ -146,7 +146,11 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
 
   const statusRef = useRef<OssUpdateStatus | null>(null);
   const onSeeUpdateRef = useRef(options?.onSeeUpdate);
-  onSeeUpdateRef.current = options?.onSeeUpdate;
+  const onSeeUpdate = options?.onSeeUpdate;
+  // The toast click handler runs long after render; keep the latest callback.
+  useLayoutEffect(() => {
+    onSeeUpdateRef.current = onSeeUpdate;
+  });
   const toastSeenRef = useRef<string | null>(readToastSeen());
   const targetRef = useRef<string | null>(null);
   const jobTimerRef = useRef<number | null>(null);
@@ -338,39 +342,48 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
     }, OSS_UPDATE_JOB_POLL_MS);
   };
 
-  const loadStatus = async () => {
-    if (typeof api.getUpdates !== 'function') return;
-    try {
-      const data = await api.getUpdates();
-      if (cancelledRef.current || !data || typeof data.current !== 'string') return;
-      persistStatus(data);
-      const stored = readUpdateTarget();
-      if (stored && versionsMatch(data.current, stored)) {
-        clearUpdateTarget();
-        targetRef.current = null;
-        return;
-      }
-      if (data.job?.state === 'applying' || (stored && !versionsMatch(data.current, stored))) {
-        targetRef.current = stored ?? data.latest;
-        setShowProgress(true);
-        setApplying(true);
-        setApplyError(null);
-        const fallbackPhase: OssUpdateJobPhase | null =
-          data.job.phase ?? (stored ? 'restarting' : null);
-        setProgressPhase(fallbackPhase);
-        setProgressPercent(jobProgressPercent(data.job, fallbackPhase));
-        startJobPolling();
-      }
-    } catch {
-      const stored = readUpdateTarget();
-      if (!stored || cancelledRef.current) return;
-      targetRef.current = stored;
+  const applyLoadedStatus = (data: OssUpdateStatus) => {
+    if (cancelledRef.current || !data || typeof data.current !== 'string') return;
+    persistStatus(data);
+    const stored = readUpdateTarget();
+    if (stored && versionsMatch(data.current, stored)) {
+      clearUpdateTarget();
+      targetRef.current = null;
+      return;
+    }
+    if (data.job?.state === 'applying' || (stored && !versionsMatch(data.current, stored))) {
+      targetRef.current = stored ?? data.latest;
       setShowProgress(true);
       setApplying(true);
-      setProgressPhase('restarting');
-      setProgressPercent(PHASE_PERCENT.restarting);
+      setApplyError(null);
+      const fallbackPhase: OssUpdateJobPhase | null =
+        data.job.phase ?? (stored ? 'restarting' : null);
+      setProgressPhase(fallbackPhase);
+      setProgressPercent(jobProgressPercent(data.job, fallbackPhase));
       startJobPolling();
     }
+  };
+
+  const handleLoadFailure = () => {
+    const stored = readUpdateTarget();
+    if (!stored || cancelledRef.current) return;
+    targetRef.current = stored;
+    setShowProgress(true);
+    setApplying(true);
+    setProgressPhase('restarting');
+    setProgressPercent(PHASE_PERCENT.restarting);
+    startJobPolling();
+  };
+
+  // A promise chain rather than async/await: state is only ever set in the
+  // callbacks, after the request settles, so effects can call this directly. The
+  // executor turns a synchronous throw (or a non-promise mock) into the chain, as
+  // the former try/await did.
+  const loadStatus = (): Promise<void> => {
+    if (typeof api.getUpdates !== 'function') return Promise.resolve();
+    return new Promise<OssUpdateStatus>((resolve) => resolve(api.getUpdates()))
+      .then(applyLoadedStatus)
+      .catch(handleLoadFailure);
   };
 
   const refresh = useCallback(async () => {

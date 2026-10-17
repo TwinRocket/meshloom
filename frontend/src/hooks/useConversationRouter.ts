@@ -90,7 +90,6 @@ interface UseConversationRouterArgs {
   suspendHashSync: boolean;
   setSidebarOpen: (open: boolean) => void;
   pendingDeleteFallbackRef: MutableRefObject<boolean>;
-  hasSetDefaultConversation: MutableRefObject<boolean>;
   /** False until app settings have answered — not "the answer was no". */
   settingsLoaded: boolean;
   /** Community is configured, so the pages that need the directory exist. */
@@ -113,7 +112,6 @@ export function useConversationRouter({
   suspendHashSync,
   setSidebarOpen,
   pendingDeleteFallbackRef,
-  hasSetDefaultConversation,
   settingsLoaded,
   directoryEnabled,
 }: UseConversationRouterArgs) {
@@ -129,6 +127,15 @@ export function useConversationRouter({
   const channelsRef = useRef(channels);
   const contactsRef = useRef(contacts);
   const directoryEnabledRef = useRef(directoryEnabled);
+  // Latches once a conversation has been opened by the initial-load phases (or a
+  // delete fallback). Owned here; other hooks flip it through
+  // markDefaultConversationSet() so the ref is never mutated outside its owner.
+  const hasSetDefaultConversation = useRef(false);
+
+  const markDefaultConversationSet = useCallback(() => {
+    hasSetDefaultConversation.current = true;
+  }, []);
+  const hasDefaultConversationBeenSet = useCallback(() => hasSetDefaultConversation.current, []);
 
   useEffect(() => {
     channelsRef.current = channels;
@@ -160,6 +167,7 @@ export function useConversationRouter({
 
     // Handle non-data views immediately
     if (hashConv?.type === 'raw') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial routing: resolves the URL hash / last-viewed storage once data arrives and latches hasSetDefaultConversation with it; it cannot run in render (reads external state, toasts).
       setActiveConversationState({ type: 'raw', id: 'raw', name: 'Raw Packet Feed' });
       hasSetDefaultConversation.current = true;
       return;
@@ -318,7 +326,6 @@ export function useConversationRouter({
     channels,
     activeConversation,
     getPublicChannelConversation,
-    hasSetDefaultConversation,
     settingsLoaded,
     directoryEnabled,
   ]);
@@ -332,6 +339,7 @@ export function useConversationRouter({
     const publicConversation = getPublicChannelConversation();
     if (!publicConversation) return;
     hashSyncEnabledRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- recovery from an external change (Community turned off) that also re-enables hash sync through a ref.
     setActiveConversationState(publicConversation);
   }, [settingsLoaded, directoryEnabled, activeConversation, getPublicChannelConversation]);
 
@@ -345,6 +353,7 @@ export function useConversationRouter({
 
       const contact = resolveContactFromHashToken(hashConv.name, contacts);
       if (contact) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- initial routing, phase 2: resolves a contact hash / last-viewed contact once contacts load and latches hasSetDefaultConversation with it (reads external state, toasts).
         setActiveConversationState({
           type: 'contact',
           id: contact.public_key,
@@ -391,14 +400,7 @@ export function useConversationRouter({
         hasSetDefaultConversation.current = true;
       }
     }
-  }, [
-    contacts,
-    channels,
-    activeConversation,
-    contactsLoaded,
-    getPublicChannelConversation,
-    hasSetDefaultConversation,
-  ]);
+  }, [contacts, channels, activeConversation, contactsLoaded, getPublicChannelConversation]);
 
   // Keep ref in sync and update URL hash
   useEffect(() => {
@@ -469,12 +471,13 @@ export function useConversationRouter({
 
     hasSetDefaultConversation.current = true;
     pendingDeleteFallbackRef.current = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- delete fallback: driven by pendingDeleteFallbackRef, a ref set by the delete handlers, which render cannot read.
     setActiveConversationState({
       type: 'channel',
       id: publicChannel.key,
       name: publicChannel.name,
     });
-  }, [activeConversation, channels, hasSetDefaultConversation, pendingDeleteFallbackRef]);
+  }, [activeConversation, channels, pendingDeleteFallbackRef]);
 
   // Handle conversation selection (closes sidebar on mobile)
   const handleSelectConversation = useCallback(
@@ -490,5 +493,7 @@ export function useConversationRouter({
     setActiveConversation,
     activeConversationRef,
     handleSelectConversation,
+    markDefaultConversationSet,
+    hasDefaultConversationBeenSet,
   };
 }

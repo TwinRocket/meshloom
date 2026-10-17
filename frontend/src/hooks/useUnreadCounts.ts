@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { api } from '../api';
 import {
   getLastMessageTimes,
@@ -61,7 +61,11 @@ export function useUnreadCounts(
   // destabilizing the callback chain (avoids re-creating fetchUnreads on
   // every conversation switch).
   const activeConvRef = useRef(activeConversation);
-  activeConvRef.current = activeConversation;
+  // Layout effect, not render: refs must not be written during render, and this
+  // runs before any passive effect that reads it.
+  useLayoutEffect(() => {
+    activeConvRef.current = activeConversation;
+  });
 
   // Apply unreads data to state, filtering out the active conversation
   // (the user is already viewing it, so its count should stay at 0).
@@ -142,13 +146,15 @@ export function useUnreadCounts(
     fetchUnreads();
   }, [channelsLen, contactsLen, fetchUnreads]);
 
-  // Mark conversation as read when user views it
-  // Calls server API to persist read state across devices
-  useEffect(() => {
+  // Clear the local unread state of the conversation the user opens. Done during
+  // render when the active conversation changes (React "adjust state on prop
+  // change" pattern) so the badge never flashes, instead of a synchronous
+  // setState in the effect below.
+  const [prevActiveConversation, setPrevActiveConversation] = useState(activeConversation);
+  if (activeConversation !== prevActiveConversation) {
+    setPrevActiveConversation(activeConversation);
     if (isUnreadTrackedConversation(activeConversation)) {
       const key = getStateKey(activeConversation.type, activeConversation.id);
-
-      // Update local state immediately for responsive UI
       setUnreadCounts((prev) => {
         if (prev[key]) {
           const next = { ...prev };
@@ -157,8 +163,6 @@ export function useUnreadCounts(
         }
         return prev;
       });
-
-      // Also clear mentions for this conversation
       setMentions((prev) => {
         if (prev[key]) {
           const next = { ...prev };
@@ -167,17 +171,20 @@ export function useUnreadCounts(
         }
         return prev;
       });
+    }
+  }
 
-      // Persist to server (fire-and-forget, errors logged but not blocking)
-      if (activeConversation.type === 'channel') {
-        api.markChannelRead(activeConversation.id).catch((err) => {
-          console.error('Failed to mark channel as read on server:', err);
-        });
-      } else if (activeConversation.type === 'contact') {
-        api.markContactRead(activeConversation.id).catch((err) => {
-          console.error('Failed to mark contact as read on server:', err);
-        });
-      }
+  // Mark conversation as read on the server when the user views it, to persist
+  // read state across devices (fire-and-forget, errors logged but not blocking).
+  useEffect(() => {
+    if (activeConversation?.type === 'channel') {
+      api.markChannelRead(activeConversation.id).catch((err) => {
+        console.error('Failed to mark channel as read on server:', err);
+      });
+    } else if (activeConversation?.type === 'contact') {
+      api.markContactRead(activeConversation.id).catch((err) => {
+        console.error('Failed to mark contact as read on server:', err);
+      });
     }
   }, [activeConversation]);
 

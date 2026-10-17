@@ -23,7 +23,6 @@ const publicChannel: Channel = {
 function renderRouter(settingsLoaded: boolean, directoryEnabled: boolean) {
   return renderHook(
     ({ loaded, enabled }: { loaded: boolean; enabled: boolean }) => {
-      const hasSetDefaultConversation = useRef(false);
       const pendingDeleteFallbackRef = useRef(false);
       const router = useConversationRouter({
         channels: [publicChannel],
@@ -32,11 +31,10 @@ function renderRouter(settingsLoaded: boolean, directoryEnabled: boolean) {
         suspendHashSync: true,
         setSidebarOpen: vi.fn(),
         pendingDeleteFallbackRef,
-        hasSetDefaultConversation,
         settingsLoaded: loaded,
         directoryEnabled: enabled,
       });
-      return { ...router, hasSetDefaultConversation };
+      return router;
     },
     { initialProps: { loaded: settingsLoaded, enabled: directoryEnabled } }
   );
@@ -52,7 +50,7 @@ describe('useConversationRouter #test', () => {
     const { result, rerender } = renderRouter(false, false);
 
     expect(result.current.activeConversation).toBeNull();
-    expect(result.current.hasSetDefaultConversation.current).toBe(false);
+    expect(result.current.hasDefaultConversationBeenSet()).toBe(false);
 
     rerender({ loaded: true, enabled: true });
     await waitFor(() => {

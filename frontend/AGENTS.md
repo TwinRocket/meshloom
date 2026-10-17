@@ -131,6 +131,10 @@ purpose.
   timestamp. When that id is not loaded, the list offers "Jump to unread".
   `useUnreadCounts.incrementUnread` sets the boundary itself on the read→unread
   transition, because `first_unread_ids` comes only from a full fetch.
+- Opening a conversation clears its unread count during render
+  (`useUnreadCounts`), so the divider anchor (`hooks/useChannelUnreadMarker.ts`)
+  is also computed during render, in the same pass, from the pre-clear count. Moving
+  either one into an effect loses the divider (`src/test/useChannelUnreadMarker.test.ts`).
 - State keys come from `getStateKey()` (`channel-{key}`, `contact-{full public
   key}`); they are not `Message.conversation_key`.
 
