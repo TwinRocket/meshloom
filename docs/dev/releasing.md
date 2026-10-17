@@ -13,6 +13,41 @@ Clients and installers trust the public key committed in `pkg/keys` (or embedded
 in `install.sh`), never a key fetched at install time. The procedure and the
 rotation steps are in `pkg/keys/README.md`.
 
+## Branches
+
+- `main` is the 4.18.x line: hotfixes, CI, docs. Releases are cut from it
+  (below) and it publishes the `:edge` image.
+- `preversion-5` is the 5.0.0 integration branch: 5.0.0 PRs branch off it and
+  target it, under the same rules as `main` (PR, the three required checks,
+  merge commit only). It publishes the `:next` image. At the 5.0.0 cut it
+  merges into `main` and is deleted; no release is ever cut from it.
+- `forward-merge.yml` keeps `preversion-5` up to date: every push to `main` is
+  merged into it through the REST merge API (a merge commit, never a rebase or
+  a force push). It does nothing while `preversion-5` does not exist. On a
+  conflict, or any refusal, it opens a PR `main → preversion-5` (or comments on
+  the open one) and fails. Resolve it on a branch of your own (`git switch -c
+  fm/main origin/main && git merge origin/preversion-5`, then a PR into
+  `preversion-5`), never with the web conflict editor, which would commit to
+  `main`.
+- A push made with `GITHUB_TOKEN` starts no workflow, so after a merge the job
+  dispatches `docker.yml` (quality, `:next`, deploy) and `codeql.yml` on
+  `preversion-5`. The repository has no GitHub App token that would avoid it.
+- What an admin configures, outside the repository files:
+  - the `preversion-5` ruleset (the same rules and checks as `main`), with
+    **GitHub Actions** (app id 15368, actor type Integration) as a bypass
+    actor: without it the ruleset's PR rule refuses the forward-merge. The
+    bypass covers every workflow run with `contents: write`; today those run
+    only on tags or by hand (`release.yml`, `sign-manifest.yml`,
+    `nfpm-armhf.yml`, `rpi-image.yml`).
+  - "Allow GitHub Actions to create and approve pull requests" (Settings >
+    Actions > General), for the conflict PR. Without it the job still fails,
+    with a compare link in the run summary.
+  - the `NEXT_DEPLOY_WEBHOOKS` secret (below).
+- GitHub refuses a `GITHUB_TOKEN` push that changes a file under
+  `.github/workflows/`, so a `main` commit that does may come back as a
+  conflict PR and is then merged by hand. A PR opened with `GITHUB_TOKEN` runs
+  no checks until someone pushes to it.
+
 ## Chain
 
 1. A release is one command, run by an admin on `main`:
@@ -59,14 +94,17 @@ rotation steps are in `pkg/keys/README.md`.
      tag. A doc change merged on `main` reaches the site only with the next
      release; `workflow_dispatch` on `docs-site.yml` rebuilds it by hand.
 3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
-   image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:latest`,
-   `:X.Y.Z` and `:X.Y` on tags; `:sha-<short>` on both. On `main` only, its
-   `Deploy edge` job then POSTs the Portainer webhooks listed in the
-   `EDGE_DEPLOY_WEBHOOKS` secret (stacks on `docker-compose.dev.yaml`), with
-   the Cloudflare Access service token from `CF_ACCESS_CLIENT_ID` /
-   `CF_ACCESS_CLIENT_SECRET` when set (Portainer is behind Access). A
-   failure there is a warning, never a red run. Tag builds also get a
-   build provenance attestation. Pull requests build without pushing.
+   image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:next` and
+   `:preversion-5` on `preversion-5`; `:latest`, `:X.Y.Z` and `:X.Y` on tags;
+   `:sha-<short>` on all of them. Its `deploy` job then POSTs Portainer
+   webhooks: `Deploy edge` on `main`, from the `EDGE_DEPLOY_WEBHOOKS` secret
+   (stacks on `docker-compose.dev.yaml`); `Deploy next` on `preversion-5`,
+   from `NEXT_DEPLOY_WEBHOOKS` (the stacks that run `:next`). Both send the
+   Cloudflare Access service token from `CF_ACCESS_CLIENT_ID` /
+   `CF_ACCESS_CLIENT_SECRET` when set (Portainer is behind Access). An unset
+   webhook secret is a notice and a failed call a warning, never a red run.
+   Tag builds also get a build provenance attestation. Pull requests build
+   without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
    the apt pin. After changing any of them, run
    `scripts/setup/sync_installer_embeds.py`; the tests run it with `--check`.
