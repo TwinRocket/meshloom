@@ -14,6 +14,10 @@ and the OpenAPI page (`/docs`), not a table here.
 - `radio_workarounds.py` holds an in-memory copy of the workaround settings
   (Settings → Radio → Advanced): loaded at startup, refreshed by
   `AppSettingsRepository.update()`. Write through the repository, never around it.
+- `cors.py` keeps the CORS allowlist (`app_settings.auth_allowed_origins`, Settings
+  → Local Configuration → Allowed origins) the same way, and feeds it to Starlette's
+  `CORSMiddleware`, rebuilt when the list changes. Empty means same-origin only;
+  `normalize_origin()` refuses `*`, paths and credentials.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
   repeater and room routers.
 - `push/` is Web Push, separate from the fanout bus (`fanout/`, see `fanout/AGENTS.md`).

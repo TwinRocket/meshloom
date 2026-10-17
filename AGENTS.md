@@ -35,11 +35,12 @@ Community state, releasing, BLE pairing). User docs: `docs/user/` (en, fr). Envi
   Refresh copies, never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Access: accounts, login, CORS and credentials, Origin/Host checks.
+  - Access: accounts, login, credentials, Origin/Host checks. (CORS is done:
+    same-origin plus `auth_allowed_origins`, `app/cors.py`.)
   - Plugins: a marketplace that will replace the bots' `exec`.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 
-  The current posture (CORS `*` with credentials, optional Basic auth only, bots
+  The current posture (CORS same-origin plus a user list, optional Basic auth only, bots
   running `exec()`, an unauthenticated proxy) is described in `SECURITY.md`,
   "Known limits". It is a fact, not a recommendation.
 - **No environment variable for anything a user tunes.** Settings live in

@@ -33,10 +33,17 @@ Meshloom is built for a trusted network, and some of its behaviour is
 deliberate. These are documented and are not treated as vulnerabilities:
 
 - **No user accounts.** Anyone who can reach the web interface controls the
-  node, and the server accepts requests from any origin. The WebSocket
-  (`/api/ws`) is the exception: an upgrade whose `Origin` does not match
-  `Host` (or `X-Forwarded-Host`) is refused with 403 before it is accepted;
-  one without `Origin` (scripts, native clients) is accepted.
+- **No user accounts.** Anyone who can reach the web interface controls the
+  node. The WebSocket (`/api/ws`) is the exception to cross-origin access: an
+  upgrade whose `Origin` does not match `Host` (or `X-Forwarded-Host`) is
+  refused with 403 before it is accepted; one without `Origin` (scripts, native
+  clients) is accepted.
+- **Other web pages are only partly kept out.** CORS is same-origin, plus the
+  origins listed in **Settings > Local Configuration > Allowed origins** (empty
+  by default), so another site cannot read API answers or send JSON requests.
+  It can still send requests that need no preflight (a `POST` with no body)
+  without reading the answer. Nothing checks `Host` for the HTTP API either
+  (DNS rebinding).
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can
   make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
   turns them off; the Linux package does so by default.
@@ -47,11 +54,8 @@ deliberate. These are documented and are not treated as vulnerabilities:
   cover it.
 - **The radio's private key is readable by anyone who can reach the
   interface** (`GET /api/radio/private-key`, the full backup in
-  **Settings > Database**). Because the server accepts any origin with
-  credentials, a web page opened in a browser that can reach Meshloom can read
-  the key and download the full backup (Wi-Fi password included): the export
-  accepts a POST without a body, which needs no preflight. The backup file can
-  be encrypted with a passphrase.
+  **Settings > Database**). A listed allowed origin can read them too. The
+  backup file can be encrypted with a passphrase.
 
 They are described in [A trusted network](docs/user/en/trust.md) and
 [Security](docs/user/en/deep/security.md). A way around one of the protections

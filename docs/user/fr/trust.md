@@ -11,9 +11,9 @@ Meshloom suppose qu’il tourne sur un réseau dont vous connaissez les utilisat
 
 Il n’y a ni comptes utilisateurs, ni sessions, ni rôles, ni permissions par fonction. Quiconque atteint le serveur sur le port `8000` obtient l’interface complète sans rien saisir.
 
-Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ». Cela comprend aussi changer le réseau Wi-Fi de la radio et la redémarrer ; comme le serveur accepte les requêtes de n’importe quelle page web (voir plus bas), une page web ouverte sur une machine qui peut joindre Meshloom peut le faire aussi.
+Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ». Cela comprend aussi changer le réseau Wi-Fi de la radio et la redémarrer.
 
-Le serveur accepte aussi les requêtes venant de n’importe quelle page web. C’est voulu : cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration supplémentaire. Cela repose sur ce même réseau de confiance.
+Les autres sites ouverts dans le même navigateur ne peuvent pas lire les réponses de Meshloom : le serveur ne répond qu’à sa propre adresse, plus les sites que vous ajoutez dans **Réglages > Configuration locale > Origines autorisées** (vide par défaut). Ils peuvent encore déclencher à l’aveugle quelques requêtes simples et suivre le flux en direct : cela aussi repose sur le réseau de confiance (voir [Sécurité](/docs/deep/security/#ce-qui-nexiste-pas)).
 
 ## Les bots exécutent du code
 
@@ -49,7 +49,7 @@ Quelques règles évitent la plupart des ennuis :
 
 - **N’exposez pas le port `8000` à Internet.** Ne le redirigez pas depuis votre box. Pour un accès à distance, utilisez un VPN vers votre réseau domestique ou professionnel.
 - Sur un réseau partagé (colocation, bureau, réseau invité), définissez le mot de passe et gardez les bots désactivés.
-- Rappelez-vous que la clé privée de la radio est donnée au serveur pour qu’il déchiffre les messages directs. Elle reste en mémoire uniquement, mais quiconque atteint l’interface peut la relire, par l’API et dans la sauvegarde complète, tout comme une page web ouverte sur une machine qui l’atteint. Une machine compromise reste une machine compromise.
+- Rappelez-vous que la clé privée de la radio est donnée au serveur pour qu’il déchiffre les messages directs. Elle reste en mémoire uniquement, mais quiconque atteint l’interface peut la relire, par l’API et dans la sauvegarde complète. Une machine compromise reste une machine compromise.
 - Si vous activez **Réglages > Proxy** pour partager votre radio avec d’autres applications, sachez qu’il n’a aucun identifiant, et que l’accès Basic ne le couvre pas.
 - Traitez les canaux pour ce qu’ils sont. La clé est le seul accès : la donner à quelqu’un lui permet d’y lire et d’y écrire.
 
