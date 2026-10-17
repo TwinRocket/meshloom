@@ -350,7 +350,9 @@ async def write_radio_node_settings(
         )
         repeat = settings.client_repeat if (fw_ver or 0) >= 9 else None
         try:
-            await apply_radio_config_update(
+            # A frame refused with repeat on is sent again without it (the
+            # firmware does not allow repeat on every frequency).
+            param_warnings = await apply_radio_config_update(
                 mc,
                 RadioConfigUpdate(radio=params),
                 path_hash_mode_supported=False,
@@ -358,26 +360,14 @@ async def write_radio_node_settings(
                 sync_radio_time_fn=_noop_time_sync,
                 client_repeat=repeat,
             )
-            out.add("radio_params", "done")
         except RadioCommandRejectedError:
-            if repeat:
-                # The whole frame is refused when repeat is not allowed on this
-                # frequency for the target hardware: retry without it.
-                try:
-                    await apply_radio_config_update(
-                        mc,
-                        RadioConfigUpdate(radio=params),
-                        path_hash_mode_supported=False,
-                        set_path_hash_mode=lambda _mode: None,
-                        sync_radio_time_fn=_noop_time_sync,
-                        client_repeat=False,
-                    )
-                    out.add("radio_params", "done", "client_repeat_not_allowed")
-                    out.warnings.append("client_repeat_not_allowed")
-                except RadioCommandRejectedError:
-                    out.add("radio_params", "failed", "radio_params_rejected")
+            out.add("radio_params", "failed", "radio_params_rejected")
+        else:
+            if "client_repeat_not_allowed" in param_warnings:
+                out.add("radio_params", "done", "client_repeat_not_allowed")
+                out.warnings.append("client_repeat_not_allowed")
             else:
-                out.add("radio_params", "failed", "radio_params_rejected")
+                out.add("radio_params", "done")
     else:
         missing("radio_params")
 

@@ -53,15 +53,19 @@ async def apply_radio_config_update(
     set_path_hash_mode: Callable[[int], None],
     sync_radio_time_fn: Callable[[Any], Awaitable[Any]],
     client_repeat: bool | None = None,
-) -> None:
+) -> list[str]:
     """Apply a validated radio-config update to the connected radio.
 
     ``client_repeat`` is the repeat byte sent with the radio parameters: the
     firmware reads a missing byte as "repeat off", so callers pass the radio's
-    current flag (from a fresh DEVICE_INFO) to keep it. A command the radio
-    answers with ERROR raises ``RadioCommandRejectedError``; its message names
-    the setting, never the value.
+    current flag (from a fresh DEVICE_INFO) to keep it. The firmware refuses the
+    whole frame when repeat is on and the new frequency is outside the bands
+    where repeat is allowed: the parameters are then sent once more with repeat
+    off, and the returned warnings hold ``client_repeat_not_allowed``. A command
+    the radio answers with ERROR raises ``RadioCommandRejectedError``; its
+    message names the setting, never the value.
     """
+    warnings: list[str] = []
     if update.advert_location_source is not None:
         advert_loc_policy = 0 if update.advert_location_source == "off" else 1
         logger.info(
@@ -148,6 +152,11 @@ async def apply_radio_config_update(
         if client_repeat is not None:
             radio_kwargs["repeat"] = 1 if client_repeat else 0
         result = await mc.commands.set_radio(**radio_kwargs)
+        if _rejected(result) and client_repeat:
+            logger.info("The radio refused repeat on these parameters: retrying without it")
+            result = await mc.commands.set_radio(**{**radio_kwargs, "repeat": 0})
+            if not _rejected(result):
+                warnings.append("client_repeat_not_allowed")
         if _rejected(result):
             raise RadioCommandRejectedError(
                 "The radio rejected the radio parameters", code="radio_params_rejected"
@@ -168,6 +177,7 @@ async def apply_radio_config_update(
     # Commands like set_name() write to flash but don't update cached self_info.
     # send_appstart() forces a fresh SELF_INFO so the response reflects changes.
     await mc.commands.send_appstart()
+    return warnings
 
 
 async def import_private_key_and_refresh_keystore(

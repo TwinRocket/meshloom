@@ -44,7 +44,10 @@ export function useRadioControl() {
 
   const handleSaveConfig = useCallback(
     async (update: RadioConfigUpdate) => {
-      await api.updateRadioConfig(update);
+      const saved = await api.updateRadioConfig(update);
+      if (saved?.warnings?.includes('client_repeat_not_allowed')) {
+        toast.warning(i18n.t('settings.radio.clientRepeatDropped'));
+      }
       await fetchConfig();
     },
     [fetchConfig]

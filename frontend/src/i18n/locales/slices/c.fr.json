@@ -356,6 +356,7 @@
       "numericRequired": "Tous les champs numériques doivent avoir des valeurs valides",
       "saveFailed": "Échec de l’enregistrement",
       "configSaved": "Config radio enregistrée",
+      "clientRepeatDropped": "Paramètres radio enregistrés sans la répétition client : cette radio ne l’autorise pas sur cette fréquence.",
       "configSavedRebooting": "Config radio enregistrée, redémarrage…",
       "keySetRebooting": "Clé privée définie, redémarrage…",
       "settingsSaved": "Réglages enregistrés",

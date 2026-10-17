@@ -435,6 +435,9 @@ answering 403, 404 or 410 deletes the subscription.
   before it sends new radio parameters (the firmware reads a missing repeat byte
   as "off"), and answers 422 when the radio rejects the name, coordinates, TX
   power or radio parameters (`apply_radio_config_update` checks every reply).
+  Parameters refused with repeat on are sent once more with repeat off (the
+  firmware allows repeat only on some bands); the answer's `warnings` then holds
+  `client_repeat_not_allowed` and the UI shows it. The restore uses the same path.
 - `PATCH /radio/proxy` answers 409 to a port change under `MESHCORE_MANAGED_PORTS`.
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.

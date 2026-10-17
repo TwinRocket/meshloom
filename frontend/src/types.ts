@@ -167,6 +167,9 @@ export interface RadioConfig {
   telemetry_mode_base?: number;
   telemetry_mode_loc?: number;
   telemetry_mode_env?: number;
+  /** PATCH answer only: what the update applied differently, e.g.
+   * `client_repeat_not_allowed` (radio parameters written with repeat off). */
+  warnings?: string[];
 }
 
 export interface RadioCustomVars {

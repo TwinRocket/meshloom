@@ -154,6 +154,14 @@ class RadioConfigResponse(BaseModel):
         default=0,
         description="Environment sensor sharing mode (0=deny, 1=per-contact, 2=allow-all)",
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "PATCH only: what the update applied differently from the request. "
+            "client_repeat_not_allowed: the radio refused client repeat on the new "
+            "radio parameters, which were applied with repeat off"
+        ),
+    )
 
 
 class PrivateKeyUpdate(BaseModel):
@@ -461,7 +469,7 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
             except Exception:
                 logger.warning("Could not read the client repeat flag before the radio update")
         try:
-            await apply_radio_config_update(
+            warnings = await apply_radio_config_update(
                 mc,
                 update,
                 path_hash_mode_supported=radio_manager.path_hash_mode_supported,
@@ -479,7 +487,9 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
         if update.path_hash_mode is not None:
             await AppSettingsRepository.set_path_hash_one_byte_opt_in(update.path_hash_mode == 0)
 
-    return await get_radio_config()
+    response = await get_radio_config()
+    response.warnings = warnings
+    return response
 
 
 async def _read_custom_vars(mc) -> RadioCustomVarsResponse:

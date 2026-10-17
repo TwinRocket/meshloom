@@ -356,6 +356,7 @@
       "numericRequired": "All numeric fields must have valid values",
       "saveFailed": "Failed to save",
       "configSaved": "Radio config saved",
+      "clientRepeatDropped": "Radio parameters saved without client repeat: this radio does not allow it on this frequency.",
       "configSavedRebooting": "Radio config saved, rebooting...",
       "keySetRebooting": "Private key set, rebooting...",
       "settingsSaved": "Settings saved",
