@@ -240,7 +240,10 @@ be wrong, because historical decryption inserts old messages with new ids.
   other dump, repr and the restore job show the mask, and a restore refuses the
   mask. The export route returns a `JSONResponse` from that dump, never a
   `response_model`. The Wi-Fi password is read live (`wifi_stored_password`) and
-  never written to the database. Errors list field paths only
+  never written to the database. With a password stored and no SSID, `get
+  wifi.ssid` answers the compile-time fallback SSID, and the firmware gives no
+  way to tell it from a stored one: the backup pairs that SSID with the
+  password, and a restore stores both (stated on the public backup page too). Errors list field paths only
   (`backup_invalid`).
 - **Envelope** (`meshloom-backup-v2-encrypted`): scrypt (writes N=2^15, r=8,
   p=1) over the NFC passphrase, AES-256-GCM, AAD = canonical JSON of a fixed
