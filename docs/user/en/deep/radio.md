@@ -7,7 +7,7 @@ order: 15
 
 Meshloom manages the contacts and channels stored on your radio. The server remembers far more than the radio can hold, and loads onto the radio the working set it needs.
 
-The database is tied to the public key of your radio. If you plug in a different radio, a window opens: **This radio does not match the stored identity**. **Wipe and continue** adopts the new radio and erases the local mesh contacts and messages; channels and server settings stay. **Cancel** keeps your data untouched and pauses the connection to that radio. A database created before this link existed asks once, even for its usual radio: **This radio is not bound to this instance**. Choose **Bind without wipe** if it is the same radio, or **New radio** to start clean. See [First launch](/en/docs/first-run/).
+The database is tied to the public key of your radio. If you plug in a different radio, a window opens: **This radio does not match the stored identity**. **Wipe and continue** adopts the new radio and erases the local mesh contacts and messages; channels and server settings stay. **Cancel** keeps your data untouched and pauses the connection to that radio. A database created before this link existed asks once, even for its usual radio: **This radio is not bound to this instance**. Choose **Bind without wipe** if it is the same radio, or **New radio** to start clean. Both windows also offer **Restore from a backup**, which gives a reflashed radio its former identity back from a full backup (see [Back up your radio](/en/docs/backup/)). See [First launch](/en/docs/first-run/).
 
 ## Why contacts are loaded onto the radio
 
@@ -126,7 +126,7 @@ So when Wi-Fi is on and nothing is stored, Meshloom asks once for the password, 
 - **Store in the radio** sends the network name, then the password, reads both back and checks them. If they do not match, the previous values are put back.
 - **Don't ask again for this radio** is remembered for that radio (by its public key): Meshloom never asks again for it. **Store the credentials** in the Wi-Fi group stays available.
 
-The question has no close button and waits for one of these two answers. A wrong password, or **Open network** ticked for a protected network, stops the radio joining Wi-Fi after its next reboot. Credentials you type in Meshloom for any other reason are stored in the radio the same way.
+The question has no close button and waits for one of these two answers. It waits while a [full backup restore](/en/docs/backup/) runs, since the restore may store the credentials itself, and comes back once the restore ends only if they are still missing. A wrong password, or **Open network** ticked for a protected network, stops the radio joining Wi-Fi after its next reboot. Credentials you type in Meshloom for any other reason are stored in the radio the same way.
 
 ### Changing network, turning Wi-Fi on or off
 
@@ -140,7 +140,7 @@ When Meshloom reaches the radio over TCP (that is, over its Wi-Fi), the dialogs 
 
 - A network literally named `(not set)` cannot be used: the radio prints that when no name is set.
 - The network name takes 1 to 32 bytes, the password up to 63. Neither is trimmed: spaces count. Below 8 characters Meshloom warns (WPA needs 8, WEP keys have 5 or 13) and stores the password as typed.
-- On the radio, an open network reads like "nothing stored". Meshloom remembers that you stored one for that network.
+- On the radio, an open network reads like "nothing stored". Meshloom remembers that you stored one for that network, and a [full backup](/en/docs/backup/) carries it.
 - If storing is interrupted (the link dropped between the two commands), the radio may hold the new network name with the old password or none. Meshloom then shows a warning, even after a reconnect, and offers no reboot (not even with **Turn Wi-Fi on** or **Turn Wi-Fi off**): store the credentials again, or check them over USB or Bluetooth before rebooting the radio.
 - If the check after connecting fails (the radio did not answer in time), Meshloom tries again after 30 seconds, then after 2 minutes. **Retry** in the Wi-Fi group checks again. If Meshloom cannot read the Wi-Fi state at all, the group says so, with **Retry**.
 
@@ -174,6 +174,6 @@ The MeshCore protocol has no password: only enable the proxy on a network you tr
 
 ## The private key
 
-When it connects, Meshloom asks the radio for its private key and keeps it **in memory only**. It is never written to disk. With it, Meshloom can decrypt direct messages itself, even when the contact is not loaded on the radio, and can read old messages once a key becomes known.
+When it connects, Meshloom asks the radio for its private key and keeps it **in memory only**. It is never written to its database. With it, Meshloom can decrypt direct messages itself, even when the contact is not loaded on the radio, and can read old messages once a key becomes known.
 
-Exporting this key through the API is off by default. See [Security](/en/docs/deep/security/).
+Anyone who reaches the interface can read the key back, through `GET /api/radio/private-key` and in the full backup of **Settings → Database**, which is how you keep the radio's identity across a reflash (see [Back up your radio](/en/docs/backup/)). Firmware built without key export gives no key, and its backups hold no identity. See [Security](/en/docs/deep/security/#the-nodes-private-key).

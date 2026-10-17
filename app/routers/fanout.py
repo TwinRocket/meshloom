@@ -430,6 +430,21 @@ async def list_fanout_configs() -> list[dict]:
     return [cfg for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
 
 
+def prepare_fanout_config(config_type: str, config: dict, scope: dict) -> tuple[dict, dict]:
+    """Type check, config validation/normalisation and scope enforcement.
+
+    Shared by the create route and the backup restore (``services/backup.py``).
+    Raises ``HTTPException(400)``. The bot gate (403 while bots are disabled)
+    stays with each caller.
+    """
+    if config_type not in _VALID_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid type '{config_type}'. Must be one of: {', '.join(sorted(_VALID_TYPES))}",
+        )
+    return _validate_and_normalize_config(config_type, config), _enforce_scope(config_type, scope)
+
+
 @router.post("")
 async def create_fanout_config(body: FanoutConfigCreate) -> dict:
     """Create a new fanout config."""
@@ -444,8 +459,7 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         if disabled_detail:
             raise HTTPException(status_code=403, detail=disabled_detail)
 
-    normalized_config = _validate_and_normalize_config(body.type, body.config)
-    scope = _enforce_scope(body.type, body.scope)
+    normalized_config, scope = prepare_fanout_config(body.type, body.config, body.scope)
 
     cfg = await FanoutConfigRepository.create(
         config_type=body.type,

@@ -991,7 +991,7 @@ export function SettingsRadioSection({
       await onSave(update);
       toast.success(t('settings.radio.configSaved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('settings.radio.saveFailed'));
+      setError(formatApiError(err, t) || t('settings.radio.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -1012,7 +1012,7 @@ export function SettingsRadioSection({
         onClose();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('settings.radio.saveFailed'));
+      setError(formatApiError(err, t) || t('settings.radio.saveFailed'));
     } finally {
       setRebooting(false);
       setBusy(false);
@@ -2038,7 +2038,7 @@ export function SettingsRadioSection({
                   />
                 </div>
                 <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
-                  {t('settings.radio.exportHelp')}
+                  {t('settings.radio.exportHelp')} {t('settings.radio.exportHelpKeyWarning')}
                 </p>
               </AdvancedBlock>
 

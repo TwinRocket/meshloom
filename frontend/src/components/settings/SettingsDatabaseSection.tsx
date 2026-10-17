@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -7,7 +7,10 @@ import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { api } from '../../api';
 import { formatTime } from '../../utils/messageParser';
-import type { AppSettings, AppSettingsUpdate, HealthStatus } from '../../types';
+import { takeSettingsAnchor } from '../../utils/urlHash';
+import type { AppSettings, AppSettingsUpdate, BackupRestoreJob, HealthStatus } from '../../types';
+import { BackupRestoreFlow, restoreChanges } from './BackupRestoreFlow';
+import { FullBackupExport } from './FullBackupExport';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
 export function SettingsDatabaseSection({
@@ -15,12 +18,16 @@ export function SettingsDatabaseSection({
   health,
   onSaveAppSettings,
   onHealthRefresh,
+  onBackupRestored,
   className,
 }: {
   appSettings: AppSettings;
   health: HealthStatus | null;
   onSaveAppSettings: (update: AppSettingsUpdate) => Promise<void>;
   onHealthRefresh: () => Promise<void>;
+  /** Reload the client data after a restore wrote it; `identityChanged` when the
+   * identity was restored or bound (history may have been wiped). */
+  onBackupRestored?: (identityChanged: boolean) => Promise<void>;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -31,9 +38,6 @@ export function SettingsDatabaseSection({
     appSettings.auto_decrypt_dm_on_advert
   );
   const [downloadingDb, setDownloadingDb] = useState(false);
-  const [downloadingJson, setDownloadingJson] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [restoreConfirm, setRestoreConfirm] = useState(false);
 
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -46,6 +50,24 @@ export function SettingsDatabaseSection({
   // "Now" for the age of the oldest undecrypted packet; day granularity, so the
   // time the section opened is precise enough.
   const [nowSec] = useState(() => Date.now() / 1000);
+
+  // #settings/database/backup: open at the backup group.
+  useEffect(() => {
+    if (takeSettingsAnchor('database') === 'backup') {
+      document.getElementById('settings-backup')?.scrollIntoView?.({ block: 'start' });
+    }
+  }, []);
+
+  // The backend broadcasts none of what a restore writes (contacts, channels,
+  // a wiped history under another identity): reload the client data.
+  const handleRestoreFinished = async (job: BackupRestoreJob) => {
+    const { identityChanged, dataChanged } = restoreChanges(job);
+    if (onBackupRestored && (identityChanged || dataChanged)) {
+      await onBackupRestored(identityChanged);
+    } else {
+      await onHealthRefresh();
+    }
+  };
 
   const handleCleanup = async () => {
     const days = parseInt(retentionDays, 10);
@@ -220,7 +242,8 @@ export function SettingsDatabaseSection({
 
       <Separator />
 
-      <div className="space-y-4">
+      {/* Stable anchor for #settings/database/backup (the flasher's docs link here). */}
+      <div id="settings-backup" className="space-y-4 scroll-mt-4">
         <SettingsGroupHeader title={t('settings.backupTitle')} storedOn="server" instant />
         <p className="text-[0.8125rem] text-muted-foreground">
           <Trans i18nKey="settings.backupKeyWarning" />
@@ -250,81 +273,10 @@ export function SettingsDatabaseSection({
           </Button>
         </div>
 
-        <div className="rounded-md border border-border p-3 space-y-2">
-          <h4 className="text-sm font-semibold">{t('settings.backupJsonTitle')}</h4>
-          <p className="text-[0.8125rem] text-muted-foreground">{t('settings.backupJsonHelp')}</p>
-          <Button
-            variant="outline"
-            disabled={downloadingJson}
-            onClick={async () => {
-              setDownloadingJson(true);
-              try {
-                const data = await api.getJsonBackup();
-                const blob = new Blob([JSON.stringify(data, null, 2)], {
-                  type: 'application/json',
-                });
-                const href = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = href;
-                a.download = 'meshloom-backup.json';
-                a.click();
-                URL.revokeObjectURL(href);
-              } catch (err) {
-                toast.error(t('settings.backupJsonFailed'), {
-                  description:
-                    err instanceof Error ? err.message : t('settings.database.unknownError'),
-                });
-              } finally {
-                setDownloadingJson(false);
-              }
-            }}
-          >
-            {downloadingJson ? t('settings.backupJsonExporting') : t('settings.backupJsonDownload')}
-          </Button>
-        </div>
+        <FullBackupExport />
 
-        <div className="rounded-md border border-warning/40 p-3 space-y-2">
-          <h4 className="text-sm font-semibold">{t('settings.restoreJsonTitle')}</h4>
-          <p className="text-[0.8125rem] text-muted-foreground">{t('settings.restoreJsonHelp')}</p>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={restoreConfirm}
-              onChange={(e) => setRestoreConfirm(e.target.checked)}
-              className="w-4 h-4 rounded border-input accent-primary"
-            />
-            <span className="text-sm">{t('settings.restoreConfirm')}</span>
-          </label>
-          <Input
-            type="file"
-            accept="application/json,.json"
-            disabled={!restoreConfirm || restoring}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (!file || !restoreConfirm) return;
-              setRestoring(true);
-              try {
-                const parsed = JSON.parse(await file.text());
-                const result = await api.restoreJsonBackup(parsed);
-                toast.success(t('settings.restoreMerged'), {
-                  description: t('settings.restoreMergedDetail', {
-                    contacts: result.contacts_upserted,
-                    channels: result.channels_upserted,
-                    groups: result.groups_upserted,
-                  }),
-                });
-                await onHealthRefresh();
-              } catch (err) {
-                toast.error(t('settings.restoreFailed'), {
-                  description:
-                    err instanceof Error ? err.message : t('settings.database.unknownError'),
-                });
-              } finally {
-                setRestoring(false);
-              }
-            }}
-          />
+        <div className="rounded-md border border-warning/40 p-3">
+          <BackupRestoreFlow resumeLatest onFinished={(job) => void handleRestoreFinished(job)} />
         </div>
       </div>
     </div>

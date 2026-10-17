@@ -2,10 +2,10 @@ import logging
 import os
 import tempfile
 import time
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.background_tasks import spawn
@@ -14,15 +14,36 @@ from app.models import (
     CONTACT_TYPE_REPEATER,
     AppSettings,
     BackupExport,
+    BackupExportRequest,
+    BackupInspectRequest,
+    BackupInspectResult,
+    BackupRestoreJob,
     BackupRestoreRequest,
     BackupRestoreResult,
+    BackupRestoreV2Request,
     NotificationDestinationsUpdate,
     TelemetryAlertRules,
     UiPreferences,
 )
 from app.region_scope import normalize_region_scope
 from app.repository import AppSettingsRepository, ChannelRepository, ContactRepository
-from app.services.backup import PRIVATE_KEY_WARNING, export_json, restore_json, write_sqlite_backup
+from app.services.backup import (
+    PRIVATE_KEY_WARNING,
+    BackupError,
+    backup_filename,
+    export_backup_v2,
+    export_document,
+    export_json,
+    normalize_backup_request,
+    parse_backup_model,
+    restore_json,
+    write_sqlite_backup,
+)
+from app.services.backup_crypto import (
+    PASSPHRASE_MIN_CHARS,
+    BackupCryptoError,
+    encrypt_backup_async,
+)
 from app.telemetry_interval import (
     DEFAULT_TELEMETRY_INTERVAL_HOURS,
     TELEMETRY_INTERVAL_OPTIONS_HOURS,
@@ -839,10 +860,11 @@ async def get_contact_telemetry_schedule() -> TelemetrySchedule:
 async def download_database_backup(background_tasks: BackgroundTasks) -> FileResponse:
     """Download a consistent snapshot of meshcore.db.
 
-    The radio private key is NOT in this file (it lives in memory only).
-    Everything else in the live database is, including channel keys, VAPID
-    keys, fanout configs, and push subscriptions. This endpoint never
-    replaces the live database.
+    The radio private key is NOT in this file (Meshloom keeps it in memory
+    only; the full backup, ``POST /backup/export``, includes it). Everything
+    else in the live database is, including channel keys, VAPID keys, fanout
+    configs, and push subscriptions. This endpoint never replaces the live
+    database.
     """
     fd, tmp_path = tempfile.mkstemp(prefix="meshcore-backup-", suffix=".db")
     os.close(fd)
@@ -862,13 +884,82 @@ async def download_database_backup(background_tasks: BackgroundTasks) -> FileRes
 
 @router.get("/backup/json", response_model=BackupExport)
 async def download_json_backup() -> BackupExport:
-    """Safer JSON export of contacts, channels, settings, and groups."""
+    """Meshloom data only (``meshloom-backup-v1``): contacts, channels, settings,
+    groups. No radio identity or radio settings: the full backup has them."""
     return await export_json()
 
 
-@router.post("/backup/restore", response_model=BackupRestoreResult)
+def _backup_http_error(exc: BackupError) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.detail())
+
+
+@router.post("/backup/export")
+async def export_full_backup(request: BackupExportRequest | None = None) -> JSONResponse:
+    """The full backup (``meshloom-backup-v2``), optionally encrypted.
+
+    Holds the radio private key and, when the radio stores them, its Wi-Fi
+    credentials. Works with the radio disconnected (Meshloom part only, with
+    warnings). Built from the export dump (never ``response_model``, which would
+    write the secret masks into the file).
+    """
+    passphrase = request.passphrase.get_secret_value() if request and request.passphrase else None
+    if passphrase is not None and len(passphrase) < PASSPHRASE_MIN_CHARS:
+        raise _backup_http_error(
+            BackupError(
+                "backup_passphrase_too_short",
+                message=f"The passphrase needs at least {PASSPHRASE_MIN_CHARS} characters",
+            )
+        )
+    doc = await export_backup_v2()
+    body = export_document(doc)
+    if passphrase:
+        try:
+            body = await encrypt_backup_async(
+                body, passphrase, public_key=doc.identity.public_key if doc.identity else None
+            )
+        except BackupCryptoError as exc:
+            # Too large for the restore to decrypt: say so now, not after a reflash.
+            raise _backup_http_error(
+                BackupError(
+                    exc.code,
+                    message="This backup is too large to encrypt: download it without encryption",
+                )
+            ) from None
+    ascii_name, utf8_name = backup_filename(doc.radio.name if doc.radio else None, doc.exported_at)
+    return JSONResponse(
+        body,
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+            ),
+            "Cache-Control": "no-store",
+            # Not secret; readable even when the body is encrypted.
+            "X-Backup-Warnings": ",".join(doc.warnings),
+        },
+    )
+
+
+@router.post("/backup/inspect", response_model=BackupInspectResult)
+async def inspect_full_backup(body: Annotated[dict[str, Any], Body()]) -> BackupInspectResult:
+    """Summarise a backup file and what restoring it would do; writes nothing.
+
+    Body ``{"backup": <file>, "passphrase": "..."}``. A file without ``format``
+    is a ``meshloom-backup-v1`` file.
+    """
+    try:
+        request = parse_backup_model(BackupInspectRequest, normalize_backup_request(body))
+        from app.services.backup_restore import inspect_backup
+
+        return await inspect_backup(
+            request.backup,
+            request.passphrase.get_secret_value() if request.passphrase else None,
+        )
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
+
+
 async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreResult:
-    """Merge a JSON backup into the live database.
+    """Merge a Meshloom-only (v1) JSON backup into the live database.
 
     Requires ``confirm=true``. Does not replace meshcore.db and does not delete
     messages, packets, or rows missing from the file.
@@ -877,3 +968,91 @@ async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreRes
         return await restore_json(request)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post(
+    "/backup/restore",
+    responses={
+        200: {"model": BackupRestoreResult, "description": "Flat v1 body: merged now"},
+        202: {"description": "Body with `backup`: the restore job started, `{job_id}`"},
+    },
+)
+async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
+    """Restore a backup.
+
+    - Flat body (no ``backup`` key): the v1 request, ``{"confirm": true, ...v1
+      fields}``, merged synchronously (scripts). A flat body whose ``format`` is
+      not a v1 format answers 400 ``backup_use_full_restore``.
+    - ``{"confirm": true, "backup": <file>, "passphrase"?, "steps"?, ...}``: any
+      file (v1, v2, encrypted) through the restore job: 202 ``{"job_id"}``, then
+      ``GET /backup/restore/jobs/{job_id}``. Identity refusals are 409, before
+      anything is written.
+    """
+    from app.services.backup import V1_FORMATS, open_backup_document
+    from app.services.backup_restore import (
+        RestoreOptions,
+        restore_job_running,
+        start_restore_backup_v2,
+    )
+
+    try:
+        if "backup" not in body:
+            if body.get("format") is not None and body.get("format") not in V1_FORMATS:
+                raise BackupError(
+                    "backup_use_full_restore",
+                    message="This file is a full backup: restore it with the backup field",
+                )
+            return await restore_json_backup(parse_backup_model(BackupRestoreRequest, body))
+        request = parse_backup_model(BackupRestoreV2Request, normalize_backup_request(body))
+        if not request.confirm:
+            raise BackupError("backup_confirm_required", message="Restore requires confirm=true")
+        if restore_job_running():
+            # Early answer, before the KDF of an encrypted file (one at a time,
+            # tens of MiB); start_restore_backup_v2 stays the authoritative guard.
+            raise BackupError(
+                "backup_restore_running", status=409, message="A restore is already running"
+            )
+        opened = await open_backup_document(
+            request.backup,
+            request.passphrase.get_secret_value() if request.passphrase else None,
+        )
+        job_id = await start_restore_backup_v2(
+            opened,
+            RestoreOptions(
+                steps=request.steps,
+                replace_live_identity=request.replace_live_identity,
+                wipe_history=request.wipe_history,
+                expected_live_public_key=request.expected_live_public_key,
+            ),
+        )
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
+    return JSONResponse({"job_id": job_id}, status_code=202)
+
+
+def _job_not_found() -> HTTPException:
+    return _backup_http_error(
+        BackupError("backup_restore_job_not_found", status=404, message="No such restore job")
+    )
+
+
+@router.get("/backup/restore/jobs/latest", response_model=BackupRestoreJob)
+async def get_latest_backup_restore_job() -> BackupRestoreJob:
+    """The most recent restore job, running or finished (lets the UI find it
+    again after a reload). Holds step statuses, counts and warnings only."""
+    from app.services.backup_restore import get_latest_restore_job
+
+    job = get_latest_restore_job()
+    if job is None:
+        raise _job_not_found()
+    return job
+
+
+@router.get("/backup/restore/jobs/{job_id}", response_model=BackupRestoreJob)
+async def get_backup_restore_job(job_id: str) -> BackupRestoreJob:
+    from app.services.backup_restore import get_restore_job
+
+    job = get_restore_job(job_id)
+    if job is None:
+        raise _job_not_found()
+    return job

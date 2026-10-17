@@ -46,7 +46,7 @@ import {
   LAST_VIEWED_CONVERSATION_KEY,
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { SECRET_REDACTED } from '../types';
 import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
@@ -800,6 +800,61 @@ describe('SettingsModal', () => {
     });
   });
 
+  it('exports the radio profile with the private key when the radio exported it', async () => {
+    const getPrivateKey = vi
+      .spyOn(api, 'getPrivateKey')
+      .mockResolvedValue({ private_key: 'ab'.repeat(64) });
+    let exported: Blob | undefined;
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      exported = blob;
+      return 'blob:x';
+    });
+    URL.revokeObjectURL = vi.fn();
+    const success = vi.spyOn(toast, 'success');
+    renderModal();
+    openRadioSection();
+    openRadioTab('tabDevice');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.exportConfig'), hidden: true })
+    );
+
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith(i18n.t('settings.radio.exportWithKey'))
+    );
+    expect(getPrivateKey).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await exported!.text()).private_key).toBe('ab'.repeat(64));
+    getPrivateKey.mockRestore();
+    success.mockRestore();
+  });
+
+  it('exports the radio profile without the key when the firmware did not export it', async () => {
+    const getPrivateKey = vi.spyOn(api, 'getPrivateKey').mockRejectedValue(new Error('404'));
+    let exported: Blob | undefined;
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      exported = blob;
+      return 'blob:x';
+    });
+    URL.revokeObjectURL = vi.fn();
+    const info = vi.spyOn(toast, 'info');
+    renderModal();
+    openRadioSection();
+    openRadioTab('tabDevice');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.exportConfig'), hidden: true })
+    );
+
+    await waitFor(() =>
+      expect(info).toHaveBeenCalledWith(i18n.t('settings.radio.exportWithoutKey'), {
+        description: i18n.t('settings.radio.exportWithoutKeyHelp'),
+      })
+    );
+    expect(JSON.parse(await exported!.text())).not.toHaveProperty('private_key');
+    getPrivateKey.mockRestore();
+    info.mockRestore();
+  });
+
   it('shows the radio workarounds in the Advanced tab and saves each toggle', async () => {
     const { onSaveAppSettings } = renderModal({
       appSettings: { ...baseSettings, force_channel_slot_reconfigure: true },
@@ -951,6 +1006,48 @@ describe('SettingsModal', () => {
         expect.objectContaining({ advert_location_source: 'off' })
       );
     });
+  });
+
+  it('shows a radio rejection of the saved config instead of a success', async () => {
+    const onSave = vi.fn(async () => {
+      throw new ApiError('The radio rejected the radio parameters', 422);
+    });
+    const success = vi.spyOn(toast, 'success');
+    renderModal({ onSave });
+    openRadioSection();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.radio.advertLocationSource')), {
+      target: { value: 'off' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.saveConfig') }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The radio rejected the radio parameters'
+    );
+    expect(success).not.toHaveBeenCalledWith(i18n.t('settings.radio.configSaved'));
+    success.mockRestore();
+  });
+
+  it('translates a coded radio rejection of the saved config', async () => {
+    const onSave = vi.fn(async () => {
+      throw new ApiError('The radio rejected the radio parameters', 422, {
+        code: 'radio_params_rejected',
+        message: 'The radio rejected the radio parameters',
+      });
+    });
+    renderModal({ onSave });
+    openRadioSection();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.radio.advertLocationSource')), {
+      target: { value: 'off' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.saveConfig') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      i18n.t('errors.radio_params_rejected')
+    );
+    expect(i18n.t('errors.radio_params_rejected')).not.toBe('errors.radio_params_rejected');
   });
 
   it('reads a missing advert location source as off', async () => {

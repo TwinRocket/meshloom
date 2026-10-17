@@ -42,6 +42,13 @@ deliberate. These are documented and are not treated as vulnerabilities:
 - **The radio proxy has no authentication.** When turned on in
   **Settings > Proxy**, it listens on every interface, and Basic auth does not
   cover it.
+- **The radio's private key is readable by anyone who can reach the
+  interface** (`GET /api/radio/private-key`, the full backup in
+  **Settings > Database**). Because the server accepts any origin with
+  credentials, a web page opened in a browser that can reach Meshloom can read
+  the key and download the full backup (Wi-Fi password included): the export
+  accepts a POST without a body, which needs no preflight. The backup file can
+  be encrypted with a passphrase.
 
 They are described in [A trusted network](docs/user/en/trust.md) and
 [Security](docs/user/en/deep/security.md). A way around one of the protections

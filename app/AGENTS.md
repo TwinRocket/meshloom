@@ -143,7 +143,8 @@ and the OpenAPI page (`/docs`), not a table here.
 - **Prompt state** (`app_settings.wifi_prompt_state`, migration 095, not in
   `AppSettings`): JSON keyed by the lowercase radio public key with independent
   fields: `dismissed_at` ("don't ask again", never erased), `open_network_ssid`
-  (an open network reads like "nothing stored"), and the **store-in-progress
+  (an open network reads like "nothing stored"; the full backup exports it
+  from this record), and the **store-in-progress
   marker** `store_started_at`/`store_target_ssid`, written before the first `set`
   and cleared once the store is verified or rolled back, or when it failed
   before its first `set` (any non-`CliError`, such as a dropped link, comes from
@@ -168,12 +169,24 @@ and the OpenAPI page (`/docs`), not a table here.
 - **Reboots**: whether a change needs one is decided after the store
   (`wifi_reboot_required()`, with the flasher shortcut: nothing stored, same SSID,
   joined now, a password). A reboot is sent only when the request says
-  `reboot: true` or through `POST /radio/wifi/reboot`, both followed by
-  `note_expected_reboot("wifi_config")`. Never use the generic `POST
-  /radio/reboot` for a Wi-Fi change: it records no planned reboot, so a serial
+  `reboot: true` or through `POST /radio/wifi/reboot` (the prompt's follow-up,
+  the panel's "Reboot now" and the full backup restore's reboot after its Wi-Fi
+  step), both followed by `note_expected_reboot("wifi_config")`. Never use the
+  generic `POST /radio/reboot` for a Wi-Fi change: it records no planned reboot, so a serial
   bridge survives, setup and the Wi-Fi check do not run again and reconnect
   errors are broadcast. Never reboot after `wifi_store_unverified` or
   `wifi_store_partial`.
+- **Full backup restore.** Its Wi-Fi step calls `store_restored_credentials()`
+  and `refresh_after_restore()` inside the restore's own CLI session, so the
+  marker, the open-network record and the cached state follow the same rules
+  as a store from the panel (see "Backups").
+- **No prompt during a restore.** While a full backup restore job runs
+  (`backup_restore.restore_job_running()`), `_write_cache()` holds
+  `prompt_needed` False and keeps the unheld value (`prompt_wanted`); the job
+  calls `reevaluate_prompt()` when it starts and when it ends (`_set_running()`),
+  which patches the cached state without bumping the version and broadcasts
+  only a change, so the prompt closes in every tab and comes back afterwards
+  if it is still needed.
 - `radio_wifi` WS event (`RadioWifiState`), broadcast with `realtime=False`
   (WS clients only, never the proxy, fanout or Web Push).
 - `POST /radio/transport/revert` restores `previous_transport` on the server (BLE
@@ -276,6 +289,130 @@ conversations with an index skip-scan. `tests/test_unreads_equivalence.py` keeps
 the old `ROW_NUMBER()` query as an oracle: both outputs must stay identical.
 `first_unread_ids` is the first unread row by `(received_at, id)`; `MIN(id)` would
 be wrong, because historical decryption inserts old messages with new ids.
+
+## Backups
+
+- **Three kinds.** `GET /settings/backup/database` (a SQLite snapshot, never
+  restored from the UI, no private key); `meshloom-backup-v1` (`export_json` /
+  `restore_json`, Meshloom data only; `GET /settings/backup/json` stays v1 for
+  scripts); and the full backup `meshloom-backup-v2` (`POST
+  /settings/backup/export`): the v1 fields unchanged plus `identity`, `radio`
+  (`RadioNodeSettings`), `wifi` and `meshloom_extra`. Code:
+  `services/backup.py` (formats, coverage, export, Meshloom restore),
+  `services/backup_radio.py` (radio reads and writes),
+  `services/backup_restore.py` (identity decision, inspect, restore job),
+  `services/backup_crypto.py` (envelope).
+- **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
+  table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
+  column or table until it is listed (one direction: extra entries are fine).
+  The v1 settings are one list, `V1_SETTING_COLUMNS`, used by both the coverage
+  and the restore; the test checks each is an `AppSettings` field and an
+  `AppSettingsRepository.update` argument.
+  Excluded on purpose: Community opt-in and state (consent), the radio transport
+  (machine-specific), the identity binding, history and caches.
+- **Secrets in the file.** `BackupIdentity.private_key`, `BackupWifi.password`
+  and `BackupVapid.private_key` are `SecretStr` revealed only under the
+  serialization context `{"backup_export": True}` (`export_document()`); every
+  other dump, repr and the restore job show the mask, and a restore refuses the
+  mask. The export route returns a `JSONResponse` from that dump, never a
+  `response_model`. The key comes from the keystore (filled once per
+  connection by setup); when it is empty and the firmware did not answer
+  DISABLED, the export asks the radio once more inside its CLI session, and it
+  falls back to meshcore's cached `self_info` key when its own appstart read
+  fails. The Wi-Fi password is read live (`wifi_stored_password`) and
+  never written to the database. With a password stored and no SSID, `get
+  wifi.ssid` answers the compile-time fallback SSID, and the firmware gives no
+  way to tell it from a stored one: the backup pairs that SSID with the
+  password, and a restore stores both (stated on the public backup page too). Errors list field paths only
+  (`backup_invalid`).
+- **Envelope** (`meshloom-backup-v2-encrypted`): scrypt (writes N=2^16, r=8,
+  p=1) over the NFC passphrase, AES-256-GCM, AAD = canonical JSON of a fixed
+  header tuple. Decrypt accepts one step more than it writes (N up to 2^17, the
+  OWASP figure), so a later version can raise the written N without older
+  readers refusing its files; N above 2^17 needs a new format string. Decrypt
+  refuses N outside 2^14..2^17, r≠8, p≠1, bad salt/nonce
+  sizes or more than 16 MiB before any KDF call; encrypt refuses a plaintext
+  over the same `MAX_CIPHERTEXT_BYTES` (400 `backup_too_large_to_encrypt` from
+  the export), so it never writes a file the restore cannot open. KDF calls run
+  one at a time in a worker thread.
+- **Identity.** `decide_identity_restore(gate, bound, live, backup,
+  has_history)` is the one table (TR-1 plan C.4, `tests/test_backup_identity_decision.py`):
+  inspect, the synchronous 409s and the job all use it. The job decides once
+  outside the `lifecycle_transition` and enters it only for an import, a wipe
+  or a bind (entering it closes ingest, and only post-connect setup opens it
+  again), then decides again inside, right before acting; leaving it without
+  setup (a refusal, a refused import) reopens ingest for the same session, or
+  runs setup when the key changed. A known live key
+  other than the backup's needs `replace_live_identity` and
+  `expected_live_public_key == live`; history under another key needs
+  `wipe_history`; history with no bound owner (row 12, or an unbound database
+  with history) is kept unless the request sends `wipe_history`, which inspect
+  offers as `identity_allows_wipe` (an unchecked box in the UI); a radio that is not connected never gets the backup key bound
+  (rows 3-4: the next connect opens `identity_unbound_legacy`). The job imports
+  first (re-read of the live key after the reconnect on every path, refused
+  with `live_identity_changed` when it moved; raw `0x18` frame waiting for
+  OK/ERROR/DISABLED, then a re-read), then wipes, then binds and runs setup; any identity failure stops the job and
+  pauses the link when the gate was open.
+- **Restore order** (owner decision): identity, Meshloom data (only the settings
+  present in the file; `meshloom_extra` through the route code paths: fanout
+  validation shared with the create route, `system:*` ids refused, bots
+  restored disabled and skipped while bots are disabled, VAPID keys and
+  subscriptions only on a host with no subscriptions of its own, proxy through
+  `services/radio_proxy_settings.py`), then in one companion CLI session: radio
+  settings group by group (no clock sync per group, one at the end; a reboot
+  then skips the rest; `tx_power` is a signed byte meshcore reads unsigned, so it
+  is read as int8, and a negative power is written back with a raw `0x0C` frame
+  since `set_tx_power` refuses it), channels into slots `0..n-1` with raw `0x20` frames (the secret is
+  never re-derived from a `#name`; the slots above are emptied and dropped from
+  the slot cache), contacts (reconcile stopped and always restarted, an
+  unreadable table fails the step `radio_contacts_unreadable`,
+  non-selected radio contacts removed first, favourites first, 0x10 always
+  stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),
+  Wi-Fi last, through `services/radio_wifi.py` inside the restore's session:
+  the credentials with `store_restored_credentials()` (the Wi-Fi panel's
+  store-in-progress marker around the store, cleared after the verified
+  read-back and kept on `wifi_store_partial`; a reboot required only by
+  `wifi_reboot_required()`), then the on/off flag as its own item, then
+  `refresh_after_restore()` writes and broadcasts the panel's state (no
+  second password read after a verified store; a read failure writes a
+  `failed` state). `BackupWifi` may carry only `enabled`
+  (no credentials stored), or an open network: `open_network` with an empty
+  password, exported only when the panel's `open_network_ssid` record for the
+  live key matches the SSID and no store marker is left (the radio reads it as
+  "nothing stored"); an SSID with an empty password is always an open network,
+  and its restore stores `set wifi.pwd ` and records it again; inspect sets `wifi_off_on_tcp` when the file turns
+  Wi-Fi off on a TCP link, and the UI defaults the step off. Raw frames also for the default flood scope (keeps a
+  non-derived key) and auto-add (keeps `max_hops`).
+- **Job.** One at a time (409 `backup_restore_running`, answered by the route
+  before an encrypted file's KDF), `spawn()`ed, in memory
+  (last 5); `GET /settings/backup/restore/jobs/{id}` and `/latest`. The decrypted
+  document lives in the run object only and is dropped when the job ends. The
+  reboot the restore offers (`result.reboot_required`, set only by the Wi-Fi
+  step) is `POST /radio/wifi/reboot` whenever the Wi-Fi step wrote an item
+  (`restoreWroteWifi()` in `BackupRestoreFlow.tsx`): a planned `wifi_config`
+  reboot, so reconnect errors stay quiet, setup and the Wi-Fi check run again
+  and the switch-to-TCP toast is armed. Otherwise the plain `POST /radio/reboot`.
+  Outcomes that are not a step status go in `result.warnings` (`code` or
+  `code:param`) and in a step's `items`; the UI translates every one (keep
+  `frontend/src/test/backupRestoreFlow.test.tsx`'s code list in sync). Nothing a
+  restore writes is broadcast: the Settings flow reloads the client
+  (`onBackupRestored`), the identity window runs the identity-adopt reload.
+  Both decide from the steps (`restoreChanges`: identity restored/bound, or
+  Meshloom data done), never from `job.state`, since a job can fail after the
+  identity step. The identity window cannot be closed while a job runs. Only
+  Settings > Database mounts the flow with `resumeLatest`: a job that ended
+  while no view was open gets its reload once, when that section next opens
+  (handled job ids in sessionStorage); until then the client keeps its old
+  contacts and conversations. That section shows the latest job while it runs,
+  or finished until a view handled it; a handled job is not shown again.
+- **Inspect** also lists the non-bot integrations with their `enabled` flag,
+  the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label and
+  endpoint host of each push subscription the restore would write, per
+  `push_restore_applies`): integrations, the proxy and push subscriptions come
+  back as in the file and start at once, so the summary names them.
+- **Restore body.** `POST /settings/backup/restore` reads a raw dict: no
+  `backup` key is the v1 flat request (synchronous); a `backup` key starts the
+  job (202). A file without `format` is v1 everywhere.
 
 ## Region-scope stats (`GET /statistics` → `region_scope_24h`)
 
@@ -409,8 +546,17 @@ answering 403, 404 or 410 deletes the subscription.
 
 ## Route behaviours that are easy to break
 
-- `GET /radio/private-key` works only with `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`.
+- `GET /radio/private-key` is ungated (404 when the keystore is empty);
+  `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (`RETIRED_ENV`).
 - `POST /radio/factory-reset` sends nothing unless `confirm_name` equals the radio name.
+- `PATCH /radio/config` reads the client repeat flag with a fresh device query
+  before it sends new radio parameters (the firmware reads a missing repeat byte
+  as "off"), and answers 422 when the radio rejects the name, coordinates, TX
+  power or radio parameters (`apply_radio_config_update` checks every reply).
+  Parameters the radio refuses (its own ERROR frame, not meshcore's timeout
+  ERROR `{"reason": ...}`) with repeat on are sent once more with repeat off (the
+  firmware allows repeat only on some bands); the answer's `warnings` then holds
+  `client_repeat_not_allowed` and the UI shows it. The restore uses the same path.
 - `PATCH /radio/proxy` answers 409 to a port change under `MESHCORE_MANAGED_PORTS`.
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.

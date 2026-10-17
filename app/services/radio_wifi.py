@@ -23,6 +23,9 @@ Rules:
 - **Cache writes are ordered.** A state is written to the in-memory cache and
   broadcast while the session that computed it still holds the radio lock, only
   for the connection it was computed on, and only if no newer write landed.
+- **No prompt during a restore.** While a full backup restore job runs,
+  ``prompt_needed`` is held False; the job calls ``reevaluate_prompt()`` when it
+  starts and ends, so the prompt closes and comes back (or not) accordingly.
 """
 
 from __future__ import annotations
@@ -105,6 +108,9 @@ class _CacheEntry:
     # The stored password read non-empty (before the open-network and marker
     # adjustments); None when no full check ran on this connection.
     raw_password_stored: bool | None
+    # ``prompt_needed`` before the restore hold (see ``_prompt_held()``), so the
+    # prompt can come back when the restore ends.
+    prompt_wanted: bool = False
 
 
 _cache: _CacheEntry | None = None
@@ -177,23 +183,39 @@ def _broadcast(state: RadioWifiState) -> None:
     broadcast_event("radio_wifi", state.model_dump(mode="json"), realtime=False)
 
 
+def _prompt_held() -> bool:
+    """A full backup restore job is running: the prompt waits until it ends
+    (its Wi-Fi step may store the credentials, and the prompt would sit on top
+    of the restore view)."""
+    from app.services.backup_restore import restore_job_running
+
+    return restore_job_running()
+
+
 def _write_cache(
     state: RadioWifiState, token: _WriteToken, *, raw_password_stored: bool | None
 ) -> bool:
     """Store and broadcast ``state`` if ``token`` is still current. Returns
-    whether it was written; ``token`` must not be reused after a write."""
+    whether it was written; ``token`` must not be reused after a write.
+
+    The dismissal and the restore hold are applied to ``state`` itself (the
+    caller returns it), written or not."""
     global _cache, _version
+    if state.radio_public_key in _dismissed_keys:
+        state.prompt_needed = False
+    wanted = state.prompt_needed
+    if wanted and _prompt_held():
+        state.prompt_needed = False
     if not _token_alive(token) or token.version != _version:
         logger.debug("Dropped a stale Wi-Fi state")
         return False
-    if state.radio_public_key in _dismissed_keys:
-        state.prompt_needed = False
     _version += 1
     _cache = _CacheEntry(
         state=state,
         link=token.link,
         generation=token.generation,
         raw_password_stored=raw_password_stored,
+        prompt_wanted=wanted,
     )
     _broadcast(state)
     return True
@@ -433,8 +455,6 @@ async def apply_wifi_credentials(
     ``CliError`` subclasses for radio failures (``wifi_store_unverified``,
     ``wifi_store_partial``, timeouts, no CLI or no Wi-Fi).
     """
-    from app.repository import AppSettingsRepository
-
     ssid, password = _validated_credentials(request)
     async with companion_cli_session("wifi_credentials") as cli:
         token = _token()
@@ -444,32 +464,15 @@ async def apply_wifi_credentials(
         enabled = await wifi_enabled(cli)
         status = await wifi_link_status(cli)
         open_record = (await _prompt_entry(public_key)).get("open_network_ssid")
-        await AppSettingsRepository.mark_wifi_store_started(public_key, ssid)
-        try:
-            outcome = await store_wifi_credentials(cli, ssid, SecretStr(password), typed=True)
-        except asyncio.CancelledError:
-            # Cancelled at an unknown step: keep the marker (the safe reading).
-            raise
-        except CliError as exc:
-            if exc.code == "wifi_store_partial":
-                # Marker kept: the warning survives the link drop that usually
-                # causes this, and the cache clear that follows it.
-                await _note_store_incomplete(token, public_key, ssid)
-            else:
-                # Verified rollback, or nothing written at all.
-                await AppSettingsRepository.clear_wifi_store_marker(public_key)
-            raise
-        except Exception:
-            # store_wifi_credentials() turns every failure after its first ``set``
-            # into a CliError, so anything else (a dropped link during its first
-            # reads) means nothing was written.
-            await AppSettingsRepository.clear_wifi_store_marker(public_key)
-            raise
-        await AppSettingsRepository.clear_wifi_store_marker(public_key)
-        if request.open_network:
-            await AppSettingsRepository.mark_wifi_open_network(public_key, ssid)
-        else:
-            await AppSettingsRepository.clear_wifi_open_network(public_key)
+        outcome = await _store_with_marker(
+            cli,
+            token,
+            public_key,
+            ssid,
+            SecretStr(password),
+            open_network=request.open_network,
+            typed=True,
+        )
         raw = bool(password)
         password = ""
         previous = _current_entry()
@@ -489,6 +492,53 @@ async def apply_wifi_credentials(
             new_password_empty=request.open_network,
         )
         return await _finish_change(state, raw, token, required=required, reboot=request.reboot)
+
+
+async def _store_with_marker(
+    cli: CompanionCli,
+    token: _WriteToken,
+    public_key: str | None,
+    ssid: str,
+    password: SecretStr,
+    *,
+    open_network: bool,
+    typed: bool,
+) -> WifiStoreOutcome:
+    """``store_wifi_credentials()`` with this service's bookkeeping: the "store
+    in progress" marker around it, then the open-network record (set for an
+    open network, dropped for a password). Without a known public key nothing
+    can be recorded, and the store runs alone."""
+    from app.repository import AppSettingsRepository
+
+    if public_key is None:
+        return await store_wifi_credentials(cli, ssid, password, typed=typed)
+    await AppSettingsRepository.mark_wifi_store_started(public_key, ssid)
+    try:
+        outcome = await store_wifi_credentials(cli, ssid, password, typed=typed)
+    except asyncio.CancelledError:
+        # Cancelled at an unknown step: keep the marker (the safe reading).
+        raise
+    except CliError as exc:
+        if exc.code == "wifi_store_partial":
+            # Marker kept: the warning survives the link drop that usually
+            # causes this, and the cache clear that follows it.
+            await _note_store_incomplete(token, public_key, ssid)
+        else:
+            # Verified rollback, or nothing written at all.
+            await AppSettingsRepository.clear_wifi_store_marker(public_key)
+        raise
+    except Exception:
+        # store_wifi_credentials() turns every failure after its first ``set``
+        # into a CliError, so anything else (a dropped link during its first
+        # reads) means nothing was written.
+        await AppSettingsRepository.clear_wifi_store_marker(public_key)
+        raise
+    await AppSettingsRepository.clear_wifi_store_marker(public_key)
+    if open_network:
+        await AppSettingsRepository.mark_wifi_open_network(public_key, ssid)
+    else:
+        await AppSettingsRepository.clear_wifi_open_network(public_key)
+    return outcome
 
 
 async def _finish_change(
@@ -578,6 +628,76 @@ async def reboot_for_wifi_config() -> RadioWifiChangeResult:
     return RadioWifiChangeResult(state=state, reboot_required=False, rebooting=True)
 
 
+# -- full backup restore (inside the restore's own CLI session) --------------
+
+
+async def store_restored_credentials(
+    cli: CompanionCli, ssid: str, password: SecretStr, *, open_network: bool
+) -> bool:
+    """Store credentials from a full backup, inside the restore's CLI session,
+    with the same bookkeeping as a store from the Wi-Fi panel (marker, then the
+    open-network record). Returns whether a reboot is needed to apply them
+    (``wifi_reboot_required()``). Raises like ``store_wifi_credentials()``.
+
+    Writes no state: the restore calls ``refresh_after_restore()`` once its
+    Wi-Fi step is done (the on/off flag comes after the credentials).
+    """
+    public_key = await connected_radio_public_key()
+    token = _token()
+    try:
+        connected = (await wifi_link_status(cli)).connected
+    except CliError:
+        connected = False  # unknown: the reboot rule then asks for one
+    open_record = (await _prompt_entry(public_key)).get("open_network_ssid")
+    outcome = await _store_with_marker(
+        cli, token, public_key, ssid, password, open_network=open_network, typed=False
+    )
+    return wifi_reboot_required(
+        outcome,
+        connected=connected,
+        open_record_ssid=open_record if isinstance(open_record, str) else None,
+        new_password_empty=open_network,
+    )
+
+
+async def refresh_after_restore(
+    cli: CompanionCli, *, credentials_stored: bool | None, reboot_pending: bool
+) -> RadioWifiState:
+    """Re-read the Wi-Fi state after the restore's Wi-Fi step, inside the
+    restore's CLI session, then write and broadcast it (the panel and the
+    indicator then show the restored values; the prompt stays held until the
+    job ends).
+
+    ``credentials_stored`` is the raw "password stored" reading the step knows
+    (True for a stored password, False for an open network, None when it stored
+    no credentials: the cached reading is kept, or the password is read once
+    when none is cached). ``reboot_pending`` says the step stored a change that
+    needs a reboot. A read failure writes a ``failed`` state (the panel then
+    offers Retry) instead of raising.
+    """
+    token = _token()
+    public_key = await connected_radio_public_key()
+    previous = _current_entry()
+    raw = credentials_stored
+    if raw is None and previous is not None:
+        raw = previous.raw_password_stored
+    pending = reboot_pending or (previous.state.reboot_pending if previous else False)
+    try:
+        state, raw = await _read_wifi_state(
+            cli,
+            public_key=public_key,
+            read_password=raw is None,
+            raw_password_stored=raw,
+            reboot_pending=pending,
+        )
+    except CliTimeoutError:
+        state, raw = _failed_state("cli_timeout", public_key), None
+    except CliError:
+        state, raw = _failed_state("cli_error", public_key), None
+    _write_cache(state, token, raw_password_stored=raw)
+    return state
+
+
 async def dismiss_wifi_prompt(radio_public_key: str) -> RadioWifiState:
     """Never ask again for this radio. Refused (``wifi_radio_changed``) when the
     connected radio is not the one the dialog was shown for."""
@@ -597,8 +717,32 @@ async def dismiss_wifi_prompt(radio_public_key: str) -> RadioWifiState:
     state = entry.state.model_copy()
     state.prompt_needed = False
     entry.state = state
+    entry.prompt_wanted = False
     _broadcast(state)
     return state.model_copy()
+
+
+def reevaluate_prompt() -> None:
+    """A restore job started or ended: hold the prompt, or let it come back.
+
+    Patches the cached state in place without bumping ``_version`` (like a
+    dismissal): a session in flight still writes its own result, and
+    ``_write_cache()`` applies the hold as it stands then. Broadcasts only a
+    change, so every tab closes or reopens the prompt."""
+    entry = _current_entry()
+    if entry is None:
+        return
+    needed = (
+        entry.prompt_wanted
+        and entry.state.radio_public_key not in _dismissed_keys
+        and not _prompt_held()
+    )
+    if entry.state.prompt_needed == needed:
+        return
+    state = entry.state.model_copy()
+    state.prompt_needed = needed
+    entry.state = state
+    _broadcast(state)
 
 
 async def run_full_wifi_check(

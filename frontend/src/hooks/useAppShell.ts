@@ -8,7 +8,12 @@ import {
   setSavedDesktopSidebarCollapsed,
 } from '../utils/sidebarRailPreference';
 import type { SettingsSection } from '../components/settings/settingsConstants';
-import { parseHashSettingsSection, updateSettingsHash, pushSettingsHash } from '../utils/urlHash';
+import {
+  parseHashSettingsSection,
+  pushSettingsHash,
+  rememberSettingsAnchor,
+  updateSettingsHash,
+} from '../utils/urlHash';
 
 interface UseAppShellResult {
   showNewMessage: boolean;
@@ -37,7 +42,13 @@ interface UseAppShellResult {
 }
 
 export function useAppShell(): UseAppShellResult {
-  const initialSettingsSection = typeof window === 'undefined' ? null : parseHashSettingsSection();
+  // Read once: the hash is rewritten to `#settings/<section>` by the first
+  // commit, and App re-renders long before a lazy section mounts to take the anchor.
+  const [initialSettingsSection] = useState<SettingsSection | null>(() => {
+    const section = typeof window === 'undefined' ? null : parseHashSettingsSection();
+    if (section !== null) rememberSettingsAnchor();
+    return section;
+  });
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [showSettings, setShowSettings] = useState(() => initialSettingsSection !== null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(
@@ -118,6 +129,7 @@ export function useAppShell(): UseAppShellResult {
     const handlePopstate = () => {
       const section = parseHashSettingsSection();
       if (section !== null) {
+        rememberSettingsAnchor();
         // Don't set pushedSettingsEntryRef here — the user arrived via
         // back/forward, not by opening settings.  Closing settings should
         // replaceState, not history.back(), to avoid popping an unrelated entry.

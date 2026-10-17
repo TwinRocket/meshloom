@@ -54,6 +54,10 @@ ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
 ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
 _COMMUNITY_UI = "Settings → Meshloom Community"
 _COMMUNITY_FIXED = "no setting at all (the Meshloom Community addresses are fixed)"
+_PRIVATE_KEY_ALWAYS = (
+    "no setting at all (GET /api/radio/private-key and the full backup in "
+    "Settings → Database always include the key)"
+)
 
 # Retired variable → where its setting lives now (for the startup warning).
 RETIRED_ENV: dict[str, str] = {
@@ -64,6 +68,7 @@ RETIRED_ENV: dict[str, str] = {
     "MESHLOOM_COMMUNITY_BROKER_HOST": _COMMUNITY_FIXED,
     "MESHLOOM_COMMUNITY_API_BASE": _COMMUNITY_FIXED,
     ENV_CLOCK_WRAPAROUND: "Settings → Radio → Advanced (on by default)",
+    "MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT": _PRIVATE_KEY_ALWAYS,
 }
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})

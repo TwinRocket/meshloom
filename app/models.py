@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     SecretStr,
+    SerializationInfo,
     computed_field,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -1798,6 +1800,47 @@ class ContactGroupMembersUpdate(BaseModel):
     public_keys: list[str] = Field(default_factory=list)
 
 
+AdvertLocationSource = Literal["off", "current"]
+
+
+class RadioSettings(BaseModel):
+    freq: float = Field(description="Frequency in MHz")
+    bw: float = Field(description="Bandwidth in kHz")
+    sf: int = Field(description="Spreading factor (7-12)")
+    cr: int = Field(description="Coding rate (1-4)")
+
+
+class RadioConfigUpdate(BaseModel):
+    name: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    tx_power: int | None = Field(default=None, description="Transmit power in dBm")
+    radio: RadioSettings | None = None
+    path_hash_mode: int | None = Field(
+        default=None,
+        ge=0,
+        le=2,
+        description="Path hash mode (0=1-byte, 1=2-byte, 2=3-byte)",
+    )
+    advert_location_source: AdvertLocationSource | None = Field(
+        default=None,
+        description="Whether adverts include the node's current location state",
+    )
+    multi_acks_enabled: bool | None = Field(
+        default=None,
+        description="Whether the radio sends an extra direct ACK transmission",
+    )
+    telemetry_mode_base: int | None = Field(
+        default=None, ge=0, le=2, description="Base telemetry sharing mode"
+    )
+    telemetry_mode_loc: int | None = Field(
+        default=None, ge=0, le=2, description="Location telemetry sharing mode"
+    )
+    telemetry_mode_env: int | None = Field(
+        default=None, ge=0, le=2, description="Environment sensor sharing mode"
+    )
+
+
 class BackupContact(BaseModel):
     """Contact fields included in the safer JSON backup (no computed routes)."""
 
@@ -1836,10 +1879,12 @@ class BackupChannel(BaseModel):
 
 
 class BackupExport(BaseModel):
-    """Safer JSON export of contacts, channels, settings, and groups.
+    """Meshloom data of a backup (the ``meshloom-backup-v1`` document).
 
-    Does not include messages, raw packets, the radio private key, or VAPID keys.
-    Push notification prefs are included; restore must not emit first-seen.
+    Contacts, channels (with their secrets and region scope), settings, groups
+    and push preferences. No messages, raw packets, radio private key or VAPID
+    keys: the full backup (``BackupExportV2``) adds those. Restore must not emit
+    first-seen.
     """
 
     format: str = "meshloom-backup-v1"
@@ -1868,9 +1913,501 @@ class BackupRestoreResult(BaseModel):
     settings_updated: bool = False
     groups_upserted: int = 0
     private_key_warning: str = (
-        "The radio private key is not stored in backups. Restore does not replace "
+        "This Meshloom-only restore never touches the radio or its private key "
+        "(the full backup in Settings > Database carries both). It does not replace "
         "the live database file and does not delete messages or packets."
     )
+
+
+# -- Full backup (meshloom-backup-v2) -----------------------------------------
+
+BACKUP_SECRET_MASK = "**********"
+_HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
+_HEX128 = re.compile(r"^[0-9a-fA-F]{128}$")
+_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def _reveal_in_export(value: SecretStr | None, info: SerializationInfo) -> str | None:
+    """A secret field: its value only in the export document, the mask anywhere else."""
+    if value is None:
+        return None
+    context = info.context
+    if isinstance(context, dict) and context.get("backup_export"):
+        return value.get_secret_value()
+    return BACKUP_SECRET_MASK
+
+
+def _refuse_mask(value: SecretStr | None) -> SecretStr | None:
+    if value is not None and value.get_secret_value() == BACKUP_SECRET_MASK:
+        raise ValueError("masked_secret")
+    return value
+
+
+class BackupIdentity(BaseModel):
+    """The radio identity. ``private_key`` is revealed only in the export document."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    public_key: str | None = Field(default=None, description="Radio public key (64 hex)")
+    private_key: SecretStr | None = Field(default=None, description="Private key (128 hex)")
+    private_key_status: Literal["included", "export_disabled", "unavailable"] = "unavailable"
+
+    @field_validator("public_key")
+    @classmethod
+    def _public_key_hex(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _HEX64.match(value):
+            raise ValueError("public_key_invalid")
+        return value.lower()
+
+    @field_validator("private_key")
+    @classmethod
+    def _private_key_hex(cls, value: SecretStr | None) -> SecretStr | None:
+        value = _refuse_mask(value)
+        if value is not None and not _HEX128.match(value.get_secret_value()):
+            raise ValueError("private_key_invalid")
+        return value
+
+    @field_serializer("private_key", when_used="always")
+    def _serialize_private_key(self, value: SecretStr | None, info: SerializationInfo):
+        return _reveal_in_export(value, info)
+
+
+class BackupRadioParams(BaseModel):
+    freq: float = Field(description="Frequency in MHz")
+    bw: float = Field(description="Bandwidth in kHz")
+    sf: int = Field(ge=5, le=12)
+    cr: int = Field(ge=1, le=8)
+
+
+class BackupOtherParams(BaseModel):
+    """SELF_INFO "other params", raw (written back with one raw frame, lossless)."""
+
+    manual_add_contacts: int = Field(ge=0, le=255)
+    telemetry_mode_base: int = Field(ge=0, le=3)
+    telemetry_mode_loc: int = Field(ge=0, le=3)
+    telemetry_mode_env: int = Field(ge=0, le=3)
+    adv_loc_policy: int = Field(ge=0, le=255)
+    multi_acks: int = Field(ge=0, le=255)
+
+
+class BackupTuning(BaseModel):
+    """Raw thousandths, as CMD_GET_TUNING_PARAMS returns them."""
+
+    rx_delay_raw: int = Field(ge=0, le=0xFFFFFFFF)
+    airtime_factor_raw: int = Field(ge=0, le=0xFFFFFFFF)
+
+
+class BackupFloodScope(BaseModel):
+    name: str = Field(max_length=31)
+    key_hex: str
+
+    @field_validator("key_hex")
+    @classmethod
+    def _key_hex(cls, value: str) -> str:
+        if not _HEX32.match(value):
+            raise ValueError("flood_scope_key_invalid")
+        return value.lower()
+
+
+class BackupAutoadd(BaseModel):
+    config: int = Field(ge=0, le=255)
+    max_hops: int | None = Field(default=None, ge=0, le=255)
+
+
+class BackupFirmwareInfo(BaseModel):
+    """Informational: never written back."""
+
+    ver_code: int | None = None
+    version: str | None = None
+    build: str | None = None
+    model: str | None = None
+    max_contacts: int | None = None
+    max_channels: int | None = None
+
+
+class RadioNodeSettings(BaseModel):
+    """Everything the radio lets Meshloom read and write back, field by field.
+
+    A field is None when the radio did not answer it at export time.
+    """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    name: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    tx_power: int | None = None
+    max_tx_power: int | None = None
+    radio: BackupRadioParams | None = None
+    client_repeat: bool | None = None
+    path_hash_mode: int | None = Field(default=None, ge=0, le=2)
+    other: BackupOtherParams | None = None
+    tuning: BackupTuning | None = None
+    ble_pin: int | None = Field(default=None, ge=0, le=999999)
+    custom_vars: dict[str, str] | None = None
+    default_flood_scope: BackupFloodScope | None = None
+    default_flood_scope_read: bool = Field(
+        default=False,
+        description="True when the default flood scope was read (null then means none set)",
+    )
+    autoadd: BackupAutoadd | None = None
+    cli_prefs: dict[str, str] | None = None
+    firmware: BackupFirmwareInfo | None = None
+
+
+class BackupWifi(BaseModel):
+    """The radio's Wi-Fi: the credentials it stores and its on/off flag.
+    ``password`` is revealed only in the export document and is never written to
+    the Meshloom database. ``ssid`` and ``password`` are both set or both None
+    (nothing stored, or credentials built into the firmware), and the block then
+    carries only ``enabled``. An open network reads like "nothing stored" on the
+    radio: it is in the file only when Meshloom recorded it for that radio and
+    SSID (``wifi_prompt_state``), as ``open_network`` with an empty password."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    ssid: str | None = None
+    password: SecretStr | None = None
+    enabled: bool | None = None
+    open_network: bool = Field(
+        default=False,
+        description="The SSID is an open network: stored with an empty password",
+    )
+
+    @property
+    def has_credentials(self) -> bool:
+        return self.ssid is not None and self.password is not None
+
+    @field_validator("ssid")
+    @classmethod
+    def _ssid_valid(cls, value: str | None) -> str | None:
+        from app.services.companion_cli import CliCommandError, validate_wifi_ssid
+
+        if value is None:
+            return None
+        try:
+            return validate_wifi_ssid(value)
+        except CliCommandError as exc:
+            raise ValueError(exc.code) from None
+
+    @field_validator("password")
+    @classmethod
+    def _password_valid(cls, value: SecretStr | None) -> SecretStr | None:
+        from app.services.companion_cli import CliCommandError, validate_wifi_password
+
+        if value is None:
+            return None
+        _refuse_mask(value)
+        try:
+            validate_wifi_password(value.get_secret_value(), typed=False)
+        except CliCommandError as exc:
+            raise ValueError(exc.code) from None
+        return value
+
+    @field_serializer("password", when_used="always")
+    def _serialize_password(self, value: SecretStr | None, info: SerializationInfo):
+        return _reveal_in_export(value, info)
+
+    @model_validator(mode="after")
+    def _credentials_paired(self) -> BackupWifi:
+        if (self.ssid is None) != (self.password is None):
+            raise ValueError("wifi_credentials_incomplete")
+        if not self.has_credentials and self.enabled is None:
+            raise ValueError("wifi_empty")
+        empty = self.password is not None and not self.password.get_secret_value()
+        if self.open_network and not empty:
+            raise ValueError("wifi_open_network_invalid")
+        # An SSID with an empty password is what the radio stores for an open
+        # network, whatever the flag says.
+        self.open_network = empty
+        return self
+
+
+class BackupVapid(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    private_key: SecretStr
+    public_key: str
+
+    @field_validator("private_key")
+    @classmethod
+    def _not_masked(cls, value: SecretStr) -> SecretStr:
+        _refuse_mask(value)
+        return value
+
+    @field_serializer("private_key", when_used="always")
+    def _serialize_private_key(self, value: SecretStr, info: SerializationInfo):
+        return _reveal_in_export(value, info)
+
+
+class BackupPushSubscription(BaseModel):
+    endpoint: str = Field(min_length=1)
+    p256dh: str = Field(min_length=1)
+    auth: str = Field(min_length=1)
+    label: str = ""
+    language: str = "fr"
+
+
+class BackupRadioProxy(BaseModel):
+    enabled: bool = False
+    bind: str = ""
+    port: int = Field(ge=1, le=65535)
+    max_clients: int = Field(ge=1, le=32)
+
+
+class BackupFanoutConfig(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    type: str
+    name: str = ""
+    enabled: bool = False
+    config: dict[str, Any] = Field(default_factory=dict)
+    scope: dict[str, Any] = Field(default_factory=dict)
+    sort_order: int = 0
+
+
+class MeshloomExtra(BaseModel):
+    """Meshloom settings outside the v1 document (see ``BACKUP_COVERAGE``)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    path_hash_one_byte_opt_in: bool | None = None
+    vapid: BackupVapid | None = None
+    push_subscriptions: list[BackupPushSubscription] = Field(default_factory=list)
+    radio_proxy: BackupRadioProxy | None = None
+    fanout_configs: list[BackupFanoutConfig] = Field(default_factory=list)
+
+
+class BackupV1Document(BackupExport):
+    format: Literal["meshloom-backup-v1", "remoteterm-backup-v1"] = "meshloom-backup-v1"
+
+
+class BackupExportV2(BackupExport):
+    """The full backup: radio identity, radio settings, Wi-Fi credentials and
+    every Meshloom setting, on top of the v1 fields (which keep their shape)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    format: Literal["meshloom-backup-v2"] = "meshloom-backup-v2"
+    meshloom_version: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    identity: BackupIdentity | None = None
+    radio: RadioNodeSettings | None = None
+    wifi: BackupWifi | None = None
+    meshloom_extra: MeshloomExtra | None = None
+
+
+class BackupKdfParams(BaseModel):
+    name: str
+    n: int
+    r: int
+    p: int
+    salt: str
+
+
+class BackupCipherParams(BaseModel):
+    name: str
+    nonce: str
+
+
+class BackupEnvelope(BaseModel):
+    """``meshloom-backup-v2-encrypted`` (see ``app/services/backup_crypto.py``)."""
+
+    format: Literal["meshloom-backup-v2-encrypted"]
+    exported_at: int
+    public_key: str | None = None
+    kdf: BackupKdfParams
+    cipher: BackupCipherParams
+    ciphertext: str
+
+
+BackupDocument = Annotated[
+    BackupV1Document | BackupExportV2 | BackupEnvelope, Field(discriminator="format")
+]
+
+
+class BackupExportRequest(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    passphrase: SecretStr | None = Field(
+        default=None, description="Encrypt the file with this passphrase (8 characters or more)"
+    )
+
+
+class BackupInspectRequest(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    backup: BackupDocument
+    passphrase: SecretStr | None = None
+
+
+class BackupIdentityRequires(BaseModel):
+    replace_live_identity: bool = False
+    wipe_history: bool = False
+
+
+BackupIdentityRelation = Literal[
+    "no_identity",
+    "same",
+    "restores_bound",
+    "new_database",
+    "replaces_live",
+    "replaces_history",
+    "needs_radio",
+    "conflict",
+]
+
+
+class BackupCounts(BaseModel):
+    contacts: int = 0
+    channels: int = 0
+    groups: int = 0
+    fanout_configs: int = 0
+    push_subscriptions: int = 0
+
+
+class BackupIntegrationSummary(BaseModel):
+    """A non-bot integration a restore would write, shown before restoring."""
+
+    name: str
+    type: str
+    enabled: bool
+
+
+class BackupPushSummary(BaseModel):
+    """A push subscription a restore would write: notifications go to ``host``."""
+
+    label: str
+    host: str
+
+
+class BackupInspectResult(BaseModel):
+    format: str
+    encrypted: bool = False
+    exported_at: int = 0
+    meshloom_version: str | None = None
+    public_key: str | None = None
+    radio_name: str | None = None
+    has_private_key: bool = False
+    private_key_status: str | None = None
+    has_radio_settings: bool = False
+    has_wifi: bool = Field(
+        default=False, description="The file has a Wi-Fi block (credentials and/or on/off)"
+    )
+    has_wifi_credentials: bool = Field(
+        default=False, description="The file holds Wi-Fi credentials stored in the radio"
+    )
+    wifi_open_network: bool = Field(
+        default=False, description="Those credentials are an open network (no password)"
+    )
+    counts: BackupCounts = Field(default_factory=BackupCounts)
+    bot_names: list[str] = Field(default_factory=list)
+    bots_will_be_skipped: bool = Field(
+        default=False,
+        description="Bots are turned off on this server: the file's bots are not restored",
+    )
+    integrations: list[BackupIntegrationSummary] = Field(
+        default_factory=list,
+        description="Non-bot integrations in the file; enabled ones start right after a restore",
+    )
+    radio_proxy_enabled: bool | None = Field(
+        default=None, description="The file's radio proxy setting (None: not in the file)"
+    )
+    push_targets: list[BackupPushSummary] = Field(
+        default_factory=list,
+        description=(
+            "Push subscriptions the restore would write (this host has none of its own): "
+            "message notifications start going to these hosts right after the restore"
+        ),
+    )
+    identity_relation: BackupIdentityRelation = "no_identity"
+    identity_requires: BackupIdentityRequires = Field(default_factory=BackupIdentityRequires)
+    identity_allows_wipe: bool = Field(
+        default=False,
+        description=(
+            "The history recorded without a bound owner is kept by default and "
+            "erased only when the restore sends wipe_history=true"
+        ),
+    )
+    identity_refusal: str | None = Field(
+        default=None, description="Error code when the restore would be refused"
+    )
+    live_radio_public_key: str | None = None
+    live_radio_name: str | None = None
+    ble_pin_differs_on_ble: bool = False
+    wifi_ssid_differs_on_tcp: bool = False
+    wifi_off_on_tcp: bool = Field(
+        default=False,
+        description="Meshloom reaches the radio over TCP and the file turns Wi-Fi off",
+    )
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BackupRestoreSteps(BaseModel):
+    identity: bool = True
+    meshloom: bool = True
+    radio_settings: bool = True
+    ble_pin: bool = True
+    channels: bool = True
+    contacts: bool = True
+    wifi: bool = True
+
+
+class BackupRestoreV2Request(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    confirm: bool
+    backup: BackupDocument
+    passphrase: SecretStr | None = None
+    steps: BackupRestoreSteps = Field(default_factory=BackupRestoreSteps)
+    replace_live_identity: bool = False
+    wipe_history: bool = False
+    expected_live_public_key: str | None = None
+
+
+BackupRestoreStepName = Literal[
+    "identity", "meshloom", "radio_settings", "channels", "contacts", "wifi"
+]
+BackupRestoreStepStatus = Literal["pending", "running", "done", "skipped", "failed", "unsupported"]
+
+
+class BackupRestoreItem(BaseModel):
+    """One sub-item of a step (a radio setting group, for example)."""
+
+    name: str
+    status: BackupRestoreStepStatus
+    code: str | None = None
+
+
+class BackupRestoreStep(BaseModel):
+    step: BackupRestoreStepName
+    status: BackupRestoreStepStatus = "pending"
+    code: str | None = None
+    detail: str | None = None
+    items: list[BackupRestoreItem] = Field(default_factory=list)
+
+
+class BackupRestoreV2Result(BaseModel):
+    steps: list[BackupRestoreStep] = Field(default_factory=list)
+    contacts_upserted: int = 0
+    channels_upserted: int = 0
+    groups_upserted: int = 0
+    settings_updated: bool = False
+    channels_on_radio: int = 0
+    contacts_on_radio: int = 0
+    identity_restored: bool = False
+    reboot_required: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BackupRestoreJob(BaseModel):
+    job_id: str
+    state: Literal["running", "done", "failed"] = "running"
+    started_at: int = 0
+    finished_at: int | None = None
+    steps: list[BackupRestoreStep] = Field(default_factory=list)
+    result: BackupRestoreV2Result | None = None
 
 
 class BusyChannel(BaseModel):

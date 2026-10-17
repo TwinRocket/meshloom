@@ -119,7 +119,11 @@ purpose.
   password (the prompt does the same when it closes).
 - The prompt has exactly two exits (store / "don't ask again"): no close button,
   Escape and outside clicks ignored. A reboot for Wi-Fi always goes through
-  `api.rebootRadioForWifi()` after a confirm, never `api.rebootRadio()`.
+  `api.rebootRadioForWifi()` after a confirm, never `api.rebootRadio()`; that
+  includes the full backup restore's **Reboot the radio now** when its Wi-Fi
+  step wrote to the radio (`restoreWroteWifi()`), which also stores the
+  returned state and arms the switch-to-TCP toast. The backend holds the
+  prompt (`prompt_needed` false) while a restore job runs.
 - Password inputs are `type="password"` with `autoComplete="new-password"`; the
   SSID is never trimmed; the password leaves React state once a request settles.
 - The "Go back" after a switch to TCP calls `api.revertRadioTransport()` (the
@@ -260,4 +264,10 @@ no in-tab desktop notification.
 1. When an API or WS payload changes, update `types.ts`, `wsEvents.ts` and its
    handlers, and the tests (`src/test/fixtures/websocket_events.json` holds WS samples).
 2. When hash routing changes, update `utils/urlHash.ts` and `urlHash.test.ts`.
+   `#settings/<section>/<anchor>` opens a section at a known anchor
+   (`SETTINGS_ANCHORS`): `#settings/database/backup` scrolls to `#settings-backup`,
+   the target of the public backup docs. The anchor is remembered once when the
+   hash is read (in `useAppShell`'s state initializer and on popstate, never on
+   each render: the hash is rewritten as settings open and the lazy section mounts
+   later), a hash without an anchor never clears it, and the section takes it once.
 3. When you add a UI string, add the key to both `en` and `fr`.

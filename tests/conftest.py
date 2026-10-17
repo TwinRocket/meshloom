@@ -3,6 +3,7 @@
 import os
 import shutil
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -26,9 +27,9 @@ def cleanup_test_db_dir():
     shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 
 
-@pytest.fixture
-async def test_db():
-    """Create an in-memory test database with schema + migrations."""
+@asynccontextmanager
+async def patched_database(path: str = ":memory:"):
+    """A connected Database with schema + migrations, wired into every repository."""
     from app.repository import (
         channels,
         contact_groups,
@@ -47,7 +48,7 @@ async def test_db():
     )
     from app.repository import fanout as fanout_repo
 
-    db = Database(":memory:")
+    db = Database(path)
     await db.connect()
 
     submodules = [
@@ -85,6 +86,13 @@ async def test_db():
             mod.db = original
         packets_module.db = original_packets_db
         await db.disconnect()
+
+
+@pytest.fixture
+async def test_db():
+    """Create an in-memory test database with schema + migrations."""
+    async with patched_database() as db:
+        yield db
 
 
 @pytest.fixture(autouse=True)
@@ -270,3 +278,25 @@ def captured_broadcasts():
         broadcasts.append({"type": event_type, "data": data})
 
     return broadcasts, mock_broadcast
+
+
+@pytest.fixture
+def secret_debug_logs(caplog):
+    """DEBUG everywhere with the redaction and the ring buffer attached; use
+    ``tests.fixtures.log_capture.assert_no_secret_logged`` to check."""
+    from tests.fixtures.log_capture import debug_capture
+
+    with debug_capture(caplog):
+        yield caplog
+
+
+@pytest.fixture
+async def backup_db(test_db, monkeypatch):
+    """``test_db`` also seen by code that reads ``app.database.db`` directly
+    (mesh history check, identity wipe), as the backup restore does."""
+    import app.database as database_module
+    import app.services.radio_identity as radio_identity
+
+    monkeypatch.setattr(database_module, "db", test_db)
+    monkeypatch.setattr(radio_identity, "db", test_db)
+    yield test_db

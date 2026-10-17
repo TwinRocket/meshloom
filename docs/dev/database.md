@@ -73,7 +73,9 @@ transport and bound identity, Community state, push/VAPID keys, notification
 destinations, telemetry alert rules, auto-update window and the one-shot
 "imported legacy env" flags. Many columns hold JSON (blocked lists, push
 defaults and overrides, `ui_preferences`, `notification_destinations`,
-`telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`).
+`telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`,
+`wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
+password, outside `AppSettings`).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus
 `RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`
@@ -247,9 +249,23 @@ databases). The current set:
 
 ## Backups
 
-`services/backup.py` offers a JSON export/restore (contacts, channels, settings,
-groups; the radio private key is never included) and an SQLite file snapshot via
-the SQLite backup API (`write_sqlite_backup`).
+Three kinds, all in `services/backup.py` (details, coverage and the restore
+order in `app/AGENTS.md`, "## Backups"):
+
+- An SQLite file snapshot via the SQLite backup API (`write_sqlite_backup`,
+  `GET /settings/backup/database`), never restored from the UI. The private key
+  is not in the database, so not in the snapshot.
+- `meshloom-backup-v1` (`export_json` / `restore_json`, `GET
+  /settings/backup/json`): contacts, channels, settings and groups, Meshloom
+  data only. It never holds the radio private key.
+- The full backup `meshloom-backup-v2` (`POST /settings/backup/export`): the v1
+  fields plus the radio identity (private key), the radio settings, the Wi-Fi
+  credentials (password in clear, or an open network Meshloom recorded in
+  `app_settings.wifi_prompt_state`) and `meshloom_extra` (integrations, VAPID keys
+  and push subscriptions, the radio proxy, settings outside v1). It may be wrapped in a passphrase envelope
+  (`services/backup_crypto.py`). Radio reads and writes live in
+  `services/backup_radio.py`, the identity decision, inspect and the restore job
+  in `services/backup_restore.py`.
 
 ## Keeping this file honest
 

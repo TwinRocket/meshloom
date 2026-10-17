@@ -322,6 +322,7 @@ _PATH_PARAMS = {
     "pubkey": "ab" * 32,
     "packet_hash": "AB" * 8,
     "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+    "job_id": "unknown-job",
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -349,6 +350,16 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/settings/tracked-telemetry-contacts/toggle"): {"public_key": "ab" * 32},
     ("POST", "/api/settings/notification-destinations/test"): {"channel": "webhook"},
     ("POST", "/api/settings/backup/restore"): {"confirm": True},
+    ("POST", "/api/settings/backup/export"): {},
+    ("POST", "/api/settings/backup/inspect"): {
+        "backup": {
+            "format": "meshloom-backup-v1",
+            "exported_at": 0,
+            "contacts": [],
+            "channels": [],
+            "groups": [],
+        }
+    },
     ("PATCH", "/api/updates/settings"): {},
 }
 _SWEPT_PREFIXES = (
@@ -414,8 +425,10 @@ class TestCommunityOffNoEgress:
 
     @pytest.mark.asyncio
     async def test_no_community_or_airport_egress_when_off(
-        self, test_db, egress, cleanup_community
+        self, backup_db, egress, cleanup_community
     ):
+        # backup_db: test_db also behind app.database.db (backup inspect and
+        # restore read the mesh history through it).
         from app.main import app
 
         # The state an opt-out leaves behind: off, IATA still stored.
@@ -463,6 +476,40 @@ class TestCommunityOffNoEgress:
         assert egress.forbidden() == [], egress.events
         assert set(egress.hosts()) <= {"github.com"}, egress.events
         assert ("http", "github.com", "/TwinRocket/meshloom/releases/latest") in egress.events
+
+    async def test_full_backup_restore_job_makes_no_egress(
+        self, backup_db, egress, cleanup_community
+    ):
+        """A v2 restore (meshloom_extra included) run to completion while opted out."""
+        from app.main import app
+
+        await update_community(enabled=False, iata="CDG")
+        doc = {
+            "format": "meshloom-backup-v2",
+            "exported_at": 1,
+            "contacts": [{"public_key": "ab" * 32, "name": "Alice"}],
+            "channels": [{"key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72", "name": "Public"}],
+            "meshloom_extra": {"path_hash_one_byte_opt_in": False},
+        }
+        async with _RealAsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/settings/backup/restore", json={"confirm": True, "backup": doc}
+            )
+            assert response.status_code == 202, response.text
+            job_id = response.json()["job_id"]
+            state = "running"
+            for _ in range(300):
+                job = (await client.get(f"/api/settings/backup/restore/jobs/{job_id}")).json()
+                state = job["state"]
+                if state != "running":
+                    break
+                await asyncio.sleep(0.01)
+            assert state == "done", job
+        await asyncio.sleep(0.05)
+        assert egress.forbidden() == [], egress.events
+        assert egress.events == [], egress.events
 
 
 class TestOptOutTransition:
@@ -1613,7 +1660,7 @@ class TestWaitingForPosition:
     """Owner decisions 2026-10-14: Q2 last known state kept, Q3 join without a position."""
 
     @pytest.mark.asyncio
-    async def test_waiting_sends_only_the_status(self, test_db, egress, cleanup_community):
+    async def test_waiting_sends_only_the_status(self, backup_db, egress, cleanup_community):
         from app.main import app
 
         # Q3: Community turned on while the radio has no position.

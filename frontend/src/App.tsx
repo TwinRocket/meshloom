@@ -490,15 +490,7 @@ export function App() {
     receiveMessageAck,
     removeMessage,
   });
-  const handleIdentityAdopted = useCallback(async () => {
-    resetClientStateAfterIdentityAdopt();
-    setContacts([]);
-    handleSelectConversation({
-      type: 'map',
-      id: 'map',
-      name: 'Node Map',
-    });
-    window.history.replaceState(null, '', '#map');
+  const reloadServerData = useCallback(async () => {
     await Promise.all([
       api.getChannels().then(setChannels).catch(console.error),
       fetchAppSettings(),
@@ -512,11 +504,35 @@ export function App() {
     fetchAppSettings,
     fetchConfig,
     handleHealthRefresh,
-    handleSelectConversation,
     refreshUnreads,
     setChannels,
     setContacts,
   ]);
+  const handleIdentityAdopted = useCallback(async () => {
+    resetClientStateAfterIdentityAdopt();
+    setContacts([]);
+    handleSelectConversation({
+      type: 'map',
+      id: 'map',
+      name: 'Node Map',
+    });
+    window.history.replaceState(null, '', '#map');
+    await reloadServerData();
+  }, [handleSelectConversation, reloadServerData, setContacts]);
+  // A restore from Settings > Database: the user stays in settings, but the
+  // conversations, contacts and channels behind it may have changed or been wiped.
+  const handleBackupRestored = useCallback(
+    async (identityChanged: boolean) => {
+      if (identityChanged) {
+        resetClientStateAfterIdentityAdopt();
+        setContacts([]);
+      }
+      clearConversationMessages();
+      reloadCurrentConversation();
+      await reloadServerData();
+    },
+    [clearConversationMessages, reloadCurrentConversation, reloadServerData, setContacts]
+  );
 
   const handleVisibilityPolicyChanged = useCallback(() => {
     clearConversationMessages();
@@ -862,6 +878,7 @@ export function App() {
     regionDiscoveryLoading,
     onDiscoverRegions: handleDiscoverRegions,
     onHealthRefresh: handleHealthRefresh,
+    onBackupRestored: handleBackupRestored,
     onRefreshAppSettings: fetchAppSettings,
     blockedKeys: appSettings?.blocked_keys,
     blockedNames: appSettings?.blocked_names,

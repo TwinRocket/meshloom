@@ -175,6 +175,68 @@ class TestApplyRadioConfigUpdate:
         mc.commands.send_appstart.assert_not_awaited()
 
 
+class TestRadioWriterRepeatAndRejections:
+    @pytest.mark.asyncio
+    async def test_sends_the_repeat_byte_when_given(self):
+        mc = _mock_meshcore_with_info()
+        update = RadioConfigUpdate(radio=RadioSettings(freq=869.525, bw=250.0, sf=11, cr=5))
+        await apply_radio_config_update(
+            mc,
+            update,
+            path_hash_mode_supported=False,
+            set_path_hash_mode=MagicMock(),
+            sync_radio_time_fn=AsyncMock(),
+            client_repeat=True,
+        )
+        mc.commands.set_radio.assert_awaited_once_with(
+            freq=869.525, bw=250.0, sf=11, cr=5, repeat=1
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_repeat_byte_when_unknown(self):
+        mc = _mock_meshcore_with_info()
+        update = RadioConfigUpdate(radio=RadioSettings(freq=869.525, bw=250.0, sf=11, cr=5))
+        await apply_radio_config_update(
+            mc,
+            update,
+            path_hash_mode_supported=False,
+            set_path_hash_mode=MagicMock(),
+            sync_radio_time_fn=AsyncMock(),
+        )
+        mc.commands.set_radio.assert_awaited_once_with(freq=869.525, bw=250.0, sf=11, cr=5)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("command", "update", "code"),
+        [
+            ("set_name", RadioConfigUpdate(name="X"), "name_rejected"),
+            ("set_coords", RadioConfigUpdate(lat=1.0), "coords_rejected"),
+            ("set_tx_power", RadioConfigUpdate(tx_power=40), "tx_power_rejected"),
+            (
+                "set_radio",
+                RadioConfigUpdate(radio=RadioSettings(freq=1.0, bw=250.0, sf=11, cr=5)),
+                "radio_params_rejected",
+            ),
+        ],
+    )
+    async def test_error_replies_raise_with_a_code(self, command, update, code):
+        mc = _mock_meshcore_with_info()
+        getattr(mc.commands, command).return_value = _radio_result(
+            EventType.ERROR, {"error_code": 6}
+        )
+        sync = AsyncMock()
+        with pytest.raises(RadioCommandRejectedError) as exc:
+            await apply_radio_config_update(
+                mc,
+                update,
+                path_hash_mode_supported=False,
+                set_path_hash_mode=MagicMock(),
+                sync_radio_time_fn=sync,
+            )
+        assert exc.value.code == code
+        sync.assert_not_awaited()
+
+
 class TestImportPrivateKeyAndRefreshKeystore:
     @pytest.mark.asyncio
     async def test_rejects_radio_error(self):

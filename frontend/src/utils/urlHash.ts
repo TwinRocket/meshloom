@@ -122,14 +122,57 @@ export function parseHashConversation(): ParsedHashConversation | null {
   };
 }
 
-export function parseHashSettingsSection(): SettingsSection | null {
+/** Places inside a settings section a link may point at (`#settings/<section>/<anchor>`). */
+const SETTINGS_ANCHORS: Partial<Record<SettingsSection, readonly string[]>> = {
+  // The flasher's public docs link users to the backup (docs/user/*/backup.md).
+  database: ['backup'],
+};
+
+function parseHashSettingsTarget(): { section: SettingsSection; anchor: string | null } | null {
   const hash = window.location.hash.slice(1);
   if (!hash.startsWith('settings/')) {
     return null;
   }
 
-  const section = decodeURIComponent(hash.slice('settings/'.length)) as SettingsSection;
-  return SETTINGS_SECTIONS.includes(section) ? section : null;
+  const [rawSection, rawAnchor] = hash.slice('settings/'.length).split('/', 2);
+  const section = decodeURIComponent(rawSection) as SettingsSection;
+  if (!SETTINGS_SECTIONS.includes(section)) {
+    return null;
+  }
+  const anchor = rawAnchor ? decodeURIComponent(rawAnchor) : null;
+  return {
+    section,
+    anchor: anchor && SETTINGS_ANCHORS[section]?.includes(anchor) ? anchor : null,
+  };
+}
+
+export function parseHashSettingsSection(): SettingsSection | null {
+  return parseHashSettingsTarget()?.section ?? null;
+}
+
+/** The known anchor of a `#settings/<section>/<anchor>` hash, if any. */
+export function parseHashSettingsAnchor(): string | null {
+  return parseHashSettingsTarget()?.anchor ?? null;
+}
+
+// The hash is rewritten to `#settings/<section>` as soon as settings open, so
+// the anchor is remembered when the hash is read and taken by the section.
+let pendingSettingsAnchor: { section: SettingsSection; anchor: string } | null = null;
+
+/** Remember the anchor of the current hash. A hash without one never clears a
+ * pending anchor: by then it is usually the rewritten `#settings/<section>`. */
+export function rememberSettingsAnchor(): void {
+  const target = parseHashSettingsTarget();
+  if (target && target.anchor) {
+    pendingSettingsAnchor = { section: target.section, anchor: target.anchor };
+  }
+}
+
+export function takeSettingsAnchor(section: SettingsSection): string | null {
+  if (!pendingSettingsAnchor || pendingSettingsAnchor.section !== section) return null;
+  const { anchor } = pendingSettingsAnchor;
+  pendingSettingsAnchor = null;
+  return anchor;
 }
 
 export function getSettingsHash(section: SettingsSection): string {

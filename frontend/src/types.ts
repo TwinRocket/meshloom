@@ -174,6 +174,9 @@ export interface RadioConfig {
   telemetry_mode_base?: number;
   telemetry_mode_loc?: number;
   telemetry_mode_env?: number;
+  /** PATCH answer only: what the update applied differently, e.g.
+   * `client_repeat_not_allowed` (radio parameters written with repeat off). */
+  warnings?: string[];
 }
 
 export interface RadioCustomVars {
@@ -1609,6 +1612,151 @@ export interface BackupRestoreResult {
   settings_updated: boolean;
   groups_upserted: number;
   private_key_warning: string;
+}
+
+/** Formats a backup file can carry (a file without `format` is v1). */
+export const BACKUP_FORMATS = [
+  'meshloom-backup-v1',
+  'remoteterm-backup-v1',
+  'meshloom-backup-v2',
+  'meshloom-backup-v2-encrypted',
+] as const;
+export type BackupFormat = (typeof BACKUP_FORMATS)[number];
+
+export type BackupIdentityRelation =
+  | 'no_identity'
+  | 'same'
+  | 'restores_bound'
+  | 'new_database'
+  | 'replaces_live'
+  | 'replaces_history'
+  | 'needs_radio'
+  | 'conflict';
+
+export interface BackupIdentityRequires {
+  replace_live_identity: boolean;
+  wipe_history: boolean;
+}
+
+export interface BackupCounts {
+  contacts: number;
+  channels: number;
+  groups: number;
+  fanout_configs: number;
+  push_subscriptions: number;
+}
+
+export interface BackupIntegrationSummary {
+  name: string;
+  type: string;
+  enabled: boolean;
+}
+
+/** A push subscription the restore would write: notifications go to `host`. */
+export interface BackupPushSummary {
+  label: string;
+  host: string;
+}
+
+export interface BackupInspectResult {
+  format: string;
+  encrypted: boolean;
+  exported_at: number;
+  meshloom_version: string | null;
+  public_key: string | null;
+  radio_name: string | null;
+  has_private_key: boolean;
+  private_key_status: string | null;
+  has_radio_settings: boolean;
+  /** A Wi-Fi block: credentials and/or the on/off flag. */
+  has_wifi: boolean;
+  /** The block holds credentials (else only the on/off flag). */
+  has_wifi_credentials?: boolean;
+  /** Those credentials are an open network (an SSID with no password). */
+  wifi_open_network?: boolean;
+  counts: BackupCounts;
+  bot_names: string[];
+  /** Bots are turned off on this server: the file's bots are not restored. */
+  bots_will_be_skipped: boolean;
+  /** Non-bot integrations in the file; enabled ones start right after a restore. */
+  integrations: BackupIntegrationSummary[];
+  /** The file's radio proxy setting (null: not in the file). */
+  radio_proxy_enabled: boolean | null;
+  /** Push subscriptions the restore would write; notifications start at once. */
+  push_targets?: BackupPushSummary[];
+  identity_relation: BackupIdentityRelation;
+  identity_requires: BackupIdentityRequires;
+  /** The history has no bound owner: kept unless the restore sends wipe_history. */
+  identity_allows_wipe?: boolean;
+  identity_refusal: string | null;
+  live_radio_public_key: string | null;
+  live_radio_name: string | null;
+  ble_pin_differs_on_ble: boolean;
+  wifi_ssid_differs_on_tcp: boolean;
+  /** Reached over TCP and the file turns Wi-Fi off. */
+  wifi_off_on_tcp?: boolean;
+  warnings: string[];
+}
+
+export interface BackupRestoreSteps {
+  identity: boolean;
+  meshloom: boolean;
+  radio_settings: boolean;
+  ble_pin: boolean;
+  channels: boolean;
+  contacts: boolean;
+  wifi: boolean;
+}
+
+export interface BackupRestoreV2Request {
+  confirm: boolean;
+  backup: unknown;
+  passphrase?: string;
+  steps: BackupRestoreSteps;
+  replace_live_identity: boolean;
+  wipe_history: boolean;
+  expected_live_public_key: string | null;
+}
+
+export type BackupRestoreStepName =
+  'identity' | 'meshloom' | 'radio_settings' | 'channels' | 'contacts' | 'wifi';
+export type BackupRestoreStepStatus =
+  'pending' | 'running' | 'done' | 'skipped' | 'failed' | 'unsupported';
+
+export interface BackupRestoreItem {
+  name: string;
+  status: BackupRestoreStepStatus;
+  code: string | null;
+}
+
+export interface BackupRestoreStep {
+  step: BackupRestoreStepName;
+  status: BackupRestoreStepStatus;
+  code: string | null;
+  detail: string | null;
+  items: BackupRestoreItem[];
+}
+
+export interface BackupRestoreV2Result {
+  steps: BackupRestoreStep[];
+  contacts_upserted: number;
+  channels_upserted: number;
+  groups_upserted: number;
+  settings_updated: boolean;
+  channels_on_radio: number;
+  contacts_on_radio: number;
+  identity_restored: boolean;
+  reboot_required: boolean;
+  warnings: string[];
+}
+
+export interface BackupRestoreJob {
+  job_id: string;
+  state: 'running' | 'done' | 'failed';
+  started_at: number;
+  finished_at: number | null;
+  steps: BackupRestoreStep[];
+  result: BackupRestoreV2Result | null;
 }
 
 export interface TelemetrySchedule {

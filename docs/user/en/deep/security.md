@@ -1,6 +1,6 @@
 ---
 title: Security
-description: What Meshloom does not protect, and the few locks that exist: Basic auth, turning bots off, exporting a key.
+description: What Meshloom does not protect, and the few locks that exist: Basic auth, turning bots off, an encrypted backup.
 level: deep
 order: 20
 ---
@@ -15,7 +15,7 @@ Meshloom is designed for a network whose users you know. Several design choices 
 
 **Bots run arbitrary Python.** A bot is a small Python program written in the interface. Meshloom runs it as-is, with full access to the language (`exec()` with the complete `__builtins__`). Anyone who can reach Meshloom can therefore run code on the host machine. This is intentional.
 
-None of this weakens MeshCore's own encryption: direct messages, channel keys and the node's private key are protected as usual. These points describe who can use the application, not what travels over the air.
+None of this weakens MeshCore's own encryption over the air: direct messages and channel messages stay encrypted as usual. These points describe who can use the application, not what travels over the air. The node's private key is the exception on the server side: anyone who reaches the interface, any web page open in a browser that can reach Meshloom included, can read it (see [The node's private key](#the-nodes-private-key)).
 
 ## The warning dialog
 
@@ -41,15 +41,11 @@ The **Disable Bots Until Server Restart** button of the warning dialog does the 
 
 ## The node's private key
 
-Meshloom reads the radio's private key each time it connects to the radio, if the radio's firmware allows it, and keeps it in the server's memory only. Meshloom never writes it to disk. If the firmware refuses, Meshloom works without it, but it can no longer decrypt direct messages on the server.
+Meshloom reads the radio's private key each time it connects to the radio, if the radio's firmware allows it, and keeps it in the server's memory only. Meshloom never writes it to its database. If the firmware refuses, Meshloom works without it, but it can no longer decrypt direct messages on the server, and a backup then holds no identity.
 
-Reading it back through the API is disabled by default:
+The key can always be read back by anyone who reaches the interface: `GET /api/radio/private-key` returns it as hexadecimal text, and both the configuration export in **Settings > Radio** and the full backup in **Settings > Database** contain it (see [Back up your radio](/en/docs/backup/)). There is no switch to turn this off. Because the server accepts requests from any origin, **a web page opened in a browser on a machine that can reach Meshloom can read the key and download the full backup**, Wi-Fi password included. Keep Meshloom on a network you trust, and treat the backup file like the key itself: encrypt it with a passphrase when you keep it anywhere else than on that network.
 
-```text
-MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
-```
-
-When set to `true`, `GET /api/radio/private-key` returns the key as hexadecimal text, and the configuration export in **Settings > Radio** can include it. Turn this on only on a trusted network, only for a backup or a move to another machine, then turn it off again. Importing a key (**Set Private Key**, write-only) is always available and never shows the key. A key that does not match the radio the database is bound to is refused until you confirm the identity change (see [First launch](/en/docs/first-run/)).
+Importing a key (**Set Private Key**, write-only) never shows the key. A key that does not match the radio the database is bound to is refused until you confirm the identity change (see [First launch](/en/docs/first-run/)).
 
 ## Radio proxy
 
@@ -79,7 +75,7 @@ Some features need Internet access: [push notifications](/en/docs/deep/push/), a
 - Keep Meshloom on a network where you know the users.
 - Never expose it directly to the Internet. For remote access, use a VPN or a tunnel that adds its own login.
 - Set `MESHCORE_DISABLE_BOTS=true` if you do not need bots.
-- Keep private-key export disabled except during a backup.
+- Encrypt a full backup with a passphrase when you store it away from that network.
 - Always put Basic auth behind HTTPS.
 
 The short version is in [A trusted network](/en/docs/trust/).

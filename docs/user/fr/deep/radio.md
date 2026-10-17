@@ -7,7 +7,7 @@ order: 15
 
 Meshloom gère les contacts et les salons stockés sur votre radio. Le serveur retient beaucoup plus de choses que la radio ne peut en contenir, et charge sur la radio l’ensemble de travail dont il a besoin.
 
-La base de données est liée à la clé publique de votre radio. Si vous branchez une autre radio, une fenêtre s’ouvre : **Cette radio ne correspond pas à l’identité enregistrée**. **Effacer et continuer** adopte la nouvelle radio et efface les contacts et messages mesh locaux ; les salons et les réglages du serveur restent. **Annuler** laisse vos données intactes et met la connexion à cette radio en pause. Une base créée avant ce lien pose la question une fois, même pour sa radio habituelle : **Cette radio n’est pas liée à cette instance**. Choisissez **Lier sans effacer** s’il s’agit de la même radio, ou **Nouvelle radio** pour repartir de zéro. Voir [Premier lancement](/docs/first-run/).
+La base de données est liée à la clé publique de votre radio. Si vous branchez une autre radio, une fenêtre s’ouvre : **Cette radio ne correspond pas à l’identité enregistrée**. **Effacer et continuer** adopte la nouvelle radio et efface les contacts et messages mesh locaux ; les salons et les réglages du serveur restent. **Annuler** laisse vos données intactes et met la connexion à cette radio en pause. Une base créée avant ce lien pose la question une fois, même pour sa radio habituelle : **Cette radio n’est pas liée à cette instance**. Choisissez **Lier sans effacer** s’il s’agit de la même radio, ou **Nouvelle radio** pour repartir de zéro. Les deux fenêtres proposent aussi **Restaurer depuis une sauvegarde**, qui rend à une radio reflashée son ancienne identité à partir d’une sauvegarde complète (voir [Sauvegarder la radio](/docs/backup/)). Voir [Premier lancement](/docs/first-run/).
 
 ## Pourquoi charger des contacts sur la radio
 
@@ -126,7 +126,7 @@ Quand le Wi-Fi est activé et que rien n’est enregistré, Meshloom demande don
 - **Enregistrer dans la radio** envoie le nom du réseau, puis le mot de passe, les relit et les vérifie. S’ils ne correspondent pas, les valeurs précédentes sont rétablies.
 - **Ne plus demander pour cette radio** est mémorisé pour cette radio (par sa clé publique) : Meshloom ne la redemande plus jamais. **Enregistrer les identifiants**, dans le groupe Wi-Fi, reste disponible.
 
-La question n’a pas de bouton de fermeture et attend l’une de ces deux réponses. Un mauvais mot de passe, ou **Réseau ouvert** coché pour un réseau protégé, empêche la radio de rejoindre le Wi-Fi après son prochain redémarrage. Les identifiants que vous saisissez dans Meshloom pour toute autre raison sont enregistrés dans la radio de la même façon.
+La question n’a pas de bouton de fermeture et attend l’une de ces deux réponses. Elle attend pendant la [restauration d’une sauvegarde complète](/docs/backup/), qui peut elle-même enregistrer les identifiants, et ne revient à la fin de la restauration que s’ils manquent encore. Un mauvais mot de passe, ou **Réseau ouvert** coché pour un réseau protégé, empêche la radio de rejoindre le Wi-Fi après son prochain redémarrage. Les identifiants que vous saisissez dans Meshloom pour toute autre raison sont enregistrés dans la radio de la même façon.
 
 ### Changer de réseau, activer ou désactiver le Wi-Fi
 
@@ -140,7 +140,7 @@ Quand Meshloom joint la radio en TCP (donc par son Wi-Fi), les fenêtres prévie
 
 - Un réseau nommé littéralement `(not set)` ne peut pas être utilisé : la radio affiche ce texte quand aucun nom n’est défini.
 - Le nom du réseau fait de 1 à 32 octets, le mot de passe jusqu’à 63. Aucun des deux n’est rogné : les espaces comptent. Sous 8 caractères, Meshloom prévient (le WPA en demande 8, les clés WEP en ont 5 ou 13) et enregistre le mot de passe tel quel.
-- Sur la radio, un réseau ouvert se lit comme « rien d’enregistré ». Meshloom retient que vous en avez enregistré un pour ce réseau.
+- Sur la radio, un réseau ouvert se lit comme « rien d’enregistré ». Meshloom retient que vous en avez enregistré un pour ce réseau, et une [sauvegarde complète](/docs/backup/) le contient.
 - Si l’enregistrement est interrompu (le lien a coupé entre les deux commandes), la radio peut contenir le nouveau nom de réseau avec l’ancien mot de passe ou aucun. Meshloom affiche alors un avertissement, même après une reconnexion, et ne propose aucun redémarrage (pas même avec **Activer le Wi-Fi** ou **Désactiver le Wi-Fi**) : enregistrez de nouveau les identifiants, ou vérifiez-les en USB ou en Bluetooth avant de redémarrer la radio.
 - Si la vérification après la connexion échoue (la radio n’a pas répondu à temps), Meshloom réessaie après 30 secondes, puis après 2 minutes. **Réessayer**, dans le groupe Wi-Fi, vérifie de nouveau. Si Meshloom ne peut pas lire du tout l’état du Wi-Fi, le groupe l’indique, avec **Réessayer**.
 
@@ -174,6 +174,6 @@ Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur u
 
 ## La clé privée
 
-À la connexion, Meshloom demande à la radio sa clé privée et la garde **en mémoire uniquement**. Elle n’est jamais écrite sur le disque. Grâce à elle, Meshloom peut déchiffrer lui-même les messages directs, même quand le contact n’est pas chargé sur la radio, et lire d’anciens messages dès qu’une clé devient connue.
+À la connexion, Meshloom demande à la radio sa clé privée et la garde **en mémoire uniquement**. Elle n’est jamais écrite dans sa base. Grâce à elle, Meshloom peut déchiffrer lui-même les messages directs, même quand le contact n’est pas chargé sur la radio, et lire d’anciens messages dès qu’une clé devient connue.
 
-L’export de cette clé par l’API est désactivé par défaut. Voir [Sécurité](/docs/deep/security/).
+Quiconque atteint l’interface peut relire la clé, par `GET /api/radio/private-key` et dans la sauvegarde complète de **Réglages → Base de données** : c’est ainsi que l’on garde l’identité de la radio d’un flashage à l’autre (voir [Sauvegarder la radio](/docs/backup/)). Un firmware compilé sans export de clé n’en donne aucune, et ses sauvegardes ne contiennent pas d’identité. Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud).

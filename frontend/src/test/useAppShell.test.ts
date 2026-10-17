@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { useAppShell } from '../hooks/useAppShell';
+import { takeSettingsAnchor } from '../utils/urlHash';
 import { DESKTOP_SIDEBAR_COLLAPSED_KEY } from '../utils/sidebarRailPreference';
 
 describe('useAppShell', () => {
@@ -44,6 +45,21 @@ describe('useAppShell', () => {
     });
 
     expect(result.current.showSettings).toBe(false);
+  });
+
+  it('keeps the deep-link anchor across the hash rewrite and later renders', async () => {
+    takeSettingsAnchor('database'); // nothing left over from another test
+    window.location.hash = '#settings/database/backup';
+    const { result, rerender } = renderHook(() => useAppShell());
+
+    expect(result.current.settingsSection).toBe('database');
+    await waitFor(() => expect(window.location.hash).toBe('#settings/database'));
+    // App re-renders (settings load) before the lazy database section mounts.
+    rerender();
+    rerender();
+
+    expect(takeSettingsAnchor('database')).toBe('backup');
+    expect(takeSettingsAnchor('database')).toBeNull();
   });
 
   it('initializes settings mode from the URL hash', () => {

@@ -418,36 +418,162 @@ class TestUpdateRadioConfig:
         mock_opt_in.assert_awaited_once_with(False)
 
 
-class TestPrivateKeyExport:
+class TestUpdateRadioConfigRepeatAndRejections:
     @pytest.mark.asyncio
-    async def test_returns_403_when_export_disabled(self):
-        with patch("app.config.settings") as mock_settings:
-            mock_settings.enable_local_private_key_export = False
-            with pytest.raises(HTTPException) as exc:
-                await get_private_key()
-        assert exc.value.status_code == 403
+    async def test_keeps_the_current_repeat_flag(self):
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock(
+            return_value=_radio_result(EventType.DEVICE_INFO, {"fw ver": 10, "repeat": True})
+        )
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch("app.routers.radio.get_radio_config", new_callable=AsyncMock),
+        ):
+            await update_radio_config(
+                RadioConfigUpdate(radio=RadioSettings(freq=869.525, bw=250.0, sf=11, cr=5))
+            )
+        mc.commands.send_device_query.assert_awaited_once()
+        mc.commands.set_radio.assert_awaited_once_with(
+            freq=869.525, bw=250.0, sf=11, cr=5, repeat=1
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_device_query_without_radio_params(self):
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock()
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch("app.routers.radio.get_radio_config", new_callable=AsyncMock),
+        ):
+            await update_radio_config(RadioConfigUpdate(name="Base"))
+        mc.commands.send_device_query.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejected_radio_params_answer_422(self):
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock(
+            return_value=_radio_result(EventType.DEVICE_INFO, {"fw ver": 10, "repeat": False})
+        )
+        mc.commands.set_radio = AsyncMock(return_value=_radio_result(EventType.ERROR, {}))
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch("app.routers.radio.get_radio_config", new_callable=AsyncMock),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await update_radio_config(
+                RadioConfigUpdate(radio=RadioSettings(freq=1.0, bw=250.0, sf=11, cr=5))
+            )
+        assert exc.value.status_code == 422
+        assert exc.value.detail == {
+            "code": "radio_params_rejected",
+            "message": "The radio rejected the radio parameters",
+        }
+
+    @pytest.mark.asyncio
+    async def test_retries_without_repeat_when_the_radio_refuses_it(self):
+        """Repeat is not allowed on every frequency: the parameters still apply."""
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock(
+            return_value=_radio_result(EventType.DEVICE_INFO, {"fw ver": 10, "repeat": True})
+        )
+        mc.commands.set_radio = AsyncMock(
+            side_effect=[_radio_result(EventType.ERROR, {}), _radio_result()]
+        )
+        current = RadioConfigResponse(
+            public_key="aa" * 32,
+            name="NodeA",
+            lat=10.0,
+            lon=20.0,
+            tx_power=17,
+            max_tx_power=22,
+            radio=RadioSettings(freq=433.0, bw=250.0, sf=11, cr=5),
+        )
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch(
+                "app.routers.radio.get_radio_config", new_callable=AsyncMock, return_value=current
+            ),
+        ):
+            response = await update_radio_config(
+                RadioConfigUpdate(radio=RadioSettings(freq=433.0, bw=250.0, sf=11, cr=5))
+            )
+        assert [c.kwargs["repeat"] for c in mc.commands.set_radio.await_args_list] == [1, 0]
+        assert response.warnings == ["client_repeat_not_allowed"]
+
+    @pytest.mark.asyncio
+    async def test_timeout_is_not_retried_without_repeat(self):
+        """meshcore's timeout ERROR is not a refusal: repeat is never dropped for it."""
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock(
+            return_value=_radio_result(EventType.DEVICE_INFO, {"fw ver": 10, "repeat": True})
+        )
+        mc.commands.set_radio = AsyncMock(
+            side_effect=[_radio_result(EventType.ERROR, {"reason": "timeout"}), _radio_result()]
+        )
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch("app.routers.radio.get_radio_config", new_callable=AsyncMock),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await update_radio_config(
+                RadioConfigUpdate(radio=RadioSettings(freq=433.0, bw=250.0, sf=11, cr=5))
+            )
+        assert [c.kwargs["repeat"] for c in mc.commands.set_radio.await_args_list] == [1]
+        assert exc.value.detail["code"] == "radio_params_rejected"
+
+    @pytest.mark.asyncio
+    async def test_refused_without_repeat_too_answers_422(self):
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock(
+            return_value=_radio_result(EventType.DEVICE_INFO, {"fw ver": 10, "repeat": True})
+        )
+        mc.commands.set_radio = AsyncMock(return_value=_radio_result(EventType.ERROR, {}))
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch("app.routers.radio.get_radio_config", new_callable=AsyncMock),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await update_radio_config(
+                RadioConfigUpdate(radio=RadioSettings(freq=1.0, bw=250.0, sf=11, cr=5))
+            )
+        assert mc.commands.set_radio.await_count == 2
+        assert exc.value.detail["code"] == "radio_params_rejected"
+
+
+class TestPrivateKeyExport:
+    """Ungated: MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT is retired."""
 
     @pytest.mark.asyncio
     async def test_returns_404_when_no_key_available(self):
-        with (
-            patch("app.config.settings") as mock_settings,
-            patch("app.keystore.get_private_key", return_value=None),
-        ):
-            mock_settings.enable_local_private_key_export = True
+        with patch("app.keystore.get_private_key", return_value=None):
             with pytest.raises(HTTPException) as exc:
                 await get_private_key()
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_key_hex_when_enabled_and_available(self):
+    async def test_returns_key_hex_without_any_env_var(self, monkeypatch):
+        monkeypatch.delenv("MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT", raising=False)
         key_bytes = bytes.fromhex("ab" * 64)
-        with (
-            patch("app.config.settings") as mock_settings,
-            patch("app.keystore.get_private_key", return_value=key_bytes),
-        ):
-            mock_settings.enable_local_private_key_export = True
+        with patch("app.keystore.get_private_key", return_value=key_bytes):
             result = await get_private_key()
         assert result == {"private_key": "ab" * 64}
+
+    def test_settings_have_no_export_switch(self):
+        from app.config import Settings
+
+        assert "enable_local_private_key_export" not in Settings.model_fields
 
 
 class TestPrivateKeyImport:

@@ -9,6 +9,7 @@ import {
   type HealthStatus,
   type RadioIdentityInfo,
 } from '../types';
+import { BackupRestoreFlow, restoreChanges } from './settings/BackupRestoreFlow';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { toast } from './ui/sonner';
@@ -50,9 +51,14 @@ export function RadioIdentityModal({
 }: RadioIdentityModalProps) {
   const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState<'adopt' | 'reject' | null>(null);
+  // Restoring from a backup: the window stays open until the user closes it,
+  // even once the restore has closed the identity gate.
+  const [restoring, setRestoring] = useState(false);
+  // A running job keeps the window open: closing it would skip the client reload.
+  const [restoreRunning, setRestoreRunning] = useState(false);
 
   const radioState = health?.radio_state;
-  const open = forceOpen || isRadioIdentityGate(radioState);
+  const open = forceOpen || restoring || isRadioIdentityGate(radioState);
   const identity: RadioIdentityInfo | null = health?.identity ?? null;
   const isLegacy = radioState === 'identity_unbound_legacy';
 
@@ -144,58 +150,93 @@ export function RadioIdentityModal({
           />
         </div>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          {isLegacy ? (
-            <>
+        {restoring ? (
+          <div className="space-y-3">
+            <BackupRestoreFlow
+              onRunningChange={setRestoreRunning}
+              onFinished={async (job) => {
+                // Whatever the final state: a job can fail after the identity
+                // step restored or bound the key (and maybe erased the history).
+                const { identityChanged, dataChanged } = restoreChanges(job);
+                if (identityChanged || dataChanged) await onAdopted();
+              }}
+            />
+            <div className="flex justify-end">
               <Button
                 type="button"
                 variant="outline"
-                className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleAdopt(true);
+                disabled={restoreRunning}
+                onClick={async () => {
+                  setRestoring(false);
+                  await onResolved?.();
                 }}
               >
-                {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.newRadio')}
+                {t('settings.fullRestore.close')}
               </Button>
-              <Button
-                type="button"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleAdopt(false);
-                }}
-              >
-                {busy === 'adopt'
-                  ? t('radioIdentity.adopting')
-                  : t('radioIdentity.bindWithoutWipe')}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleReject();
-                }}
-              >
-                {busy === 'reject' ? t('radioIdentity.rejecting') : t('radioIdentity.reject')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleAdopt(true);
-                }}
-              >
-                {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.wipeContinue')}
-              </Button>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => setRestoring(true)}
+            >
+              {t('radioIdentity.restoreFromBackup')}
+            </Button>
+            {isLegacy ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleAdopt(true);
+                  }}
+                >
+                  {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.newRadio')}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleAdopt(false);
+                  }}
+                >
+                  {busy === 'adopt'
+                    ? t('radioIdentity.adopting')
+                    : t('radioIdentity.bindWithoutWipe')}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleReject();
+                  }}
+                >
+                  {busy === 'reject' ? t('radioIdentity.rejecting') : t('radioIdentity.reject')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleAdopt(true);
+                  }}
+                >
+                  {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.wipeContinue')}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

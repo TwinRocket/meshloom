@@ -481,6 +481,12 @@ class RadioManager:
         self._channel_slot_by_key.move_to_end(normalized_key)
         self._channel_key_by_slot[slot] = normalized_key
 
+    def forget_channel_slot(self, slot: int) -> None:
+        """Drop the cached channel of a slot that was just emptied on the radio."""
+        key = self._channel_key_by_slot.pop(slot, None)
+        if key is not None and self._channel_slot_by_key.get(key) == slot:
+            self._channel_slot_by_key.pop(key, None)
+
     def invalidate_cached_channel_slot(self, channel_key: str) -> None:
         """Drop any cached slot assignment for a channel key."""
         normalized_key = channel_key.upper()

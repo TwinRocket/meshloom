@@ -1,24 +1,43 @@
-"""JSON backup/restore of contacts, channels, settings, and groups.
+"""Backups: the Meshloom-only JSON (v1), the full backup (v2), the SQLite file.
 
-The SQLite file download lives beside this module so callers can take a
-consistent snapshot without replacing the live database.
+- ``meshloom-backup-v1`` (``export_json`` / ``restore_json``): contacts,
+  channels, settings, groups and push preferences, merged into the live DB.
+- ``meshloom-backup-v2``: the v1 fields plus the radio identity, every radio
+  setting, Wi-Fi credentials stored in the radio and the rest of the Meshloom
+  settings (``BACKUP_COVERAGE`` lists every column and table with a decision).
+- The SQLite file download (``write_sqlite_backup``) never replaces the live DB.
 """
 
 import logging
+import re
 import time
+import unicodedata
+from typing import Any, Literal, TypeVar
+from urllib.parse import quote
 
 import aiosqlite
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from app.database import Database
 from app.models import (
     AppSettings,
     BackupChannel,
     BackupContact,
+    BackupEnvelope,
     BackupExport,
+    BackupExportV2,
+    BackupFanoutConfig,
+    BackupIdentity,
+    BackupPushSubscription,
+    BackupRadioProxy,
     BackupRestoreRequest,
     BackupRestoreResult,
+    BackupV1Document,
+    BackupVapid,
+    BackupWifi,
     ContactGroup,
     ContactUpsert,
+    MeshloomExtra,
 )
 from app.repository import (
     AppSettingsRepository,
@@ -30,8 +49,140 @@ from app.repository import (
 logger = logging.getLogger(__name__)
 
 BACKUP_FORMAT = "meshloom-backup-v1"  # older files may still say remoteterm-backup-v1
+BACKUP_FORMAT_V2 = "meshloom-backup-v2"
 
-PRIVATE_KEY_WARNING = "The radio private key is stored in memory only and is NOT in this backup."
+PRIVATE_KEY_WARNING = (
+    "The radio private key is NOT in this file (Meshloom keeps it in memory only). "
+    "The full backup in Settings > Database includes it."
+)
+
+CoverageDecision = Literal["included", "excluded"]
+
+# Every app_settings column ("app_settings.<column>") and every table ("<table>")
+# with a decision and its reason. tests/test_backup_coverage.py fails when a
+# column or a table is missing here (extra entries are allowed).
+_V1 = "v1 settings"
+_RUNTIME = "runtime, derived or one-shot migration marker"
+_COMMUNITY = "Community opt-in is consent: never restored silently"
+_TRANSPORT = "machine-specific radio transport"
+_IDENTITY = "handled by the identity step"
+_HISTORY = "history or cache (the database download covers history)"
+# The v1 settings: exported in ``settings`` and written back by ``restore_json``
+# (one list, so a column marked included here is never dropped on restore).
+V1_SETTING_COLUMNS: tuple[str, ...] = (
+    "max_radio_contacts",
+    "auto_decrypt_dm_on_advert",
+    "advert_interval",
+    "flood_scope",
+    "known_regions",
+    "blocked_keys",
+    "blocked_names",
+    "rejected_channels",
+    "discovery_blocked_types",
+    "tracked_telemetry_repeaters",
+    "tracked_telemetry_contacts",
+    "auto_resend_channel",
+    "telemetry_interval_hours",
+    "telemetry_routed_hourly",
+    "stale_contact_days",
+    "raw_packet_retention_days",
+    "telemetry_alert_rules",
+    "notification_destinations",
+    "auto_update",
+    "auto_update_window_start",
+    "auto_update_window_end",
+    "auto_update_weekdays",
+    "enable_message_poll_fallback",
+    "force_channel_slot_reconfigure",
+    "load_with_autoevict",
+    "auto_clock_wraparound",
+    "ui_preferences",
+)
+BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
+    **{f"app_settings.{column}": ("included", _V1) for column in V1_SETTING_COLUMNS},
+    "app_settings.push_defaults": ("included", "v1 push_defaults"),
+    "app_settings.push_conversation_overrides": ("included", "v1 push_conversation_overrides"),
+    "app_settings.vapid_subject": ("included", "v1 vapid_subject"),
+    "app_settings.path_hash_one_byte_opt_in": ("included", "meshloom_extra"),
+    "app_settings.vapid_private_key": ("included", "meshloom_extra.vapid (host without push)"),
+    "app_settings.vapid_public_key": ("included", "meshloom_extra.vapid (host without push)"),
+    **{
+        f"app_settings.radio_proxy_{name}": ("included", "meshloom_extra.radio_proxy")
+        for name in ("enabled", "bind", "port", "max_clients")
+    },
+    **{
+        f"app_settings.{column}": ("excluded", _COMMUNITY)
+        for column in (
+            "community_enabled",
+            "community_iata",
+            "community_broker_host",
+            "community_api_base",
+            "community_status_clear",
+            "community_status_last",
+            "community_waiting_for_position",
+            "community_opt_out_pending",
+        )
+    },
+    **{
+        f"app_settings.{column}": ("excluded", _TRANSPORT)
+        for column in (
+            "radio_transport",
+            "radio_serial_port",
+            "radio_serial_baudrate",
+            "radio_tcp_host",
+            "radio_tcp_port",
+            "radio_ble_address",
+            "radio_ble_pin",
+            "radio_previous_transport",
+        )
+    },
+    **{
+        f"app_settings.{column}": ("excluded", _IDENTITY)
+        for column in (
+            "radio_bound_public_key",
+            "radio_identity_state",
+            "radio_mismatch_previous_public_key",
+            "radio_mismatch_new_public_key",
+            "radio_mismatch_new_name",
+        )
+    },
+    "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
+    **{
+        f"app_settings.{column}": ("excluded", _RUNTIME)
+        for column in (
+            "last_message_times",
+            "last_advert_time",
+            "last_notified_update_version",
+            "push_conversations",
+            "preferences_migrated",
+            "radio_transport_env_imported",
+            "legacy_env_settings_imported",
+            "community_env_imported",
+        )
+    },
+    "app_settings.id": ("excluded", "internal"),
+    "contacts": ("included", "v1 contacts"),
+    "channels": ("included", "v1 channels (secrets and region scope)"),
+    "contact_groups": ("included", "v1 groups"),
+    "contact_group_members": ("included", "v1 groups"),
+    "app_settings": ("included", "per column, above"),
+    "fanout_configs": ("included", "meshloom_extra.fanout_configs (bots restored disabled)"),
+    "push_subscriptions": ("included", "meshloom_extra.push_subscriptions (host without push)"),
+    **dict.fromkeys(
+        (
+            "messages",
+            "raw_packets",
+            "contact_advert_paths",
+            "contact_name_history",
+            "repeater_telemetry_history",
+            "contact_telemetry_history",
+            "telemetry_alert_state",
+            "directory_hop_cache",
+            "repeater_pane_cache",
+        ),
+        ("excluded", _HISTORY),
+    ),
+}
 
 
 async def write_sqlite_backup(database: Database, dest_path: str) -> None:
@@ -115,6 +266,8 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
             "and does not replace meshcore.db or delete messages/packets."
         )
 
+    from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
+
     contacts_upserted = 0
     for item in request.contacts:
         await ContactRepository.upsert(
@@ -122,7 +275,8 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
                 public_key=item.public_key,
                 name=item.name,
                 type=item.type,
-                flags=item.flags,
+                # Never grant the remote CLI over the mesh, even from a file.
+                flags=item.flags & ~CONTACT_FLAG_REMOTE_CLI,
                 direct_path=item.direct_path,
                 direct_path_len=item.direct_path_len,
                 direct_path_hash_mode=item.direct_path_hash_mode,
@@ -169,7 +323,11 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
         )
         settings_updated = True
     if request.vapid_subject is not None:
+        from app.push.vapid import set_cached_vapid_subject
+
         await AppSettingsRepository.set_vapid_subject(request.vapid_subject)
+        # The signing code reads the cached copy (as routers/push.py keeps it).
+        set_cached_vapid_subject(request.vapid_subject)
         settings_updated = True
 
     groups_upserted = 0
@@ -192,36 +350,18 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
     )
 
 
+# The AppSettings fields a restore writes back (through update(), so the
+# in-memory copy the radio code reads follows).
+_RESTORED_SETTINGS = V1_SETTING_COLUMNS
+
+
 async def _restore_settings(settings: AppSettings) -> None:
-    await AppSettingsRepository.update(
-        max_radio_contacts=settings.max_radio_contacts,
-        auto_decrypt_dm_on_advert=settings.auto_decrypt_dm_on_advert,
-        advert_interval=settings.advert_interval,
-        flood_scope=settings.flood_scope,
-        known_regions=settings.known_regions,
-        blocked_keys=settings.blocked_keys,
-        blocked_names=settings.blocked_names,
-        rejected_channels=settings.rejected_channels,
-        discovery_blocked_types=settings.discovery_blocked_types,
-        tracked_telemetry_repeaters=settings.tracked_telemetry_repeaters,
-        tracked_telemetry_contacts=settings.tracked_telemetry_contacts,
-        auto_resend_channel=settings.auto_resend_channel,
-        telemetry_interval_hours=settings.telemetry_interval_hours,
-        telemetry_routed_hourly=settings.telemetry_routed_hourly,
-        stale_contact_days=settings.stale_contact_days,
-        raw_packet_retention_days=settings.raw_packet_retention_days,
-        telemetry_alert_rules=settings.telemetry_alert_rules,
-        notification_destinations=settings.notification_destinations,
-        auto_update=settings.auto_update,
-        auto_update_window_start=settings.auto_update_window_start,
-        auto_update_window_end=settings.auto_update_window_end,
-        auto_update_weekdays=settings.auto_update_weekdays,
-        # Through update(), so the in-memory copy the radio code reads follows.
-        enable_message_poll_fallback=settings.enable_message_poll_fallback,
-        force_channel_slot_reconfigure=settings.force_channel_slot_reconfigure,
-        load_with_autoevict=settings.load_with_autoevict,
-        auto_clock_wraparound=settings.auto_clock_wraparound,
-    )
+    """Write back only the fields the file carries: an older file without a
+    later field (``ui_preferences``...) keeps the current value."""
+    present = settings.model_fields_set
+    updates = {name: getattr(settings, name) for name in _RESTORED_SETTINGS if name in present}
+    if updates:
+        await AppSettingsRepository.update(**updates)
 
 
 async def _restore_group(group: ContactGroup) -> None:
@@ -232,3 +372,463 @@ async def _restore_group(group: ContactGroup) -> None:
         if group.sort_order != created.sort_order:
             await ContactGroupRepository.update(existing_id, sort_order=group.sort_order)
     await ContactGroupRepository.set_members(existing_id, group.public_keys)
+
+
+# -- Full backup (v2): errors and document parsing ----------------------------
+
+
+class BackupError(Exception):
+    """A coded backup failure. ``code`` and ``params`` never hold a secret."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        status: int = 400,
+        message: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> None:
+        self.code = code
+        self.status = status
+        self.message = message or code
+        self.params = params or {}
+        super().__init__(code)
+
+    def detail(self) -> dict[str, Any]:
+        return {"code": self.code, "message": self.message, "params": self.params}
+
+
+V1_FORMATS = ("meshloom-backup-v1", "remoteterm-backup-v1")
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+def validation_error_fields(exc: ValidationError) -> list[str]:
+    """Field paths only: never an input value."""
+    return sorted({".".join(str(part) for part in error["loc"]) for error in exc.errors()})
+
+
+def parse_backup_model(model: type[_ModelT], raw: object) -> _ModelT:
+    """Validate a backup model; a failure is a 400 ``backup_invalid`` listing
+    field paths only."""
+    try:
+        return model.model_validate(raw)
+    except ValidationError as exc:
+        raise BackupError(
+            "backup_invalid",
+            message="The backup file is not valid",
+            params={"fields": validation_error_fields(exc)[:20]},
+        ) from None
+
+
+def normalize_backup_document(raw: object) -> object:
+    """A backup without ``format`` is a ``meshloom-backup-v1`` file (old exports)."""
+    if isinstance(raw, dict) and "format" not in raw:
+        return {**raw, "format": BACKUP_FORMAT}
+    return raw
+
+
+def normalize_backup_request(raw: object) -> object:
+    """Same rule for the ``backup`` field of an inspect or restore request."""
+    if isinstance(raw, dict) and "backup" in raw:
+        return {**raw, "backup": normalize_backup_document(raw["backup"])}
+    return raw
+
+
+async def open_backup_document(
+    doc: BackupV1Document | BackupExportV2 | BackupEnvelope, passphrase: str | None
+) -> BackupV1Document | BackupExportV2:
+    """Decrypt an envelope, then check a v2 identity derives to its public key."""
+    from app.decoder import derive_public_key
+    from app.services.backup_crypto import BackupCryptoError, decrypt_backup_async
+
+    if isinstance(doc, BackupEnvelope):
+        if not passphrase:
+            raise BackupError(
+                "backup_passphrase_required",
+                message="This backup is encrypted: enter its passphrase",
+            )
+        try:
+            payload = await decrypt_backup_async(doc.model_dump(), passphrase)
+        except BackupCryptoError as exc:
+            raise BackupError(exc.code) from None
+        if payload.get("format") != BACKUP_FORMAT_V2:
+            raise BackupError("backup_bad_envelope")
+        doc = parse_backup_model(BackupExportV2, payload)
+    if isinstance(doc, BackupExportV2) and doc.identity is not None:
+        private_key = doc.identity.private_key
+        if private_key is not None:
+            try:
+                derived = derive_public_key(bytes.fromhex(private_key.get_secret_value())).hex()
+            except Exception:
+                derived = None
+            if derived is None or derived != (doc.identity.public_key or ""):
+                raise BackupError(
+                    "backup_identity_invalid",
+                    message="The private key in this backup does not match its public key",
+                )
+    return doc
+
+
+def export_document(doc: BackupExportV2) -> dict[str, Any]:
+    """The file content: the only dump that reveals the secret fields."""
+    return doc.model_dump(mode="json", context={"backup_export": True})
+
+
+def backup_filename(radio_name: str | None, exported_at: int) -> tuple[str, str]:
+    """(ASCII ``filename=``, RFC 5987 ``filename*=`` value) for the download."""
+    stamp = time.strftime("%Y%m%d-%H%M", time.gmtime(exported_at))
+    name = (radio_name or "").strip() or "meshloom"
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", ascii_name).strip("-.") or "meshloom"
+    utf8_name = re.sub(r"[\x00-\x1f/\\]+", "-", name)
+    return (
+        f"meshloom-backup-{slug[:40]}-{stamp}.json",
+        quote(f"meshloom-backup-{utf8_name[:40]}-{stamp}.json", safe=""),
+    )
+
+
+# -- Full backup (v2): export ---------------------------------------------------
+
+
+async def export_meshloom_extra() -> MeshloomExtra:
+    """Meshloom settings outside the v1 document (see BACKUP_COVERAGE)."""
+    from app.fanout.manager import is_reserved_fanout_id
+    from app.repository.fanout import FanoutConfigRepository
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+    from app.repository.radio_proxy import RadioProxyRepository
+
+    vapid_private, vapid_public = await AppSettingsRepository.get_vapid_keys()
+    proxy = await RadioProxyRepository.get()
+    return MeshloomExtra(
+        path_hash_one_byte_opt_in=await AppSettingsRepository.get_path_hash_one_byte_opt_in(),
+        vapid=BackupVapid(private_key=SecretStr(vapid_private), public_key=vapid_public)
+        if vapid_private and vapid_public
+        else None,
+        push_subscriptions=[
+            BackupPushSubscription(
+                endpoint=sub["endpoint"],
+                p256dh=sub["p256dh"],
+                auth=sub["auth"],
+                label=sub.get("label") or "",
+                language=sub.get("language") or "fr",
+            )
+            for sub in await PushSubscriptionRepository.get_all()
+        ],
+        radio_proxy=BackupRadioProxy(
+            enabled=proxy.enabled, bind=proxy.bind, port=proxy.port, max_clients=proxy.max_clients
+        ),
+        fanout_configs=[
+            BackupFanoutConfig(
+                id=str(cfg["id"]),
+                type=str(cfg["type"]),
+                name=str(cfg.get("name") or ""),
+                enabled=bool(cfg.get("enabled")),
+                config=dict(cfg.get("config") or {}),
+                scope=dict(cfg.get("scope") or {}),
+                sort_order=int(cfg.get("sort_order") or 0),
+            )
+            for cfg in await FanoutConfigRepository.get_all()
+            # Managed by Meshloom (system:*): never in a file.
+            if not is_reserved_fanout_id(str(cfg["id"]))
+        ],
+    )
+
+
+def _identity_for(live_public_key: str | None) -> BackupIdentity:
+    """The keystore key, included only when it derives to the live radio key."""
+    from app import keystore
+
+    key = keystore.get_private_key()
+    public = keystore.get_public_key()
+    if (
+        key is not None
+        and public is not None
+        and live_public_key
+        and public.hex() == (live_public_key.lower())
+    ):
+        return BackupIdentity(
+            public_key=live_public_key,
+            private_key=SecretStr(key.hex()),
+            private_key_status="included",
+        )
+    return BackupIdentity(
+        public_key=live_public_key,
+        private_key=None,
+        private_key_status="export_disabled" if keystore.last_export_disabled() else "unavailable",
+    )
+
+
+async def _ensure_keystore_key(mc, live_public_key: str | None) -> None:
+    """Export the key once more when the keystore has none.
+
+    The keystore is filled once per connection by the post-connect setup; one
+    export that timed out there would otherwise leave every full backup without
+    the identity until the next reconnect. A firmware that refused the export
+    (DISABLED) is not asked again, and a keystore key for another radio is left
+    alone (the identity is then reported unavailable).
+    """
+    from app import keystore
+
+    if not live_public_key or keystore.last_export_disabled():
+        return
+    if keystore.get_private_key() is not None:
+        return
+    try:
+        await keystore.export_and_store_private_key(mc)
+    except RuntimeError:
+        # No answer at all: the backup reports the identity unavailable.
+        logger.warning("Backup export: the radio did not answer the key export")
+
+
+def _self_info_public_key(mc) -> str | None:
+    """The public key meshcore cached from the last SELF_INFO, when the export's
+    own appstart read failed."""
+    info = getattr(mc, "self_info", None)
+    key = info.get("public_key") if isinstance(info, dict) else None
+    return key.lower() if isinstance(key, str) and key else None
+
+
+async def _open_network_recorded(public_key: str | None, ssid: str) -> bool:
+    """Meshloom recorded ``ssid`` as an open network stored in this radio (the
+    Wi-Fi panel's ``wifi_prompt_state``), and no interrupted store casts doubt
+    on it (the same rule as the panel's state)."""
+    if not public_key:
+        return False
+    entry = (await AppSettingsRepository.get_wifi_prompt_state()).get(public_key.lower(), {})
+    return entry.get("open_network_ssid") == ssid and "store_started_at" not in entry
+
+
+async def _read_wifi(cli, public_key: str | None) -> tuple[BackupWifi | None, list[str]]:
+    """Wi-Fi credentials stored in the radio (read live, never stored by Meshloom)
+    and its on/off flag, kept even when no credentials are stored. An empty
+    stored password is an open network only when Meshloom recorded one for this
+    radio and SSID (the radio cannot tell it from "nothing stored")."""
+    from app.services.companion_cli import (
+        CliError,
+        wifi_enabled,
+        wifi_ssid,
+        wifi_stored_password,
+    )
+
+    try:
+        ssid = await wifi_ssid(cli)
+        password = await wifi_stored_password(cli)
+    except CliError:
+        return None, ["wifi_read_failed"]
+    try:
+        enabled: bool | None = await wifi_enabled(cli)
+    except CliError:
+        enabled = None
+    if ssid is not None and not password.get_secret_value():
+        try:
+            if await _open_network_recorded(public_key, ssid):
+                return BackupWifi(
+                    ssid=ssid, password=SecretStr(""), open_network=True, enabled=enabled
+                ), []
+        except ValidationError:
+            return None, ["wifi_read_failed"]
+    if ssid is None or not password.get_secret_value():
+        # Nothing stored (or an open network Meshloom did not record, which reads
+        # the same): keep the on/off flag, which also governs credentials built
+        # into the firmware.
+        return (BackupWifi(enabled=enabled) if enabled is not None else None), ["wifi_not_stored"]
+    try:
+        return BackupWifi(ssid=ssid, password=password, enabled=enabled), []
+    except ValidationError:
+        return None, ["wifi_read_failed"]
+
+
+async def export_backup_v2() -> BackupExportV2:
+    """The full backup. Works with the radio disconnected (Meshloom part only)."""
+    from app.radio import RadioOperationError
+    from app.services.backup_radio import read_radio_node_settings
+    from app.services.companion_cli import CliError, companion_cli_session
+    from app.services.radio_runtime import radio_runtime
+    from app.version_info import get_app_build_info
+
+    base = await export_json()
+    extra = await export_meshloom_extra()
+    warnings: list[str] = []
+    identity: BackupIdentity | None = None
+    radio = None
+    wifi: BackupWifi | None = None
+    manager = radio_runtime.manager
+
+    if not manager.is_connected:
+        warnings.append("radio_not_connected")
+    elif not manager.is_setup_complete:
+        # The CLI session refuses before setup: its exit restarts auto-fetch,
+        # which would pull queued messages before the handlers exist.
+        warnings.append("radio_not_ready")
+    else:
+        try:
+            async with companion_cli_session("backup_export") as cli:
+                mc = manager.meshcore
+                try:
+                    capabilities = await cli.capabilities()
+                except CliError:
+                    capabilities = None
+                cli_supported = capabilities is not None and capabilities.supported
+                snapshot = await read_radio_node_settings(mc, cli if cli_supported else None)
+                radio = snapshot.settings
+                warnings.extend(snapshot.warnings)
+                live_public_key = snapshot.public_key or _self_info_public_key(mc)
+                await _ensure_keystore_key(mc, live_public_key)
+                identity = _identity_for(live_public_key)
+                if cli_supported and capabilities is not None and capabilities.wifi:
+                    wifi, wifi_warnings = await _read_wifi(cli, live_public_key)
+                    warnings.extend(wifi_warnings)
+        except (CliError, RadioOperationError):
+            warnings.append("radio_not_ready")
+
+    if identity is None or identity.private_key is None:
+        warnings.append(
+            "private_key_export_disabled"
+            if identity is not None and identity.private_key_status == "export_disabled"
+            else "private_key_unavailable"
+        )
+    try:
+        version: str | None = get_app_build_info().version
+    except Exception:
+        version = None
+    return BackupExportV2(
+        **base.model_dump(exclude={"format"}),
+        meshloom_version=version,
+        warnings=list(dict.fromkeys(warnings)),
+        identity=identity,
+        radio=radio,
+        wifi=wifi,
+        meshloom_extra=extra,
+    )
+
+
+# -- Full backup (v2): Meshloom settings outside v1 ------------------------------
+
+
+async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: list[str]) -> int:
+    """Upsert by id through the fanout route checks. Bots come back disabled."""
+    from fastapi import HTTPException
+
+    from app.fanout.manager import fanout_manager, is_reserved_fanout_id
+    from app.repository.fanout import FanoutConfigRepository
+    from app.routers.fanout import prepare_fanout_config
+
+    written: list[str] = []
+    restored_bots: list[str] = []
+    for entry in entries:
+        label = entry.name or entry.id
+        if is_reserved_fanout_id(entry.id):
+            # system:* modules are Meshloom's own: never taken from a file.
+            warnings.append(f"fanout_reserved:{entry.id}")
+            continue
+        if entry.type == "bot" and fanout_manager.bots_disabled_effective():
+            warnings.append(f"bots_disabled:{label}")
+            continue
+        try:
+            config, scope = prepare_fanout_config(entry.type, entry.config, entry.scope)
+        except HTTPException:
+            warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
+            continue
+        # A bot runs code through exec() once enabled, and a backup file may
+        # come from someone else: restored disabled, the user enables it.
+        enabled = entry.enabled and entry.type != "bot"
+        existing = await FanoutConfigRepository.get(entry.id)
+        if existing is not None:
+            if existing["type"] != entry.type:
+                warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
+                continue
+            await FanoutConfigRepository.update(
+                entry.id,
+                name=entry.name or existing["name"],
+                enabled=enabled,
+                config=config,
+                scope=scope,
+                sort_order=entry.sort_order,
+            )
+        else:
+            await FanoutConfigRepository.create(
+                config_type=entry.type,
+                name=entry.name or entry.type,
+                config=config,
+                scope=scope,
+                enabled=enabled,
+                config_id=entry.id,
+            )
+            # create() appends; the user's order is the file's.
+            await FanoutConfigRepository.update(entry.id, sort_order=entry.sort_order)
+        written.append(entry.id)
+        if entry.type == "bot":
+            restored_bots.append(label)
+    for config_id in written:
+        await fanout_manager.reload_config(config_id)
+    if restored_bots:
+        warnings.append("bots_restored_disabled:" + ", ".join(restored_bots))
+    return len(written)
+
+
+async def push_restore_applies(extra: MeshloomExtra) -> bool | None:
+    """Whether a restore writes the file's VAPID keys and subscriptions.
+
+    None: the file has no VAPID keys (nothing to restore). False: this host has
+    subscriptions of its own under another key, which are kept.
+    """
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    if extra.vapid is None:
+        return None
+    existing = await PushSubscriptionRepository.get_all()
+    _private, current_public = await AppSettingsRepository.get_vapid_keys()
+    # Its subscriptions were made with its own key: the backup's would fail
+    # (403/410) and be deleted on the first push.
+    return not (existing and current_public != extra.vapid.public_key)
+
+
+async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
+    """VAPID keys and subscriptions belong together: restored only on a host
+    with no subscriptions of its own (or already using the backup's key)."""
+    from app.push.vapid import ensure_vapid_keys
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    applies = await push_restore_applies(extra)
+    if applies is None:
+        return 0
+    if not applies:
+        warnings.append("push_kept_existing")
+        return 0
+    assert extra.vapid is not None
+    await AppSettingsRepository.set_vapid_keys(
+        extra.vapid.private_key.get_secret_value(), extra.vapid.public_key
+    )
+    await ensure_vapid_keys()  # the signing code reads the cached keys
+    for sub in extra.push_subscriptions:
+        await PushSubscriptionRepository.create(
+            endpoint=sub.endpoint,
+            p256dh=sub.p256dh,
+            auth=sub.auth,
+            label=sub.label,
+            language=sub.language,
+        )
+    return len(extra.push_subscriptions)
+
+
+async def restore_meshloom_extra(extra: MeshloomExtra) -> list[str]:
+    """Restore ``meshloom_extra`` through the same checks as the routes.
+    Idempotent: a second run changes no count. Returns warnings."""
+    from app.services.radio_proxy_settings import update_radio_proxy_settings
+
+    warnings: list[str] = []
+    await _restore_fanout_configs(extra.fanout_configs, warnings)
+    await _restore_push(extra, warnings)
+    if extra.radio_proxy is not None:
+        _status, proxy_warnings = await update_radio_proxy_settings(
+            enabled=extra.radio_proxy.enabled,
+            bind=extra.radio_proxy.bind,
+            port=extra.radio_proxy.port,
+            max_clients=extra.radio_proxy.max_clients,
+            lenient=True,
+        )
+        warnings.extend(proxy_warnings)
+    if extra.path_hash_one_byte_opt_in is not None:
+        # The only source of the opt-in in a restore (the radio step never sets it).
+        await AppSettingsRepository.set_path_hash_one_byte_opt_in(extra.path_hash_one_byte_opt_in)
+    return warnings

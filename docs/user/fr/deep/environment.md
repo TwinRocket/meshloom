@@ -66,7 +66,6 @@ Voir [Meshloom Community](/docs/deep/community/).
 | `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
 | `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
-| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Autorise `GET /api/radio/private-key`, qui renvoie la clé privée de la radio en hexadécimal, pour une sauvegarde ou un déménagement. À n’activer que sur un réseau de confiance, puis à désactiver |
 
 Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
@@ -104,6 +103,10 @@ Meshloom Community ne lit plus aucune variable non plus :
 | `MESHLOOM_COMMUNITY_API_BASE` | Ignorée |
 
 Meshloom écrit le même avertissement à chaque démarrage tant que l’une d’elles reste définie.
+
+| Variable retirée | Ce qu’elle devient |
+|----------|--------|
+| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignorée, avec le même avertissement. La clé privée de la radio peut toujours être relue : par `GET /api/radio/private-key` et dans la sauvegarde complète (**Réglages → Base de données**, voir [Sauvegarder la radio](/docs/backup/)). Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud) |
 
 ## Réglages stockés dans la base
 

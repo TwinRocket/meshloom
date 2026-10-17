@@ -12,12 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
+    AdvertLocationSource,
     Contact,
     ContactUpsert,
     LppSensor,
     RadioBleDeviceInfo,
     RadioBlePairingStatus,
     RadioBleScanResponse,
+    RadioConfigUpdate,
     RadioDiscoveryRequest,
     RadioDiscoveryResponse,
     RadioDiscoveryResult,
@@ -31,6 +33,7 @@ from app.models import (
     RadioRegionMatch,
     RadioRegionVerifyRequest,
     RadioRegionVerifyResponse,
+    RadioSettings,
     RadioTraceHopRequest,
     RadioTraceNode,
     RadioTraceRequest,
@@ -68,6 +71,7 @@ from app.services.radio_commands import (
     PathHashModeUnsupportedError,
     RadioCommandRejectedError,
     apply_radio_config_update,
+    device_info_client_repeat,
     import_private_key_and_refresh_keystore,
 )
 from app.services.radio_lifecycle import expected_reboot_reason
@@ -87,7 +91,6 @@ from app.websocket import broadcast_event, broadcast_health
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/radio", tags=["radio"])
 
-AdvertLocationSource = Literal["off", "current"]
 RadioAdvertMode = Literal["flood", "zero_hop"]
 DiscoveryNodeType: TypeAlias = Literal["repeater", "sensor"]
 DISCOVERY_WINDOW_SECONDS = 8.0
@@ -116,13 +119,6 @@ async def _reconnect_and_prepare(*, broadcast_on_success: bool) -> bool:
     return await radio_manager.reconnect_and_prepare(
         broadcast_on_success=broadcast_on_success,
     )
-
-
-class RadioSettings(BaseModel):
-    freq: float = Field(description="Frequency in MHz")
-    bw: float = Field(description="Bandwidth in kHz")
-    sf: int = Field(description="Spreading factor (7-12)")
-    cr: int = Field(description="Coding rate (1-4)")
 
 
 class RadioConfigResponse(BaseModel):
@@ -159,36 +155,13 @@ class RadioConfigResponse(BaseModel):
         default=0,
         description="Environment sensor sharing mode (0=deny, 1=per-contact, 2=allow-all)",
     )
-
-
-class RadioConfigUpdate(BaseModel):
-    name: str | None = None
-    lat: float | None = None
-    lon: float | None = None
-    tx_power: int | None = Field(default=None, description="Transmit power in dBm")
-    radio: RadioSettings | None = None
-    path_hash_mode: int | None = Field(
-        default=None,
-        ge=0,
-        le=2,
-        description="Path hash mode (0=1-byte, 1=2-byte, 2=3-byte)",
-    )
-    advert_location_source: AdvertLocationSource | None = Field(
-        default=None,
-        description="Whether adverts include the node's current location state",
-    )
-    multi_acks_enabled: bool | None = Field(
-        default=None,
-        description="Whether the radio sends an extra direct ACK transmission",
-    )
-    telemetry_mode_base: int | None = Field(
-        default=None, ge=0, le=2, description="Base telemetry sharing mode"
-    )
-    telemetry_mode_loc: int | None = Field(
-        default=None, ge=0, le=2, description="Location telemetry sharing mode"
-    )
-    telemetry_mode_env: int | None = Field(
-        default=None, ge=0, le=2, description="Environment sensor sharing mode"
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "PATCH only: what the update applied differently from the request. "
+            "client_repeat_not_allowed: the radio refused client repeat on the new "
+            "radio parameters, which were applied with repeat off"
+        ),
     )
 
 
@@ -488,23 +461,36 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
     radio_manager.require_connected()
 
     async with radio_manager.radio_operation("update_radio_config") as mc:
+        client_repeat: bool | None = None
+        if update.radio is not None:
+            # The firmware reads a missing repeat byte as "off": keep the radio's
+            # current flag, read fresh (no cached copy exists).
+            try:
+                client_repeat = device_info_client_repeat(await mc.commands.send_device_query())
+            except Exception:
+                logger.warning("Could not read the client repeat flag before the radio update")
         try:
-            await apply_radio_config_update(
+            warnings = await apply_radio_config_update(
                 mc,
                 update,
                 path_hash_mode_supported=radio_manager.path_hash_mode_supported,
                 set_path_hash_mode=lambda mode: setattr(radio_manager, "path_hash_mode", mode),
                 sync_radio_time_fn=sync_radio_time,
+                client_repeat=client_repeat,
             )
         except PathHashModeUnsupportedError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RadioCommandRejectedError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            # A coded rejection reaches the UI as a code it translates.
+            detail = {"code": exc.code, "message": str(exc)} if exc.code else str(exc)
+            raise HTTPException(status_code=422, detail=detail) from exc
 
         if update.path_hash_mode is not None:
             await AppSettingsRepository.set_path_hash_one_byte_opt_in(update.path_hash_mode == 0)
 
-    return await get_radio_config()
+    response = await get_radio_config()
+    response.warnings = warnings
+    return response
 
 
 async def _read_custom_vars(mc) -> RadioCustomVarsResponse:
@@ -611,18 +597,13 @@ async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
 
 @router.get("/private-key")
 async def get_private_key() -> dict:
-    """Return the in-memory private key (exported from radio on startup).
+    """Return the in-memory private key (exported from the radio on connect).
 
-    Gated behind MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true.
+    Always readable by whoever reaches this interface (the full backup in
+    Settings > Database carries it too); see SECURITY.md "Known limits".
+    404 when the firmware did not export it.
     """
-    from app.config import settings
     from app.keystore import get_private_key as ks_get
-
-    if not settings.enable_local_private_key_export:
-        raise HTTPException(
-            status_code=403,
-            detail="Private key export is disabled (set MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true)",
-        )
 
     key = ks_get()
     if key is None:
@@ -1277,46 +1258,21 @@ async def patch_radio_proxy(update: RadioProxyUpdate) -> RadioProxyStatus:
     # The host decides the port when it maps one itself: accepting a different value
     # would leave the proxy listening where nothing is forwarded, which looks like a
     # working proxy nobody can reach. Refused here and not only in the form, since
-    # the form is not the only caller.
-    from app.config import settings as server_settings
-    from app.radio_proxy.manager import radio_proxy_manager
-    from app.repository.radio_proxy import RadioProxyRepository
-    from app.services.radio_transport import get_transport
-
-    if update.port is not None and server_settings.managed_ports:
-        from app.radio_proxy.manager import radio_proxy_manager as running
-
-        if update.port != running.settings.port:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "The proxy port is set by the host running this instance. "
-                    "Remap it there instead."
-                ),
-            )
-
-    stored = await RadioProxyRepository.update(
-        enabled=update.enabled,
-        bind=update.bind,
-        port=update.port,
-        max_clients=update.max_clients,
+    # the form is not the only caller (services/radio_proxy_settings.py).
+    from app.services.radio_proxy_settings import (
+        ProxySettingsConflict,
+        update_radio_proxy_settings,
     )
-    snapshot = await get_transport()
-    if stored.enabled and snapshot.transport == "tcp":
-        from app.radio_proxy.manager import targets_this_proxy
 
-        if targets_this_proxy(
-            snapshot.tcp_host,
-            snapshot.tcp_port,
-            bind=stored.bind,
-            listen_port=stored.port,
-        ):
-            await RadioProxyRepository.update(enabled=False)
-            raise HTTPException(
-                status_code=409,
-                detail="Refusing to listen: radio transport already targets this proxy",
-            )
-    status = await radio_proxy_manager.apply_settings(stored)
+    try:
+        status, _warnings = await update_radio_proxy_settings(
+            enabled=update.enabled,
+            bind=update.bind,
+            port=update.port,
+            max_clients=update.max_clients,
+        )
+    except ProxySettingsConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
     return RadioProxyStatus(**status)
 
 
