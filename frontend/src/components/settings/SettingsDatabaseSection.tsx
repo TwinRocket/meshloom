@@ -9,7 +9,7 @@ import { api } from '../../api';
 import { formatTime } from '../../utils/messageParser';
 import { takeSettingsAnchor } from '../../utils/urlHash';
 import type { AppSettings, AppSettingsUpdate, BackupRestoreJob, HealthStatus } from '../../types';
-import { BackupRestoreFlow } from './BackupRestoreFlow';
+import { BackupRestoreFlow, restoreChanges } from './BackupRestoreFlow';
 import { FullBackupExport } from './FullBackupExport';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
@@ -61,11 +61,8 @@ export function SettingsDatabaseSection({
   // The backend broadcasts none of what a restore writes (contacts, channels,
   // a wiped history under another identity): reload the client data.
   const handleRestoreFinished = async (job: BackupRestoreJob) => {
-    const done = (name: string) => job.steps.find((step) => step.step === name)?.status === 'done';
-    const identity = job.steps.find((step) => step.step === 'identity');
-    const identityChanged =
-      identity?.status === 'done' && (identity.code === 'restored' || identity.code === 'bound');
-    if (onBackupRestored && (identityChanged || done('meshloom'))) {
+    const { identityChanged, dataChanged } = restoreChanges(job);
+    if (onBackupRestored && (identityChanged || dataChanged)) {
       await onBackupRestored(identityChanged);
     } else {
       await onHealthRefresh();

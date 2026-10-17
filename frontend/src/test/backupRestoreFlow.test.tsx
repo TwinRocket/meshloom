@@ -410,6 +410,39 @@ describe('BackupRestoreFlow', () => {
     ).toBeVisible();
   });
 
+  it('runs onFinished once for a job that finished while no view was open', async () => {
+    mocks.getLatestRestoreJob.mockResolvedValue(job({ job_id: 'job-ended-unseen' }));
+    const onFinished = vi.fn();
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(<BackupRestoreFlow resumeLatest onFinished={onFinished} />);
+    });
+    await waitFor(() => expect(onFinished).toHaveBeenCalledTimes(1));
+    expect(onFinished.mock.calls[0][0].job_id).toBe('job-ended-unseen');
+    view.unmount();
+
+    // Opened again: already handled.
+    await act(async () => {
+      render(<BackupRestoreFlow resumeLatest onFinished={onFinished} />);
+    });
+    await screen.findByText(i18n.t('settings.fullRestore.done'));
+    expect(onFinished).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports while a job runs', async () => {
+    mocks.getRestoreJob.mockResolvedValueOnce(job({ job_id: 'job-1', state: 'running' }));
+    mocks.getRestoreJob.mockResolvedValue(job());
+    const onRunningChange = vi.fn();
+    render(<BackupRestoreFlow onRunningChange={onRunningChange} />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.confirm')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') }));
+    await waitFor(() => expect(onRunningChange).toHaveBeenLastCalledWith(true));
+    await waitFor(() => expect(onRunningChange).toHaveBeenLastCalledWith(false), {
+      timeout: 3000,
+    });
+  });
+
   async function runJob(finished: BackupRestoreJob) {
     mocks.getRestoreJob.mockResolvedValue(finished);
     render(<BackupRestoreFlow />);

@@ -9,7 +9,7 @@ import {
   type HealthStatus,
   type RadioIdentityInfo,
 } from '../types';
-import { BackupRestoreFlow } from './settings/BackupRestoreFlow';
+import { BackupRestoreFlow, restoreChanges } from './settings/BackupRestoreFlow';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { toast } from './ui/sonner';
@@ -54,6 +54,8 @@ export function RadioIdentityModal({
   // Restoring from a backup: the window stays open until the user closes it,
   // even once the restore has closed the identity gate.
   const [restoring, setRestoring] = useState(false);
+  // A running job keeps the window open: closing it would skip the client reload.
+  const [restoreRunning, setRestoreRunning] = useState(false);
 
   const radioState = health?.radio_state;
   const open = forceOpen || restoring || isRadioIdentityGate(radioState);
@@ -151,14 +153,19 @@ export function RadioIdentityModal({
         {restoring ? (
           <div className="space-y-3">
             <BackupRestoreFlow
+              onRunningChange={setRestoreRunning}
               onFinished={async (job) => {
-                if (job.state === 'done') await onAdopted();
+                // Whatever the final state: a job can fail after the identity
+                // step restored or bound the key (and maybe erased the history).
+                const { identityChanged, dataChanged } = restoreChanges(job);
+                if (identityChanged || dataChanged) await onAdopted();
               }}
             />
             <div className="flex justify-end">
               <Button
                 type="button"
                 variant="outline"
+                disabled={restoreRunning}
                 onClick={async () => {
                   setRestoring(false);
                   await onResolved?.();

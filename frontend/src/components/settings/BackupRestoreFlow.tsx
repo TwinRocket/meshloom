@@ -63,6 +63,51 @@ function isReportedItem(item: BackupRestoreItem): boolean {
   return item.status === 'failed' || item.status === 'unsupported';
 }
 
+/**
+ * What a finished restore changed on the server, for the client reload:
+ * `identityChanged` when the identity step restored or bound a key (the history
+ * may have been erased), `dataChanged` when the Meshloom data was written. A job
+ * can end `failed` after either, so callers check this, not `job.state`.
+ */
+export function restoreChanges(job: BackupRestoreJob): {
+  identityChanged: boolean;
+  dataChanged: boolean;
+} {
+  const identity = job.steps.find((step) => step.step === 'identity');
+  const identityChanged =
+    identity?.status === 'done' && (identity.code === 'restored' || identity.code === 'bound');
+  const dataChanged = job.steps.some((step) => step.step === 'meshloom' && step.status === 'done');
+  return { identityChanged, dataChanged };
+}
+
+// Finished jobs whose onFinished already ran, so a view opened later runs it once
+// for a job that ended while no view was open. sessionStorage keeps it across a
+// reload; the in-memory copy covers a browser that refuses storage.
+const HANDLED_JOBS_KEY = 'meshloom.backupRestore.handledJobs';
+const handledJobs = new Set<string>();
+
+function jobHandled(jobId: string): boolean {
+  if (handledJobs.has(jobId)) return true;
+  try {
+    const stored: unknown = JSON.parse(sessionStorage.getItem(HANDLED_JOBS_KEY) ?? '[]');
+    return Array.isArray(stored) && stored.includes(jobId);
+  } catch {
+    return false;
+  }
+}
+
+function markJobHandled(jobId: string): void {
+  handledJobs.add(jobId);
+  try {
+    const stored: unknown = JSON.parse(sessionStorage.getItem(HANDLED_JOBS_KEY) ?? '[]');
+    const ids = Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
+    if (!ids.includes(jobId)) ids.push(jobId);
+    sessionStorage.setItem(HANDLED_JOBS_KEY, JSON.stringify(ids.slice(-20)));
+  } catch {
+    // Storage refused: the in-memory copy still covers this page.
+  }
+}
+
 type LoadedFile = { backup: Record<string, unknown>; passphrase?: string };
 
 type Phase =
@@ -110,10 +155,14 @@ function keyPrefix(key: string | null | undefined): string {
 export function BackupRestoreFlow({
   resumeLatest = false,
   onFinished,
+  onRunningChange,
 }: {
-  /** Show the most recent restore job on mount (after a reload). */
+  /** Show the most recent restore job on mount (after a reload). A job that
+   * finished while no view was open still gets its onFinished, once. */
   resumeLatest?: boolean;
   onFinished?: (job: BackupRestoreJob) => void;
+  /** True while a restore job runs (the parent keeps itself open meanwhile). */
+  onRunningChange?: (running: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -186,8 +235,11 @@ export function BackupRestoreFlow({
       .getLatestRestoreJob()
       .then((job) => {
         if (!cancelled && job) {
-          // A job that ended before this view opened was already handled.
-          if (job.state !== 'running') finishedRef.current = job.job_id;
+          // A job that ended before this view opened: handled once, by the
+          // first view that sees it finished.
+          if (job.state !== 'running' && jobHandled(job.job_id)) {
+            finishedRef.current = job.job_id;
+          }
           setPhase((current) =>
             current.kind === 'idle' ? { kind: 'job', jobId: job.job_id, job } : current
           );
@@ -201,6 +253,11 @@ export function BackupRestoreFlow({
 
   const jobId = phase.kind === 'job' ? phase.jobId : null;
   const jobRunning = phase.kind === 'job' && (phase.job === null || phase.job.state === 'running');
+  const running = jobRunning && !pollError;
+
+  useEffect(() => {
+    onRunningChange?.(running);
+  }, [running, onRunningChange]);
 
   // Poll the running job.
   useEffect(() => {
@@ -253,6 +310,7 @@ export function BackupRestoreFlow({
       return;
     }
     lastFileRef.current = null; // no re-inspect from here: drop the secrets
+    markJobHandled(phase.job.job_id);
     onFinished?.(phase.job);
   }, [phase, inspect, onFinished, t]);
 

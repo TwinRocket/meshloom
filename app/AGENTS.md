@@ -291,6 +291,11 @@ be wrong, because historical decryption inserts old messages with new ids.
   `frontend/src/test/backupRestoreFlow.test.tsx`'s code list in sync). Nothing a
   restore writes is broadcast: the Settings flow reloads the client
   (`onBackupRestored`), the identity window runs the identity-adopt reload.
+  Both decide from the steps (`restoreChanges`: identity restored/bound, or
+  Meshloom data done), never from `job.state`, since a job can fail after the
+  identity step. The window cannot be closed while a job runs, and a job that
+  ended while no view was open gets its reload once, when Settings next opens
+  (handled job ids in sessionStorage).
 - **Inspect** also lists the non-bot integrations with their `enabled` flag,
   the file's proxy setting and `bots_will_be_skipped`: integrations and the
   proxy come back as in the file and start at once, so the summary names them.
