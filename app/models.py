@@ -2576,6 +2576,8 @@ class RadioTransportResponse(BaseModel):
     ble_address: str = ""
     ble_pin_configured: bool = False
     bound_public_key: str | None = None
+    # Kind of the transport POST /radio/transport/revert would restore (no PIN, no address).
+    previous_transport_kind: RadioTransportKind | None = None
     capabilities: RadioTransportCapabilities = Field(default_factory=RadioTransportCapabilities)
     serial_ports: list[RadioSerialPortInfo] = Field(default_factory=list)
 
@@ -2648,6 +2650,77 @@ class RadioIdentityActionResponse(BaseModel):
     radio_state: RadioHealthState
     bound_public_key: str | None = None
     connected: bool = False
+
+
+# --- Wi-Fi through the companion CLI (services/radio_wifi.py) --------------
+# Every model sets hide_input_in_errors: a ValidationError raised in service code
+# is a 500 logged with str(e), which would otherwise quote the input (a password).
+
+RadioWifiCheck = Literal["pending", "done", "failed"]
+
+
+class RadioWifiState(BaseModel):
+    """Wi-Fi state of the connected radio (GET /api/radio/wifi, WS ``radio_wifi``).
+
+    Never holds a password. ``credentials_stored`` comes from reading the stored
+    password once (value discarded at once) or from an open-network record.
+    """
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    # "pending": not checked yet on this connection; "failed": see check_error.
+    check: RadioWifiCheck = "pending"
+    # A definitive "no CLI" (unsupported_cmd, link_unreliable) is check="done",
+    # supported=False, unsupported_reason="no_cli"; these are retried.
+    check_error: Literal["probe_failed", "cli_timeout", "cli_error"] | None = None
+    next_retry_at: int | None = None  # epoch seconds of the next automatic retry
+    supported: bool | None = None  # None while pending or failed
+    unsupported_reason: Literal["no_cli", "no_wifi"] | None = None
+    ssid: str | None = None  # stored, or the compile-time fallback (the firmware cannot tell)
+    enabled: bool | None = None
+    connected: bool | None = None
+    ip: str | None = None
+    tcp_port: int = 5000
+    credentials_stored: bool | None = None
+    open_network: bool = False
+    prompt_needed: bool = False
+    reboot_pending: bool = False  # a change was stored without a reboot; cleared on reconnect
+    store_incomplete: bool = False  # a credentials store was interrupted (marker left)
+    store_target_ssid: str | None = None  # the SSID of that interrupted store
+    radio_public_key: str | None = None
+    checked_at: int | None = None
+
+
+class RadioWifiCredentialsRequest(BaseModel):
+    """PUT /api/radio/wifi/credentials. The SSID is never trimmed."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    ssid: str = Field(max_length=64)
+    password: SecretStr | None = None
+    open_network: bool = False
+    reboot: bool = False  # the user confirmed a reboot in the UI
+
+
+class RadioWifiEnabledRequest(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    enabled: bool
+    reboot: bool = False
+
+
+class RadioWifiPromptDismissRequest(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    radio_public_key: str  # the key the dialog was shown for
+
+
+class RadioWifiChangeResult(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    state: RadioWifiState
+    reboot_required: bool
+    rebooting: bool
 
 
 def _known_position_precision(value: object) -> object:

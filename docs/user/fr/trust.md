@@ -11,7 +11,7 @@ Meshloom suppose qu’il tourne sur un réseau dont vous connaissez les utilisat
 
 Il n’y a ni comptes utilisateurs, ni sessions, ni rôles, ni permissions par fonction. Quiconque atteint le serveur sur le port `8000` obtient l’interface complète sans rien saisir.
 
-Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ».
+Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ». Cela comprend aussi changer le réseau Wi-Fi de la radio et la redémarrer ; comme le serveur accepte les requêtes de n’importe quelle page web (voir plus bas), une page web ouverte sur une machine qui peut joindre Meshloom peut le faire aussi.
 
 Le serveur accepte aussi les requêtes venant de n’importe quelle page web. C’est voulu : cela permet d’ouvrir l’interface depuis n’importe quel appareil du réseau sans configuration supplémentaire. Cela repose sur ce même réseau de confiance.
 

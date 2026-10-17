@@ -80,6 +80,7 @@ from app.routers import (
     packets,
     push,
     radio,
+    radio_wifi,
     read_state,
     repeaters,
     rooms,
@@ -95,7 +96,7 @@ from app.services.hashtag_catalogue import (
     stop_hashtag_catalogue_polling,
 )
 from app.services.oss_updates import start_oss_update_polling, stop_oss_update_polling
-from app.services.radio_lifecycle import expected_reboot_reason
+from app.services.radio_lifecycle import expected_reboot_reason, reboot_purpose
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.services.radio_stats import start_radio_stats_sampling, stop_radio_stats_sampling
 from app.services.stale_contacts import start_stale_contact_purge, stop_stale_contact_purge
@@ -120,10 +121,10 @@ async def _startup_radio_connect_and_setup() -> None:
         connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
         if connected:
             logger.info("Connected to radio")
-        elif expected_reboot_reason(radio_manager) == "clock_sync":
+        elif (reason := expected_reboot_reason(radio_manager)) is not None:
             logger.info(
-                "Radio is rebooting to reset its clock; the connection monitor will "
-                "reconnect it and finish setup"
+                "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
+                reboot_purpose(reason),
             )
         else:
             logger.warning("Failed to connect to radio on startup")
@@ -420,6 +421,7 @@ app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
 app.include_router(radio.router, prefix="/api")
+app.include_router(radio_wifi.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(contact_groups.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")

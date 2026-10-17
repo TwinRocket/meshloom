@@ -81,6 +81,8 @@ export interface RadioTransportConfig {
   ble_address: string;
   ble_pin_configured: boolean;
   bound_public_key: string | null;
+  /** Kind of the transport `POST /radio/transport/revert` would restore, if any. */
+  previous_transport_kind?: RadioTransportKind | null;
   capabilities: RadioTransportCapabilities;
   serial_ports: RadioSerialPortInfo[];
 }
@@ -128,13 +130,18 @@ export interface RadioIdentityInfo {
   last_activity: number | null;
 }
 
+/** Why Meshloom rebooted the radio: the one-time clock fix, or applying Wi-Fi settings. */
+export type RadioRebootReason = 'clock_sync' | 'wifi_config';
+
 /** `POST /radio/reconnect`. `code: 'radio_rebooting'` (status `pending`): the radio is
- * restarting after Meshloom reset its clock, and the backend reconnects on its own. */
+ * restarting after a reboot Meshloom sent (`params.reason`), and the backend reconnects
+ * on its own. */
 export interface RadioReconnectResponse {
   status: string;
   message: string;
   connected: boolean;
   code?: string;
+  params?: { reason?: RadioRebootReason };
 }
 
 export interface RadioIdentityActionResponse {
@@ -176,6 +183,57 @@ export interface RadioCustomVars {
   /** False when the firmware does not know the custom-vars command (old firmware). */
   supported: boolean;
   vars: Record<string, string>;
+}
+
+/** Wi-Fi of the connected radio (companion CLI, firmware v1.18+). Never holds a password.
+ *  `GET /api/radio/wifi` and the `radio_wifi` WebSocket event. */
+export interface RadioWifiState {
+  /** `pending`: not checked yet on this connection; `failed`: see `check_error`. */
+  check: 'pending' | 'done' | 'failed';
+  check_error?: 'probe_failed' | 'cli_timeout' | 'cli_error' | null;
+  /** Epoch seconds of the next automatic retry, null when none is left. */
+  next_retry_at?: number | null;
+  supported?: boolean | null;
+  unsupported_reason?: 'no_cli' | 'no_wifi' | null;
+  /** Stored SSID, or the one built into the firmware (the radio cannot tell which). */
+  ssid?: string | null;
+  enabled?: boolean | null;
+  connected?: boolean | null;
+  ip?: string | null;
+  tcp_port: number;
+  credentials_stored?: boolean | null;
+  open_network: boolean;
+  prompt_needed: boolean;
+  reboot_pending: boolean;
+  /** Storing credentials was interrupted; store them again before rebooting. */
+  store_incomplete: boolean;
+  store_target_ssid?: string | null;
+  radio_public_key?: string | null;
+  checked_at?: number | null;
+}
+
+export interface RadioWifiCredentialsRequest {
+  /** Never trimmed. */
+  ssid: string;
+  password?: string | null;
+  open_network?: boolean;
+  /** The user confirmed a reboot. */
+  reboot?: boolean;
+}
+
+export interface RadioWifiEnabledRequest {
+  enabled: boolean;
+  reboot?: boolean;
+}
+
+export interface RadioWifiPromptDismissRequest {
+  radio_public_key: string;
+}
+
+export interface RadioWifiChangeResult {
+  state: RadioWifiState;
+  reboot_required: boolean;
+  rebooting: boolean;
 }
 
 export interface RadioConfigUpdate {
@@ -294,6 +352,8 @@ export interface HealthStatus {
     | 'paused'
     | 'identity_mismatch'
     | 'identity_unbound_legacy';
+  /** Set while `radio_state` is `rebooting`: why Meshloom rebooted the radio. */
+  reboot_reason?: RadioRebootReason | null;
   connection_info: string | null;
   transport_configured?: boolean;
   identity?: RadioIdentityInfo | null;

@@ -273,7 +273,7 @@
         "erasedSettings": "Its radio settings (frequency, bandwidth, SF, CR, TX power): they go back to the firmware defaults and must be set again in the Radio tab.",
         "keptTitle": "Kept",
         "keptDatabase": "Meshloom's own database: your messages and contacts.",
-        "keptWifi": "The Wi-Fi credentials, which are built into the firmware: a Wi-Fi radio stays reachable.",
+        "keptWifi": "Wi-Fi credentials built into the firmware, if any. Credentials stored in the radio are erased.",
         "after": "The radio restarts and Meshloom reconnects by itself, then asks whether to adopt the new identity.",
         "confirmLabel": "Type the radio name to confirm: {{name}}",
         "confirm": "Erase the radio",

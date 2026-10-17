@@ -323,6 +323,9 @@ class RadioManager:
         self.reset_channel_send_cache()
         self.clear_pending_message_channel_slots()
         self.reset_cli_link()
+        from app.services import radio_wifi
+
+        radio_wifi.clear_cache()
 
     @asynccontextmanager
     async def radio_operation(

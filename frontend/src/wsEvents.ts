@@ -6,6 +6,7 @@ import type {
   HealthStatus,
   Message,
   MessagePath,
+  RadioWifiState,
   RawPacket,
 } from './types';
 
@@ -53,6 +54,7 @@ export type KnownWsEvent =
   | { type: 'community_live'; data: CommunityLiveStatus }
   | { type: 'message_acked'; data: MessageAckedPayload }
   | { type: 'message_deleted'; data: MessageDeletedPayload }
+  | { type: 'radio_wifi'; data: RadioWifiState }
   | { type: 'error'; data: ToastPayload }
   | { type: 'success'; data: ToastPayload }
   | { type: 'pong'; data?: null };
@@ -99,6 +101,8 @@ export function isDispatchableWsEvent(event: ParsedWsEvent): boolean {
       );
     case 'message_deleted':
       return isRecord(data) && typeof data.message_id === 'number';
+    case 'radio_wifi':
+      return isRecord(data) && typeof data.check === 'string';
     case 'community_packet':
     case 'community_live':
       return isRecord(data);
@@ -129,6 +133,7 @@ export function parseWsEvent(raw: string): ParsedWsEvent {
     case 'community_live':
     case 'message_acked':
     case 'message_deleted':
+    case 'radio_wifi':
     case 'error':
     case 'success':
       return {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isDispatchableWsEvent, parseWsEvent } from '../wsEvents';
+import fixtures from './fixtures/websocket_events.json';
 
 describe('wsEvents', () => {
   it('parses contact_deleted events', () => {
@@ -204,6 +205,16 @@ describe('wsEvents', () => {
       isDispatchableWsEvent(
         parseWsEvent(JSON.stringify({ type: 'success', data: { details: 'x' } }))
       )
+    ).toBe(false);
+  });
+
+  it('parses radio_wifi events and requires their check field', () => {
+    const sample = fixtures.radio_wifi_state.expected_ws_event;
+    const event = parseWsEvent(JSON.stringify(sample));
+    expect(event).toEqual(sample);
+    expect(isDispatchableWsEvent(event)).toBe(true);
+    expect(
+      isDispatchableWsEvent(parseWsEvent(JSON.stringify({ type: 'radio_wifi', data: {} })))
     ).toBe(false);
   });
 });

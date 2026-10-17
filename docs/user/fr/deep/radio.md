@@ -113,6 +113,41 @@ Le groupe **Contournements** du même onglet rassemble les correctifs cités sur
 
 Sous les réglages du firmware, **Capteurs de la radio** montre ce que la radio signale d’elle-même : la tension de sa batterie, la température du microcontrôleur si la carte a un capteur, et la position GPS quand le GPS est activé. Le stockage utilisé sur la radio s’affiche aussi, en Ko utilisés / total avec un pourcentage, quand la radio le signale. Les valeurs sont lues à l’ouverture de l’onglet ; **Actualiser** les relit.
 
+## Wi-Fi
+
+Les radios dotées du firmware compagnon 1.18 ou plus récent, compilé avec le Wi-Fi, ont une interface Wi-Fi que Meshloom lit et règle par la ligne de commande compagnon de la radio. Cela couvre les versions officielles Bluetooth + Wi-Fi et les versions Wi-Fi produites par le flasheur Meshloom. **Réglages → Radio → Connexion** montre alors un groupe **Wi-Fi** : le nom du réseau (SSID), si le Wi-Fi est activé, si la radio est connectée et son adresse, et **Identifiants enregistrés dans la radio** (oui ou non). Le nom affiché est celui enregistré, ou celui intégré au firmware quand rien n’est enregistré : la radio ne sait pas dire lequel. Le groupe est masqué quand le firmware n’a pas de ligne de commande (antérieur à 1.18, ou radio jointe par le proxy radio d’un autre Meshloom) ou pas de Wi-Fi.
+
+### La question posée une fois
+
+Après chaque connexion, Meshloom vérifie si la radio contient des identifiants Wi-Fi enregistrés. Une radio Wi-Fi produite par le flasheur rejoint le réseau avec des identifiants compilés dans son firmware et n’a rien d’enregistré. La « mise à jour sans effacement » du flasheur peut produire un firmware sans identifiants et compter sur ceux enregistrés : sans rien d’enregistré, la radio ne démarrerait plus jamais le Wi-Fi.
+
+Quand le Wi-Fi est activé et que rien n’est enregistré, Meshloom demande donc une fois le mot de passe, avec le nom du réseau prérempli (modifiable) et une option **Réseau ouvert**, et dit pourquoi : cela permet au flasheur de mettre à jour cette radio sans retaper les identifiants Wi-Fi.
+
+- **Enregistrer dans la radio** envoie le nom du réseau, puis le mot de passe, les relit et les vérifie. S’ils ne correspondent pas, les valeurs précédentes sont rétablies.
+- **Ne plus demander pour cette radio** est mémorisé pour cette radio (par sa clé publique) : Meshloom ne la redemande plus jamais. **Enregistrer les identifiants**, dans le groupe Wi-Fi, reste disponible.
+
+La question n’a pas de bouton de fermeture et attend l’une de ces deux réponses. Un mauvais mot de passe, ou **Réseau ouvert** coché pour un réseau protégé, empêche la radio de rejoindre le Wi-Fi après son prochain redémarrage. Les identifiants que vous saisissez dans Meshloom pour toute autre raison sont enregistrés dans la radio de la même façon.
+
+### Changer de réseau, activer ou désactiver le Wi-Fi
+
+**Changer de réseau Wi-Fi** demande le nom du réseau et deux fois le mot de passe, ou **Réseau ouvert**. **Désactiver le Wi-Fi** et **Activer le Wi-Fi** changent le réglage de la radio. Chaque changement s’applique au redémarrage de la radio. Quand un changement demande un redémarrage, Meshloom demande avant de redémarrer la radio ; **Plus tard** garde le changement, avec **Changement en attente d’un redémarrage** et un bouton **Redémarrer maintenant**. Enregistrer les identifiants du réseau que la radio utilise déjà avec ses identifiants intégrés ne demande pas de redémarrage.
+
+Quand la radio n’a aucun nom de réseau, **Configurer le Wi-Fi** remplace **Activer le Wi-Fi** : la radio ne démarre le Wi-Fi qu’une fois un nom enregistré. Si le Wi-Fi est désactivé, **Configurer le Wi-Fi** l’active aussi, pour qu’un seul redémarrage applique les deux.
+
+Quand Meshloom joint la radio en TCP (donc par son Wi-Fi), les fenêtres préviennent que changer de réseau ou désactiver le Wi-Fi peut rendre la radio injoignable. Reconnectez-la alors en USB ou en Bluetooth. Une fois la radio sur le Wi-Fi, Meshloom propose de l’utiliser en TCP (voir [Transports](/docs/deep/transports/#du-bluetooth-au-wi-fi)).
+
+### Limites
+
+- Un réseau nommé littéralement `(not set)` ne peut pas être utilisé : la radio affiche ce texte quand aucun nom n’est défini.
+- Le nom du réseau fait de 1 à 32 octets, le mot de passe jusqu’à 63. Aucun des deux n’est rogné : les espaces comptent. Sous 8 caractères, Meshloom prévient (le WPA en demande 8, les clés WEP en ont 5 ou 13) et enregistre le mot de passe tel quel.
+- Sur la radio, un réseau ouvert se lit comme « rien d’enregistré ». Meshloom retient que vous en avez enregistré un pour ce réseau.
+- Si l’enregistrement est interrompu (le lien a coupé entre les deux commandes), la radio peut contenir le nouveau nom de réseau avec l’ancien mot de passe ou aucun. Meshloom affiche alors un avertissement, même après une reconnexion, et ne propose aucun redémarrage (pas même avec **Activer le Wi-Fi** ou **Désactiver le Wi-Fi**) : enregistrez de nouveau les identifiants, ou vérifiez-les en USB ou en Bluetooth avant de redémarrer la radio.
+- Si la vérification après la connexion échoue (la radio n’a pas répondu à temps), Meshloom réessaie après 30 secondes, puis après 2 minutes. **Réessayer**, dans le groupe Wi-Fi, vérifie de nouveau. Si Meshloom ne peut pas lire du tout l’état du Wi-Fi, le groupe l’indique, avec **Réessayer**.
+
+### Ce que Meshloom garde
+
+Meshloom n’enregistre jamais le mot de passe Wi-Fi, ni dans sa base de données ni dans ses journaux. Pour savoir s’il y en a un d’enregistré, il le relit dans la radio après chaque connexion (et à chaque nouvelle tentative de cette vérification) et quand il enregistre des identifiants, puis l’oublie. En TCP, il traverse alors votre réseau local en clair à chaque fois. Voir [Sécurité](/docs/deep/security/#mot-de-passe-wi-fi).
+
 ## Remise à zéro usine
 
 Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio. Le bouton demande que la radio soit connectée. Une fenêtre liste ce qui va se passer, et vous devez saisir exactement le nom de la radio pour activer le bouton de confirmation.
@@ -122,11 +157,12 @@ Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio
 - Son identité. Une nouvelle paire de clés est générée : les autres nœuds voient donc un nouveau nœud.
 - Ses contacts et ses canaux.
 - Ses réglages radio (fréquence, bande passante, SF, CR, puissance d’émission). Ils reviennent aux valeurs par défaut du firmware : saisissez-les de nouveau dans l’onglet **Radio**.
+- Les identifiants Wi-Fi qui y sont enregistrés (voir [Wi-Fi](#wi-fi)). Une radio jointe par le Wi-Fi peut devenir injoignable : reconnectez-la en USB ou en Bluetooth. La fenêtre le signale quand des identifiants sont enregistrés.
 
 **Conservé :**
 
 - La base de données de Meshloom : vos messages et vos contacts.
-- Les identifiants Wi-Fi, intégrés au firmware. Une radio Wi-Fi reste joignable.
+- Les identifiants Wi-Fi intégrés au firmware, s’il y en a.
 
 La radio redémarre et Meshloom se reconnecte tout seul. Il vous demande ensuite s’il faut adopter la nouvelle identité, avec l’invite d’identité habituelle. Cette action est irréversible.
 

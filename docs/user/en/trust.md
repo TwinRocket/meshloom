@@ -11,7 +11,7 @@ Meshloom assumes it runs on a network whose users you know. This is not an overs
 
 There are no user accounts, sessions, roles or per-feature permissions. Anyone who can reach the server on port `8000` gets the full interface without typing anything.
 
-That means reading the whole history of direct messages and channels, writing as your node, changing its name and radio settings, deleting contacts and emptying the database. There is no middle ground between "cannot open the page" and "controls everything".
+That means reading the whole history of direct messages and channels, writing as your node, changing its name and radio settings, deleting contacts and emptying the database. There is no middle ground between "cannot open the page" and "controls everything". It also includes changing the radio's Wi-Fi network and rebooting the radio; since the server accepts requests from any web page (below), a web page opened on a machine that can reach Meshloom can do it too.
 
 The server also accepts requests from any web page. This is deliberate: it lets you open the interface from any device on the network with no extra setup. It relies on the same trusted network.
 

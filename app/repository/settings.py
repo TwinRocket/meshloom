@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 from collections.abc import Mapping
 from typing import Any, TypedDict
@@ -1257,6 +1258,102 @@ class AppSettingsRepository:
             await conn.execute(
                 "UPDATE app_settings SET community_opt_out_pending = ? WHERE id = 1", (value,)
             )
+
+    # -- Wi-Fi prompt state (migration 095) -----------------------------------
+    # One JSON object keyed by the lowercase radio public key. Every helper is a
+    # single UPDATE with json_set/json_remove, so two writers (two tabs, a store
+    # racing a dismissal) never lose each other's field. Never a password.
+
+    @staticmethod
+    async def get_wifi_prompt_state() -> dict[str, dict[str, Any]]:
+        """What Meshloom asked about each radio's Wi-Fi credentials. Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT wifi_prompt_state FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return {}
+        try:
+            parsed = json.loads(row["wifi_prompt_state"] or "{}")
+        except (KeyError, TypeError, IndexError, ValueError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {
+            key: value
+            for key, value in parsed.items()
+            if isinstance(key, str) and isinstance(value, dict)
+        }
+
+    @staticmethod
+    async def mark_wifi_prompt_dismissed(public_key: str) -> None:
+        """The user chose "don't ask again for this radio" (never erased)."""
+        await _wifi_prompt_set(public_key, {"dismissed_at": int(time.time())})
+
+    @staticmethod
+    async def mark_wifi_open_network(public_key: str, ssid: str) -> None:
+        """The user stored an open network for ``ssid`` (keeps any dismissal)."""
+        await _wifi_prompt_set(
+            public_key, {"open_network_ssid": ssid, "open_network_at": int(time.time())}
+        )
+
+    @staticmethod
+    async def clear_wifi_open_network(public_key: str) -> None:
+        """A password was stored: drop the open-network record only."""
+        await _wifi_prompt_remove(public_key, ("open_network_ssid", "open_network_at"))
+
+    @staticmethod
+    async def mark_wifi_store_started(public_key: str, ssid: str) -> None:
+        """A credentials store is about to write to the radio (no password kept)."""
+        await _wifi_prompt_set(
+            public_key, {"store_started_at": int(time.time()), "store_target_ssid": ssid}
+        )
+
+    @staticmethod
+    async def clear_wifi_store_marker(public_key: str) -> None:
+        """The store was verified (or rolled back): the radio is consistent again."""
+        await _wifi_prompt_remove(public_key, ("store_started_at", "store_target_ssid"))
+
+
+_PUBLIC_KEY_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+# A column that is not a JSON object (hand-edited, truncated) restarts from {}.
+_WIFI_PROMPT_BASE = (
+    "CASE WHEN json_valid(wifi_prompt_state) AND json_type(wifi_prompt_state) = 'object' "
+    "THEN wifi_prompt_state ELSE '{}' END"
+)
+
+
+def _wifi_prompt_key(public_key: str) -> str:
+    if not isinstance(public_key, str) or not _PUBLIC_KEY_RE.match(public_key):
+        raise ValueError("radio public key must be 64 hex characters")
+    return public_key.lower()
+
+
+async def _wifi_prompt_set(public_key: str, fields: dict[str, Any]) -> None:
+    key = _wifi_prompt_key(public_key)
+    # The key is validated hex, so the JSON path holds no quote; it is still
+    # passed as a bound parameter, never formatted into the SQL text.
+    expression = _WIFI_PROMPT_BASE
+    params: list[Any] = []
+    for name, value in fields.items():
+        expression = f"json_set({expression}, ?, ?)"
+        params.extend((f'$."{key}".{name}', value))
+    async with db.tx() as conn:
+        await conn.execute(
+            f"UPDATE app_settings SET wifi_prompt_state = {expression} WHERE id = 1", params
+        )
+
+
+async def _wifi_prompt_remove(public_key: str, names: tuple[str, ...]) -> None:
+    key = _wifi_prompt_key(public_key)
+    placeholders = ", ".join("?" for _ in names)
+    async with db.tx() as conn:
+        await conn.execute(
+            f"UPDATE app_settings SET wifi_prompt_state = "
+            f"json_remove({_WIFI_PROMPT_BASE}, {placeholders}) WHERE id = 1",
+            [f'$."{key}".{name}' for name in names],
+        )
 
 
 class StatisticsRepository:

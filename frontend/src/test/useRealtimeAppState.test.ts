@@ -491,6 +491,39 @@ describe('useRealtimeAppState', () => {
     expect(mocks.toast.error).not.toHaveBeenCalled();
   });
 
+  it('announces a Wi-Fi reboot with the Wi-Fi copy', () => {
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    const connected = {
+      status: 'ok',
+      radio_connected: true,
+      radio_initializing: false,
+      radio_state: 'connected',
+      connection_info: 'Serial: /dev/ttyUSB0',
+      database_size_mb: 1,
+      oldest_undecrypted_timestamp: null,
+      fanout_statuses: {},
+      bots_disabled: false,
+    } as HealthStatus;
+
+    act(() => {
+      result.current.onHealth?.(connected);
+      result.current.onHealth?.({
+        ...connected,
+        status: 'degraded',
+        radio_connected: false,
+        radio_state: 'rebooting',
+        reboot_reason: 'wifi_config',
+      });
+    });
+
+    expect(mocks.toast.info).toHaveBeenCalledWith(i18n.t('toast.radioRebootingWifiConfig'), {
+      id: RADIO_REBOOTING_TOAST_ID,
+      description: i18n.t('toast.radioRebootingDetail'),
+    });
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
   it('translates the details of a coded error when a Detail key exists', () => {
     const { args } = createRealtimeArgs();
     const { result } = renderHook(() => useRealtimeAppState(args));

@@ -79,6 +79,31 @@ describe('useWebSocket dispatch', () => {
     expect(onHealth).toHaveBeenCalledWith(healthData);
   });
 
+  it('routes a rebooting health sample with its reboot_reason', () => {
+    const onHealth = vi.fn();
+    renderHook(() => useWebSocket({ onHealth }));
+
+    const { type, data } = fixtures.health_rebooting_wifi_config.expected_ws_event;
+    fireMessage({ type, data });
+
+    expect(onHealth).toHaveBeenCalledOnce();
+    expect(onHealth.mock.calls[0][0]).toMatchObject({
+      radio_state: 'rebooting',
+      reboot_reason: 'wifi_config',
+    });
+  });
+
+  it('routes radio_wifi events to onRadioWifi', () => {
+    const onRadioWifi = vi.fn();
+    renderHook(() => useWebSocket({ onRadioWifi }));
+
+    const { type, data } = fixtures.radio_wifi_state.expected_ws_event;
+    fireMessage({ type, data });
+
+    expect(onRadioWifi).toHaveBeenCalledOnce();
+    expect(onRadioWifi).toHaveBeenCalledWith(data);
+  });
+
   it('routes message event to onMessage with correct Message shape', () => {
     const onMessage = vi.fn();
     renderHook(() => useWebSocket({ onMessage }));

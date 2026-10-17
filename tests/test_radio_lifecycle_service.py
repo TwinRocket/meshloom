@@ -265,6 +265,8 @@ class TestRunPostConnectSetup:
         radio_manager._acquire_operation_lock = AsyncMock()
         radio_manager._release_operation_lock = MagicMock()
 
+        wifi_started: list[bool] = []
+
         with (
             patch("app.event_handlers.register_event_handlers"),
             patch("app.keystore.export_and_store_private_key", new=AsyncMock()),
@@ -279,9 +281,15 @@ class TestRunPostConnectSetup:
             patch("app.radio_sync.start_periodic_sync"),
             patch("app.radio_sync.start_periodic_advert"),
             patch("app.radio_sync.start_message_polling"),
+            patch(
+                "app.services.radio_wifi.start_post_connect_check",
+                side_effect=lambda: wifi_started.append(radio_manager._setup_complete),
+            ),
         ):
             await run_post_connect_setup(radio_manager)
 
+        # The Wi-Fi check is started once, after setup completed.
+        assert wifi_started == [True]
         assert radio_manager.device_info_loaded is True
         assert radio_manager.max_contacts == 350
         assert radio_manager.max_channels == 64
