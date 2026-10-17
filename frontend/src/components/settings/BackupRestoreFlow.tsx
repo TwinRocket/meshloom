@@ -157,8 +157,9 @@ export function BackupRestoreFlow({
   onFinished,
   onRunningChange,
 }: {
-  /** Show the most recent restore job on mount (after a reload). A job that
-   * finished while no view was open still gets its onFinished, once. */
+  /** Show the most recent restore job on mount (after a reload) while it runs,
+   * or once finished until a view handled it. A job that finished while no
+   * view was open still gets its onFinished, once. */
   resumeLatest?: boolean;
   onFinished?: (job: BackupRestoreJob) => void;
   /** True while a restore job runs (the parent keeps itself open meanwhile). */
@@ -228,7 +229,9 @@ export function BackupRestoreFlow({
     [t]
   );
 
-  // After a reload: show the latest job (running or finished).
+  // After a reload: show the latest job while it runs, or once finished until
+  // a view has handled it. A handled one stays out of the way: the file picker
+  // shows, and no stale reboot button.
   useEffect(() => {
     if (!resumeLatest) return;
     let cancelled = false;
@@ -236,11 +239,7 @@ export function BackupRestoreFlow({
       .getLatestRestoreJob()
       .then((job) => {
         if (!cancelled && job) {
-          // A job that ended before this view opened: handled once, by the
-          // first view that sees it finished.
-          if (job.state !== 'running' && jobHandled(job.job_id)) {
-            finishedRef.current = job.job_id;
-          }
+          if (job.state !== 'running' && jobHandled(job.job_id)) return;
           setPhase((current) =>
             current.kind === 'idle' ? { kind: 'job', jobId: job.job_id, job } : current
           );

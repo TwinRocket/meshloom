@@ -299,9 +299,12 @@ be wrong, because historical decryption inserts old messages with new ids.
   (`onBackupRestored`), the identity window runs the identity-adopt reload.
   Both decide from the steps (`restoreChanges`: identity restored/bound, or
   Meshloom data done), never from `job.state`, since a job can fail after the
-  identity step. The window cannot be closed while a job runs, and a job that
-  ended while no view was open gets its reload once, when Settings next opens
-  (handled job ids in sessionStorage).
+  identity step. The identity window cannot be closed while a job runs. Only
+  Settings > Database mounts the flow with `resumeLatest`: a job that ended
+  while no view was open gets its reload once, when that section next opens
+  (handled job ids in sessionStorage); until then the client keeps its old
+  contacts and conversations. That section shows the latest job while it runs,
+  or finished until a view handled it; a handled job is not shown again.
 - **Inspect** also lists the non-bot integrations with their `enabled` flag,
   the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label and
   endpoint host of each push subscription the restore would write, per

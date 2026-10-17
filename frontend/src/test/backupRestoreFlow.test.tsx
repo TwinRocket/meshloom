@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -428,6 +428,7 @@ describe('BackupRestoreFlow', () => {
   it('shows the latest job after a reload', async () => {
     mocks.getLatestRestoreJob.mockResolvedValue(
       job({
+        job_id: 'job-shown-after-reload',
         steps: [
           {
             step: 'radio_settings',
@@ -464,12 +465,22 @@ describe('BackupRestoreFlow', () => {
     expect(onFinished.mock.calls[0][0].job_id).toBe('job-ended-unseen');
     view.unmount();
 
-    // Opened again: already handled.
+    // Opened again: already handled, so the view starts on the file picker.
     await act(async () => {
       render(<BackupRestoreFlow resumeLatest onFinished={onFinished} />);
     });
-    await screen.findByText(i18n.t('settings.fullRestore.done'));
+    expect(await screen.findByLabelText(i18n.t('settings.fullRestore.choose'))).toBeVisible();
+    expect(screen.queryByText(i18n.t('settings.fullRestore.done'))).toBeNull();
     expect(onFinished).toHaveBeenCalledTimes(1);
+  });
+
+  it('still shows a running job after a reload, even one seen before', async () => {
+    mocks.getLatestRestoreJob.mockResolvedValue(job({ job_id: 'job-1', state: 'running' }));
+    mocks.getRestoreJob.mockResolvedValue(job({ job_id: 'job-1', state: 'running' }));
+    await act(async () => {
+      render(<BackupRestoreFlow resumeLatest />);
+    });
+    expect(await screen.findByText(i18n.t('settings.fullRestore.restoring'))).toBeVisible();
   });
 
   it('reports while a job runs', async () => {
@@ -725,13 +736,21 @@ describe('BackupRestoreFlow', () => {
     ).toBeVisible();
   });
 
-  it('does not report a job that had already ended when the view opened', async () => {
+  it('neither shows nor reports again a finished job already handled', async () => {
     const onFinished = vi.fn();
-    mocks.getLatestRestoreJob.mockResolvedValue(job());
+    mocks.getLatestRestoreJob.mockResolvedValue(job({ job_id: 'job-handled-earlier' }));
     await act(async () => {
       render(<BackupRestoreFlow resumeLatest onFinished={onFinished} />);
     });
-    expect(await screen.findByText(i18n.t('settings.fullRestore.done'))).toBeVisible();
+    await waitFor(() => expect(onFinished).toHaveBeenCalledTimes(1));
+    cleanup();
+    onFinished.mockClear();
+    await act(async () => {
+      render(<BackupRestoreFlow resumeLatest onFinished={onFinished} />);
+    });
+    await waitFor(() => expect(mocks.getLatestRestoreJob).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText(i18n.t('settings.fullRestore.choose'))).toBeVisible();
+    expect(screen.queryByText(i18n.t('settings.fullRestore.rebootNow'))).toBeNull();
     expect(onFinished).not.toHaveBeenCalled();
   });
 
