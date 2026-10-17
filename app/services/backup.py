@@ -4,10 +4,14 @@
   channels, settings, groups and push preferences, merged into the live DB.
 - ``meshloom-backup-v2``: the v1 fields plus the radio identity, every radio
   setting, Wi-Fi credentials stored in the radio and the rest of the Meshloom
-  settings (``BACKUP_COVERAGE`` lists every column and table with a decision).
-- The SQLite file download (``write_sqlite_backup``) never replaces the live DB.
+  settings (``BACKUP_COVERAGE`` lists every column and table with a decision),
+  and the optional named ``sections`` other features register
+  (``app/services/backup_sections.py``, ``docs/dev/backup.md``).
+- The SQLite file download (``write_sqlite_backup``) never replaces the live DB;
+  the copy carries a marker that runs the restore hooks if it is put back.
 """
 
+import json
 import logging
 import re
 import time
@@ -17,6 +21,7 @@ from urllib.parse import quote
 
 import aiosqlite
 from pydantic import BaseModel, SecretStr, ValidationError
+from starlette.requests import Request
 
 from app.database import Database
 from app.models import (
@@ -44,6 +49,13 @@ from app.repository import (
     ChannelRepository,
     ContactGroupRepository,
     ContactRepository,
+)
+from app.services.backup_sections import (
+    export_sections,
+    prepare_sqlite_snapshot,
+    refuse_identity_seeds,
+    run_on_restore_hooks,
+    sensitive_section_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,11 +198,16 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
 
 
 async def write_sqlite_backup(database: Database, dest_path: str) -> None:
-    """Copy the live DB to ``dest_path`` via SQLite's backup API (lock held)."""
+    """Copy the live DB to ``dest_path`` via SQLite's backup API (lock held),
+    then clear the identity seeds and the excluded secrets in the copy and mark
+    it as a snapshot (``prepare_sqlite_snapshot``, ``run_sqlite_restore_hooks``)."""
     dest = await aiosqlite.connect(dest_path)
     try:
         async with database.readonly() as conn:
             await conn.backup(dest)
+        # Cleared values must not survive in the free space of the copy's pages.
+        await dest.execute("PRAGMA secure_delete = ON")
+        await prepare_sqlite_snapshot(dest, int(time.time()))
         await dest.commit()
     finally:
         await dest.close()
@@ -246,7 +263,7 @@ async def export_json() -> BackupExport:
         key: dict(flags)
         for key, flags in (await AppSettingsRepository.get_push_conversation_overrides()).items()
     }
-    return BackupExport(
+    export = BackupExport(
         format=BACKUP_FORMAT,
         exported_at=int(time.time()),
         contacts=[_contact_to_backup(c) for c in contacts],
@@ -257,9 +274,15 @@ async def export_json() -> BackupExport:
         push_conversation_overrides=exported_overrides,
         vapid_subject=await AppSettingsRepository.get_vapid_subject(),
     )
+    await refuse_identity_seeds(export.model_dump(mode="json"))
+    return export
 
 
-async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
+async def restore_json(
+    request: BackupRestoreRequest, *, run_hooks: bool = True
+) -> BackupRestoreResult:
+    """Merge the v1 fields. ``run_hooks=False`` for the full restore job, which
+    runs the restore hooks itself, once, at its end."""
     if not request.confirm:
         raise ValueError(
             "Restore requires confirm=true. This merges into the live database "
@@ -342,6 +365,8 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
         settings_updated,
         groups_upserted,
     )
+    if run_hooks:
+        await run_on_restore_hooks("json")
     return BackupRestoreResult(
         contacts_upserted=contacts_upserted,
         channels_upserted=channels_upserted,
@@ -418,6 +443,40 @@ def parse_backup_model(model: type[_ModelT], raw: object) -> _ModelT:
             message="The backup file is not valid",
             params={"fields": validation_error_fields(exc)[:20]},
         ) from None
+
+
+# A backup body (inspect, restore) is read before parsing, up to this size: a
+# plain file with tens of thousands of contacts stays far below it.
+MAX_BACKUP_BODY_BYTES = 64 * 1024 * 1024
+
+
+async def read_backup_body(request: Request) -> dict[str, Any]:
+    """The JSON object of an inspect or restore request, refused with a 413
+    ``backup_too_large`` past ``MAX_BACKUP_BODY_BYTES`` (read in chunks, so
+    an oversized body is never held whole)."""
+    too_large = BackupError(
+        "backup_too_large",
+        status=413,
+        message="This backup file is too large",
+        params={"max_bytes": MAX_BACKUP_BODY_BYTES},
+    )
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > MAX_BACKUP_BODY_BYTES:
+        raise too_large
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_BACKUP_BODY_BYTES:
+            raise too_large
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        raise BackupError(
+            "backup_invalid", message="The backup file is not valid", params={"fields": []}
+        )
+    return parsed
 
 
 def normalize_backup_document(raw: object) -> object:
@@ -638,8 +697,11 @@ async def _read_wifi(cli, public_key: str | None) -> tuple[BackupWifi | None, li
         return None, ["wifi_read_failed"]
 
 
-async def export_backup_v2() -> BackupExportV2:
-    """The full backup. Works with the radio disconnected (Meshloom part only)."""
+async def export_backup_v2(*, encrypted: bool = False) -> BackupExportV2:
+    """The full backup. Works with the radio disconnected (Meshloom part only).
+
+    ``encrypted``: the caller wraps it in a passphrase envelope; otherwise each
+    sensitive section adds ``section_sensitive_unencrypted:<name>``."""
     from app.radio import RadioOperationError
     from app.services.backup_radio import read_radio_node_settings
     from app.services.companion_cli import CliError, companion_cli_session
@@ -687,11 +749,17 @@ async def export_backup_v2() -> BackupExportV2:
             if identity is not None and identity.private_key_status == "export_disabled"
             else "private_key_unavailable"
         )
+    sections, section_warnings = await export_sections()
+    warnings.extend(section_warnings)
+    if not encrypted:
+        warnings.extend(
+            f"section_sensitive_unencrypted:{name}" for name in sensitive_section_names(sections)
+        )
     try:
         version: str | None = get_app_build_info().version
     except Exception:
         version = None
-    return BackupExportV2(
+    doc = BackupExportV2(
         **base.model_dump(exclude={"format"}),
         meshloom_version=version,
         warnings=list(dict.fromkeys(warnings)),
@@ -699,7 +767,10 @@ async def export_backup_v2() -> BackupExportV2:
         radio=radio,
         wifi=wifi,
         meshloom_extra=extra,
+        sections=sections,
     )
+    await refuse_identity_seeds(export_document(doc))
+    return doc
 
 
 # -- Full backup (v2): Meshloom settings outside v1 ------------------------------

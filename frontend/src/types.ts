@@ -1695,7 +1695,21 @@ export interface BackupInspectResult {
   wifi_ssid_differs_on_tcp: boolean;
   /** Reached over TCP and the file turns Wi-Fi off. */
   wifi_off_on_tcp?: boolean;
+  /** The file's named sections (added by features such as plugins or accounts). */
+  sections?: BackupSectionSummary[];
   warnings: string[];
+}
+
+export interface BackupSectionSummary {
+  name: string;
+  /** This version restores it (else it is ignored). */
+  known: boolean;
+  /** Written by a newer version of its owner: not restored. */
+  too_new: boolean;
+  /** Holds secrets (hashes included). */
+  sensitive: boolean;
+  /** What it holds, per language (en, fr); null when unknown. */
+  description: Record<string, string> | null;
 }
 
 export interface BackupRestoreSteps {

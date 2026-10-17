@@ -13,7 +13,7 @@ you work there:
 - `frontend/AGENTS.md`: frontend (state, WebSocket client, i18n, layout).
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
 
-Developer reference: `docs/dev/` (database schema, Community client, frontend
+Developer reference: `docs/dev/` (database schema, backup sections, Community client, frontend
 Community state, releasing, BLE pairing). User docs: `docs/user/` (en, fr). Environment variables for users:
 `docs/user/en/deep/environment.md`.
 

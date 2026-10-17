@@ -5,6 +5,12 @@ The server now enforces the radio's message size limit for every way of sending.
 ### Added
 
 - **Oversized messages are refused by the server.** Until now only the web composer checked the size, so bots and API clients could send messages the radio cannot carry. The server now applies the same limit to direct messages (156 bytes) and channel messages (156 bytes minus your node name and the `: ` separator), counted in bytes, on every path including resends. An oversized message is refused with a clear error and nothing is sent or stored. Known limit: after renaming your node to a longer name, an old message that fitted may be refused on resend.
+- **The full backup can carry parts added by other features.** Features such as accounts or plugins can now add their own part to the full backup. Before you restore, the summary lists these parts and marks the ones holding secrets; a backup holding such parts asks to be encrypted. A part your Meshloom does not know, or one made by a newer version, is left aside and the rest is restored; a part that fails is left as it was. Backups from 4.18 and earlier still restore. Restore a full backup on 5.0 or later only: 4.18 restores just its contacts, channels, settings and groups, without saying so.
+
+### Changed
+
+- **The meshcore.db download no longer holds the Bluetooth PIN.** The database copy from **Settings → Database** now leaves out the Bluetooth PIN, like the full backup, and the keys Meshloom will use to identify itself to online services. Putting such a copy back in place counts as a restore when Meshloom next starts.
+- **Restore files are limited to 64 MiB.** A larger file is refused with a clear error.
 
 ### Security
 
@@ -19,6 +25,12 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 #### Ajouts
 
 - **Les messages trop longs sont refusés par le serveur.** Jusqu'ici, seul le champ de saisie web vérifiait la taille : les robots et les clients de l'API pouvaient envoyer des messages que la radio ne peut pas transporter. Le serveur applique maintenant la même limite aux messages directs (156 octets) et aux messages de canal (156 octets moins le nom de votre nœud et le séparateur `: `), comptée en octets, sur tous les chemins y compris les renvois. Un message trop long est refusé avec une erreur claire, sans rien envoyer ni enregistrer. Limite connue : après avoir renommé votre nœud avec un nom plus long, un ancien message qui tenait peut être refusé au renvoi.
+- **La sauvegarde complète peut contenir des parties ajoutées par d'autres fonctions.** Des fonctions comme les comptes ou les extensions peuvent désormais ajouter leur propre partie à la sauvegarde complète. Avant la restauration, le résumé liste ces parties et signale celles qui contiennent des secrets ; une sauvegarde qui en contient demande à être chiffrée. Une partie que votre Meshloom ne connaît pas, ou faite par une version plus récente, est laissée de côté et le reste est restauré ; une partie en échec est laissée telle quelle. Les sauvegardes de la 4.18 et des versions antérieures se restaurent toujours. Restaurez une sauvegarde complète sur la 5.0 ou plus récent uniquement : la 4.18 n'en restaure que les contacts, canaux, réglages et groupes, sans le dire.
+
+#### Modifications
+
+- **Le téléchargement de meshcore.db ne contient plus le code PIN Bluetooth.** La copie de la base depuis **Réglages → Base de données** laisse désormais de côté le code PIN Bluetooth, comme la sauvegarde complète, ainsi que les clés avec lesquelles Meshloom s'identifiera auprès des services en ligne. Remettre une telle copie en place compte comme une restauration au prochain démarrage de Meshloom.
+- **Les fichiers à restaurer sont limités à 64 Mio.** Un fichier plus gros est refusé avec une erreur claire.
 
 #### Sécurité
 
