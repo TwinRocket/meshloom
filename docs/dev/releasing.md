@@ -60,7 +60,7 @@ rotation steps are in `pkg/keys/README.md`.
   the PR by hand.
 - What an admin configures, outside the repository files: the `preversion-5`
   ruleset; "Allow GitHub Actions to create and approve pull requests" and
-  "Allow auto-merge" (Settings); the `NEXT_DEPLOY_WEBHOOKS` secret (below).
+  "Allow auto-merge" (Settings); the `EDGE_DEPLOY_WEBHOOKS` secret (below).
 
 ## Chain
 
@@ -111,18 +111,16 @@ rotation steps are in `pkg/keys/README.md`.
    image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:next` and
    `:preversion-5` on `preversion-5`; `:latest`, `:X.Y.Z` and `:X.Y` on tags;
    `:sha-<short>` on all of them. Its `Deploy` job then POSTs Portainer
-   webhooks: on `main`, those in the `EDGE_DEPLOY_WEBHOOKS` secret (stacks on
-   `docker-compose.dev.yaml`); on `preversion-5`, those in
-   `NEXT_DEPLOY_WEBHOOKS` (the stacks that run `:next`). The `main` path runs
-   on `ubuntu-latest` and sends the Cloudflare Access service token from
-   `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` when set (Portainer is
-   behind Access). The `preversion-5` path runs on a self-hosted runner of the
-   owner's LAN: the `meshloom-next` stack is on mininode1, whose Portainer has
-   no public route, so the secret holds a LAN URL
-   (`https://192.168.42.226:9443/api/stacks/webhooks/<uuid>`), sent without the
-   Access token and with `curl --insecure` (Portainer's self-signed certificate
-   only names `localhost`, so it cannot be verified by name). An unset
-   webhook secret is a notice and a failed call a warning, never a red run.
+   webhooks, on `main` only: those in the `EDGE_DEPLOY_WEBHOOKS` secret (stacks
+   on `docker-compose.dev.yaml`). It runs on `ubuntu-latest` and sends the
+   Cloudflare Access service token from `CF_ACCESS_CLIENT_ID` /
+   `CF_ACCESS_CLIENT_SECRET` when set (Portainer is behind Access). On
+   `preversion-5` it calls no webhook and ends with a notice: the `meshloom-next`
+   stack is on mininode1, whose Portainer has no public route, and a self-hosted
+   runner is not an option on a public repository (a fork pull request could run
+   code on the owner's machine). Until MSHL-270 decides, redeploy `meshloom-next`
+   by hand after each `:next` build. An unset webhook secret is a notice and a
+   failed call a warning, never a red run.
    Tag builds also get a build provenance attestation. Pull requests build
    without pushing.
 4. `install.sh` embeds the public key, its fingerprint, the compose helper and
