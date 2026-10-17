@@ -54,7 +54,7 @@ Le BLE exige l’adresse et le PIN. Dans l’add-on Home Assistant, le Bluetooth
 
 ### Appairage
 
-Une radio MeshCore demande son PIN une seule fois, la première fois qu’une machine s’appaire avec elle en Bluetooth. Sous Linux, Meshloom s’en charge lui-même quand il se connecte, avec le PIN enregistré : paquet Linux, image Raspberry Pi, Docker en root avec le socket D-Bus de l’hôte mappé, et add-on Home Assistant dès qu’il peut joindre le service Bluetooth de l’hôte. Plus besoin de `bluetoothctl pair` ni `trust` au préalable. Un appairage fait auparavant avec `bluetoothctl` est réutilisé tel quel, quel que soit le PIN enregistré. Meshloom ne se déclare jamais agent d’appairage par défaut du système : un bureau ou Home Assistant continue de traiter ses propres demandes d’appairage.
+Une radio MeshCore demande son PIN une seule fois, la première fois qu’une machine s’appaire avec elle en Bluetooth. Sous Linux, Meshloom s’en charge lui-même quand il se connecte, avec le PIN enregistré : paquet Linux, image Raspberry Pi, Docker en root avec le socket D-Bus de l’hôte mappé, et add-on Home Assistant, via le D-Bus de l’hôte. Plus besoin de `bluetoothctl pair` ni `trust` au préalable. Un appairage fait auparavant avec `bluetoothctl` est réutilisé tel quel, quel que soit le PIN enregistré. Meshloom ne se déclare jamais agent d’appairage par défaut du système : un bureau ou Home Assistant continue de traiter ses propres demandes d’appairage.
 
 Sous le champ PIN, **Appairage** indique où en sont les choses :
 

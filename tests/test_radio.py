@@ -3,6 +3,7 @@ testing, and post-connect setup ordering.
 """
 
 import asyncio
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1525,6 +1526,25 @@ class TestBlePrePairing:
         assert device.name == "MeshCore-x"
         assert device.details["path"] == "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
         assert device.details["props"]["Address"] == self.ADDRESS
+
+    @pytest.mark.skipif(sys.platform != "linux", reason="bleak's BlueZ backend is Linux-only")
+    def test_installed_bleak_bluez_client_uses_the_device_path(self):
+        """The installed bleak's BlueZ client takes the path from ``details``.
+
+        ``BleakClient(BLEDevice)`` (what meshcore builds from ``create_ble(device=...)``)
+        must not scan by address: the backend reads ``details["path"]`` and
+        ``details["props"]`` at construction. Guards bleak upgrades (checked on 3.0.2).
+        """
+        from bleak import BleakClient
+        from bleak.backends.bluezdbus.client import BleakClientBlueZDBus
+
+        from app.radio import _bluez_ble_device
+
+        client = BleakClient(_bluez_ble_device(self._outcome()), backend=BleakClientBlueZDBus)
+        backend = client._backend
+        assert backend._device_path == "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+        assert backend._device_info["Name"] == "MeshCore-x"
+        assert client.address == self.ADDRESS
 
     @pytest.mark.asyncio
     async def test_pre_paired_device_is_handed_over_without_pin(self, monkeypatch):

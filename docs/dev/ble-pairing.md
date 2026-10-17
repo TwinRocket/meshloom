@@ -290,5 +290,6 @@ Radio: MeshCore BLE companion, nRF52 (RAK4631/T114) and ESP32 (Heltec V3), PIN k
     connection use the same adapter (`bluetoothctl` shows the bond on that
     controller only).
 16. `journalctl -u meshloom` at DEBUG grepped for the PIN digits: absent.
-17. Repeat 1, 2 and 6 on bleak 3 (checks `BleakClient(BLEDevice)` still uses
-    `details["path"]`).
+17. Repeat 1, 2 and 6 on bleak 3. That `BleakClient(BLEDevice)` takes the
+    device path from `details["path"]` is checked against the installed bleak
+    by `tests/test_radio.py` (verified on 3.0.2); this run checks the real link.

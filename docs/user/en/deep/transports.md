@@ -54,7 +54,7 @@ BLE needs the address and the PIN. In the Home Assistant add-on, Bluetooth needs
 
 ### Pairing
 
-A MeshCore radio asks for its PIN once, the first time a machine pairs with it over Bluetooth. On Linux, Meshloom does this itself when it connects, with the PIN you saved: the Linux package, the Raspberry Pi image, Docker running as root with the host's D-Bus socket mapped, and the Home Assistant add-on once it can reach the host's Bluetooth service. You no longer need `bluetoothctl pair` or `trust` first. A pairing made earlier with `bluetoothctl` is reused as is, whatever PIN is saved. Meshloom never makes itself the system's default pairing agent, so a desktop or Home Assistant keeps handling its own pairing requests.
+A MeshCore radio asks for its PIN once, the first time a machine pairs with it over Bluetooth. On Linux, Meshloom does this itself when it connects, with the PIN you saved: the Linux package, the Raspberry Pi image, Docker running as root with the host's D-Bus socket mapped, and the Home Assistant add-on, through the host's D-Bus. You no longer need `bluetoothctl pair` or `trust` first. A pairing made earlier with `bluetoothctl` is reused as is, whatever PIN is saved. Meshloom never makes itself the system's default pairing agent, so a desktop or Home Assistant keeps handling its own pairing requests.
 
 Under the PIN field, **Pairing** shows where things stand:
 
