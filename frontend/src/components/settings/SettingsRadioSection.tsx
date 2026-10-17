@@ -50,6 +50,7 @@ import {
 import { RadioBlePairing } from './RadioBlePairing';
 import { RadioFactoryReset } from './RadioFactoryReset';
 import { RadioFirmwareSettings } from './RadioFirmwareSettings';
+import { RadioWifiSettings } from './RadioWifiSettings';
 import { RadioSelfTelemetrySettings } from './RadioSelfTelemetrySettings';
 import { LazyBoundary } from '../LazyBoundary';
 
@@ -1572,6 +1573,8 @@ export function SettingsRadioSection({
               {t('settings.radio.disconnectHelp')}
             </p>
           </div>
+
+          {config ? <RadioWifiSettings health={health} /> : null}
 
           {!config || !appSettings ? (
             <p className="max-w-prose text-[0.8125rem] text-muted-foreground">

@@ -14,9 +14,11 @@ import {
   getRadioWifiSnapshot,
   loadRadioWifi,
   noteRadioWifiHealth,
+  noteWifiRebootStarted,
   refreshRadioWifiAfterReconnect,
   resetRadioWifiStoreForTests,
   setRadioWifiState,
+  setWifiBackWithIpHandler,
 } from '../stores/radioWifiStore';
 
 const connected: HealthStatus = {
@@ -134,5 +136,22 @@ describe('radioWifiStore', () => {
     await flush();
     await expect(loadRadioWifi(true, { throwOnError: true })).rejects.toThrow('423');
     expect(await loadRadioWifi(true)).toBeNull();
+  });
+
+  it('calls the back-on-Wi-Fi handler once, for the first state with an address after a reboot', () => {
+    const handler = vi.fn();
+    setWifiBackWithIpHandler(handler);
+    setRadioWifiState(wifiState({ connected: true, ip: '10.0.0.1' }));
+    expect(handler).not.toHaveBeenCalled(); // no reboot from this tab
+
+    noteWifiRebootStarted();
+    setRadioWifiState(null);
+    setRadioWifiState(wifiState({ connected: false, ip: null }));
+    expect(handler).not.toHaveBeenCalled();
+    const back = wifiState({ connected: true, ip: '192.168.1.50' });
+    setRadioWifiState(back);
+    setRadioWifiState(wifiState({ connected: true, ip: '192.168.1.51' }));
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(back);
   });
 });

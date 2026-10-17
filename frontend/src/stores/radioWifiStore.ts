@@ -23,6 +23,10 @@ let version = 0;
 let radioReady = false;
 let pendingReloadTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<() => void>();
+// Set when the panel or the prompt rebooted the radio for Wi-Fi: the first state
+// with an address then calls the handler (the "switch to TCP" toast).
+let wifiRebootStarted = false;
+let backWithIpHandler: ((state: RadioWifiState) => void) | null = null;
 
 function emit(next: RadioWifiState | null): void {
   current = next;
@@ -53,6 +57,20 @@ export function setRadioWifiState(state: RadioWifiState | null): void {
   if (state === current) return;
   if (state && state.check !== 'pending') cancelPendingReload();
   emit(state);
+  if (wifiRebootStarted && state?.connected && state.ip) {
+    wifiRebootStarted = false;
+    backWithIpHandler?.(state);
+  }
+}
+
+/** A reboot that applies Wi-Fi settings was just sent from this tab. */
+export function noteWifiRebootStarted(): void {
+  wifiRebootStarted = true;
+}
+
+/** Who reacts when the radio is back on Wi-Fi after such a reboot (one handler). */
+export function setWifiBackWithIpHandler(handler: ((state: RadioWifiState) => void) | null): void {
+  backWithIpHandler = handler;
 }
 
 /**
@@ -116,5 +134,7 @@ export function resetRadioWifiStoreForTests(): void {
   current = null;
   version = 0;
   radioReady = false;
+  wifiRebootStarted = false;
+  backWithIpHandler = null;
   listeners.clear();
 }
