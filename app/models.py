@@ -1800,6 +1800,47 @@ class ContactGroupMembersUpdate(BaseModel):
     public_keys: list[str] = Field(default_factory=list)
 
 
+AdvertLocationSource = Literal["off", "current"]
+
+
+class RadioSettings(BaseModel):
+    freq: float = Field(description="Frequency in MHz")
+    bw: float = Field(description="Bandwidth in kHz")
+    sf: int = Field(description="Spreading factor (7-12)")
+    cr: int = Field(description="Coding rate (1-4)")
+
+
+class RadioConfigUpdate(BaseModel):
+    name: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    tx_power: int | None = Field(default=None, description="Transmit power in dBm")
+    radio: RadioSettings | None = None
+    path_hash_mode: int | None = Field(
+        default=None,
+        ge=0,
+        le=2,
+        description="Path hash mode (0=1-byte, 1=2-byte, 2=3-byte)",
+    )
+    advert_location_source: AdvertLocationSource | None = Field(
+        default=None,
+        description="Whether adverts include the node's current location state",
+    )
+    multi_acks_enabled: bool | None = Field(
+        default=None,
+        description="Whether the radio sends an extra direct ACK transmission",
+    )
+    telemetry_mode_base: int | None = Field(
+        default=None, ge=0, le=2, description="Base telemetry sharing mode"
+    )
+    telemetry_mode_loc: int | None = Field(
+        default=None, ge=0, le=2, description="Location telemetry sharing mode"
+    )
+    telemetry_mode_env: int | None = Field(
+        default=None, ge=0, le=2, description="Environment sensor sharing mode"
+    )
+
+
 class BackupContact(BaseModel):
     """Contact fields included in the safer JSON backup (no computed routes)."""
 

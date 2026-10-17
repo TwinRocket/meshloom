@@ -351,6 +351,10 @@ answering 403, 404 or 410 deletes the subscription.
 
 - `GET /radio/private-key` works only with `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`.
 - `POST /radio/factory-reset` sends nothing unless `confirm_name` equals the radio name.
+- `PATCH /radio/config` reads the client repeat flag with a fresh device query
+  before it sends new radio parameters (the firmware reads a missing repeat byte
+  as "off"), and answers 422 when the radio rejects the name, coordinates, TX
+  power or radio parameters (`apply_radio_config_update` checks every reply).
 - `PATCH /radio/proxy` answers 409 to a port change under `MESHCORE_MANAGED_PORTS`.
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.

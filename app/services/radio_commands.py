@@ -18,11 +18,31 @@ class PathHashModeUnsupportedError(RadioCommandServiceError):
 
 
 class RadioCommandRejectedError(RadioCommandServiceError):
-    """Raised when the radio reports an error for a command."""
+    """Raised when the radio reports an error for a command. ``code`` names the
+    setting (``name_rejected``, ``radio_params_rejected``...), never a value."""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class KeystoreRefreshError(RadioCommandServiceError):
     """Raised when server-side keystore refresh fails after import."""
+
+
+def _rejected(result) -> bool:
+    return result is not None and getattr(result, "type", None) == EventType.ERROR
+
+
+def device_info_client_repeat(result) -> bool | None:
+    """The client-repeat flag from a DEVICE_INFO reply (firmware 9+), else None."""
+    if result is None or getattr(result, "type", None) != EventType.DEVICE_INFO:
+        return None
+    payload = getattr(result, "payload", None)
+    if not isinstance(payload, dict):
+        return None
+    repeat = payload.get("repeat")
+    return repeat if isinstance(repeat, bool) else None
 
 
 async def apply_radio_config_update(
@@ -32,8 +52,16 @@ async def apply_radio_config_update(
     path_hash_mode_supported: bool,
     set_path_hash_mode: Callable[[int], None],
     sync_radio_time_fn: Callable[[Any], Awaitable[Any]],
+    client_repeat: bool | None = None,
 ) -> None:
-    """Apply a validated radio-config update to the connected radio."""
+    """Apply a validated radio-config update to the connected radio.
+
+    ``client_repeat`` is the repeat byte sent with the radio parameters: the
+    firmware reads a missing byte as "repeat off", so callers pass the radio's
+    current flag (from a fresh DEVICE_INFO) to keep it. A command the radio
+    answers with ERROR raises ``RadioCommandRejectedError``; its message names
+    the setting, never the value.
+    """
     if update.advert_location_source is not None:
         advert_loc_policy = 0 if update.advert_location_source == "off" else 1
         logger.info(
@@ -79,33 +107,51 @@ async def apply_radio_config_update(
 
     if update.name is not None:
         logger.info("Setting radio name to %s", update.name)
-        await mc.commands.set_name(update.name)
+        result = await mc.commands.set_name(update.name)
+        if _rejected(result):
+            raise RadioCommandRejectedError("The radio rejected the name", code="name_rejected")
 
     if update.lat is not None or update.lon is not None:
         current_info = mc.self_info
         lat = update.lat if update.lat is not None else current_info.get("adv_lat", 0.0)
         lon = update.lon if update.lon is not None else current_info.get("adv_lon", 0.0)
         logger.info("Setting radio coordinates to %f, %f", lat, lon)
-        await mc.commands.set_coords(lat=lat, lon=lon)
+        result = await mc.commands.set_coords(lat=lat, lon=lon)
+        if _rejected(result):
+            raise RadioCommandRejectedError(
+                "The radio rejected the coordinates", code="coords_rejected"
+            )
 
     if update.tx_power is not None:
         logger.info("Setting TX power to %d dBm", update.tx_power)
-        await mc.commands.set_tx_power(val=update.tx_power)
+        result = await mc.commands.set_tx_power(val=update.tx_power)
+        if _rejected(result):
+            raise RadioCommandRejectedError(
+                "The radio rejected the TX power", code="tx_power_rejected"
+            )
 
     if update.radio is not None:
         logger.info(
-            "Setting radio params: freq=%f MHz, bw=%f kHz, sf=%d, cr=%d",
+            "Setting radio params: freq=%f MHz, bw=%f kHz, sf=%d, cr=%d, repeat=%s",
             update.radio.freq,
             update.radio.bw,
             update.radio.sf,
             update.radio.cr,
+            client_repeat,
         )
-        await mc.commands.set_radio(
-            freq=update.radio.freq,
-            bw=update.radio.bw,
-            sf=update.radio.sf,
-            cr=update.radio.cr,
-        )
+        radio_kwargs: dict[str, Any] = {
+            "freq": update.radio.freq,
+            "bw": update.radio.bw,
+            "sf": update.radio.sf,
+            "cr": update.radio.cr,
+        }
+        if client_repeat is not None:
+            radio_kwargs["repeat"] = 1 if client_repeat else 0
+        result = await mc.commands.set_radio(**radio_kwargs)
+        if _rejected(result):
+            raise RadioCommandRejectedError(
+                "The radio rejected the radio parameters", code="radio_params_rejected"
+            )
 
     if update.path_hash_mode is not None:
         if not path_hash_mode_supported:

@@ -12,12 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
+    AdvertLocationSource,
     Contact,
     ContactUpsert,
     LppSensor,
     RadioBleDeviceInfo,
     RadioBlePairingStatus,
     RadioBleScanResponse,
+    RadioConfigUpdate,
     RadioDiscoveryRequest,
     RadioDiscoveryResponse,
     RadioDiscoveryResult,
@@ -31,6 +33,7 @@ from app.models import (
     RadioRegionMatch,
     RadioRegionVerifyRequest,
     RadioRegionVerifyResponse,
+    RadioSettings,
     RadioTraceHopRequest,
     RadioTraceNode,
     RadioTraceRequest,
@@ -67,6 +70,7 @@ from app.services.radio_commands import (
     PathHashModeUnsupportedError,
     RadioCommandRejectedError,
     apply_radio_config_update,
+    device_info_client_repeat,
     import_private_key_and_refresh_keystore,
 )
 from app.services.radio_lifecycle import expected_reboot_reason
@@ -86,7 +90,6 @@ from app.websocket import broadcast_event, broadcast_health
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/radio", tags=["radio"])
 
-AdvertLocationSource = Literal["off", "current"]
 RadioAdvertMode = Literal["flood", "zero_hop"]
 DiscoveryNodeType: TypeAlias = Literal["repeater", "sensor"]
 DISCOVERY_WINDOW_SECONDS = 8.0
@@ -115,13 +118,6 @@ async def _reconnect_and_prepare(*, broadcast_on_success: bool) -> bool:
     return await radio_manager.reconnect_and_prepare(
         broadcast_on_success=broadcast_on_success,
     )
-
-
-class RadioSettings(BaseModel):
-    freq: float = Field(description="Frequency in MHz")
-    bw: float = Field(description="Bandwidth in kHz")
-    sf: int = Field(description="Spreading factor (7-12)")
-    cr: int = Field(description="Coding rate (1-4)")
 
 
 class RadioConfigResponse(BaseModel):
@@ -157,37 +153,6 @@ class RadioConfigResponse(BaseModel):
     telemetry_mode_env: int = Field(
         default=0,
         description="Environment sensor sharing mode (0=deny, 1=per-contact, 2=allow-all)",
-    )
-
-
-class RadioConfigUpdate(BaseModel):
-    name: str | None = None
-    lat: float | None = None
-    lon: float | None = None
-    tx_power: int | None = Field(default=None, description="Transmit power in dBm")
-    radio: RadioSettings | None = None
-    path_hash_mode: int | None = Field(
-        default=None,
-        ge=0,
-        le=2,
-        description="Path hash mode (0=1-byte, 1=2-byte, 2=3-byte)",
-    )
-    advert_location_source: AdvertLocationSource | None = Field(
-        default=None,
-        description="Whether adverts include the node's current location state",
-    )
-    multi_acks_enabled: bool | None = Field(
-        default=None,
-        description="Whether the radio sends an extra direct ACK transmission",
-    )
-    telemetry_mode_base: int | None = Field(
-        default=None, ge=0, le=2, description="Base telemetry sharing mode"
-    )
-    telemetry_mode_loc: int | None = Field(
-        default=None, ge=0, le=2, description="Location telemetry sharing mode"
-    )
-    telemetry_mode_env: int | None = Field(
-        default=None, ge=0, le=2, description="Environment sensor sharing mode"
     )
 
 
@@ -487,6 +452,14 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
     radio_manager.require_connected()
 
     async with radio_manager.radio_operation("update_radio_config") as mc:
+        client_repeat: bool | None = None
+        if update.radio is not None:
+            # The firmware reads a missing repeat byte as "off": keep the radio's
+            # current flag, read fresh (no cached copy exists).
+            try:
+                client_repeat = device_info_client_repeat(await mc.commands.send_device_query())
+            except Exception:
+                logger.warning("Could not read the client repeat flag before the radio update")
         try:
             await apply_radio_config_update(
                 mc,
@@ -494,6 +467,7 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
                 path_hash_mode_supported=radio_manager.path_hash_mode_supported,
                 set_path_hash_mode=lambda mode: setattr(radio_manager, "path_hash_mode", mode),
                 sync_radio_time_fn=sync_radio_time,
+                client_repeat=client_repeat,
             )
         except PathHashModeUnsupportedError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -46,7 +46,7 @@ import {
   LAST_VIEWED_CONVERSATION_KEY,
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { SECRET_REDACTED } from '../types';
 import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
@@ -906,6 +906,27 @@ describe('SettingsModal', () => {
         expect.objectContaining({ advert_location_source: 'off' })
       );
     });
+  });
+
+  it('shows a radio rejection of the saved config instead of a success', async () => {
+    const onSave = vi.fn(async () => {
+      throw new ApiError('The radio rejected the radio parameters', 422);
+    });
+    const success = vi.spyOn(toast, 'success');
+    renderModal({ onSave });
+    openRadioSection();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.radio.advertLocationSource')), {
+      target: { value: 'off' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.saveConfig') }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The radio rejected the radio parameters'
+    );
+    expect(success).not.toHaveBeenCalledWith(i18n.t('settings.radio.configSaved'));
+    success.mockRestore();
   });
 
   it('reads a missing advert location source as off', async () => {
