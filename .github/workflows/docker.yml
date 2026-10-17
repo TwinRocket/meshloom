@@ -5,8 +5,8 @@ name: Docker
 # (tagged :next), on version tags (tagged :latest, :X.Y.Z and :X.Y), and on
 # demand. Pull requests build only, to catch Dockerfile breakage without
 # publishing. After a main build, the deploy job calls the redeploy webhooks in
-# EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml). After a preversion-5
-# build it calls nothing: the :next instance is redeployed by other means (MSHL-270).
+# EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml); after a preversion-5
+# build it calls those in NEXT_DEPLOY_WEBHOOKS (the meshloom-next stack, MSHL-270).
 #
 # forward-merge.yml merges main into preversion-5 through a PR auto-merged with
 # GITHUB_TOKEN, and a merge made with that token starts no workflow, so it waits
@@ -231,10 +231,12 @@ jobs:
   # to its login page (HTTP 302). CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET hold
   # an Access service token that the Access application accepts (Service Auth
   # policy); when both are set, every call sends them as CF-Access-Client-* headers.
-  # preversion-5 (:next) calls no webhook: its stack is on a LAN-only Portainer, and
-  # a self-hosted runner is not an option on this public repository (a fork pull
-  # request could run code on the owner's machine). The job stays on GitHub-hosted
-  # runners and only prints a notice until MSHL-270 decides how it is redeployed.
+  # preversion-5 (:next) works the same way with NEXT_DEPLOY_WEBHOOKS: mininode1's
+  # Portainer is published through the same Cloudflare tunnel and Access application,
+  # so the job stays on GitHub-hosted runners (a self-hosted runner is not an option
+  # on this public repository: a fork pull request could run code on the owner's
+  # machine). Portainer's git-stack webhook reads no query parameter (no `pullimage`),
+  # so whether a redeploy pulls a new :next is the stack's own "Re-pull image" setting.
   deploy:
     # A static name, so the required check keeps its name on every ref.
     name: Deploy
@@ -243,9 +245,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Next instance is not redeployed here
-        if: github.ref == 'refs/heads/preversion-5'
-        run: echo "::notice::No webhook is called for :next; the next instance is redeployed by other means (to be decided in MSHL-270)"
       - name: Call the edge redeploy webhooks
         if: github.ref == 'refs/heads/main'
         env:
@@ -257,6 +256,50 @@ jobs:
           unset EDGE_WEBHOOKS
           if [ -z "$WEBHOOKS" ]; then
             echo "::notice::EDGE_DEPLOY_WEBHOOKS is not set; no stack to redeploy"
+            exit 0
+          fi
+          # The token goes through a private header file, never through argv.
+          access="$(mktemp)"
+          trap 'rm -f "$access"' EXIT
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' \
+              "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" > "$access"
+          else
+            echo "::notice::No Cloudflare Access service token; webhooks are called without one"
+          fi
+          n=0
+          while IFS= read -r url; do
+            url="${url%%[[:space:]]}"
+            [ -n "$url" ] || continue
+            n=$((n + 1))
+            headers="$(mktemp)"
+            # No -f/-L: a redirect or a challenge page (a proxy in front of
+            # Portainer) must show up as a failure, not as a success.
+            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST \
+              -H @"$access" --max-time 60 --retry 2 --retry-all-errors "$url")" || true
+            code="${code:-000}"
+            # Never print the URL; the status and a few response headers are enough.
+            info="$(grep -iE '^(server|cf-mitigated|location|content-type):' "$headers" \
+              | sed -E 's#^(location:[[:space:]]*https?://[^/]+).*#\1/...#I' | tr -d '\r' | paste -sd ';' -)" || true
+            rm -f "$headers"
+            if [[ "$code" == 2* ]]; then
+              echo "Webhook $n: HTTP $code, redeploy requested ($info)"
+            else
+              # A down Portainer must not turn the image build red.
+              echo "::warning::Webhook $n: HTTP $code ($info); that stack keeps the previous image"
+            fi
+          done <<< "$WEBHOOKS"
+      - name: Call the next redeploy webhooks
+        if: github.ref == 'refs/heads/preversion-5'
+        env:
+          NEXT_WEBHOOKS: ${{ secrets.NEXT_DEPLOY_WEBHOOKS }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          WEBHOOKS="$NEXT_WEBHOOKS"
+          unset NEXT_WEBHOOKS
+          if [ -z "$WEBHOOKS" ]; then
+            echo "::notice::NEXT_DEPLOY_WEBHOOKS is not set; no stack to redeploy"
             exit 0
           fi
           # The token goes through a private header file, never through argv.
