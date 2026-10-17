@@ -73,12 +73,8 @@ export function GifPicker({
   }, []);
 
   useEffect(() => {
-    if (!apiKey) {
-      setResults([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
+    // apiKey is read once on mount, so without it the initial empty state already holds.
+    if (!apiKey) return;
     const requestId = ++requestIdRef.current;
     const timer = window.setTimeout(
       () => {

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -146,7 +154,6 @@ export function LiveView({
   const engineRef = useRef<LiveMapController | null>(null);
   const soundEngineRef = useRef<LiveSoundEngine | null>(null);
   const soundThemeRef = useRef(soundTheme);
-  const hoverRef = useRef<(payload: LiveHoverPayload | null) => void>(() => {});
   const nodeClickRef = useRef<(publicKey: string) => void>(() => {});
   // The directory fetch and the engine race each other; whichever lands second
   // applies the nodes, so the payload is never dropped on the floor.
@@ -161,26 +168,9 @@ export function LiveView({
     [communityIata, savedIata]
   );
   const iataSelectionRef = useRef(iataSelection);
-  iataSelectionRef.current = iataSelection;
   const liveSessionRef = useRef<string | null>(null);
   const optedOut = connection.optOut || !communityEnabled;
   const prefixIndex = useMemo(() => buildPrefixIndex(contacts), [contacts]);
-
-  soundThemeRef.current = soundTheme;
-  hoverRef.current = setHover;
-  nodeClickRef.current = (publicKey) => {
-    const action = resolveLiveKnownNodeAction(publicKey, contacts);
-    if (!action) return;
-    if (action.kind === 'info') {
-      onOpenContactInfo?.(action.publicKey);
-      return;
-    }
-    onSelectConversation?.({
-      type: 'contact',
-      id: action.publicKey,
-      name: action.name,
-    });
-  };
 
   const publishPins = useCallback(
     (directory: DirectoryMapNode[], heard: DirectoryMapNode[] = []) => {
@@ -201,7 +191,6 @@ export function LiveView({
     [blockedKeys, blockedNames, contacts]
   );
   const publishPinsRef = useRef(publishPins);
-  publishPinsRef.current = publishPins;
 
   useEffect(() => {
     const sound = new LiveSoundEngine();
@@ -216,7 +205,7 @@ export function LiveView({
     const host = mapHostRef.current;
     if (!host) return;
     const engine = new LiveMapController(host, {
-      onHover: (payload) => hoverRef.current(payload),
+      onHover: (payload) => setHover(payload),
       onNodeClick: (publicKey) => nodeClickRef.current(publicKey),
       soundTheme: soundThemeRef.current,
       onLaserSegment: (event) => {
@@ -298,12 +287,15 @@ export function LiveView({
     };
   }, [iataSelectionKey, communityEnabled]);
 
-  // Community's active regions feed the picker. Nothing is asked while it is off.
+  // Community's active regions feed the picker. Nothing is asked while it is off,
+  // and turning it off clears the list (adjusted during render, not in the effect).
+  const [prevCommunityReady, setPrevCommunityReady] = useState(communityReady);
+  if (communityReady !== prevCommunityReady) {
+    setPrevCommunityReady(communityReady);
+    if (!communityReady) setActiveIata([]);
+  }
   useEffect(() => {
-    if (!communityReady) {
-      setActiveIata([]);
-      return;
-    }
+    if (!communityReady) return;
     let cancelled = false;
     const load = () => {
       void api.getCommunityActiveIata().then(
@@ -390,7 +382,29 @@ export function LiveView({
   }, [communityPackets, config, optedOut, prefixIndex, rawPackets]);
 
   const heardPins = useMemo(() => heardDirectoryPins(observations), [observations]);
-  heardDirectoryPinsRef.current = heardPins;
+
+  // Latest-value refs read by the engine callbacks, the heartbeat and the directory
+  // poll. A layout effect runs before every passive effect of the same commit, so
+  // the effects below always see the values of the render that scheduled them.
+  useLayoutEffect(() => {
+    iataSelectionRef.current = iataSelection;
+    soundThemeRef.current = soundTheme;
+    nodeClickRef.current = (publicKey) => {
+      const action = resolveLiveKnownNodeAction(publicKey, contacts);
+      if (!action) return;
+      if (action.kind === 'info') {
+        onOpenContactInfo?.(action.publicKey);
+        return;
+      }
+      onSelectConversation?.({
+        type: 'contact',
+        id: action.publicKey,
+        name: action.name,
+      });
+    };
+    publishPinsRef.current = publishPins;
+    heardDirectoryPinsRef.current = heardPins;
+  });
 
   useEffect(() => {
     publishPins(directoryNodesRef.current, heardPins);

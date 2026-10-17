@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 
@@ -53,17 +53,21 @@ export function SecurityWarningModal({ health }: SecurityWarningModalProps) {
     !botsDisabledLocally &&
     !acknowledged;
 
-  useEffect(() => {
-    if (!shouldWarn) {
-      setConfirmedRisk(false);
-    }
-  }, [shouldWarn]);
+  if (!shouldWarn && confirmedRisk) {
+    setConfirmedRisk(false);
+  }
 
-  useEffect(() => {
-    if (health?.bots_disabled !== true) {
-      setBotsDisabledLocally(false);
-    }
-  }, [health?.bots_disabled, health?.bots_disabled_source]);
+  // Drop the local "bots disabled" flag when the server reports the bots back on.
+  const botsDisabled = health?.bots_disabled;
+  const botsDisabledSource = health?.bots_disabled_source;
+  const [prevBotsHealth, setPrevBotsHealth] = useState({ botsDisabled, botsDisabledSource });
+  if (
+    prevBotsHealth.botsDisabled !== botsDisabled ||
+    prevBotsHealth.botsDisabledSource !== botsDisabledSource
+  ) {
+    setPrevBotsHealth({ botsDisabled, botsDisabledSource });
+    if (botsDisabled !== true) setBotsDisabledLocally(false);
+  }
 
   if (!shouldWarn) {
     return null;

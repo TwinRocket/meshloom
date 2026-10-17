@@ -16,10 +16,12 @@ export function NodeInfoPane({
   disabled?: boolean;
 }) {
   const { t } = useTranslation();
+  const clockUtc = data?.clock_utc;
+  const fetchedAt = state.fetched_at;
   const clockDrift = useMemo(() => {
-    if (!data?.clock_utc) return null;
-    return formatClockDrift(data.clock_utc, state.fetched_at ?? undefined);
-  }, [data?.clock_utc, state.fetched_at]);
+    if (!clockUtc) return null;
+    return formatClockDrift(clockUtc, fetchedAt ?? undefined);
+  }, [clockUtc, fetchedAt]);
 
   return (
     <RepeaterPane

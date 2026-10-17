@@ -14,12 +14,16 @@ import { useEffect, useState } from 'react';
  */
 export function useEntranceSettled(open: boolean, delayMs = 550): boolean {
   const [settled, setSettled] = useState(false);
+  // Reset during render when `open` turns false (React "adjust state on prop
+  // change" pattern) instead of a synchronous setState in the effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (!open) setSettled(false);
+  }
 
   useEffect(() => {
-    if (!open) {
-      setSettled(false);
-      return;
-    }
+    if (!open) return;
     const id = window.setTimeout(() => setSettled(true), delayMs);
     return () => window.clearTimeout(id);
   }, [open, delayMs]);

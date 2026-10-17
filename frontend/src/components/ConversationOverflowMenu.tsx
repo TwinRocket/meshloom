@@ -92,12 +92,13 @@ export function ConversationOverflowMenu({
   const { t, i18n } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
   const [panel, setPanel] = useState<Panel>('main');
+  // When the menu was last opened: the mute status is only shown inside it, so it is
+  // judged against that moment rather than a clock read during render.
+  const [openedAt, setOpenedAt] = useState(() => Date.now());
+  if (!open && panel !== 'main') setPanel('main');
 
   useEffect(() => {
-    if (!open) {
-      setPanel('main');
-      return;
-    }
+    if (!open) return;
     const onPointer = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
         onOpenChange(false);
@@ -115,7 +116,7 @@ export function ConversationOverflowMenu({
   }, [open, onOpenChange]);
 
   const muteStatus =
-    muted && mutedUntil && mutedUntil > Date.now() / 1000
+    muted && mutedUntil && mutedUntil > openedAt / 1000
       ? t('chatHeader.mutedUntil', {
           time: new Date(mutedUntil * 1000).toLocaleTimeString(i18n.language, {
             hour: '2-digit',
@@ -144,6 +145,7 @@ export function ConversationOverflowMenu({
         onClick={(event) => {
           event.stopPropagation();
           event.preventDefault();
+          if (!open) setOpenedAt(Date.now());
           onOpenChange(!open);
         }}
       >

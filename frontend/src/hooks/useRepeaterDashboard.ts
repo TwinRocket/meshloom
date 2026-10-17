@@ -496,6 +496,90 @@ export function useRepeaterDashboard(
       if (!publicKey) return;
       const conversationId = publicKey;
 
+      // Retry loop for one pane. A local function (not a recursive refreshPane call)
+      // so the neighbors pane can prefetch nodeInfo through it first.
+      const runAttempts = async (pane: PaneName) => {
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          if (!mountedRef.current || activeIdRef.current !== conversationId) return;
+
+          const loadingState = {
+            loading: true,
+            attempt,
+            error: null,
+            fetched_at: paneStatesRef.current[pane].fetched_at ?? null,
+          };
+          paneStatesRef.current = {
+            ...paneStatesRef.current,
+            [pane]: loadingState,
+          };
+          setPaneStates((prev) => ({
+            ...prev,
+            [pane]: loadingState,
+          }));
+
+          try {
+            const data = await fetchPaneData(publicKey, pane);
+            if (!mountedRef.current || activeIdRef.current !== conversationId) return;
+
+            paneDataRef.current = {
+              ...paneDataRef.current,
+              [pane]: data,
+            };
+            const successState = {
+              loading: false,
+              attempt,
+              error: null,
+              fetched_at: Date.now(),
+            };
+            paneStatesRef.current = {
+              ...paneStatesRef.current,
+              [pane]: successState,
+            };
+
+            setPaneData((prev) => ({ ...prev, [pane]: data }));
+            setPaneStates((prev) => ({
+              ...prev,
+              [pane]: successState,
+            }));
+            return; // Success
+          } catch (err) {
+            if (!mountedRef.current || activeIdRef.current !== conversationId) return;
+
+            const msg = err instanceof Error ? err.message : i18n.t('toast.requestFailed');
+            // 4xx means the request itself failed (e.g. 422 mesh timeout); retrying
+            // just floods the mesh with duplicate requests.
+            const retryable = !(err instanceof ApiError && err.status >= 400 && err.status < 500);
+
+            if (attempt === MAX_RETRIES || !retryable) {
+              const errorState = {
+                loading: false,
+                attempt,
+                error: msg,
+                fetched_at: paneStatesRef.current[pane].fetched_at ?? null,
+              };
+              paneStatesRef.current = {
+                ...paneStatesRef.current,
+                [pane]: errorState,
+              };
+              setPaneStates((prev) => ({
+                ...prev,
+                [pane]: errorState,
+              }));
+              toast.error(
+                i18n.t('toast.fetchPaneFailed', { pane: i18n.t(PANE_LABEL_KEYS[pane]) }),
+                {
+                  description: formatApiError(err, i18n.t) || msg,
+                }
+              );
+              return;
+            } else {
+              // Wait before retrying
+              await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            }
+          }
+        }
+      };
+
       if (pane === 'neighbors' && !options.hasAdvertLocation) {
         const nodeInfoState = paneStatesRef.current.nodeInfo;
         const nodeInfoData = paneDataRef.current.nodeInfo;
@@ -504,87 +588,12 @@ export function useRepeaterDashboard(
           (nodeInfoState.fetched_at == null && nodeInfoData == null);
 
         if (needsNodeInfoPrefetch) {
-          await refreshPane('nodeInfo');
+          await runAttempts('nodeInfo');
           if (!mountedRef.current || activeIdRef.current !== conversationId) return;
         }
       }
 
-      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        if (!mountedRef.current || activeIdRef.current !== conversationId) return;
-
-        const loadingState = {
-          loading: true,
-          attempt,
-          error: null,
-          fetched_at: paneStatesRef.current[pane].fetched_at ?? null,
-        };
-        paneStatesRef.current = {
-          ...paneStatesRef.current,
-          [pane]: loadingState,
-        };
-        setPaneStates((prev) => ({
-          ...prev,
-          [pane]: loadingState,
-        }));
-
-        try {
-          const data = await fetchPaneData(publicKey, pane);
-          if (!mountedRef.current || activeIdRef.current !== conversationId) return;
-
-          paneDataRef.current = {
-            ...paneDataRef.current,
-            [pane]: data,
-          };
-          const successState = {
-            loading: false,
-            attempt,
-            error: null,
-            fetched_at: Date.now(),
-          };
-          paneStatesRef.current = {
-            ...paneStatesRef.current,
-            [pane]: successState,
-          };
-
-          setPaneData((prev) => ({ ...prev, [pane]: data }));
-          setPaneStates((prev) => ({
-            ...prev,
-            [pane]: successState,
-          }));
-          return; // Success
-        } catch (err) {
-          if (!mountedRef.current || activeIdRef.current !== conversationId) return;
-
-          const msg = err instanceof Error ? err.message : i18n.t('toast.requestFailed');
-          // 4xx means the request itself failed (e.g. 422 mesh timeout); retrying
-          // just floods the mesh with duplicate requests.
-          const retryable = !(err instanceof ApiError && err.status >= 400 && err.status < 500);
-
-          if (attempt === MAX_RETRIES || !retryable) {
-            const errorState = {
-              loading: false,
-              attempt,
-              error: msg,
-              fetched_at: paneStatesRef.current[pane].fetched_at ?? null,
-            };
-            paneStatesRef.current = {
-              ...paneStatesRef.current,
-              [pane]: errorState,
-            };
-            setPaneStates((prev) => ({
-              ...prev,
-              [pane]: errorState,
-            }));
-            toast.error(i18n.t('toast.fetchPaneFailed', { pane: i18n.t(PANE_LABEL_KEYS[pane]) }), {
-              description: formatApiError(err, i18n.t) || msg,
-            });
-            return;
-          } else {
-            // Wait before retrying
-            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-          }
-        }
-      }
+      await runAttempts(pane);
     },
     [getPublicKey, options.hasAdvertLocation]
   );

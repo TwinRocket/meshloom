@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 type ServerLoginKind = 'repeater' | 'room';
 
@@ -27,39 +27,40 @@ function loadStoredPassword(kind: ServerLoginKind, publicKey: string): StoredPas
   }
 }
 
+function loadInitialState(
+  kind: ServerLoginKind,
+  publicKey: string
+): { password: string; rememberPassword: boolean } {
+  const stored = loadStoredPassword(kind, publicKey);
+  if (stored) return { password: stored.password, rememberPassword: true };
+  const inMemoryStored = inMemoryPasswords.get(getStorageKey(kind, publicKey));
+  if (inMemoryStored) return { password: inMemoryStored.password, rememberPassword: false };
+  return { password: '', rememberPassword: false };
+}
+
 export function resetRememberedServerPasswordsForTests() {
   inMemoryPasswords.clear();
 }
 
 export function useRememberedServerPassword(kind: ServerLoginKind, publicKey: string) {
   const storageKey = useMemo(() => getStorageKey(kind, publicKey), [kind, publicKey]);
-  const [password, setPassword] = useState('');
-  const [rememberPassword, setRememberPassword] = useState(false);
+  const [initial] = useState(() => loadInitialState(kind, publicKey));
+  const [password, setPassword] = useState(initial.password);
+  const [rememberPassword, setRememberPassword] = useState(initial.rememberPassword);
   // Mirrors what was loaded from storage. Unlike `password` it never changes as
   // the user types, so callers can key one-shot effects (auto-login) off it.
-  const [storedPassword, setStoredPassword] = useState('');
+  const [storedPassword, setStoredPassword] = useState(initial.password);
 
-  useEffect(() => {
-    const stored = loadStoredPassword(kind, publicKey);
-    if (stored) {
-      setPassword(stored.password);
-      setStoredPassword(stored.password);
-      setRememberPassword(true);
-      return;
-    }
-
-    const inMemoryStored = inMemoryPasswords.get(storageKey);
-    if (inMemoryStored) {
-      setPassword(inMemoryStored.password);
-      setStoredPassword(inMemoryStored.password);
-      setRememberPassword(false);
-      return;
-    }
-
-    setPassword('');
-    setStoredPassword('');
-    setRememberPassword(false);
-  }, [kind, publicKey, storageKey]);
+  // Reload during render when the target changes (React "adjust state on prop
+  // change" pattern) instead of a synchronous setState in an effect.
+  const [loadedKey, setLoadedKey] = useState(storageKey);
+  if (loadedKey !== storageKey) {
+    setLoadedKey(storageKey);
+    const next = loadInitialState(kind, publicKey);
+    setPassword(next.password);
+    setStoredPassword(next.password);
+    setRememberPassword(next.rememberPassword);
+  }
 
   const persistAfterLogin = useCallback(
     (submittedPassword: string) => {

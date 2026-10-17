@@ -57,7 +57,9 @@ export function SettingsRadioAppSection({
 }) {
   const { t } = useTranslation();
   const { distanceUnit } = useDistanceUnit();
-  const [discoveryBlockedTypes, setDiscoveryBlockedTypes] = useState<number[]>([]);
+  const [discoveryBlockedTypes, setDiscoveryBlockedTypes] = useState<number[]>(
+    appSettings.discovery_blocked_types ?? []
+  );
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [staleDays, setStaleDays] = useState(String(appSettings.stale_contact_days ?? 0));
   const communityOn = useCommunityEnabled() === true;
@@ -79,11 +81,14 @@ export function SettingsRadioAppSection({
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const directoryViaStats = communityOn;
 
-  useEffect(() => {
+  // Re-sync the drafts whenever the saved settings change (adjust state during render).
+  const [prevAppSettings, setPrevAppSettings] = useState(appSettings);
+  if (appSettings !== prevAppSettings) {
+    setPrevAppSettings(appSettings);
     setDiscoveryBlockedTypes(appSettings.discovery_blocked_types ?? []);
     setIntervalDraft(appSettings.telemetry_interval_hours);
     setStaleDays(String(appSettings.stale_contact_days ?? 0));
-  }, [appSettings]);
+  }
 
   useEffect(() => {
     if (appSettings.directory_available !== undefined) {

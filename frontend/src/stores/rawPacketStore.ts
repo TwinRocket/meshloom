@@ -53,6 +53,9 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+/** Subscribe to every packet / stats change (for callers that need more than the snapshot). */
+export const subscribeRawPacketStore = subscribe;
+
 function emit(): void {
   for (const listener of listeners) {
     listener();

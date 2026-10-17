@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from '../components/ui/sonner';
 import { api, formatApiError, isAbortError } from '../api';
 import i18n from '../i18n';
@@ -443,7 +443,11 @@ export function useConversationMessages(
   const newerAbortControllerRef = useRef<AbortController | null>(null);
   const fetchingConversationIdRef = useRef<string | null>(null);
   const activeConversationRef = useRef(activeConversation);
-  activeConversationRef.current = activeConversation;
+  // Layout effect, not render: refs must not be written during render, and this
+  // runs before any passive effect or WS callback that reads it.
+  useLayoutEffect(() => {
+    activeConversationRef.current = activeConversation;
+  });
   const latestReconcileRequestIdRef = useRef(0);
   const pendingReconnectReconcileRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
@@ -802,6 +806,7 @@ export function useConversationMessages(
     }
 
     if (!isMessageConversation(activeConversation)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- conversation switch: the list resets together with the abort controllers, cache hand-off and refs this effect owns; moving it to render would split it from them.
       setMessages([]);
       setHasOlderMessages(false);
       return;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { Star } from 'lucide-react';
+import i18n from '../i18n';
 import { api } from '../api';
 import { formatTime } from '../utils/messageParser';
 import { handleKeyboardActivate } from '../utils/a11y';
@@ -28,8 +29,18 @@ export function ChannelInfoPane({
 }: ChannelInfoPaneProps) {
   const { t } = useTranslation();
   const [detail, setDetail] = useState<ChannelDetail | null>(null);
-  const [loading, setLoading] = useState(false);
+  // The channel whose detail request last settled; loading until it matches channelKey.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const loading = channelKey !== null && settledKey !== channelKey;
   const [showKey, setShowKey] = useState(false);
+
+  const [prevChannelKey, setPrevChannelKey] = useState(channelKey);
+  if (channelKey !== prevChannelKey) {
+    setPrevChannelKey(channelKey);
+    setShowKey(false);
+    setSettledKey(null);
+    if (!channelKey) setDetail(null);
+  }
 
   // Get live channel data from channels array (real-time via WS)
   const liveChannel = channelKey ? (channels.find((c) => c.key === channelKey) ?? null) : null;
@@ -38,15 +49,12 @@ export function ChannelInfoPane({
   // mounting it mid-transform crashes Safari (React #185). See #317.
   const chartReady = useEntranceSettled(channelKey !== null);
 
+  // The i18n singleton rather than `t` (which changes with the language): the detail does not
+  // depend on it, so a language switch must not refetch it.
   useEffect(() => {
-    setShowKey(false);
-    if (!channelKey) {
-      setDetail(null);
-      return;
-    }
+    if (!channelKey) return;
 
     let cancelled = false;
-    setLoading(true);
     api
       .getChannelDetail(channelKey)
       .then((data) => {
@@ -55,16 +63,16 @@ export function ChannelInfoPane({
       .catch((err) => {
         if (!cancelled) {
           console.error('Failed to fetch channel detail:', err);
-          toast.error(t('channelInfo.loadFailed'));
+          toast.error(i18n.t('channelInfo.loadFailed'));
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setSettledKey(channelKey);
       });
     return () => {
       cancelled = true;
     };
-  }, [channelKey, t]);
+  }, [channelKey]);
 
   // Use live channel data where available, fall back to detail snapshot
   const channel = liveChannel ?? detail?.channel ?? null;

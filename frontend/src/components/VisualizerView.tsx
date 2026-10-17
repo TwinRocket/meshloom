@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import type { Channel, Contact, RawPacket, RadioConfig } from '../types';
@@ -44,20 +44,18 @@ export function VisualizerView({
   const [handoffInspectorApplied, setHandoffInspectorApplied] = useState(
     initialFocusPacket !== null
   );
-  const containerRef = useRef<HTMLDivElement>(null);
+  // State, not a ref: the inspector dialog receives the element as a prop.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
 
-  // One-shot: apply the first live match, then never reopen from later store ticks.
-  useEffect(() => {
-    if (!focusHandoff || handoffInspectorApplied) {
-      return;
-    }
+  // One-shot: apply the first live match, then never reopen from later store ticks
+  // (adjusted during render).
+  if (focusHandoff && !handoffInspectorApplied) {
     const match = findVisualizerFocusPacket(packets, focusHandoff);
-    if (!match) {
-      return;
+    if (match) {
+      setSelectedPacket(match);
+      setHandoffInspectorApplied(true);
     }
-    setSelectedPacket(match);
-    setHandoffInspectorApplied(true);
-  }, [focusHandoff, handoffInspectorApplied, packets]);
+  }
 
   // Persist packet feed visibility to localStorage
   useEffect(() => {
@@ -78,16 +76,16 @@ export function VisualizerView({
 
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen();
+      container?.requestFullscreen();
       setPaneFullScreen(true);
     } else {
       document.exitFullscreen();
       // State synced via fullscreenchange handler
     }
-  }, []);
+  }, [container]);
 
   return (
-    <div ref={containerRef} className="flex flex-col h-full bg-background">
+    <div ref={setContainer} className="flex flex-col h-full bg-background">
       {/* Header */}
       <ToolPaneHeader
         title={paneFullScreen ? t('visualizer.titleFullscreen') : t('visualizer.title')}
@@ -172,7 +170,7 @@ export function VisualizerView({
         open={selectedPacket !== null}
         onOpenChange={(isOpen) => !isOpen && setSelectedPacket(null)}
         channels={channels}
-        container={paneFullScreen ? containerRef.current : undefined}
+        container={paneFullScreen ? container : undefined}
         source={
           selectedPacket
             ? { kind: 'packet', packet: selectedPacket }

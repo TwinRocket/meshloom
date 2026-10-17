@@ -207,13 +207,9 @@ function MeshTestRunView({
 
   // Hops the radio does not know get their name and position from the directory,
   // exactly as the per-message reach modal resolves them.
-  useEffect(() => {
-    if (!detail) {
-      setDirectoryHits((current) => (Object.keys(current).length === 0 ? current : {}));
-      return;
-    }
+  const directoryPrefixes = useMemo(() => {
     const prefixes = new Set<string>();
-    for (const observer of detail.observers) {
+    for (const observer of detail?.observers ?? []) {
       for (const raw of observer.path ?? []) {
         const hop = toPathHop(raw, contacts);
         if (hopNeedsDirectoryGps(hop)) {
@@ -221,12 +217,20 @@ function MeshTestRunView({
         }
       }
     }
-    if (prefixes.size === 0) {
+    return prefixes;
+  }, [detail, contacts]);
+  // Nothing to resolve: drop earlier hits (adjust state during render).
+  const [prevDirectoryPrefixes, setPrevDirectoryPrefixes] = useState(directoryPrefixes);
+  if (directoryPrefixes !== prevDirectoryPrefixes) {
+    setPrevDirectoryPrefixes(directoryPrefixes);
+    if (directoryPrefixes.size === 0) {
       setDirectoryHits((current) => (Object.keys(current).length === 0 ? current : {}));
-      return;
     }
+  }
+  useEffect(() => {
+    if (directoryPrefixes.size === 0) return;
     let cancelled = false;
-    void api.resolveDirectoryHops([...prefixes]).then(
+    void api.resolveDirectoryHops([...directoryPrefixes]).then(
       (res) => {
         if (!cancelled) setDirectoryHits(res.resolved);
       },
@@ -237,7 +241,7 @@ function MeshTestRunView({
     return () => {
       cancelled = true;
     };
-  }, [detail, contacts]);
+  }, [directoryPrefixes]);
 
   const observers = useMemo<MeshTestObserver[]>(() => {
     const entries = detail?.observers ?? [];

@@ -168,7 +168,10 @@ export function SettingsNotificationsSection({
   const [vapidError, setVapidError] = useState<string | null>(null);
   const storedDest = resolveNotificationDestinations(appSettings?.notification_destinations);
   const [destDraft, setDestDraft] = useState<NotificationDestinations>(storedDest);
+  // Last saved destinations: the ref serves handlers (read synchronously between
+  // chained saves), the state mirror serves render (secret placeholders).
   const destRef = useRef(storedDest);
+  const [savedDest, setSavedDest] = useState<NotificationDestinations>(storedDest);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const [testingChannel, setTestingChannel] = useState<'email' | 'webhook' | null>(null);
 
@@ -176,18 +179,29 @@ export function SettingsNotificationsSection({
     refreshSubscriptions();
   }, [refreshSubscriptions]);
 
-  useEffect(() => {
+  // Re-sync drafts when the saved values change (adjust state during render).
+  const [prevPreferences, setPrevPreferences] = useState<typeof preferences>(null);
+  if (preferences !== prevPreferences) {
+    setPrevPreferences(preferences);
     if (preferences) {
       setVapidDraft(preferences.vapid_subject);
       setVapidError(null);
     }
-  }, [preferences]);
+  }
+
+  const notificationDestinations = appSettings?.notification_destinations;
+  const [prevNotificationDestinations, setPrevNotificationDestinations] =
+    useState(notificationDestinations);
+  if (notificationDestinations !== prevNotificationDestinations) {
+    setPrevNotificationDestinations(notificationDestinations);
+    const next = resolveNotificationDestinations(notificationDestinations);
+    setSavedDest(next);
+    setDestDraft(next);
+  }
 
   useEffect(() => {
-    const next = resolveNotificationDestinations(appSettings?.notification_destinations);
-    destRef.current = next;
-    setDestDraft(next);
-  }, [appSettings?.notification_destinations]);
+    destRef.current = resolveNotificationDestinations(notificationDestinations);
+  }, [notificationDestinations]);
 
   const commitVapidSubject = async () => {
     if (!isValidVapidSubject(vapidDraft)) {
@@ -206,6 +220,7 @@ export function SettingsNotificationsSection({
     if (!onSaveAppSettings) return;
     const previous = destRef.current;
     destRef.current = next;
+    setSavedDest(next);
     const chained = saveChainRef.current.then(async () => {
       try {
         await onSaveAppSettings({
@@ -213,6 +228,7 @@ export function SettingsNotificationsSection({
         });
       } catch (err) {
         destRef.current = previous;
+        setSavedDest(previous);
         revert();
         toast.error(t('settings.notifications.destSaveFailed'), {
           description: formatApiError(err, t) || t('settings.notifications.unknownError'),
@@ -374,7 +390,7 @@ export function SettingsNotificationsSection({
                 autoComplete="new-password"
                 value={destDraft.email.password}
                 placeholder={
-                  destRef.current.email.password === SECRET_REDACTED
+                  savedDest.email.password === SECRET_REDACTED
                     ? t('settings.notifications.secretKept')
                     : undefined
                 }
@@ -459,7 +475,7 @@ export function SettingsNotificationsSection({
                 autoComplete="new-password"
                 value={destDraft.webhook.hmac_secret}
                 placeholder={
-                  destRef.current.webhook.hmac_secret === SECRET_REDACTED
+                  savedDest.webhook.hmac_secret === SECRET_REDACTED
                     ? t('settings.notifications.secretKept')
                     : undefined
                 }

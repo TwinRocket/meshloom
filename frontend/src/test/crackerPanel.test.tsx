@@ -15,6 +15,7 @@ vi.mock('meshcore-hashtag-cracker', async (importOriginal) => {
   const actual = await importOriginal<typeof import('meshcore-hashtag-cracker')>();
   return {
     ...actual,
+    isWebGpuSupported: () => true,
     GroupTextCracker: class {
       isGpuAvailable() {
         return true;

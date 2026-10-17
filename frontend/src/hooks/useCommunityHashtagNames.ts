@@ -24,12 +24,16 @@ export function useCommunityHashtagNames(
   extraNames: readonly string[] = EMPTY_NAMES
 ): string[] {
   const [communityNames, setCommunityNames] = useState<string[]>([]);
+  // Drop the names during render when Community turns off, so a later re-enable
+  // starts empty until the fetch answers.
+  const [prevEnabled, setPrevEnabled] = useState(enabled);
+  if (enabled !== prevEnabled) {
+    setPrevEnabled(enabled);
+    if (!enabled) setCommunityNames([]);
+  }
 
   useEffect(() => {
-    if (!enabled) {
-      setCommunityNames([]);
-      return;
-    }
+    if (!enabled) return;
     let cancelled = false;
     void (async () => {
       try {

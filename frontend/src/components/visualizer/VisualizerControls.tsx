@@ -131,7 +131,11 @@ function NumberRow({
   onCommit: (value: number) => void;
 }) {
   const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setDraft(String(value));
+  }
   const clamp = (n: number) => Math.max(min, Math.min(max, n));
   return (
     <div className="flex items-center gap-2 py-1.5 md:py-1">

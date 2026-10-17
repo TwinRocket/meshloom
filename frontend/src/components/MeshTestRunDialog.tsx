@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from './ui/button';
@@ -46,10 +46,21 @@ export function MeshTestRunDialog({
   const { t } = useTranslation();
   const [region, setRegion] = useState('');
 
-  useEffect(() => {
-    if (!open) return;
-    setRegion(preselectedFloodScope(floodScope, knownRegions));
-  }, [open, floodScope, knownRegions]);
+  // Preselect the region on open, and again when its inputs change while open
+  // (adjust state during render). The closed sentinel seeds it on a first open render.
+  const [prevSeed, setPrevSeed] = useState<{
+    open: boolean;
+    floodScope?: string;
+    knownRegions: string[];
+  }>({ open: false, floodScope, knownRegions });
+  if (
+    open !== prevSeed.open ||
+    floodScope !== prevSeed.floodScope ||
+    knownRegions !== prevSeed.knownRegions
+  ) {
+    setPrevSeed({ open, floodScope, knownRegions });
+    if (open) setRegion(preselectedFloodScope(floodScope, knownRegions));
+  }
 
   const empty = knownRegions.length === 0;
 

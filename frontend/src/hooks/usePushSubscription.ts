@@ -127,8 +127,17 @@ export interface PushSubscriptionState {
   refreshSubscriptions: () => Promise<PushSubscriptionInfo[]>;
 }
 
+function isPushSupported(): boolean {
+  return (
+    window.isSecureContext &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window
+  );
+}
+
 export function usePushSubscription(): PushSubscriptionState {
-  const [isSupported, setIsSupported] = useState(false);
+  const [isSupported] = useState(isPushSupported);
   const [currentSubscriptionId, setCurrentSubscriptionId] = useState<string | null>(null);
   const [allSubscriptions, setAllSubscriptions] = useState<PushSubscriptionInfo[]>([]);
   const [preferences, setPreferences] = useState<PushPreferences | null>(null);
@@ -149,19 +158,12 @@ export function usePushSubscription(): PushSubscriptionState {
   );
 
   useEffect(() => {
-    const supported =
-      window.isSecureContext &&
-      'serviceWorker' in navigator &&
-      'PushManager' in window &&
-      'Notification' in window;
-    setIsSupported(supported);
-
     api
       .getPushPreferences()
       .then(setPreferences)
       .catch(() => {});
 
-    if (supported) {
+    if (isSupported) {
       // Always load all registered devices so Settings can manage them even
       // when this particular browser isn't subscribed.
       const subsPromise = api.getPushSubscriptions().catch(() => [] as PushSubscriptionInfo[]);
@@ -177,7 +179,7 @@ export function usePushSubscription(): PushSubscriptionState {
         })
         .catch(() => {});
     }
-  }, [reconcileCurrentSubscription]);
+  }, [isSupported, reconcileCurrentSubscription]);
 
   const refreshSubscriptions = useCallback(async () => {
     try {

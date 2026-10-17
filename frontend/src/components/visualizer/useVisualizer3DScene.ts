@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
@@ -58,20 +58,15 @@ export function useVisualizer3DScene({
   const hoveredNeighborIdsRef = useRef<string[]>([]);
   const pinnedNodeIdRef = useRef<string | null>(null);
   const [pinnedNodeId, setPinnedNodeId] = useState<string | null>(null);
-  const autoPinnedFocusKeyRef = useRef<string | null>(null);
+  const [autoPinnedFocusKey, setAutoPinnedFocusKey] = useState<string | null>(null);
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  useEffect(() => {
-    const focusKey = data.focusedObservationKey;
-    if (!focusKey || autoPinnedFocusKeyRef.current === focusKey) {
-      return;
-    }
-    if (data.focusedNodeIds.size === 0) {
-      return;
-    }
+  // A focus handoff pins its node once per observation key (adjusted during render).
+  const focusKey = data.focusedObservationKey;
+  if (focusKey && autoPinnedFocusKey !== focusKey && data.focusedNodeIds.size > 0) {
     let preferred: string | null = null;
     for (const nodeId of data.focusedNodeIds) {
       if (nodeId !== 'self') {
@@ -80,13 +75,17 @@ export function useVisualizer3DScene({
       }
     }
     preferred ??= data.focusedNodeIds.values().next().value ?? null;
-    if (!preferred) {
-      return;
+    if (preferred) {
+      setAutoPinnedFocusKey(focusKey);
+      setPinnedNodeId(preferred);
     }
-    autoPinnedFocusKeyRef.current = focusKey;
-    pinnedNodeIdRef.current = preferred;
-    setPinnedNodeId(preferred);
-  }, [data.focusedObservationKey, data.focusedNodeIds]);
+  }
+
+  // The click handler and the render loop read the pin through this ref; the click
+  // handler also writes it directly, so this only carries the auto-pin above.
+  useLayoutEffect(() => {
+    pinnedNodeIdRef.current = pinnedNodeId;
+  }, [pinnedNodeId]);
 
   useEffect(() => {
     const container = containerRef.current;

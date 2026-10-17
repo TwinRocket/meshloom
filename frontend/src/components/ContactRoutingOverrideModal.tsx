@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../api';
@@ -40,13 +40,15 @@ export function ContactRoutingOverrideModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reseed the input whenever the dialog opens or the contact changes while open.
+  const [seededFrom, setSeededFrom] = useState<{ open: boolean; contact: Contact } | null>(null);
+  if (seededFrom?.open !== open || seededFrom.contact !== contact) {
+    setSeededFrom({ open, contact });
+    if (open) {
+      setRoute(formatRoutingOverrideInput(contact));
+      setError(null);
     }
-    setRoute(formatRoutingOverrideInput(contact));
-    setError(null);
-  }, [contact, open]);
+  }
 
   const learnedRouteSummary = useMemo(() => formatLearnedRouteSummary(contact), [contact]);
   const forcedRouteSummary = useMemo(() => formatForcedRouteSummary(contact), [contact]);

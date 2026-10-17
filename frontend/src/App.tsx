@@ -1,6 +1,15 @@
-import { useEffect, useCallback, useRef, useState, useMemo, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useMemo,
+  type MouseEvent,
+} from 'react';
 import { normalizeServerLabel, serverLabelToAdopt } from './utils/serverLabel';
 import { useTranslation } from 'react-i18next';
+import { useChannelUnreadMarker } from './hooks/useChannelUnreadMarker';
 import { api } from './api';
 import { updateUrlHash } from './utils/urlHash';
 import { takePrefetchOrFetch } from './prefetch';
@@ -47,12 +56,6 @@ import {
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM } from './types';
 import { shouldAutoFocusInput } from './utils/autoFocusInput';
 import { resetClientStateAfterIdentityAdopt } from './utils/identityAdoptReset';
-
-interface ChannelUnreadMarker {
-  channelId: string;
-  /** Id of the oldest unread message, straight from the server. */
-  messageId: number | null;
-}
 
 interface NewMessagePrefillRequest {
   tab: 'hashtag';
@@ -112,7 +115,6 @@ export function App() {
   }, []);
 
   const messageInputRef = useRef<MessageInputHandle>(null);
-  const [channelUnreadMarker, setChannelUnreadMarker] = useState<ChannelUnreadMarker | null>(null);
   const [newMessagePrefillRequest, setNewMessagePrefillRequest] =
     useState<NewMessagePrefillRequest | null>(null);
   const [showBulkAddChannelTab, setShowBulkAddChannelTab] = useState(false);
@@ -146,14 +148,15 @@ export function App() {
     handleExpandDesktopSidebar,
   } = useAppShell();
 
-  // Shared refs between useConversationRouter and useContactsAndChannels
+  // Shared ref between useConversationRouter and useContactsAndChannels
   const pendingDeleteFallbackRef = useRef(false);
-  const hasSetDefaultConversation = useRef(false);
 
-  // Stable ref bridge: useContactsAndChannels needs setActiveConversation from
-  // useConversationRouter, but useConversationRouter needs channels/contacts from
-  // useContactsAndChannels. We break the cycle with a ref-based indirection.
+  // Stable ref bridge: useContactsAndChannels needs setActiveConversation and
+  // markDefaultConversationSet from useConversationRouter, but useConversationRouter
+  // needs channels/contacts from useContactsAndChannels. We break the cycle with a
+  // ref-based indirection, filled in a layout effect below.
   const setActiveConversationRef = useRef<(conv: Conversation | null) => void>(() => {});
+  const markDefaultConversationSetRef = useRef<() => void>(() => {});
   const removeConversationMessagesRef = useRef<(conversationId: string) => void>(() => {});
 
   // --- Extracted hooks ---
@@ -241,7 +244,7 @@ export function App() {
   } = useContactsAndChannels({
     setActiveConversation: (conv) => setActiveConversationRef.current(conv),
     pendingDeleteFallbackRef,
-    hasSetDefaultConversation,
+    markDefaultConversationSet: () => markDefaultConversationSetRef.current(),
     removeConversationMessages: (conversationId) =>
       removeConversationMessagesRef.current(conversationId),
   });
@@ -316,6 +319,7 @@ export function App() {
     setActiveConversation,
     activeConversationRef,
     handleSelectConversation,
+    markDefaultConversationSet,
   } = useConversationRouter({
     channels,
     contacts,
@@ -323,13 +327,9 @@ export function App() {
     suspendHashSync: showSettings,
     setSidebarOpen,
     pendingDeleteFallbackRef,
-    hasSetDefaultConversation,
     settingsLoaded: appSettings !== null && communityEnabled !== null,
     directoryEnabled,
   });
-
-  // Wire up the ref bridge so useContactsAndChannels handlers reach the real setter
-  setActiveConversationRef.current = setActiveConversation;
 
   const {
     targetMessageId,
@@ -371,7 +371,15 @@ export function App() {
     removeMessage,
     clearConversationMessages,
   } = useConversationMessages(activeConversation, targetMessageId);
-  removeConversationMessagesRef.current = removeConversationMessages;
+
+  // Wire up the ref bridge so useContactsAndChannels handlers reach the real
+  // functions. A layout effect (refs must not be written during render) runs
+  // before any passive effect or user event can call through the bridge.
+  useLayoutEffect(() => {
+    setActiveConversationRef.current = setActiveConversation;
+    markDefaultConversationSetRef.current = markDefaultConversationSet;
+    removeConversationMessagesRef.current = removeConversationMessages;
+  });
 
   // Auto-focus the message input on conversation change (desktop only by default)
   useEffect(() => {
@@ -451,34 +459,11 @@ export function App() {
     [channels, setChannels, refreshUnreads, t]
   );
 
-  useEffect(() => {
-    if (activeConversation?.type !== 'channel') {
-      setChannelUnreadMarker(null);
-      return;
-    }
-
-    const activeChannelId = activeConversation.id;
-    const activeChannelUnreadCount = unreadCounts[getStateKey('channel', activeChannelId)] ?? 0;
-
-    const boundaryId = firstUnreadIds[getStateKey('channel', activeChannelId)] ?? null;
-
-    setChannelUnreadMarker((prev) => {
-      if (prev?.channelId === activeChannelId) {
-        // Same channel: hold the marker steady so it does not move under the
-        // reader, except to fill in a boundary we did not have yet. A marker
-        // created before /unreads resolved would otherwise stay blank for as long
-        // as the user stays put.
-        if (prev.messageId === null && boundaryId !== null) {
-          return { channelId: activeChannelId, messageId: boundaryId };
-        }
-        return prev;
-      }
-      if (activeChannelUnreadCount <= 0) {
-        return null;
-      }
-      return { channelId: activeChannelId, messageId: boundaryId };
-    });
-  }, [activeConversation, unreadCounts, firstUnreadIds]);
+  const { channelUnreadMarker, dismissChannelUnreadMarker } = useChannelUnreadMarker(
+    activeConversation,
+    unreadCounts,
+    firstUnreadIds
+  );
 
   const wsHandlers = useRealtimeAppState({
     prevHealthRef,
@@ -789,7 +774,7 @@ export function App() {
     onJumpToBottom: jumpToBottom,
     onSendMessage: handleSendMessage,
     onMessageDeleted: removeMessage,
-    onDismissUnreadMarker: () => setChannelUnreadMarker(null),
+    onDismissUnreadMarker: dismissChannelUnreadMarker,
     notifyMediaEnabled: (() => {
       const empty: NotificationMediaFlags = { push: false, email: false, webhook: false };
       if (

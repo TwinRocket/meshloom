@@ -68,6 +68,10 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const hasConnectedRef = useRef(false);
   const attemptRef = useRef(0);
   const stableTimerRef = useRef<number | null>(null);
+  // `connect` reschedules itself from onclose; it reaches itself through this ref
+  // (filled by the mount effect) because a callback cannot reference itself
+  // before its declaration completes.
+  const connectRef = useRef<() => void>(() => {});
 
   // Store options in ref to avoid stale closures in WebSocket handlers.
   // The onmessage callback captures this ref, and we keep the ref updated
@@ -139,7 +143,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
       attemptRef.current += 1;
       reconnectTimeoutRef.current = window.setTimeout(() => {
         reconnectTimeoutRef.current = null;
-        connect();
+        connectRef.current();
       }, delay);
     };
 
@@ -256,6 +260,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
   useEffect(() => {
     shouldReconnectRef.current = true;
     attemptRef.current = 0;
+    connectRef.current = connect;
     connect();
 
     // Ping every 30 seconds to keep connection alive

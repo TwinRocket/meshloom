@@ -246,32 +246,39 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     if (enabled === false) setBindResult(null);
   }
 
-  const loadStatus = useCallback(async () => {
-    try {
-      const next = await loadCommunityStatus();
-      setStatusError(null);
-      return next;
-    } catch (err) {
-      setStatusError(formatApiError(err, t));
-      return null;
-    }
-  }, [t]);
+  // Promise chains rather than async/await: state is only set once the request
+  // settles, which lets the mount effects below call these without a sync setState.
+  const loadStatus = useCallback(
+    () =>
+      loadCommunityStatus().then(
+        (next) => {
+          setStatusError(null);
+          return next;
+        },
+        (err: unknown) => {
+          setStatusError(formatApiError(err, t));
+          return null;
+        }
+      ),
+    [t]
+  );
 
   const loadStats = useCallback(
-    async (next: CommunityStatus) => {
-      try {
-        const community = await api.getCommunityStats();
-        setCommunityStats(community);
-        if (next.iata) {
-          setMeStats(await api.getCommunityMeStats());
-        } else {
-          setMeStats(null);
-        }
-        setStatsError(null);
-      } catch (err) {
-        setStatsError(formatApiError(err, t));
-      }
-    },
+    (next: CommunityStatus) =>
+      api
+        .getCommunityStats()
+        .then(async (community) => {
+          setCommunityStats(community);
+          if (next.iata) {
+            setMeStats(await api.getCommunityMeStats());
+          } else {
+            setMeStats(null);
+          }
+          setStatsError(null);
+        })
+        .catch((err: unknown) => {
+          setStatsError(formatApiError(err, t));
+        }),
     [t]
   );
 
@@ -279,13 +286,21 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
     void loadStatus();
   }, [loadStatus]);
 
-  useEffect(() => {
-    if (!status || !communityStatusActive(status)) {
+  // Clear the stats when the community link goes inactive (adjust state during
+  // render rather than in the effect).
+  const statsActive = !!status && communityStatusActive(status);
+  const [prevStatsActive, setPrevStatsActive] = useState(statsActive);
+  if (statsActive !== prevStatsActive) {
+    setPrevStatsActive(statsActive);
+    if (!statsActive) {
       setMeStats(null);
       setCommunityStats(null);
       setStatsError(null);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (!status || !communityStatusActive(status)) return;
     void loadStats(status);
   }, [status, loadStats]);
 

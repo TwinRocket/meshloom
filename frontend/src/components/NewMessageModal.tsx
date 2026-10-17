@@ -140,46 +140,58 @@ export function NewMessageModal({
     return true;
   };
 
-  useEffect(() => {
-    if (!open) {
-      return;
+  // Reseed the form whenever the dialog opens or its prefill changes while open.
+  const [seededFrom, setSeededFrom] = useState<{
+    open: boolean;
+    prefillRequest: typeof prefillRequest;
+    showBulkAddChannelTab: boolean;
+  } | null>(null);
+  if (
+    seededFrom?.open !== open ||
+    seededFrom.prefillRequest !== prefillRequest ||
+    seededFrom.showBulkAddChannelTab !== showBulkAddChannelTab
+  ) {
+    setSeededFrom({ open, prefillRequest, showBulkAddChannelTab });
+    if (open) {
+      if (prefillRequest) {
+        setTab(prefillRequest.tab);
+        setName(prefillRequest.hashtagName);
+        setContactKey('');
+        setChannelKey('');
+        setBulkChannelText('');
+        setTryHistorical(false);
+        setPermitExtended(false);
+        setImportUri('');
+        setError('');
+        setLoading(false);
+      } else if (showBulkAddChannelTab) {
+        setTab('bulk-hashtag');
+        setName('');
+        setContactKey('');
+        setChannelKey('');
+        setBulkChannelText('');
+        setTryHistorical(false);
+        setPermitExtended(false);
+        setImportUri('');
+        setError('');
+        setLoading(false);
+      } else {
+        setTab('new-contact');
+      }
     }
+  }
 
+  useEffect(() => {
+    if (!open) return;
     if (prefillRequest) {
-      setTab(prefillRequest.tab);
-      setName(prefillRequest.hashtagName);
-      setContactKey('');
-      setChannelKey('');
-      setBulkChannelText('');
-      setTryHistorical(false);
-      setPermitExtended(false);
-      setImportUri('');
-      setError('');
-      setLoading(false);
       requestAnimationFrame(() => {
         hashtagInputRef.current?.focus();
       });
-      return;
-    }
-
-    if (showBulkAddChannelTab) {
-      setTab('bulk-hashtag');
-      setName('');
-      setContactKey('');
-      setChannelKey('');
-      setBulkChannelText('');
-      setTryHistorical(false);
-      setPermitExtended(false);
-      setImportUri('');
-      setError('');
-      setLoading(false);
+    } else if (showBulkAddChannelTab) {
       requestAnimationFrame(() => {
         bulkTextareaRef.current?.focus();
       });
-      return;
     }
-
-    setTab('new-contact');
   }, [open, prefillRequest, showBulkAddChannelTab]);
 
   const handleCreate = async () => {

@@ -104,15 +104,34 @@ export function RepeaterDashboard({
   } = useRememberedServerPassword('repeater', conversation.id);
 
   // Telemetry history: preload from stored data, refresh from live status
-  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryHistoryEntry[]>([]);
-  const telemetryHistorySourceRef = useRef<'none' | 'preload' | 'live'>('none');
+  // A live status history always wins over the stored preload.
+  const liveHistory = paneData.status?.telemetry_history;
+  const [telemetry, setTelemetry] = useState<{
+    source: 'none' | 'preload' | 'live';
+    entries: TelemetryHistoryEntry[];
+  }>(() =>
+    liveHistory ? { source: 'live', entries: liveHistory } : { source: 'none', entries: [] }
+  );
+  const telemetryHistory = telemetry.entries;
   const telemetryHistoryRequestRef = useRef(0);
+
+  // Reset when the login state or the repeater changes (adjusted during render).
+  const telemetrySessionKey = `${loggedIn}|${conversation.id}`;
+  const [prevTelemetrySessionKey, setPrevTelemetrySessionKey] = useState(telemetrySessionKey);
+  if (telemetrySessionKey !== prevTelemetrySessionKey) {
+    setPrevTelemetrySessionKey(telemetrySessionKey);
+    setTelemetry({ source: 'none', entries: [] });
+  }
+
+  // When a live status fetch returns embedded telemetry_history, replace local state
+  const [prevLiveHistory, setPrevLiveHistory] = useState(liveHistory);
+  if (liveHistory !== prevLiveHistory) {
+    setPrevLiveHistory(liveHistory);
+    if (liveHistory) setTelemetry({ source: 'live', entries: liveHistory });
+  }
 
   useEffect(() => {
     telemetryHistoryRequestRef.current += 1;
-    telemetryHistorySourceRef.current = 'none';
-    setTelemetryHistory([]);
-
     if (!loggedIn) return;
 
     const requestId = telemetryHistoryRequestRef.current;
@@ -120,20 +139,12 @@ export function RepeaterDashboard({
       .repeaterTelemetryHistory(conversation.id)
       .then((history) => {
         if (telemetryHistoryRequestRef.current !== requestId) return;
-        if (telemetryHistorySourceRef.current === 'live') return;
-        telemetryHistorySourceRef.current = 'preload';
-        setTelemetryHistory(history);
+        setTelemetry((prev) =>
+          prev.source === 'live' ? prev : { source: 'preload', entries: history }
+        );
       })
       .catch(() => {});
   }, [loggedIn, conversation.id]);
-
-  // When a live status fetch returns embedded telemetry_history, replace local state
-  useEffect(() => {
-    const liveHistory = paneData.status?.telemetry_history;
-    if (!liveHistory) return;
-    telemetryHistorySourceRef.current = 'live';
-    setTelemetryHistory(liveHistory);
-  }, [paneData.status?.telemetry_history]);
 
   // Command palette "ACL login + load all" auto-action
   const autoLoginConsumedRef = useRef(false);
@@ -144,10 +155,13 @@ export function RepeaterDashboard({
     void loginAsGuest().then(() => loadAll());
   }, [autoLoginAndLoadAll, onAutoLoginConsumed, loginAsGuest, loadAll]);
 
-  useEffect(() => {
+  // Close the menus when switching repeater (adjusted during render).
+  const [prevConversationId, setPrevConversationId] = useState(conversation.id);
+  if (conversation.id !== prevConversationId) {
+    setPrevConversationId(conversation.id);
     setActionsOpen(false);
     setPathDiscoveryOpen(false);
-  }, [conversation.id]);
+  }
 
   const isFav = contact?.favorite ?? false;
 
