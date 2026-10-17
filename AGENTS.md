@@ -171,9 +171,10 @@ the gate (`CONTRIBUTING.md`).
    pushes the release commit). `preversion-5` gets the same rules. The
    `release-tags` ruleset reserves `X.Y.Z` tags to admins. No workflow pushes
    `main` or creates a tag; the only workflow that writes a branch is
-   `forward-merge.yml`, which merges every push to `main` into `preversion-5`
-   (a merge commit, never a rebase or a force push) and opens a PR
-   `main → preversion-5` on a conflict.
+   `forward-merge.yml`: every push to `main` reaches `preversion-5` through a PR
+   `main → preversion-5` it opens (or reuses) and auto-merges (merge commit,
+   never a rebase or a force push), then it dispatches `docker.yml` and
+   `codeql.yml` on `preversion-5`. A conflict leaves that PR open and the run red.
 7. Merge with a **merge commit**, only after a human approves (a convention: the
    ruleset requires no review).
 
