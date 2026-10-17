@@ -2,20 +2,17 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { MeshCoreDecoder } from '@michaelhart/meshcore-decoder';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
 import i18n from '../i18n';
 import eEn from '../i18n/locales/slices/e.en.json';
 import eFr from '../i18n/locales/slices/e.fr.json';
-import {
-  ControlJournalView,
-  destMatchesPublicKey,
-  filterControlJournalPackets,
-  isControlJournalPayloadType,
-} from '../components/ControlJournalView';
-import { resetRawPacketStore, seedRawPacketStore } from '../stores/rawPacketStore';
+import { ControlJournalView } from '../components/ControlJournalView';
+import { clearControlJournalCache } from '../utils/controlJournal';
+import { recordRawPacket, resetRawPacketStore, seedRawPacketStore } from '../stores/rawPacketStore';
 import { CONTACT_TYPE_REPEATER, type Channel, type Contact, type RawPacket } from '../types';
 
 const CHANNEL_KEY = 'aabbccddeeff00112233445566778899';
@@ -106,43 +103,10 @@ function renderJournal(overrides: Partial<ComponentProps<typeof ControlJournalVi
   );
 }
 
-describe('ControlJournalView helpers', () => {
-  it('accepts only Request, Response, AnonRequest, and GroupData', () => {
-    expect(isControlJournalPayloadType('Request')).toBe(true);
-    expect(isControlJournalPayloadType('REQ')).toBe(true);
-    expect(isControlJournalPayloadType('Response')).toBe(true);
-    expect(isControlJournalPayloadType('AnonRequest')).toBe(true);
-    expect(isControlJournalPayloadType('GroupData')).toBe(true);
-    expect(isControlJournalPayloadType('GroupText')).toBe(false);
-    expect(isControlJournalPayloadType('Advert')).toBe(false);
-    expect(isControlJournalPayloadType('Ack')).toBe(false);
-  });
-
-  it('filters the store down to those four types', () => {
-    const kept = filterControlJournalPackets([
-      makePacket({ id: 1, payload_type: 'Request' }),
-      makePacket({ id: 2, payload_type: 'GROUP_TEXT', data: '1500aabb' }),
-      makePacket({
-        id: 3,
-        payload_type: 'GroupData',
-        data: GROUP_DATA_PACKET,
-      }),
-      makePacket({ id: 4, payload_type: 'Advert', data: floodPacketHex(0x04, 'aa') }),
-    ]);
-
-    expect(kept.map((packet) => packet.id)).toEqual([1, 3]);
-  });
-
-  it('matches Us from the public-key prefix or first byte', () => {
-    expect(destMatchesPublicKey('aa', LOCAL_KEY)).toBe(true);
-    expect(destMatchesPublicKey('aaaaaaaaaaaa', LOCAL_KEY)).toBe(true);
-    expect(destMatchesPublicKey('bb', LOCAL_KEY)).toBe(false);
-  });
-});
-
 describe('ControlJournalView', () => {
   beforeEach(() => {
     resetRawPacketStore();
+    clearControlJournalCache();
   });
 
   it('subscribes itself; ConversationPane and App ancestors do not', () => {
@@ -293,6 +257,85 @@ describe('ControlJournalView', () => {
     renderJournal();
     fireEvent.click(screen.getByTestId('control-journal-card-Request'));
     expect(screen.getByText(i18n.t('rawPacket.details'))).toBeInTheDocument();
+  });
+
+  it('renders a mixed fixture as before (snapshot)', () => {
+    const tag = '77'.repeat(4);
+    seedRawPacketStore({
+      packets: [
+        makePacket({ id: 70, observation_id: 70, data: requestHex('bb', 'aa') }),
+        makePacket({
+          id: 71,
+          observation_id: 71,
+          timestamp: 1_700_000_001,
+          data: requestHex('aa', 'dd'),
+        }),
+        makePacket({
+          id: 72,
+          observation_id: 72,
+          timestamp: 1_700_000_002,
+          data: anonRequestHex('bb', ANON_SENDER_KEY),
+          payload_type: 'AnonRequest',
+        }),
+        makePacket({
+          id: 73,
+          observation_id: 73,
+          timestamp: 1_700_000_003,
+          data: GROUP_DATA_PACKET,
+          payload_type: 'GroupData',
+        }),
+        makePacket({
+          id: 74,
+          observation_id: 74,
+          timestamp: 1_700_000_004,
+          data: floodPacketHex(0x08, tag),
+          payload_type: 'Advert',
+        }),
+      ],
+    });
+
+    const { container } = renderJournal({
+      contacts: [
+        makeContact(),
+        makeContact({ public_key: ANON_SENDER_KEY, name: 'Walker', type: 1 }),
+      ],
+    });
+    expect(container).toMatchSnapshot();
+  });
+
+  it('decodes each observation once across 20 frames of a live buffer', () => {
+    const spy = vi.spyOn(MeshCoreDecoder, 'decode');
+    const ingest20Frames = () => {
+      let id = 200;
+      for (let frame = 0; frame < 20; frame += 1) {
+        act(() => {
+          for (let i = 0; i < (frame < 10 ? 5 : 0); i += 1) {
+            id += 1;
+            recordRawPacket(
+              makePacket({
+                id,
+                observation_id: id,
+                data: requestHex('bb', (id % 256).toString(16).padStart(2, '0')),
+              })
+            );
+          }
+        });
+      }
+    };
+
+    // Baseline: what the packet store itself decodes for 50 packets, no journal mounted.
+    ingest20Frames();
+    const storeOnly = spy.mock.calls.length;
+    resetRawPacketStore();
+    clearControlJournalCache();
+    spy.mockClear();
+
+    renderJournal();
+    ingest20Frames();
+
+    expect(screen.getAllByTestId('control-journal-card-Request').length).toBeGreaterThan(0);
+    expect(spy.mock.calls.length - storeOnly).toBe(50);
+    spy.mockRestore();
   });
 
   it('keeps English and French controlJournal keys in parity', () => {

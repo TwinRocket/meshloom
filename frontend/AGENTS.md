@@ -27,6 +27,16 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 `ConversationPane`) may subscribe**, or every packet re-renders the whole tree.
 `src/test/appPacketIsolation.test.tsx` enforces this.
 
+`ControlJournalView` keeps its pure helpers in `utils/controlJournal.ts`. Each
+observation is decoded once: a decode cache keyed by `getRawPacketObservationKey`
+(re-decoded only if the bytes behind a key change) feeds both the filter and
+`buildJournalEntries`, which is incremental (new observations only; a change of
+contacts, channels or public key rebuilds entries from the cache, not the
+decoder; request/response pairing is recomputed each time). Both follow the live
+buffer: keys that left it are dropped by the next filter/build.
+It is a sibling of `utils/rawPacketDerivedCache.ts` (not reused: the journal needs
+the decoded object, not that cache's summary fields) with the same eviction rule.
+
 ### Clocks
 
 The server `packet.timestamp` is the server wall clock and can be minutes off (a
