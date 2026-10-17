@@ -11,6 +11,7 @@ i18n.addResourceBundle('en', 'translation', sliceEn, true, true);
 i18n.addResourceBundle('fr', 'translation', sliceFr, true, true);
 import { CONTACT_TYPE_ROOM } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
+import { isolateBidi } from '../utils/messageText';
 
 function makeChannel(key: string, name: string, isHashtag: boolean): Channel {
   return {
@@ -79,7 +80,7 @@ describe('ChatHeader key visibility', () => {
 
     const heading = screen.getByRole('heading', { name: /alice/i });
     const titleButton = within(heading).getByRole('button', {
-      name: i18n.t('chatHeader.viewInfoFor', { name: 'Alice' }),
+      name: i18n.t('chatHeader.viewInfoFor', { name: isolateBidi('Alice') }),
     });
 
     expect(heading).toContainElement(titleButton);

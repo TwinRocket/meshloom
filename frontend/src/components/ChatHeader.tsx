@@ -33,6 +33,7 @@ import type {
   RadioConfig,
 } from '../types';
 import { CONTACT_TYPE_ROOM } from '../types';
+import { isolateBidi } from '../utils/messageText';
 
 interface ChatHeaderProps {
   conversation: Conversation;
@@ -205,7 +206,7 @@ export function ChatHeader({
             className="avatar-action-button shrink-0 cursor-pointer rounded-full border-none bg-transparent p-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onOpenContactInfo(conversation.id)}
             title={t('chatHeader.viewContactInfo')}
-            aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
+            aria-label={t('chatHeader.viewInfoFor', { name: isolateBidi(conversation.name) })}
           >
             <span className="md:hidden">
               <ContactAvatar
@@ -232,14 +233,14 @@ export function ChatHeader({
             <button
               type="button"
               className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
+              aria-label={t('chatHeader.viewInfoFor', { name: isolateBidi(conversation.name) })}
               onClick={handleOpenConversationInfo}
             >
-              <span className="truncate">{titleLabel}</span>
+              <bdi className="bidi-isolate truncate">{titleLabel}</bdi>
               <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden="true" />
             </button>
           ) : (
-            <span className="truncate">{titleLabel}</span>
+            <bdi className="bidi-isolate truncate">{titleLabel}</bdi>
           )}
         </h2>
       </span>
