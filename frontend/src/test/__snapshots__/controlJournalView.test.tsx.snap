@@ -1,0 +1,201 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ControlJournalView > renders a mixed fixture as before (snapshot) 1`] = `
+<div>
+  <div
+    class="flex min-h-0 flex-1 flex-col bg-background"
+    data-testid="control-journal"
+  >
+    <div
+      class="shrink-0 bg-background px-4 pb-2 pt-8 md:border-b md:border-border md:py-2.5"
+    >
+      <div
+        class="flex items-center gap-2"
+      >
+        <h2
+          class="min-w-0 flex-1 truncate text-center text-2xl font-semibold tracking-tight md:text-left md:text-base md:font-semibold md:tracking-normal"
+        >
+          Journal de contrôle
+        </h2>
+      </div>
+    </div>
+    <div
+      class="flex min-h-0 flex-1 flex-col md:flex-row"
+    >
+      <nav
+        aria-label="Fils du journal de contrôle"
+        class="shrink-0 overflow-y-auto border-b border-border md:w-64 md:border-b-0 md:border-r"
+      >
+        <div
+          class="px-3 py-2"
+        >
+          <h3
+            class="px-1 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground"
+          >
+            Répéteurs et salons
+          </h3>
+          <ul
+            class="mt-1 space-y-0.5"
+          >
+            <li>
+              <button
+                aria-pressed="false"
+                class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted text-foreground"
+                data-testid="control-journal-thread-repeater"
+                type="button"
+              >
+                <span
+                  class="min-w-0 truncate"
+                >
+                  Tower
+                </span>
+                <span
+                  class="ml-2 shrink-0 text-[0.625rem] uppercase tracking-wider text-muted-foreground"
+                >
+                  2 paquets
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div
+          class="px-3 py-2"
+        >
+          <h3
+            class="px-1 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground"
+          >
+            Canaux
+          </h3>
+          <ul
+            class="mt-1 space-y-0.5"
+          >
+            <li>
+              <button
+                aria-pressed="true"
+                class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm bg-primary/10 text-primary"
+                data-testid="control-journal-thread-channel"
+                type="button"
+              >
+                <span
+                  class="min-w-0 truncate"
+                >
+                  #gd
+                </span>
+                <span
+                  class="ml-2 shrink-0 text-[0.625rem] uppercase tracking-wider text-muted-foreground"
+                >
+                  1 paquet
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div
+          class="px-3 py-2"
+        >
+          <h3
+            class="px-1 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground"
+          >
+            Nous
+          </h3>
+          <ul
+            class="mt-1 space-y-0.5"
+          >
+            <li>
+              <button
+                aria-pressed="false"
+                class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted text-foreground"
+                data-testid="control-journal-thread-us"
+                type="button"
+              >
+                <span
+                  class="min-w-0 truncate"
+                >
+                  Nous
+                </span>
+                <span
+                  class="ml-2 shrink-0 text-[0.625rem] uppercase tracking-wider text-muted-foreground"
+                >
+                  1 paquet
+                </span>
+              </button>
+            </li>
+          </ul>
+        </div>
+      </nav>
+      <div
+        aria-label="Entrées du journal de contrôle"
+        class="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        role="list"
+      >
+        <div
+          class="mx-auto flex w-full max-w-none flex-col gap-2 lg:max-w-208 2xl:max-w-5xl"
+        >
+          <article
+            aria-label="Inspecter le paquet"
+            class="w-full cursor-pointer rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-xs transition-colors hover:border-primary/40"
+            data-testid="control-journal-card-GroupData"
+            role="listitem"
+            tabindex="0"
+          >
+            <div
+              class="flex flex-wrap items-center gap-1.5"
+            >
+              <span
+                class="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary"
+              >
+                Données de groupe
+              </span>
+              <span
+                class="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                Datagramme
+              </span>
+              <span
+                class="ml-auto text-xs text-muted-foreground"
+              >
+                12:00:00
+              </span>
+            </div>
+            <p
+              class="mt-1.5 text-sm"
+            >
+              <span>
+                Inconnu
+              </span>
+              <span
+                class="text-muted-foreground"
+              >
+                 → 
+              </span>
+              <span>
+                Inconnu
+              </span>
+            </p>
+            <p
+              class="mt-1 text-xs cursor-pointer text-primary hover:underline"
+              data-testid="control-journal-channel"
+            >
+              Canal #gd
+            </p>
+            <div
+              class="mt-1.5 text-sm"
+            >
+              <p
+                data-testid="control-journal-data-type"
+              >
+                Type 0x00ab
+              </p>
+              <p
+                class="text-muted-foreground"
+              >
+                sensor-ok
+              </p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;

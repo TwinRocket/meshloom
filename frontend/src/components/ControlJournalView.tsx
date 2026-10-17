@@ -1,81 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  MeshCoreDecoder,
-  PayloadType,
-  Utils,
-  type AnonRequestPayload,
-  type RequestPayload,
-} from '@michaelhart/meshcore-decoder';
 import { Lock } from 'lucide-react';
 
 import type { Channel, Contact, Conversation, RawPacket } from '../types';
-import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM } from '../types';
 import { useRawPackets } from '../stores/rawPacketStore';
-import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
-import { getPacketTypeName } from '../utils/rawPacketStats';
 import { labelPayloadType } from '../utils/rawPacketLabels';
-import { collectGroupDataKeys, resolveGroupData } from '../utils/rawPacketInspector';
-import { parseGroupData } from '../utils/parseGroupData';
 import { getContactDisplayName } from '../utils/pubkey';
-import { resolveContactsByPrefix } from './RawPacketList';
+import {
+  buildJournalEntries,
+  destMatchesPublicKey,
+  filterControlJournalPackets,
+  type JournalEntry,
+  type ThreadKind,
+} from '../utils/controlJournal';
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { ToolPaneHeader } from './ToolPaneHeader';
 import { cn } from '../lib/utils';
-
-export const CONTROL_JOURNAL_PAYLOAD_TYPES = [
-  'Request',
-  'Response',
-  'AnonRequest',
-  'GroupData',
-] as const;
-
-export type ControlJournalPayloadType = (typeof CONTROL_JOURNAL_PAYLOAD_TYPES)[number];
-
-const JOURNAL_TYPE_FOLD: Record<string, ControlJournalPayloadType> = {
-  request: 'Request',
-  req: 'Request',
-  response: 'Response',
-  resp: 'Response',
-  anonrequest: 'AnonRequest',
-  anonreq: 'AnonRequest',
-  groupdata: 'GroupData',
-  grpdata: 'GroupData',
-};
-
-export function foldPayloadType(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, '');
-}
-
-export function canonicalControlJournalType(payloadType: string): ControlJournalPayloadType | null {
-  return JOURNAL_TYPE_FOLD[foldPayloadType(payloadType)] ?? null;
-}
-
-export function isControlJournalPayloadType(payloadType: string): boolean {
-  return canonicalControlJournalType(payloadType) !== null;
-}
-
-export function destMatchesPublicKey(destHash: string, publicKey: string): boolean {
-  const dest = destHash.replace(/^0x/i, '').replace(/\s+/g, '').toLowerCase();
-  const key = publicKey.replace(/^0x/i, '').replace(/\s+/g, '').toLowerCase();
-  if (!dest || !key) return false;
-  if (key.startsWith(dest)) return true;
-  const firstByte = key.slice(0, 2);
-  const prefix = key.slice(0, 12);
-  return dest === firstByte || dest === prefix;
-}
-
-export function filterControlJournalPackets(packets: RawPacket[]): RawPacket[] {
-  return packets.filter((packet) => {
-    const decodedName = getPacketTypeName(packet);
-    return (
-      isControlJournalPayloadType(decodedName) || isControlJournalPayloadType(packet.payload_type)
-    );
-  });
-}
 
 function formatTypeHex(value: number): string {
   return `0x${value.toString(16).padStart(4, '0')}`;
@@ -89,77 +29,6 @@ function formatTime(timestamp: number): string {
   });
 }
 
-function isRepeaterOrRoom(contact: Contact): boolean {
-  return contact.type === CONTACT_TYPE_REPEATER || contact.type === CONTACT_TYPE_ROOM;
-}
-
-function findContactByKey(publicKey: string, contacts: Contact[]): Contact | undefined {
-  const lower = publicKey.toLowerCase();
-  return contacts.find((contact) => contact.public_key.toLowerCase() === lower);
-}
-
-function extractCorrelationTag(
-  decoded: ReturnType<typeof MeshCoreDecoder.decode> | null
-): string | null {
-  if (!decoded?.isValid || !decoded.payload.decoded) return null;
-  const payload = decoded.payload.decoded as {
-    tag?: number;
-    traceTag?: string;
-    decrypted?: { tag?: number };
-  };
-  if (typeof payload.decrypted?.tag === 'number') {
-    return payload.decrypted.tag.toString(16);
-  }
-  if (typeof payload.tag === 'number') {
-    return payload.tag.toString(16);
-  }
-  if (typeof payload.traceTag === 'string' && payload.traceTag.trim()) {
-    return payload.traceTag.trim();
-  }
-  return null;
-}
-
-function resolveGroupDataChannel(
-  packet: RawPacket,
-  channels: Channel[],
-  keys: string[]
-): Channel | null {
-  const infoKey = packet.decrypted_info?.channel_key?.trim();
-  if (infoKey) {
-    return channels.find((channel) => channel.key.toLowerCase() === infoKey.toLowerCase()) ?? null;
-  }
-  if (keys.length === 0) return null;
-  for (const channel of channels) {
-    if (parseGroupData(packet.data, [channel.key])) {
-      return channel;
-    }
-  }
-  return null;
-}
-
-type ThreadKind = 'repeater' | 'channel' | 'us' | 'unresolved';
-
-interface JournalEntry {
-  packet: RawPacket;
-  observationKey: string;
-  journalType: ControlJournalPayloadType;
-  destHash: string | null;
-  srcHash: string | null;
-  destContacts: Contact[];
-  srcContacts: Contact[];
-  destIsUs: boolean;
-  anonSenderKey: string | null;
-  anonSender: Contact | null;
-  requestSubtype: string | null;
-  correlationTag: string | null;
-  pairedKey: string | null;
-  groupData: ReturnType<typeof resolveGroupData>;
-  channel: Channel | null;
-  isOpen: boolean;
-  threadId: string;
-  threadKind: ThreadKind;
-}
-
 interface JournalThread {
   id: string;
   kind: ThreadKind;
@@ -168,138 +37,6 @@ interface JournalThread {
   channel?: Channel;
   entries: JournalEntry[];
   lastTimestamp: number;
-}
-
-function classifyThread(
-  entry: Omit<JournalEntry, 'threadId' | 'threadKind' | 'pairedKey'>,
-  publicKey?: string
-): Pick<JournalEntry, 'threadId' | 'threadKind'> {
-  if (entry.journalType === 'GroupData') {
-    if (entry.channel) {
-      return { threadKind: 'channel', threadId: `channel:${entry.channel.key}` };
-    }
-    return { threadKind: 'channel', threadId: 'channel:unresolved' };
-  }
-
-  const destMatches = entry.destContacts;
-  const uniqueDest = destMatches.length === 1 ? destMatches[0] : null;
-  const destAmbiguousWithUs =
-    entry.destIsUs && destMatches.some((contact) => contact.public_key !== publicKey);
-  const destAmbiguousContacts = destMatches.length > 1;
-
-  if (entry.destIsUs && !destAmbiguousWithUs && !destAmbiguousContacts) {
-    return { threadKind: 'us', threadId: 'us' };
-  }
-  if (uniqueDest && isRepeaterOrRoom(uniqueDest) && !entry.destIsUs) {
-    return { threadKind: 'repeater', threadId: `contact:${uniqueDest.public_key}` };
-  }
-  if (uniqueDest && isRepeaterOrRoom(uniqueDest) && entry.destIsUs) {
-    return { threadKind: 'unresolved', threadId: 'unresolved' };
-  }
-  if (entry.destIsUs && !destAmbiguousContacts) {
-    return { threadKind: 'us', threadId: 'us' };
-  }
-  return { threadKind: 'unresolved', threadId: 'unresolved' };
-}
-
-function buildJournalEntries(
-  packets: RawPacket[],
-  contacts: Contact[],
-  channels: Channel[],
-  publicKey?: string
-): JournalEntry[] {
-  const keys = collectGroupDataKeys(channels);
-  const built: JournalEntry[] = [];
-
-  for (const packet of packets) {
-    const decodedName = getPacketTypeName(packet);
-    const journalType =
-      canonicalControlJournalType(decodedName) ?? canonicalControlJournalType(packet.payload_type);
-    if (!journalType) continue;
-
-    let decoded: ReturnType<typeof MeshCoreDecoder.decode> | null;
-    try {
-      decoded = MeshCoreDecoder.decode(packet.data);
-    } catch {
-      decoded = null;
-    }
-
-    let destHash: string | null = null;
-    let srcHash: string | null = null;
-    let anonSenderKey: string | null = null;
-    let requestSubtype: string | null = null;
-    const payload = decoded?.isValid ? decoded.payload.decoded : null;
-
-    if (payload) {
-      const hashed = payload as { destinationHash?: string; sourceHash?: string };
-      if (hashed.destinationHash) destHash = hashed.destinationHash.toUpperCase();
-      if (hashed.sourceHash) srcHash = hashed.sourceHash.toUpperCase();
-    }
-
-    if (decoded?.isValid && decoded.payloadType === PayloadType.AnonRequest && payload) {
-      const anon = payload as AnonRequestPayload;
-      if (anon.senderPublicKey) {
-        anonSenderKey = anon.senderPublicKey.toLowerCase();
-      }
-    }
-
-    if (decoded?.isValid && decoded.payloadType === PayloadType.Request && payload) {
-      const request = payload as RequestPayload;
-      if (request.decrypted?.requestType != null) {
-        requestSubtype = Utils.getRequestTypeName(request.decrypted.requestType);
-      }
-    }
-
-    const destContacts = destHash ? resolveContactsByPrefix(destHash, contacts) : [];
-    const srcContacts = srcHash ? resolveContactsByPrefix(srcHash, contacts) : [];
-    const destIsUs = Boolean(destHash && publicKey && destMatchesPublicKey(destHash, publicKey));
-    const anonSender = anonSenderKey ? (findContactByKey(anonSenderKey, contacts) ?? null) : null;
-    const groupData = resolveGroupData(packet, decoded?.isValid ? decoded.payloadType : null, keys);
-    const channel = resolveGroupDataChannel(packet, channels, keys);
-    const isOpen = journalType === 'GroupData' && groupData !== null;
-    const correlationTag = extractCorrelationTag(decoded);
-
-    const partial = {
-      packet,
-      observationKey: getRawPacketObservationKey(packet),
-      journalType,
-      destHash,
-      srcHash,
-      destContacts,
-      srcContacts,
-      destIsUs,
-      anonSenderKey,
-      anonSender,
-      requestSubtype,
-      correlationTag,
-      groupData,
-      channel,
-      isOpen,
-    };
-    const thread = classifyThread(partial, publicKey);
-    built.push({ ...partial, pairedKey: null, ...thread });
-  }
-
-  const tagOwners = new Map<string, JournalEntry[]>();
-  for (const entry of built) {
-    if (!entry.correlationTag) continue;
-    const bucket = tagOwners.get(entry.correlationTag) ?? [];
-    bucket.push(entry);
-    tagOwners.set(entry.correlationTag, bucket);
-  }
-  for (const group of tagOwners.values()) {
-    const requests = group.filter((entry) => entry.journalType === 'Request');
-    const responses = group.filter((entry) => entry.journalType === 'Response');
-    if (requests.length === 0 || responses.length === 0) continue;
-    for (const request of requests) {
-      request.pairedKey = responses[0].observationKey;
-    }
-    for (const response of responses) {
-      response.pairedKey = requests[0].observationKey;
-    }
-  }
-
-  return built;
 }
 
 function peerLabel(
