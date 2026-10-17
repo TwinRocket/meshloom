@@ -82,7 +82,10 @@
         "kindBle": "Bluetooth",
         "kindPrevious": "the previous connection",
         "loadFailed": "Could not read the radio's Wi-Fi settings.",
-        "saveFailed": "The radio refused the change."
+        "saveFailed": "The radio refused the change.",
+        "switchTcpReverted": "Meshloom is back on {{kind}}.",
+        "switchTcpRevertFailed": "Going back to the previous connection failed.",
+        "setUpEnables": "Wi-Fi is off on this radio: Meshloom turns it on too, so one reboot applies both."
       },
       "factoryReset": {
         "wifiStoredWarning": "The Wi-Fi credentials stored in the radio will be erased. A radio reached over Wi-Fi may become unreachable.",

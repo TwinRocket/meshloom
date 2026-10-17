@@ -1,3 +1,4 @@
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { HealthStatus, RadioWifiState } from '../types';
@@ -12,6 +13,7 @@ vi.mock('../api', () => ({
 
 import {
   getRadioWifiSnapshot,
+  useRadioWifiLoadFailed,
   loadRadioWifi,
   noteRadioWifiHealth,
   noteWifiRebootStarted,
@@ -138,14 +140,21 @@ describe('radioWifiStore', () => {
     expect(await loadRadioWifi(true)).toBeNull();
   });
 
-  it('calls the back-on-Wi-Fi handler once, for the first state with an address after a reboot', () => {
+  it('calls the back-on-Wi-Fi handler once, for the first state with an address after a reboot', async () => {
+    mocks.getRadioWifi.mockResolvedValue(wifiState({ connected: true, ip: '10.0.0.1' }));
     const handler = vi.fn();
     setWifiBackWithIpHandler(handler);
-    setRadioWifiState(wifiState({ connected: true, ip: '10.0.0.1' }));
+    noteRadioWifiHealth(connected);
+    await flush();
     expect(handler).not.toHaveBeenCalled(); // no reboot from this tab
 
     noteWifiRebootStarted();
-    setRadioWifiState(null);
+    // The pre-reboot state, broadcast just before the reboot, lands late: the
+    // radio has not gone away yet, so it is not "back on Wi-Fi".
+    setRadioWifiState(wifiState({ connected: true, ip: '10.0.0.2' }));
+    expect(handler).not.toHaveBeenCalled();
+
+    noteRadioWifiHealth({ ...connected, radio_connected: false, radio_state: 'rebooting' });
     setRadioWifiState(wifiState({ connected: false, ip: null }));
     expect(handler).not.toHaveBeenCalled();
     const back = wifiState({ connected: true, ip: '192.168.1.50' });
@@ -153,5 +162,58 @@ describe('radioWifiStore', () => {
     setRadioWifiState(wifiState({ connected: true, ip: '192.168.1.51' }));
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith(back);
+  });
+
+  it('stops waiting for an address once the radio is back with Wi-Fi off', async () => {
+    mocks.getRadioWifi.mockResolvedValue(wifiState());
+    const handler = vi.fn();
+    setWifiBackWithIpHandler(handler);
+    noteRadioWifiHealth(connected);
+    await flush();
+    noteWifiRebootStarted();
+    noteRadioWifiHealth({ ...connected, radio_connected: false, radio_state: 'rebooting' });
+    setRadioWifiState(wifiState({ enabled: false }));
+    // Much later, after any reconnect: no surprise toast.
+    setRadioWifiState(wifiState({ connected: true, ip: '192.168.1.50' }));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('drops a refresh answer when the radio went away or a newer state landed', async () => {
+    noteRadioWifiHealth(connected);
+    let resolve: (state: RadioWifiState) => void = () => {};
+    mocks.getRadioWifi.mockReturnValue(
+      new Promise<RadioWifiState>((r) => {
+        resolve = r;
+      })
+    );
+    const pending = loadRadioWifi(true);
+    noteRadioWifiHealth({ ...connected, radio_connected: false, radio_state: 'connecting' });
+    resolve(wifiState({ prompt_needed: true }));
+    expect(await pending).toBeNull();
+    expect(getRadioWifiSnapshot()).toBeNull();
+
+    noteRadioWifiHealth(connected);
+    await flush();
+    mocks.getRadioWifi.mockReturnValue(
+      new Promise<RadioWifiState>((r) => {
+        resolve = r;
+      })
+    );
+    const second = loadRadioWifi(true);
+    const newer = wifiState({ prompt_needed: false, credentials_stored: true });
+    setRadioWifiState(newer);
+    resolve(wifiState({ prompt_needed: true }));
+    expect(await second).toBeNull();
+    expect(getRadioWifiSnapshot()).toBe(newer);
+  });
+
+  it('records a failed automatic load, cleared by the next state', async () => {
+    mocks.getRadioWifi.mockRejectedValueOnce(new Error('500'));
+    const { result } = renderHook(() => useRadioWifiLoadFailed());
+    noteRadioWifiHealth(connected);
+    await act(flush);
+    expect(result.current).toBe(true);
+    act(() => setRadioWifiState(wifiState()));
+    expect(result.current).toBe(false);
   });
 });

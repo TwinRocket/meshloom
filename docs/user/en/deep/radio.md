@@ -132,7 +132,7 @@ The question has no close button and waits for one of these two answers. A wrong
 
 **Change Wi-Fi network** takes the network name and the password twice, or **Open network**. **Turn Wi-Fi off** and **Turn Wi-Fi on** change the radio's setting. Every change applies when the radio restarts. When a change needs a restart, Meshloom asks before rebooting the radio; **Later** keeps the change with **Change pending a reboot** and a **Reboot now** button. Storing the credentials of the network the radio already uses with its built-in credentials needs no restart.
 
-When the radio has no network name at all, **Set up Wi-Fi** replaces **Turn Wi-Fi on**: the radio starts Wi-Fi only once a name is stored.
+When the radio has no network name at all, **Set up Wi-Fi** replaces **Turn Wi-Fi on**: the radio starts Wi-Fi only once a name is stored. If Wi-Fi is off, **Set up Wi-Fi** turns it on as well, so a single reboot applies both.
 
 When Meshloom reaches the radio over TCP (that is, over its Wi-Fi), the dialogs warn that changing network or turning Wi-Fi off can make the radio unreachable. Reconnect it over USB or Bluetooth if that happens. Once the radio is on Wi-Fi, Meshloom offers to use it over TCP (see [Transports](/en/docs/deep/transports/#from-bluetooth-to-wi-fi)).
 
@@ -141,8 +141,8 @@ When Meshloom reaches the radio over TCP (that is, over its Wi-Fi), the dialogs 
 - A network literally named `(not set)` cannot be used: the radio prints that when no name is set.
 - The network name takes 1 to 32 bytes, the password up to 63. Neither is trimmed: spaces count. Below 8 characters Meshloom warns (WPA needs 8, WEP keys have 5 or 13) and stores the password as typed.
 - On the radio, an open network reads like "nothing stored". Meshloom remembers that you stored one for that network.
-- If storing is interrupted (the link dropped between the two commands), the radio may hold the new network name with the old password or none. Meshloom then shows a warning, even after a reconnect, and offers no reboot: store the credentials again, or check them over USB or Bluetooth before rebooting the radio.
-- If the check after connecting fails (the radio did not answer in time), Meshloom tries again after 30 seconds, then after 2 minutes. **Retry** in the Wi-Fi group checks again.
+- If storing is interrupted (the link dropped between the two commands), the radio may hold the new network name with the old password or none. Meshloom then shows a warning, even after a reconnect, and offers no reboot (not even with **Turn Wi-Fi on** or **Turn Wi-Fi off**): store the credentials again, or check them over USB or Bluetooth before rebooting the radio.
+- If the check after connecting fails (the radio did not answer in time), Meshloom tries again after 30 seconds, then after 2 minutes. **Retry** in the Wi-Fi group checks again. If Meshloom cannot read the Wi-Fi state at all, the group says so, with **Retry**.
 
 ### What Meshloom keeps
 

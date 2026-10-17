@@ -132,7 +132,7 @@ La question n’a pas de bouton de fermeture et attend l’une de ces deux répo
 
 **Changer de réseau Wi-Fi** demande le nom du réseau et deux fois le mot de passe, ou **Réseau ouvert**. **Désactiver le Wi-Fi** et **Activer le Wi-Fi** changent le réglage de la radio. Chaque changement s’applique au redémarrage de la radio. Quand un changement demande un redémarrage, Meshloom demande avant de redémarrer la radio ; **Plus tard** garde le changement, avec **Changement en attente d’un redémarrage** et un bouton **Redémarrer maintenant**. Enregistrer les identifiants du réseau que la radio utilise déjà avec ses identifiants intégrés ne demande pas de redémarrage.
 
-Quand la radio n’a aucun nom de réseau, **Configurer le Wi-Fi** remplace **Activer le Wi-Fi** : la radio ne démarre le Wi-Fi qu’une fois un nom enregistré.
+Quand la radio n’a aucun nom de réseau, **Configurer le Wi-Fi** remplace **Activer le Wi-Fi** : la radio ne démarre le Wi-Fi qu’une fois un nom enregistré. Si le Wi-Fi est désactivé, **Configurer le Wi-Fi** l’active aussi, pour qu’un seul redémarrage applique les deux.
 
 Quand Meshloom joint la radio en TCP (donc par son Wi-Fi), les fenêtres préviennent que changer de réseau ou désactiver le Wi-Fi peut rendre la radio injoignable. Reconnectez-la alors en USB ou en Bluetooth. Une fois la radio sur le Wi-Fi, Meshloom propose de l’utiliser en TCP (voir [Transports](/docs/deep/transports/#du-bluetooth-au-wi-fi)).
 
@@ -141,8 +141,8 @@ Quand Meshloom joint la radio en TCP (donc par son Wi-Fi), les fenêtres prévie
 - Un réseau nommé littéralement `(not set)` ne peut pas être utilisé : la radio affiche ce texte quand aucun nom n’est défini.
 - Le nom du réseau fait de 1 à 32 octets, le mot de passe jusqu’à 63. Aucun des deux n’est rogné : les espaces comptent. Sous 8 caractères, Meshloom prévient (le WPA en demande 8, les clés WEP en ont 5 ou 13) et enregistre le mot de passe tel quel.
 - Sur la radio, un réseau ouvert se lit comme « rien d’enregistré ». Meshloom retient que vous en avez enregistré un pour ce réseau.
-- Si l’enregistrement est interrompu (le lien a coupé entre les deux commandes), la radio peut contenir le nouveau nom de réseau avec l’ancien mot de passe ou aucun. Meshloom affiche alors un avertissement, même après une reconnexion, et ne propose aucun redémarrage : enregistrez de nouveau les identifiants, ou vérifiez-les en USB ou en Bluetooth avant de redémarrer la radio.
-- Si la vérification après la connexion échoue (la radio n’a pas répondu à temps), Meshloom réessaie après 30 secondes, puis après 2 minutes. **Réessayer**, dans le groupe Wi-Fi, vérifie de nouveau.
+- Si l’enregistrement est interrompu (le lien a coupé entre les deux commandes), la radio peut contenir le nouveau nom de réseau avec l’ancien mot de passe ou aucun. Meshloom affiche alors un avertissement, même après une reconnexion, et ne propose aucun redémarrage (pas même avec **Activer le Wi-Fi** ou **Désactiver le Wi-Fi**) : enregistrez de nouveau les identifiants, ou vérifiez-les en USB ou en Bluetooth avant de redémarrer la radio.
+- Si la vérification après la connexion échoue (la radio n’a pas répondu à temps), Meshloom réessaie après 30 secondes, puis après 2 minutes. **Réessayer**, dans le groupe Wi-Fi, vérifie de nouveau. Si Meshloom ne peut pas lire du tout l’état du Wi-Fi, le groupe l’indique, avec **Réessayer**.
 
 ### Ce que Meshloom garde
 

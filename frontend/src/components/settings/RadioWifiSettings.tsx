@@ -6,14 +6,16 @@ import {
   loadRadioWifi,
   noteWifiRebootStarted,
   setRadioWifiState,
+  useRadioWifiLoadFailed,
   useRadioWifiState,
 } from '../../stores/radioWifiStore';
-import type {
-  HealthStatus,
-  RadioTransportConfig,
-  RadioTransportKind,
-  RadioWifiChangeResult,
-} from '../../types';
+import type { HealthStatus, RadioTransportConfig, RadioWifiChangeResult } from '../../types';
+import {
+  connectedOverTcp,
+  TCP_SWITCH_REVERT_DELAY_MS,
+  tcpSwitchApplied,
+  transportKindLabelKey,
+} from '../../utils/radioTcpSwitch';
 import {
   EMPTY_WIFI_FORM,
   RadioWifiCredentialsFields,
@@ -36,8 +38,7 @@ import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 
-/** How long after the TCP switch resolved Meshloom may still be reconnecting. */
-export const TCP_SWITCH_REVERT_DELAY_MS = 30_000;
+export { TCP_SWITCH_REVERT_DELAY_MS };
 const TCP_OFFER_DISMISSED_KEY = 'meshloom.wifiTcpOfferDismissed.';
 
 function offerDismissed(publicKey: string | null | undefined): boolean {
@@ -58,15 +59,10 @@ function rememberOfferDismissed(publicKey: string | null | undefined): void {
   }
 }
 
-function kindLabelKey(kind: RadioTransportKind | null | undefined): string {
-  if (kind === 'serial') return 'settings.radio.wifi.kindSerial';
-  if (kind === 'ble') return 'settings.radio.wifi.kindBle';
-  if (kind === 'tcp') return 'settings.radio.wifi.kindTcp';
-  return 'settings.radio.wifi.kindPrevious';
-}
-
-type CredentialsMode = 'store' | 'change';
+// `setup`: "Set up Wi-Fi" on a radio with no network name (also turns Wi-Fi on).
+type CredentialsMode = 'store' | 'change' | 'setup';
 type SwitchPhase = 'idle' | 'switching' | 'waiting' | 'offerRevert' | 'reverting';
+type SwitchTarget = { ip: string; port: number };
 
 /**
  * Wi-Fi of the connected radio (companion CLI, firmware v1.18+ built with Wi-Fi).
@@ -76,6 +72,7 @@ type SwitchPhase = 'idle' | 'switching' | 'waiting' | 'offerRevert' | 'reverting
 export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
   const { t } = useTranslation();
   const wifi = useRadioWifiState();
+  const loadFailed = useRadioWifiLoadFailed();
   const [transport, setTransport] = useState<RadioTransportConfig | null>(null);
   const [credentialsMode, setCredentialsMode] = useState<CredentialsMode | null>(null);
   const [form, setForm] = useState<WifiFormValues>(EMPTY_WIFI_FORM);
@@ -90,46 +87,68 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
   const [tcpPort, setTcpPort] = useState('');
   const [offerHidden, setOfferHidden] = useState(false);
   const [switchPhase, setSwitchPhase] = useState<SwitchPhase>('idle');
+  const [switchTarget, setSwitchTarget] = useState<SwitchTarget | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const healthRef = useRef(health);
   useEffect(() => {
     healthRef.current = health;
   }, [health]);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Only the latest transport answer counts (a re-read racing the switch's own).
+  const transportSeqRef = useRef(0);
 
   const isTcp = transport?.transport === 'tcp';
+  const connectionInfo = health?.connection_info ?? null;
+  const radioConnected = Boolean(health?.radio_connected);
 
+  const adoptTransport = (next: RadioTransportConfig) => {
+    transportSeqRef.current += 1;
+    setTransport(next);
+  };
+
+  // The panel stays mounted while the radio reconnects (it renders nothing in
+  // between): read the transport again whenever the connection changes, so the
+  // TCP offer and the "can make the radio unreachable" warnings follow a switch
+  // made in the transport panel above.
   useEffect(() => {
-    let cancelled = false;
+    const seq = ++transportSeqRef.current;
     api
       .getRadioTransport()
       .then((next) => {
-        if (!cancelled) setTransport(next);
+        if (seq === transportSeqRef.current) setTransport(next);
       })
       .catch(() => {
         // The transport kind only adds warnings and the TCP offer.
       });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [connectionInfo, radioConnected]);
 
   useEffect(
     () => () => {
+      transportSeqRef.current += 1;
       if (revertTimerRef.current !== null) clearTimeout(revertTimerRef.current);
     },
     []
   );
 
-  // Once Meshloom is connected again (over TCP), the revert offer is moot.
-  useEffect(() => {
-    if ((switchPhase === 'waiting' || switchPhase === 'offerRevert') && health?.radio_connected) {
-      if (revertTimerRef.current !== null) clearTimeout(revertTimerRef.current);
-      revertTimerRef.current = null;
-      setSwitchPhase('idle');
-      setSwitchError(null);
-    }
-  }, [health?.radio_connected, switchPhase]);
+  // A radio that went away, or another radio, closes every dialog and forgets
+  // what was typed: a password never waits in state for the next radio.
+  const dialogKey = wifi?.check === 'done' && wifi.supported ? (wifi.radio_public_key ?? '') : null;
+  const [shownDialogKey, setShownDialogKey] = useState(dialogKey);
+  if (dialogKey !== shownDialogKey) {
+    setShownDialogKey(dialogKey);
+    setCredentialsMode(null);
+    setForm(EMPTY_WIFI_FORM);
+    setDisableOpen(false);
+    setRebootOpen(false);
+  }
+
+  // Back over TCP at the switch target: the revert offer is moot. Health from
+  // before the switch (still "connected" over Bluetooth or USB) never counts.
+  const reconnected =
+    (switchPhase === 'waiting' || switchPhase === 'offerRevert') &&
+    switchTarget !== null &&
+    connectedOverTcp(health, switchTarget.ip, switchTarget.port);
+  const phase: SwitchPhase = reconnected ? 'idle' : switchPhase;
 
   const applyResult = useCallback((result: RadioWifiChangeResult) => {
     setRadioWifiState(result.state);
@@ -141,6 +160,8 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     setForm(EMPTY_WIFI_FORM);
     setError(null);
   };
+
+  const rebootBlocked = Boolean(wifi?.store_incomplete || partialWarning);
 
   const openCredentials = (mode: CredentialsMode) => {
     const ssid = wifi?.store_incomplete ? wifi.store_target_ssid : wifi?.ssid;
@@ -158,13 +179,27 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     setBusy(true);
     setError(null);
     const openNetwork = form.openNetwork;
+    const turnOnAfter = credentialsMode === 'setup' && wifi?.enabled === false;
     try {
       const result = await api.setRadioWifiCredentials(wifiRequestFromForm(form, false));
       applyResult(result);
       setPartialWarning(false);
       setCredentialsMode(null);
       toast.success(t(openNetwork ? 'settings.radio.wifi.savedOpen' : 'settings.radio.wifi.saved'));
-      if (result.reboot_required) {
+      let rebootRequired = result.reboot_required;
+      if (turnOnAfter && result.state.enabled === false) {
+        // "Set up Wi-Fi" on a radio with Wi-Fi off: turn it on as well, so the
+        // one reboot offered below applies both.
+        try {
+          const enabled = await api.setRadioWifiEnabled({ enabled: true, reboot: false });
+          applyResult(enabled);
+          rebootRequired = rebootRequired || enabled.reboot_required;
+        } catch (err) {
+          setError(formatApiError(err, t) || t('settings.radio.wifi.saveFailed'));
+          rebootRequired = false;
+        }
+      }
+      if (rebootRequired) {
         setRebootError(null);
         setRebootOpen(true);
       }
@@ -187,9 +222,11 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
       applyResult(result);
       setDisableOpen(false);
       if (result.rebooting) {
-        noteWifiRebootStarted();
+        // Only a reboot that turns Wi-Fi on can end with an address to switch to.
+        if (enabled) noteWifiRebootStarted();
         toast.info(t('settings.radio.wifi.rebooting'));
-      } else if (result.reboot_required && enabled) {
+      } else if (result.reboot_required && enabled && !rebootBlocked) {
+        // Never offer a reboot while the stored credentials may be incomplete.
         setRebootError(null);
         setRebootOpen(true);
       }
@@ -206,7 +243,8 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     try {
       const result = await api.rebootRadioForWifi();
       applyResult(result);
-      noteWifiRebootStarted();
+      // A pending "turn Wi-Fi off" ends with no address: no TCP offer then.
+      if (result.state.enabled === true) noteWifiRebootStarted();
       setRebootOpen(false);
       toast.info(t('settings.radio.wifi.rebooting'));
     } catch (err) {
@@ -229,6 +267,9 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
   };
 
   const switchToTcp = async (ip: string, port: number) => {
+    if (revertTimerRef.current !== null) clearTimeout(revertTimerRef.current);
+    revertTimerRef.current = null;
+    setSwitchTarget({ ip, port });
     setSwitchPhase('switching');
     setSwitchError(null);
     try {
@@ -237,26 +278,29 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
         tcp_host: ip,
         tcp_port: port,
       });
-      setTransport(next);
-      // The PUT ran the whole reconnect: give Meshloom a moment more, then offer
-      // the way back only if the radio is still unreachable.
+      adoptTransport(next);
+      // The PUT ran the whole reconnect, but a failed reconnect still answers
+      // 200 and broadcasts nothing: health may still show the old session. Give
+      // Meshloom a moment more, then offer the way back unless health shows the
+      // radio reached over TCP at this address.
       setSwitchPhase('waiting');
       revertTimerRef.current = setTimeout(() => {
         revertTimerRef.current = null;
-        const current = healthRef.current;
-        const state = current?.radio_state;
-        if (!current?.radio_connected && state !== 'initializing' && state !== 'connected') {
-          setSwitchError(t('settings.radio.wifi.switchTcpRevertTimeout'));
-          setSwitchPhase('offerRevert');
-        } else {
+        if (connectedOverTcp(healthRef.current, ip, port)) {
           setSwitchPhase('idle');
+          return;
         }
+        setSwitchError(t('settings.radio.wifi.switchTcpRevertTimeout'));
+        setSwitchPhase('offerRevert');
       }, TCP_SWITCH_REVERT_DELAY_MS);
     } catch (err) {
       setSwitchError(formatApiError(err, t) || t('settings.radio.wifi.switchTcpFailed'));
       const fresh = await api.getRadioTransport().catch(() => null);
-      if (fresh) setTransport(fresh);
-      setSwitchPhase('offerRevert');
+      if (fresh) adoptTransport(fresh);
+      // The way back only when the server saved the switch (the request failed
+      // after that, e.g. a proxy timeout). A PUT refused before saving leaves the
+      // previous_transport of an older change: never offer that.
+      setSwitchPhase(tcpSwitchApplied(fresh, ip, port) ? 'offerRevert' : 'idle');
     }
   };
 
@@ -264,7 +308,7 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     setSwitchPhase('reverting');
     try {
       const next = await api.revertRadioTransport();
-      setTransport(next);
+      adoptTransport(next);
       setSwitchPhase('idle');
       setSwitchError(null);
     } catch (err) {
@@ -273,9 +317,10 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     }
   };
 
+  const showLoadFailed = !wifi && loadFailed;
   if (!wifi || wifi.supported === false) {
     // Still offer the way back after a failed TCP switch, even with no Wi-Fi state.
-    if (switchPhase !== 'offerRevert' && switchPhase !== 'reverting') return null;
+    if (phase !== 'offerRevert' && phase !== 'reverting' && !showLoadFailed) return null;
   }
 
   const header = (
@@ -287,20 +332,20 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
   );
 
   const revertBlock =
-    switchPhase === 'offerRevert' || switchPhase === 'reverting' ? (
+    phase === 'offerRevert' || phase === 'reverting' ? (
       <div className="space-y-2 rounded-md border border-warning/50 p-3" role="alert">
         {switchError && <p className="text-sm">{switchError}</p>}
         {transport?.previous_transport_kind && (
           <Button
             type="button"
             variant="outline"
-            disabled={switchPhase === 'reverting'}
+            disabled={phase === 'reverting'}
             onClick={() => void revertTransport()}
           >
-            {switchPhase === 'reverting'
+            {phase === 'reverting'
               ? t('settings.radio.wifi.switchTcpReverting')
               : t('settings.radio.wifi.switchTcpRevert', {
-                  kind: t(kindLabelKey(transport.previous_transport_kind)),
+                  kind: t(transportKindLabelKey(transport.previous_transport_kind)),
                 })}
           </Button>
         )}
@@ -311,6 +356,24 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     return (
       <SettingsGroup id="radio-wifi-settings">
         {header}
+        {showLoadFailed && (
+          <div className="space-y-2" role="status">
+            <p className="text-[0.8125rem]">{t('settings.radio.wifi.loadFailed')}</p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={retrying}
+              onClick={() => void retry()}
+            >
+              {retrying ? t('settings.radio.wifi.retrying') : t('settings.radio.wifi.retry')}
+            </Button>
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
         {revertBlock}
       </SettingsGroup>
     );
@@ -370,8 +433,8 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
     !isTcp &&
     !offerHidden &&
     !offerDismissed(wifi.radio_public_key) &&
-    (switchPhase === 'idle' || switchPhase === 'switching');
-  const showRebootNow = wifi.reboot_pending && !wifi.store_incomplete && !partialWarning;
+    (phase === 'idle' || phase === 'switching');
+  const showRebootNow = wifi.reboot_pending && !rebootBlocked;
 
   return (
     <SettingsGroup id="radio-wifi-settings">
@@ -458,7 +521,7 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
           </Button>
         )}
         {noNetworkName ? (
-          <Button type="button" variant="outline" onClick={() => openCredentials('change')}>
+          <Button type="button" variant="outline" onClick={() => openCredentials('setup')}>
             {t('settings.radio.wifi.setUp')}
           </Button>
         ) : wifi.enabled ? (
@@ -504,31 +567,37 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
                 inputMode="numeric"
                 className="w-28"
                 value={offerPort}
-                disabled={switchPhase === 'switching'}
+                disabled={phase === 'switching'}
                 onChange={(e) => setTcpPort(e.target.value)}
               />
             </div>
             <Button
               type="button"
-              disabled={!portValid || switchPhase === 'switching'}
+              disabled={!portValid || phase === 'switching'}
               onClick={() => void switchToTcp(wifi.ip as string, parsedPort)}
             >
-              {switchPhase === 'switching'
+              {phase === 'switching'
                 ? t('settings.radio.wifi.switchTcpSwitching')
                 : t('settings.radio.wifi.switchTcpAction')}
             </Button>
             <Button
               type="button"
               variant="ghost"
-              disabled={switchPhase === 'switching'}
+              disabled={phase === 'switching'}
               onClick={() => {
                 rememberOfferDismissed(wifi.radio_public_key);
                 setOfferHidden(true);
+                setSwitchError(null);
               }}
             >
               {t('settings.radio.wifi.switchTcpDismiss')}
             </Button>
           </div>
+          {switchError && phase === 'idle' && (
+            <p className="text-sm text-destructive" role="alert">
+              {switchError}
+            </p>
+          )}
         </div>
       )}
       {revertBlock}
@@ -554,6 +623,11 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
             </DialogTitle>
             <DialogDescription>{t('settings.radio.wifi.dialogIntro')}</DialogDescription>
           </DialogHeader>
+          {credentialsMode === 'setup' && wifi.enabled === false && (
+            <p className="text-sm" role="note">
+              {t('settings.radio.wifi.setUpEnables')}
+            </p>
+          )}
           <RadioWifiCredentialsFields
             idPrefix="radio-wifi-settings"
             values={form}
@@ -613,15 +687,17 @@ export function RadioWifiSettings({ health }: { health: HealthStatus | null }) {
             </Button>
             <Button
               type="button"
-              variant="outline"
+              variant={rebootBlocked ? 'default' : 'outline'}
               disabled={busy}
               onClick={() => void changeEnabled(false, false)}
             >
               {t('settings.radio.wifi.disableLater')}
             </Button>
-            <Button type="button" disabled={busy} onClick={() => void changeEnabled(false, true)}>
-              {t('settings.radio.wifi.disableAndReboot')}
-            </Button>
+            {!rebootBlocked && (
+              <Button type="button" disabled={busy} onClick={() => void changeEnabled(false, true)}>
+                {t('settings.radio.wifi.disableAndReboot')}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

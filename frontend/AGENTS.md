@@ -107,7 +107,16 @@ purpose.
   itself when health first says the radio is connected and set up (wired in
   `useRadioControl`), once more while the answer is `pending`, and after a WS
   reconnect; the `radio_wifi` event keeps it current. An answer older than the
-  last event is dropped; a radio that goes away resets it.
+  last event, or one that lands after the radio went away, is dropped (a
+  refresh too); a radio that goes away resets it. A failed automatic fetch sets
+  `useRadioWifiLoadFailed()` (the panel shows Retry).
+- The post-reboot "switch to TCP" toast is armed only by a reboot that should end
+  on Wi-Fi (`noteWifiRebootStarted()`), and fires for the first state with an
+  address received after the radio went away (health), within 5 minutes.
+- The panel re-reads the transport whenever `health.connection_info` or
+  `radio_connected` changes: it stays mounted while the radio reconnects. A
+  radio that goes away or changes closes its dialogs and clears the typed
+  password (the prompt does the same when it closes).
 - The prompt has exactly two exits (store / "don't ask again"): no close button,
   Escape and outside clicks ignored. A reboot for Wi-Fi always goes through
   `api.rebootRadioForWifi()` after a confirm, never `api.rebootRadio()`.
@@ -115,6 +124,12 @@ purpose.
   SSID is never trimmed; the password leaves React state once a request settles.
 - The "Go back" after a switch to TCP calls `api.revertRadioTransport()` (the
   server keeps the BLE PIN); never re-send transport settings from the browser.
+  The panel and the toast share `utils/radioTcpSwitch.ts`: the way back is
+  offered only when health does not show the radio over TCP at the target 30 s
+  after the PUT resolved (health from before the switch never counts:
+  `connectedOverTcp()`), or when the PUT failed after the server saved it
+  (`tcpSwitchApplied()`). A PUT refused before saving keeps an older
+  `previous_transport`: never offer it then.
 
 ### Community state
 

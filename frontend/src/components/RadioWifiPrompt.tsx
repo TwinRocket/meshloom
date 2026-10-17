@@ -47,6 +47,15 @@ export function RadioWifiPrompt() {
 
   const shownKey = wifi?.radio_public_key ?? null;
   const open = Boolean(wifi?.prompt_needed && shownKey);
+  // Closed for any reason (answered in another tab, radio gone or changed): forget
+  // what was typed, so the next prompt, maybe for another radio, starts empty.
+  const formKey = open ? shownKey : null;
+  const [formFor, setFormFor] = useState(formKey);
+  if (formKey !== formFor) {
+    setFormFor(formKey);
+    setForm(EMPTY_PROMPT_FORM);
+    setError(null);
+  }
   const prefilled = wifi?.store_incomplete
     ? (wifi.store_target_ssid ?? wifi.ssid ?? '')
     : (wifi?.ssid ?? '');
@@ -131,7 +140,7 @@ export function RadioWifiPrompt() {
     try {
       const result = await api.rebootRadioForWifi();
       setRadioWifiState(result.state);
-      noteWifiRebootStarted();
+      if (result.state.enabled === true) noteWifiRebootStarted();
       setRebootFollowUp(false);
       toast.info(t('settings.radio.wifi.rebooting'));
     } catch (err) {

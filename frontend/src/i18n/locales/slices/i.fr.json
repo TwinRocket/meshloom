@@ -82,7 +82,10 @@
         "kindBle": "Bluetooth",
         "kindPrevious": "connexion précédente",
         "loadFailed": "Impossible de lire les réglages Wi-Fi de la radio.",
-        "saveFailed": "La radio a refusé le changement."
+        "saveFailed": "La radio a refusé le changement.",
+        "switchTcpReverted": "Meshloom est revenu en {{kind}}.",
+        "switchTcpRevertFailed": "Le retour à la connexion précédente a échoué.",
+        "setUpEnables": "Le Wi-Fi est désactivé sur cette radio : Meshloom l’active aussi, pour qu’un seul redémarrage applique les deux."
       },
       "factoryReset": {
         "wifiStoredWarning": "Les identifiants Wi-Fi enregistrés dans la radio seront effacés. Une radio jointe par le Wi-Fi peut devenir injoignable.",

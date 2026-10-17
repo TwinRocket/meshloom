@@ -8,7 +8,11 @@ import {
   TCP_SWITCH_REVERT_DELAY_MS,
 } from '../components/settings/RadioWifiSettings';
 import i18n from '../i18n';
-import { resetRadioWifiStoreForTests, setRadioWifiState } from '../stores/radioWifiStore';
+import {
+  noteRadioWifiHealth,
+  resetRadioWifiStoreForTests,
+  setRadioWifiState,
+} from '../stores/radioWifiStore';
 import type { HealthStatus, RadioTransportConfig, RadioWifiState } from '../types';
 
 const PK = 'ab'.repeat(32);
@@ -209,6 +213,7 @@ describe('RadioWifiSettings', () => {
   it('offers Retry for a failed check, which runs the full check', async () => {
     vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
     const get = vi.spyOn(api, 'getRadioWifi').mockResolvedValue(wifiState());
+    await act(async () => noteRadioWifiHealth(connectedHealth));
     render(<RadioWifiSettings health={connectedHealth} />);
     show(
       wifiState({
@@ -458,5 +463,238 @@ describe('RadioWifiSettings', () => {
       vi.advanceTimersByTime(TCP_SWITCH_REVERT_DELAY_MS + 1000);
     });
     expect(screen.queryByRole('button', { name: /Bluetooth/ })).not.toBeInTheDocument();
+  });
+
+  it('offers the way back when health still shows the old session as the PUT resolves', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const transportMock = vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    let resolvePut: (value: RadioTransportConfig) => void = () => {};
+    vi.spyOn(api, 'updateRadioTransport').mockReturnValue(
+      new Promise<RadioTransportConfig>((resolve) => {
+        resolvePut = resolve;
+      })
+    );
+    const revert = vi.spyOn(api, 'revertRadioTransport').mockResolvedValue(transport());
+    const { rerender } = render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState({ connected: true, ip: '192.168.1.50' }));
+    await screen.findByText(i18n.t('settings.radio.wifi.switchTcpTitle'));
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.switchTcpAction') })
+    );
+    // The reconnect inside the PUT failed: 200 with nothing broadcast, so health
+    // still says "connected" over Bluetooth when it resolves.
+    const saved = transport({
+      transport: 'tcp',
+      tcp_host: '192.168.1.50',
+      previous_transport_kind: 'ble',
+    });
+    transportMock.mockResolvedValue(saved);
+    await act(async () => {
+      resolvePut(saved);
+    });
+    // The connection monitor reports the radio gone about 5 s later.
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    rerender(<RadioWifiSettings health={disconnectedHealth} />);
+    await act(async () => {
+      vi.advanceTimersByTime(TCP_SWITCH_REVERT_DELAY_MS);
+    });
+    const button = await screen.findByRole('button', {
+      name: i18n.t('settings.radio.wifi.switchTcpRevert', {
+        kind: i18n.t('settings.radio.wifi.kindBle'),
+      }),
+    });
+    expect(screen.getByText(i18n.t('settings.radio.wifi.switchTcpRevertTimeout'))).toBeVisible();
+    fireEvent.click(button);
+    await waitFor(() => expect(revert).toHaveBeenCalledWith());
+  });
+
+  it('offers no way back when the switch was refused before anything was saved', async () => {
+    // An older, successful change (serial -> BLE) left a previous transport.
+    vi.spyOn(api, 'getRadioTransport').mockResolvedValue(
+      transport({ previous_transport_kind: 'serial' })
+    );
+    vi.spyOn(api, 'updateRadioTransport').mockRejectedValue(
+      new ApiError('Radio is busy', 503, 'Radio is busy')
+    );
+    const revert = vi.spyOn(api, 'revertRadioTransport');
+    render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState({ connected: true, ip: '192.168.1.50' }));
+    await screen.findByText(i18n.t('settings.radio.wifi.switchTcpTitle'));
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.switchTcpAction') })
+    );
+    expect(await screen.findByText('Radio is busy')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: i18n.t('settings.radio.wifi.switchTcpRevert', {
+          kind: i18n.t('settings.radio.wifi.kindSerial'),
+        }),
+      })
+    ).not.toBeInTheDocument();
+    // The offer stays, to try again.
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.switchTcpAction') })
+    ).toBeEnabled();
+    expect(revert).not.toHaveBeenCalled();
+  });
+
+  it('offers the way back when the switch was saved but the request failed', async () => {
+    const transportMock = vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    vi.spyOn(api, 'updateRadioTransport').mockImplementation(async () => {
+      transportMock.mockResolvedValue(
+        transport({ transport: 'tcp', tcp_host: '192.168.1.50', previous_transport_kind: 'ble' })
+      );
+      throw new ApiError('Gateway Timeout', 504, 'Gateway Timeout');
+    });
+    const revert = vi.spyOn(api, 'revertRadioTransport').mockResolvedValue(transport());
+    render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState({ connected: true, ip: '192.168.1.50' }));
+    await screen.findByText(i18n.t('settings.radio.wifi.switchTcpTitle'));
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.switchTcpAction') })
+    );
+    const button = await screen.findByRole('button', {
+      name: i18n.t('settings.radio.wifi.switchTcpRevert', {
+        kind: i18n.t('settings.radio.wifi.kindBle'),
+      }),
+    });
+    await userEvent.click(button);
+    await waitFor(() => expect(revert).toHaveBeenCalledWith());
+  });
+
+  it('follows a transport change made while it stays mounted', async () => {
+    const transportMock = vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    const { rerender } = render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState({ connected: true, ip: '192.168.1.50' }));
+    await screen.findByText(i18n.t('settings.radio.wifi.switchTcpTitle'));
+
+    // Switched to TCP in the transport panel above: the radio reconnects.
+    transportMock.mockResolvedValue(
+      transport({ transport: 'tcp', tcp_host: '192.168.1.50', ble_address: '' })
+    );
+    rerender(<RadioWifiSettings health={disconnectedHealth} />);
+    rerender(
+      <RadioWifiSettings
+        health={{ ...connectedHealth, connection_info: 'TCP: 192.168.1.50:5000' }}
+      />
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText(i18n.t('settings.radio.wifi.switchTcpTitle'))
+      ).not.toBeInTheDocument()
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.changeNetwork') })
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(i18n.t('settings.radio.wifi.tcpWarning'))).toBeInTheDocument();
+  });
+
+  it('offers no reboot while the stored credentials may be incomplete', async () => {
+    vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    const setEnabled = vi
+      .spyOn(api, 'setRadioWifiEnabled')
+      .mockResolvedValue(
+        changeResult(
+          wifiState({ enabled: true, store_incomplete: true, store_target_ssid: 'NewNet' }),
+          true
+        )
+      );
+    render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState({ store_incomplete: true, store_target_ssid: 'NewNet' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.disable') })
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).queryByRole('button', { name: i18n.t('settings.radio.wifi.disableAndReboot') })
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: i18n.t('settings.radio.wifi.cancel') })
+    );
+
+    show(wifiState({ enabled: false, store_incomplete: true, store_target_ssid: 'NewNet' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.enable') })
+    );
+    await waitFor(() => expect(setEnabled).toHaveBeenCalledWith({ enabled: true, reboot: false }));
+    expect(
+      screen.queryByText(i18n.t('settings.radio.wifi.confirmRebootTitle'))
+    ).not.toBeInTheDocument();
+  });
+
+  it('Set up Wi-Fi also turns Wi-Fi on, then offers one reboot', async () => {
+    vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    vi.spyOn(api, 'setRadioWifiCredentials').mockResolvedValue(
+      changeResult(
+        wifiState({ ssid: 'Home', enabled: false, credentials_stored: true, reboot_pending: true }),
+        true
+      )
+    );
+    const setEnabled = vi.spyOn(api, 'setRadioWifiEnabled').mockResolvedValue(
+      changeResult(
+        wifiState({
+          ssid: 'Home',
+          enabled: true,
+          credentials_stored: true,
+          reboot_pending: true,
+        }),
+        true
+      )
+    );
+    render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState({ ssid: null, enabled: false }));
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.setUp') })
+    );
+    const dialog = await fillCredentials('Home', 'secret-pw');
+    expect(within(dialog).getByText(i18n.t('settings.radio.wifi.setUpEnables'))).toBeVisible();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: i18n.t('settings.radio.wifi.save') })
+    );
+    await waitFor(() => expect(setEnabled).toHaveBeenCalledWith({ enabled: true, reboot: false }));
+    const rebootDialog = await screen.findByRole('dialog');
+    expect(
+      within(rebootDialog).getByText(i18n.t('settings.radio.wifi.confirmRebootTitle'))
+    ).toBeInTheDocument();
+  });
+
+  it('forgets a typed password when the radio goes away', async () => {
+    vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    render(<RadioWifiSettings health={connectedHealth} />);
+    show(wifiState());
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.changeNetwork') })
+    );
+    await fillCredentials('Typed Net', 'secret-pw');
+    show(null as unknown as RadioWifiState);
+    show(wifiState());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.changeNetwork') })
+    );
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(i18n.t('settings.radio.wifi.ssid'))).toHaveValue(
+      'FlasherNet'
+    );
+    expect(within(dialog).getByLabelText(i18n.t('settings.radio.wifi.password'))).toHaveValue('');
+  });
+
+  it('says when the Wi-Fi state could not be loaded, with Retry', async () => {
+    vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport());
+    const get = vi
+      .spyOn(api, 'getRadioWifi')
+      .mockRejectedValueOnce(new ApiError('Server error', 500, 'Server error'))
+      .mockResolvedValue(wifiState());
+    await act(async () => noteRadioWifiHealth(connectedHealth));
+    render(<RadioWifiSettings health={connectedHealth} />);
+    expect(await screen.findByText(i18n.t('settings.radio.wifi.loadFailed'))).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.wifi.retry') })
+    );
+    await waitFor(() => expect(get).toHaveBeenCalledWith(true));
+    expect(await screen.findByText(i18n.t('settings.radio.wifi.storedNo'))).toBeInTheDocument();
   });
 });

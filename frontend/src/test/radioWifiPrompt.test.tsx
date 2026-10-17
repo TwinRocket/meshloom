@@ -254,4 +254,25 @@ describe('RadioWifiPrompt', () => {
     act(() => setRadioWifiState(wifiState({ prompt_needed: false, credentials_stored: true })));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
+
+  it('forgets what was typed when it closes for another reason', async () => {
+    vi.spyOn(api, 'getRadioTransport').mockResolvedValue(transport('ble'));
+    render(<RadioWifiPrompt />);
+    act(() => setRadioWifiState(wifiState()));
+    let dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(i18n.t('settings.radio.wifi.ssid')), {
+      target: { value: 'Edited' },
+    });
+    typePasswords(dialog, 'secret-pw');
+    // The radio goes away, then another radio needs the prompt.
+    act(() => setRadioWifiState(null));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    act(() => setRadioWifiState(wifiState({ radio_public_key: 'cd'.repeat(32), ssid: 'Other' })));
+    dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(i18n.t('settings.radio.wifi.ssid'))).toHaveValue('Other');
+    expect(within(dialog).getByLabelText(i18n.t('settings.radio.wifi.password'))).toHaveValue('');
+    expect(
+      within(dialog).getByLabelText(i18n.t('settings.radio.wifi.passwordConfirm'))
+    ).toHaveValue('');
+  });
 });
