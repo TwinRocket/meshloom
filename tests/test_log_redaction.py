@@ -455,6 +455,26 @@ def test_private_key_update_model_never_echoes_the_key(debug_logs):
     assert_no_secret(debug_logs, secret)
 
 
+def test_decrypt_request_model_never_echoes_the_private_key(debug_logs):
+    from pydantic import ValidationError
+
+    from app.routers.packets import DecryptRequest
+
+    secret = PRIVATE_KEY.hex()
+    model = DecryptRequest(key_type="contact", private_key=secret)  # type: ignore[arg-type]
+    assert model.private_key is not None
+    assert model.private_key.get_secret_value() == secret
+    assert secret not in repr(model) and secret not in str(model)
+    try:
+        DecryptRequest(key_type="contact", private_key=[secret])  # type: ignore[arg-type]
+    except ValidationError as exc:
+        assert secret not in str(exc)
+        logging.getLogger("app.example").exception("Unhandled exception on POST /x")
+    else:  # pragma: no cover
+        pytest.fail("expected a ValidationError")
+    assert_no_secret(debug_logs, secret)
+
+
 # --------------------------------------------------------------------------
 # HTTP: 422 bodies and 500 logs
 # --------------------------------------------------------------------------
