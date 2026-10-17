@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -26,6 +26,7 @@ vi.mock('../components/ui/sonner', () => ({ toast: mocks.toast }));
 
 import { filenameFromDisposition } from '../api';
 import { rememberSettingsAnchor } from '../utils/urlHash';
+import { useAppShell } from '../hooks/useAppShell';
 import { SettingsDatabaseSection } from '../components/settings/SettingsDatabaseSection';
 import i18n from '../i18n';
 import type { AppSettings } from '../types';
@@ -66,6 +67,23 @@ describe('SettingsDatabaseSection backups', () => {
     rememberSettingsAnchor();
     try {
       renderSection();
+    } finally {
+      window.location.hash = '';
+    }
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toHaveProperty('id', 'settings-backup');
+  });
+
+  it('scrolls from the deep link when the section mounts after the hash rewrite', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    window.location.hash = '#settings/database/backup';
+    try {
+      const shell = renderHook(() => useAppShell());
+      await waitFor(() => expect(window.location.hash).toBe('#settings/database'));
+      shell.rerender(); // App re-renders while the settings load
+      renderSection(); // the lazy section mounts once appSettings arrived
+      shell.unmount();
     } finally {
       window.location.hash = '';
     }

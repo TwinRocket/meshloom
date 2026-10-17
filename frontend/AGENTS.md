@@ -229,6 +229,8 @@ no in-tab desktop notification.
 2. When hash routing changes, update `utils/urlHash.ts` and `urlHash.test.ts`.
    `#settings/<section>/<anchor>` opens a section at a known anchor
    (`SETTINGS_ANCHORS`): `#settings/database/backup` scrolls to `#settings-backup`,
-   the target of the public backup docs. The anchor is remembered when the hash is
-   read (the hash is rewritten as settings open) and taken once by the section.
+   the target of the public backup docs. The anchor is remembered once when the
+   hash is read (in `useAppShell`'s state initializer and on popstate, never on
+   each render: the hash is rewritten as settings open and the lazy section mounts
+   later), a hash without an anchor never clears it, and the section takes it once.
 3. When you add a UI string, add the key to both `en` and `fr`.

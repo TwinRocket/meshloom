@@ -300,6 +300,15 @@ describe('settings URL hashes', () => {
     expect(takeSettingsAnchor('database')).toBe('backup');
     expect(takeSettingsAnchor('database')).toBeNull();
   });
+
+  it('never clears a pending anchor on a hash without one', () => {
+    window.location.hash = '#settings/database/backup';
+    rememberSettingsAnchor();
+    window.location.hash = '#settings/database';
+    rememberSettingsAnchor();
+
+    expect(takeSettingsAnchor('database')).toBe('backup');
+  });
 });
 
 describe('resolveChannelFromHashToken', () => {

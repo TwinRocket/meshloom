@@ -42,8 +42,13 @@ interface UseAppShellResult {
 }
 
 export function useAppShell(): UseAppShellResult {
-  const initialSettingsSection = typeof window === 'undefined' ? null : parseHashSettingsSection();
-  if (initialSettingsSection !== null) rememberSettingsAnchor();
+  // Read once: the hash is rewritten to `#settings/<section>` by the first
+  // commit, and App re-renders long before a lazy section mounts to take the anchor.
+  const [initialSettingsSection] = useState<SettingsSection | null>(() => {
+    const section = typeof window === 'undefined' ? null : parseHashSettingsSection();
+    if (section !== null) rememberSettingsAnchor();
+    return section;
+  });
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [showSettings, setShowSettings] = useState(() => initialSettingsSection !== null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(

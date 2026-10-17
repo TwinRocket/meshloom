@@ -159,10 +159,13 @@ export function parseHashSettingsAnchor(): string | null {
 // the anchor is remembered when the hash is read and taken by the section.
 let pendingSettingsAnchor: { section: SettingsSection; anchor: string } | null = null;
 
+/** Remember the anchor of the current hash. A hash without one never clears a
+ * pending anchor: by then it is usually the rewritten `#settings/<section>`. */
 export function rememberSettingsAnchor(): void {
   const target = parseHashSettingsTarget();
-  pendingSettingsAnchor =
-    target && target.anchor ? { section: target.section, anchor: target.anchor } : null;
+  if (target && target.anchor) {
+    pendingSettingsAnchor = { section: target.section, anchor: target.anchor };
+  }
 }
 
 export function takeSettingsAnchor(section: SettingsSection): string | null {
