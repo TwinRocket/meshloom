@@ -1105,6 +1105,44 @@ describe('RawPacketFeedView', () => {
       expect(isReplayActive()).toBe(false);
     });
 
+    it('recomputes preset bounds on every open with the packets buffered since mount', async () => {
+      const history = mockHistory(0, []);
+      // Deep link to #raw: nothing buffered yet, so no clock offset can be measured.
+      renderView();
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      const dialog = await screen.findByRole('dialog');
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (0).toLocaleString() }));
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: i18n.t('rawPacket.historyCancel') })
+      );
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      // Live traffic since then shows the server clock 2 h behind the browser.
+      const skewSec = 2 * 3600;
+      const nowMs = Date.now();
+      act(() => {
+        for (let i = 0; i < 5; i += 1) {
+          recordRawPacket(
+            makePacket(100 + i, `dd${i}`, {
+              timestamp: Math.floor(nowMs / 1000) - skewSec,
+              received_at_ms: nowMs,
+            })
+          );
+        }
+      });
+      history.mockClear();
+
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('rawPacket.historyAria') }));
+      await screen.findByRole('dialog');
+      await screen.findByText(i18n.t('rawPacket.historyPreview', { count: (0).toLocaleString() }));
+
+      const since = history.mock.calls[history.mock.calls.length - 1]?.[0]?.since;
+      const expected = Math.floor(Date.now() / 1000) - skewSec - 86_400;
+      expect(since).toBeGreaterThanOrEqual(expected - 2);
+      expect(since).toBeLessThanOrEqual(expected + 2);
+    });
+
     it('does not drop replay when the live store is cleared on reconnect', async () => {
       const historic = makePacket(9, 'cc33', { observation_id: undefined });
       mockHistory(1, [historic]);

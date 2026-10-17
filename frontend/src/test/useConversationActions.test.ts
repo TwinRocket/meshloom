@@ -2,6 +2,8 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useConversationActions } from '../hooks/useConversationActions';
+import { recordRawPacket, resetRawPacketStore } from '../stores/rawPacketStore';
+import { resendAge, resetLiveOutgoingSightings } from '../utils/resendWindow';
 import type { Channel, Contact, Conversation, Message, PathDiscoveryResponse } from '../types';
 
 const mocks = vi.hoisted(() => ({
@@ -116,6 +118,81 @@ describe('useConversationActions', () => {
     expect(args.observeMessage).not.toHaveBeenCalled();
   });
 
+  it('anchors the resend window on the send response without a measured skew', async () => {
+    resetLiveOutgoingSightings();
+    const startMs = 1_800_000_000_000;
+    // The request waits 20 s for the radio lock before the server stamps it.
+    const nowSpy = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(startMs)
+      .mockReturnValue(startMs + 21_000);
+    // Server clock 10 min ahead of the browser.
+    const skewed = { ...sentMessage, id: 77, sender_timestamp: startMs / 1000 + 620 };
+    mocks.api.sendChannelMessage.mockResolvedValue(skewed);
+    const args = createArgs();
+    const { result } = renderHook(() => useConversationActions(args));
+
+    await act(async () => {
+      await result.current.handleSendMessage(skewed.text);
+    });
+
+    expect(resendAge(skewed, startMs + 29_000, null)).toEqual({
+      ageSec: 8,
+      authoritative: true,
+    });
+    nowSpy.mockRestore();
+    resetLiveOutgoingSightings();
+  });
+
+  it('anchors the resend window on the server stamp when the skew is measured', async () => {
+    resetLiveOutgoingSightings();
+    resetRawPacketStore();
+    const startMs = 1_800_000_000_000;
+    // Server clock 2 min behind the browser, measured on live packets.
+    for (let i = 0; i < 3; i += 1) {
+      recordRawPacket({
+        id: i + 1,
+        observation_id: i + 1,
+        timestamp: startMs / 1000 - 120,
+        received_at_ms: startMs,
+        data: `bb${i}`,
+        decrypted: false,
+        payload_type: 'Unknown',
+        rssi: -60,
+        snr: 5,
+        decrypted_info: null,
+      });
+    }
+    const nowSpy = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(startMs)
+      .mockReturnValue(startMs + 22_000);
+    // Stamped 20 s after the request left, on the server clock.
+    const stamped = { ...sentMessage, id: 78, sender_timestamp: startMs / 1000 + 20 - 120 };
+    mocks.api.sendChannelMessage.mockResolvedValue(stamped);
+    const { result } = renderHook(() => useConversationActions(createArgs()));
+
+    await act(async () => {
+      await result.current.handleSendMessage(stamped.text);
+    });
+
+    expect(resendAge(stamped, startMs + 30_000, null)?.ageSec).toBe(10);
+    nowSpy.mockRestore();
+    resetRawPacketStore();
+    resetLiveOutgoingSightings();
+  });
+
+  it('forwards the browser-clock age of a byte-perfect resend', async () => {
+    mocks.api.resendChannelMessage.mockResolvedValue({ status: 'ok', message_id: 42 });
+    const { result } = renderHook(() => useConversationActions(createArgs()));
+
+    await act(async () => {
+      await result.current.handleResendChannelMessage(42, false, 4.5);
+    });
+
+    expect(mocks.api.resendChannelMessage).toHaveBeenCalledWith(42, false, 4.5);
+  });
+
   it('appends sender mentions into the message input', () => {
     const args = createArgs();
     const { result } = renderHook(() => useConversationActions(args));
@@ -159,7 +236,7 @@ describe('useConversationActions', () => {
       await result.current.handleResendChannelMessage(sentMessage.id, true);
     });
 
-    expect(mocks.api.resendChannelMessage).toHaveBeenCalledWith(sentMessage.id, true);
+    expect(mocks.api.resendChannelMessage).toHaveBeenCalledWith(sentMessage.id, true, undefined);
     expect(args.observeMessage).toHaveBeenCalledWith(resentMessage);
   });
 

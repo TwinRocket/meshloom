@@ -1822,6 +1822,8 @@
   },
   "errors": {
     "radio_not_connected": "Radio not connected",
+    "resend_window_expired": "The resend window has expired ({{seconds}} seconds). Use “Resend as new” instead.",
+    "resend_window_expired_server": "The resend window has expired: the server sent this message more than {{seconds}} seconds ago. Use “Resend as new” instead.",
     "iata_requires_bind": "The IATA code changes only through Meshloom Community settings (bind or join), never with a plain settings update.",
     "join_requires_bind": "Join Meshloom Community from its settings: the IATA code is bound first, then Community is turned on.",
     "radio_initializing": "Radio is initializing",

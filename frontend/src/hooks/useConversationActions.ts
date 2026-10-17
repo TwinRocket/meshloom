@@ -5,6 +5,8 @@ import i18n from '../i18n';
 import type { MessageInputHandle } from '../components/MessageInput';
 import type { Channel, Contact, Conversation, Message, PathDiscoveryResponse } from '../types';
 import { mergeContactIntoList } from '../utils/contactMerge';
+import { getMeasuredServerClockOffsetSec } from '../stores/rawPacketStore';
+import { noteLiveOutgoingChannelMessage, sendAnchorMs } from '../utils/resendWindow';
 
 interface UseConversationActionsArgs {
   activeConversation: Conversation | null;
@@ -17,7 +19,11 @@ interface UseConversationActionsArgs {
 
 interface UseConversationActionsResult {
   handleSendMessage: (text: string) => Promise<void>;
-  handleResendChannelMessage: (messageId: number, newTimestamp?: boolean) => Promise<void>;
+  handleResendChannelMessage: (
+    messageId: number,
+    newTimestamp?: boolean,
+    clientAgeSec?: number
+  ) => Promise<void>;
   handleSetChannelFloodScopeOverride: (
     channelKey: string,
     floodScopeOverride: string
@@ -59,11 +65,24 @@ export function useConversationActions({
       if (!activeConversation) return;
 
       const conversationId = activeConversation.id;
+      // The server stamps sender_timestamp once it holds the radio lock, somewhere
+      // between these two browser times (sendAnchorMs picks the anchor).
+      const startedAtMs = Date.now();
       const sent =
         activeConversation.type === 'channel'
           ? await api.sendChannelMessage(activeConversation.id, text)
           : await api.sendDirectMessage(activeConversation.id, text);
 
+      const respondedAtMs = Date.now();
+      noteLiveOutgoingChannelMessage(
+        sent,
+        sendAnchorMs(
+          sent.sender_timestamp,
+          startedAtMs,
+          respondedAtMs,
+          getMeasuredServerClockOffsetSec()
+        )
+      );
       if (activeConversationRef.current?.id === conversationId) {
         observeMessage(sent);
       }
@@ -72,9 +91,9 @@ export function useConversationActions({
   );
 
   const handleResendChannelMessage = useCallback(
-    async (messageId: number, newTimestamp?: boolean) => {
+    async (messageId: number, newTimestamp?: boolean, clientAgeSec?: number) => {
       try {
-        const resent = await api.resendChannelMessage(messageId, newTimestamp);
+        const resent = await api.resendChannelMessage(messageId, newTimestamp, clientAgeSec);
         const resentMessage = resent.message;
         if (
           newTimestamp &&

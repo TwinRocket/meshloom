@@ -37,6 +37,32 @@ host without NTP). `recordRawPacket` adds a client-only `received_at_ms` (browse
 which are historical on purpose. Displaying a packet's absolute time keeps using
 `timestamp`. A server behind by more than the prune delay once wiped every
 visualizer node within a second; `src/test/clockSkewPrune.test.ts` covers it.
+The reverse direction applies to bounds sent to the server: the `#raw` history
+replay presets ("last 1h/24h/7d") are filtered on the server `timestamp`, so
+`utils/rawPacketHistoryBounds.ts` shifts `since` by the skew measured on buffered
+live packets (`received_at_ms` minus `timestamp`, read with
+`getServerClockOffsetSec()` from `stores/rawPacketStore.ts`, 0 when nothing is
+buffered) and sends no `until`. The modal recomputes the bounds on every open.
+Other server timestamps compared with `Date.now()`:
+- A message's `received_at` (server clock) drives the observer reach windows
+  (`useVisibleObserverReach`: live ticks only while young, 2 s/60 s polling). Ages
+  go through `messageAgeMs(msg, now, getServerClockOffsetSec())`.
+- The mesh test listen window is timed from `startedAtMs`, the browser time taken
+  just before the send request, not from the server `sent_at`
+  (`meshTestAgeMs` in `utils/meshTest.ts`).
+- The 30 s byte-perfect channel resend window is decided by the browser clock
+  (owner decision 2026-10-17; `utils/resendWindow.ts`). A message is anchored on
+  the earliest browser time this tab saw it live (`noteLiveOutgoingChannelMessage`:
+  the WS `message` event, or after a send the `sendAnchorMs` anchor, i.e. the
+  server stamp converted with the measured skew and bounded by request start and
+  response, else the response time; the server stamps once it holds the radio
+  lock, not on arrival), else on `sender_timestamp + offset` with the offset from
+  `getMeasuredServerClockOffsetSec()` (null when no live packet is buffered).
+  `MessageList` times the Resend button with `resendAge`. Only an authoritative
+  age (live sighting or measured skew) is sent as `client_age_seconds`; with an
+  unknown skew none is sent and the backend checks its own clock, and a stamp more
+  than 2 s in the future hides the button. Expiry errors are coded
+  (`errors.resend_window_expired`, `errors.resend_window_expired_server`).
 
 ### Lazy loading
 

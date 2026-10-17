@@ -6,6 +6,7 @@ import {
   resetObserverReachCountCache,
   useVisibleObserverReach,
 } from '../hooks/useVisibleObserverReach';
+import { recordRawPacket, resetRawPacketStore } from '../stores/rawPacketStore';
 import type { Message } from '../types';
 
 const getCounts = vi.hoisted(() => vi.fn());
@@ -50,6 +51,57 @@ describe('useVisibleObserverReach', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    resetRawPacketStore();
+  });
+
+  /** Buffer live packets the server stamped `skewSec` behind the browser clock. */
+  function seedServerClockBehindBy(skewSec: number) {
+    const nowMs = Date.now();
+    for (let i = 0; i < 5; i += 1) {
+      recordRawPacket({
+        id: i + 1,
+        observation_id: i + 1,
+        timestamp: Math.floor(nowMs / 1000) - skewSec,
+        received_at_ms: nowMs,
+        data: `aa${i}`,
+        decrypted: false,
+        payload_type: 'Unknown',
+        rssi: -60,
+        snr: 5,
+        decrypted_info: null,
+      });
+    }
+  }
+
+  it('ticks a just-received message when the server clock is 2 min behind', async () => {
+    seedServerClockBehindBy(120);
+    const receivedAt = Math.floor(Date.now() / 1000) - 120;
+    const { result } = renderHook(() =>
+      useVisibleObserverReach({
+        directoryEnabled: true,
+        conversationKey: 'C3B889530D4F02DB5662EA13C417F530',
+        messages: [channelMessage(receivedAt)],
+        visibleIndexes: [0],
+      })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(getCounts).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      applyCommunityPacketObserverTick({ packet_hash: 'aabbccddeeff0011', ear_id: 'ear-skew' });
+    });
+    expect(result.current.counts.AABBCCDDEEFF0011).toEqual({ status: 'ok', count: 3 });
+
+    // Still young on the browser clock: the 2 s cadence applies, not the 60 s one.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_050);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(getCounts).toHaveBeenCalledTimes(2);
   });
 
   it('refetches a 30-second-old visible message', async () => {

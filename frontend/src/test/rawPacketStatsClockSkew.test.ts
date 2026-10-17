@@ -53,6 +53,19 @@ describe('raw packet stats windows vs server clock', () => {
     });
   }
 
+  for (const skew of [8, -8]) {
+    it(`ages a live packet out of the 1m window on the browser clock (server ${skew} min behind)`, () => {
+      const browserNowMs = SERVER_NOW_S * 1000 + skew * 60_000;
+      vi.useFakeTimers();
+      vi.setSystemTime(browserNowMs);
+      recordRawPacket(livePacket(SERVER_NOW_S));
+      vi.setSystemTime(browserNowMs + 2 * 60_000);
+      const session = getRawPacketStatsSession();
+      expect(buildRawPacketStatsSnapshot(session, '1m').packetCount).toBe(0);
+      expect(buildRawPacketStatsSnapshot(session, '5m').packetCount).toBe(1);
+    });
+  }
+
   it('keeps the server timestamp for packets without a receipt time (history replay)', () => {
     expect(summarizeRawPacketForStats(livePacket(SERVER_NOW_S)).timestamp).toBe(SERVER_NOW_S);
     expect(

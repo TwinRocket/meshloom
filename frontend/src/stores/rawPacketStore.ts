@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
 import type { RawPacket } from '../types';
+import {
+  estimateServerClockOffsetSec,
+  measureServerClockOffsetSec,
+} from '../utils/rawPacketHistoryBounds';
 import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
 import {
   MAX_RAW_PACKET_STATS_OBSERVATIONS,
@@ -169,6 +173,16 @@ export function seedRawPacketStore(next: {
 
 export function getRawPackets(): RawPacket[] {
   return packets;
+}
+
+/** Browser-minus-server clock offset, in seconds, from the buffered live packets (0 if none). */
+export function getServerClockOffsetSec(): number {
+  return estimateServerClockOffsetSec(packets);
+}
+
+/** Browser-minus-server clock offset, in seconds, or null when no live packet is buffered. */
+export function getMeasuredServerClockOffsetSec(): number | null {
+  return measureServerClockOffsetSec(packets);
 }
 
 export function getRawPacketStatsSession(): RawPacketStatsSessionState {

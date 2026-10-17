@@ -100,7 +100,11 @@ interface ConversationPaneProps {
   onSenderClick: (sender: string, quote?: string) => void;
   onChannelReferenceClick?: (channelName: string) => void;
   onLoadOlder: () => Promise<void>;
-  onResendChannelMessage: (messageId: number, newTimestamp?: boolean) => Promise<void>;
+  onResendChannelMessage: (
+    messageId: number,
+    newTimestamp?: boolean,
+    clientAgeSec?: number
+  ) => Promise<void>;
   onTargetReached: () => void;
   onLoadNewer: () => Promise<void>;
   onJumpToBottom: () => void;

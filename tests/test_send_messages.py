@@ -972,7 +972,7 @@ class TestResendChannelMessage:
             await resend_channel_message(msg_id, new_timestamp=False)
 
         assert exc_info.value.status_code == 400
-        assert "expired" in exc_info.value.detail.lower()
+        assert exc_info.value.detail["code"] == "resend_window_expired"
 
     @pytest.mark.asyncio
     async def test_resend_uses_current_channel_flood_scope_override(self, test_db):
@@ -1334,7 +1334,71 @@ class TestResendChannelMessage:
             await resend_channel_message(msg_id, new_timestamp=False)
 
         assert exc_info.value.status_code == 400
-        assert "expired" in exc_info.value.detail.lower()
+        assert exc_info.value.detail["code"] == "resend_window_expired"
+
+    async def _make_outgoing_chan(self, chan_key: str, age_seconds: int) -> int:
+        await ChannelRepository.upsert(key=chan_key, name="#skew")
+        ts = int(time.time()) - age_seconds
+        msg_id = await MessageRepository.create(
+            msg_type="CHAN",
+            text="MyNode: skewed",
+            conversation_key=chan_key.upper(),
+            sender_timestamp=ts,
+            received_at=ts,
+            outgoing=True,
+        )
+        assert msg_id is not None
+        return msg_id
+
+    @pytest.mark.asyncio
+    async def test_resend_client_age_overrides_server_clock(self, test_db):
+        """Browser clock is authoritative: server says 90 s old, client says 10 s."""
+        mc = _make_mc(name="MyNode")
+        msg_id = await self._make_outgoing_chan("e1" * 16, age_seconds=90)
+
+        with (
+            patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+        ):
+            result = await resend_channel_message(
+                msg_id, new_timestamp=False, client_age_seconds=10.0
+            )
+
+        assert result.status == "ok"
+        mc.commands.send_chan_msg.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_resend_client_age_outside_window_returns_400(self, test_db):
+        """Server says 5 s old (server behind the browser), client says 45 s: refused."""
+        mc = _make_mc(name="MyNode")
+        msg_id = await self._make_outgoing_chan("e2" * 16, age_seconds=5)
+
+        with (
+            patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await resend_channel_message(msg_id, new_timestamp=False, client_age_seconds=45.0)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "resend_window_expired"
+        mc.commands.send_chan_msg.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resend_client_age_keeps_server_safety_bound(self, test_db):
+        """A client age inside the window cannot resend a message 10 min old on the server."""
+        mc = _make_mc(name="MyNode")
+        msg_id = await self._make_outgoing_chan("e3" * 16, age_seconds=600)
+
+        with (
+            patch("app.routers.messages.radio_manager.require_connected", return_value=mc),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await resend_channel_message(msg_id, new_timestamp=False, client_age_seconds=1.0)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "resend_window_expired_server"
+        assert "300 seconds" in exc_info.value.detail["message"]
+        mc.commands.send_chan_msg.assert_not_awaited()
 
 
 class TestPathHashModeOverride:

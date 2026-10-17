@@ -654,6 +654,40 @@ describe('fetchJson (via api methods)', () => {
     });
   });
 
+  describe('api.resendChannelMessage query parameters', () => {
+    async function resendUrl(...args: Parameters<typeof api.resendChannelMessage>) {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', message_id: 1 }),
+      });
+      await api.resendChannelMessage(...args);
+      return mockFetch.mock.calls[0][0] as string;
+    }
+
+    it('sends no query for a legacy byte-perfect resend', async () => {
+      expect(await resendUrl(5)).toBe('./api/messages/channel/5/resend');
+    });
+
+    it('sends the browser-clock age for a byte-perfect resend', async () => {
+      expect(await resendUrl(5, false, 12.34567)).toBe(
+        './api/messages/channel/5/resend?client_age_seconds=12.346'
+      );
+    });
+
+    it('clamps a negative age to 0', async () => {
+      expect(await resendUrl(5, false, -3)).toBe(
+        './api/messages/channel/5/resend?client_age_seconds=0'
+      );
+    });
+
+    it('omits the age for a new-timestamp resend', async () => {
+      expect(await resendUrl(5, true, 12)).toBe(
+        './api/messages/channel/5/resend?new_timestamp=true'
+      );
+    });
+  });
+
   describe('Meshloom Stats community client', () => {
     const communityStatus = {
       enabled: false,

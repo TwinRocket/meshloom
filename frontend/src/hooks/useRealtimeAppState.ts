@@ -19,6 +19,7 @@ import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStor
 import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { applyCommunityPacketObserverTick } from './useVisibleObserverReach';
 import { emitStatusDotPulse } from '../utils/statusDotPulse';
+import { noteLiveOutgoingChannelMessage } from '../utils/resendWindow';
 import type {
   Channel,
   Contact,
@@ -296,6 +297,7 @@ export function useRealtimeAppState({
         });
       },
       onMessage: (msg: Message) => {
+        noteLiveOutgoingChannelMessage(msg);
         if (isMessageBlocked(msg, blockedKeysRef.current, blockedNamesRef.current)) {
           return;
         }
