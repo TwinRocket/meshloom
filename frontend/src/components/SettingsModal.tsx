@@ -60,6 +60,8 @@ interface SettingsModalBaseProps {
   regionDiscoveryLoading: boolean;
   onDiscoverRegions: (publicKeys?: string[]) => Promise<void>;
   onHealthRefresh: () => Promise<void>;
+  /** Reload the client data after a backup restore (see SettingsDatabaseSection). */
+  onBackupRestored?: (identityChanged: boolean) => Promise<void>;
   onRefreshAppSettings: () => Promise<void>;
   blockedKeys?: string[];
   blockedNames?: string[];
@@ -112,6 +114,7 @@ export function SettingsModal(props: SettingsModalProps) {
     regionDiscoveryLoading,
     onDiscoverRegions,
     onHealthRefresh,
+    onBackupRestored,
     onRefreshAppSettings,
     blockedKeys,
     blockedNames,
@@ -404,6 +407,7 @@ export function SettingsModal(props: SettingsModalProps) {
                 health={health}
                 onSaveAppSettings={onSaveAppSettings}
                 onHealthRefresh={onHealthRefresh}
+                onBackupRestored={onBackupRestored}
                 className={sectionContentClass}
               />
             ) : (

@@ -20,6 +20,16 @@ export function fullBackupWarningKey(code: string): string | null {
   return null;
 }
 
+/** Warnings that mean the file cannot bring the radio's identity back. */
+function missesIdentity(code: string): boolean {
+  return (
+    code === 'private_key_export_disabled' ||
+    code === 'private_key_unavailable' ||
+    code === 'radio_not_connected' ||
+    code === 'radio_not_ready'
+  );
+}
+
 function saveJson(data: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const href = URL.createObjectURL(blob);
@@ -54,7 +64,15 @@ export function FullBackupExport() {
       ];
       setWarnings(keys);
       saveJson(result.data, result.filename);
-      toast.success(t('settings.fullBackup.downloaded'));
+      // Done with the passphrase: never keep it in state or in the inputs.
+      setPassphrase('');
+      setConfirmation('');
+      if (result.warnings.some(missesIdentity)) {
+        // A user about to reflash must not read this as a complete backup.
+        toast.warning(t('settings.fullBackup.downloadedNoIdentity'));
+      } else {
+        toast.success(t('settings.fullBackup.downloaded'));
+      }
     } catch (err) {
       toast.error(t('settings.fullBackup.failed'), { description: formatApiError(err, t) });
     } finally {

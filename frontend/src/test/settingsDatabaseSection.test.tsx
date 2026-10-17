@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   exportFullBackup: vi.fn(),
   getLatestRestoreJob: vi.fn(),
+  getRestoreJob: vi.fn(),
   downloadDatabaseBackup: vi.fn(),
   getJsonBackup: vi.fn(),
-  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
 
 vi.mock('../api', async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock('../api', async (importOriginal) => {
     api: {
       exportFullBackup: mocks.exportFullBackup,
       getLatestRestoreJob: mocks.getLatestRestoreJob,
+      getRestoreJob: mocks.getRestoreJob,
       downloadDatabaseBackup: mocks.downloadDatabaseBackup,
       getJsonBackup: mocks.getJsonBackup,
     },
@@ -29,18 +31,37 @@ import { rememberSettingsAnchor } from '../utils/urlHash';
 import { useAppShell } from '../hooks/useAppShell';
 import { SettingsDatabaseSection } from '../components/settings/SettingsDatabaseSection';
 import i18n from '../i18n';
-import type { AppSettings } from '../types';
+import type { AppSettings, BackupRestoreJob, BackupRestoreStep } from '../types';
 
-function renderSection() {
+function renderSection(
+  props: Partial<{
+    onHealthRefresh: () => Promise<void>;
+    onBackupRestored: (identityChanged: boolean) => Promise<void>;
+  }> = {}
+) {
   return render(
     <SettingsDatabaseSection
       appSettings={{ auto_decrypt_dm_on_advert: false } as AppSettings}
       health={null}
       onSaveAppSettings={vi.fn(async () => {})}
-      onHealthRefresh={vi.fn(async () => {})}
+      onHealthRefresh={props.onHealthRefresh ?? vi.fn(async () => {})}
+      onBackupRestored={props.onBackupRestored}
     />
   );
 }
+
+function restoreJob(
+  state: BackupRestoreJob['state'],
+  steps: BackupRestoreStep[]
+): BackupRestoreJob {
+  return { job_id: 'job-9', state, started_at: 1, finished_at: null, steps, result: null };
+}
+
+const step = (
+  name: BackupRestoreStep['step'],
+  status: BackupRestoreStep['status'],
+  code: string | null = null
+): BackupRestoreStep => ({ step: name, status, code, detail: null, items: [] });
 
 describe('SettingsDatabaseSection backups', () => {
   beforeEach(() => {
@@ -126,6 +147,57 @@ describe('SettingsDatabaseSection backups', () => {
     ).toBeVisible();
     expect(screen.getByText(i18n.t('settings.fullBackup.warningWifiNotStored'))).toBeVisible();
     expect(screen.getByText(i18n.t('settings.fullBackup.warningReadFailed'))).toBeVisible();
+    // Not a complete backup for a reflash: a warning, never the success toast.
+    expect(mocks.toast.warning).toHaveBeenCalledWith(
+      i18n.t('settings.fullBackup.downloadedNoIdentity')
+    );
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+  });
+
+  it('confirms a complete backup with the success toast', async () => {
+    renderSection();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullBackup.download') }));
+    await waitFor(() =>
+      expect(mocks.toast.success).toHaveBeenCalledWith(i18n.t('settings.fullBackup.downloaded'))
+    );
+    expect(mocks.toast.warning).not.toHaveBeenCalled();
+  });
+
+  it('reloads the client data when a restore changed the identity', async () => {
+    const onBackupRestored = vi.fn(async () => {});
+    const onHealthRefresh = vi.fn(async () => {});
+    mocks.getLatestRestoreJob.mockResolvedValue(restoreJob('running', []));
+    mocks.getRestoreJob.mockResolvedValue(
+      restoreJob('done', [step('identity', 'done', 'restored'), step('meshloom', 'done')])
+    );
+    renderSection({ onBackupRestored, onHealthRefresh });
+    await waitFor(() => expect(onBackupRestored).toHaveBeenCalledWith(true));
+    expect(onHealthRefresh).not.toHaveBeenCalled();
+  });
+
+  it('reloads the client data when a restore merged Meshloom data only', async () => {
+    const onBackupRestored = vi.fn(async () => {});
+    mocks.getLatestRestoreJob.mockResolvedValue(restoreJob('running', []));
+    mocks.getRestoreJob.mockResolvedValue(
+      restoreJob('done', [step('identity', 'skipped', 'no_identity'), step('meshloom', 'done')])
+    );
+    renderSection({ onBackupRestored });
+    await waitFor(() => expect(onBackupRestored).toHaveBeenCalledWith(false));
+  });
+
+  it('only refreshes health when a restore wrote nothing', async () => {
+    const onBackupRestored = vi.fn(async () => {});
+    const onHealthRefresh = vi.fn(async () => {});
+    mocks.getLatestRestoreJob.mockResolvedValue(restoreJob('running', []));
+    mocks.getRestoreJob.mockResolvedValue(
+      restoreJob('failed', [
+        step('identity', 'failed', 'private_key_import_disabled'),
+        step('meshloom', 'skipped', 'identity_failed'),
+      ])
+    );
+    renderSection({ onBackupRestored, onHealthRefresh });
+    await waitFor(() => expect(onHealthRefresh).toHaveBeenCalled());
+    expect(onBackupRestored).not.toHaveBeenCalled();
   });
 
   it('enforces the passphrase rules before an encrypted download', async () => {
@@ -151,6 +223,16 @@ describe('SettingsDatabaseSection backups', () => {
     expect(download).toBeEnabled();
     fireEvent.click(download);
     await waitFor(() => expect(mocks.exportFullBackup).toHaveBeenCalledWith('a long passphrase'));
+    // The passphrase does not outlive the download.
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(i18n.t('settings.fullBackup.passphrase')) as HTMLInputElement).value
+      ).toBe('')
+    );
+    expect(
+      (screen.getByLabelText(i18n.t('settings.fullBackup.passphraseConfirm')) as HTMLInputElement)
+        .value
+    ).toBe('');
   });
 
   it('reads the server file name, UTF-8 first', () => {

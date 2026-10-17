@@ -8,7 +8,7 @@ import { toast } from '../ui/sonner';
 import { api } from '../../api';
 import { formatTime } from '../../utils/messageParser';
 import { takeSettingsAnchor } from '../../utils/urlHash';
-import type { AppSettings, AppSettingsUpdate, HealthStatus } from '../../types';
+import type { AppSettings, AppSettingsUpdate, BackupRestoreJob, HealthStatus } from '../../types';
 import { BackupRestoreFlow } from './BackupRestoreFlow';
 import { FullBackupExport } from './FullBackupExport';
 import { SettingsGroupHeader } from './settingsPrimitives';
@@ -18,12 +18,16 @@ export function SettingsDatabaseSection({
   health,
   onSaveAppSettings,
   onHealthRefresh,
+  onBackupRestored,
   className,
 }: {
   appSettings: AppSettings;
   health: HealthStatus | null;
   onSaveAppSettings: (update: AppSettingsUpdate) => Promise<void>;
   onHealthRefresh: () => Promise<void>;
+  /** Reload the client data after a restore wrote it; `identityChanged` when the
+   * identity was restored or bound (history may have been wiped). */
+  onBackupRestored?: (identityChanged: boolean) => Promise<void>;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -53,6 +57,20 @@ export function SettingsDatabaseSection({
       document.getElementById('settings-backup')?.scrollIntoView?.({ block: 'start' });
     }
   }, []);
+
+  // The backend broadcasts none of what a restore writes (contacts, channels,
+  // a wiped history under another identity): reload the client data.
+  const handleRestoreFinished = async (job: BackupRestoreJob) => {
+    const done = (name: string) => job.steps.find((step) => step.step === name)?.status === 'done';
+    const identity = job.steps.find((step) => step.step === 'identity');
+    const identityChanged =
+      identity?.status === 'done' && (identity.code === 'restored' || identity.code === 'bound');
+    if (onBackupRestored && (identityChanged || done('meshloom'))) {
+      await onBackupRestored(identityChanged);
+    } else {
+      await onHealthRefresh();
+    }
+  };
 
   const handleCleanup = async () => {
     const days = parseInt(retentionDays, 10);
@@ -261,7 +279,7 @@ export function SettingsDatabaseSection({
         <FullBackupExport />
 
         <div className="rounded-md border border-warning/40 p-3">
-          <BackupRestoreFlow resumeLatest onFinished={() => void onHealthRefresh()} />
+          <BackupRestoreFlow resumeLatest onFinished={(job) => void handleRestoreFinished(job)} />
         </div>
       </div>
     </div>
