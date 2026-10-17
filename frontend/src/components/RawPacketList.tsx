@@ -12,7 +12,7 @@ import {
 import { createDecoderOptions, isCleartextPayloadType } from '../utils/rawPacketInspector';
 import { PAYLOAD_TYPE_COLORS, type KnownPayloadType } from '../utils/rawPacketStats';
 import { labelPayloadType } from '../utils/rawPacketLabels';
-import { getContactDisplayName } from '../utils/pubkey';
+import { getContactDisplayName, resolveContactsByPrefix } from '../utils/pubkey';
 import { cn } from '@/lib/utils';
 
 export interface PacketNavHints {
@@ -56,15 +56,6 @@ interface RawPacketListProps {
 
 export function packetRepeatKey(packet: RawPacket): string {
   return packet.packet_hash || String(packet.id);
-}
-
-export function resolveContactsByPrefix(hash: string, contacts: Contact[]): Contact[] {
-  const needle = hash
-    .trim()
-    .replace(/^hash1:/i, '')
-    .toLowerCase();
-  if (!needle) return [];
-  return contacts.filter((contact) => contact.public_key.toLowerCase().startsWith(needle));
 }
 
 function findContactByKey(publicKey: string, contacts: Contact[]): Contact | undefined {

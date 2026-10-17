@@ -29,7 +29,7 @@ Le groupe contient :
 
 - **Sauvegarde complète (radio et Meshloom)** : le fichier décrit sur cette page.
 - **Restaurer une sauvegarde** : restaure une sauvegarde complète, ou une ancienne sauvegarde de Meshloom seul.
-- **Télécharger meshcore.db** : une copie de toute la base (historique des messages compris). Elle ne contient jamais la clé privée de la radio et ne se restaure pas depuis l’interface.
+- **Télécharger meshcore.db** : une copie de toute la base (historique des messages compris). Elle ne contient jamais la clé privée de la radio, le code PIN Bluetooth ni les clés décrites plus bas dans « Non inclus », et ne se restaure pas depuis l’interface. Si vous remettez vous-même une telle copie à la place de la base, Meshloom la traite comme une restauration à son prochain démarrage (voir [Contenu de la sauvegarde](#contenu-de-la-sauvegarde), « Non inclus »).
 
 ## Restaurer la radio
 
@@ -75,11 +75,16 @@ Notez que quiconque atteint votre Meshloom peut télécharger cette sauvegarde, 
 - Les intégrations MQTT, webhook, Apprise, SQS, envoi vers la carte et Home Assistant, avec leurs secrets, chacune activée ou désactivée comme dans le fichier : une intégration activée commence à envoyer dès la fin de la restauration. **Les bots reviennent désactivés** : un bot exécute du code sur le serveur, activez donc chacun après l’avoir relu. Sur un serveur où les bots sont désactivés (`MESHCORE_DISABLE_BOTS=true`, le réglage par défaut du paquet Linux et de l’image Raspberry Pi, ou **Désactiver les bots jusqu’au redémarrage du serveur**), les bots ne sont **pas restaurés du tout** : activez d’abord les bots si vous voulez les retrouver. Avant la restauration, le résumé nomme chaque intégration, indique si le fichier active le proxy radio et quels bots sont ignorés.
 - Les clés et abonnements Web Push, restaurés seulement sur un Meshloom qui n’a pas d’abonnements à lui. Les abonnements restaurés reçoivent tout de suite vos notifications de messages : le résumé nomme donc, avant la restauration, l’adresse vers laquelle chacun envoie.
 
+Les versions plus récentes de Meshloom ajoutent d’autres parties à ce fichier. Une partie que la version en service ne connaît pas est laissée de côté, et le reste est restauré ; une partie absente du fichier laisse les données correspondantes telles quelles. Si une partie ne peut pas être restaurée, elle est laissée telle quelle, les autres le sont quand même, et la restauration indique laquelle a échoué. Une partie faite par un Meshloom plus récent que le vôtre n’est pas restaurée : mettez d’abord Meshloom à jour. Avant la restauration, le résumé liste ces parties et signale celles qui contiennent des secrets (comme les comptes) ; quand une sauvegarde contient de telles parties, chiffrez-la (voir [Chiffrement](#chiffrement)).
+
+**Restaurez une sauvegarde complète sur Meshloom 5.0 ou plus récent uniquement.** Meshloom 4.18 et les versions antérieures la lisent comme une ancienne sauvegarde de Meshloom seul : ils restaurent les contacts, canaux, réglages et groupes, et abandonnent sans rien dire l’identité et les réglages de la radio, les identifiants Wi-Fi, les intégrations, les clés push et toutes les parties ajoutées. Un fichier à restaurer est limité à 64 Mio.
+
 **Non inclus :**
 
 - Les messages, paquets bruts et historiques de télémétrie : utilisez **Télécharger meshcore.db** pour ceux-là.
 - Les réglages de connexion à la radio (port, adresse, appareil Bluetooth) : ils appartiennent à la machine.
 - La participation à Meshloom Community et son code de région : la rejoindre est votre choix, à refaire.
 - L’horloge de la radio (Meshloom la règle) et quelques réglages qu’aucune commande n’atteint (buzzer et vibration).
+- Les clés avec lesquelles Meshloom s’identifie auprès des services en ligne (accès à distance, partage de liens). Elles ne quittent jamais le serveur, pas même dans une sauvegarde complète qui contient la clé privée de la radio, ni dans un téléchargement de `meshcore.db` : Meshloom en crée de nouvelles après chaque restauration, y compris une copie de `meshcore.db` remise en place (faite par cette version ou une plus récente), et ces services doivent donc être liés de nouveau.
 
 La restauration écrit les canaux dans les emplacements de la radio et vide les emplacements suivants. Meshloom gère lui-même ces emplacements à chaque connexion : ils se remplissent de nouveau quand vous utilisez les canaux.

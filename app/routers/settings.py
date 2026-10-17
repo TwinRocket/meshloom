@@ -2,11 +2,11 @@ import logging
 import os
 import tempfile
 import time
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -38,6 +38,7 @@ from app.services.backup import (
     export_json,
     normalize_backup_request,
     parse_backup_model,
+    read_backup_body,
     restore_json,
     write_sqlite_backup,
 )
@@ -910,7 +911,10 @@ async def download_database_backup(background_tasks: BackgroundTasks) -> FileRes
 async def download_json_backup() -> BackupExport:
     """Meshloom data only (``meshloom-backup-v1``): contacts, channels, settings,
     groups. No radio identity or radio settings: the full backup has them."""
-    return await export_json()
+    try:
+        return await export_json()
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
 
 
 def _backup_http_error(exc: BackupError) -> HTTPException:
@@ -934,7 +938,10 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
                 message=f"The passphrase needs at least {PASSPHRASE_MIN_CHARS} characters",
             )
         )
-    doc = await export_backup_v2()
+    try:
+        doc = await export_backup_v2(encrypted=bool(passphrase))
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
     body = export_document(doc)
     if passphrase:
         try:
@@ -963,14 +970,25 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
     )
 
 
-@router.post("/backup/inspect", response_model=BackupInspectResult)
-async def inspect_full_backup(body: Annotated[dict[str, Any], Body()]) -> BackupInspectResult:
+_BACKUP_BODY_OPENAPI = {
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": {"type": "object"}}},
+    }
+}
+
+
+@router.post(
+    "/backup/inspect", response_model=BackupInspectResult, openapi_extra=_BACKUP_BODY_OPENAPI
+)
+async def inspect_full_backup(http_request: Request) -> BackupInspectResult:
     """Summarise a backup file and what restoring it would do; writes nothing.
 
     Body ``{"backup": <file>, "passphrase": "..."}``. A file without ``format``
-    is a ``meshloom-backup-v1`` file.
+    is a ``meshloom-backup-v1`` file. Over 64 MiB: 413 ``backup_too_large``.
     """
     try:
+        body = await read_backup_body(http_request)
         request = parse_backup_model(BackupInspectRequest, normalize_backup_request(body))
         from app.services.backup_restore import inspect_backup
 
@@ -999,9 +1017,11 @@ async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreRes
     responses={
         200: {"model": BackupRestoreResult, "description": "Flat v1 body: merged now"},
         202: {"description": "Body with `backup`: the restore job started, `{job_id}`"},
+        413: {"description": "Body over 64 MiB: `backup_too_large`"},
     },
+    openapi_extra=_BACKUP_BODY_OPENAPI,
 )
-async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
+async def restore_backup(http_request: Request) -> Any:
     """Restore a backup.
 
     - Flat body (no ``backup`` key): the v1 request, ``{"confirm": true, ...v1
@@ -1011,6 +1031,8 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
       file (v1, v2, encrypted) through the restore job: 202 ``{"job_id"}``, then
       ``GET /backup/restore/jobs/{job_id}``. Identity refusals are 409, before
       anything is written.
+
+    A body over 64 MiB is refused with 413 ``backup_too_large`` before parsing.
     """
     from app.services.backup import V1_FORMATS, open_backup_document
     from app.services.backup_restore import (
@@ -1020,6 +1042,7 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
     )
 
     try:
+        body = await read_backup_body(http_request)
         if "backup" not in body:
             if body.get("format") is not None and body.get("format") not in V1_FORMATS:
                 raise BackupError(

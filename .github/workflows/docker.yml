@@ -6,7 +6,7 @@ name: Docker
 # demand. Pull requests build only, to catch Dockerfile breakage without
 # publishing. After a main build, the deploy job calls the redeploy webhooks in
 # EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml); after a preversion-5
-# build, those in NEXT_DEPLOY_WEBHOOKS (the stacks that run :next).
+# build it calls those in NEXT_DEPLOY_WEBHOOKS (the meshloom-next stack, MSHL-270).
 #
 # forward-merge.yml merges main into preversion-5 through a PR auto-merged with
 # GITHUB_TOKEN, and a merge made with that token starts no workflow, so it waits
@@ -221,67 +221,47 @@ jobs:
           subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
 
-  # Redeploys the stacks that run the image just published: :edge after a main
-  # build (EDGE_DEPLOY_WEBHOOKS, stacks on docker-compose.dev.yaml), :next after a
-  # preversion-5 build (NEXT_DEPLOY_WEBHOOKS). One job for both, so the two
-  # environments cannot drift; its step name says which one ran. A stack polling Git
-  # would redeploy a few minutes too early and pull the previous image. The
-  # webhook URLs live in those secrets, one per line: anyone holding one can
-  # trigger a redeploy, so they never appear in the repository or in the logs.
-  # No secret (forks, or a stack not created yet): a notice, nothing to do.
+  # Redeploys the stacks that run :edge after a main build (EDGE_DEPLOY_WEBHOOKS,
+  # stacks on docker-compose.dev.yaml). A stack polling Git would redeploy a few
+  # minutes too early and pull the previous image. The webhook URLs live in that
+  # secret, one per line: anyone holding one can trigger a redeploy, so they never
+  # appear in the repository or in the logs. No secret (forks, or a stack not
+  # created yet): a notice, nothing to do.
   # Portainer sits behind Cloudflare Access, which redirects GitHub-hosted runners
   # to its login page (HTTP 302). CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET hold
   # an Access service token that the Access application accepts (Service Auth
   # policy); when both are set, every call sends them as CF-Access-Client-* headers.
-  # Both environments share that token.
-  # :next is the exception: its stack lives on mininode1, whose Portainer has no
-  # public route. The preversion-5 run therefore executes on a self-hosted runner
-  # of the owner's LAN and calls https://192.168.42.226:9443/... directly (no
-  # Access token needed there). That endpoint serves Portainer's self-signed
-  # certificate, whose names are only localhost and 0.0.0.0, so it cannot be
-  # verified by name: the next path passes --insecure to curl. Nothing but the
-  # redeploy trigger crosses that hop, on a trusted LAN, and the main path keeps
-  # full verification.
+  # preversion-5 (:next) works the same way with NEXT_DEPLOY_WEBHOOKS: mininode1's
+  # Portainer is published through the same Cloudflare tunnel and Access application,
+  # so the job stays on GitHub-hosted runners (a self-hosted runner is not an option
+  # on this public repository: a fork pull request could run code on the owner's
+  # machine). Portainer's git-stack webhook reads no query parameter (no `pullimage`),
+  # so whether a redeploy pulls a new :next is the stack's own "Re-pull image" setting.
   deploy:
-    # A static name: GitHub leaves a skipped job's name expression unrendered
-    # (pull requests, tags). The step name says which environment ran.
+    # A static name, so the required check keeps its name on every ref.
     name: Deploy
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preversion-5'
     needs: merge
-    runs-on: ${{ github.ref == 'refs/heads/preversion-5' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Call the ${{ github.ref == 'refs/heads/main' && 'edge' || 'next' }} redeploy webhooks
+      - name: Call the edge redeploy webhooks
+        if: github.ref == 'refs/heads/main'
         env:
-          # Both secrets are read and the ref picks one in the script: an
-          # `a && secrets.X || secrets.Y` expression would fall through to the
-          # other environment's webhooks whenever the first secret is empty.
           EDGE_WEBHOOKS: ${{ secrets.EDGE_DEPLOY_WEBHOOKS }}
-          NEXT_WEBHOOKS: ${{ secrets.NEXT_DEPLOY_WEBHOOKS }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
-          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            secret=EDGE_DEPLOY_WEBHOOKS
-            WEBHOOKS="$EDGE_WEBHOOKS"
-            tls=()
-          else
-            secret=NEXT_DEPLOY_WEBHOOKS
-            WEBHOOKS="$NEXT_WEBHOOKS"
-            # LAN-only Portainer with a self-signed certificate (see the job comment).
-            tls=(--insecure)
-          fi
-          unset EDGE_WEBHOOKS NEXT_WEBHOOKS
+          WEBHOOKS="$EDGE_WEBHOOKS"
+          unset EDGE_WEBHOOKS
           if [ -z "$WEBHOOKS" ]; then
-            echo "::notice::$secret is not set; no stack to redeploy"
+            echo "::notice::EDGE_DEPLOY_WEBHOOKS is not set; no stack to redeploy"
             exit 0
           fi
           # The token goes through a private header file, never through argv.
           access="$(mktemp)"
           trap 'rm -f "$access"' EXIT
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::notice::LAN webhook: no Cloudflare Access token, TLS certificate not verified"
-          elif [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
             printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' \
               "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" > "$access"
           else
@@ -295,7 +275,51 @@ jobs:
             headers="$(mktemp)"
             # No -f/-L: a redirect or a challenge page (a proxy in front of
             # Portainer) must show up as a failure, not as a success.
-            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST "${tls[@]}" \
+            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST \
+              -H @"$access" --max-time 60 --retry 2 --retry-all-errors "$url")" || true
+            code="${code:-000}"
+            # Never print the URL; the status and a few response headers are enough.
+            info="$(grep -iE '^(server|cf-mitigated|location|content-type):' "$headers" \
+              | sed -E 's#^(location:[[:space:]]*https?://[^/]+).*#\1/...#I' | tr -d '\r' | paste -sd ';' -)" || true
+            rm -f "$headers"
+            if [[ "$code" == 2* ]]; then
+              echo "Webhook $n: HTTP $code, redeploy requested ($info)"
+            else
+              # A down Portainer must not turn the image build red.
+              echo "::warning::Webhook $n: HTTP $code ($info); that stack keeps the previous image"
+            fi
+          done <<< "$WEBHOOKS"
+      - name: Call the next redeploy webhooks
+        if: github.ref == 'refs/heads/preversion-5'
+        env:
+          NEXT_WEBHOOKS: ${{ secrets.NEXT_DEPLOY_WEBHOOKS }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          WEBHOOKS="$NEXT_WEBHOOKS"
+          unset NEXT_WEBHOOKS
+          if [ -z "$WEBHOOKS" ]; then
+            echo "::notice::NEXT_DEPLOY_WEBHOOKS is not set; no stack to redeploy"
+            exit 0
+          fi
+          # The token goes through a private header file, never through argv.
+          access="$(mktemp)"
+          trap 'rm -f "$access"' EXIT
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' \
+              "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" > "$access"
+          else
+            echo "::notice::No Cloudflare Access service token; webhooks are called without one"
+          fi
+          n=0
+          while IFS= read -r url; do
+            url="${url%%[[:space:]]}"
+            [ -n "$url" ] || continue
+            n=$((n + 1))
+            headers="$(mktemp)"
+            # No -f/-L: a redirect or a challenge page (a proxy in front of
+            # Portainer) must show up as a failure, not as a success.
+            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST \
               -H @"$access" --max-time 60 --retry 2 --retry-all-errors "$url")" || true
             code="${code:-000}"
             # Never print the URL; the status and a few response headers are enough.

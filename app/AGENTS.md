@@ -311,7 +311,29 @@ be wrong, because historical decryption inserts old messages with new ids.
   `services/backup.py` (formats, coverage, export, Meshloom restore),
   `services/backup_radio.py` (radio reads and writes),
   `services/backup_restore.py` (identity decision, inspect, restore job),
-  `services/backup_crypto.py` (envelope).
+  `services/backup_crypto.py` (envelope), `services/backup_sections.py` (sections, hooks).
+- **Sections and restore hooks** (`services/backup_sections.py`, contract in
+  `docs/dev/backup.md`). Other features add a named entry to the v2 file's
+  optional `sections` with `register_backup_section(name, export_fn,
+  restore_fn, *, description=..., sensitive=..., version=..., requires=...)`,
+  never a new top-level field or a second v2 format; the job restores them in
+  its `meshloom` step after `meshloom_extra`, each in its own `db.tx()`
+  (`restore_fn(section, conn)` writes through `conn` only; a failure rolls that
+  section back and the others go on), skips a section newer than its owner
+  (`section_too_new`) and ignores unknown ones with a log line. Inspect lists
+  them (`sections[]`: description, sensitive, known, too_new); a sensitive
+  section exported without a passphrase adds
+  `section_sensitive_unencrypted:<name>`. `register_on_restore(name, hook)`
+  runs once per restore: a flat v1 restore, a job that wrote something (the
+  job passes `run_hooks=False` to `restore_json` and runs them at its end), or
+  a SQLite snapshot put back in place (the download carries a
+  `meshloom_backup_snapshot` table; the lifespan runs the hooks after
+  `db.connect()` and drops it). The JSON export refuses (500
+  `backup_identity_seed_leak`, coded on both routes) any document holding an
+  `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
+  the BLE PIN and the previous-transport snapshot set to NULL (under
+  `secure_delete`): instance identity seeds are never exported. Inspect and
+  restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
   column or table until it is listed (one direction: extra entries are fine).

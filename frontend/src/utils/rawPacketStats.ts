@@ -72,12 +72,18 @@ export function buildPayloadTypeColorMap(
   return map;
 }
 
+/** Known payload type name of an already decoded packet, else `Unknown`. */
+export function getDecodedPayloadTypeName(
+  decoded: ReturnType<typeof MeshCoreDecoder.decode>
+): string {
+  if (!decoded.isValid) return 'Unknown';
+  const name = Utils.getPayloadTypeName(decoded.payloadType);
+  return KNOWN_PAYLOAD_TYPE_SET.has(name) ? name : 'Unknown';
+}
+
 export function getPacketTypeName(packet: RawPacket, decoderOptions?: DecryptionOptions): string {
   try {
-    const decoded = MeshCoreDecoder.decode(packet.data, decoderOptions);
-    if (!decoded.isValid) return 'Unknown';
-    const name = Utils.getPayloadTypeName(decoded.payloadType);
-    return KNOWN_PAYLOAD_TYPE_SET.has(name) ? name : 'Unknown';
+    return getDecodedPayloadTypeName(MeshCoreDecoder.decode(packet.data, decoderOptions));
   } catch {
     return 'Unknown';
   }
