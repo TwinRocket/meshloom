@@ -697,6 +697,22 @@ function RestoreSummary({
         {inspect.radio_proxy_enabled && (
           <p className="text-warning">{t('settings.fullRestore.proxyEnabled')}</p>
         )}
+        {(inspect.push_targets?.length ?? 0) > 0 && (
+          <p className="text-warning">
+            {t('settings.fullRestore.pushTargets', {
+              list: (inspect.push_targets ?? [])
+                .map((target) =>
+                  target.label
+                    ? t('settings.fullRestore.pushTarget', {
+                        label: target.label,
+                        host: target.host,
+                      })
+                    : target.host
+                )
+                .join(', '),
+            })}
+          </p>
+        )}
         {inspect.warnings.length > 0 && (
           <div className="pt-1">
             <p className="text-xs font-semibold">{t('settings.fullRestore.fileWarningsTitle')}</p>

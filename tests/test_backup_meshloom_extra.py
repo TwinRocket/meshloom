@@ -263,3 +263,45 @@ async def test_inspect_lists_integrations_proxy_and_skipped_bots(backup_db, monk
 
     monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", False)
     assert (await inspect_backup(doc, None)).bots_will_be_skipped is False
+
+
+@pytest.mark.asyncio
+async def test_inspect_shows_where_restored_push_notifications_go(backup_db):
+    """The file chooses the push endpoints: inspect names their hosts, but only
+    when the restore would write them (no subscriptions of this host's own)."""
+    from app.models import BackupExportV2
+    from app.services.backup_restore import inspect_backup
+
+    doc = BackupExportV2(
+        meshloom_extra=MeshloomExtra(
+            vapid=BackupVapid(private_key="backup-priv", public_key="backup-pub"),  # type: ignore[arg-type]
+            push_subscriptions=[
+                BackupPushSubscription(
+                    endpoint="https://push.example.net/send/abc",
+                    p256dh="k",
+                    auth="a",
+                    label="Phone",
+                ),
+                BackupPushSubscription(endpoint="not a url", p256dh="k", auth="a"),
+            ],
+        )
+    )
+    result = await inspect_backup(doc, None)
+    assert [(t.label, t.host) for t in result.push_targets] == [
+        ("Phone", "push.example.net"),
+        ("", "not a url"),
+    ]
+
+    own = await PushSubscriptionRepository.create("https://push.example/host", "k", "a")
+    await AppSettingsRepository.set_vapid_keys("host-priv", "host-pub")
+    assert (await inspect_backup(doc, None)).push_targets == []  # kept: push_kept_existing
+
+    no_vapid = BackupExportV2(
+        meshloom_extra=MeshloomExtra(
+            push_subscriptions=[
+                BackupPushSubscription(endpoint="https://push.example/1", p256dh="k", auth="a")
+            ]
+        )
+    )
+    await PushSubscriptionRepository.delete(own["id"])
+    assert (await inspect_backup(no_vapid, None)).push_targets == []

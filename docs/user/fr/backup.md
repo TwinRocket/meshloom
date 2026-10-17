@@ -73,7 +73,7 @@ Notez que quiconque atteint votre Meshloom peut télécharger cette sauvegarde, 
 - Les contacts (favoris, routes), les canaux avec leurs clés et leur portée régionale, les groupes de contacts.
 - Les réglages : régions, listes de blocage, suivi de télémétrie, règles d’alerte, destinations de notification, mises à jour, préférences d’interface, préférences push, réglages du proxy radio, groupe **Contournements** de **Réglages → Radio → Avancé** (correction de l’horloge comprise).
 - Les intégrations MQTT, webhook, Apprise, SQS, envoi vers la carte et Home Assistant, avec leurs secrets, chacune activée ou désactivée comme dans le fichier : une intégration activée commence à envoyer dès la fin de la restauration. **Les bots reviennent désactivés** : un bot exécute du code sur le serveur, activez donc chacun après l’avoir relu. Sur un serveur où les bots sont désactivés (`MESHCORE_DISABLE_BOTS=true`, le réglage par défaut du paquet Linux et de l’image Raspberry Pi, ou **Désactiver les bots jusqu’au redémarrage du serveur**), les bots ne sont **pas restaurés du tout** : activez d’abord les bots si vous voulez les retrouver. Avant la restauration, le résumé nomme chaque intégration, indique si le fichier active le proxy radio et quels bots sont ignorés.
-- Les clés et abonnements Web Push, restaurés seulement sur un Meshloom qui n’a pas d’abonnements à lui.
+- Les clés et abonnements Web Push, restaurés seulement sur un Meshloom qui n’a pas d’abonnements à lui. Les abonnements restaurés reçoivent tout de suite vos notifications de messages : le résumé nomme donc, avant la restauration, l’adresse vers laquelle chacun envoie.
 
 **Non inclus :**
 

@@ -303,8 +303,10 @@ be wrong, because historical decryption inserts old messages with new ids.
   ended while no view was open gets its reload once, when Settings next opens
   (handled job ids in sessionStorage).
 - **Inspect** also lists the non-bot integrations with their `enabled` flag,
-  the file's proxy setting and `bots_will_be_skipped`: integrations and the
-  proxy come back as in the file and start at once, so the summary names them.
+  the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label and
+  endpoint host of each push subscription the restore would write, per
+  `push_restore_applies`): integrations, the proxy and push subscriptions come
+  back as in the file and start at once, so the summary names them.
 - **Restore body.** `POST /settings/backup/restore` reads a raw dict: no
   `backup` key is the v1 flat request (synchronous); a `backup` key starts the
   job (202). A file without `format` is v1 everywhere.

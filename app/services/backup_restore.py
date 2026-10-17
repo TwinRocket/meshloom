@@ -23,6 +23,7 @@ from app.models import (
     BackupIdentityRequires,
     BackupInspectResult,
     BackupIntegrationSummary,
+    BackupPushSummary,
     BackupRestoreItem,
     BackupRestoreJob,
     BackupRestoreRequest,
@@ -35,7 +36,7 @@ from app.models import (
     RadioTransportSnapshot,
 )
 from app.radio import RadioOperationBusyError, RadioOperationError
-from app.services.backup import BackupError, open_backup_document
+from app.services.backup import BackupError, open_backup_document, push_restore_applies
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +263,18 @@ def decide_for(doc: BackupV1Document | BackupExportV2, inputs: IdentityInputs) -
 # -- Inspect -----------------------------------------------------------------
 
 
+def _endpoint_host(endpoint: str) -> str:
+    """The host a push endpoint points to (what the user can judge), else the
+    start of the string when it is not a URL."""
+    from urllib.parse import urlsplit
+
+    try:
+        host = urlsplit(endpoint).hostname
+    except ValueError:
+        host = None
+    return host or endpoint[:64]
+
+
 def _pin_text(pin: int | None) -> str:
     return "" if not pin else f"{pin:06d}"
 
@@ -334,6 +347,12 @@ async def inspect_backup(
         ]
         if extra.radio_proxy is not None:
             result.radio_proxy_enabled = extra.radio_proxy.enabled
+        if extra.push_subscriptions and await push_restore_applies(extra):
+            # The file chooses where message notifications go: show it.
+            result.push_targets = [
+                BackupPushSummary(label=sub.label, host=_endpoint_host(sub.endpoint))
+                for sub in extra.push_subscriptions
+            ]
 
     transport = inputs.transport
     if (

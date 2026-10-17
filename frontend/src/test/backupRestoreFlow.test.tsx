@@ -684,6 +684,28 @@ describe('BackupRestoreFlow', () => {
     ).toHaveLength(1);
   });
 
+  it('names the hosts restored push notifications go to', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({
+        push_targets: [
+          { label: 'Phone', host: 'push.example.net' },
+          { label: '', host: 'fcm.googleapis.com' },
+        ],
+      })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const phone = i18n.t('settings.fullRestore.pushTarget', {
+      label: 'Phone',
+      host: 'push.example.net',
+    });
+    expect(
+      await screen.findByText(
+        i18n.t('settings.fullRestore.pushTargets', { list: `${phone}, fcm.googleapis.com` })
+      )
+    ).toBeVisible();
+  });
+
   it('does not report a job that had already ended when the view opened', async () => {
     const onFinished = vi.fn();
     mocks.getLatestRestoreJob.mockResolvedValue(job());

@@ -741,21 +741,36 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
     return len(written)
 
 
+async def push_restore_applies(extra: MeshloomExtra) -> bool | None:
+    """Whether a restore writes the file's VAPID keys and subscriptions.
+
+    None: the file has no VAPID keys (nothing to restore). False: this host has
+    subscriptions of its own under another key, which are kept.
+    """
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    if extra.vapid is None:
+        return None
+    existing = await PushSubscriptionRepository.get_all()
+    _private, current_public = await AppSettingsRepository.get_vapid_keys()
+    # Its subscriptions were made with its own key: the backup's would fail
+    # (403/410) and be deleted on the first push.
+    return not (existing and current_public != extra.vapid.public_key)
+
+
 async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
     """VAPID keys and subscriptions belong together: restored only on a host
     with no subscriptions of its own (or already using the backup's key)."""
     from app.push.vapid import ensure_vapid_keys
     from app.repository.push_subscriptions import PushSubscriptionRepository
 
-    if extra.vapid is None:
+    applies = await push_restore_applies(extra)
+    if applies is None:
         return 0
-    existing = await PushSubscriptionRepository.get_all()
-    _private, current_public = await AppSettingsRepository.get_vapid_keys()
-    if existing and current_public != extra.vapid.public_key:
-        # Its subscriptions were made with its own key: the backup's would fail
-        # (403/410) and be deleted on the first push.
+    if not applies:
         warnings.append("push_kept_existing")
         return 0
+    assert extra.vapid is not None
     await AppSettingsRepository.set_vapid_keys(
         extra.vapid.private_key.get_secret_value(), extra.vapid.public_key
     )

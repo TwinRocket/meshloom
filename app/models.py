@@ -2263,6 +2263,13 @@ class BackupIntegrationSummary(BaseModel):
     enabled: bool
 
 
+class BackupPushSummary(BaseModel):
+    """A push subscription a restore would write: notifications go to ``host``."""
+
+    label: str
+    host: str
+
+
 class BackupInspectResult(BaseModel):
     format: str
     encrypted: bool = False
@@ -2291,6 +2298,13 @@ class BackupInspectResult(BaseModel):
     )
     radio_proxy_enabled: bool | None = Field(
         default=None, description="The file's radio proxy setting (None: not in the file)"
+    )
+    push_targets: list[BackupPushSummary] = Field(
+        default_factory=list,
+        description=(
+            "Push subscriptions the restore would write (this host has none of its own): "
+            "message notifications start going to these hosts right after the restore"
+        ),
     )
     identity_relation: BackupIdentityRelation = "no_identity"
     identity_requires: BackupIdentityRequires = Field(default_factory=BackupIdentityRequires)

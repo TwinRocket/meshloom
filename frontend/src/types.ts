@@ -1592,6 +1592,12 @@ export interface BackupIntegrationSummary {
   enabled: boolean;
 }
 
+/** A push subscription the restore would write: notifications go to `host`. */
+export interface BackupPushSummary {
+  label: string;
+  host: string;
+}
+
 export interface BackupInspectResult {
   format: string;
   encrypted: boolean;
@@ -1614,6 +1620,8 @@ export interface BackupInspectResult {
   integrations: BackupIntegrationSummary[];
   /** The file's radio proxy setting (null: not in the file). */
   radio_proxy_enabled: boolean | null;
+  /** Push subscriptions the restore would write; notifications start at once. */
+  push_targets?: BackupPushSummary[];
   identity_relation: BackupIdentityRelation;
   identity_requires: BackupIdentityRequires;
   /** The history has no bound owner: kept unless the restore sends wipe_history. */
