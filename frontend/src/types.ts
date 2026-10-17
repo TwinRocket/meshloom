@@ -81,6 +81,8 @@ export interface RadioTransportConfig {
   ble_address: string;
   ble_pin_configured: boolean;
   bound_public_key: string | null;
+  /** Kind of the transport `POST /radio/transport/revert` would restore, if any. */
+  previous_transport_kind?: RadioTransportKind | null;
   capabilities: RadioTransportCapabilities;
   serial_ports: RadioSerialPortInfo[];
 }

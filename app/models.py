@@ -2046,6 +2046,8 @@ class RadioTransportResponse(BaseModel):
     ble_address: str = ""
     ble_pin_configured: bool = False
     bound_public_key: str | None = None
+    # Kind of the transport POST /radio/transport/revert would restore (no PIN, no address).
+    previous_transport_kind: RadioTransportKind | None = None
     capabilities: RadioTransportCapabilities = Field(default_factory=RadioTransportCapabilities)
     serial_ports: list[RadioSerialPortInfo] = Field(default_factory=list)
 

@@ -43,6 +43,7 @@ from app.routers.radio import (
     reboot_radio,
     reconnect_radio,
     reject_radio_identity,
+    revert_radio_transport,
     send_advertisement,
     set_private_key,
     trace_path,
@@ -1613,6 +1614,115 @@ class TestRadioTransportApi:
 
         assert response.transport == "tcp"
         mock_rm.disconnect.assert_not_awaited()
+
+    @staticmethod
+    def _no_probes():
+        return (
+            patch(
+                "app.services.radio_transport.probe_serial_ports",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.services.radio_transport.probe_ble_available",
+                new=AsyncMock(return_value=(True, None)),
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_put_to_tcp_then_revert_restores_ble_with_its_pin(self, test_db):
+        """The Wi-Fi panel's "Go back": BLE (PIN) -> PUT TCP -> revert -> BLE, PIN kept."""
+        from app.repository.radio_transport import RadioTransportRepository
+
+        await RadioTransportRepository.save(
+            RadioTransportSnapshot(
+                transport="ble",
+                ble_address="AA:BB:CC:DD:EE:FF",
+                ble_pin="123456",
+                bound_public_key="aa" * 32,
+            )
+        )
+        mock_rm = MagicMock()
+        mock_rm.lifecycle_transition = _noop_lifecycle
+        mock_rm.disconnect = AsyncMock()
+        probe_ports, probe_ble = self._no_probes()
+
+        with (
+            patch("app.routers.radio.radio_manager", _runtime(mock_rm)),
+            patch("app.routers.radio._reconnect_and_prepare", new=AsyncMock(return_value=False)),
+            probe_ports,
+            probe_ble,
+        ):
+            response = await put_radio_transport(
+                RadioTransportUpdate(transport="tcp", tcp_host="192.168.1.50", tcp_port=5000)
+            )
+            assert response.transport == "tcp"
+            assert response.previous_transport_kind == "ble"
+            assert (await RadioTransportRepository.get()).ble_pin == ""
+
+            response = await revert_radio_transport()
+
+        assert response.transport == "ble"
+        assert response.ble_pin_configured is True
+        # The TCP transport it replaced is now the one a second revert would restore.
+        assert response.previous_transport_kind == "tcp"
+        snapshot = await RadioTransportRepository.get()
+        assert snapshot.transport == "ble"
+        assert snapshot.ble_address == "AA:BB:CC:DD:EE:FF"
+        assert snapshot.ble_pin == "123456"
+        assert snapshot.bound_public_key == "aa" * 32
+        assert snapshot.previous_transport is not None
+        assert snapshot.previous_transport["tcp_host"] == "192.168.1.50"
+        assert mock_rm.disconnect.await_count == 2
+        mock_rm.resume_connection.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_revert_without_previous_transport_is_409(self, test_db):
+        from app.repository.radio_transport import RadioTransportRepository
+
+        await RadioTransportRepository.save(
+            RadioTransportSnapshot(transport="tcp", tcp_host="10.0.0.8")
+        )
+        mock_rm = MagicMock()
+        mock_rm.lifecycle_transition = _noop_lifecycle
+        mock_rm.disconnect = AsyncMock()
+
+        with patch("app.routers.radio.radio_manager", _runtime(mock_rm)):
+            with pytest.raises(HTTPException) as exc:
+                await revert_radio_transport()
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "no_previous_transport"
+        mock_rm.disconnect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_revert_while_identity_gate_is_open_is_409(self, test_db):
+        from app.repository.radio_transport import RadioTransportRepository
+
+        await RadioTransportRepository.save(
+            RadioTransportSnapshot(
+                transport="tcp",
+                tcp_host="10.0.0.8",
+                identity_state="identity_mismatch",
+                previous_transport={"transport": "serial", "serial_port": "/dev/ttyUSB0"},
+            )
+        )
+        with pytest.raises(HTTPException) as exc:
+            await revert_radio_transport()
+
+        assert exc.value.status_code == 409
+        assert (await RadioTransportRepository.get()).transport == "tcp"
+
+    @pytest.mark.asyncio
+    async def test_transport_response_has_no_previous_kind_without_snapshot(self, test_db):
+        from app.repository.radio_transport import RadioTransportRepository
+
+        await RadioTransportRepository.save(
+            RadioTransportSnapshot(transport="serial", serial_port="/dev/ttyUSB0")
+        )
+        probe_ports, probe_ble = self._no_probes()
+        with probe_ports, probe_ble:
+            response = await get_radio_transport()
+        assert response.previous_transport_kind is None
 
     @pytest.mark.asyncio
     async def test_ble_scan_without_adapter_returns_422(self):

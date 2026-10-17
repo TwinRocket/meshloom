@@ -7,5 +7,9 @@
   },
   "toast": {
     "radioRebootingWifiConfig": "Radio rebooting to apply its Wi-Fi settings"
+  },
+  "errors": {
+    "no_previous_transport": "There is no previous connection to go back to.",
+    "radio_identity_gate_open": "A different radio identity is waiting for your decision: adopt or reject it first."
   }
 }

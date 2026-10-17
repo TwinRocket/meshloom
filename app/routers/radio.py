@@ -36,6 +36,7 @@ from app.models import (
     RadioTraceRequest,
     RadioTraceResponse,
     RadioTransportResponse,
+    RadioTransportSnapshot,
     RadioTransportUpdate,
 )
 from app.radio import RadioOperationBusyError
@@ -1173,6 +1174,97 @@ async def put_radio_transport(update: RadioTransportUpdate) -> RadioTransportRes
     return await build_transport_response()
 
 
+def _snapshot_from_previous(
+    snapshot: RadioTransportSnapshot, previous: object
+) -> RadioTransportSnapshot | None:
+    """The transport saved in ``previous_transport`` (BLE PIN included) applied
+    over ``snapshot``, with no identity gate and no previous transport; None when
+    ``previous`` is not a usable snapshot. Shared by the identity reject and the
+    transport revert."""
+    if not isinstance(previous, dict) or previous.get("transport") not in ("serial", "tcp", "ble"):
+        return None
+    restored = snapshot.model_copy(deep=True)
+    restored.transport = previous.get("transport")  # type: ignore[assignment]
+    restored.serial_port = str(previous.get("serial_port") or "")
+    baud_raw = previous.get("serial_baudrate")
+    restored.serial_baudrate = int(baud_raw) if isinstance(baud_raw, int) else 115200
+    restored.tcp_host = str(previous.get("tcp_host") or "")
+    port_raw = previous.get("tcp_port")
+    restored.tcp_port = int(port_raw) if isinstance(port_raw, int) else 5000
+    restored.ble_address = str(previous.get("ble_address") or "")
+    restored.ble_pin = str(previous.get("ble_pin") or "")
+    restored.identity_state = None
+    restored.previous_transport = None
+    return restored
+
+
+@router.post("/transport/revert", response_model=RadioTransportResponse)
+async def revert_radio_transport() -> RadioTransportResponse:
+    """Go back to the transport saved before the last change, on the server.
+
+    Used by the "Go back" offer after switching to TCP: the browser never holds
+    the BLE PIN (``RadioTransportResponse`` never returns it), so a client-side
+    PUT would save an empty one. The transport this replaces becomes the new
+    ``previous_transport``.
+    """
+    current = await get_transport()
+    if current.identity_state:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "radio_identity_gate_open",
+                "message": "Radio identity gate is open; adopt or reject first",
+            },
+        )
+    restored = _snapshot_from_previous(current, current.previous_transport)
+    if restored is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "no_previous_transport", "message": "No previous transport to restore"},
+        )
+    if restored.transport == "tcp":
+        from app.radio_proxy.manager import radio_proxy_manager
+
+        if radio_proxy_manager.would_loop_transport(restored.tcp_host, restored.tcp_port):
+            raise HTTPException(
+                status_code=409,
+                detail="TCP radio target points at this Meshloom radio proxy",
+            )
+    try:
+        async with radio_manager.lifecycle_transition("revert_transport"):
+            current = await get_transport()
+            if current.identity_state:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "radio_identity_gate_open",
+                        "message": "Radio identity gate is open; adopt or reject first",
+                    },
+                )
+            restored = _snapshot_from_previous(current, current.previous_transport)
+            if restored is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "no_previous_transport",
+                        "message": "No previous transport to restore",
+                    },
+                )
+            restored.previous_transport = (
+                snapshot_restore_dict(current) if current.configured else None
+            )
+            await radio_manager.disconnect()
+            await RadioTransportRepository.save(restored)
+            radio_manager.resume_connection()
+            try:
+                await _reconnect_and_prepare(broadcast_on_success=True)
+            except Exception:
+                logger.exception("Reconnect after transport revert failed")
+    except RadioOperationBusyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return await build_transport_response()
+
+
 @router.get("/proxy", response_model=RadioProxyStatus)
 async def get_radio_proxy() -> RadioProxyStatus:
     from app.radio_proxy.manager import radio_proxy_manager
@@ -1413,19 +1505,8 @@ async def reject_radio_identity() -> RadioIdentityActionResponse:
     try:
         async with radio_manager.lifecycle_transition("identity_reject"):
             await RadioTransportRepository.clear_identity_gate()
-            if isinstance(previous, dict) and previous.get("transport") in ("serial", "tcp", "ble"):
-                restored = snapshot.model_copy(deep=True)
-                restored.transport = previous.get("transport")  # type: ignore[assignment]
-                restored.serial_port = str(previous.get("serial_port") or "")
-                baud_raw = previous.get("serial_baudrate")
-                restored.serial_baudrate = int(baud_raw) if isinstance(baud_raw, int) else 115200
-                restored.tcp_host = str(previous.get("tcp_host") or "")
-                port_raw = previous.get("tcp_port")
-                restored.tcp_port = int(port_raw) if isinstance(port_raw, int) else 5000
-                restored.ble_address = str(previous.get("ble_address") or "")
-                restored.ble_pin = str(previous.get("ble_pin") or "")
-                restored.identity_state = None
-                restored.previous_transport = None
+            restored = _snapshot_from_previous(snapshot, previous)
+            if restored is not None:
                 await RadioTransportRepository.save(restored)
             else:
                 cleared = snapshot.model_copy(deep=True)

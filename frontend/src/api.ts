@@ -297,6 +297,9 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+  /** Restore the transport saved before the last change, on the server (BLE PIN kept). */
+  revertRadioTransport: () =>
+    fetchJson<RadioTransportConfig>('/radio/transport/revert', { method: 'POST' }),
   getRadioProxy: () => fetchJson<RadioProxyStatus>('/radio/proxy'),
   updateRadioProxy: (body: RadioProxyUpdate) =>
     fetchJson<RadioProxyStatus>('/radio/proxy', {
