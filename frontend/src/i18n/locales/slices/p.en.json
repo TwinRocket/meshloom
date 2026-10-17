@@ -1,0 +1,19 @@
+{
+  "errors": {
+    "egress_scheme_apprise": "Apprise URL {{line}}: Meshloom does not send to this kind of Apprise URL ({{scheme}}://). Supported: ntfy, Telegram, Discord, Gotify, Home Assistant, Matrix, e-mail (mailto), MQTT, Signal, Slack, Pushover, JSON/XML/form webhooks and a few others listed in the docs. Desktop, local and cloud-credential services are refused.",
+    "egress_private_address_apprise": "Apprise URL {{line}}: this address is on a private network (LAN, this machine) or is a cloud metadata address. Allow private networks for this integration if it is yours; metadata addresses are always refused.",
+    "egress_unresolvable_apprise": "Apprise URL {{line}}: the host name was not found. Check it, or type the IP address instead.",
+    "apprise_url_invalid": "Apprise URL {{line}}: Apprise does not understand this URL. Check it against the Apprise wiki.",
+    "apprise_chat_id_required": "Apprise URL {{line}}: a Telegram URL needs a chat id (tgram://bot_token/chat_id)."
+  },
+  "settings": {
+    "fanout": {
+      "privateNetwork": {
+        "label": "Allow a destination on a private network (LAN, localhost)",
+        "help": "Off by default: Meshloom refuses a destination on your local network or on this machine, so a changed setting cannot turn the server into a probe of your network. Turn it on for Home Assistant, Gotify, ntfy, Node-RED or a script on your LAN. Cloud metadata addresses are always refused.",
+        "grandfathered": "These integrations were set up before Meshloom checked destinations, so private network addresses stay allowed for them and they keep working: {{names}}. Untick \"Allow a destination on a private network\" in an integration if it points to a public service.",
+        "grandfatheredDismiss": "Got it"
+      }
+    }
+  }
+}

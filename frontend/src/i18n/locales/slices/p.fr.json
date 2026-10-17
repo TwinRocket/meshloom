@@ -1,0 +1,19 @@
+{
+  "errors": {
+    "egress_scheme_apprise": "URL Apprise {{line}} : Meshloom n'envoie pas vers ce type d'URL Apprise ({{scheme}}://). Pris en charge : ntfy, Telegram, Discord, Gotify, Home Assistant, Matrix, e-mail (mailto), MQTT, Signal, Slack, Pushover, webhooks JSON/XML/formulaire et quelques autres listés dans la documentation. Les services du bureau, locaux et à identifiants cloud sont refusés.",
+    "egress_private_address_apprise": "URL Apprise {{line}} : cette adresse est sur un réseau privé (réseau local, cette machine) ou c'est une adresse de métadonnées cloud. Autorisez les réseaux privés pour cette intégration si elle vous appartient ; les adresses de métadonnées sont toujours refusées.",
+    "egress_unresolvable_apprise": "URL Apprise {{line}} : nom d'hôte introuvable. Vérifiez-le, ou saisissez plutôt l'adresse IP.",
+    "apprise_url_invalid": "URL Apprise {{line}} : Apprise ne comprend pas cette URL. Vérifiez-la dans le wiki Apprise.",
+    "apprise_chat_id_required": "URL Apprise {{line}} : une URL Telegram doit indiquer un identifiant de discussion (tgram://bot_token/chat_id)."
+  },
+  "settings": {
+    "fanout": {
+      "privateNetwork": {
+        "label": "Autoriser une destination sur un réseau privé (réseau local, localhost)",
+        "help": "Désactivé par défaut : Meshloom refuse une destination sur votre réseau local ou sur cette machine, pour qu'un réglage modifié ne fasse pas du serveur une sonde de votre réseau. Activez-le pour Home Assistant, Gotify, ntfy, Node-RED ou un script sur votre réseau local. Les adresses de métadonnées cloud sont toujours refusées.",
+        "grandfathered": "Ces intégrations ont été configurées avant que Meshloom ne vérifie les destinations : les adresses de réseau privé restent autorisées pour elles et elles continuent de fonctionner : {{names}}. Décochez « Autoriser une destination sur un réseau privé » dans une intégration si elle pointe vers un service public.",
+        "grandfatheredDismiss": "Compris"
+      }
+    }
+  }
+}

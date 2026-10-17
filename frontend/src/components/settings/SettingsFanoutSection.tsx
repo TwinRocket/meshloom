@@ -16,7 +16,7 @@ import {
 } from '../ui/dialog';
 import { toast } from '../ui/sonner';
 import { cn } from '@/lib/utils';
-import { api } from '../../api';
+import { api, formatApiError } from '../../api';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
 import { LazyBoundary } from '../LazyBoundary';
 
@@ -1981,6 +1981,8 @@ function MapUploadConfigEditor({
         </p>
       </div>
 
+      <PrivateNetworkOptIn id="fanout-map-allow-private" config={config} onChange={onChange} />
+
       <Separator />
 
       <label className="flex items-center gap-3 cursor-pointer">
@@ -2565,6 +2567,36 @@ function appriseIsDefault(value: unknown, defaultStr: string): boolean {
   return s === '' || s === defaultStr;
 }
 
+/** The egress guard's opt-in for a destination on a private network (LAN, localhost). */
+function PrivateNetworkOptIn({
+  id,
+  config,
+  onChange,
+}: {
+  id: string;
+  config: Record<string, unknown>;
+  onChange: (config: Record<string, unknown>) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <label htmlFor={id} className="flex items-start gap-3 cursor-pointer">
+      <input
+        id={id}
+        type="checkbox"
+        checked={config.allow_private_network === true}
+        onChange={(e) => onChange({ ...config, allow_private_network: e.target.checked })}
+        className="mt-0.5 h-4 w-4 rounded border-border"
+      />
+      <div>
+        <span className="text-sm">{t('settings.fanout.privateNetwork.label')}</span>
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.fanout.privateNetwork.help')}
+        </p>
+      </div>
+    </label>
+  );
+}
+
 function AppriseConfigEditor({
   config,
   scope,
@@ -2625,6 +2657,8 @@ function AppriseConfigEditor({
           <Trans i18nKey="settings.fanout.apprise.urlsHelp" components={transInline} />
         </p>
       </div>
+
+      <PrivateNetworkOptIn id="fanout-apprise-allow-private" config={config} onChange={onChange} />
 
       <label className="flex items-center gap-3 cursor-pointer">
         <input
@@ -2866,6 +2900,8 @@ function WebhookConfigEditor({
         />
       </div>
 
+      <PrivateNetworkOptIn id="fanout-webhook-allow-private" config={config} onChange={onChange} />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="fanout-webhook-method">{t('settings.fanout.webhook.httpMethod')}</Label>
@@ -2997,6 +3033,8 @@ function SqsConfigEditor({
         </div>
       </div>
 
+      <PrivateNetworkOptIn id="fanout-sqs-allow-private" config={config} onChange={onChange} />
+
       <Separator />
 
       <div className="space-y-2">
@@ -3114,7 +3152,9 @@ export function SettingsFanoutSection({
         cfg.enabled ? t('settings.fanout.toast.disabled') : t('settings.fanout.toast.enabled')
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedUpdate'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedUpdate')
+      );
     }
   };
 
@@ -3224,10 +3264,31 @@ export function SettingsFanoutSection({
         enabled ? t('settings.fanout.toast.savedEnabled') : t('settings.fanout.toast.saved')
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedSave'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedSave')
+      );
     } finally {
       setBusy(false);
     }
+  };
+
+  const grandfatheredConfigs = configs.filter(
+    (cfg) => cfg.config.private_network_grandfathered === true
+  );
+
+  // One-time notice for destinations saved before the egress guard (migration
+  // 098): "Got it" clears the flag on each row; the opt-in itself stays on.
+  const handleDismissGrandfathered = async () => {
+    try {
+      for (const cfg of grandfatheredConfigs) {
+        await api.updateFanoutConfig(cfg.id, {
+          config: { ...cfg.config, private_network_grandfathered: false },
+        });
+      }
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+    }
+    await loadConfigs();
   };
 
   const handleDelete = async (id: string) => {
@@ -3407,6 +3468,22 @@ export function SettingsFanoutSection({
       <div className="rounded-md border border-warning/50 bg-warning/10 px-4 py-3 text-sm text-warning">
         {t('settings.fanout.list.experimentalBanner')}
       </div>
+
+      {grandfatheredConfigs.length > 0 && (
+        <div
+          className="flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-[0.8125rem]"
+          role="status"
+        >
+          <p className="min-w-0 flex-1">
+            {t('settings.fanout.privateNetwork.grandfathered', {
+              names: grandfatheredConfigs.map((cfg) => cfg.name).join(', '),
+            })}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void handleDismissGrandfathered()}>
+            {t('settings.fanout.privateNetwork.grandfatheredDismiss')}
+          </Button>
+        </div>
+      )}
 
       {health?.bots_disabled && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
