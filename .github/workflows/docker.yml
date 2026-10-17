@@ -223,7 +223,7 @@ jobs:
   # Redeploys the stacks that run the image just published: :edge after a main
   # build (EDGE_DEPLOY_WEBHOOKS, stacks on docker-compose.dev.yaml), :next after a
   # preversion-5 build (NEXT_DEPLOY_WEBHOOKS). One job for both, so the two
-  # environments cannot drift; its name says which one ran. A stack polling Git
+  # environments cannot drift; its step name says which one ran. A stack polling Git
   # would redeploy a few minutes too early and pull the previous image. The
   # webhook URLs live in those secrets, one per line: anyone holding one can
   # trigger a redeploy, so they never appear in the repository or in the logs.
@@ -234,13 +234,15 @@ jobs:
   # policy); when both are set, every call sends them as CF-Access-Client-* headers.
   # Both environments share that token.
   deploy:
-    name: Deploy ${{ github.ref == 'refs/heads/main' && 'edge' || 'next' }}
+    # A static name: GitHub leaves a skipped job's name expression unrendered
+    # (pull requests, tags). The step name says which environment ran.
+    name: Deploy
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preversion-5'
     needs: merge
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Call the redeploy webhooks
+      - name: Call the ${{ github.ref == 'refs/heads/main' && 'edge' || 'next' }} redeploy webhooks
         env:
           # Both secrets are read and the ref picks one in the script: an
           # `a && secrets.X || secrets.Y` expression would fall through to the
