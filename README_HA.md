@@ -155,6 +155,8 @@ automation:
 
 ### Radio offline alert
 
+Meshloom also sends **Radio offline**, **Radio back online** and **Meshloom started** notifications itself (Settings → Notifications; push by default, e-mail and webhook optional), after a delay of 60 s by default. They cannot reach you while Meshloom itself is down (power cut, host reboot): this automation, which runs in Home Assistant, still can. The example below stays valid.
+
 Notify if the radio has been disconnected for more than 5 minutes.
 
 **GUI:** Settings > Automations > Create > State trigger on `binary_sensor.<radio_name>_connected`, to `off`, for `00:05:00`, action: notification.

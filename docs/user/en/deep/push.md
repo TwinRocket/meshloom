@@ -51,6 +51,13 @@ A browser's subscription only decides whether that browser receives notification
 | Found channels | Meshloom finds a new hashtag channel |
 | Telemetry alerts | A tracked repeater or contact crosses an alert threshold. The thresholds are set on the **Alerts** page |
 | Meshloom updates | A new Meshloom version is available |
+| Radio offline | The radio has been unreachable for longer than the delay set below the table (60 s by default). Sent as urgent (the e-mail subject starts with `[URGENT]`), once per outage |
+| Radio back online | The radio is reachable again after a **Radio offline** notification, with how long it was down |
+| Meshloom started | Meshloom has just started: its version, whether the radio connected and how fast. On by default for push |
+
+**Radio offline** and **Radio back online** never fire for a reboot Meshloom started itself (clock fix, Wi-Fi change) nor while the connection is paused in **Settings → Radio**; pausing ends an outage without a notification. Nothing is sent before the radio has connected once since Meshloom started, nor during the first minutes after a start (the same delay), so an update or a restart does not raise a false alarm. Set the delay in **Settings → Notifications → Radio offline delay** (`radio_offline_grace_s` in `/api/settings`; 0 notifies at once, up to 3600 s). If Meshloom restarts during an outage, the downtime still counts from the real start.
+
+**Radio offline cannot warn you when Meshloom itself is down** (power cut, host reboot): nothing is running to send it. **Meshloom started** makes an unexpected restart visible. To be warned while it is stopped, use the Home Assistant `binary_sensor.<radio>_connected` with a “for” delay (see `README_HA.md`); a periodic heartbeat is planned.
 
 For a companion, **New contacts** or **Companion advertisements** is enough.
 

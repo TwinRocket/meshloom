@@ -122,6 +122,24 @@ and the OpenAPI page (`/docs`), not a table here.
   `radio_reboot_timeout` (`params.reason`) on that pass, then reconnect errors
   surface again. Monitor logs name the reason; the debug snapshot shows it
   (`runtime.expected_reboot_reason`).
+- **Radio offline / online watch** (`notifications/radio_watch.py`): the monitor
+  loop calls `radio_watch.observe(radio_manager)` once per pass (no second poll,
+  never raises). A lost transport starts a pending loss; `radio_offline` is sent
+  once per outage when it has lasted `app_settings.radio_offline_grace_s`
+  (default 60, 0 = at once) **and** that much time has passed since the process
+  started, judged on a monotonic clock at each pass (no timer to lose at
+  shutdown). It never starts for an expected reboot (`expected_reboot_reason`),
+  with the connection paused (`connection_desired` false: closes a notified
+  outage silently), before the first completed setup since start, or while the
+  transport is up (setup still running counts as up). Only a *notified* outage is
+  persisted (`radio_outage_started_at`, not in `AppSettings`, excluded from
+  backups) so `radio_online` carries the right downtime after a restart; a pending
+  loss does not survive one. `app_started` comes from
+  `_startup_radio_connect_and_setup` (`main.py`) once, after the first connect
+  attempt (connected or not; not when shutdown cancels it). Events go through
+  `dispatch_system_event` with the `PUSH_DEFAULT_KEYS` flags, from a `spawn()`ed
+  task; `radio_offline` carries `urgent` (e-mail subject prefix `[URGENT]`).
+  Tests: `tests/test_radio_watch.py` (fake clock).
 - A broadcast `error` with a `code` is translated by the frontend from
   `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
   else the backend's `details` are shown as sent.

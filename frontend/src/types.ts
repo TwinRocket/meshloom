@@ -1462,6 +1462,8 @@ export interface AppSettings {
   push_allow_private_endpoints?: boolean;
   /** The upgrade turned push_allow_private_endpoints on: show a one-time notice. */
   push_private_endpoints_grandfathered?: boolean;
+  /** Seconds the radio may stay unreachable before radio_offline is sent (0 = at once). */
+  radio_offline_grace_s?: number;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1491,6 +1493,7 @@ export interface AppSettingsUpdate {
   auth_allowed_origins?: string[];
   push_allow_private_endpoints?: boolean;
   push_private_endpoints_grandfathered?: boolean;
+  radio_offline_grace_s?: number;
 }
 
 export interface DirectoryHopHit {
@@ -2051,6 +2054,9 @@ export interface PushDefaults {
   channel_found: NotificationMediaFlags;
   telemetry_alert: NotificationMediaFlags;
   oss_update: NotificationMediaFlags;
+  radio_offline: NotificationMediaFlags;
+  radio_online: NotificationMediaFlags;
+  app_started: NotificationMediaFlags;
 }
 
 export type PushDefaultsPatch = {

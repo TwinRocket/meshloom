@@ -68,6 +68,9 @@ class PushDefaultsModel(BaseModel):
     channel_found: NotificationMediaModel
     telemetry_alert: NotificationMediaModel
     oss_update: NotificationMediaModel
+    radio_offline: NotificationMediaModel
+    radio_online: NotificationMediaModel
+    app_started: NotificationMediaModel
 
 
 class PushDefaultsPatch(BaseModel):
@@ -79,6 +82,9 @@ class PushDefaultsPatch(BaseModel):
     channel_found: NotificationMediaPatch | bool | None = None
     telemetry_alert: NotificationMediaPatch | bool | None = None
     oss_update: NotificationMediaPatch | bool | None = None
+    radio_offline: NotificationMediaPatch | bool | None = None
+    radio_online: NotificationMediaPatch | bool | None = None
+    app_started: NotificationMediaPatch | bool | None = None
 
 
 class PushPreferencesResponse(BaseModel):

@@ -110,6 +110,7 @@ V1_SETTING_COLUMNS: tuple[str, ...] = (
     "auto_clock_wraparound",
     "push_allow_private_endpoints",
     "push_private_endpoints_grandfathered",
+    "radio_offline_grace_s",
     "ui_preferences",
 )
 BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
@@ -160,6 +161,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
             "radio_mismatch_new_name",
         )
     },
+    "app_settings.radio_outage_started_at": (
+        "excluded",
+        "live outage state of this host's radio: meaningless on another host",
+    ),
     "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
     "app_settings.auth_allowed_origins": (
         "excluded",

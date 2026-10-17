@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "notifications": {
+      "radioOffline": "Radio offline",
+      "radioOfflineHelp": "Notify when the radio has been unreachable for longer than the delay below. Sent as urgent, once per outage. Reboots started by Meshloom and a paused connection never notify. It cannot warn you when Meshloom itself is down: see “Meshloom started”.",
+      "radioOnline": "Radio back online",
+      "radioOnlineHelp": "Notify when the radio is reachable again after a Radio offline notification, with the downtime.",
+      "appStarted": "Meshloom started",
+      "appStartedHelp": "Notify each time Meshloom starts, with its version and whether the radio connected. Makes an unexpected restart visible and confirms an update.",
+      "radioOfflineGrace": "Radio offline delay",
+      "radioOfflineGraceUnit": "seconds",
+      "radioOfflineGraceHelp": "How long the radio may stay unreachable before “Radio offline” is sent. 0 notifies at once. No notification is sent in the first seconds after Meshloom starts, so a restart or an update does not raise a false alarm.",
+      "radioOfflineGraceSaveFailed": "Failed to save the delay"
+    }
+  }
+}

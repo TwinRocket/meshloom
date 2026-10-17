@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "notifications": {
+      "radioOffline": "Radio hors ligne",
+      "radioOfflineHelp": "Notifier lorsque la radio est injoignable depuis plus longtemps que le délai ci-dessous. Envoyé comme urgent, une fois par panne. Les redémarrages lancés par Meshloom et une connexion en pause ne notifient jamais. Ne prévient pas si Meshloom lui-même est arrêté : voir « Meshloom a démarré ».",
+      "radioOnline": "Radio de nouveau en ligne",
+      "radioOnlineHelp": "Notifier lorsque la radio est de nouveau joignable après une notification « Radio hors ligne », avec la durée de la panne.",
+      "appStarted": "Meshloom a démarré",
+      "appStartedHelp": "Notifier à chaque démarrage de Meshloom, avec sa version et l’état de la connexion radio. Rend visible un redémarrage inattendu et confirme une mise à jour.",
+      "radioOfflineGrace": "Délai « radio hors ligne »",
+      "radioOfflineGraceUnit": "secondes",
+      "radioOfflineGraceHelp": "Durée pendant laquelle la radio peut rester injoignable avant l’envoi de « Radio hors ligne ». 0 notifie aussitôt. Rien n’est envoyé pendant les premières secondes après le démarrage de Meshloom : un redémarrage ou une mise à jour ne déclenche pas de fausse alerte.",
+      "radioOfflineGraceSaveFailed": "Échec de l’enregistrement du délai"
+    }
+  }
+}

@@ -1572,6 +1572,16 @@ class AppSettings(BaseModel):
             "self-hosted UnifiedPush distributor. Off: such endpoints are refused"
         ),
     )
+    radio_offline_grace_s: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
+        description=(
+            "Seconds the radio may stay unreachable before the radio_offline "
+            "notification is sent (0 = at once). An expected reboot or an operator "
+            "pause never notifies"
+        ),
+    )
     push_private_endpoints_grandfathered: bool = Field(
         default=False,
         description=(

@@ -39,6 +39,7 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -108,28 +109,46 @@ logger = logging.getLogger(__name__)
 
 async def _startup_radio_connect_and_setup() -> None:
     """Connect/setup the radio in the background so HTTP serving can start immediately."""
+    started = time.monotonic()
+    connected = False
+    try:
+        connected = await _connect_radio_on_startup()
+    except asyncio.CancelledError:
+        # Shutting down: the start never completed, nothing to announce.
+        raise
+    except Exception:
+        logger.exception("Failed to connect to radio on startup")
+    # Startup is complete (radio connected or not): tell the user once.
+    from app.notifications.radio_watch import radio_watch
+
+    radio_watch.note_startup_complete(
+        version=get_app_build_info().version,
+        radio_connected=connected,
+        connect_s=time.monotonic() - started if connected else None,
+    )
+
+
+async def _connect_radio_on_startup() -> bool:
     if not radio_manager.connection_desired:
         logger.info("Radio connection not desired; skipping startup connect")
-        return
+        return False
     from app.services.radio_transport import get_transport
 
     snapshot = await get_transport()
     if not snapshot.configured:
         logger.info("Radio transport is not configured; skipping startup connect")
-        return
-    try:
-        connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
-        if connected:
-            logger.info("Connected to radio")
-        elif (reason := expected_reboot_reason(radio_manager)) is not None:
-            logger.info(
-                "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
-                reboot_purpose(reason),
-            )
-        else:
-            logger.warning("Failed to connect to radio on startup")
-    except Exception:
-        logger.exception("Failed to connect to radio on startup")
+        return False
+    connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
+    if connected:
+        logger.info("Connected to radio")
+    elif (reason := expected_reboot_reason(radio_manager)) is not None:
+        logger.info(
+            "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
+            reboot_purpose(reason),
+        )
+    else:
+        logger.warning("Failed to connect to radio on startup")
+    return bool(connected)
 
 
 @asynccontextmanager

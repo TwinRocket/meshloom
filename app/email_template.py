@@ -334,7 +334,9 @@ def email_subject(payload: Mapping[str, Any], lang: AppLanguage) -> str:
     from app.push.manager import event_notification_text
 
     title, _ = event_notification_text(dict(payload), lang)
-    return title or "Meshloom"
+    title = title or "Meshloom"
+    # An urgent event (radio offline) stands out in the inbox list.
+    return f"[URGENT] {title}" if payload.get("urgent") else title
 
 
 async def resolve_instance_language() -> AppLanguage:
