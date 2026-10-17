@@ -53,8 +53,9 @@ permissions: {}
 jobs:
   forward-merge:
     name: main -> preversion-5
-    # Forks have no preversion-5 workflow to feed.
-    if: github.repository == 'TwinRocket/meshloom'
+    # Forks have no preversion-5 workflow to feed. Main only: a manual run from
+    # another ref would merge main while comparing that ref's SHA.
+    if: github.repository == 'TwinRocket/meshloom' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -138,7 +139,9 @@ jobs:
         run: |
           # GitHub computes mergeability in the background: null until it knows.
           for _ in $(seq 1 30); do
-            mergeable="$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.mergeable // "unknown"')"
+            # Not `// "unknown"`: jq's // also replaces false, which would hide a conflict.
+            mergeable="$(gh api "repos/$GH_REPO/pulls/$PR" \
+              --jq '.mergeable | if . == null then "unknown" else tostring end')"
             [ "$mergeable" != "unknown" ] && break
             sleep 10
           done
