@@ -34,6 +34,8 @@ import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
 const DM_HARD_LIMIT = 156; // Max bytes for direct delivery
 const DM_WARNING_THRESHOLD = 140; // Conservative for multi-hop
 const CHANNEL_HARD_LIMIT = 156; // Base byte limit before sender overhead
+const CHANNEL_SENDER_SEPARATOR_BYTES = 2; // ": " after the sender name
+const UNKNOWN_SENDER_NAME_BYTES = 10; // Assumed name size while the radio name is unknown
 const CHANNEL_WARNING_THRESHOLD = 120; // Conservative for multi-hop
 const CHANNEL_DANGER_BUFFER = 8; // Red zone starts this many bytes before hard limit
 
@@ -187,8 +189,11 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       };
     } else if (conversationType === 'channel') {
       // Channel hard limit = 156 bytes - senderName bytes - 2 (for ": " separator)
-      const nameByteLen = senderName ? byteLen(senderName) : 10;
-      const hardLimit = Math.max(1, CHANNEL_HARD_LIMIT - nameByteLen - 2);
+      const nameByteLen = senderName ? byteLen(senderName) : UNKNOWN_SENDER_NAME_BYTES;
+      const hardLimit = Math.max(
+        1,
+        CHANNEL_HARD_LIMIT - nameByteLen - CHANNEL_SENDER_SEPARATOR_BYTES
+      );
       return {
         warningAt: CHANNEL_WARNING_THRESHOLD,
         dangerAt: Math.max(1, hardLimit - CHANNEL_DANGER_BUFFER),

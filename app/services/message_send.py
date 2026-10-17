@@ -1026,6 +1026,8 @@ async def resend_channel_message_record(
             text_to_send = message.text
             if radio_name and text_to_send.startswith(f"{radio_name}: "):
                 text_to_send = text_to_send[len(f"{radio_name}: ") :]
+            # Known limitation: the allowance follows the radio's current name. After a
+            # rename to a longer name, an old message that fit may now be refused.
             ensure_channel_text_fits(text_to_send, radio_name)
             if new_timestamp:
                 sent_at = int(now_fn())

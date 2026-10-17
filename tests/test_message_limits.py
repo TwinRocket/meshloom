@@ -218,10 +218,35 @@ class TestComposerParity:
 
     def test_unknown_name_fallback_matches_composer(self):
         source = COMPOSER.read_text(encoding="utf-8")
-        match = re.search(r"senderName\s*\?\s*byteLen\(senderName\)\s*:\s*(\d+)", source)
-        assert match, "sender-name fallback not found in the composer"
-        assert int(match.group(1)) == message_limits.UNKNOWN_SENDER_NAME_BYTES
+        assert (
+            self._tsx_constant(source, "UNKNOWN_SENDER_NAME_BYTES")
+            == message_limits.UNKNOWN_SENDER_NAME_BYTES
+        )
+        assert (
+            self._tsx_constant(source, "CHANNEL_SENDER_SEPARATOR_BYTES")
+            == message_limits.CHANNEL_SENDER_SEPARATOR_BYTES
+        )
+        assert "CHANNEL_HARD_LIMIT - nameByteLen - CHANNEL_SENDER_SEPARATOR_BYTES" in source
 
     def test_parity_fails_when_a_constant_is_missing(self):
         with pytest.raises(AssertionError, match="not found"):
             self._tsx_constant("const OTHER = 1;", "DM_HARD_LIMIT")
+
+
+class TestRefusalLogging:
+    @pytest.mark.asyncio
+    async def test_bot_reply_too_long_logs_warning_without_traceback(self, caplog):
+        from app.fanout import bot_exec
+
+        with (
+            patch("app.routers.messages.send_direct_message", new=AsyncMock()) as send,
+            caplog.at_level("WARNING", logger=bot_exec.logger.name),
+        ):
+            send.side_effect = HTTPException(
+                status_code=400,
+                detail=message_limits.message_too_long_detail(limit=156, size=200),
+            )
+            await bot_exec._send_single_bot_message("a" * 200, True, "cd" * 32, None)
+        records = [r for r in caplog.records if "too long" in r.getMessage()]
+        assert records and records[0].levelname == "WARNING"
+        assert records[0].exc_info is None

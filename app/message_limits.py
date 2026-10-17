@@ -17,7 +17,7 @@ from fastapi import HTTPException
 
 DM_HARD_LIMIT = 156  # Max bytes of text for a direct message
 CHANNEL_HARD_LIMIT = 156  # Base byte budget of a channel payload, sender prefix included
-CHANNEL_SENDER_SEPARATOR_BYTES = len(": ")
+CHANNEL_SENDER_SEPARATOR_BYTES = 2  # len(": ")
 # Assumed sender-name size when the radio name is unknown (same as the composer).
 UNKNOWN_SENDER_NAME_BYTES = 10
 
@@ -39,6 +39,12 @@ def message_too_long_detail(*, limit: int, size: int) -> dict:
         "message": f"Message too long: {size} bytes, the limit is {limit} bytes",
         "params": {"limit": limit, "bytes": size},
     }
+
+
+def is_message_too_long(exc: HTTPException) -> bool:
+    """True when ``exc`` is the coded refusal raised by this module."""
+    detail = exc.detail
+    return isinstance(detail, dict) and detail.get("code") == "message_too_long"
 
 
 def _check(text: str, limit: int) -> None:
