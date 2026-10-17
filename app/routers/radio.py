@@ -1150,46 +1150,21 @@ async def patch_radio_proxy(update: RadioProxyUpdate) -> RadioProxyStatus:
     # The host decides the port when it maps one itself: accepting a different value
     # would leave the proxy listening where nothing is forwarded, which looks like a
     # working proxy nobody can reach. Refused here and not only in the form, since
-    # the form is not the only caller.
-    from app.config import settings as server_settings
-    from app.radio_proxy.manager import radio_proxy_manager
-    from app.repository.radio_proxy import RadioProxyRepository
-    from app.services.radio_transport import get_transport
-
-    if update.port is not None and server_settings.managed_ports:
-        from app.radio_proxy.manager import radio_proxy_manager as running
-
-        if update.port != running.settings.port:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "The proxy port is set by the host running this instance. "
-                    "Remap it there instead."
-                ),
-            )
-
-    stored = await RadioProxyRepository.update(
-        enabled=update.enabled,
-        bind=update.bind,
-        port=update.port,
-        max_clients=update.max_clients,
+    # the form is not the only caller (services/radio_proxy_settings.py).
+    from app.services.radio_proxy_settings import (
+        ProxySettingsConflict,
+        update_radio_proxy_settings,
     )
-    snapshot = await get_transport()
-    if stored.enabled and snapshot.transport == "tcp":
-        from app.radio_proxy.manager import targets_this_proxy
 
-        if targets_this_proxy(
-            snapshot.tcp_host,
-            snapshot.tcp_port,
-            bind=stored.bind,
-            listen_port=stored.port,
-        ):
-            await RadioProxyRepository.update(enabled=False)
-            raise HTTPException(
-                status_code=409,
-                detail="Refusing to listen: radio transport already targets this proxy",
-            )
-    status = await radio_proxy_manager.apply_settings(stored)
+    try:
+        status, _warnings = await update_radio_proxy_settings(
+            enabled=update.enabled,
+            bind=update.bind,
+            port=update.port,
+            max_clients=update.max_clients,
+        )
+    except ProxySettingsConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.message) from exc
     return RadioProxyStatus(**status)
 
 

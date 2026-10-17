@@ -8,6 +8,7 @@ not answer stays None and adds a warning, it never aborts the export.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,8 +20,11 @@ from app.models import (
     BackupFloodScope,
     BackupOtherParams,
     BackupRadioParams,
+    BackupRestoreItem,
     BackupTuning,
+    RadioConfigUpdate,
     RadioNodeSettings,
+    RadioSettings,
 )
 from app.services.companion_cli import CompanionCli, read_cli_node_prefs
 
@@ -188,3 +192,440 @@ async def read_radio_node_settings(mc, cli: CompanionCli | None) -> RadioSnapsho
     return RadioSnapshot(
         settings=RadioNodeSettings(**fields), public_key=public_key, warnings=unique
     )
+
+
+# -- Write back ----------------------------------------------------------------
+
+_CUSTOM_VAR_NAME_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+CHANNEL_NAME_MAX_BYTES = 31  # 32-byte field, NUL kept by the firmware
+FLOOD_SCOPE_NAME_MAX_BYTES = 31
+
+
+def utf8_prefix(text: str, max_bytes: int) -> bytes:
+    """At most ``max_bytes`` of UTF-8, cut on a character boundary."""
+    out = bytearray()
+    for char in text:
+        encoded = char.encode("utf-8")
+        if len(out) + len(encoded) > max_bytes:
+            break
+        out += encoded
+    return bytes(out)
+
+
+def _custom_var_valid(name: str, value: str) -> bool:
+    # Same rule as PUT /radio/custom-vars/{name}.
+    return (
+        bool(_CUSTOM_VAR_NAME_RE.fullmatch(name))
+        and 1 <= len(value) <= 64
+        and all(0x20 <= ord(ch) <= 0x7E for ch in value)
+        and ":" not in value
+        and "," not in value
+    )
+
+
+async def _noop_time_sync(_mc) -> None:
+    """Restore groups never trigger the clock-fix reboot: one sync at the end."""
+
+
+def _rejected(result: Any) -> bool:
+    return result is None or getattr(result, "type", None) == EventType.ERROR
+
+
+@dataclass
+class RadioWriteOutcome:
+    items: list[BackupRestoreItem] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def add(self, name: str, status: str, code: str | None = None) -> None:
+        self.items.append(BackupRestoreItem(name=name, status=status, code=code))  # type: ignore[arg-type]
+
+
+async def write_radio_node_settings(
+    mc,
+    cli: CompanionCli | None,
+    settings: RadioNodeSettings,
+    *,
+    write_ble_pin: bool,
+    flood_scope: str | None,
+) -> RadioWriteOutcome:
+    """Write every backed-up setting, one group at a time, in a fixed order.
+
+    A rejected group is ``failed`` with its code and the others still run.
+    Never syncs the clock (the caller does it once, after).
+    """
+    from app.services.companion_cli import (
+        CLI_NODE_PREFS,
+        CliError,
+        CliUnknownCommandError,
+        write_cli_node_pref,
+    )
+    from app.services.flood_scope import set_radio_flood_scope
+    from app.services.radio_commands import (
+        PathHashModeUnsupportedError,
+        RadioCommandRejectedError,
+        apply_radio_config_update,
+    )
+    from app.services.radio_runtime import radio_runtime
+
+    manager = radio_runtime.manager
+    out = RadioWriteOutcome()
+    fw_ver = getattr(manager, "firmware_ver_code", None)
+
+    async def apply(name: str, update: RadioConfigUpdate, **kwargs: Any) -> bool:
+        try:
+            await apply_radio_config_update(
+                mc,
+                update,
+                path_hash_mode_supported=bool(getattr(manager, "path_hash_mode_supported", False)),
+                set_path_hash_mode=lambda mode: setattr(manager, "path_hash_mode", mode),
+                sync_radio_time_fn=_noop_time_sync,
+                **kwargs,
+            )
+        except PathHashModeUnsupportedError:
+            out.add(name, "unsupported", "path_hash_mode_unsupported")
+            return False
+        except RadioCommandRejectedError as exc:
+            out.add(name, "failed", exc.code or f"{name}_rejected")
+            return False
+        out.add(name, "done")
+        return True
+
+    def missing(name: str) -> None:
+        out.add(name, "skipped", "not_in_backup")
+
+    if settings.name is not None:
+        await apply("name", RadioConfigUpdate(name=settings.name))
+    else:
+        missing("name")
+
+    if settings.lat is not None and settings.lon is not None:
+        await apply("coords", RadioConfigUpdate(lat=settings.lat, lon=settings.lon))
+    else:
+        missing("coords")
+
+    if settings.tx_power is not None:
+        power = settings.tx_power
+        info = getattr(mc, "self_info", None)
+        target_max = info.get("max_tx_power") if isinstance(info, dict) else None
+        if isinstance(target_max, int) and target_max > 0 and power > target_max:
+            power = target_max
+            out.warnings.append("tx_power_clamped")
+        await apply("tx_power", RadioConfigUpdate(tx_power=power))
+    else:
+        missing("tx_power")
+
+    if settings.radio is not None:
+        params = RadioSettings(
+            freq=settings.radio.freq,
+            bw=settings.radio.bw,
+            sf=settings.radio.sf,
+            cr=settings.radio.cr,
+        )
+        repeat = settings.client_repeat if (fw_ver or 0) >= 9 else None
+        try:
+            await apply_radio_config_update(
+                mc,
+                RadioConfigUpdate(radio=params),
+                path_hash_mode_supported=False,
+                set_path_hash_mode=lambda _mode: None,
+                sync_radio_time_fn=_noop_time_sync,
+                client_repeat=repeat,
+            )
+            out.add("radio_params", "done")
+        except RadioCommandRejectedError:
+            if repeat:
+                # The whole frame is refused when repeat is not allowed on this
+                # frequency for the target hardware: retry without it.
+                try:
+                    await apply_radio_config_update(
+                        mc,
+                        RadioConfigUpdate(radio=params),
+                        path_hash_mode_supported=False,
+                        set_path_hash_mode=lambda _mode: None,
+                        sync_radio_time_fn=_noop_time_sync,
+                        client_repeat=False,
+                    )
+                    out.add("radio_params", "done", "client_repeat_not_allowed")
+                    out.warnings.append("client_repeat_not_allowed")
+                except RadioCommandRejectedError:
+                    out.add("radio_params", "failed", "radio_params_rejected")
+            else:
+                out.add("radio_params", "failed", "radio_params_rejected")
+    else:
+        missing("radio_params")
+
+    if settings.other is not None:
+        # Raw values in one frame (lossless; RadioConfigUpdate collapses them).
+        result = await mc.commands.set_other_params_from_infos(settings.other.model_dump())
+        if _rejected(result):
+            out.add("other_params", "failed", "other_params_rejected")
+        else:
+            out.add("other_params", "done")
+    else:
+        missing("other_params")
+
+    if settings.tuning is not None:
+        result = await mc.commands.set_tuning(
+            settings.tuning.rx_delay_raw, settings.tuning.airtime_factor_raw
+        )
+        out.add(
+            "tuning",
+            "failed" if _rejected(result) else "done",
+            "tuning_rejected" if _rejected(result) else None,
+        )
+    else:
+        missing("tuning")
+
+    if settings.path_hash_mode is not None:
+        await apply("path_hash_mode", RadioConfigUpdate(path_hash_mode=settings.path_hash_mode))
+    else:
+        missing("path_hash_mode")
+
+    if settings.custom_vars:
+        failed_vars = 0
+        for name, value in settings.custom_vars.items():
+            if not _custom_var_valid(name, value):
+                failed_vars += 1
+                continue
+            result = await mc.commands.set_custom_var(name, value)
+            if _rejected(result):
+                failed_vars += 1
+        if failed_vars:
+            out.add("custom_vars", "failed", "custom_var_rejected")
+        else:
+            out.add("custom_vars", "done")
+    else:
+        missing("custom_vars")
+
+    if settings.default_flood_scope_read:
+        scope = settings.default_flood_scope
+        if scope is None:
+            frame = b"\x3f"  # a 1-byte frame clears it
+        else:
+            frame = (
+                b"\x3f"
+                + utf8_prefix(scope.name, FLOOD_SCOPE_NAME_MAX_BYTES).ljust(31, b"\x00")
+                + bytes.fromhex(scope.key_hex)
+            )
+        result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+        rejected = _rejected(result)
+        out.add(
+            "default_flood_scope",
+            "failed" if rejected else "done",
+            "default_flood_scope_rejected" if rejected else None,
+        )
+    else:
+        missing("default_flood_scope")
+
+    if settings.autoadd is not None:
+        # Raw frame: meshcore's helper drops max_hops.
+        frame = b"\x3a" + bytes([settings.autoadd.config])
+        if settings.autoadd.max_hops is not None:
+            frame += bytes([settings.autoadd.max_hops])
+        result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+        rejected = _rejected(result)
+        out.add(
+            "autoadd", "failed" if rejected else "done", "autoadd_rejected" if rejected else None
+        )
+    else:
+        missing("autoadd")
+
+    if settings.ble_pin is None:
+        missing("ble_pin")
+    elif not write_ble_pin:
+        out.add("ble_pin", "skipped", "step_off")
+    elif settings.ble_pin != 0 and not 100000 <= settings.ble_pin <= 999999:
+        out.add("ble_pin", "failed", "ble_pin_invalid")
+    else:
+        result = await mc.commands.set_devicepin(settings.ble_pin)
+        rejected = _rejected(result)
+        out.add(
+            "ble_pin", "failed" if rejected else "done", "ble_pin_rejected" if rejected else None
+        )
+
+    if settings.cli_prefs:
+        if cli is None:
+            out.add("cli_prefs", "unsupported", "cli_unsupported")
+        else:
+            status, code = "done", None
+            for name, value in settings.cli_prefs.items():
+                if name not in CLI_NODE_PREFS:
+                    continue
+                try:
+                    await write_cli_node_pref(cli, name, value)
+                except CliUnknownCommandError:
+                    continue  # this board does not have it
+                except (CliError, ValueError):
+                    status, code = "failed", "cli_pref_rejected"
+            out.add("cli_prefs", status, code)
+    else:
+        missing("cli_prefs")
+
+    # The standing flood scope is Meshloom's (restored by the meshloom step).
+    try:
+        await set_radio_flood_scope(mc, flood_scope, fw_ver=fw_ver)
+    except Exception:
+        out.warnings.append("flood_scope_not_applied")
+    await mc.commands.send_appstart()
+    return out
+
+
+async def _channel_activity() -> dict[str, int]:
+    from app.repository import channels as channels_repo
+
+    async with channels_repo.db.readonly() as conn:
+        async with conn.execute(
+            "SELECT conversation_key, MAX(received_at) FROM messages "
+            "WHERE type = 'CHAN' GROUP BY conversation_key"
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return {str(row[0]).upper(): int(row[1] or 0) for row in rows}
+
+
+async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
+    """Write the adopted channels into slots 0..n-1 (Public, favourites,
+    pinned, then by last activity), raw frames keeping each secret."""
+    from app.channel_constants import PUBLIC_CHANNEL_KEY
+    from app.repository import ChannelRepository
+    from app.services.radio_runtime import radio_runtime
+
+    manager = radio_runtime.manager
+    activity = await _channel_activity()
+    channels = [c for c in await ChannelRepository.get_all() if c.membership == "adopted"]
+    channels.sort(
+        key=lambda c: (
+            c.key.upper() != PUBLIC_CHANNEL_KEY,
+            not c.favorite,
+            not c.pinned,
+            -activity.get(c.key.upper(), 0),
+            c.name,
+        )
+    )
+    warnings: list[str] = []
+    written = 0
+    for slot, channel in enumerate(channels[: max(0, int(manager.max_channels))]):
+        try:
+            secret = bytes.fromhex(channel.key)
+        except ValueError:
+            warnings.append("channel_key_invalid")
+            continue
+        frame = (
+            b"\x20"
+            + bytes([slot])
+            + utf8_prefix(channel.name, CHANNEL_NAME_MAX_BYTES).ljust(32, b"\x00")
+            + secret
+        )
+        result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+        if _rejected(result):
+            warnings.append("channel_rejected")
+            continue
+        manager.note_channel_slot_loaded(channel.key, slot)
+        written += 1
+    if len(channels) > written and len(channels) > int(manager.max_channels):
+        warnings.append("channels_over_radio_limit")
+    return written, warnings
+
+
+RADIO_CONTACT_FAVORITE = 0x01
+
+
+async def push_contacts_to_radio(mc) -> tuple[int, int, list[str]]:
+    """Load the restored working set (favourites first, then recents, within the
+    limits) onto the radio. Returns (written, table_full_failures, warnings)."""
+    from app import radio_sync
+    from app.repository import AppSettingsRepository
+    from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
+
+    autoevict = bool((await AppSettingsRepository.get()).load_with_autoevict)
+    await radio_sync.stop_background_contact_reconciliation()
+    warnings: list[str] = []
+
+    fetched = await mc.commands.get_contacts()
+    if fetched is None or getattr(fetched, "type", None) != EventType.CONTACTS:
+        return 0, 0, ["radio_contacts_unreadable"]
+    radio_contacts: dict[str, dict] = {
+        str(key).lower(): value
+        for key, value in (fetched.payload or {}).items()
+        if isinstance(value, dict)
+    }
+    selected = [
+        c
+        for c in await radio_sync.get_contacts_selected_for_radio_sync()
+        if len(c.public_key) >= 64
+    ]
+    desired = {c.public_key.lower(): c for c in selected}
+
+    if not autoevict:
+        # Room first: a reflashed radio's table may already be full of adverts.
+        for public_key in [key for key in radio_contacts if key not in desired]:
+            await radio_sync.remove_radio_contact(
+                mc, public_key, radio_contacts, context="backup restore"
+            )
+
+    written = 0
+    table_full = 0
+    for public_key, contact in desired.items():
+        payload = contact.to_radio_dict()
+        flags = (int(payload.get("flags") or 0) & ~CONTACT_FLAG_REMOTE_CLI) & 0xFF
+        if autoevict:
+            # Contacts Meshloom loads stay evictable by the radio.
+            flags &= ~RADIO_CONTACT_FAVORITE
+        elif contact.favorite:
+            flags |= RADIO_CONTACT_FAVORITE
+        payload["flags"] = flags
+        present = public_key in radio_contacts
+        if not present and table_full:
+            table_full += 1
+            continue
+        try:
+            if present:
+                result = await mc.commands.update_contact(payload)
+            else:
+                result = await mc.commands.add_contact(payload)
+        except Exception as exc:
+            logger.warning(
+                "Backup restore: loading contact %s failed: %s", public_key[:12], type(exc).__name__
+            )
+            warnings.append("contact_load_failed")
+            continue
+        if getattr(result, "type", None) == EventType.OK:
+            radio_contacts[public_key] = payload
+            written += 1
+            continue
+        reason = getattr(result, "payload", None)
+        if isinstance(reason, dict) and reason.get("error_code") == 3:
+            table_full += 1
+        else:
+            warnings.append("contact_load_failed")
+
+    radio_sync.start_background_contact_reconciliation(
+        initial_radio_contacts=radio_contacts, expected_mc=mc, autoevict=autoevict
+    )
+    return written, table_full, list(dict.fromkeys(warnings))
+
+
+async def import_private_key_raw(mc, key: bytes) -> str:
+    """Send CMD_IMPORT_PRIVATE_KEY and wait for OK, ERROR or DISABLED.
+
+    meshcore's ``import_private_key()`` waits for OK/ERROR only, so a firmware
+    built without key import (DISABLED) would read as a timeout. Returns
+    "ok", "disabled", "rejected" or "timeout". The key is a registered secret
+    for the exchange (the 0x18 frame is redacted structurally as well).
+    """
+    from app.log_redaction import secret_scope
+
+    with secret_scope(key):
+        result = await mc.commands.send(
+            b"\x18" + key, [EventType.OK, EventType.ERROR, EventType.DISABLED], timeout=10
+        )
+    result_type = getattr(result, "type", None)
+    if result_type == EventType.OK:
+        return "ok"
+    if result_type == EventType.DISABLED:
+        return "disabled"
+    if result_type == EventType.ERROR:
+        payload = getattr(result, "payload", None)
+        if isinstance(payload, dict) and payload.get("reason"):
+            return "timeout"
+        return "rejected"
+    return "timeout"

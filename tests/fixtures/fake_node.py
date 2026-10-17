@@ -312,6 +312,9 @@ async def connected_node(node: FakeNode | None = None, *, kind: str = "tcp"):
             "max_channels",
             "max_contacts",
             "path_hash_mode_supported",
+            "path_hash_mode",
+            "_connection_desired",
+            "_last_connected",
         )
     }
     radio_manager._meshcore = loop.mc
@@ -326,6 +329,10 @@ async def connected_node(node: FakeNode | None = None, *, kind: str = "tcp"):
     try:
         yield loop, node
     finally:
+        from app import radio_sync
+
+        await radio_sync.stop_background_contact_reconciliation()
+        await radio_manager.stop_connection_monitor()
         loop.balance()
         await loop.close()
         for name, value in saved.items():

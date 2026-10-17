@@ -1455,6 +1455,48 @@ async def sync_contacts_from_radio(mc: MeshCore) -> dict:
         return {"synced": synced, "radio_contacts": {}, "error": str(e)}
 
 
+async def remove_radio_contact(
+    mc: MeshCore,
+    public_key: str,
+    radio_contacts: dict[str, dict],
+    *,
+    context: str,
+) -> bool:
+    """Remove one contact from the radio's table; True when it is gone.
+
+    "Not found" counts as gone. On success the key leaves ``radio_contacts``
+    and the library's contact cache. Shared by the background reconcile and
+    the backup restore.
+    """
+    remove_payload = (
+        mc.get_contact_by_key_prefix(public_key[:12])
+        or radio_contacts.get(public_key)
+        or {"public_key": public_key}
+    )
+    try:
+        remove_result = await mc.commands.remove_contact(remove_payload)
+    except Exception as exc:
+        logger.warning("Error removing contact %s during %s: %s", public_key[:12], context, exc)
+        return False
+
+    not_found = (
+        remove_result.type != EventType.OK
+        and isinstance(remove_result.payload, dict)
+        and remove_result.payload.get("error_code") == 2
+    )
+    if remove_result.type == EventType.OK or not_found:
+        radio_contacts.pop(public_key, None)
+        _evict_removed_contact_from_library_cache(mc, public_key)
+        return True
+    logger.warning(
+        "Failed to remove contact %s during %s: %s",
+        public_key[:12],
+        context,
+        remove_result.payload,
+    )
+    return False
+
+
 async def _reconcile_radio_contacts_in_background(
     *,
     initial_radio_contacts: dict[str, dict],
@@ -1548,41 +1590,14 @@ async def _reconcile_radio_contacts_in_background(
                             if public_key in desired_contacts:
                                 continue
 
-                            remove_payload = (
-                                mc.get_contact_by_key_prefix(public_key[:12])
-                                or radio_contacts.get(public_key)
-                                or {"public_key": public_key}
-                            )
-                            try:
-                                remove_result = await mc.commands.remove_contact(remove_payload)
-                            except Exception as exc:
-                                failed += 1
-                                budget -= 1
-                                logger.warning(
-                                    "Error removing contact %s during background reconcile: %s",
-                                    public_key[:12],
-                                    exc,
-                                )
-                                continue
-
                             budget -= 1
-                            not_found = (
-                                remove_result.type != EventType.OK
-                                and isinstance(remove_result.payload, dict)
-                                and remove_result.payload.get("error_code") == 2
-                            )
-                            if remove_result.type == EventType.OK or not_found:
-                                radio_contacts.pop(public_key, None)
-                                _evict_removed_contact_from_library_cache(mc, public_key)
+                            if await remove_radio_contact(
+                                mc, public_key, radio_contacts, context="background reconcile"
+                            ):
                                 removed += 1
                                 progressed = True
                             else:
                                 failed += 1
-                                logger.warning(
-                                    "Failed to remove contact %s during background reconcile: %s",
-                                    public_key[:12],
-                                    remove_result.payload,
-                                )
 
                     if budget > 0:
                         if autoevict:

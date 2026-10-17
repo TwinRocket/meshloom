@@ -266,6 +266,8 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
             "and does not replace meshcore.db or delete messages/packets."
         )
 
+    from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
+
     contacts_upserted = 0
     for item in request.contacts:
         await ContactRepository.upsert(
@@ -273,7 +275,8 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
                 public_key=item.public_key,
                 name=item.name,
                 type=item.type,
-                flags=item.flags,
+                # Never grant the remote CLI over the mesh, even from a file.
+                flags=item.flags & ~CONTACT_FLAG_REMOTE_CLI,
                 direct_path=item.direct_path,
                 direct_path_len=item.direct_path_len,
                 direct_path_hash_mode=item.direct_path_hash_mode,
@@ -320,7 +323,11 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
         )
         settings_updated = True
     if request.vapid_subject is not None:
+        from app.push.vapid import set_cached_vapid_subject
+
         await AppSettingsRepository.set_vapid_subject(request.vapid_subject)
+        # The signing code reads the cached copy (as routers/push.py keeps it).
+        set_cached_vapid_subject(request.vapid_subject)
         settings_updated = True
 
     groups_upserted = 0
@@ -343,36 +350,46 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
     )
 
 
+# The AppSettings fields a restore writes back (through update(), so the
+# in-memory copy the radio code reads follows).
+_RESTORED_SETTINGS = (
+    "max_radio_contacts",
+    "auto_decrypt_dm_on_advert",
+    "advert_interval",
+    "flood_scope",
+    "known_regions",
+    "blocked_keys",
+    "blocked_names",
+    "rejected_channels",
+    "discovery_blocked_types",
+    "tracked_telemetry_repeaters",
+    "tracked_telemetry_contacts",
+    "auto_resend_channel",
+    "telemetry_interval_hours",
+    "telemetry_routed_hourly",
+    "stale_contact_days",
+    "raw_packet_retention_days",
+    "telemetry_alert_rules",
+    "notification_destinations",
+    "ui_preferences",
+    "auto_update",
+    "auto_update_window_start",
+    "auto_update_window_end",
+    "auto_update_weekdays",
+    "enable_message_poll_fallback",
+    "force_channel_slot_reconfigure",
+    "load_with_autoevict",
+    "auto_clock_wraparound",
+)
+
+
 async def _restore_settings(settings: AppSettings) -> None:
-    await AppSettingsRepository.update(
-        max_radio_contacts=settings.max_radio_contacts,
-        auto_decrypt_dm_on_advert=settings.auto_decrypt_dm_on_advert,
-        advert_interval=settings.advert_interval,
-        flood_scope=settings.flood_scope,
-        known_regions=settings.known_regions,
-        blocked_keys=settings.blocked_keys,
-        blocked_names=settings.blocked_names,
-        rejected_channels=settings.rejected_channels,
-        discovery_blocked_types=settings.discovery_blocked_types,
-        tracked_telemetry_repeaters=settings.tracked_telemetry_repeaters,
-        tracked_telemetry_contacts=settings.tracked_telemetry_contacts,
-        auto_resend_channel=settings.auto_resend_channel,
-        telemetry_interval_hours=settings.telemetry_interval_hours,
-        telemetry_routed_hourly=settings.telemetry_routed_hourly,
-        stale_contact_days=settings.stale_contact_days,
-        raw_packet_retention_days=settings.raw_packet_retention_days,
-        telemetry_alert_rules=settings.telemetry_alert_rules,
-        notification_destinations=settings.notification_destinations,
-        auto_update=settings.auto_update,
-        auto_update_window_start=settings.auto_update_window_start,
-        auto_update_window_end=settings.auto_update_window_end,
-        auto_update_weekdays=settings.auto_update_weekdays,
-        # Through update(), so the in-memory copy the radio code reads follows.
-        enable_message_poll_fallback=settings.enable_message_poll_fallback,
-        force_channel_slot_reconfigure=settings.force_channel_slot_reconfigure,
-        load_with_autoevict=settings.load_with_autoevict,
-        auto_clock_wraparound=settings.auto_clock_wraparound,
-    )
+    """Write back only the fields the file carries: an older file without a
+    later field (``ui_preferences``...) keeps the current value."""
+    present = settings.model_fields_set
+    updates = {name: getattr(settings, name) for name in _RESTORED_SETTINGS if name in present}
+    if updates:
+        await AppSettingsRepository.update(**updates)
 
 
 async def _restore_group(group: ContactGroup) -> None:
@@ -656,3 +673,117 @@ async def export_backup_v2() -> BackupExportV2:
         wifi=wifi,
         meshloom_extra=extra,
     )
+
+
+# -- Full backup (v2): Meshloom settings outside v1 ------------------------------
+
+
+async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: list[str]) -> int:
+    """Upsert by id through the fanout route checks. Bots come back disabled."""
+    from fastapi import HTTPException
+
+    from app.fanout.manager import fanout_manager, is_reserved_fanout_id
+    from app.repository.fanout import FanoutConfigRepository
+    from app.routers.fanout import prepare_fanout_config
+
+    written: list[str] = []
+    restored_bots: list[str] = []
+    for entry in entries:
+        label = entry.name or entry.id
+        if is_reserved_fanout_id(entry.id):
+            # system:* modules are Meshloom's own: never taken from a file.
+            warnings.append(f"fanout_reserved:{entry.id}")
+            continue
+        if entry.type == "bot" and fanout_manager.bots_disabled_effective():
+            warnings.append(f"bots_disabled:{label}")
+            continue
+        try:
+            config, scope = prepare_fanout_config(entry.type, entry.config, entry.scope)
+        except HTTPException:
+            warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
+            continue
+        # A bot runs code through exec() once enabled, and a backup file may
+        # come from someone else: restored disabled, the user enables it.
+        enabled = entry.enabled and entry.type != "bot"
+        existing = await FanoutConfigRepository.get(entry.id)
+        if existing is not None:
+            if existing["type"] != entry.type:
+                warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
+                continue
+            await FanoutConfigRepository.update(
+                entry.id,
+                name=entry.name or existing["name"],
+                enabled=enabled,
+                config=config,
+                scope=scope,
+            )
+        else:
+            await FanoutConfigRepository.create(
+                config_type=entry.type,
+                name=entry.name or entry.type,
+                config=config,
+                scope=scope,
+                enabled=enabled,
+                config_id=entry.id,
+            )
+        written.append(entry.id)
+        if entry.type == "bot":
+            restored_bots.append(label)
+    for config_id in written:
+        await fanout_manager.reload_config(config_id)
+    if restored_bots:
+        warnings.append("bots_restored_disabled:" + ", ".join(restored_bots))
+    return len(written)
+
+
+async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
+    """VAPID keys and subscriptions belong together: restored only on a host
+    with no subscriptions of its own (or already using the backup's key)."""
+    from app.push.vapid import ensure_vapid_keys
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    if extra.vapid is None:
+        return 0
+    existing = await PushSubscriptionRepository.get_all()
+    _private, current_public = await AppSettingsRepository.get_vapid_keys()
+    if existing and current_public != extra.vapid.public_key:
+        # Its subscriptions were made with its own key: the backup's would fail
+        # (403/410) and be deleted on the first push.
+        warnings.append("push_kept_existing")
+        return 0
+    await AppSettingsRepository.set_vapid_keys(
+        extra.vapid.private_key.get_secret_value(), extra.vapid.public_key
+    )
+    await ensure_vapid_keys()  # the signing code reads the cached keys
+    for sub in extra.push_subscriptions:
+        await PushSubscriptionRepository.create(
+            endpoint=sub.endpoint,
+            p256dh=sub.p256dh,
+            auth=sub.auth,
+            label=sub.label,
+            language=sub.language,
+        )
+    return len(extra.push_subscriptions)
+
+
+async def restore_meshloom_extra(extra: MeshloomExtra) -> list[str]:
+    """Restore ``meshloom_extra`` through the same checks as the routes.
+    Idempotent: a second run changes no count. Returns warnings."""
+    from app.services.radio_proxy_settings import update_radio_proxy_settings
+
+    warnings: list[str] = []
+    await _restore_fanout_configs(extra.fanout_configs, warnings)
+    await _restore_push(extra, warnings)
+    if extra.radio_proxy is not None:
+        _status, proxy_warnings = await update_radio_proxy_settings(
+            enabled=extra.radio_proxy.enabled,
+            bind=extra.radio_proxy.bind,
+            port=extra.radio_proxy.port,
+            max_clients=extra.radio_proxy.max_clients,
+            lenient=True,
+        )
+        warnings.extend(proxy_warnings)
+    if extra.path_hash_one_byte_opt_in is not None:
+        # The only source of the opt-in in a restore (the radio step never sets it).
+        await AppSettingsRepository.set_path_hash_one_byte_opt_in(extra.path_hash_one_byte_opt_in)
+    return warnings
