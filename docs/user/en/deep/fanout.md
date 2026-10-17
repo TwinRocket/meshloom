@@ -107,7 +107,7 @@ Webhook, Apprise, Amazon SQS (custom endpoint) and Map Upload (custom API addres
 
 The address is checked when you save an enabled integration and again before each send (for SQS, when the integration starts). A refused one shows an error such as "this address is on a private network" and nothing is sent. The webhook and Map Upload connect only to the address that was checked and never follow a redirect.
 
-Integrations you had set up before this check keep working: the upgrade ticks the box for them, and a one-time notice at the top of the page lists them. Untick it in an integration that points to a public service.
+Integrations you had set up before this check keep working: the upgrade ticks the box for them, and a one-time notice at the top of the page lists them. Untick it in an integration that points to a public service. The box ticked by the upgrade covers only the address it was ticked for: when you change the address, it unticks itself, and you tick it again if the new address is on your network.
 
 ## Apprise
 
@@ -118,7 +118,7 @@ Meshloom accepts these Apprise services:
 - **On a server you choose** (the address goes through the private-network check above): JSON, XML and form webhooks (`json://`, `xml://`, `form://`), ntfy (`ntfy://`; a bare topic goes to ntfy.sh), Gotify, Home Assistant (`hassio://`), Matrix, e-mail (`mailto://`: the SMTP server is the address checked), MQTT, Signal (REST API), Rocket.Chat, Mattermost, Nextcloud and Nextcloud Talk, Emby, and an Apprise API server (`apprise://`). Each also has its `s` form with TLS (`jsons://`, `ntfys://`...).
 - **A public service with its own address**: Telegram (`tgram://`), Discord, Pushover (`pover://`), Slack, Pushbullet (`pbul://`), Free Mobile, SFR, Google Chat (`gchat://`), Webex, Pushsafer, Prowl, IFTTT, Join and Opsgenie. Their usual web addresses, such as a Discord webhook link, work too.
 
-Every other Apprise service is refused, private network or not: desktop and local ones (`dbus://`, `windows://`, `syslog://`...), the ones that use cloud credentials (`sns://`, `ses://`), and the ones nobody has reviewed yet. A Telegram address needs a chat id (`tgram://bot_token/chat_id`): without one, Apprise would message whoever last wrote to the bot. Meshloom never follows a redirect for Apprise. An address that was already saved and is now refused stays in the list; its integration shows the error until you fix it.
+Every other Apprise service is refused, private network or not: desktop and local ones (`dbus://`, `windows://`, `syslog://`...), the ones that use cloud credentials (`sns://`, `ses://`), and the ones nobody has reviewed yet. A Telegram address needs a chat id (`tgram://bot_token/chat_id`): without one, Apprise would message whoever last wrote to the bot. Meshloom never follows a redirect for Apprise, and it sends only to the host you typed: Matrix server discovery (`.well-known`) and the e-mail PGP key lookup (`wkd=yes`) are turned off. An address that was already saved and is now refused stays in the list; its integration shows the error until you fix it. Restoring an older backup that holds such an address brings its integration back disabled, with a notice: fix the address before enabling it.
 
 ## Amazon SQS
 

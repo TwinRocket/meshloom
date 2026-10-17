@@ -68,9 +68,16 @@ chose (SSRF). Like every agent doc here, check it against the code.
   `private_network_grandfathered: true` on every row of those types that
   existed (one-time banner in the fanout list, "Got it" PATCHes the flag to
   false; `_carry_grandfathered_flag` also drops it when the destination or the
-  opt-in changes). A backup restore (`prepare_fanout_config(restored=True)`)
+  opt-in changes). The grandfathered opt-in covers only the destination it was
+  granted for: a PATCH that changes the destination while still sending
+  `private_network_grandfathered: true` (the opt-in echoed, never confirmed)
+  stores `allow_private_network: false`; the UI unticks the box when the
+  destination changes and sends the flag as false when the user ticks it
+  again. A backup restore (`prepare_fanout_config(restored=True)`)
   grandfathers a row with no `allow_private_network` key, and does no DNS
-  lookup.
+  lookup. An Apprise row whose URLs are refused here (a 4.18 file) is kept,
+  disabled, with the warning `apprise_restored_disabled:<name>`
+  (`prepare_refused_apprise_config`), as migration 100 keeps it.
 - Planned: Store plugins, Links & Files (breaker / share service), Access
   (Web Push). New consumers call `validate_destination` and send through a
   pinned client; never add an outbound path to a user-chosen URL around it.
@@ -92,6 +99,15 @@ chose (SSRF). Like every agent doc here, check it against the code.
 - Redirects: `server.redirects = False` on every instance after parsing (a
   `?redirect=yes` in the URL cannot win) plus `AppriseAsset.http_redirects =
   False`. The module sends the validated instances, never the raw URLs.
+- Secondary hosts (`_disable_secondary_hosts`, after parsing): Matrix server
+  discovery is forced off (`discovery=False`, cached discovery cleared).
+  It is on by default for `matrixs` and would read
+  `https://<host>/.well-known/matrix/client`, then send every request, the
+  access token included, to the `base_url` it returns: any address. E-mail
+  `wkd=yes` (PGP key lookup at `openpgpkey.<recipient domain>`) is forced off
+  too. The other `user_host` plugins reach only `server.host` (Nextcloud's
+  group lookup uses the same host). A plugin that follows a second URL must be
+  added here, or refused.
 - Not pinned: Apprise resolves and connects itself (requests, smtplib, paho).
   Residual risk, documented for users: DNS rebinding of a host the user typed.
 - Errors: `AppriseUrlRefused(code, line, scheme)`, detail `{code, message,

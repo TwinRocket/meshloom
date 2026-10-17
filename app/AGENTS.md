@@ -415,7 +415,8 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Restore order** (owner decision): identity, Meshloom data (only the settings
   present in the file; `meshloom_extra` through the route code paths: fanout
   validation shared with the create route, `system:*` ids refused, bots
-  restored disabled and skipped while bots are disabled, VAPID keys and
+  restored disabled and skipped while bots are disabled, an Apprise row whose
+  URLs the allowlist refuses restored disabled (`apprise_restored_disabled`), VAPID keys and
   subscriptions only on a host with no subscriptions of its own, proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot

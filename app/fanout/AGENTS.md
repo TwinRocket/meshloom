@@ -95,7 +95,8 @@ reach every module.
   (default false; migration 100 grandfathered existing rows). The validators
   stay network-free; the routes add `_check_destinations` (DNS) for a row that
   is or becomes enabled, and the modules check again before each send. Apprise
-  accepts only the allowlist of `app/net/apprise_urls.py`. Details:
+  accepts only the allowlist of `app/net/apprise_urls.py`, with Matrix
+  discovery and e-mail WKD forced off. Details:
   `app/net/AGENTS.md`.
 - **`webhook`** always sends `X-Webhook-Event: message`, and with a secret the
   signature header `sha256=<hex HMAC of the body>` (compact, sorted-keys JSON).
