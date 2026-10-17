@@ -14,7 +14,7 @@ you work there:
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
 
 Developer reference: `docs/dev/` (database schema, backup sections, Community client, frontend
-Community state, releasing, BLE pairing). User docs: `docs/user/` (en, fr). Environment variables for users:
+Community state, releasing, BLE pairing, radio bench). User docs: `docs/user/` (en, fr). Environment variables for users:
 `docs/user/en/deep/environment.md`.
 
 ## Working rules
@@ -64,7 +64,9 @@ scripts/setup/        install.sh and the embeds it carries (sync_installer_embed
 docs/user/            user docs, published by meshloom.app from the latest X.Y.Z tag, not from main
 docker-compose.dev.yaml  runs ghcr.io/twinrocket/meshloom:edge (never builds; see below)
 .github/workflows/    docker.yml (:edge from main, :next from preversion-5, release images),
-                      forward-merge.yml (main into preversion-5); see docs/dev/releasing.md
+                      forward-merge.yml (main into preversion-5); see docs/dev/releasing.md;
+                      radio-bench.yml (manual only, GitHub-hosted: the radio bench)
+tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-bench.md
 ```
 
 ## Architecture invariants
@@ -117,7 +119,15 @@ scripts/build/check_signing_keys.sh                              # pkg/keys cons
 ```
 
 The e2e tests (`tests/e2e`, Playwright) need a real radio and are not part of
-the gate (`CONTRIBUTING.md`).
+the gate (`CONTRIBUTING.md`). Neither is the radio bench (`tests/radio_bench`,
+skipped unless `MESHLOOM_RADIO_BENCH_URL` is set): it drives a running instance
+and its radio through the API and the radio proxy, restores every setting it
+changes and checks they are back (`docs/dev/radio-bench.md`):
+
+```bash
+MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
+  uv run pytest tests/radio_bench -m radio -n 0
+```
 
 ## Conventions and pitfalls
 
