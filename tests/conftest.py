@@ -219,6 +219,25 @@ def _reset_radio_operation_lock():
 
 
 @pytest.fixture(autouse=True)
+def _no_system_dbus(monkeypatch):
+    """No test touches the host's system D-Bus or BlueZ.
+
+    BLE pre-pairing then behaves as on a host without the D-Bus socket
+    (environmental fallback). Tests that exercise pairing replace `_open_bus`
+    with a fake or a private dbus-daemon.
+    """
+    from app.services import ble_pairing
+
+    async def _unavailable():
+        raise ble_pairing.BlePairingError("ble_pair_dbus_unavailable")
+
+    monkeypatch.setattr(ble_pairing, "_open_bus", _unavailable)
+    ble_pairing.reset_for_tests()
+    yield
+    ble_pairing.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
 async def _reset_radio_proxy_runtime():
     """Stop the process-wide proxy so TCP sessions and locks do not leak."""
     from app.radio_proxy.manager import radio_proxy_manager
