@@ -618,21 +618,29 @@ async def companion_cli_session(
     ``CompanionCli`` bound to the manager's ``CliLinkState``.
 
     With ``require_setup`` (default) it raises ``CliError("setup_incomplete")``
-    before taking the lock while setup is not complete: ``radio_operation(
-    suspend_auto_fetch=True)`` always restarts auto-fetch on exit, so a session
-    opened before setup registered the event handlers would pull queued messages
-    off the radio and lose them.
+    while setup is not complete, checked before waiting for the lock and again
+    once it is held (a reconnect while waiting resets setup): auto-fetch is
+    restarted when the session ends, so a session opened before setup
+    registered the event handlers would pull queued messages off the radio and
+    lose them. Auto-fetch is therefore stopped only after the second check.
     """
     from app.services.radio_runtime import radio_runtime
 
     manager = radio_runtime.manager
     if require_setup and not manager.is_setup_complete:
         raise CliError("setup_incomplete")
-    async with radio_runtime.radio_operation(
-        name, pause_polling=True, suspend_auto_fetch=True, blocking=blocking
-    ) as mc:
-        with mark_radio_lock_held():
-            yield CompanionCli(mc, manager=manager)
+    async with radio_runtime.radio_operation(name, pause_polling=True, blocking=blocking) as mc:
+        if require_setup and (not manager.is_setup_complete or mc is not manager.meshcore):
+            raise CliError("setup_incomplete")
+        await mc.stop_auto_message_fetching()
+        try:
+            with mark_radio_lock_held():
+                yield CompanionCli(mc, manager=manager)
+        finally:
+            try:
+                await mc.start_auto_message_fetching()
+            except Exception as exc:
+                logger.warning("Failed to restart auto message fetching (%s): %s", name, exc)
 
 
 # --------------------------------------------------------------------------

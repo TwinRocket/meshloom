@@ -315,6 +315,41 @@ async def test_session_runs_calls_under_the_radio_operation(radio, monkeypatch):
     assert not manager._operation_lock.locked()
 
 
+async def test_session_rechecks_setup_once_the_lock_is_held(radio, monkeypatch):
+    """A reconnect while the session waits resets setup: refuse before touching
+    auto-fetch, so nothing restarts it ahead of the new setup."""
+    loop, firmware, manager = radio
+    monkeypatch.setattr(radio_module, "radio_manager", manager)
+    calls: list[str] = []
+
+    async def stop() -> None:
+        calls.append("stop")
+
+    async def start() -> None:
+        calls.append("start")
+
+    monkeypatch.setattr(loop.mc, "stop_auto_message_fetching", stop)
+    monkeypatch.setattr(loop.mc, "start_auto_message_fetching", start)
+
+    async def open_session() -> None:
+        async with companion_cli_session("test"):
+            pass
+
+    async with manager.radio_operation("holder"):
+        waiter = asyncio.create_task(open_session())
+        await asyncio.sleep(0)  # passes the first check, waits for the lock
+        manager._setup_complete = False
+    with pytest.raises(cli_module.CliError) as error:
+        await waiter
+    assert error.value.code == "setup_incomplete"
+    assert calls == []
+    assert not manager._operation_lock.locked()
+
+    manager._setup_complete = True
+    await open_session()
+    assert calls == ["stop", "start"]
+
+
 # --------------------------------------------------------------------------
 # Validation
 # --------------------------------------------------------------------------

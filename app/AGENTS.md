@@ -154,7 +154,8 @@ and the OpenAPI page (`/docs`), not a table here.
 - **One seam.** Companion CLI commands (firmware v1.18, command 66) go through
   `services/companion_cli.py`: `companion_cli_session(name)` takes the radio lock
   with polling paused and auto-fetch suspended, refuses with `setup_incomplete`
-  before setup completes, and yields a `CompanionCli`. Code that already holds
+  before setup completes (checked again once the lock is held, before auto-fetch
+  is stopped), and yields a `CompanionCli`. Code that already holds
   the lock (setup, a `radio_operation()` block) builds `CompanionCli(mc,
   manager=...)` inside `mark_radio_lock_held()`. Never call
   `mc.commands.run_cli_command` directly.
