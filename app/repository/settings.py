@@ -433,6 +433,11 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             auto_update_weekdays = list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
+        try:
+            auth_allowed_origins = _parse_allowed_origins(row["auth_allowed_origins"])
+        except (KeyError, TypeError, IndexError):
+            auth_allowed_origins = []
+
         def _flag(column: str, default: bool = False) -> bool:
             try:
                 value = row[column]
@@ -470,7 +475,7 @@ class AppSettingsRepository:
             force_channel_slot_reconfigure=_flag("force_channel_slot_reconfigure"),
             load_with_autoevict=_flag("load_with_autoevict"),
             auto_clock_wraparound=_flag("auto_clock_wraparound", default=True),
-            auth_allowed_origins=_parse_allowed_origins(row["auth_allowed_origins"]),
+            auth_allowed_origins=auth_allowed_origins,
         )
 
     @staticmethod
