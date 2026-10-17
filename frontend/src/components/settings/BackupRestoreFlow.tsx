@@ -220,6 +220,7 @@ export function BackupRestoreFlow({
         if (code === 'backup_bad_passphrase' || code === 'backup_passphrase_required') {
           setPhase({ kind: 'locked', file: { backup: file.backup } });
         } else {
+          lastFileRef.current = null; // back to idle: nothing left to re-inspect
           setPhase({ kind: 'idle' });
         }
       }
@@ -281,12 +282,16 @@ export function BackupRestoreFlow({
           (err instanceof ApiError && err.status === 404)
         ) {
           // Jobs live in memory: the server restarted and forgot this one.
+          lastFileRef.current = null;
           setPollError(t('settings.fullRestore.jobLost'));
           return;
         }
         // A dropped connection: keep polling with the same id, for a while.
         failures += 1;
-        if (failures >= MAX_POLL_FAILURES) setPollError(formatApiError(err, t));
+        if (failures >= MAX_POLL_FAILURES) {
+          lastFileRef.current = null;
+          setPollError(formatApiError(err, t));
+        }
       }
     };
     void poll();
