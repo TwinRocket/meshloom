@@ -441,15 +441,28 @@ def _carry_grandfathered_flag(config_type: str, config: dict, previous: dict | N
     an older backup) only while the destination and its opt-in are unchanged.
 
     The UI shows a one-time banner while it is set; its "Got it" sends false.
+    The grandfathered opt-in covers the destination it was granted for: a new
+    destination sent with the flag still true (the opt-in echoed back, never
+    confirmed) drops ``allow_private_network``. Ticking the box again in the UI
+    sends the flag as false, which keeps the opt-in.
     """
     if config_type not in _GUARDED_TYPES:
         return
+    grandfathered = previous is not None and bool(previous.get("private_network_grandfathered"))
+    same_destination = previous is not None and all(
+        config.get(f) == previous.get(f) for f in _GUARDED_TYPES[config_type]
+    )
+    if (
+        grandfathered
+        and not same_destination
+        and config.get("private_network_grandfathered") is True
+    ):
+        config["allow_private_network"] = False
     keep = (
-        previous is not None
-        and bool(previous.get("private_network_grandfathered"))
+        grandfathered
+        and same_destination
         and config.get("private_network_grandfathered") is not False
         and config.get("allow_private_network") is True
-        and all(config.get(f) == previous.get(f) for f in _GUARDED_TYPES[config_type])
     )
     if keep:
         config["private_network_grandfathered"] = True

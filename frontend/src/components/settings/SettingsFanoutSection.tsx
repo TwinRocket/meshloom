@@ -2567,6 +2567,37 @@ function appriseIsDefault(value: unknown, defaultStr: string): boolean {
   return s === '' || s === defaultStr;
 }
 
+// The destination fields the egress guard checks, per fanout type (same list
+// as `_GUARDED_TYPES` in app/routers/fanout.py).
+const GUARDED_DESTINATION_FIELDS: Record<string, readonly string[]> = {
+  webhook: ['url'],
+  apprise: ['urls'],
+  sqs: ['endpoint_url'],
+  map_upload: ['api_url'],
+};
+
+/**
+ * A grandfathered opt-in covers only the destination it was granted for:
+ * changing that destination unticks "Allow a destination on a private network".
+ * Touching the box is an explicit choice, so either way the draft stops being
+ * grandfathered (the backend keeps the opt-in only when the flag is sent false).
+ */
+function withGrandfatheredOptInReset(
+  type: string | null,
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>
+): Record<string, unknown> {
+  if (prev.private_network_grandfathered !== true || !type) return next;
+  if (next.allow_private_network !== prev.allow_private_network) {
+    return { ...next, private_network_grandfathered: false };
+  }
+  const fields = GUARDED_DESTINATION_FIELDS[type] ?? [];
+  if (fields.some((field) => next[field] !== prev[field])) {
+    return { ...next, allow_private_network: false, private_network_grandfathered: false };
+  }
+  return next;
+}
+
 /** The egress guard's opt-in for a destination on a private network (LAN, localhost). */
 function PrivateNetworkOptIn({
   id,
@@ -3322,6 +3353,8 @@ export function SettingsFanoutSection({
 
   const editingConfig = editingId ? configs.find((c) => c.id === editingId) : null;
   const detailType = draftType ?? editingConfig?.type ?? null;
+  const updateEditConfig = (next: Record<string, unknown>) =>
+    setEditConfig((prev) => withGrandfatheredOptInReset(detailType, prev, next));
   const isDraft = draftType !== null;
   const configGroups = FANOUT_TYPE_ORDER.map((type) => ({
     type,
@@ -3363,7 +3396,7 @@ export function SettingsFanoutSection({
           <MqttPrivateConfigEditor
             config={editConfig}
             scope={editScope}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             onScopeChange={setEditScope}
           />
         )}
@@ -3372,23 +3405,23 @@ export function SettingsFanoutSection({
           <MqttHaConfigEditor
             config={editConfig}
             scope={editScope}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             onScopeChange={setEditScope}
           />
         )}
 
         {detailType === 'mqtt_community' && (
-          <MqttCommunityConfigEditor config={editConfig} onChange={setEditConfig} />
+          <MqttCommunityConfigEditor config={editConfig} onChange={updateEditConfig} />
         )}
 
         {detailType === 'mqtt_community_meshrank' && (
-          <MeshRankConfigEditor config={editConfig} onChange={setEditConfig} />
+          <MeshRankConfigEditor config={editConfig} onChange={updateEditConfig} />
         )}
 
         {detailType === 'mqtt_community_letsmesh_us' && (
           <LetsMeshConfigEditor
             config={editConfig}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             brokerHost={DEFAULT_COMMUNITY_BROKER_HOST}
           />
         )}
@@ -3396,18 +3429,18 @@ export function SettingsFanoutSection({
         {detailType === 'mqtt_community_letsmesh_eu' && (
           <LetsMeshConfigEditor
             config={editConfig}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             brokerHost={DEFAULT_COMMUNITY_BROKER_HOST_EU}
           />
         )}
 
-        {detailType === 'bot' && <BotConfigEditor config={editConfig} onChange={setEditConfig} />}
+        {detailType === 'bot' && <BotConfigEditor config={editConfig} onChange={updateEditConfig} />}
 
         {detailType === 'apprise' && (
           <AppriseConfigEditor
             config={editConfig}
             scope={editScope}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             onScopeChange={setEditScope}
           />
         )}
@@ -3416,7 +3449,7 @@ export function SettingsFanoutSection({
           <WebhookConfigEditor
             config={editConfig}
             scope={editScope}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             onScopeChange={setEditScope}
           />
         )}
@@ -3425,13 +3458,13 @@ export function SettingsFanoutSection({
           <SqsConfigEditor
             config={editConfig}
             scope={editScope}
-            onChange={setEditConfig}
+            onChange={updateEditConfig}
             onScopeChange={setEditScope}
           />
         )}
 
         {detailType === 'map_upload' && (
-          <MapUploadConfigEditor config={editConfig} onChange={setEditConfig} />
+          <MapUploadConfigEditor config={editConfig} onChange={updateEditConfig} />
         )}
 
         <Separator />

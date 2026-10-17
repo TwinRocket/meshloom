@@ -370,6 +370,45 @@ class TestFanoutRoutes:
         assert "private_network_grandfathered" not in dismissed["config"]
         assert dismissed["config"]["allow_private_network"] is True
 
+    @pytest.mark.asyncio
+    async def test_new_destination_drops_the_grandfathered_opt_in(self, test_db):
+        """A grandfathered public webhook moved to a LAN address is refused, not
+        silently allowed: the opt-in covered only the old destination."""
+        from app.repository.fanout import FanoutConfigRepository
+        from app.routers.fanout import FanoutConfigUpdate, update_fanout_config
+
+        old = {
+            "url": f"http://{PUBLIC_IP}/hook",
+            "allow_private_network": True,
+            "private_network_grandfathered": True,
+        }
+        row = await FanoutConfigRepository.create(
+            config_type="webhook", name="old", config=old, scope={}, enabled=True
+        )
+        moved = {**old, "url": "http://192.168.1.5/hook"}
+        with patch("app.routers.fanout.fanout_manager.reload_config", new=AsyncMock()):
+            with pytest.raises(HTTPException) as caught:
+                await update_fanout_config(row["id"], FanoutConfigUpdate(config=moved))
+            assert caught.value.detail["code"] == "egress_private_address"
+
+            # Saved disabled: stored with the opt-in off.
+            off = await update_fanout_config(
+                row["id"], FanoutConfigUpdate(config=moved, enabled=False)
+            )
+            assert off["config"]["allow_private_network"] is False
+            assert "private_network_grandfathered" not in off["config"]
+
+            # Ticked again by the user (the UI sends the flag as false): kept.
+            row2 = await FanoutConfigRepository.create(
+                config_type="webhook", name="old2", config=old, scope={}, enabled=True
+            )
+            ticked = await update_fanout_config(
+                row2["id"],
+                FanoutConfigUpdate(config={**moved, "private_network_grandfathered": False}),
+            )
+        assert ticked["config"]["allow_private_network"] is True
+        assert "private_network_grandfathered" not in ticked["config"]
+
     def test_restore_of_an_older_backup_is_grandfathered(self):
         from app.routers.fanout import prepare_fanout_config
 

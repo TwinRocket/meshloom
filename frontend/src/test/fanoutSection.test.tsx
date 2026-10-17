@@ -5,8 +5,8 @@ import type { HealthStatus, FanoutConfig } from '../types';
 import i18n from '../i18n';
 import fanoutEn from '../i18n/locales/slices/d.en.json';
 import fanoutFr from '../i18n/locales/slices/d.fr.json';
-import egressEn from '../i18n/locales/slices/o.en.json';
-import egressFr from '../i18n/locales/slices/o.fr.json';
+import egressEn from '../i18n/locales/slices/p.en.json';
+import egressFr from '../i18n/locales/slices/p.fr.json';
 
 i18n.addResourceBundle('en', 'translation', fanoutEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fanoutFr, true, true);
@@ -1628,6 +1628,43 @@ describe('private network opt-in (egress guard)', () => {
       config: Record<string, unknown>;
     };
     expect(update.config.allow_private_network).toBe(true);
+  });
+
+  it('unticks a grandfathered opt-in when the destination changes', async () => {
+    const grandfathered: FanoutConfig = {
+      ...webhookConfig,
+      config: {
+        ...webhookConfig.config,
+        allow_private_network: true,
+        private_network_grandfathered: true,
+      },
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([grandfathered]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(grandfathered);
+    renderSection();
+    await waitFor(() => expect(screen.getByText('Test Hook')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: tf('list.edit') }));
+
+    const checkbox = await screen.findByLabelText(tf('privateNetwork.label'), { exact: false });
+    expect(checkbox).toBeChecked();
+    fireEvent.change(document.getElementById('fanout-webhook-url')!, {
+      target: { value: 'http://192.168.1.9/hook' },
+    });
+    expect(checkbox).not.toBeChecked();
+
+    // Ticked again by the user: an explicit opt-in, sent with the flag false.
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+    await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+    const update = mockedApi.updateFanoutConfig.mock.calls[0][1] as {
+      config: Record<string, unknown>;
+    };
+    expect(update.config).toMatchObject({
+      url: 'http://192.168.1.9/hook',
+      allow_private_network: true,
+      private_network_grandfathered: false,
+    });
   });
 
   it('shows the grandfathered banner once and clears the flag on "Got it"', async () => {

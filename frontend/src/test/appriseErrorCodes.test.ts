@@ -10,8 +10,8 @@ import { ApiError, formatApiError } from '../api';
 import i18n from '../i18n';
 import nEn from '../i18n/locales/slices/n.en.json';
 import nFr from '../i18n/locales/slices/n.fr.json';
-import oEn from '../i18n/locales/slices/o.en.json';
-import oFr from '../i18n/locales/slices/o.fr.json';
+import oEn from '../i18n/locales/slices/p.en.json';
+import oFr from '../i18n/locales/slices/p.fr.json';
 
 for (const [lang, slice] of [
   ['en', nEn],
