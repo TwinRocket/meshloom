@@ -471,6 +471,9 @@ describe('fetchJson (via api methods)', () => {
       await api.getRadioProxy();
       await api.updateRadioProxy({ enabled: true, port: 5001 });
       await api.scanRadioBle();
+      await api.getRadioBlePairing();
+      await api.pairRadioBle();
+      await api.forgetRadioBlePairing();
       await api.adoptRadioIdentity({ confirm_wipe: false });
       await api.rejectRadioIdentity();
 
@@ -480,6 +483,9 @@ describe('fetchJson (via api methods)', () => {
         ['./api/radio/proxy', undefined],
         ['./api/radio/proxy', 'PATCH'],
         ['./api/radio/transport/ble-scan', 'POST'],
+        ['./api/radio/transport/ble-pairing', undefined],
+        ['./api/radio/transport/ble-pairing', 'POST'],
+        ['./api/radio/transport/ble-pairing', 'DELETE'],
         ['./api/radio/identity/adopt', 'POST'],
         ['./api/radio/identity/reject', 'POST'],
       ]);
@@ -492,7 +498,7 @@ describe('fetchJson (via api methods)', () => {
         enabled: true,
         port: 5001,
       });
-      expect(JSON.parse(mockFetch.mock.calls[5][1].body)).toEqual({ confirm_wipe: false });
+      expect(JSON.parse(mockFetch.mock.calls[8][1].body)).toEqual({ confirm_wipe: false });
     });
 
     it('sends PUT with JSON body for setPrivateKey', async () => {

@@ -38,6 +38,7 @@ import type {
   RawPacket,
   RadioAdvertMode,
   RadioBleDeviceInfo,
+  RadioBlePairingStatus,
   RadioConfig,
   RadioConfigUpdate,
   RadioCustomVars,
@@ -306,6 +307,11 @@ export const api = {
     fetchJson<{ devices: RadioBleDeviceInfo[] }>('/radio/transport/ble-scan', {
       method: 'POST',
     }),
+  getRadioBlePairing: () => fetchJson<RadioBlePairingStatus>('/radio/transport/ble-pairing'),
+  pairRadioBle: () =>
+    fetchJson<RadioBlePairingStatus>('/radio/transport/ble-pairing', { method: 'POST' }),
+  forgetRadioBlePairing: () =>
+    fetchJson<RadioBlePairingStatus>('/radio/transport/ble-pairing', { method: 'DELETE' }),
   adoptRadioIdentity: (body: { confirm_wipe: boolean }) =>
     fetchJson<RadioIdentityActionResponse>('/radio/identity/adopt', {
       method: 'POST',

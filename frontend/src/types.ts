@@ -33,6 +33,34 @@ export interface RadioBleDeviceInfo {
   name: string | null;
 }
 
+export type RadioBlePairingState =
+  | 'unsupported'
+  | 'unavailable'
+  | 'not_configured'
+  | 'unknown_device'
+  | 'not_paired'
+  | 'pairing'
+  | 'paired'
+  | 'failed';
+
+/** GET/POST/DELETE /api/radio/transport/ble-pairing. Never carries the PIN. */
+export interface RadioBlePairingStatus {
+  supported: boolean;
+  state: RadioBlePairingState;
+  address: string;
+  /** BlueZ adapter name, e.g. "hci0". */
+  adapter: string;
+  paired: boolean | null;
+  trusted: boolean | null;
+  connected: boolean | null;
+  /** ble_pair_* code, translated under errors.<code>. */
+  error_code: string | null;
+  error_at: number | null;
+  auto_pair_blocked: boolean;
+  retry_in: number | null;
+  hint: 'stale_bond_suspected' | null;
+}
+
 export interface RadioTransportCapabilities {
   tcp: boolean;
   serial: boolean;
