@@ -45,6 +45,8 @@ Meshloom ties its database to the public key of your radio, so that the history 
 
 If a radio with a different key is connected, the dialog shows both keys and offers **Cancel** or **Wipe and continue**. Keeping the history is not offered, because that history belongs to the other radio.
 
+Both dialogs also offer **Restore from a backup**. Choose it after reflashing a radio: a full backup gives the radio its former identity back, with its settings, contacts and channels (see [Back up your radio](/en/docs/backup/)). The dialog names the connected radio whose new identity is replaced and asks you to confirm. If you restored a backup in **Settings → Database** before the radio was connected, this dialog appears at the first connection: Meshloom never ties itself to the backup's identity before a radio has shown it holds it, so choose **Restore from a backup** again there.
+
 Once connected, the status bar also shows the node's name, its public key (click it to copy it), and the battery level when the radio reports it.
 
 ## Name your node

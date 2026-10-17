@@ -45,6 +45,8 @@ Meshloom lie sa base à la clé publique de votre radio, pour ne jamais mélange
 
 Si une radio avec une autre clé est connectée, la fenêtre montre les deux clés et propose **Annuler** ou **Effacer et continuer**. Garder l’historique n’est pas proposé, car cet historique appartient à l’autre radio.
 
+Les deux fenêtres proposent aussi **Restaurer depuis une sauvegarde**. Choisissez-le après avoir reflashé une radio : une sauvegarde complète rend à la radio son ancienne identité, avec ses réglages, ses contacts et ses canaux (voir [Sauvegarder la radio](/docs/backup/)). La fenêtre nomme la radio connectée dont la nouvelle identité est remplacée et vous demande de confirmer. Si vous avez restauré une sauvegarde dans **Réglages → Base de données** avant que la radio soit connectée, cette fenêtre apparaît à la première connexion : Meshloom ne se lie jamais à l’identité de la sauvegarde avant qu’une radio ait montré qu’elle la détient, choisissez donc de nouveau **Restaurer depuis une sauvegarde**.
+
 Une fois connectée, la barre d’état affiche aussi le nom du nœud, sa clé publique (cliquez dessus pour la copier) et le niveau de batterie quand la radio le communique.
 
 ## Nommer votre nœud

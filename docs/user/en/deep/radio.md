@@ -7,7 +7,7 @@ order: 15
 
 Meshloom manages the contacts and channels stored on your radio. The server remembers far more than the radio can hold, and loads onto the radio the working set it needs.
 
-The database is tied to the public key of your radio. If you plug in a different radio, a window opens: **This radio does not match the stored identity**. **Wipe and continue** adopts the new radio and erases the local mesh contacts and messages; channels and server settings stay. **Cancel** keeps your data untouched and pauses the connection to that radio. A database created before this link existed asks once, even for its usual radio: **This radio is not bound to this instance**. Choose **Bind without wipe** if it is the same radio, or **New radio** to start clean. See [First launch](/en/docs/first-run/).
+The database is tied to the public key of your radio. If you plug in a different radio, a window opens: **This radio does not match the stored identity**. **Wipe and continue** adopts the new radio and erases the local mesh contacts and messages; channels and server settings stay. **Cancel** keeps your data untouched and pauses the connection to that radio. A database created before this link existed asks once, even for its usual radio: **This radio is not bound to this instance**. Choose **Bind without wipe** if it is the same radio, or **New radio** to start clean. Both windows also offer **Restore from a backup**, which gives a reflashed radio its former identity back from a full backup (see [Back up your radio](/en/docs/backup/)). See [First launch](/en/docs/first-run/).
 
 ## Why contacts are loaded onto the radio
 

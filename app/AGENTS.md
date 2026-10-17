@@ -217,6 +217,68 @@ the old `ROW_NUMBER()` query as an oracle: both outputs must stay identical.
 `first_unread_ids` is the first unread row by `(received_at, id)`; `MIN(id)` would
 be wrong, because historical decryption inserts old messages with new ids.
 
+## Backups
+
+- **Three kinds.** `GET /settings/backup/database` (a SQLite snapshot, never
+  restored from the UI, no private key); `meshloom-backup-v1` (`export_json` /
+  `restore_json`, Meshloom data only; `GET /settings/backup/json` stays v1 for
+  scripts); and the full backup `meshloom-backup-v2` (`POST
+  /settings/backup/export`): the v1 fields unchanged plus `identity`, `radio`
+  (`RadioNodeSettings`), `wifi` and `meshloom_extra`. Code:
+  `services/backup.py` (formats, coverage, export, Meshloom restore),
+  `services/backup_radio.py` (radio reads and writes),
+  `services/backup_restore.py` (identity decision, inspect, restore job),
+  `services/backup_crypto.py` (envelope).
+- **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
+  table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
+  column or table until it is listed (one direction: extra entries are fine).
+  Excluded on purpose: Community opt-in and state (consent), the radio transport
+  (machine-specific), the identity binding, history and caches.
+- **Secrets in the file.** `BackupIdentity.private_key`, `BackupWifi.password`
+  and `BackupVapid.private_key` are `SecretStr` revealed only under the
+  serialization context `{"backup_export": True}` (`export_document()`); every
+  other dump, repr and the restore job show the mask, and a restore refuses the
+  mask. The export route returns a `JSONResponse` from that dump, never a
+  `response_model`. The Wi-Fi password is read live (`wifi_stored_password`) and
+  never written to the database. Errors list field paths only
+  (`backup_invalid`).
+- **Envelope** (`meshloom-backup-v2-encrypted`): scrypt (writes N=2^15, r=8,
+  p=1) over the NFC passphrase, AES-256-GCM, AAD = canonical JSON of a fixed
+  header tuple. Decrypt refuses N outside 2^14..2^16, r≠8, p≠1, bad salt/nonce
+  sizes or more than 16 MiB before any KDF call; KDF calls run one at a time in
+  a worker thread.
+- **Identity.** `decide_identity_restore(gate, bound, live, backup,
+  has_history)` is the one table (TR-1 plan C.4, `tests/test_backup_identity_decision.py`):
+  inspect, the synchronous 409s and the job (again, inside the
+  `lifecycle_transition`, right before acting) all use it. A known live key
+  other than the backup's needs `replace_live_identity` and
+  `expected_live_public_key == live`; history under another key needs
+  `wipe_history`; a radio that is not connected never gets the backup key bound
+  (rows 3-4: the next connect opens `identity_unbound_legacy`). The job imports
+  first (raw `0x18` frame waiting for OK/ERROR/DISABLED, then a re-read), then
+  wipes, then binds and runs setup; any identity failure stops the job and
+  pauses the link when the gate was open.
+- **Restore order** (owner decision): identity, Meshloom data (only the settings
+  present in the file; `meshloom_extra` through the route code paths: fanout
+  validation shared with the create route, `system:*` ids refused, bots
+  restored disabled and skipped while bots are disabled, VAPID keys and
+  subscriptions only on a host with no subscriptions of its own, proxy through
+  `services/radio_proxy_settings.py`), then in one companion CLI session: radio
+  settings group by group (no clock sync per group, one at the end; a reboot
+  then skips the rest), channels into slots `0..n-1` with raw `0x20` frames (the
+  secret is never re-derived from a `#name`), contacts (reconcile stopped,
+  non-selected radio contacts removed first, favourites first, 0x10 always
+  stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),
+  Wi-Fi credentials last. Raw frames also for the default flood scope (keeps a
+  non-derived key) and auto-add (keeps `max_hops`).
+- **Job.** One at a time (409 `backup_restore_running`), `spawn()`ed, in memory
+  (last 5); `GET /settings/backup/restore/jobs/{id}` and `/latest`. The decrypted
+  document lives in the run object only and is dropped when the job ends. The
+  reboot the restore offers is the plain `POST /radio/reboot` (unannounced).
+- **Restore body.** `POST /settings/backup/restore` reads a raw dict: no
+  `backup` key is the v1 flat request (synchronous); a `backup` key starts the
+  job (202). A file without `format` is v1 everywhere.
+
 ## Region-scope stats (`GET /statistics` → `region_scope_24h`)
 
 Traffic (`path_utils.bucket_region_scope`, flood GroupText including undecryptable
