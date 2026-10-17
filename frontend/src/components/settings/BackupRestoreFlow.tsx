@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -8,6 +9,7 @@ import { ApiError, api, formatApiError, getApiErrorCode } from '../../api';
 import {
   BACKUP_FORMATS,
   type BackupInspectResult,
+  type BackupRestoreItem,
   type BackupRestoreJob,
   type BackupRestoreStep,
   type BackupRestoreSteps,
@@ -16,25 +18,50 @@ import {
 const ENCRYPTED_FORMAT = 'meshloom-backup-v2-encrypted';
 const V1_FORMATS = ['meshloom-backup-v1', 'remoteterm-backup-v1'];
 const POLL_INTERVAL_MS = 1000;
+/** Consecutive failed polls (network) before the job view gives up. */
+const MAX_POLL_FAILURES = 30;
 const RERUN_CODES = new Set(['radio_not_connected', 'radio_rebooting']);
-const CODE_KEYS = new Set([
-  'radio_not_connected',
-  'radio_rebooting',
-  'meshloom_step_off',
-  'step_off',
-  'not_in_backup',
-  'v1_backup',
-  'no_identity',
-  'identity_failed',
-  'identity_gate_open',
-  'device_info_unknown',
-  'wifi_unsupported',
-  'already_this_identity',
-  'restored',
-  'bound',
-  'contacts_table_full',
-  'cli_unsupported',
-]);
+
+function translated(t: TFunction, key: string, params?: Record<string, unknown>): string | null {
+  const out = t(key, params);
+  return out === key ? null : out;
+}
+
+/** `code:param` -> [code, param] (warnings and item names carry one parameter). */
+function splitCode(raw: string): [string, string] {
+  const at = raw.indexOf(':');
+  return at < 0 ? [raw, ''] : [raw.slice(0, at), raw.slice(at + 1)];
+}
+
+/** A step or item code from the restore job, translated; unknown codes as is. */
+export function restoreCodeText(code: string, t: TFunction): string {
+  return (
+    translated(t, `settings.fullRestore.codes.${code}`) ?? translated(t, `errors.${code}`) ?? code
+  );
+}
+
+/** A restore warning (`code` or `code:param`), translated; unknown ones as is. */
+export function restoreWarningText(raw: string, t: TFunction): string {
+  const [code, value] = splitCode(raw);
+  return translated(t, `settings.fullRestore.warnings.${code}`, { value }) ?? raw;
+}
+
+function restoreItemName(raw: string, t: TFunction): string {
+  const [name, value] = splitCode(raw);
+  return translated(t, `settings.fullRestore.items.${name}`, { value }) ?? raw;
+}
+
+/** Export warnings carried by the file, in the restore summary's words. */
+function fileWarningTexts(warnings: string[], t: TFunction): string[] {
+  const texts = warnings.map(
+    (raw) => translated(t, `settings.fullRestore.fileWarnings.${splitCode(raw)[0]}`) ?? raw
+  );
+  return [...new Set(texts)];
+}
+
+function isReportedItem(item: BackupRestoreItem): boolean {
+  return item.status === 'failed' || item.status === 'unsupported';
+}
 
 type LoadedFile = { backup: Record<string, unknown>; passphrase?: string };
 
@@ -96,13 +123,24 @@ export function BackupRestoreFlow({
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [starting, setStarting] = useState(false);
   const [rebooting, setRebooting] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
+  // The opened file, kept only for a re-inspect after an identity refusal: it may
+  // hold the private key and the Wi-Fi password in clear, or the passphrase.
   const lastFileRef = useRef<LoadedFile | null>(null);
   const finishedRef = useRef<string | null>(null);
+
+  useEffect(
+    () => () => {
+      lastFileRef.current = null;
+    },
+    []
+  );
 
   const reset = () => {
     setPhase({ kind: 'idle' });
     setError(null);
     setNotice(null);
+    setPollError(null);
     setPassphrase('');
     setSteps(null);
     setConfirm(false);
@@ -118,6 +156,7 @@ export function BackupRestoreFlow({
       try {
         const result = await api.inspectBackup(file);
         lastFileRef.current = file;
+        setPassphrase('');
         setSteps(defaultSteps(result));
         setConfirm(false);
         setConfirmReplace(false);
@@ -144,6 +183,8 @@ export function BackupRestoreFlow({
       .getLatestRestoreJob()
       .then((job) => {
         if (!cancelled && job) {
+          // A job that ended before this view opened was already handled.
+          if (job.state !== 'running') finishedRef.current = job.job_id;
           setPhase((current) =>
             current.kind === 'idle' ? { kind: 'job', jobId: job.job_id, job } : current
           );
@@ -160,18 +201,32 @@ export function BackupRestoreFlow({
 
   // Poll the running job.
   useEffect(() => {
-    if (!jobId || !jobRunning) return;
+    if (!jobId || !jobRunning || pollError) return;
     let cancelled = false;
+    let failures = 0;
     const poll = async () => {
       try {
         const job = await api.getRestoreJob(jobId);
+        failures = 0;
         if (!cancelled) {
           setPhase((current) =>
             current.kind === 'job' && current.jobId === jobId ? { ...current, job } : current
           );
         }
-      } catch {
-        // A dropped connection: keep polling with the same id.
+      } catch (err) {
+        if (cancelled) return;
+        const code = err instanceof ApiError ? getApiErrorCode(err.detail)?.code : undefined;
+        if (
+          code === 'backup_restore_job_not_found' ||
+          (err instanceof ApiError && err.status === 404)
+        ) {
+          // Jobs live in memory: the server restarted and forgot this one.
+          setPollError(t('settings.fullRestore.jobLost'));
+          return;
+        }
+        // A dropped connection: keep polling with the same id, for a while.
+        failures += 1;
+        if (failures >= MAX_POLL_FAILURES) setPollError(formatApiError(err, t));
       }
     };
     void poll();
@@ -180,7 +235,7 @@ export function BackupRestoreFlow({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [jobId, jobRunning]);
+  }, [jobId, jobRunning, pollError, t]);
 
   // A finished job: notify, and re-inspect when the identity decision changed.
   useEffect(() => {
@@ -194,6 +249,7 @@ export function BackupRestoreFlow({
       void inspect(file);
       return;
     }
+    lastFileRef.current = null; // no re-inspect from here: drop the secrets
     onFinished?.(phase.job);
   }, [phase, inspect, onFinished, t]);
 
@@ -268,13 +324,9 @@ export function BackupRestoreFlow({
     }
   };
 
-  const stepLabel = (step: BackupRestoreStep) => {
-    const status = t(`settings.fullRestore.status.${step.status}`);
-    if (!step.code) return status;
-    const reason = CODE_KEYS.has(step.code)
-      ? t(`settings.fullRestore.codes.${step.code}`)
-      : formatApiError(new ApiError(step.code, 0, { code: step.code }), t);
-    return `${status} (${reason})`;
+  const statusLabel = (status: BackupRestoreStep['status'], code: string | null) => {
+    const text = t(`settings.fullRestore.status.${status}`);
+    return code ? `${text} (${restoreCodeText(code, t)})` : text;
   };
 
   return (
@@ -368,11 +420,32 @@ export function BackupRestoreFlow({
               <li key={step.step} data-step={step.step} data-status={step.status}>
                 <span className="font-medium">{t(`settings.fullRestore.steps.${step.step}`)}</span>
                 {': '}
-                <span className="text-muted-foreground">{stepLabel(step)}</span>
+                <span className="text-muted-foreground">{statusLabel(step.status, step.code)}</span>
+                {step.items.some(isReportedItem) && (
+                  <ul className="pl-5 list-disc text-[0.8125rem] text-muted-foreground">
+                    {step.items.filter(isReportedItem).map((item) => (
+                      <li key={item.name} data-item={item.name} data-status={item.status}>
+                        {t('settings.fullRestore.itemsLabel', {
+                          item: restoreItemName(item.name, t),
+                          status: statusLabel(item.status, item.code),
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ul>
-          {phase.job === null || phase.job.state === 'running' ? (
+          {pollError ? (
+            <div className="space-y-2">
+              <p className="text-sm text-destructive" role="alert">
+                {pollError}
+              </p>
+              <Button variant="ghost" onClick={reset}>
+                {t('settings.fullRestore.another')}
+              </Button>
+            </div>
+          ) : phase.job === null || phase.job.state === 'running' ? (
             <p className="text-sm text-muted-foreground">{t('settings.fullRestore.restoring')}</p>
           ) : (
             <div className="space-y-2">
@@ -381,6 +454,16 @@ export function BackupRestoreFlow({
                   ? t('settings.fullRestore.done')
                   : t('settings.fullRestore.failed')}
               </p>
+              {(phase.job.result?.warnings.length ?? 0) > 0 && (
+                <div className="space-y-1" role="status">
+                  <p className="text-xs font-semibold">{t('settings.fullRestore.warningsTitle')}</p>
+                  <ul className="list-disc pl-5 text-[0.8125rem] text-muted-foreground space-y-0.5">
+                    {phase.job.result?.warnings.map((warning) => (
+                      <li key={warning}>{restoreWarningText(warning, t)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {phase.job.steps.some((step) => step.code && RERUN_CODES.has(step.code)) && (
                 <p className="text-[0.8125rem] text-muted-foreground">
                   {t('settings.fullRestore.rerunHint')}
@@ -511,10 +594,42 @@ function RestoreSummary({
         )}
         {inspect.bot_names.length > 0 && (
           <p className="text-warning">
-            {t('settings.fullRestore.botsRestoredDisabled', {
-              names: inspect.bot_names.join(', '),
+            {t(
+              inspect.bots_will_be_skipped
+                ? 'settings.fullRestore.botsWillBeSkipped'
+                : 'settings.fullRestore.botsRestoredDisabled',
+              { names: inspect.bot_names.join(', ') }
+            )}
+          </p>
+        )}
+        {(inspect.integrations?.length ?? 0) > 0 && (
+          <p className={inspect.integrations.some((i) => i.enabled) ? 'text-warning' : undefined}>
+            {t('settings.fullRestore.integrations', {
+              list: inspect.integrations
+                .map((integration) =>
+                  t(
+                    integration.enabled
+                      ? 'settings.fullRestore.integrationOn'
+                      : 'settings.fullRestore.integrationOff',
+                    { name: integration.name, type: integration.type }
+                  )
+                )
+                .join(', '),
             })}
           </p>
+        )}
+        {inspect.radio_proxy_enabled && (
+          <p className="text-warning">{t('settings.fullRestore.proxyEnabled')}</p>
+        )}
+        {inspect.warnings.length > 0 && (
+          <div className="pt-1">
+            <p className="text-xs font-semibold">{t('settings.fullRestore.fileWarningsTitle')}</p>
+            <ul className="list-disc pl-5 space-y-0.5">
+              {fileWarningTexts(inspect.warnings, t).map((text) => (
+                <li key={text}>{text}</li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
 

@@ -34,7 +34,7 @@ The group holds:
 1. Flash the radio, then connect it to Meshloom as usual (**Settings → Radio**).
 2. Meshloom sees a radio with a new identity and opens the identity window. Choose **Restore from a backup**, pick the file (and type its passphrase if you set one).
 3. Meshloom shows what the file holds and what restoring it changes. The identity of the connected radio, a new random one after a full install, is replaced by the one in the backup: the window names that radio and asks you to confirm.
-4. Click **Restore**. Meshloom writes the identity, then its own data, then the radio settings, channels, contacts and Wi-Fi credentials, and shows each step as it goes.
+4. Click **Restore**. Meshloom writes the identity, then its own data, then the radio settings, channels, contacts and Wi-Fi credentials, and shows each step as it goes. When it is done, it lists what did not go as planned: a radio setting the radio refused, contacts that did not fit, bots that were skipped, push keys that were kept.
 5. When it asks, click **Reboot the radio now** so the radio applies the restored settings (Wi-Fi in particular).
 
 On a **new Meshloom** (a new machine or a new database), **set up the radio connection first**, then restore from **Settings → Database → Restore a backup**. If the radio is not connected when you restore, only the Meshloom data is restored. When the radio connects later, Meshloom asks what to do with its identity: choose **Restore from a backup** again so the key and the radio steps are applied, or **Bind without wipe** to keep the radio's own identity with the restored history. Meshloom never ties itself to the backup's identity before a radio has shown it holds it.
@@ -69,7 +69,7 @@ Note that anyone who can reach your Meshloom can download this backup, and so ca
 
 - Contacts (favourites, routes), channels with their keys and region scope, contact groups.
 - The settings: regions, block lists, telemetry tracking, alert rules, notification destinations, updates, interface preferences, push preferences, the radio proxy settings, the **Workarounds** group of **Settings → Radio → Advanced** (the clock fix included).
-- MQTT, webhook, Apprise, SQS, map upload and Home Assistant integrations, with their secrets. **Bots come back disabled**: a bot runs code on the server, so enable each one after reading it.
+- MQTT, webhook, Apprise, SQS, map upload and Home Assistant integrations, with their secrets, each enabled or disabled as in the file: an enabled one starts sending right after the restore. **Bots come back disabled**: a bot runs code on the server, so enable each one after reading it. On a server where bots are turned off (`MESHCORE_DISABLE_BOTS=true`, the default of the Linux package and the Raspberry Pi image, or **Disable Bots Until Server Restart**), bots are **not restored at all**: turn bots on first if you want them back. Before you restore, the summary names each integration, says whether the file enables the radio proxy, and says which bots are skipped.
 - The Web Push keys and subscriptions, restored only on a Meshloom that has no subscriptions of its own.
 
 **Not included:**

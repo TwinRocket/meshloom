@@ -1583,6 +1583,12 @@ export interface BackupCounts {
   push_subscriptions: number;
 }
 
+export interface BackupIntegrationSummary {
+  name: string;
+  type: string;
+  enabled: boolean;
+}
+
 export interface BackupInspectResult {
   format: string;
   encrypted: boolean;
@@ -1596,6 +1602,12 @@ export interface BackupInspectResult {
   has_wifi: boolean;
   counts: BackupCounts;
   bot_names: string[];
+  /** Bots are turned off on this server: the file's bots are not restored. */
+  bots_will_be_skipped: boolean;
+  /** Non-bot integrations in the file; enabled ones start right after a restore. */
+  integrations: BackupIntegrationSummary[];
+  /** The file's radio proxy setting (null: not in the file). */
+  radio_proxy_enabled: boolean | null;
   identity_relation: BackupIdentityRelation;
   identity_requires: BackupIdentityRequires;
   identity_refusal: string | null;

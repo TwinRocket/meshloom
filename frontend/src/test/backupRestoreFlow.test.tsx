@@ -27,7 +27,11 @@ vi.mock('../api', async (importOriginal) => {
 vi.mock('../components/ui/sonner', () => ({ toast: mocks.toast }));
 
 import { ApiError } from '../api';
-import { BackupRestoreFlow } from '../components/settings/BackupRestoreFlow';
+import {
+  BackupRestoreFlow,
+  restoreCodeText,
+  restoreWarningText,
+} from '../components/settings/BackupRestoreFlow';
 import i18n from '../i18n';
 import type { BackupInspectResult, BackupRestoreJob } from '../types';
 
@@ -47,6 +51,9 @@ function inspectResult(overrides: Partial<BackupInspectResult> = {}): BackupInsp
     has_wifi: true,
     counts: { contacts: 3, channels: 2, groups: 1, fanout_configs: 0, push_subscriptions: 0 },
     bot_names: [],
+    bots_will_be_skipped: false,
+    integrations: [],
+    radio_proxy_enabled: null,
     identity_relation: 'same',
     identity_requires: { replace_live_identity: false, wipe_history: false },
     identity_refusal: null,
@@ -361,5 +368,224 @@ describe('BackupRestoreFlow', () => {
         )})`
       )
     ).toBeVisible();
+  });
+
+  async function runJob(finished: BackupRestoreJob) {
+    mocks.getRestoreJob.mockResolvedValue(finished);
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.confirm')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') }));
+    await screen.findByText(
+      i18n.t(
+        finished.state === 'done' ? 'settings.fullRestore.done' : 'settings.fullRestore.failed'
+      )
+    );
+  }
+
+  it('shows the finished job warnings, translated, and unknown ones as is', async () => {
+    const finished = job();
+    finished.result!.warnings = ['bots_disabled:Greeter', 'push_kept_existing', 'brand_new:x'];
+    await runJob(finished);
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.warnings.bots_disabled', { value: 'Greeter' }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.warnings.push_kept_existing'))
+    ).toBeVisible();
+    expect(screen.getByText('brand_new:x')).toBeVisible();
+  });
+
+  it('shows a full contact table under a done contacts step', async () => {
+    const finished = job();
+    finished.steps[4] = {
+      step: 'contacts',
+      status: 'done',
+      code: null,
+      detail: null,
+      items: [{ name: 'table_full:3', status: 'failed', code: 'contacts_table_full' }],
+    };
+    await runJob(finished);
+    const item = document.querySelector('[data-item="table_full:3"]');
+    expect(item).toHaveTextContent(i18n.t('settings.fullRestore.items.table_full', { value: '3' }));
+    expect(item).toHaveTextContent(i18n.t('settings.fullRestore.codes.contacts_table_full'));
+  });
+
+  it('names the radio setting group that failed', async () => {
+    const finished = job();
+    finished.steps[2] = {
+      step: 'radio_settings',
+      status: 'failed',
+      code: null,
+      detail: null,
+      items: [
+        { name: 'name', status: 'done', code: null },
+        { name: 'radio_params', status: 'failed', code: 'radio_params_rejected' },
+      ],
+    };
+    await runJob(finished);
+    expect(document.querySelector('[data-item="name"]')).toBeNull(); // done items stay quiet
+    const item = document.querySelector('[data-item="radio_params"]');
+    expect(item).toHaveTextContent(i18n.t('settings.fullRestore.items.radio_params'));
+    expect(item).toHaveTextContent(i18n.t('settings.fullRestore.codes.radio_params_rejected'));
+  });
+
+  it('translates every code and warning the backend can report', () => {
+    const codes = [
+      // step codes
+      'radio_not_connected',
+      'radio_rebooting',
+      'meshloom_step_off',
+      'step_off',
+      'not_in_backup',
+      'v1_backup',
+      'no_identity',
+      'identity_failed',
+      'identity_gate_open',
+      'device_info_unknown',
+      'wifi_unsupported',
+      'already_this_identity',
+      'restored',
+      'bound',
+      'radio_busy',
+      'internal_error',
+      'radio_contacts_unreadable',
+      'live_identity_changed',
+      'private_key_import_disabled',
+      'private_key_import_rejected',
+      'private_key_import_unverified',
+      'backup_identity_wipe_required',
+      'backup_identity_replaces_live',
+      'backup_identity_needs_radio',
+      'backup_identity_conflict',
+      // CLI codes on the Wi-Fi step
+      'cli_unexpected_reply',
+      'cli_timeout',
+      'cli_unknown_command',
+      'cli_rejected',
+      'setup_incomplete',
+      'wifi_store_mismatch',
+      'wifi_store_partial',
+      'wifi_store_unverified',
+      'proxy_link',
+      'firmware_unknown',
+      'firmware_too_old',
+      'link_unreliable',
+      // item codes
+      'contacts_table_full',
+      'cli_unsupported',
+      'path_hash_mode_unsupported',
+      'name_rejected',
+      'coords_rejected',
+      'tx_power_rejected',
+      'tx_power_negative',
+      'radio_params_rejected',
+      'path_hash_mode_rejected',
+      'client_repeat_not_allowed',
+      'other_params_rejected',
+      'tuning_rejected',
+      'custom_var_rejected',
+      'default_flood_scope_rejected',
+      'autoadd_rejected',
+      'ble_pin_invalid',
+      'ble_pin_rejected',
+      'cli_pref_rejected',
+    ];
+    const warnings = [
+      'fanout_reserved:system:x',
+      'bots_disabled:B',
+      'fanout_invalid:id:webhook',
+      'bots_restored_disabled:B',
+      'push_kept_existing',
+      'proxy_port_managed',
+      'proxy_targets_transport',
+      'tx_power_clamped',
+      'client_repeat_not_allowed',
+      'flood_scope_not_applied',
+      'channel_key_invalid',
+      'channel_rejected',
+      'channel_clear_failed',
+      'channels_over_radio_limit',
+      'radio_contacts_unreadable',
+      'contact_load_failed',
+    ];
+    for (const language of ['en', 'fr']) {
+      const t = i18n.getFixedT(language);
+      for (const code of codes) expect(restoreCodeText(code, t), code).not.toBe(code);
+      for (const warning of warnings) {
+        expect(restoreWarningText(warning, t), warning).not.toBe(warning);
+      }
+    }
+  });
+
+  it('stops polling a job the server no longer knows and offers a way out', async () => {
+    mocks.getRestoreJob.mockRejectedValue(
+      new ApiError('gone', 404, { code: 'backup_restore_job_not_found' })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.confirm')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') }));
+    expect(await screen.findByText(i18n.t('settings.fullRestore.jobLost'))).toBeVisible();
+    const calls = mocks.getRestoreJob.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(mocks.getRestoreJob.mock.calls.length).toBe(calls);
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.another') }));
+    expect(screen.getByLabelText(i18n.t('settings.fullRestore.choose'))).toBeInTheDocument();
+  });
+
+  it('says bots are skipped when they are turned off on this server', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({ bot_names: ['Greeter'], bots_will_be_skipped: true })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(
+      await screen.findByText(
+        i18n.t('settings.fullRestore.botsWillBeSkipped', { names: 'Greeter' })
+      )
+    ).toBeVisible();
+    expect(
+      screen.queryByText(i18n.t('settings.fullRestore.botsRestoredDisabled', { names: 'Greeter' }))
+    ).toBeNull();
+  });
+
+  it('names the integrations, the proxy and the file warnings before restoring', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({
+        integrations: [{ name: 'Hook', type: 'webhook', enabled: true }],
+        radio_proxy_enabled: true,
+        warnings: ['radio_read_failed:tuning', 'radio_read_failed:autoadd'],
+      })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const on = i18n.t('settings.fullRestore.integrationOn', { name: 'Hook', type: 'webhook' });
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.integrations', { list: on }))
+    ).toBeVisible();
+    expect(screen.getByText(i18n.t('settings.fullRestore.proxyEnabled'))).toBeVisible();
+    expect(
+      screen.getAllByText(i18n.t('settings.fullRestore.fileWarnings.radio_read_failed'))
+    ).toHaveLength(1);
+  });
+
+  it('does not report a job that had already ended when the view opened', async () => {
+    const onFinished = vi.fn();
+    mocks.getLatestRestoreJob.mockResolvedValue(job());
+    await act(async () => {
+      render(<BackupRestoreFlow resumeLatest onFinished={onFinished} />);
+    });
+    expect(await screen.findByText(i18n.t('settings.fullRestore.done'))).toBeVisible();
+    expect(onFinished).not.toHaveBeenCalled();
+  });
+
+  it('reports a job that finishes while the view is open', async () => {
+    const onFinished = vi.fn();
+    render(<BackupRestoreFlow onFinished={onFinished} />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.confirm')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') }));
+    await waitFor(() => expect(onFinished).toHaveBeenCalledTimes(1));
   });
 });
