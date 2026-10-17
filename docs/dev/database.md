@@ -11,14 +11,18 @@ Set on every connect (`Database._connect_unlocked`): `journal_mode = WAL`,
 `synchronous = NORMAL`, `busy_timeout = 5000`, `cache_size = -64000`,
 `temp_store = MEMORY`, `auto_vacuum = INCREMENTAL`. `foreign_keys` is OFF while the
 schema is created and migrations run (historical table rebuilds), then switched ON
-for all application queries. All access goes through `db.tx()` (one connection, one
-lock): consume or close cursors before leaving the block.
+for all application queries. All access goes through one connection and one lock:
+`db.tx()` for writes (commit on clean exit, rollback on error) and
+`db.readonly()` for reads (no commit). Consume or close cursors before leaving
+either block.
 
 Startup order: `SCHEMA_TABLES` (`CREATE TABLE IF NOT EXISTS`), then
-`run_migrations`, then `SCHEMA_INDEXES`. A fresh database therefore gets the
-original tables from `database.py` and every later change from the migrations, so
-the final shape is "base schema + all migrations". Never read `SCHEMA_TABLES` as
-the current schema.
+`run_migrations`, then `SCHEMA_INDEXES`. A fresh database therefore gets `SCHEMA_TABLES`
+(which already includes many columns that migrations added later, for example
+`messages.sender_key`, `channels.membership`, `contacts.favorite`) and then every
+migration runs on top of it. The final shape is "base schema + all migrations", so
+a migration must tolerate columns that `SCHEMA_TABLES` already created. Never read
+`SCHEMA_TABLES` alone as the current schema: it is not complete.
 
 ## Migrations
 
@@ -42,10 +46,12 @@ the current schema.
 
 1. Create `app/migrations/_094_what_it_does.py` (next number, no gap) with
    `async def migrate(conn)`. Make it idempotent as above.
-2. New table or column: also add it to `SCHEMA_TABLES` in `app/database.py` only if
-   it is needed by code that runs before migrations; otherwise the migration alone
-   creates it. Existing columns added by migration are not listed in
-   `SCHEMA_TABLES`.
+2. New table or column: the migration creates it for existing databases. Recent
+   practice (082-084) also adds it to `SCHEMA_TABLES` in `app/database.py` so fresh
+   databases get it directly; either way the migration must check
+   `PRAGMA table_info` / `sqlite_master` first, because on a fresh database
+   `SCHEMA_TABLES` may already have created it (otherwise: `duplicate column name`
+   and the app refuses to start).
 3. New index: add it to `SCHEMA_INDEXES` in `database.py` (fresh databases) **and**
    create it in the migration (existing databases).
 4. Bump `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py` and add
@@ -69,8 +75,10 @@ destinations, telemetry alert rules, auto-update window and the one-shot
 defaults and overrides, `ui_preferences`, `notification_destinations`,
 `telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
-written through `AppSettingsRepository` (`settings.py`, plus `radio_transport.py`
-and `radio_proxy.py` for their columns). The full column list is
+written through `AppSettingsRepository` (`settings.py`), plus
+`RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`
+(`radio_proxy.py`) for the radio columns. `StatisticsRepository` (`settings.py`)
+only reads, across most tables (messages, raw_packets, contacts, ...). The full column list is
 `PRAGMA table_info(app_settings)`; the typed view is `AppSettings` in
 `app/models.py`. Settings belong here and in the UI, never in new env vars.
 
@@ -228,8 +236,12 @@ databases). The current set:
   hop cache (`expires_at` on read).
 - Identity change (`wipe_mesh_identity_data` in `services/radio_identity.py`, when the user
   adopts a different radio key and confirms the wipe) wipes `raw_packets`, `messages`, `contacts` (and so their children),
-  `contact_groups`, `directory_hop_cache` and both telemetry histories, and resets
-  per-channel read state.
+  `contact_groups`, `directory_hop_cache` and both telemetry histories. In the same
+  transaction it resets `channels.last_read_at` and `channels.on_radio`, and in
+  `app_settings` resets `last_message_times`, `last_advert_time`, empties
+  `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, and strips the
+  `contact-*` entries from `push_conversations` and `push_conversation_overrides`.
+  A new setting keyed by contact must be added to that reset.
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 
