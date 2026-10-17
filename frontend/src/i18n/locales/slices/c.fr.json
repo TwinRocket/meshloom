@@ -736,6 +736,10 @@
         "retry": "Réessayer",
         "retrying": "Nouvel essai…",
         "retryDone": "Community a confirmé la suppression"
+      },
+      "banned": {
+        "title": "Radio bannie de Meshloom Community",
+        "body": "Cette radio a été bannie de Meshloom Community. Elle ne partage plus ses paquets, ses hashtags ni sa position avec Community, et le flux live est coupé. Le reste de Meshloom fonctionne normalement. Si vous pensez qu’il s’agit d’une erreur, écrivez à <email>ban@meshloom.app</email>."
       }
     },
     "proxy": {

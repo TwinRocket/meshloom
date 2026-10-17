@@ -6,9 +6,12 @@ _MODULE_TYPES / fanout_configs. Coexists with a user LetsMesh mqtt_community row
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any
+
+from aiomqtt.exceptions import MqttConnectError
 
 from app.fanout.base import FanoutModule
 from app.fanout.community_mqtt import CommunityMqttPublisher, _generate_jwt_token
@@ -26,6 +29,22 @@ from app.services.meshloom_community import (
 )
 
 logger = logging.getLogger(__name__)
+
+# While Community has banned this key, the publisher checks the (local) ban
+# state this often instead of connecting (services/community_ban.py).
+BANNED_RECHECK_INTERVAL_S = 300.0
+
+# CONNACK codes of a refused authentication: MQTT 3.1.1 (4 bad user name or
+# password, 5 not authorized) and MQTT 5 (0x86, 0x87, 0x8A banned).
+_AUTH_REFUSED_CODES = frozenset({4, 5, 0x86, 0x87, 0x8A})
+
+
+def is_auth_refusal(exc: BaseException) -> bool:
+    """True for a CONNACK refusing the credentials (what a banned key gets)."""
+    if not isinstance(exc, MqttConnectError):
+        return False
+    rc = getattr(exc.rc, "value", exc.rc)
+    return isinstance(rc, int) and rc in _AUTH_REFUSED_CODES
 
 
 def _state_to_settings(state: Any) -> SimpleNamespace:
@@ -77,13 +96,23 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
         opt-out starts (``opt_out_in_progress``): Community kicks this session
         while answering ``POST /v1/me/opt-out``, before the local teardown
         stops the publisher, and refuses the key from then on.
+
+        While Community has banned this key (``services/community_ban.py``) its
+        MQTT auth refuses every connection: the loop then waits here, without
+        connecting, and checks the ban state again every
+        ``BANNED_RECHECK_INTERVAL_S`` (a local check, nothing leaves).
         """
+        from app.services.community_ban import community_banned
         from app.services.meshloom_community import community_enrolled_state
 
         if await community_enrolled_state() is None:
             if self._settings is not None:
                 self._settings.community_mqtt_enabled = False
             self.connected = False
+            return False
+        if community_banned():
+            self.connected = False
+            await asyncio.sleep(BANNED_RECHECK_INTERVAL_S)
             return False
         return await super()._pre_connect(settings)
 
@@ -120,11 +149,31 @@ class MeshloomStatsPublisher(CommunityMqttPublisher):
         except Exception:
             logger.warning("Could not record the Community status topic", exc_info=True)
 
+    async def _on_connection_error(self, exc: Exception) -> None:
+        """A broker auth refusal may be a ban: ask Community once (rate limited).
+
+        A ban answer starts the banned state, so the toast below stays quiet,
+        ``_pre_connect`` stops connecting and the UI shows the ban. This is how
+        a process that makes no Community HTTP call learns of a ban, and how it
+        learns again when the ``BANNED_HOLD_S`` hold runs out
+        (``services/community_ban.py``).
+        """
+        from app.services.community_ban import community_banned, take_ban_probe
+        from app.services.meshloom_community import opt_out_in_progress, probe_community_ban
+
+        if not is_auth_refusal(exc) or opt_out_in_progress() or community_banned():
+            return
+        if not take_ban_probe():
+            return
+        if await probe_community_ban():
+            logger.warning("Community broker refused this key: Community reports a ban")
+
     def _error_toast_allowed(self) -> bool:
-        """No toast for the connection Community drops during an opt-out."""
+        """No toast for the connection Community drops during an opt-out or a ban."""
+        from app.services.community_ban import community_banned
         from app.services.meshloom_community import opt_out_in_progress
 
-        return not opt_out_in_progress()
+        return not opt_out_in_progress() and not community_banned()
 
     def _on_not_configured(self) -> None:
         # No IATA nag — LetsMesh mqtt_community already owns that prompt.

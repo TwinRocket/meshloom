@@ -97,6 +97,12 @@ Changing the IATA code clears the status left under the old code the same way, w
 - alert emails leave through the mail server you set up. The Meshloom logo is inside the email, so opening one loads nothing from `meshloom.app`;
 - the map backgrounds are loaded by your browser from their providers (OpenStreetMap, CARTO, OpenTopoMap, Esri).
 
+## If your radio is banned
+
+The Meshloom Community team can ban a radio that misbehaves. Community then refuses that radio: it no longer accepts its packets, its status, its code changes or its hashtag names, and it no longer opens the Live feed for it. Meshloom notices it on the first refusal (a refused connection to the broker included: Meshloom then asks Community once whether the radio is banned) and stops trying, so it does not hammer Community with requests that cannot succeed: no new connection to the broker, no Live feed, no code or hashtag update. Everything else in Meshloom keeps working, and you can still leave Community.
+
+**Settings → Meshloom Community** then says **Radio banned from Meshloom Community**, and the Live tab says so in its banner. If you think this is a mistake, write to [ban@meshloom.app](mailto:ban@meshloom.app). Meshloom checks again on its own after 12 hours (and finds the ban again at once if it still holds), at the next restart, or when you act in the Community settings (joining, changing the code).
+
 ## In the interface
 
 **Settings → Meshloom Community** lets you join or leave, type the IATA code (or pick a suggested one), see whether the publisher is connected, and read your own contribution (unique packets in the last 24 hours and 7 days, and your rank in your region) next to the community's totals. While Community waits for a position, the settings say so and do not show the statistics.

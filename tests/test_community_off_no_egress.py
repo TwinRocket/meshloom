@@ -2037,6 +2037,19 @@ class TestOptOutCall:
         assert await _opt_out_pending() is None
 
     @pytest.mark.asyncio
+    async def test_opt_out_still_leaves_while_banned(self, test_db, egress, cleanup_community):
+        """#111: a banned key may still opt out; the ban state never holds it back."""
+        from app.services.community_ban import note_banned
+
+        await update_community(enabled=True, iata="CDG")
+        await _until(lambda: _online_published(egress, "CDG"))
+        egress.responses["/v1/me/opt-out"] = _opt_out_answer()
+        note_banned()
+        await update_community(enabled=False)
+        assert _opt_out_calls(egress) == 1
+        assert await _opt_out_pending() is None
+
+    @pytest.mark.asyncio
     async def test_any_confirmation_arms_no_status_clear(
         self, test_db, egress, cleanup_community, fast_retries
     ):

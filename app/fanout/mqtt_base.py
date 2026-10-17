@@ -211,6 +211,10 @@ class BaseMqttPublisher(ABC):
         """False to keep a connection failure out of the UI (logged only)."""
         return True
 
+    async def _on_connection_error(self, exc: Exception) -> None:
+        """Called on a connection failure, before the error toast is decided."""
+        return
+
     async def _before_disconnect(self, client: aiomqtt.Client) -> None:
         """Called by ``stop()`` while still connected, before the DISCONNECT.
 
@@ -351,6 +355,15 @@ class BaseMqttPublisher(ABC):
                         self._integration_label(),
                     )
                     return
+
+                try:
+                    await self._on_connection_error(e)
+                except asyncio.CancelledError:
+                    return
+                except Exception:
+                    logger.warning(
+                        "%s connection error hook failed", self._integration_label(), exc_info=True
+                    )
 
                 if not self._error_notified and self._error_toast_allowed():
                     title, detail = self._on_error()

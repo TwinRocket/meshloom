@@ -3,6 +3,7 @@
     "radio_not_connected": "Radio not connected",
     "iata_requires_bind": "The IATA code changes only through Meshloom Community settings (bind or join), never with a plain settings update.",
     "join_requires_bind": "Join Meshloom Community from its settings: the IATA code is bound first, then Community is turned on.",
+    "community_banned": "This radio has been banned from Meshloom Community. If you think this is a mistake, write to ban@meshloom.app.",
     "radio_initializing": "Radio is initializing",
     "radio_startup_stuck": "Radio startup appears stuck",
     "reconnection_failed": "Reconnection failed",

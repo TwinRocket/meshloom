@@ -748,9 +748,12 @@ export type LiveCloseCode =
   | typeof LIVE_CLOSE_RATE_LIMIT
   | typeof LIVE_CLOSE_SUPERSEDED;
 
-/** `paused`: Community paused the public feed (1013 / 503 `live_disabled`); the relay retries slowly. */
+/**
+ * `paused`: Community paused the public feed (1013 / 503 `live_disabled`); the relay retries slowly.
+ * `banned`: Community banned this radio key (403 `banned`); the relay stopped.
+ */
 export type LiveRelayState =
-  'connected' | 'reconnecting' | 'paused' | 'opted_out' | 'idle' | 'auth_rejected';
+  'connected' | 'reconnecting' | 'paused' | 'opted_out' | 'idle' | 'auth_rejected' | 'banned';
 
 /** Why Community refused the live token for good (state `auth_rejected`). */
 export type LiveAuthError = 'clock_skew' | 'token_rejected';
@@ -1938,6 +1941,11 @@ export interface CommunityStatus {
   publisher_configured: boolean;
   publisher_connected: boolean;
   state?: CommunityState;
+  /**
+   * Community banned this radio key (403 `banned`): writes, Live and the publisher are
+   * stopped until a restart, a settings change or 12 h. Absent from an older backend.
+   */
+  banned?: boolean;
   /** Set while off after an opt-out Community did not confirm. Absent from an older backend. */
   opt_out_pending?: CommunityOptOutPending | null;
 }

@@ -736,6 +736,10 @@
         "retry": "Retry",
         "retrying": "Retrying…",
         "retryDone": "Community confirmed the deletion"
+      },
+      "banned": {
+        "title": "Radio banned from Meshloom Community",
+        "body": "This radio has been banned from Meshloom Community. It no longer shares its packets, hashtags or position with Community, and the live feed is off. Everything else in Meshloom works as usual. If you think this is a mistake, write to <email>ban@meshloom.app</email>."
       }
     },
     "proxy": {

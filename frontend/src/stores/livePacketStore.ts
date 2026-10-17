@@ -5,7 +5,7 @@ import { asCommunityPacket } from '../utils/livePackets';
 
 export const MAX_LIVE_COMMUNITY_PACKETS = 200;
 
-export type LiveBannerKind = 'opt_out' | 'auth_rejected';
+export type LiveBannerKind = 'opt_out' | 'auth_rejected' | 'banned';
 
 /** What LiveView needs from the relay status: close codes never reach the user. */
 export interface LiveConnectionState {
@@ -16,7 +16,9 @@ export interface LiveConnectionState {
   clockSkewS: number | null;
   /** Community paused the public feed: a discreet status, not a banner. */
   paused: boolean;
-  /** Community opt-out or a given-up token refusal. */
+  /** Community banned this radio key: the relay stopped. */
+  banned: boolean;
+  /** Community opt-out, a ban or a given-up token refusal. */
   banner: LiveBannerKind | null;
 }
 
@@ -25,6 +27,7 @@ const INITIAL_CONNECTION: LiveConnectionState = {
   authError: null,
   clockSkewS: null,
   paused: false,
+  banned: false,
   banner: null,
 };
 
@@ -44,8 +47,13 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-function liveBanner(optOut: boolean, authError: LiveAuthError | null): LiveBannerKind | null {
+function liveBanner(
+  optOut: boolean,
+  banned: boolean,
+  authError: LiveAuthError | null
+): LiveBannerKind | null {
   if (optOut) return 'opt_out';
+  if (banned) return 'banned';
   if (authError) return 'auth_rejected';
   return null;
 }
@@ -60,6 +68,7 @@ function sameConnection(a: LiveConnectionState, b: LiveConnectionState): boolean
     a.authError === b.authError &&
     a.clockSkewS === b.clockSkewS &&
     a.paused === b.paused &&
+    a.banned === b.banned &&
     a.banner === b.banner
   );
 }
@@ -71,10 +80,11 @@ function setConnection(next: LiveConnectionState): void {
 }
 
 export type LiveBannerI18nKey =
-  'live.bannerOptOut' | 'live.bannerClockSkew' | 'live.bannerTokenRejected';
+  'live.bannerOptOut' | 'live.bannerBanned' | 'live.bannerClockSkew' | 'live.bannerTokenRejected';
 
 export function liveBannerI18nKey(state: LiveConnectionState): LiveBannerI18nKey | null {
   if (state.banner === 'opt_out') return 'live.bannerOptOut';
+  if (state.banner === 'banned') return 'live.bannerBanned';
   if (state.banner === 'auth_rejected') {
     return state.authError === 'clock_skew' ? 'live.bannerClockSkew' : 'live.bannerTokenRejected';
   }
@@ -103,20 +113,23 @@ export function getLiveConnectionState(): LiveConnectionState {
 
 export function applyLiveStatus(status: Partial<CommunityLiveStatus> | null | undefined): void {
   const optOut = status?.opted_out === true;
+  const banned = !optOut && status?.state === 'banned';
   // An older relay has no auth_error: treat auth_rejected as a generic refusal.
-  const authError = optOut
-    ? null
-    : (normalizeAuthError(status?.auth_error) ??
-      (status?.state === 'auth_rejected' ? 'token_rejected' : null));
+  const authError =
+    optOut || banned
+      ? null
+      : (normalizeAuthError(status?.auth_error) ??
+        (status?.state === 'auth_rejected' ? 'token_rejected' : null));
   const clockSkewS =
     authError && typeof status?.clock_skew_s === 'number' ? Math.round(status.clock_skew_s) : null;
-  const paused = !optOut && !authError && status?.state === 'paused';
+  const paused = !optOut && !banned && !authError && status?.state === 'paused';
   setConnection({
     optOut,
     authError,
     clockSkewS,
     paused,
-    banner: liveBanner(optOut, authError),
+    banned,
+    banner: liveBanner(optOut, banned, authError),
   });
 }
 

@@ -69,6 +69,8 @@ Your own radio's packets always appear. The packets of Community observers need 
 
 Meshloom Community can pause its public feed for a while. A small **Live paused** label then appears next to the sound setting, and only your own radio's packets are drawn. There is nothing to do: your server checks again every minute or so and the Community packets come back on their own when the feed resumes.
 
+If Meshloom Community has banned your radio, the banner says so and the Community packets stop; see [If your radio is banned](/en/docs/deep/community/#if-your-radio-is-banned).
+
 ## The control journal
 
 The **control journal** gathers traffic that is not a conversation: requests, responses, anonymous requests (such as logins) and group data. Packets are grouped by the node they talk to. When the content stays encrypted, you see the envelope, not the contents.

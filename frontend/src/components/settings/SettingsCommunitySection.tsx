@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { toast } from '../ui/sonner';
 import { api, ApiError, formatApiError } from '../../api';
 import type {
@@ -25,6 +25,8 @@ import {
 import { useCommunityLeave } from '../../hooks/useCommunityLeave';
 
 const IATA_RE = /^[A-Za-z]{3}$/;
+// The address the opt-out dialog gives too (CommunityLeaveDialog).
+const COMMUNITY_CONTACT_EMAIL = 'ban@meshloom.app';
 const IATA_DIRECTORY_URL = 'https://www.iata.org/en/publications/directories/code-search/';
 
 function normalizeIata(raw: string): string {
@@ -427,6 +429,28 @@ export function SettingsCommunitySection({ className }: { className?: string }) 
           >
             {t('settings.community.leave')}
           </Button>
+        </div>
+      )}
+
+      {status.banned && (
+        <div
+          data-testid="community-banned"
+          role="status"
+          className="mt-4 space-y-1 rounded-md border border-border/60 bg-muted/30 p-3"
+        >
+          <p className="text-[0.8125rem] font-medium">{t('settings.community.banned.title')}</p>
+          <p className="text-[0.8125rem] text-muted-foreground">
+            <Trans
+              i18nKey="settings.community.banned.body"
+              components={{
+                email: (
+                  <a className="underline" href={`mailto:${COMMUNITY_CONTACT_EMAIL}`}>
+                    {COMMUNITY_CONTACT_EMAIL}
+                  </a>
+                ),
+              }}
+            />
+          </p>
         </div>
       )}
 

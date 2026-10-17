@@ -461,6 +461,7 @@ class TestCommunityStatusAndProxies:
             "publisher_configured",
             "publisher_connected",
             "state",
+            "banned",
             "opt_out_pending",
         }
         assert status.opt_out_pending is None

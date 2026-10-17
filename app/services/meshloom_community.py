@@ -59,6 +59,14 @@ from app.models import (
     CommunityOptOutPending,
     CommunityStatus,
 )
+from app.services.community_ban import (
+    banned_http_exception,
+    banned_route,
+    clear_ban,
+    community_banned,
+    is_banned_answer,
+    note_banned,
+)
 from app.services.iata_airports import airport_position, nearest_airport_iata
 
 if TYPE_CHECKING:
@@ -335,8 +343,11 @@ async def update_community(
     with ``enable: true``, which binds before anything is written. Checked
     under the lock, so it cannot race a join or an opt-out.
     ``opt_out_reason`` goes with the ``POST /v1/me/opt-out`` of an opt-out.
+    A settings change ends a ban state (``community_ban``): the next call
+    checks again.
     """
     async with _update_lock:
+        clear_ban()
         if iata_through_bind and iata is not None:
             stored = (await get_community_record()).iata
             if _normalize_iata(iata) != _normalize_iata(stored):
@@ -389,8 +400,12 @@ async def bind_community_iata(
     for the requested IATA, and only a successful bind turns Community on, saves
     the IATA and starts the publisher. A failed bind leaves Community off and the
     stored IATA as it was, so the first ``online`` never meets another bind.
+
+    A user action: it ends a ban state (``community_ban``), so this bind is
+    the one request that checks whether Community lifted the ban.
     """
     async with _update_lock:
+        clear_ban()
         before = await get_community_effective()
         target = _normalize_iata(requested)
         joining = enable and not before.enabled
@@ -922,6 +937,8 @@ async def _reset_client_state() -> None:
     from app.services.community_live import get_live_relay
 
     get_live_relay().drain_queue()
+    # Leaving ends a ban state too: a later join checks again.
+    clear_ban()
     from app.services.observer_position import forget_last_bind
 
     # Community refuses this key until it binds again: the next opt-in must
@@ -1017,6 +1034,7 @@ def reset_stats_client_for_tests() -> None:
     _breaker = CommunityBreaker()
     _position_missing = False
     _leaving = False
+    clear_ban()
 
 
 def _is_quota_http(exc: BaseException) -> bool:
@@ -1163,6 +1181,7 @@ async def community_status() -> CommunityStatus:
         publisher_configured=state.publisher_configured,
         publisher_connected=publisher_connected(),
         state=community_state_of(state),
+        banned=community_banned(),
         opt_out_pending=(
             CommunityOptOutPending(
                 requested_at=str(pending.get("requested_at") or ""),
@@ -1423,6 +1442,10 @@ async def stats_request(
         headers["Authorization"] = (
             f"Bearer {mint_stats_jwt(audience=state.api_audience, iata=mint_iata, require_iata=_path_requires_iata(path))}"
         )
+    if community_banned() and banned_route(method, path):
+        # Community banned this key: its answer cannot change by retrying, so
+        # nothing leaves until the ban state ends (community_ban).
+        raise banned_http_exception()
     url = f"{state.api_base}{path}"
     # The public IATA suggestion never touches the breaker (like the release
     # mirror): it can neither open it nor spend the half-open trial a join needs.
@@ -1456,7 +1479,43 @@ async def stats_request(
         _breaker.record_failure()
     else:
         _breaker.record_success()
+    if response.status_code == 403 and is_banned_answer(403, _response_payload(response)):
+        if note_banned():
+            spawn(_apply_ban(), name="community-ban")
+        raise banned_http_exception()
     return response
+
+
+BAN_PROBE_PATH = "/v1/hashtags/resolve"
+
+
+async def probe_community_ban() -> bool:
+    """Ask Community once whether it banned this key. True when banned.
+
+    For the Stats publisher, whose broker connection a ban refuses without
+    saying why. ``POST /v1/hashtags/resolve`` with no hash byte: Community
+    refuses it with 403 ``banned`` for a banned key (``stats_request`` then
+    starts the banned state) and otherwise answers an empty list. No position,
+    no IATA change, nothing stored. Any other failure (off, waiting for a
+    position, unreachable) answers False: the ban is not known.
+    """
+    try:
+        await stats_request("POST", BAN_PROBE_PATH, auth=True, json_body={"hash_bytes": []})
+    except HTTPException:
+        pass
+    except Exception:
+        logger.warning("Community ban probe failed", exc_info=True)
+    return community_banned()
+
+
+async def _apply_ban() -> None:
+    """Community banned this key: stop the Live relay and tell every tab."""
+    from app.services.community_live import get_live_relay
+
+    try:
+        await get_live_relay().stop_for_ban()
+    except Exception:
+        logger.warning("Could not stop the Community Live relay after a ban", exc_info=True)
 
 
 def _response_detail(response: httpx.Response) -> str:

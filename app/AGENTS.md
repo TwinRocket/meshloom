@@ -180,8 +180,15 @@ Detail, constants and owner decisions: `docs/dev/community-client.md`. Contracts
   bind never turns into a 500.
 - **Live relay** (`community_live.py`): one process-wide upstream socket; frames go
   to every WS client and the browser filters them; the guard runs before every
-  attempt; a 4002 close is terminal until `POST /community/live/restart`; 4003–4005
+  attempt; a 4002 close and a 403 `banned` are terminal until `POST /community/live/restart`; 4003–4005
   are never shown to the user; the radio's IATA is always in the upstream filter.
+- **Banned key** (`community_ban.py`): a Community 403 `code: banned` stops the
+  six write routes locally (403 `community_banned`), Live (state `banned`) and the
+  Stats publisher's reconnects for 12 h, until a restart or a user action
+  (`PATCH /community`, a join or IATA bind, `POST /community/live/restart`). A broker
+  auth refusal of the publisher sends one side-effect-free probe (`probe_community_ban`,
+  at most hourly) so a publish-only instance learns the ban too. Never retry a ban in
+  a loop.
 - `tests/test_community_off_no_egress.py` sweeps the routes and checks that
   nothing leaves while off or waiting: keep any new call path covered there.
 
