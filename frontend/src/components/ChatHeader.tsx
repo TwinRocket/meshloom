@@ -235,11 +235,11 @@ export function ChatHeader({
               aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
               onClick={handleOpenConversationInfo}
             >
-              <span className="truncate">{titleLabel}</span>
+              <span className="bidi-isolate truncate">{titleLabel}</span>
               <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden="true" />
             </button>
           ) : (
-            <span className="truncate">{titleLabel}</span>
+            <span className="bidi-isolate truncate">{titleLabel}</span>
           )}
         </h2>
       </span>

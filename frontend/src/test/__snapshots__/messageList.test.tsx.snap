@@ -14,7 +14,7 @@ exports[`MessageList rendering snapshots > MeshCore One reaction 1`] = `"<div cl
 
 exports[`MessageList rendering snapshots > Open reaction 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span class="inline-flex items-center gap-1.5"><span class="text-xl leading-none">👍</span><span class="text-xs text-muted-foreground italic">a réagi</span></span></div>"`;
 
-exports[`MessageList rendering snapshots > control characters 1`] = `"<div class="text-[0.8125rem] font-semibold text-foreground mb-0.5">&lt;Sans nom — paquet corrompu ?&gt;</div>"`;
+exports[`MessageList rendering snapshots > control characters 1`] = `"<div class="bidi-isolate text-[0.8125rem] font-semibold text-foreground mb-0.5">&lt;Sans nom — paquet corrompu ?&gt;</div>"`;
 
 exports[`MessageList rendering snapshots > control characters 2`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>Nvkɩ'g:</span></div>"`;
 

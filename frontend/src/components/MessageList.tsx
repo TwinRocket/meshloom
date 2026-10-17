@@ -1448,7 +1448,7 @@ export function MessageList({
                       <ChevronDown className="h-3.5 w-3.5" />
                     </Button>
                     {showAvatar && (
-                      <div className="text-[0.8125rem] font-semibold text-foreground mb-0.5">
+                      <div className="bidi-isolate text-[0.8125rem] font-semibold text-foreground mb-0.5">
                         {canClickSender ? (
                           <span
                             className="cursor-pointer hover:text-primary transition-colors"

@@ -1321,6 +1321,18 @@ describe('MessageList rendering snapshots', () => {
     unmount();
   });
 
+  it('bidi override characters get the control-character treatment', () => {
+    const { container, unmount } = render(
+      <MessageList
+        messages={[createMessage({ text: 'evil\u202Etxt.exe', sender_name: null })]}
+        contacts={[]}
+        loading={false}
+      />
+    );
+    expect(container.textContent).toContain('Sans nom — paquet corrompu ?');
+    unmount();
+  });
+
   it('control characters', () => {
     const { container, unmount } = render(
       <MessageList

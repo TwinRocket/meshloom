@@ -176,18 +176,13 @@ export function RegionBadge({ region, className }: { region: string; className?:
   );
 }
 
+// C0 controls (except tab, LF, CR) and DEL, plus the bidi embeddings/overrides
+// (U+202A-202E), bidi isolates (U+2066-2069) and zero-width/direction marks
+// (U+200B-200F), which can reverse or hide text.
+const UNEXPECTED_CONTROL_CHARS =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/;
+
 export function hasUnexpectedControlChars(text: string): boolean {
-  for (const char of text) {
-    const code = char.charCodeAt(0);
-    if (
-      (code >= 0 && code <= 8) ||
-      code === 11 ||
-      code === 12 ||
-      (code >= 14 && code <= 31) ||
-      code === 127
-    ) {
-      return true;
-    }
-  }
-  return false;
+  return UNEXPECTED_CONTROL_CHARS.test(text);
 }

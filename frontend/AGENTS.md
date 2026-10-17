@@ -197,6 +197,10 @@ purpose.
 - The pieces live in `components/message/richPayloads.tsx` (payload renderers) and
   `utils/messageText.tsx` (linkify, mentions, `RegionBadge`, `hasUnexpectedControlChars`).
   Links keep `noopener noreferrer` and the `https?://` + TLD rule.
+- `hasUnexpectedControlChars` flags C0 controls, DEL, zero-width/direction marks
+  (U+200B-200F) and bidi embeddings, overrides and isolates (U+202A-202E,
+  U+2066-2069). Sender and conversation names carry the `bidi-isolate` utility
+  (`unicode-bidi: isolate`, `styles.css`); give it to any new label made of mesh text.
 - `remoteMedia={false}` keeps a GIF as its raw text instead of loading
   `media.giphy.com`. Only reactions follow `useRichPayloads()`; GIFs and locations
   always render.

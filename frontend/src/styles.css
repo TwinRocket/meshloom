@@ -296,6 +296,12 @@
    `.conversation-header-more` its container-query `display: none` over the
    `inline-flex` its buttons carry. */
 @layer utilities {
+  /* Names come from the mesh: isolate them so a bidi override inside cannot
+     reorder the text around it. */
+  .bidi-isolate {
+    unicode-bidi: isolate;
+  }
+
   /* Translucent surfaces that let the content below show through, blurred.
      iOS renders installed apps this way at the screen edges — it blurs whatever sits
      under the status bar whether we ask for it or not — so an opaque bar reads as a
