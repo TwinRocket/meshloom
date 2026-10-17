@@ -60,7 +60,7 @@ The page pings the server every thirty seconds. A proxy that closes idle connect
 
 When HTTP Basic login is on, it also applies to this connection, not only to the pages.
 
-The server refuses this connection when it comes from a page of another site: a browser says which site the page belongs to (the `Origin` header), and it must match the address the browser asked for (the `Host` header). Scripts and apps that send no `Origin` are not affected. A proxy that keeps the original `Host`, as Caddy and Traefik do, needs nothing more. A proxy that replaces it must send the original one in `X-Forwarded-Host` (with Nginx: `proxy_set_header Host $host;` or `proxy_set_header X-Forwarded-Host $host;`); the Home Assistant sidebar already does. Otherwise the page displays but nothing arrives live, and the server log says `Refused a WebSocket upgrade from a foreign origin`.
+The server refuses this connection when it comes from a page of another site: a browser says which site the page belongs to (the `Origin` header), and it must match the address the browser asked for (the `Host` header). Scripts and apps that send no `Origin` are not affected. A proxy that keeps the original `Host`, as Caddy and Traefik do, needs nothing more. A proxy that replaces it must send the original one in `X-Forwarded-Host` (with Nginx: `proxy_set_header Host $http_host;` or `proxy_set_header X-Forwarded-Host $http_host;`; `$host` would drop the port); the Home Assistant sidebar already does. Otherwise the page displays but nothing arrives live, and the server log says `Refused a WebSocket upgrade from a foreign origin`.
 
 ## Which address to listen on
 

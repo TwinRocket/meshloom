@@ -106,6 +106,11 @@ def origin_allowed(headers: Mapping[str, str]) -> bool:
     default_port = _DEFAULT_PORTS.get(parts.scheme.lower())
     if default_port is None or parts.path or parts.query or parts.username:
         return False
+    # The scheme is deliberately not compared with the request's: behind a TLS
+    # terminator the backend sees http while the browser's Origin is https, and
+    # the backend cannot tell. Only host and port are matched, so an attacker
+    # would need another server on the very same host:port to slip through,
+    # which a cross-site page cannot arrange.
     origin_target = _host_and_port(parts.netloc, default_port)
     if origin_target is None:
         return False
@@ -120,6 +125,30 @@ def origin_allowed(headers: Mapping[str, str]) -> bool:
     )
 
 
+# Last WARNING per refused origin (monotonic seconds), so a hostile page that
+# retries in a loop cannot flood the log. Bounded: the oldest entry is evicted.
+_refusal_last_logged: dict[str | None, float] = {}
+_REFUSAL_LOG_MAX_ORIGINS = 256
+
+
+def _log_refusal(origin: str | None, host: str | None) -> None:
+    """Log a refusal at WARNING once per origin per ``DROP_LOG_INTERVAL_SECONDS``."""
+    now = time.monotonic()
+    last = _refusal_last_logged.get(origin)
+    if last is not None and now - last < DROP_LOG_INTERVAL_SECONDS:
+        return
+    if origin not in _refusal_last_logged and (
+        len(_refusal_last_logged) >= _REFUSAL_LOG_MAX_ORIGINS
+    ):
+        _refusal_last_logged.pop(next(iter(_refusal_last_logged)))
+    _refusal_last_logged[origin] = now
+    logger.warning(
+        "Refused a WebSocket upgrade from a foreign origin %r (host %r)",
+        origin,
+        host,
+    )
+
+
 async def reject_foreign_origin(websocket: WebSocket) -> bool:
     """Refuse an upgrade from a foreign ``Origin`` before it is accepted.
 
@@ -129,11 +158,7 @@ async def reject_foreign_origin(websocket: WebSocket) -> bool:
     """
     if origin_allowed(websocket.headers):
         return False
-    logger.warning(
-        "Refused a WebSocket upgrade from a foreign origin %r (host %r)",
-        websocket.headers.get("origin"),
-        websocket.headers.get("host"),
-    )
+    _log_refusal(websocket.headers.get("origin"), websocket.headers.get("host"))
     await websocket.close(code=FOREIGN_ORIGIN_CLOSE_CODE)
     return True
 

@@ -5,6 +5,7 @@ clients send none. A foreign origin is closed with 1008 before accept, which
 uvicorn turns into an HTTP 403: no frame at all.
 """
 
+import logging
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import app.websocket as websocket_module
 from app.websocket import (
     FOREIGN_ORIGIN_CLOSE_CODE,
     origin_allowed,
@@ -151,6 +153,47 @@ class TestOriginAllowed:
     )
     def test_rule(self, headers, allowed):
         assert origin_allowed(headers) is allowed
+
+
+class TestRefusalLogThrottle:
+    @staticmethod
+    async def _refuse(origin):
+        websocket = MagicMock()
+        websocket.headers = {"origin": origin, "host": "meshloom.local"}
+        websocket.close = AsyncMock()
+        assert await reject_foreign_origin(websocket) is True
+
+    @staticmethod
+    def _warnings(caplog):
+        return [r for r in caplog.records if "foreign origin" in r.getMessage()]
+
+    async def test_repeated_refusals_log_once_per_origin(self, caplog):
+        websocket_module._refusal_last_logged.clear()
+        with caplog.at_level(logging.WARNING, logger="app.websocket"):
+            for _ in range(5):
+                await self._refuse("http://evil.example")
+            await self._refuse("http://other.example")
+        assert len(self._warnings(caplog)) == 2
+
+    async def test_logs_again_after_the_interval(self, caplog):
+        websocket_module._refusal_last_logged.clear()
+        with (
+            caplog.at_level(logging.WARNING, logger="app.websocket"),
+            patch.object(websocket_module.time, "monotonic") as clock,
+        ):
+            clock.return_value = 1000.0
+            await self._refuse("http://evil.example")
+            clock.return_value = 1000.0 + websocket_module.DROP_LOG_INTERVAL_SECONDS + 1
+            await self._refuse("http://evil.example")
+        assert len(self._warnings(caplog)) == 2
+
+    async def test_tracked_origins_are_bounded(self):
+        websocket_module._refusal_last_logged.clear()
+        for i in range(websocket_module._REFUSAL_LOG_MAX_ORIGINS + 10):
+            await self._refuse(f"http://evil{i}.example")
+        assert (
+            len(websocket_module._refusal_last_logged) == websocket_module._REFUSAL_LOG_MAX_ORIGINS
+        )
 
 
 class TestRejectForeignOrigin:
