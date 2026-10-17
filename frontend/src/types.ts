@@ -1440,6 +1440,8 @@ export interface AppSettings {
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
+  /** CORS allowlist (Settings → Local Configuration → Allowed origins). Empty: same-origin only. */
+  auth_allowed_origins?: string[];
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1466,6 +1468,7 @@ export interface AppSettingsUpdate {
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
+  auth_allowed_origins?: string[];
 }
 
 export interface DirectoryHopHit {

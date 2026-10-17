@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "allowedOrigins": {
+      "title": "Origines autorisées",
+      "label": "Autres sites autorisés à appeler cette instance",
+      "help": "Une origine par ligne (https://dashboard.example.org, http://192.168.1.20:8080). Une page servie depuis l'une de ces adresses peut appeler l'API de Meshloom depuis le navigateur avec vos identifiants. Meshloom lui-même, le serveur de dev Vite et l'ingress Home Assistant n'ont jamais besoin d'une entrée. N'ajoutez que des sites que vous maîtrisez : chacun peut faire tout ce que vous pouvez faire.",
+      "sameOriginOnly": "Vide : même origine uniquement. Aucun autre site ne peut appeler cette instance depuis un navigateur.",
+      "invalid": "Pas une origine (schéma://hôte[:port], sans chemin, sans *) : {{origins}}",
+      "save": "Enregistrer les origines",
+      "saving": "Enregistrement…",
+      "saved": "Origines autorisées enregistrées",
+      "saveFailed": "Impossible d'enregistrer les origines autorisées"
+    }
+  }
+}
