@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.loop_lock import LoopBoundLock, LoopBoundSemaphore
+from app.message_limits import is_message_too_long
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +502,9 @@ async def _send_single_bot_message(
                 logger.warning("Cannot send bot response: no destination")
                 return  # Don't update timestamp if we didn't send
         except HTTPException as e:
+            if is_message_too_long(e):
+                logger.warning("Bot reply refused, too long: %s", e.detail)
+                return
             logger.error("Bot failed to send response: %s", e.detail, exc_info=True)
             return  # Don't update timestamp on failure
         except Exception:

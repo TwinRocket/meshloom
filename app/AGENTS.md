@@ -198,6 +198,16 @@ and the OpenAPI page (`/docs`), not a table here.
 ## Sending
 
 - Routers validate, then delegate to `services/message_send.py`.
+- **Byte limit, one helper.** `app/message_limits.py` holds the limits (DM 156 bytes;
+  channel `max(1, 156 - len(sender name) - 2)`, 10-byte name fallback when the radio
+  name is unknown; UTF-8 bytes). The three services in `message_send.py`
+  (`send_direct_message_to_contact`, `send_channel_message_to_channel`,
+  `resend_channel_message_record`) call it, so REST, bots, the radio proxy and both
+  resends are covered; a new send path must call it too. Refusal: coded 400
+  `message_too_long` with `params.limit` and `params.bytes` (`errors.message_too_long`
+  in the UI). The constants are "empirically determined" from the firmware's packet
+  budget; `tests/test_message_limits.py` reads the composer's TSX constants and fails
+  when they drift or are not found.
 - Channel slots are reused through a session LRU cache, except on TCP or with
   `force_channel_slot_reconfigure`, where every send calls `set_channel(...)`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the

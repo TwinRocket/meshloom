@@ -13,6 +13,7 @@ from meshcore.packets import CommandType
 
 from app.channel_constants import is_public_channel_key
 from app.loop_lock import LoopBoundLock
+from app.message_limits import is_message_too_long
 from app.radio_proxy.policy import CommandDisposition, classify_command, send_txt_is_plain
 from app.radio_proxy.protocol import (
     FrameAssembler,
@@ -800,7 +801,9 @@ class RadioProxyManager:
                 message_repository=MessageRepository,
                 contact_repository=ContactRepository,
             )
-        except HTTPException:
+        except HTTPException as exc:
+            if is_message_too_long(exc):
+                logger.warning("Radio proxy DM refused: %s", exc.detail)
             await session.write_response(encode_error())
             return
         ack = bytes.fromhex(result.expected_ack) if result.expected_ack else b"\x00" * 4
@@ -858,7 +861,9 @@ class RadioProxyManager:
                 temp_radio_slot=0,
                 message_repository=MessageRepository,
             )
-        except HTTPException:
+        except HTTPException as exc:
+            if is_message_too_long(exc):
+                logger.warning("Radio proxy channel message refused: %s", exc.detail)
             await session.write_response(encode_error())
             return
         await session.write_response(encode_ok())

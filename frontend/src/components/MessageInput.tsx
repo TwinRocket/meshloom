@@ -15,6 +15,7 @@ import { Send, Smile, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
+import { formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
 import {
@@ -33,6 +34,8 @@ import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
 const DM_HARD_LIMIT = 156; // Max bytes for direct delivery
 const DM_WARNING_THRESHOLD = 140; // Conservative for multi-hop
 const CHANNEL_HARD_LIMIT = 156; // Base byte limit before sender overhead
+const CHANNEL_SENDER_SEPARATOR_BYTES = 2; // ": " after the sender name
+const UNKNOWN_SENDER_NAME_BYTES = 10; // Assumed name size while the radio name is unknown
 const CHANNEL_WARNING_THRESHOLD = 120; // Conservative for multi-hop
 const CHANNEL_DANGER_BUFFER = 8; // Red zone starts this many bytes before hard limit
 
@@ -186,8 +189,11 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       };
     } else if (conversationType === 'channel') {
       // Channel hard limit = 156 bytes - senderName bytes - 2 (for ": " separator)
-      const nameByteLen = senderName ? byteLen(senderName) : 10;
-      const hardLimit = Math.max(1, CHANNEL_HARD_LIMIT - nameByteLen - 2);
+      const nameByteLen = senderName ? byteLen(senderName) : UNKNOWN_SENDER_NAME_BYTES;
+      const hardLimit = Math.max(
+        1,
+        CHANNEL_HARD_LIMIT - nameByteLen - CHANNEL_SENDER_SEPARATOR_BYTES
+      );
       return {
         warningAt: CHANNEL_WARNING_THRESHOLD,
         dangerAt: Math.max(1, hardLimit - CHANNEL_DANGER_BUFFER),
@@ -235,7 +241,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      const description = err instanceof Error ? err.message : t('chat.checkRadio');
+      const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
       const isRadioNoResponse =
         err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
       toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
@@ -323,7 +329,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         setComposerPanel(null);
       } catch (err) {
         console.error('Failed to send message:', err);
-        const description = err instanceof Error ? err.message : t('chat.checkRadio');
+        const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
         const isRadioNoResponse =
           err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
         toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {

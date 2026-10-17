@@ -1226,3 +1226,112 @@ describe('MessageList Open reactions and replies', () => {
     expect(badges[0]).toHaveTextContent('3');
   });
 });
+
+// Rendering pins for the message renderers (TR-132): the markup of one message body
+// must stay identical when the renderers move out of MessageList.
+describe('MessageList rendering snapshots', () => {
+  function bodyOf(
+    message: Partial<Message>,
+    props: { radioName?: string; onChannelReferenceClick?: (name: string) => void } = {},
+    renderRichPayloads = true
+  ): string {
+    const { container, unmount } = render(
+      <RichPayloadProvider renderRichPayloads={renderRichPayloads} setRenderRichPayloads={() => {}}>
+        <MessageList
+          messages={[createMessage({ sender_name: 'Alice', ...message })]}
+          contacts={[]}
+          loading={false}
+          {...props}
+        />
+      </RichPayloadProvider>
+    );
+    const body = container.querySelector('.wrap-break-word');
+    const html = body?.outerHTML ?? '';
+    unmount();
+    return html;
+  }
+
+  it('plain text', () => {
+    expect(bodyOf({ text: 'Alice: hello world' })).toMatchSnapshot();
+  });
+
+  it('multi-line text', () => {
+    expect(bodyOf({ text: 'Alice: first\nsecond' })).toMatchSnapshot();
+  });
+
+  it('link', () => {
+    expect(bodyOf({ text: 'Alice: see https://example.com/a?b=1 now' })).toMatchSnapshot();
+  });
+
+  it('text that looks like a link but has no scheme or TLD stays plain', () => {
+    expect(bodyOf({ text: 'Alice: example.com and http://localhost/x' })).toMatchSnapshot();
+  });
+
+  it('@mention of someone else and of the radio', () => {
+    expect(bodyOf({ text: 'Alice: hi @[Bob] and @[Me]' }, { radioName: 'Me' })).toMatchSnapshot();
+  });
+
+  it('#channel reference, clickable and not', () => {
+    expect(
+      bodyOf({ text: 'Alice: join #mesh-room now' }, { onChannelReferenceClick: () => {} })
+    ).toMatchSnapshot();
+    expect(bodyOf({ text: 'Alice: join #mesh-room now' })).toMatchSnapshot();
+  });
+
+  it('GIF', () => {
+    expect(bodyOf({ text: 'Alice: g:abc123' })).toMatchSnapshot();
+  });
+
+  it('reply-prefixed GIF', () => {
+    expect(bodyOf({ text: 'Alice: @[Bob] g:abc123' })).toMatchSnapshot();
+  });
+
+  it('GIF still renders when rich reactions are off', () => {
+    expect(bodyOf({ text: 'Alice: g:abc123' }, {}, false)).toMatchSnapshot();
+  });
+
+  it('location', () => {
+    expect(bodyOf({ text: 'Alice: m:43.580000,7.120000|FR-06-PSCL-Base|loc' })).toMatchSnapshot();
+  });
+
+  it('Open reaction', () => {
+    expect(bodyOf({ text: 'Bob: r:ffff:00', sender_name: 'Bob' })).toMatchSnapshot();
+  });
+
+  it('MeshCore One reaction', () => {
+    expect(
+      bodyOf({ text: 'Bob: \u{1F44D}@[Alice]\nb45pc4ek', sender_name: 'Bob' })
+    ).toMatchSnapshot();
+  });
+
+  it('reactions render as raw text when rich reactions are off', () => {
+    expect(bodyOf({ text: 'Bob: r:ffff:00', sender_name: 'Bob' }, {}, false)).toMatchSnapshot();
+  });
+
+  it('region badge', () => {
+    const { container, unmount } = render(
+      <MessageList
+        messages={[createMessage({ sender_name: 'Alice', region: 'nl-gr' })]}
+        contacts={[]}
+        loading={false}
+      />
+    );
+    const badge = container.querySelector('[title="Regional scope: nl-gr"], span.uppercase');
+    expect(badge?.outerHTML).toMatchSnapshot();
+    unmount();
+  });
+
+  it('control characters', () => {
+    const { container, unmount } = render(
+      <MessageList
+        messages={[createMessage({ text: "Nv\x0ek\x16ɩ'\x7fg:", sender_name: null })]}
+        contacts={[]}
+        loading={false}
+      />
+    );
+    const body = container.querySelector('.wrap-break-word');
+    expect(body?.previousElementSibling?.outerHTML).toMatchSnapshot();
+    expect(body?.outerHTML).toMatchSnapshot();
+    unmount();
+  });
+});

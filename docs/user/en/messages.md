@@ -35,7 +35,7 @@ Channel messages often come back several times: each repeater that relays one ca
 
 Right after you send a channel message, a **Resend** button stays available for 30 seconds, in case it clearly reached nobody. Resend repeats the exact same message, so only repeaters that have not seen it yet pass it on. **Resend as new** sends it as a new message, which receivers may see as a duplicate. If you would rather not do this by hand, **Auto-Resend Unheard Channel Messages** in **Settings > Radio** (off by default) resends a channel message once if no echo comes back within 2 seconds.
 
-A message holds at most 156 bytes, which is about 156 characters without accents (an accented character takes two). On a channel, your node's name is sent with each message and takes part of that space. Sending is blocked when your text is too long, and the composer says "too long". Meshloom does not cut a message for you.
+A message holds at most 156 bytes, which is about 156 characters without accents (an accented character takes two). On a channel, your node's name is sent with each message and takes part of that space. Sending is blocked when your text is too long, and the composer says "too long". The server enforces the same limit for every way of sending (web app, bots, API clients) and refuses an oversized message with a clear error. Meshloom does not cut a message for you.
 
 ## Replying, reacting and sharing
 
