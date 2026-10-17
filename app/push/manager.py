@@ -17,6 +17,7 @@ from typing import Any
 from pywebpush import WebPushException
 
 from app.channel_constants import is_public_channel_key
+from app.net.egress_guard import EgressBlocked
 from app.push.policy import conversation_is_enabled
 from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
@@ -412,8 +413,13 @@ class PushManager:
             logger.debug("Push dispatch: no VAPID key configured, skipping")
             return
 
+        try:
+            allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
+        except Exception:
+            allow_private = False
+
         results = await asyncio.gather(
-            *(self._send_one(sub, payload_for_sub(sub), vapid_key) for sub in subs),
+            *(self._send_one(sub, payload_for_sub(sub), vapid_key, allow_private) for sub in subs),
             return_exceptions=True,
         )
         await self._record_outcomes(results)
@@ -438,7 +444,9 @@ class PushManager:
             except Exception:
                 logger.debug("Push dispatch: failed to record outcomes", exc_info=True)
 
-    async def _send_one(self, sub: dict, payload: str, vapid_key: str) -> _SendResult:
+    async def _send_one(
+        self, sub: dict, payload: str, vapid_key: str, allow_private: bool = False
+    ) -> _SendResult:
         sub_id = sub["id"]
         result = _SendResult(sub_id=sub_id)
         try:
@@ -448,8 +456,12 @@ class PushManager:
                     payload=payload,
                     vapid_private_key=vapid_key,
                     vapid_claims=get_vapid_claims(),
+                    allow_private_network=allow_private,
                 )
             result.success = True
+        except EgressBlocked as e:
+            # Kept: the endpoint may become valid again (setting turned on, DNS).
+            logger.warning("Push send refused by the egress guard for %s: %s", sub_id, e.code)
         except WebPushException as e:
             status = getattr(e, "response", None)
             status_code = getattr(status, "status_code", 0) if status else 0
@@ -457,7 +469,8 @@ class PushManager:
                 logger.info("Push subscription expired (HTTP %d), removing %s", status_code, sub_id)
                 result.expired = True
             else:
-                logger.warning("Push send failed for %s: %s", sub_id, e)
+                # The type only: a WebPushException carries the push service's body.
+                logger.warning("Push send failed for %s: %s", sub_id, type(e).__name__)
         except TimeoutError:
             logger.warning("Push send timed out for %s", sub_id)
         except Exception:

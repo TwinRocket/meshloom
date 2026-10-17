@@ -7,16 +7,24 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
 from app.models import NotificationDestinations, TelemetryAlertChannels
+from app.net.egress_guard import error_code, pinned_async_client, validate_destination
 from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
+
+WEBHOOK_TIMEOUT_SECONDS = 10.0
+
+# The last webhook failure ({"code", "at"}), cleared by a successful send. In
+# memory only, for the health payload (notifications T3); never the exception text.
+_webhook_last_error: dict[str, Any] | None = None
 
 TEST_ALERT_PAYLOAD = {
     "event": "telemetry_alert",
@@ -116,11 +124,34 @@ async def send_email_alert(dest: NotificationDestinations, payload: Mapping[str,
         raise RuntimeError("email send failed")
 
 
+def webhook_last_error() -> dict[str, Any] | None:
+    return dict(_webhook_last_error) if _webhook_last_error else None
+
+
+def describe_webhook_failure(exc: BaseException, url: str) -> str:
+    """Log text for a failed webhook send: code, type, host and HTTP status.
+
+    Never the exception text nor the full URL: an ``HTTPStatusError`` carries
+    the URL with its path, query and userinfo, where tokens live.
+    """
+    status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        host = None
+    return f"{error_code(exc)}: {type(exc).__name__} (host {host}, HTTP {status})"
+
+
 async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[str, Any]) -> None:
+    """POST the payload through the egress guard, pinned to a validated address.
+
+    Raises ``ValueError`` when no URL is set, ``EgressBlocked`` when the guard
+    refuses it (before any connection), else the httpx error.
+    """
+    global _webhook_last_error
     url = (dest.webhook.url or "").strip()
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError("webhook url must be http or https")
+    if not url:
+        raise ValueError("webhook url is not configured")
 
     from app.email_template import enrich_notification_payload
 
@@ -135,9 +166,19 @@ async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[st
         sig = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
         headers["X-Webhook-Signature"] = f"sha256={sig}"
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-        resp = await client.post(url, content=body_bytes, headers=headers)
-        resp.raise_for_status()
+    try:
+        target = await validate_destination(
+            url, allow_private_network=dest.webhook.allow_private_network
+        )
+        async with pinned_async_client(
+            target, timeout=httpx.Timeout(WEBHOOK_TIMEOUT_SECONDS)
+        ) as client:
+            resp = await client.post(content=body_bytes, headers=headers)
+            resp.raise_for_status()
+    except Exception as exc:
+        _webhook_last_error = {"code": error_code(exc), "at": int(time.time())}
+        raise
+    _webhook_last_error = None
 
 
 async def dispatch_system_event(
@@ -169,5 +210,10 @@ async def dispatch_system_event(
     if flags.webhook:
         try:
             await send_webhook_alert(dest, payload)
-        except Exception:
-            logger.debug("notify: webhook dispatch failed", exc_info=True)
+        except ValueError:
+            logger.debug("notify: webhook not configured")
+        except Exception as exc:
+            logger.warning(
+                "notify: webhook dispatch failed: %s",
+                describe_webhook_failure(exc, dest.webhook.url or ""),
+            )

@@ -108,6 +108,7 @@ V1_SETTING_COLUMNS: tuple[str, ...] = (
     "force_channel_slot_reconfigure",
     "load_with_autoevict",
     "auto_clock_wraparound",
+    "push_allow_private_endpoints",
     "ui_preferences",
 )
 BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {

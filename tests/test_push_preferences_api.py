@@ -113,3 +113,54 @@ async def test_legacy_conversation_endpoints_are_gone(test_db, client):
 
     toggled = await client.post("/api/push/conversations/toggle", json={"key": "contact-aa"})
     assert toggled.status_code == 404
+
+
+# ── POST /push/subscribe and the egress guard ────────────────────────────
+
+_KEYS = {"p256dh": "p256", "auth": "auth"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://192.168.1.10/up", "https://127.0.0.1:8443/push", "http://[fd00::5]/up"],
+)
+async def test_subscribe_private_endpoint_is_400_by_default(test_db, client, endpoint):
+    response = await client.post("/api/push/subscribe", json={"endpoint": endpoint, **_KEYS})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "egress_private_address"
+    assert (await client.get("/api/push/subscriptions")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_subscribe_private_endpoint_allowed_by_the_instance_setting(test_db, client):
+    patch = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
+    assert patch.status_code == 200
+    assert patch.json()["push_allow_private_endpoints"] is True
+    response = await client.post(
+        "/api/push/subscribe", json={"endpoint": "http://192.168.1.10/up", **_KEYS}
+    )
+    assert response.status_code == 200
+    # The metadata service stays refused whatever the setting.
+    response = await client.post(
+        "/api/push/subscribe", json={"endpoint": "http://169.254.169.254/latest", **_KEYS}
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_subscribe_public_endpoint_and_bad_scheme(test_db, client):
+    ok = await client.post(
+        "/api/push/subscribe", json={"endpoint": "https://198.51.100.7/push/abc", **_KEYS}
+    )
+    assert ok.status_code == 200
+    bad = await client.post(
+        "/api/push/subscribe", json={"endpoint": "ftp://198.51.100.7/x", **_KEYS}
+    )
+    assert bad.status_code == 400
+    assert bad.json()["detail"]["code"] == "egress_scheme"
+
+
+@pytest.mark.asyncio
+async def test_push_allow_private_endpoints_defaults_off(test_db, client):
+    assert (await client.get("/api/settings")).json()["push_allow_private_endpoints"] is False

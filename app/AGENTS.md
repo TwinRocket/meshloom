@@ -573,6 +573,13 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 - Secrets (SMTP password, webhook secret in `notification_destinations`) are
   returned as `********`; a PATCH that sends `********` back keeps the stored value.
+- The system webhook goes through the egress guard (`app/net/AGENTS.md`): checked
+  at save and before each send, then sent pinned to a validated IP. Its LAN
+  opt-in is `notification_destinations.webhook.allow_private_network`; a
+  webhook stored before the guard reads as allowed and grandfathered (one-time
+  banner, cleared by a PATCH or a URL change). A dispatch failure is logged at
+  WARNING (code, type, host, HTTP status) and kept in memory as
+  `webhook_last_error()` for the health payload.
 - The email transport builds an Apprise `mailto` URL on the fly from the SMTP
   settings; the URL is never stored. The HTML email references no remote content
   (inline `cid:` logo, no remote image, no link).
@@ -587,14 +594,22 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 VAPID subject: `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT`;
 Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
 `frontend/src/utils/pushPolicy.ts`) decides per conversation. A push service
-answering 403, 404 or 410 deletes the subscription.
+answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
+egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
+urllib3 connections); a private endpoint needs the instance setting
+`push_allow_private_endpoints`. A refused send keeps the subscription.
 
 The test routes (`POST /push/subscriptions/{id}/test`,
 `POST /settings/notification-destinations/test`) send to a destination the
 client chose: they answer coded details only (`push_delivery_failed`,
 `push_stale`, `push_timeout`, `notification_test_failed`,
-`notification_destination_invalid`), never the exception text, which would be
-a LAN-scanning oracle. The log gets the exception type only (plus the
+`notification_destination_invalid`, the guard's `egress_*`, and for the
+webhook `timeout`, `tls_error`, `service_error` with `params.status`), never
+the exception text, which would be a LAN-scanning oracle. The guard refuses a
+private destination before any connection, so neither the answer time nor the
+status says anything about the LAN: every push delivery failure, timeout
+included, is a 422, and `push_stale` (410) only follows an answer from a
+guarded endpoint. The log gets the exception type only (plus the
 webhook's host and HTTP status), never its text: an `httpx.HTTPStatusError`
 carries the full webhook URL and its token, a `WebPushException` the push
 service's body (`tests/test_test_route_error_oracles.py`).
