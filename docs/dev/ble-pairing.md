@@ -58,10 +58,16 @@ variable):
 9. Cleanup (own 4 s budget, outside the 45 s overall budget): `CancelPairing`
    after our own `Pair()` timeout, `UnregisterAgent` then unexport (a late
    `Release()` gets `UnknownMethod`, harmless), `StopDiscovery` if ours,
-   `Disconnect` if a failed attempt left the link up, then close the bus.
+   `Disconnect` if a failed attempt left up a link that **our own** `Pair()`
+   brought up, then close the bus. A link already up before our `Pair()`, or
+   any link after `Pair()` answered `InProgress`, belongs to another client
+   (`bluetoothctl pair`, Home Assistant, a desktop agent) or to an earlier
+   attempt: dropping it would cancel that client's bonding, so it is left alone.
    On cancellation (monitor stopped, shutdown) there is **no D-Bus round trip**:
    closing the connection makes BlueZ drop our agent, our discovery session and a
-   pending bonding (it watches `NameOwnerChanged`).
+   pending bonding (it watches `NameOwnerChanged`). bluetoothd does that
+   asynchronously, so the next explicit `Pair()` waits until 1.5 s have passed
+   since the cancellation (`CANCEL_SETTLE_SECONDS`); automatic attempts do not.
 
 ### Why the link must be released
 
@@ -115,7 +121,7 @@ logs one warning per distinct code (then DEBUG) and keeps today's
 | same, PIN never requested | `ble_pair_rejected` | 422 | no | sticky |
 | `AuthenticationCanceled`, `ConnectionAttemptFailed`, `NotAvailable`, `Failed` with `le-connection-abort-by-local` / `Software caused connection abort` / `Page Timeout` / `Host is down` | `ble_pair_unreachable` | 503 | no | backoff |
 | `AuthenticationTimeout`, `NoReply`, our own timeouts | `ble_pair_timeout` | 504 | no | backoff |
-| `InProgress` on `Pair()` (another client pairs the radio) | `ble_pair_in_progress` | 409 | no | backoff |
+| `InProgress` on `Pair()` (another client pairs the radio; its link is never disconnected) | `ble_pair_in_progress` | 409 | no | backoff |
 | `AlreadyExists` on `Pair()` | success (`paired`) | - | - | - |
 | `InvalidArguments`/`AlreadyExists` on `RegisterAgent`, anything else | `ble_pair_failed` (`params.error=<name>`) | 502 | no | backoff |
 | not Linux / no dbus-fast | `ble_pair_unsupported` | 503 | yes | - |
@@ -137,7 +143,10 @@ D-Bus; `reconnect()` logs those at DEBUG and broadcasts nothing. A real failure
 is logged once at WARNING and broadcast once as a coded WS `error`, outside the
 `reconnection_failed` budget; a retry failing with the same code stays quiet, and
 so does any backoff failure after a backoff failure (a radio coming and going
-alternates `device_not_found`, `unreachable` and `timeout`). The broadcast carries
+alternates `device_not_found`, `unreachable` and `timeout`). A failure during the
+grace period of an expected reboot (clock fix) is logged at INFO, not broadcast,
+and `mark_unreported()` keeps it unreported, so the same failure past the grace
+period still toasts once. The broadcast carries
 the code, its params and the English message as fallback title, no `details`: the
 UI shows `errors.<code>` and, when defined, `errors.<code>Detail`.
 
@@ -146,18 +155,20 @@ Stale bond: after 3 consecutive connection refusals following `already_paired`
 sent and the status carries `hint: "stale_bond_suspected"`. Only failures where
 the radio answered count (`connect_error_suggests_stale_bond`): a BlueZ
 authentication or permission error, ATT "insufficient authentication/encryption",
-`le-connection-abort-by-remote`, or a link dropped right after it came up. A
+or `le-connection-abort-by-remote`. A
 bonded radio that is off or out of range (bleak `TimeoutError`,
 `BleakDeviceNotFoundError`, meshcore's `ConnectionError`, `create_ble` returning
-None) never counts, nor does a success in between. The bond is never removed
+None) never counts, nor does a link that drops right after it came up ("failed to
+discover services, device disconnected", "Not connected": a radio at the edge of
+range does that too), nor does a success in between. The bond is never removed
 automatically.
 
 ## API
 
 | Route | What |
 |---|---|
-| `GET /api/radio/transport/ble-pairing` | `RadioBlePairingStatus` from the saved transport. Problems are in `state`/`error_code`, never an HTTP error. No D-Bus when not BLE, not a MAC, or while pairing; otherwise one `GetManagedObjects` (2 s), cached 1 s. |
-| `POST /api/radio/transport/ble-pairing` | Pair now with the saved PIN (`explicit`: lifts sticky/backoff). Under `lifecycle_transition` then `ble_maintenance`; disconnects meshcore first, then reconnects when the connection is wanted. Synchronous: at most 45 + 4 s. |
+| `GET /api/radio/transport/ble-pairing` | `RadioBlePairingStatus` from the saved transport. Problems are in `state`/`error_code` (with `error_params` for interpolation, e.g. `ble_pair_failed`'s `error`), never an HTTP error. No D-Bus when not BLE, not a MAC, or while pairing; otherwise one `GetManagedObjects` (2 s), cached 1 s. |
+| `POST /api/radio/transport/ble-pairing` | Pair now with the saved PIN (`explicit`: lifts sticky/backoff). 409 `ble_pair_in_progress` while a pairing runs (the monitor's: entering the transition would cancel it). Under `lifecycle_transition` then `ble_maintenance`; disconnects meshcore first, then reconnects when the connection is wanted. A connected radio whose bond cannot be read (`unavailable`) keeps its link: the status error is returned instead. Synchronous: at most 45 + 4 s. |
 | `DELETE /api/radio/transport/ble-pairing` | Forget: `RemoveDevice` on every adapter (the picked one first), after disconnecting meshcore. The monitor pairs again afterwards. 409 if the saved transport is no longer BLE (an orphan bond is harmless; `bluetoothctl remove`). |
 | `POST /api/radio/transport/ble-scan` | 409 `ble_pair_in_progress` while a pairing runs. |
 
@@ -176,7 +187,10 @@ toast and by polling the pairing status: every 2 s while saving or pairing, ever
 5 s while the radio is disconnected (a pairing started by the monitor, each
 backoff attempt). `retry_in` counts down locally between two polls. Forget
 pairing is offered when paired, on the stale-bond hint, and after
-`ble_pair_rejected` (BlueZ may hold no bond then).
+`ble_pair_rejected` (BlueZ may hold no bond then). Pair again is not offered
+while a stale bond is still held (it would find the bond and change nothing),
+and waits for Save while a new PIN is typed (Pair uses the saved PIN). A Pair or
+Forget error line is cleared once a poll shows the radio paired.
 
 ## Discovery and other clients
 
@@ -229,8 +243,8 @@ accepts one connection anyway.
   `AuthenticationFailed`), `Connected` after `Pair()`, `Bonded` present or not,
   `Release()` after `UnregisterAgent`, and `NameOwnerChanged` (calls after the
   client left are recorded). Covers fresh pairing, already bonded, two adapters,
-  discovery, wrong PIN, timeout, cancellation without round trip, forget and
-  status, and that DEBUG logs never contain the PIN.
+  discovery, wrong PIN, timeout, `InProgress` and a link up before `Pair()`
+  (never disconnected), cancellation without round trip, forget and status, and that DEBUG logs never contain the PIN.
 - `tests/test_radio.py::TestBlePrePairing` and
   `tests/test_radio_router.py::TestBlePairingRoutes`: the radio and route seams.
 

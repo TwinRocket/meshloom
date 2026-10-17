@@ -57,7 +57,8 @@ and the OpenAPI page (`/docs`), not a table here.
   ignores it). Auth failures are sticky per (address, PIN), transient ones back
   off 5-60 s, and `reconnect()` reports each once (coded WS error without
   `details`, outside the `reconnection_failed` budget; one toast for the whole
-  backoff class). Explicit pair/forget routes run under
+  backoff class). A failed attempt only disconnects a link its own `Pair()`
+  brought up (never another client's bonding). Explicit pair/forget routes run under
   `lifecycle_transition` then `RadioManager.ble_maintenance()` (holds
   `_reconnect_lock`, answers busy at once). Lock order: lifecycle, reconnect,
   radio operation, `ble_pairing` lock. Tests never touch the system bus: a
