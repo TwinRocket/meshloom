@@ -716,6 +716,7 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
                 enabled=enabled,
                 config=config,
                 scope=scope,
+                sort_order=entry.sort_order,
             )
         else:
             await FanoutConfigRepository.create(
@@ -726,6 +727,8 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
                 enabled=enabled,
                 config_id=entry.id,
             )
+            # create() appends; the user's order is the file's.
+            await FanoutConfigRepository.update(entry.id, sort_order=entry.sort_order)
         written.append(entry.id)
         if entry.type == "bot":
             restored_bots.append(label)

@@ -2236,6 +2236,14 @@ class BackupCounts(BaseModel):
     push_subscriptions: int = 0
 
 
+class BackupIntegrationSummary(BaseModel):
+    """A non-bot integration a restore would write, shown before restoring."""
+
+    name: str
+    type: str
+    enabled: bool
+
+
 class BackupInspectResult(BaseModel):
     format: str
     encrypted: bool = False
@@ -2249,6 +2257,17 @@ class BackupInspectResult(BaseModel):
     has_wifi: bool = False
     counts: BackupCounts = Field(default_factory=BackupCounts)
     bot_names: list[str] = Field(default_factory=list)
+    bots_will_be_skipped: bool = Field(
+        default=False,
+        description="Bots are turned off on this server: the file's bots are not restored",
+    )
+    integrations: list[BackupIntegrationSummary] = Field(
+        default_factory=list,
+        description="Non-bot integrations in the file; enabled ones start right after a restore",
+    )
+    radio_proxy_enabled: bool | None = Field(
+        default=None, description="The file's radio proxy setting (None: not in the file)"
+    )
     identity_relation: BackupIdentityRelation = "no_identity"
     identity_requires: BackupIdentityRequires = Field(default_factory=BackupIdentityRequires)
     identity_refusal: str | None = Field(

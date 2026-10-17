@@ -22,6 +22,7 @@ from app.models import (
     BackupIdentityRelation,
     BackupIdentityRequires,
     BackupInspectResult,
+    BackupIntegrationSummary,
     BackupRestoreItem,
     BackupRestoreJob,
     BackupRestoreRequest,
@@ -317,7 +318,19 @@ async def inspect_backup(
     if extra is not None:
         result.counts.fanout_configs = len(extra.fanout_configs)
         result.counts.push_subscriptions = len(extra.push_subscriptions)
+        from app.fanout.manager import fanout_manager, is_reserved_fanout_id
+
         result.bot_names = [cfg.name or cfg.id for cfg in extra.fanout_configs if cfg.type == "bot"]
+        result.bots_will_be_skipped = bool(result.bot_names) and (
+            fanout_manager.bots_disabled_effective()
+        )
+        result.integrations = [
+            BackupIntegrationSummary(name=cfg.name or cfg.id, type=cfg.type, enabled=cfg.enabled)
+            for cfg in extra.fanout_configs
+            if cfg.type != "bot" and not is_reserved_fanout_id(cfg.id)
+        ]
+        if extra.radio_proxy is not None:
+            result.radio_proxy_enabled = extra.radio_proxy.enabled
 
     transport = inputs.transport
     if (

@@ -214,3 +214,52 @@ async def test_proxy_targeting_the_transport_stays_disabled(backup_db, proxy_spy
     )
     assert warnings == ["proxy_targets_transport"]
     assert proxy_spy.await_args.args[0].enabled is False
+
+
+@pytest.mark.asyncio
+async def test_integrations_keep_the_file_order(backup_db, reload_spy, proxy_spy):
+    await FanoutConfigRepository.create(
+        config_type="webhook",
+        name="Existing",
+        config={"url": "https://example.org/e"},
+        scope={"messages": "all"},
+        enabled=False,
+        config_id="hook-b",
+    )
+    await restore_meshloom_extra(
+        MeshloomExtra(
+            fanout_configs=[
+                webhook("hook-a", sort_order=2),
+                webhook("hook-b", sort_order=0),
+                webhook("hook-c", sort_order=1),
+            ]
+        )
+    )
+    ordered = sorted(await FanoutConfigRepository.get_all(), key=lambda cfg: cfg["sort_order"])
+    assert [cfg["id"] for cfg in ordered] == ["hook-b", "hook-c", "hook-a"]
+
+
+@pytest.mark.asyncio
+async def test_inspect_lists_integrations_proxy_and_skipped_bots(backup_db, monkeypatch):
+    from app.models import BackupExportV2
+    from app.services.backup_restore import inspect_backup
+
+    doc = BackupExportV2(
+        meshloom_extra=MeshloomExtra(
+            fanout_configs=[
+                webhook(enabled=True),
+                webhook(SYSTEM_MESHLOOM_STATS_ID),
+                bot(),
+            ],
+            radio_proxy=BackupRadioProxy(enabled=True, port=5000, max_clients=2),
+        )
+    )
+    monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", True)
+    result = await inspect_backup(doc, None)
+    assert [(i.name, i.type, i.enabled) for i in result.integrations] == [("Hook", "webhook", True)]
+    assert result.radio_proxy_enabled is True
+    assert result.bot_names == ["Greeter"]
+    assert result.bots_will_be_skipped is True
+
+    monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", False)
+    assert (await inspect_backup(doc, None)).bots_will_be_skipped is False
