@@ -525,6 +525,44 @@ async def test_gate_sends_nothing_and_is_not_cached(radio, version, model, reaso
     assert firmware.commands == ["get wifi.status"]
 
 
+@pytest.mark.parametrize(
+    ("version", "model", "reason"),
+    [
+        (None, "Heltec V3", "firmware_unknown"),
+        (13, "Heltec V3", "firmware_too_old"),
+        (14, "MeshloomProxy/0123456789ab", "proxy_link"),
+    ],
+)
+async def test_run_applies_the_gate(radio, version, model, reason):
+    loop, firmware, manager = radio
+    manager.firmware_ver_code = version
+    manager.device_model = model
+    async with held(manager) as cli:
+        with pytest.raises(CliUnsupportedError) as error:
+            await cli.get("wifi.status")
+    assert error.value.code == reason
+    assert firmware.commands == [] and loop.transport.writes == []
+    assert manager.cli_link.quarantined == set()
+
+
+@pytest.mark.parametrize("reason", ["untagged", "unsupported_cmd", "link_unreliable"])
+async def test_run_refuses_after_a_sticky_probe_result(radio, reason):
+    loop, firmware, manager = radio
+    manager.cli_link.capabilities = cli_module.CliCapabilities(False, reason, False, 14)  # type: ignore[arg-type]
+    async with held(manager) as cli:
+        with pytest.raises(CliUnsupportedError) as error:
+            await cli.get("wifi.status")
+    assert error.value.code == reason
+    assert firmware.commands == [] and loop.transport.writes == []
+
+
+async def test_run_still_works_after_a_failed_probe(radio):
+    loop, firmware, manager = radio
+    manager.cli_link.capabilities = cli_module.CliCapabilities(False, "probe_failed", False, 14)
+    async with held(manager) as cli:
+        assert (await cli.get("wifi.status")).value == "disconnected"
+
+
 async def test_gate_needs_no_lock(radio):
     loop, firmware, manager = radio
     manager.firmware_ver_code = 12
@@ -693,6 +731,29 @@ async def test_debug_snapshot_reports_the_probe(radio, monkeypatch):
     block = _build_companion_cli()
     assert block is not None
     assert (block.supported, block.reason, block.wifi) == (False, "untagged", False)
+
+
+@pytest.mark.parametrize(
+    ("version", "model", "reason"),
+    [
+        (None, "Heltec V3", "firmware_unknown"),
+        (13, "Heltec V3", "firmware_too_old"),
+        (10, "MeshloomProxy/0123456789ab", "proxy_link"),
+    ],
+)
+async def test_debug_snapshot_reports_the_gate_without_probing(
+    radio, monkeypatch, version, model, reason
+):
+    from app.routers.debug import _build_companion_cli
+
+    loop, firmware, manager = radio
+    monkeypatch.setattr(radio_module, "radio_manager", manager)
+    manager.firmware_ver_code = version
+    manager.device_model = model
+    block = _build_companion_cli()
+    assert block is not None
+    assert (block.supported, block.reason, block.wifi) == (False, reason, False)
+    assert firmware.commands == [] and manager.cli_link.capabilities is None
 
 
 # --------------------------------------------------------------------------

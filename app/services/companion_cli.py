@@ -15,6 +15,9 @@ this module adds the guard the protocol lacks:
   that ends without its reply (timeout, cancellation, error) quarantines its
   tag for the rest of the connection, so a late ``get wifi.pwd`` answer can
   never be taken as the answer to a later command.
+- **Gated.** ``run()`` refuses (``CliUnsupportedError``) through a Meshloom
+  radio proxy, with an unknown firmware version or one below 14, and once a
+  probe found the CLI unusable; nothing is sent then.
 - **Secret-aware.** The helper classifies commands itself (fail closed): a
   ``set`` of a name containing ``pwd``/``pass``/``key``/``secret``/``pin`` is
   secret (its value is registered with ``secret_scope()``), a ``get`` of one
@@ -268,6 +271,30 @@ def _classify(command: str, *, extra_secrets: Sequence[str] = ()) -> _Classified
     )
 
 
+def cli_gate_reason(manager: Any) -> CapabilityReason | None:
+    """Why the connected radio cannot take command 66, from what the device
+    query reported (sends nothing); None when a probe may decide."""
+    from app.radio_proxy.protocol import PROXY_MODEL_PREFIX
+
+    version = getattr(manager, "firmware_ver_code", None)
+    model = getattr(manager, "device_model", None) or ""
+    if model.startswith(PROXY_MODEL_PREFIX):
+        # A Meshloom radio proxy virtualizes DEVICE_QUERY (fw ver 10) and
+        # answers ERROR to command 66: never probe through it.
+        return "proxy_link"
+    if version is None:
+        return "firmware_unknown"
+    if version < CLI_MIN_FIRMWARE_VER_CODE:
+        return "firmware_too_old"
+    return None
+
+
+# Probe results that refuse every later call until reconnect.
+STICKY_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
+    {"untagged", "unsupported_cmd", "link_unreliable"}
+)
+
+
 def _validate_command(command: str) -> bytes:
     if not isinstance(command, str) or len(command) < 2:
         raise CliCommandError("cli_command_too_short")
@@ -447,19 +474,10 @@ class CompanionCli:
         retried after ``CLI_PROBE_BACKOFF_SECONDS`` (``refresh`` skips the backoff)
         and sticks after ``CLI_MAX_PROBES_PER_CONNECTION`` failed probes.
         """
-        from app.radio_proxy.protocol import PROXY_MODEL_PREFIX
-
-        manager = self._manager
-        version = getattr(manager, "firmware_ver_code", None)
-        model = getattr(manager, "device_model", None) or ""
-        if model.startswith(PROXY_MODEL_PREFIX):
-            # A Meshloom radio proxy virtualizes DEVICE_QUERY (fw ver 10) and
-            # answers ERROR to command 66: never probe through it.
-            return CliCapabilities(False, "proxy_link", False, version)
-        if version is None:
-            return CliCapabilities(False, "firmware_unknown", False, version)
-        if version < CLI_MIN_FIRMWARE_VER_CODE:
-            return CliCapabilities(False, "firmware_too_old", False, version)
+        version = getattr(self._manager, "firmware_ver_code", None)
+        gate = cli_gate_reason(self._manager)
+        if gate is not None or version is None:
+            return CliCapabilities(False, gate or "firmware_unknown", False, version)
 
         link = self.link
         cached = link.capabilities
@@ -522,9 +540,11 @@ class CompanionCli:
     ) -> CliReply:
         """Run one CLI command and return its reply.
 
-        Raises ``CliLockError`` outside a session of this task, ``CliCommandError``
-        (a ``ValueError``) for an invalid command, ``CliUnsupportedError`` when the
-        link was declared unreliable, ``CliTimeoutError``,
+        Raises ``CliLockError`` outside a session of this task,
+        ``CliUnsupportedError`` when the support gate fails (proxy link, firmware
+        unknown or below 14) or a probe already found the CLI unusable
+        (``untagged``, ``unsupported_cmd``, ``link_unreliable``), ``CliCommandError``
+        (a ``ValueError``) for an invalid command, ``CliTimeoutError``,
         ``CliUnknownCommandError`` and ``CliRejectedError``. ``timeout`` defaults to
         ``CLI_REPLY_TIMEOUT_SECONDS``. Passing ``secrets`` hides the whole call
         (command and reply) like a command with a secret name.
@@ -532,14 +552,17 @@ class CompanionCli:
         if timeout is None:
             timeout = CLI_REPLY_TIMEOUT_SECONDS
         self._check_lock()
+        gate = cli_gate_reason(self._manager)
+        if gate is not None:
+            raise CliUnsupportedError(gate)
+        link = self.link
+        cached = link.capabilities
+        if cached is not None and cached.reason in STICKY_UNSUPPORTED_REASONS:
+            raise CliUnsupportedError(cached.reason)
         encoded = _validate_command(command)
         classified = _classify(command, extra_secrets=secrets)
         sensitive = sensitive_reply or classified.sensitive
         hidden = classified.secret or sensitive
-        link = self.link
-        cached = link.capabilities
-        if cached is not None and cached.reason == "link_unreliable":
-            raise CliUnsupportedError("link_unreliable")
         tag = self._allocate_tag(link)
         verb, name = classified.shown_verb, classified.shown_name or None
         # The scope stays open until every log line and exception is built.

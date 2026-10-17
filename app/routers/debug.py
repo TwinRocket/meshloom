@@ -17,7 +17,7 @@ from app.models import AppSettings
 from app.radio_sync import get_contacts_selected_for_radio_sync, get_radio_channel_limit
 from app.repository import AppSettingsRepository, MessageRepository, StatisticsRepository
 from app.routers.health import FanoutStatusResponse, build_health_data
-from app.services.companion_cli import CliCapabilities
+from app.services.companion_cli import CapabilityReason, CliCapabilities, cli_gate_reason
 from app.services.legacy_env_settings import RETIRED_ENV
 from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime
@@ -152,11 +152,13 @@ class DebugAppSettings(BaseModel):
 
 class DebugCompanionCli(BaseModel):
     supported: bool
-    reason: str = Field(
+    reason: CapabilityReason = Field(
         description=(
-            "Companion CLI probe result for this connection: ok, untagged (the "
-            "firmware does not echo the reply tag), unsupported_cmd, probe_failed "
-            "or link_unreliable"
+            "Companion CLI status for this connection. Computed without sending "
+            "anything: proxy_link (through a Meshloom radio proxy), firmware_unknown, "
+            "firmware_too_old (below companion protocol 14). Otherwise the last probe "
+            "result: ok, untagged (the firmware does not echo the reply tag), "
+            "unsupported_cmd, probe_failed or link_unreliable"
         )
     )
     wifi: bool
@@ -173,7 +175,11 @@ class DebugSnapshotResponse(BaseModel):
     database: DebugDatabaseInfo
     radio_probe: DebugRadioProbe
     companion_cli: DebugCompanionCli | None = Field(
-        default=None, description="Null until the companion CLI was probed on this connection"
+        default=None,
+        description=(
+            "Null when the firmware may support the companion CLI but no feature "
+            "probed it yet on this connection"
+        ),
     )
     logs: list[str]
 
@@ -449,7 +455,11 @@ async def _probe_radio() -> DebugRadioProbe:
 
 
 def _build_companion_cli() -> DebugCompanionCli | None:
-    link = getattr(radio_runtime.manager, "cli_link", None)
+    manager = radio_runtime.manager
+    gate = cli_gate_reason(manager)
+    if gate is not None:
+        return DebugCompanionCli(supported=False, reason=gate, wifi=False)
+    link = getattr(manager, "cli_link", None)
     capabilities = getattr(link, "capabilities", None)
     if not isinstance(capabilities, CliCapabilities):
         return None

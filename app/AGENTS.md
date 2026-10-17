@@ -162,13 +162,17 @@ and the OpenAPI page (`/docs`), not a table here.
   so a task spawned inside a session is refused. Never wrap a CLI call in
   `asyncio.wait_for`/`shield`/`gather` (on 3.11 they run it in a new task); use
   `run(timeout=...)` or `async with asyncio.timeout(...)`.
-- **Gate.** `capabilities()` sends nothing when `firmware_ver_code` is unknown or
-  below 14, or through a Meshloom radio proxy (it reports fw ver 10 and a
-  `MeshloomProxy/` model: `proxy_link`). Otherwise it probes `get wifi.status`:
-  `untagged`, `unsupported_cmd` (ERROR(1) with no tagged reply after a 1 s grace;
-  forks and pre-release builds) and `link_unreliable` stick until reconnect,
-  `probe_failed` backs off 30 s, five failed probes per connection at most. The
-  result is logged once at INFO and shown in the debug snapshot (`companion_cli`).
+- **Gate.** `capabilities()` and `run()` send nothing when `firmware_ver_code` is
+  unknown or below 14, or through a Meshloom radio proxy (it reports fw ver 10
+  and a `MeshloomProxy/` model: `proxy_link`); `run()` raises
+  `CliUnsupportedError` with that reason (`cli_gate_reason()`). Otherwise
+  `capabilities()` probes `get wifi.status`: `untagged`, `unsupported_cmd`
+  (ERROR(1) with no tagged reply after a 1 s grace; forks and pre-release builds)
+  and `link_unreliable` stick until reconnect, and `run()` refuses them too;
+  `probe_failed` backs off 30 s, five failed probes per connection at most. Each
+  probe outcome is logged at INFO. The debug snapshot (`companion_cli`) shows the
+  gate reason, else the last probe result, else null: nothing in the backend
+  probes on its own, a feature does when it needs the CLI.
 - **Tags are the reply guard.** CLI replies carry no request id. Each command
   starts with a 2-byte `XY|` tag that the firmware echoes; only a reply with our
   tag is accepted. Tags come from `RadioManager.cli_link` (`CliLinkState`: random
@@ -181,9 +185,9 @@ and the OpenAPI page (`/docs`), not a table here.
   (`run(..., secrets=...)`, `set(..., secret=True)`). No `set` argument, no
   sensitive reply and no command text in a log line or an exception: for a
   secret command they show only a verb and a name that look like a setting name
-  (never the argument of a one-word secret verb such as `password`). `reboot`, `poweroff`, `shutdown`, `erase` and
-  `start` are refused: reboot with `mc.commands.reboot()` plus
-  `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
+  (never the argument of a one-word secret verb such as `password`). `reboot`,
+  `poweroff`, `shutdown`, `erase` and `start` are refused: reboot with
+  `mc.commands.reboot()` plus `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
   use the remote CLI over the mesh.
 - **Never log a Wi-Fi password or a private key, at any level.**
   `app/log_redaction.py` enforces it for what meshcore logs: a filter at index 0
