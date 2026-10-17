@@ -1,0 +1,146 @@
+name: Forward-merge
+
+# Keeps the 5.0.0 integration branch preversion-5 up to date with main (the
+# 4.18.x line): every push to main is merged into preversion-5 with a merge
+# commit. Never a rebase, never a force push.
+#
+# - No preversion-5 branch (before it is created, after the 5.0.0 cut): the
+#   job ends with a notice.
+# - The merge goes through the REST merge API (POST /merges), which writes the
+#   merge commit on the server: no checkout, and nothing to race against a PR
+#   merged into preversion-5 in the meantime.
+# - It cannot merge (conflict, or the push is refused): the job opens a pull
+#   request main -> preversion-5, or comments on the open one, and fails. Resolve
+#   it on a branch of your own (`git switch -c fm/main origin/main && git merge
+#   origin/preversion-5`, fix, push, PR into preversion-5), never with the web
+#   conflict editor: that would commit the resolution to main. Once that PR is
+#   merged, the main -> preversion-5 PR has nothing left and GitHub closes it.
+#   A PR opened with GITHUB_TOKEN starts no workflow, so its checks run only once
+#   someone pushes to it; the job writes the compare link into the run summary
+#   in case the PR cannot be opened at all.
+# - A push made with GITHUB_TOKEN starts no workflow, so the merge alone would
+#   leave preversion-5 without CI and without a :next image. After a merge the
+#   job dispatches docker.yml (quality, image, deploy) and codeql.yml on
+#   preversion-5: workflow_dispatch is the one event GITHUB_TOKEN may start.
+#   The repository holds no GitHub App token that would avoid this.
+#
+# Repository configuration this needs (done by an admin, not by this file):
+# - The preversion-5 ruleset requires pull requests, so it must let GitHub
+#   Actions (app id 15368, actor type Integration) bypass it, or the merge is
+#   refused. That bypass applies to every workflow run holding contents: write
+#   (today only tag and manual release workflows, never on preversion-5).
+# - "Allow GitHub Actions to create and approve pull requests" (Settings >
+#   Actions) for the conflict PR; without it the job still fails, with the
+#   compare link.
+# - GitHub refuses a GITHUB_TOKEN push that changes a file under
+#   .github/workflows/. A main commit that does is reported like a conflict (a
+#   PR and a red run) and merged by hand.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One at a time, in order: a merge must never be cancelled half-way, and two
+# runs merging at once would only produce a redundant merge commit.
+concurrency:
+  group: forward-merge
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  forward-merge:
+    name: main -> preversion-5
+    # Forks have no preversion-5 workflow to feed.
+    if: github.repository == 'TwinRocket/meshloom'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write       # the merge commit
+      pull-requests: write  # the conflict PR
+      actions: write        # dispatch docker.yml and codeql.yml
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TARGET: preversion-5
+    steps:
+      - name: Merge main into preversion-5
+        id: merge
+        run: |
+          if ! gh api "repos/$GH_REPO/branches/$TARGET" --silent 2>/dev/null; then
+            echo "::notice::$TARGET does not exist; nothing to forward-merge"
+            echo "result=absent" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 201: merged (the new commit as JSON). 204: preversion-5 already
+          # contains main (empty body). 409: conflict. Any other refusal (the
+          # ruleset, a workflow file) is handled like a conflict: a PR and a red
+          # run, never a retry with more force.
+          err="$(mktemp)"
+          if out="$(gh api -X POST "repos/$GH_REPO/merges" \
+              -f base="$TARGET" -f head="$GITHUB_SHA" \
+              -f commit_message="Merge main (${GITHUB_SHA:0:8}) into $TARGET" 2>"$err")"; then
+            if [ -z "$out" ]; then
+              echo "$TARGET already contains ${GITHUB_SHA:0:8}"
+              echo "result=uptodate" >> "$GITHUB_OUTPUT"
+            else
+              echo "Merged ${GITHUB_SHA:0:8} into $TARGET as $(jq -r '.sha[0:8]' <<< "$out")"
+              echo "result=merged" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # gh prints the API message and status, e.g. "Merge conflict (HTTP 409)".
+            reason="$(sed -E 's/^gh: //' "$err" | tr '\n' ' ')"
+            echo "::warning::Merge API refused the merge: $reason"
+            echo "result=failed" >> "$GITHUB_OUTPUT"
+            echo "reason=${reason:-no message}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Start preversion-5 CI and the :next image
+        if: steps.merge.outputs.result == 'merged'
+        run: |
+          gh workflow run docker.yml --ref "$TARGET"
+          gh workflow run codeql.yml --ref "$TARGET"
+          echo "Dispatched docker.yml and codeql.yml on $TARGET"
+
+      - name: Open or update the forward-merge PR
+        if: steps.merge.outputs.result == 'failed'
+        env:
+          REASON: ${{ steps.merge.outputs.reason }}
+        run: |
+          compare="$GITHUB_SERVER_URL/$GH_REPO/compare/$TARGET...main"
+          run="$GITHUB_SERVER_URL/$GH_REPO/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "### main could not be merged into $TARGET"
+            echo
+            echo "- Commit: \`${GITHUB_SHA:0:8}\`"
+            echo "- Reason: $REASON"
+            echo "- Compare: $compare"
+          } >> "$GITHUB_STEP_SUMMARY"
+          note="$(mktemp)"
+          cat > "$note" <<NOTE
+          The forward-merge of main (\`${GITHUB_SHA:0:8}\`) into \`$TARGET\` failed: $REASON ([run]($run)).
+
+          Resolve it on a branch of your own, never with the web conflict editor (it would commit to main):
+
+          \`\`\`
+          git fetch origin
+          git switch -c fm/main origin/main
+          git merge origin/$TARGET
+          # fix the conflicts, commit, push, open a PR into $TARGET (merge commit)
+          \`\`\`
+
+          Once that PR is merged, this one has nothing left and closes by itself.
+          NOTE
+          pr="$(gh pr list --base "$TARGET" --head main --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --body-file "$note"
+            echo "::error::main could not be merged into $TARGET ($REASON); see PR #$pr"
+          # The REST call needs no checkout, unlike `gh pr create`.
+          elif url="$(gh api "repos/$GH_REPO/pulls" -f base="$TARGET" -f head=main \
+              -f title="Forward-merge main into $TARGET" -F body=@"$note" --jq .html_url)"; then
+            echo "::error::main could not be merged into $TARGET ($REASON); opened $url"
+          else
+            echo "::error::main could not be merged into $TARGET ($REASON), and no PR could be opened; open one from $compare"
+          fi
+          exit 1
