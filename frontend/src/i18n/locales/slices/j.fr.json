@@ -130,6 +130,10 @@
     "private_key_import_disabled": "Le firmware de la radio n’accepte pas l’import d’une clé privée : l’identité ne peut pas être restaurée.",
     "private_key_import_rejected": "La radio a refusé la clé privée.",
     "private_key_import_unverified": "La radio n’a pas confirmé la nouvelle identité.",
-    "live_identity_changed": "La radio connectée a changé pendant la restauration : rien n’a été importé."
+    "live_identity_changed": "La radio connectée a changé pendant la restauration : rien n’a été importé.",
+    "name_rejected": "La radio a refusé le nom.",
+    "coords_rejected": "La radio a refusé la position.",
+    "tx_power_rejected": "La radio a refusé la puissance d’émission.",
+    "radio_params_rejected": "La radio a refusé les paramètres radio."
   }
 }

@@ -950,6 +950,27 @@ describe('SettingsModal', () => {
     success.mockRestore();
   });
 
+  it('translates a coded radio rejection of the saved config', async () => {
+    const onSave = vi.fn(async () => {
+      throw new ApiError('The radio rejected the radio parameters', 422, {
+        code: 'radio_params_rejected',
+        message: 'The radio rejected the radio parameters',
+      });
+    });
+    renderModal({ onSave });
+    openRadioSection();
+
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.radio.advertLocationSource')), {
+      target: { value: 'off' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.saveConfig') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      i18n.t('errors.radio_params_rejected')
+    );
+    expect(i18n.t('errors.radio_params_rejected')).not.toBe('errors.radio_params_rejected');
+  });
+
   it('reads a missing advert location source as off', async () => {
     const { advert_location_source: _omitted, ...withoutSource } = baseConfig;
     const { onSave } = renderModal({ config: withoutSource });

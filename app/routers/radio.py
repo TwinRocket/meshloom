@@ -472,7 +472,9 @@ async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
         except PathHashModeUnsupportedError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RadioCommandRejectedError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            # A coded rejection reaches the UI as a code it translates.
+            detail = {"code": exc.code, "message": str(exc)} if exc.code else str(exc)
+            raise HTTPException(status_code=422, detail=detail) from exc
 
         if update.path_hash_mode is not None:
             await AppSettingsRepository.set_path_hash_one_byte_opt_in(update.path_hash_mode == 0)

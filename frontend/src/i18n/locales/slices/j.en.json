@@ -130,6 +130,10 @@
     "private_key_import_disabled": "The radio firmware does not accept importing a private key: the identity cannot be restored.",
     "private_key_import_rejected": "The radio refused the private key.",
     "private_key_import_unverified": "The radio did not confirm the new identity.",
-    "live_identity_changed": "The connected radio changed during the restore: nothing was imported."
+    "live_identity_changed": "The connected radio changed during the restore: nothing was imported.",
+    "name_rejected": "The radio rejected the name.",
+    "coords_rejected": "The radio rejected the position.",
+    "tx_power_rejected": "The radio rejected the transmit power.",
+    "radio_params_rejected": "The radio rejected the radio parameters."
   }
 }

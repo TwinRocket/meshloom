@@ -469,7 +469,10 @@ class TestUpdateRadioConfigRepeatAndRejections:
                 RadioConfigUpdate(radio=RadioSettings(freq=1.0, bw=250.0, sf=11, cr=5))
             )
         assert exc.value.status_code == 422
-        assert exc.value.detail == "The radio rejected the radio parameters"
+        assert exc.value.detail == {
+            "code": "radio_params_rejected",
+            "message": "The radio rejected the radio parameters",
+        }
 
 
 class TestPrivateKeyExport:
