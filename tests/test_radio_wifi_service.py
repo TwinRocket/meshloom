@@ -779,3 +779,34 @@ async def test_start_post_connect_check_forgets_the_previous_connection(wifi, mo
     radio_wifi.start_post_connect_check()
     assert spawned == ["wifi_post_connect"]
     assert radio_wifi.last_wifi_state() is None
+
+
+async def test_a_probe_without_answer_is_a_timeout_not_unsupported(wifi, fast_cli):
+    wifi.firmware.silent.add("get wifi.status")
+    with pytest.raises(cli_module.CliTimeoutError):
+        await radio_wifi.apply_wifi_credentials(_creds("Home", SECRET), public_key=PK)
+    assert not any(c.startswith("set ") for c in wifi.firmware.commands)
+    assert "store_started_at" not in (await AppSettingsRepository.get_wifi_prompt_state()).get(
+        PK, {}
+    )
+
+
+async def test_a_recheck_without_answer_does_not_stop_the_rechecks(wifi, fast_schedule):
+    count = 0
+
+    def status(_command: str):
+        nonlocal count
+        count += 1
+        if count == 3:
+            return None  # the first re-check gets no answer
+        return "> connected" if count >= 4 else "> disconnected"
+
+    wifi.firmware.overrides["get wifi.status"] = status
+    wifi.firmware.overrides["get wifi.ip"] = lambda _c: (
+        "> 10.0.0.7" if count >= 4 else "> (not connected)"
+    )
+
+    await radio_wifi.run_wifi_post_connect_check()
+
+    assert count == 4
+    assert radio_wifi.last_wifi_state().ip == "10.0.0.7"

@@ -349,8 +349,13 @@ async def _read_wifi_state(
 
 
 async def _require_wifi(cli: CompanionCli) -> None:
-    caps = await cli.capabilities()
+    link = cli.link
+    retry = link.capabilities is not None and link.capabilities.reason == "probe_failed"
+    caps = await cli.capabilities(refresh=retry)
     if not caps.supported:
+        if caps.reason == "probe_failed":
+            # The radio did not answer the probe: transient, not "no CLI".
+            raise CliTimeoutError("cli_timeout", verb="get", name="wifi.status")
         raise CliUnsupportedError(caps.reason)
     if not caps.wifi:
         raise CliUnknownCommandError("cli_unknown_command", verb="get", name="wifi.status")
@@ -746,8 +751,8 @@ async def run_wifi_post_connect_check() -> None:
                     return
                 status = await wifi_link_status(cli)
                 await _merge_link_status(token, status.connected, status.ip)
-        except RadioOperationBusyError:
-            continue
+        except (RadioOperationBusyError, CliTimeoutError):
+            continue  # busy, or no answer this time: the next re-check may get one
         except (CliError, RadioDisconnectedError):
             return
         except Exception:
