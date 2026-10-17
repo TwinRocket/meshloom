@@ -40,6 +40,11 @@ def test_load_config_needs_the_url(monkeypatch):
         ("PUT", "/api/radio/transport"),
         ("PATCH", "/api/radio/proxy"),
         ("PUT", "/api/radio/custom-vars/gps"),
+        ("PUT", "/api/radio/wifi/credentials"),
+        ("PUT", "/api/radio/wifi/enabled"),
+        ("POST", "/api/radio/wifi/reboot"),
+        ("POST", "/api/settings/backup/restore"),
+        ("POST", "/api/radio/transport/revert"),
     ],
 )
 def test_client_refuses_identity_and_destructive_routes(method, path):
@@ -50,6 +55,28 @@ def test_client_refuses_identity_and_destructive_routes(method, path):
         with pytest.raises(RuntimeError, match="refuses"):
             client.request(method, path.removeprefix("/api"))
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("body", "refused"),
+    [
+        ({"multi_acks_enabled": True}, False),
+        ({"telemetry_mode_env": "always", "telemetry_mode_base": "never"}, False),
+        ({"radio": {"freq": 869.5}}, True),
+        ({"tx_power": 30}, True),
+        ({"name": "x", "multi_acks_enabled": True}, True),
+        ([], True),
+    ],
+)
+def test_client_limits_radio_config_patch_to_mutable_fields(body, refused):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={}))
+    config = bench.BenchConfig(base_url="http://bench.test", channel="#t")
+    with bench.api_client(config, transport) as client:
+        if refused:
+            with pytest.raises(RuntimeError, match="MUTABLE_RADIO_FIELDS"):
+                client.patch("/radio/config", json=body)
+        else:
+            assert client.patch("/radio/config", json=body).status_code == 200
 
 
 def test_client_allows_reads_of_transport_and_proxy():

@@ -43,7 +43,14 @@ _FORBIDDEN_PREFIXES = (
     "/api/settings/backup",
     "/api/radio/reboot",
 )
-_FORBIDDEN_WRITES = ("/api/radio/transport", "/api/radio/proxy", "/api/radio/custom-vars")
+# Writes that can cut the radio's network link (Wi-Fi credentials, enable, reboot),
+# change how the bench reaches it (transport, proxy) or its custom variables.
+_FORBIDDEN_WRITES = (
+    "/api/radio/transport",
+    "/api/radio/proxy",
+    "/api/radio/custom-vars",
+    "/api/radio/wifi",
+)
 
 # Volatile fields left out of the before/after comparison.
 _VOLATILE_APP_SETTINGS = {"last_message_times", "last_advert_time"}
@@ -119,6 +126,17 @@ def _refuse_forbidden(request: httpx.Request) -> None:
         request.method != "GET" and path.startswith(_FORBIDDEN_WRITES)
     ):
         raise RuntimeError(f"radio bench refuses {request.method} {path}")
+    if request.method == "PATCH" and path == "/api/radio/config":
+        # The guard restores only MUTABLE_RADIO_FIELDS: any other key (frequency,
+        # tx power, name...) would be reported but never put back.
+        try:
+            body = json.loads(request.content or b"null")
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or not set(body) <= set(MUTABLE_RADIO_FIELDS):
+            raise RuntimeError(
+                f"radio bench refuses {request.method} {path} outside MUTABLE_RADIO_FIELDS"
+            )
 
 
 async def _refuse_forbidden_async(request: httpx.Request) -> None:

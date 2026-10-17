@@ -65,7 +65,6 @@ docs/user/            user docs, published by meshloom.app from the latest X.Y.Z
 docker-compose.dev.yaml  runs ghcr.io/twinrocket/meshloom:edge (never builds; see below)
 .github/workflows/    docker.yml (:edge from main, :next from preversion-5, release images),
                       forward-merge.yml (main into preversion-5); see docs/dev/releasing.md;
-                      radio-bench.yml (manual only, GitHub-hosted: the radio bench)
 tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-bench.md
 ```
 

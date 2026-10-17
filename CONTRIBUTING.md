@@ -188,7 +188,8 @@ uv run pytest tests/radio_bench -m radio -n 0 -v
 
 It never factory-resets the radio or touches its identity, restores every
 setting it changes and fails the run if any differs afterwards. What it
-touches, the manual **Radio bench** workflow and how to add a test:
+touches and how to add a test (it runs from your own machine on the LAN,
+there is no CI workflow for it):
 [`docs/dev/radio-bench.md`](docs/dev/radio-bench.md).
 
 ## Pull Request Expectations

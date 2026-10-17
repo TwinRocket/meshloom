@@ -31,11 +31,10 @@ radio, and the bench fails at once under an xdist worker. A run takes about a
 minute (sends are spaced 20 s apart, see below). The last line of the terminal
 summary says whether the settings were identical before and after the run.
 
-From GitHub, the **Radio bench** workflow (`.github/workflows/radio-bench.yml`,
-`workflow_dispatch` only) runs the same command on a GitHub-hosted runner with
-the URL, proxy and channel given as inputs. It never runs on a self-hosted
-runner, so it reaches only an instance exposed to the internet: `meshloom-next`
-on the LAN is a local run.
+There is no CI workflow for the bench: GitHub-hosted runners cannot reach a
+LAN-only instance, self-hosted runners are not allowed on this public
+repository, and exposing an instance to the internet is not an option (no API
+authentication, unauthenticated radio proxy). Run it locally, from the LAN.
 
 ## What it touches
 
@@ -56,12 +55,18 @@ on the LAN is a local run.
   `POST /radio/reconnect` (twice per run: once alone, once with a proxy client
   connected, whose TCP session must still answer afterwards); WebSocket and proxy
   clients that disconnect and come back. A reconnect runs the instance's normal
-  post-connect setup.
+  post-connect setup. `POST /radio/disconnect` pauses reconnection in memory
+  only: if the instance is killed hard (SIGKILL) between the disconnect and the
+  `radio_link` finalizer, the radio stays paused until someone calls
+  `POST /radio/reconnect` or restarts the instance.
 
 It never factory-resets the radio and never reads, exports or changes its
 identity: the API client refuses, before anything is sent, the private key,
 factory reset, identity, backup and reboot routes, and every write to the
-transport, the proxy settings and the custom variables
+transport, the proxy settings, the custom variables and the Wi-Fi routes
+(`/api/radio/wifi/*`: credentials, enabled, reboot; a bad call would cut the
+radio's network link). `PATCH /radio/config` is accepted only with keys from
+`MUTABLE_RADIO_FIELDS`, the only ones the guard restores
 (`_refuse_forbidden` in `bench.py`). The public key is dropped from every
 config read. The proxy itself answers `EXPORT_PRIVATE_KEY` with "disabled".
 
