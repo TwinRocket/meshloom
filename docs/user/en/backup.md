@@ -29,7 +29,7 @@ The group holds:
 
 - **Full backup (radio and Meshloom)**: the file described on this page.
 - **Restore a backup**: restores a full backup, or an older Meshloom-only backup.
-- **Download meshcore.db**: a copy of the whole database (message history included). It never contains the radio's private key and is not restored from the interface.
+- **Download meshcore.db**: a copy of the whole database (message history included). It never contains the radio's private key and is not restored from the interface. If you put such a copy back in place of the database yourself, Meshloom treats it as a restore when it next starts (see [What the backup contains](#what-the-backup-contains), "Not included").
 
 ## Restore after reflashing
 
@@ -75,11 +75,14 @@ Note that anyone who can reach your Meshloom can download this backup, and so ca
 - MQTT, webhook, Apprise, SQS, map upload and Home Assistant integrations, with their secrets, each enabled or disabled as in the file: an enabled one starts sending right after the restore. **Bots come back disabled**: a bot runs code on the server, so enable each one after reading it. On a server where bots are turned off (`MESHCORE_DISABLE_BOTS=true`, the default of the Linux package and the Raspberry Pi image, or **Disable Bots Until Server Restart**), bots are **not restored at all**: turn bots on first if you want them back. Before you restore, the summary names each integration, says whether the file enables the radio proxy, and says which bots are skipped.
 - The Web Push keys and subscriptions, restored only on a Meshloom that has no subscriptions of its own. Restored subscriptions receive your message notifications at once, so the summary names the address each one sends to before you restore.
 
+Newer versions of Meshloom add more parts to this file. A part the running version does not know is left aside, and the rest is restored; a part missing from the file leaves the matching data as it is. If one part cannot be restored, the others still are, and the restore says which part failed.
+
 **Not included:**
 
 - Messages, raw packets and telemetry history: use **Download meshcore.db** for those.
 - The radio connection settings (port, address, Bluetooth device): they belong to the machine.
 - Meshloom Community participation and its region code: joining is your choice, made again.
 - The radio's clock (Meshloom sets it) and a few settings no command reaches (buzzer and vibration).
+- The keys Meshloom uses to identify itself to online services (remote access, link sharing). They never leave the server, not even in a full backup that holds the radio's private key: Meshloom creates new ones after every restore, including a `meshcore.db` copy put back in place (made by this version or a later one), so those services need linking again.
 
 Channels are written into the radio's slots by the restore, and the slots above them are emptied. Meshloom manages those slots itself on every connection: they are filled again as you use the channels.
