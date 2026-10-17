@@ -1598,13 +1598,66 @@ class TestBlePrePairing:
         monkeypatch.setattr(
             ble_pairing,
             "note_connect_result",
-            lambda address, *, ok, after_already_paired: noted.append((ok, after_already_paired)),
+            lambda address, *, ok, after_already_paired, error=None: noted.append(
+                (ok, after_already_paired, type(error).__name__)
+            ),
         )
         with self._ble(), patch("app.radio.MeshCore") as mock_meshcore:
             mock_meshcore.create_ble = AsyncMock(return_value=None)
             with pytest.raises(RuntimeError):
                 await RadioManager().connect()
-        assert noted == [(False, True)]
+        assert noted == [(False, True, "RuntimeError")]
+
+    @pytest.mark.asyncio
+    async def test_bonded_radio_switched_off_is_not_a_stale_bond(self, monkeypatch):
+        """Device1.Connect times out on a bonded radio that is off: no Forget advice."""
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(
+            ble_pairing, "ensure_paired", AsyncMock(return_value=self._outcome("already_paired"))
+        )
+        with (
+            self._ble(),
+            patch("app.radio.MeshCore") as mock_meshcore,
+            patch("app.websocket.broadcast_error") as mock_broadcast_error,
+        ):
+            # What meshcore raises when bleak times out or does not find the device.
+            mock_meshcore.create_ble = AsyncMock(
+                side_effect=ConnectionError("Failed to connect to device")
+            )
+            for _ in range(ble_pairing.STALE_BOND_THRESHOLD + 2):
+                with pytest.raises(ConnectionError):
+                    await RadioManager().connect()
+
+        assert _error_codes(mock_broadcast_error) == []
+        assert ble_pairing._already_paired_failures == {}
+
+    @pytest.mark.asyncio
+    async def test_refused_bond_trips_the_stale_bond_hint(self, monkeypatch):
+        from bleak.exc import BleakDBusError
+
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(
+            ble_pairing, "ensure_paired", AsyncMock(return_value=self._outcome("already_paired"))
+        )
+        with (
+            self._ble(),
+            patch("app.radio.MeshCore") as mock_meshcore,
+            patch("app.websocket.broadcast_error") as mock_broadcast_error,
+        ):
+            mock_meshcore.create_ble = AsyncMock(
+                side_effect=BleakDBusError("org.bluez.Error.Failed", ["ATT error: 0x05"])
+            )
+            for _ in range(ble_pairing.STALE_BOND_THRESHOLD):
+                with pytest.raises(BleakDBusError):
+                    await RadioManager().connect()
+
+        assert _error_codes(mock_broadcast_error) == ["ble_pair_stale_bond"]
 
     @pytest.mark.asyncio
     async def test_reconnect_reports_a_blocking_error_once(self, monkeypatch, caplog):
@@ -1631,6 +1684,9 @@ class TestBlePrePairing:
                 assert await rm.reconnect(broadcast_on_success=False) is False
 
         assert _error_codes(mock_broadcast_error) == ["ble_pair_wrong_pin"]
+        # No English details under the translated title (errors.<code>Detail wins).
+        sent = mock_broadcast_error.call_args
+        assert "details" not in sent.kwargs and len(sent.args) == 1
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1
         assert rm._frontend_reconnect_error_broadcasts == 0

@@ -6,8 +6,9 @@ meshcore, ``ensure_paired()`` pairs the radio itself over D-Bus:
 
 1. pick the adapter (powered, central role; deterministic order) and look the
    device up on that adapter only, discovering it when BlueZ does not know it;
-2. already bonded there: trust it, release an orphan link, done (no agent);
-3. otherwise export a one-shot ``org.bluez.Agent1`` (``ble_agent.PairingAgent``),
+2. already bonded there: trust it, release an orphan link, done (no agent, and
+   the saved PIN is not even looked at, whatever its format);
+3. otherwise check the PIN (1-6 digits), export a one-shot ``org.bluez.Agent1`` (``ble_agent.PairingAgent``),
    ``RegisterAgent`` it as ``KeyboardOnly`` and call ``Device1.Pair()`` on the
    **same** D-Bus connection, so BlueZ uses it for this request only (never
    ``RequestDefaultAgent``: HA or a desktop agent keeps working);
@@ -124,7 +125,9 @@ _CODES: dict[str, tuple[int, bool, Retry, str]] = {
     "ble_pair_rejected": (422, False, "sticky", "The radio refused the pairing"),
     "ble_pair_unreachable": (503, False, "backoff", "The radio did not answer over Bluetooth"),
     "ble_pair_timeout": (504, False, "backoff", "Bluetooth pairing timed out"),
-    "ble_pair_in_progress": (409, False, "none", "A Bluetooth pairing is already in progress"),
+    # Backoff, not "none": another BlueZ client pairing the radio for 30 s would
+    # otherwise fail (and toast) on every monitor pass.
+    "ble_pair_in_progress": (409, False, "backoff", "A Bluetooth pairing is already in progress"),
     "ble_pair_failed": (502, False, "backoff", "Bluetooth pairing failed"),
     "ble_pair_unsupported": (
         503,
@@ -312,8 +315,17 @@ def _record_failure(fingerprint: str, error: BlePairingError) -> BlePairingError
     if error.retry == "backoff":
         step = BACKOFF_STEPS[min(attempts - 1, len(BACKOFF_STEPS) - 1)]
         retry_at = _monotonic() + step
-    # One toast per (address, PIN) and code: a retry failing the same way stays quiet.
-    already = bool(previous and previous.reported and previous.error.code == error.code)
+    # One toast per (address, PIN) and code, and one for the whole backoff class: a
+    # radio coming and going alternates device_not_found / unreachable / timeout,
+    # and each switch must not toast again. A sticky failure is always reported.
+    already = bool(
+        previous
+        and previous.reported
+        and (
+            previous.error.code == error.code
+            or (previous.error.retry == "backoff" and error.retry == "backoff")
+        )
+    )
     _last_failure = _Failure(
         fingerprint=fingerprint,
         error=error,
@@ -340,17 +352,70 @@ def log_fallback(exc: BlePairingError) -> None:
         logger.debug("Automatic BLE pairing still unavailable (%s)", exc.code)
 
 
-def note_connect_result(address: str, *, ok: bool, after_already_paired: bool) -> None:
+# Texts of a connect failure where the radio answered and refused our keys, or
+# dropped the link right after it came up. A radio that is off or out of range
+# gives TimeoutError, BleakDeviceNotFoundError or meshcore's ConnectionError
+# ("Failed to connect to device") instead, and must never look like a stale bond.
+_STALE_BOND_DBUS_ERRORS = frozenset(
+    {
+        "org.bluez.Error.AuthenticationFailed",
+        "org.bluez.Error.AuthenticationRejected",
+        "org.bluez.Error.NotAuthorized",
+        "org.bluez.Error.NotPermitted",
+    }
+)
+_STALE_BOND_TEXTS = (
+    "authentication failed",
+    "authentication failure",
+    "authentication rejected",
+    "insufficient authentication",
+    "insufficient encryption",
+    "key missing",
+    "abort-by-remote",
+    "device disconnected",
+    "not connected",
+)
+
+
+def connect_error_suggests_stale_bond(error: BaseException | None) -> bool:
+    """Whether a connect failure on an existing bond points at the radio's keys.
+
+    Conservative on purpose: a false positive tells every user to Forget a good
+    bond, a miss only delays the hint (Forget pairing stays offered while paired).
+    """
+    seen = 0
+    current = error
+    while current is not None and seen < 5:
+        dbus_error = getattr(current, "dbus_error", None)
+        if isinstance(dbus_error, str) and dbus_error in _STALE_BOND_DBUS_ERRORS:
+            return True
+        text = str(current).lower()
+        if any(item in text for item in _STALE_BOND_TEXTS):
+            return True
+        current = current.__cause__ or current.__context__
+        seen += 1
+    return False
+
+
+def note_connect_result(
+    address: str,
+    *,
+    ok: bool,
+    after_already_paired: bool,
+    error: BaseException | None = None,
+) -> None:
     """Count connection failures on an existing bond (a radio reset leaves it stale).
 
-    Never removes the bond: past the threshold the UI suggests Forget pairing.
+    Only failures where the radio answered count (``connect_error_suggests_stale_bond``):
+    a bonded radio that is switched off must not trip the hint. Never removes the
+    bond: past the threshold the UI suggests Forget pairing.
     """
     address = _normalise(address)
     if ok:
         _already_paired_failures.pop(address, None)
         _stale_bond_reported.discard(address)
         return
-    if not after_already_paired:
+    if not after_already_paired or not connect_error_suggests_stale_bond(error):
         return
     count = _already_paired_failures.get(address, 0) + 1
     _already_paired_failures[address] = count
@@ -755,9 +820,16 @@ class _PairSession:
                 return await self._already_paired(props)
             # Not paired, or a session-only pairing (Paired without Bonded): pair
             # directly. A radio that is not advertising fails Pair() as unreachable.
+            self._check_pin()
         else:
+            self._check_pin()  # before a 10 s discovery that could not lead anywhere
             self.device_path = await self._discover()
         return await self._pair()
+
+    def _check_pin(self) -> None:
+        """Only once a ``Pair()`` is needed: no agent, no discovery with a bad PIN."""
+        if not is_valid_pin(self._pin):
+            raise BlePairingError("ble_pair_invalid_pin")
 
     async def _already_paired(self, props: dict[str, Any]) -> PairOutcome:
         bluez = self.bluez
@@ -969,8 +1041,8 @@ async def _ensure_paired_locked(address: str, pin: str, *, explicit: bool) -> Pa
         _clear_failure_state()
     else:
         _raise_if_blocked(fingerprint)
-    if not is_valid_pin(pin):
-        raise _record_failure(fingerprint, BlePairingError("ble_pair_invalid_pin"))
+    # The PIN format is checked by the session, after the bond lookup: a radio
+    # bonded earlier (bluetoothctl) connects whatever the saved PIN looks like.
     try:
         outcome = await _pair_session(address, pin)
     except BlePairingError as exc:

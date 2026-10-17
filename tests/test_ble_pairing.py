@@ -212,6 +212,7 @@ class TestErrorMapping:
         assert BlePairingError("ble_pair_device_blocked").retry == "sticky"
         assert BlePairingError("ble_pair_unreachable").retry == "backoff"
         assert BlePairingError("ble_pair_device_not_found").retry == "backoff"
+        assert BlePairingError("ble_pair_in_progress").retry == "backoff"
         assert BlePairingError("ble_pair_dbus_unavailable").retry == "none"
         unexpected = ble_pairing._map_dbus_error(
             "org.bluez.Error.AuthenticationFailed",
@@ -287,18 +288,27 @@ class TestAgent:
 
 
 class TestRetryPolicy:
-    async def test_invalid_pin_fails_before_touching_the_bus(self, monkeypatch):
-        opened = []
+    @pytest.mark.parametrize("pin", ["1234567", "none", "0000-0"])
+    async def test_invalid_pin_still_reaches_the_bond_lookup(self, session, pin):
+        # A radio bonded earlier (bluetoothctl) needs no PIN: the format is checked
+        # by the session only when a Pair() is needed (test_ble_pairing_dbus).
+        session.script.append(PairOutcome("already_paired", ADDRESS, "/a", "/a/d", {}))
 
-        async def _open():
-            opened.append(True)
-            raise AssertionError("bus opened")
+        outcome = await ble_pairing.ensure_paired(ADDRESS, pin)
 
-        monkeypatch.setattr(ble_pairing, "_open_bus", _open)
-        with pytest.raises(BlePairingError) as excinfo:
-            await ble_pairing.ensure_paired(ADDRESS, "12345678")
-        assert excinfo.value.code == "ble_pair_invalid_pin"
-        assert opened == []
+        assert outcome.state == "already_paired"
+        assert session.calls == [(ADDRESS, pin)]
+
+    async def test_invalid_pin_is_sticky(self, session):
+        session.script.append(BlePairingError("ble_pair_invalid_pin"))
+        with pytest.raises(BlePairingError) as first:
+            await ble_pairing.ensure_paired(ADDRESS, "1234567")
+        with pytest.raises(BlePairingError) as second:
+            await ble_pairing.ensure_paired(ADDRESS, "1234567")
+        assert first.value.code == second.value.code == "ble_pair_invalid_pin"
+        assert first.value.already_reported is False
+        assert second.value.already_reported is True
+        assert len(session.calls) == 1
 
     async def test_wrong_pin_is_sticky_for_that_pin_only(self, session):
         session.script.append(BlePairingError("ble_pair_wrong_pin"))
@@ -357,6 +367,53 @@ class TestRetryPolicy:
         assert first.value.already_reported is False
         assert second.value.already_reported is True
 
+    async def test_backoff_class_is_reported_once_across_codes(self, session, clock):
+        # A radio coming and going alternates these codes: one toast, not one per switch.
+        codes = [
+            "ble_pair_device_not_found",
+            "ble_pair_unreachable",
+            "ble_pair_timeout",
+            "ble_pair_device_not_found",
+        ]
+        reported = []
+        for code in codes:
+            session.script.append(BlePairingError(code))
+            with pytest.raises(BlePairingError) as excinfo:
+                await ble_pairing.ensure_paired(ADDRESS, PIN)
+            assert excinfo.value.code == code
+            reported.append(excinfo.value.already_reported)
+            clock.now += 61
+        assert reported == [False, True, True, True]
+
+    async def test_sticky_after_backoff_is_reported(self, session, clock):
+        session.script.extend(
+            [BlePairingError("ble_pair_unreachable"), BlePairingError("ble_pair_wrong_pin")]
+        )
+        with pytest.raises(BlePairingError):
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        clock.now += 5
+        with pytest.raises(BlePairingError) as sticky:
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        assert sticky.value.code == "ble_pair_wrong_pin"
+        assert sticky.value.already_reported is False
+
+    async def test_pairing_in_progress_elsewhere_backs_off_quietly(self, session, clock):
+        # Another BlueZ client pairing the radio: no attempt (and no toast) every 5 s.
+        session.script.extend(
+            [BlePairingError("ble_pair_in_progress"), BlePairingError("ble_pair_in_progress")]
+        )
+        with pytest.raises(BlePairingError) as first:
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        with pytest.raises(BlePairingError) as blocked:
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        clock.now += 5
+        with pytest.raises(BlePairingError) as second:
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        assert first.value.already_reported is False
+        assert blocked.value.already_reported is True
+        assert second.value.already_reported is True
+        assert len(session.calls) == 2
+
     async def test_success_resets_backoff(self, session, clock):
         session.script.append(BlePairingError("ble_pair_unreachable"))
         with pytest.raises(BlePairingError):
@@ -391,6 +448,12 @@ class TestRetryPolicy:
         assert ble_pairing.in_progress() is False
 
 
+def _refused() -> Exception:
+    from bleak.exc import BleakDBusError
+
+    return BleakDBusError("org.bluez.Error.AuthenticationFailed", [])
+
+
 class TestStaleBond:
     def test_three_failures_after_already_paired_broadcast_once(self, monkeypatch):
         sent = []
@@ -398,15 +461,64 @@ class TestStaleBond:
             "app.websocket.broadcast_error", lambda *a, **k: sent.append(k.get("code"))
         )
         for _ in range(4):
-            ble_pairing.note_connect_result(ADDRESS, ok=False, after_already_paired=True)
+            ble_pairing.note_connect_result(
+                ADDRESS, ok=False, after_already_paired=True, error=_refused()
+            )
         assert sent == ["ble_pair_stale_bond"]
 
     def test_failures_after_a_fresh_pairing_do_not_count(self, monkeypatch):
         sent = []
         monkeypatch.setattr("app.websocket.broadcast_error", lambda *a, **k: sent.append(k))
         for _ in range(5):
-            ble_pairing.note_connect_result(ADDRESS, ok=False, after_already_paired=False)
+            ble_pairing.note_connect_result(
+                ADDRESS, ok=False, after_already_paired=False, error=_refused()
+            )
         assert sent == []
+
+    @staticmethod
+    def _absent_radio_errors() -> list[BaseException]:
+        from bleak.exc import BleakDBusError, BleakDeviceNotFoundError
+
+        return [
+            TimeoutError(),
+            # meshcore turns bleak's TimeoutError / BleakDeviceNotFoundError into this
+            ConnectionError("Failed to connect to device"),
+            BleakDeviceNotFoundError(ADDRESS),
+            BleakDBusError("org.bluez.Error.Failed", ["le-connection-abort-by-local"]),
+            BleakDBusError("org.bluez.Error.Failed", ["Page Timeout"]),
+            RuntimeError(f"Failed to open BLE connection to {ADDRESS}"),
+        ]
+
+    def test_radio_off_or_out_of_range_never_counts(self, monkeypatch):
+        sent = []
+        monkeypatch.setattr("app.websocket.broadcast_error", lambda *a, **k: sent.append(k))
+        for error in self._absent_radio_errors() * 3:
+            ble_pairing.note_connect_result(
+                ADDRESS, ok=False, after_already_paired=True, error=error
+            )
+        ble_pairing.note_connect_result(ADDRESS, ok=False, after_already_paired=True)
+        assert sent == []
+        assert ble_pairing._already_paired_failures == {}
+
+    def test_refusal_signals(self):
+        from bleak.exc import BleakDBusError, BleakError
+
+        refused = [
+            _refused(),
+            BleakDBusError("org.bluez.Error.NotPermitted", ["Write not permitted"]),
+            BleakDBusError("org.bluez.Error.Failed", ["ATT error: 0x05"]),
+            BleakDBusError("org.bluez.Error.Failed", ["ATT error: 0x0f"]),
+            BleakDBusError("org.bluez.Error.Failed", ["le-connection-abort-by-remote"]),
+            BleakError("failed to discover services, device disconnected"),
+        ]
+        for error in refused:
+            assert ble_pairing.connect_error_suggests_stale_bond(error), error
+        wrapped = RuntimeError("connect failed")
+        wrapped.__cause__ = _refused()
+        assert ble_pairing.connect_error_suggests_stale_bond(wrapped)
+        for error in self._absent_radio_errors():
+            assert not ble_pairing.connect_error_suggests_stale_bond(error), error
+        assert not ble_pairing.connect_error_suggests_stale_bond(None)
 
     def test_success_resets(self, monkeypatch):
         sent = []
@@ -414,17 +526,23 @@ class TestStaleBond:
             "app.websocket.broadcast_error", lambda *a, **k: sent.append(k.get("code"))
         )
         for _ in range(2):
-            ble_pairing.note_connect_result(ADDRESS, ok=False, after_already_paired=True)
+            ble_pairing.note_connect_result(
+                ADDRESS, ok=False, after_already_paired=True, error=_refused()
+            )
         ble_pairing.note_connect_result(ADDRESS, ok=True, after_already_paired=True)
         for _ in range(2):
-            ble_pairing.note_connect_result(ADDRESS, ok=False, after_already_paired=True)
+            ble_pairing.note_connect_result(
+                ADDRESS, ok=False, after_already_paired=True, error=_refused()
+            )
         assert sent == []
 
     async def test_status_hint(self, monkeypatch):
         monkeypatch.setattr("app.websocket.broadcast_error", lambda *a, **k: None)
         monkeypatch.setattr(ble_pairing, "pairing_supported", lambda: (True, None))
         for _ in range(3):
-            ble_pairing.note_connect_result(ADDRESS, ok=False, after_already_paired=True)
+            ble_pairing.note_connect_result(
+                ADDRESS, ok=False, after_already_paired=True, error=_refused()
+            )
         status = await ble_pairing.pairing_status(ADDRESS, PIN, True)
         assert status.hint == "stale_bond_suspected"
 

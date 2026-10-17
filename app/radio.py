@@ -591,7 +591,10 @@ class RadioManager:
         if not counted:
             # BLE pairing failures: ble_pairing already sends each one once per
             # (address, PIN), so they neither use nor consume the budget below.
-            broadcast_error("Bluetooth pairing failed", details, code=code, params=params)
+            # ``details`` is the code's English message: sent as the fallback title
+            # only, never as details, which the UI would show untranslated under
+            # the translated errors.<code> title (it uses errors.<code>Detail).
+            broadcast_error(details, code=code, params=params)
             return
 
         self._frontend_reconnect_error_broadcasts += 1
@@ -784,10 +787,13 @@ class RadioManager:
                 )
             if mc is None:
                 raise RuntimeError(f"Failed to open BLE connection to {address}")
-        except Exception:
+        except Exception as exc:
             if outcome is not None:
                 ble_pairing.note_connect_result(
-                    address, ok=False, after_already_paired=outcome.state == "already_paired"
+                    address,
+                    ok=False,
+                    after_already_paired=outcome.state == "already_paired",
+                    error=exc,
                 )
             raise
         if outcome is not None:

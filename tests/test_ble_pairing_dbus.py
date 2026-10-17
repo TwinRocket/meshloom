@@ -183,6 +183,20 @@ class TestAlreadyPaired:
         assert "Pair" not in bluez.members()
         assert bluez.devices[path]["Trusted"] is True
 
+    @pytest.mark.parametrize("pin", ["1234567", "none", "0000-0"])
+    @pytest.mark.parametrize("explicit", [False, True])
+    async def test_bonded_device_ignores_the_saved_pin_format(self, pairing, bluez, pin, explicit):
+        # Bonded earlier with bluetoothctl, any placeholder saved as the PIN: still
+        # connects, as it did before Meshloom paired by itself.
+        adapter = bluez.add_adapter("hci0")
+        bluez.add_device(adapter, ADDRESS, Paired=True, Bonded=True, Trusted=True)
+
+        outcome = await pairing.ensure_paired(ADDRESS, pin, explicit=explicit)
+
+        assert outcome.state == "already_paired"
+        assert "RegisterAgent" not in bluez.members()
+        assert pairing._last_failure is None
+
     async def test_bonded_and_connected_releases_the_orphan_link(self, pairing, bluez):
         adapter = bluez.add_adapter("hci0")
         path = bluez.add_device(
@@ -253,6 +267,29 @@ class TestDiscovery:
 
 
 class TestFailures:
+    async def test_invalid_pin_on_a_known_device_registers_no_agent(self, pairing, bluez):
+        adapter = bluez.add_adapter("hci0")
+        bluez.add_device(adapter, ADDRESS, passkey=123456)
+
+        with pytest.raises(pairing.BlePairingError) as excinfo:
+            await pairing.ensure_paired(ADDRESS, "1234567")
+
+        assert excinfo.value.code == "ble_pair_invalid_pin"
+        assert "RegisterAgent" not in bluez.members()
+        assert "Pair" not in bluez.members()
+        assert pairing.auto_pair_blocked(ADDRESS, "1234567")
+
+    async def test_invalid_pin_on_an_unknown_device_skips_discovery(self, pairing, bluez):
+        adapter = bluez.add_adapter("hci0")
+        bluez.add_hidden_device(adapter, ADDRESS, delay=0.1)
+
+        with pytest.raises(pairing.BlePairingError) as excinfo:
+            await pairing.ensure_paired(ADDRESS, "none")
+
+        assert excinfo.value.code == "ble_pair_invalid_pin"
+        assert "StartDiscovery" not in bluez.members()
+        assert "RegisterAgent" not in bluez.members()
+
     async def test_wrong_pin(self, pairing, bluez):
         adapter = bluez.add_adapter("hci0")
         path = bluez.add_device(adapter, ADDRESS, passkey=654321)
