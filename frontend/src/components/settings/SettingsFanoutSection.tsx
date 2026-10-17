@@ -3434,7 +3434,9 @@ export function SettingsFanoutSection({
           />
         )}
 
-        {detailType === 'bot' && <BotConfigEditor config={editConfig} onChange={updateEditConfig} />}
+        {detailType === 'bot' && (
+          <BotConfigEditor config={editConfig} onChange={updateEditConfig} />
+        )}
 
         {detailType === 'apprise' && (
           <AppriseConfigEditor
