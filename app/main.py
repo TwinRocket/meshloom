@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -357,6 +358,21 @@ async def radio_disconnected_handler(request: Request, exc: RadioDisconnectedErr
         status_code=423,
         content={"detail": {"code": "radio_not_connected", "message": "Radio not connected"}},
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    """FastAPI's 422 shape without each error's ``input`` and ``ctx``.
+
+    The default body echoes the rejected value, even for a ``SecretStr`` field
+    and with ``hide_input_in_errors``: a mistyped password or key would come back
+    in the response. The frontend reads only ``type``, ``loc`` and ``msg``.
+    """
+    detail = [
+        {"type": error.get("type"), "loc": list(error.get("loc", ())), "msg": error.get("msg")}
+        for error in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 @app.middleware("http")

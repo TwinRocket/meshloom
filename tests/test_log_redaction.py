@@ -14,6 +14,7 @@ import sys
 
 import pytest
 from meshcore import EventType
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 import app.log_redaction as log_redaction
 from app.config import (
@@ -33,6 +34,10 @@ from app.log_redaction import (
     registered_secret_count,
     secret_scope,
 )
+
+# Imported at module level: importing app.main runs setup_logging(), whose
+# dictConfig would drop caplog's handler if it happened inside a test.
+from app.main import log_server_errors, request_validation_error_handler
 from tests.fixtures.meshcore_loopback import cli_reply, make_loopback
 
 SECRET = "S3cr3t-Pw!"
@@ -382,6 +387,70 @@ def test_private_key_update_model_never_echoes_the_key(debug_logs):
     else:  # pragma: no cover
         pytest.fail("expected a ValidationError")
     assert_no_secret(debug_logs, secret)
+
+
+# --------------------------------------------------------------------------
+# HTTP: 422 bodies and 500 logs
+# --------------------------------------------------------------------------
+
+
+class SampleCredentials(BaseModel):
+    """The mandatory shape of a model with a secret field (app/AGENTS.md)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    password: SecretStr = Field(max_length=8)
+
+
+def _mini_app():
+    from fastapi import FastAPI
+    from fastapi.exceptions import RequestValidationError
+
+    mini = FastAPI()
+    mini.middleware("http")(log_server_errors)
+    mini.add_exception_handler(RequestValidationError, request_validation_error_handler)
+
+    @mini.post("/body")
+    async def body(credentials: SampleCredentials) -> dict:
+        return {"ok": True}
+
+    @mini.post("/service")
+    async def service(payload: dict) -> dict:
+        # A model built in service code: its ValidationError is a 500.
+        SampleCredentials(password=payload["password"])
+        return {"ok": True}
+
+    return mini
+
+
+def test_422_body_never_echoes_the_input():
+    from fastapi.testclient import TestClient
+
+    with TestClient(_mini_app()) as client:
+        response = client.post("/body", json={"password": SECRET})
+    assert response.status_code == 422
+    assert SECRET not in response.text
+    [error] = response.json()["detail"]
+    assert set(error) == {"type", "loc", "msg"}
+    assert error["loc"] == ["body", "password"]
+
+
+def test_app_422_handler_is_registered():
+    from fastapi.exceptions import RequestValidationError
+
+    from app.main import app, request_validation_error_handler
+
+    assert app.exception_handlers[RequestValidationError] is request_validation_error_handler
+
+
+def test_500_from_service_validation_error_logs_no_secret(debug_logs):
+    from fastapi.testclient import TestClient
+
+    with TestClient(_mini_app(), raise_server_exceptions=False) as client:
+        response = client.post("/service", json={"password": SECRET})
+    assert response.status_code == 500
+    assert any("Unhandled exception" in message for message in messages(debug_logs))
+    assert_no_secret(debug_logs)
 
 
 # --------------------------------------------------------------------------
