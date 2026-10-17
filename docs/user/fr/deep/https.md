@@ -48,7 +48,7 @@ Les montages du certificat sont en lecture seule. `command` remplace celle de l�
 
 ## Reverse-proxy sur un sous-chemin
 
-Meshloom peut être servi sous un préfixe, par exemple `/meshcore/`, y compris via la barre latérale de Home Assistant. Les adresses des ressources, de l’API et du manifeste web sont toutes relatives : il n’y a rien d’autre à configurer, et aucun en-tête `X-Forwarded-*` n’est nécessaire.
+Meshloom peut être servi sous un préfixe, par exemple `/meshcore/`, y compris via la barre latérale de Home Assistant. Les adresses des ressources, de l’API et du manifeste web sont toutes relatives : il n’y a rien d’autre à configurer, et aucun en-tête `X-Forwarded-*` n’est nécessaire, sauf `X-Forwarded-Host` pour la connexion en direct quand le proxy réécrit `Host` (voir [WebSocket](#websocket)).
 
 Une seule exigence côté proxy : l’adresse doit **se terminer par une barre oblique**. Si un visiteur atteint `/meshcore` sans elle, les chemins relatifs cassent. La plupart des proxys s’en occupent ; avec Nginx, un bloc `location /meshcore/ { ... }`, barre comprise, fait ce qu’il faut.
 
@@ -59,6 +59,8 @@ La page garde une connexion permanente avec le serveur, sur `/api/ws`, pour rece
 La page envoie un ping au serveur toutes les trente secondes. Un proxy qui coupe les connexions inactives plus tôt que cela provoque des reconnexions en boucle.
 
 Quand l’authentification HTTP Basic est activée, elle s’applique aussi à cette connexion, pas seulement aux pages.
+
+Le serveur refuse cette connexion quand elle vient d’une page d’un autre site : le navigateur indique à quel site appartient la page (l’en-tête `Origin`), qui doit correspondre à l’adresse demandée par le navigateur (l’en-tête `Host`). Les scripts et les applications qui n’envoient pas d’`Origin` ne sont pas concernés. Un proxy qui garde le `Host` d’origine, comme Caddy et Traefik, n’a besoin de rien de plus. Un proxy qui le remplace doit transmettre l’original dans `X-Forwarded-Host` (avec Nginx : `proxy_set_header Host $http_host;` ou `proxy_set_header X-Forwarded-Host $http_host;` ; `$host` perdrait le port) ; la barre latérale de Home Assistant le fait déjà. Sinon la page s’affiche mais rien n’arrive en direct, et le journal du serveur indique `Refused a WebSocket upgrade from a foreign origin`.
 
 ## Sur quelle adresse écouter
 

@@ -14,6 +14,7 @@ The server now enforces the radio's message size limit for every way of sending.
 
 ### Security
 
+- **Other websites can no longer open the live connection.** A web page from another site, open in a browser that can reach Meshloom, could open the live connection (`/api/ws`) and receive your messages, packets and radio state as they arrive, with Basic auth on or not. The server now refuses that connection when the browser says it comes from another site; scripts and apps that do not say where they come from are unaffected. If you put Meshloom behind a reverse proxy that replaces the `Host` header, have it send the original one in `X-Forwarded-Host`, otherwise nothing arrives live (the Home Assistant sidebar already does).
 - **Failed notification tests no longer reveal your network.** The **Test** buttons for a push subscription and for the e-mail and webhook destinations used to show the raw network error (connection refused, unknown host, HTTP status). A web page could use that answer to map the machines on your network. They now show a translated message saying only what kind of failure it was. The server's log records the error type, and for the webhook its host and HTTP status, but no longer the webhook address with its token.
 
 ---
@@ -34,6 +35,7 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 
 #### Sécurité
 
+- **Les autres sites ne peuvent plus ouvrir la connexion en direct.** Une page web d'un autre site, ouverte dans un navigateur qui atteint Meshloom, pouvait ouvrir la connexion en direct (`/api/ws`) et recevoir vos messages, vos paquets et l'état de la radio à leur arrivée, accès Basic activé ou non. Le serveur refuse maintenant cette connexion quand le navigateur indique qu'elle vient d'un autre site ; les scripts et les applications qui n'indiquent pas leur provenance ne sont pas concernés. Si Meshloom est derrière un proxy inverse qui remplace l'en-tête `Host`, faites-lui transmettre l'original dans `X-Forwarded-Host`, sinon rien n'arrive en direct (la barre latérale de Home Assistant le fait déjà).
 - **Un test de notification qui échoue ne révèle plus votre réseau.** Les boutons **Test** d'un abonnement push et des destinations e-mail et webhook affichaient l'erreur réseau brute (connexion refusée, hôte inconnu, statut HTTP). Une page web pouvait s'en servir pour repérer les machines de votre réseau. Ils affichent maintenant un message traduit qui dit seulement quel type d'échec s'est produit. Le journal du serveur indique le type d'erreur et, pour le webhook, son hôte et son statut HTTP, mais plus l'adresse du webhook avec son jeton.
 
 ---

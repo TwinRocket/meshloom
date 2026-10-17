@@ -456,6 +456,15 @@ floor, never the percentage alone, and do not remove the floor.
 
 ## WebSocket (server side)
 
+- **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
+  (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
+  and port (missing port = the scheme's default) differ from both `Host` and
+  the first `X-Forwarded-Host` is closed with 1008, which uvicorn sends as an
+  HTTP 403 (no frame). No `Origin` is accepted (scripts, meshenger);
+  `Origin: null` is refused. Trusting `X-Forwarded-Host` is safe against
+  CSWSH because a browser page cannot set it; DNS rebinding is the `Host`
+  guard's job, not this one. Keep a new WebSocket route behind the same call.
+  Not shared with the HTTP CORS rule yet (MSHL-5).
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses

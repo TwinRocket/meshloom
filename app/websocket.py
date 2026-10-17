@@ -5,8 +5,9 @@ import logging
 import math
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import WebSocket
 
@@ -61,6 +62,105 @@ def _backlog_limit(event_type: str) -> int:
 # Close code sent to an evicted client: 1013 "Try Again Later". The frontend
 # reconnects on any close and refetches state, so nothing is lost.
 EVICT_CLOSE_CODE = 1013
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+# Close code for a refused upgrade: 1008 "Policy Violation". Sent before
+# accept(), it reaches the client as a plain HTTP 403 (uvicorn), not a frame.
+# A denial response (websocket.http.response) would carry a body, but uvicorn
+# then logs "ASGI callable returned without completing handshake" at ERROR.
+FOREIGN_ORIGIN_CLOSE_CODE = 1008
+
+
+def _host_and_port(netloc: str, default_port: int) -> tuple[str, int] | None:
+    try:
+        parts = urlsplit(f"//{netloc.strip()}")
+        hostname = parts.hostname
+        port = parts.port or default_port
+    except ValueError:
+        return None
+    if not hostname:
+        return None
+    return hostname.lower(), port
+
+
+def origin_allowed(headers: Mapping[str, str]) -> bool:
+    """Whether a WebSocket upgrade's ``Origin`` is absent or same-origin.
+
+    Browsers always send ``Origin`` on a WebSocket upgrade and never let a page
+    set ``Host`` or ``X-Forwarded-Host``, so a page on another site is refused
+    (cross-site WebSocket hijacking) while scripts and native clients, which
+    send no ``Origin``, keep working. The origin's host and port must equal
+    the request's ``Host``, or the first ``X-Forwarded-Host`` set by a reverse
+    proxy that rewrites ``Host`` (the Home Assistant ingress sets it). A
+    missing port means the scheme's default; ``Origin: null`` is refused.
+    """
+    origin = headers.get("origin")
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(origin.strip())
+    except ValueError:
+        return False
+    default_port = _DEFAULT_PORTS.get(parts.scheme.lower())
+    if default_port is None or parts.path or parts.query or parts.username:
+        return False
+    # The scheme is deliberately not compared with the request's: behind a TLS
+    # terminator the backend sees http while the browser's Origin is https, and
+    # the backend cannot tell. Only host and port are matched, so an attacker
+    # would need another server on the very same host:port to slip through,
+    # which a cross-site page cannot arrange.
+    origin_target = _host_and_port(parts.netloc, default_port)
+    if origin_target is None:
+        return False
+    candidates = [headers.get("host", "")]
+    forwarded_host = headers.get("x-forwarded-host")
+    if forwarded_host:
+        candidates.append(forwarded_host.split(",", 1)[0])
+    return any(
+        _host_and_port(candidate, default_port) == origin_target
+        for candidate in candidates
+        if candidate
+    )
+
+
+# Last WARNING per refused origin (monotonic seconds), so a hostile page that
+# retries in a loop cannot flood the log. Bounded: the oldest entry is evicted.
+_refusal_last_logged: dict[str | None, float] = {}
+_REFUSAL_LOG_MAX_ORIGINS = 256
+
+
+def _log_refusal(origin: str | None, host: str | None) -> None:
+    """Log a refusal at WARNING once per origin per ``DROP_LOG_INTERVAL_SECONDS``."""
+    now = time.monotonic()
+    last = _refusal_last_logged.get(origin)
+    if last is not None and now - last < DROP_LOG_INTERVAL_SECONDS:
+        return
+    if origin not in _refusal_last_logged and (
+        len(_refusal_last_logged) >= _REFUSAL_LOG_MAX_ORIGINS
+    ):
+        _refusal_last_logged.pop(next(iter(_refusal_last_logged)))
+    _refusal_last_logged[origin] = now
+    logger.warning(
+        "Refused a WebSocket upgrade from a foreign origin %r (host %r)",
+        origin,
+        host,
+    )
+
+
+async def reject_foreign_origin(websocket: WebSocket) -> bool:
+    """Refuse an upgrade from a foreign ``Origin`` before it is accepted.
+
+    Returns True when the upgrade was refused: the caller must return without
+    calling ``ws_manager.connect()``. The socket is never accepted, so no
+    frame is sent; the client gets an HTTP 403.
+    """
+    if origin_allowed(websocket.headers):
+        return False
+    _log_refusal(websocket.headers.get("origin"), websocket.headers.get("host"))
+    await websocket.close(code=FOREIGN_ORIGIN_CLOSE_CODE)
+    return True
 
 
 class _Client:

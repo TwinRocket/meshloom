@@ -13,6 +13,8 @@ Meshloom est conçu pour un réseau dont vous connaissez les utilisateurs. Plusi
 
 **Aucune restriction sur l’origine des requêtes.** Le serveur accepte les requêtes venant de n’importe quelle page web (`allow_origins=["*"]`, avec `allow_credentials=True`). C’est pratique pour ouvrir l’interface depuis n’importe quel appareil, mais une page web ouverte dans le même navigateur peut aussi appeler l’API.
 
+La connexion en direct (`/api/ws`, le WebSocket) fait exception : le serveur la refuse quand un navigateur l’ouvre depuis une page d’un autre site, si bien qu’une telle page ne peut pas écouter vos messages et paquets à leur arrivée. Son `Origin` doit correspondre à l’adresse demandée par le navigateur (`Host`, ou `X-Forwarded-Host` derrière un proxy qui réécrit `Host`) ; les clients qui n’envoient pas d’`Origin`, comme les scripts, sont acceptés. Voir [HTTPS](/docs/deep/https/#websocket).
+
 **Les bots exécutent du Python quelconque.** Un bot est un petit programme Python écrit dans l’interface. Meshloom l’exécute tel quel, avec un accès complet au langage (`exec()` avec tous les `__builtins__`). Quiconque atteint Meshloom peut donc faire exécuter du code sur la machine hôte. C’est voulu.
 
 Rien de tout cela n’affaiblit le chiffrement propre à MeshCore par radio : les messages directs et les messages de canal restent chiffrés comme d’habitude. Ces points décrivent qui peut utiliser l’application, pas ce qui circule par radio. La clé privée du nœud fait exception côté serveur : quiconque atteint l’interface, y compris une page web ouverte dans un navigateur qui peut joindre Meshloom, peut la lire (voir [La clé privée du nœud](#la-clé-privée-du-nœud)).
