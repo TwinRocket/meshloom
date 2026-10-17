@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from types import SimpleNamespace
@@ -220,7 +221,9 @@ class TestErrorMapping:
             agent=_agent(unexpected_method="RequestAuthorization"),
         )
         assert unexpected.retry == "sticky"
-        assert unexpected.params == {"error": "unexpected pairing method"}
+        # The D-Bus method name, never English prose shown as is in the FR UI.
+        assert unexpected.params == {"error": "RequestAuthorization"}
+        assert "RequestAuthorization" in unexpected.message
 
     def test_unknown_error_names_itself(self):
         error = ble_pairing._map_dbus_error("org.example.Weird", context="pair")
@@ -693,3 +696,66 @@ class TestStatusWithoutBus:
         status = await ble_pairing.pairing_status(ADDRESS, PIN, True)
         assert status.state == "unavailable"
         assert status.error_code == "ble_pair_dbus_unavailable"
+
+
+class _HangingBus:
+    """A MessageBus whose handshake never finishes; records the disconnect."""
+
+    instances: list[_HangingBus] = []
+
+    def __init__(self, **_kwargs) -> None:
+        self.disconnected = False
+        _HangingBus.instances.append(self)
+
+    async def connect(self):
+        await asyncio.Event().wait()
+
+    def disconnect(self) -> None:
+        self.disconnected = True
+
+
+class TestBusCancellation:
+    """A cancelled bus handshake must not leave a system-bus socket open."""
+
+    @pytest.fixture
+    def hanging_bus(self, monkeypatch):
+        pytest.importorskip("dbus_fast")
+        import dbus_fast.aio
+
+        _HangingBus.instances = []
+        monkeypatch.setattr(dbus_fast.aio, "MessageBus", _HangingBus)
+        return _HangingBus.instances
+
+    async def test_outer_timeout_closes_the_half_open_bus(self, hanging_bus):
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(0.05):
+                await ble_pairing._connect_bus()
+        assert [bus.disconnected for bus in hanging_bus] == [True]
+
+    async def test_task_cancel_closes_the_half_open_bus(self, hanging_bus):
+        task = asyncio.create_task(ble_pairing._connect_bus())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert [bus.disconnected for bus in hanging_bus] == [True]
+
+    async def test_status_read_timeout_closes_the_half_open_bus(self, hanging_bus, monkeypatch):
+        # The real _open_bus (conftest stubs it): the panel polls this path.
+        monkeypatch.setattr(ble_pairing, "_open_bus", ble_pairing._connect_bus)
+        monkeypatch.setattr(ble_pairing, "STATUS_TIMEOUT", 0.05)
+        monkeypatch.setattr(ble_pairing, "pairing_supported", lambda: (True, None))
+        status = await ble_pairing.pairing_status(ADDRESS, PIN, True)
+        assert status.state == "unavailable"
+        assert status.error_code == "ble_pair_bluez_unavailable"
+        assert [bus.disconnected for bus in hanging_bus] == [True]
+
+    async def test_bus_connect_counts_in_the_overall_budget(self, monkeypatch):
+        async def _never(*_args):
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(ble_pairing, "_open_bus", _never)
+        monkeypatch.setattr(ble_pairing, "OVERALL_TIMEOUT", 0.05)
+        with pytest.raises(BlePairingError) as exc:
+            await ble_pairing._pair_session(ADDRESS, PIN)
+        assert exc.value.code == "ble_pair_timeout"

@@ -1275,7 +1275,10 @@ async def get_radio_ble_pairing() -> RadioBlePairingStatus:
 
 @router.post("/transport/ble-pairing", response_model=RadioBlePairingStatus)
 async def post_radio_ble_pairing() -> RadioBlePairingStatus:
-    """Pair the saved BLE radio now with the saved PIN (lifts a paused automatic pairing)."""
+    """Pair the saved BLE radio now with the saved PIN (lifts a paused automatic pairing).
+
+    Answers once paired; the connection monitor reconnects the radio afterwards.
+    """
     address, pin = await _saved_ble_transport()
     if ble_pairing.in_progress():
         # The connection monitor is pairing: entering the lifecycle transition
@@ -1296,11 +1299,9 @@ async def post_radio_ble_pairing() -> RadioBlePairingStatus:
                     # holds, and its auto-reconnect would race us.
                     await radio_manager.disconnect()
                     await ble_pairing.ensure_paired(address, pin, explicit=True)
-            if radio_manager.connection_desired and not radio_manager.is_connected:
-                try:
-                    await _reconnect_and_prepare(broadcast_on_success=True)
-                except Exception:
-                    logger.exception("Reconnect after BLE pairing failed")
+        # No inline reconnect: connect plus setup could push the request past a
+        # 60 s proxy timeout after a long pairing. The connection monitor,
+        # restarted on leaving the transition, reconnects on its next pass.
     except RadioOperationBusyError as exc:
         raise _radio_busy_http_error(exc) from exc
     except BlePairingError as exc:

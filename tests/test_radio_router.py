@@ -1840,7 +1840,8 @@ class TestBlePairingRoutes:
         assert events == []
 
     @pytest.mark.asyncio
-    async def test_post_pairs_then_reconnects(self, monkeypatch):
+    async def test_post_pairs_and_leaves_the_reconnect_to_the_monitor(self, monkeypatch):
+        # Connect + setup inline could push the request past a 60 s proxy timeout.
         from app.services import ble_pairing
 
         events: list[str] = []
@@ -1865,7 +1866,6 @@ class TestBlePairingRoutes:
             "disconnect",
             "ensure:AA:BB:CC:DD:EE:FF:True",
             "maintenance:exit",
-            "reconnect",
             "lifecycle:exit",
         ]
         assert "123456" not in status.model_dump_json()

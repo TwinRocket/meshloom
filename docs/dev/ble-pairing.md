@@ -55,7 +55,8 @@ variable):
    (3 s max), re-read the properties.
 8. meshcore gets `create_ble(address=…, device=BLEDevice(address, name,
    {"path": device_path, "props": props}), pin=None)`.
-9. Cleanup (own 4 s budget, outside the 45 s overall budget): `CancelPairing`
+9. Cleanup (own 4 s budget, outside the 45 s overall budget, which also covers
+   the bus connect): `CancelPairing`
    after our own `Pair()` timeout, `UnregisterAgent` then unexport (a late
    `Release()` gets `UnknownMethod`, harmless), `StopDiscovery` if ours,
    `Disconnect` if a failed attempt left up a link that **our own** `Pair()`
@@ -68,6 +69,8 @@ variable):
    pending bonding (it watches `NameOwnerChanged`). bluetoothd does that
    asynchronously, so the next explicit `Pair()` waits until 1.5 s have passed
    since the cancellation (`CANCEL_SETTLE_SECONDS`); automatic attempts do not.
+   A cancellation that lands during the bus handshake (the 2 s status read's
+   timeout, a stopped monitor) closes that half-open connection too.
 
 ### Why the link must be released
 
@@ -116,7 +119,7 @@ logs one warning per distinct code (then DEBUG) and keeps today's
 | not found after discovery, `DoesNotExist`, `UnknownObject` on the device | `ble_pair_device_not_found` | 404 | no | backoff |
 | `Blocked`, or the device has `Blocked=true` | `ble_pair_device_blocked` | 409 | no | sticky |
 | any `Pair()` error after the agent saw an invalid PIN | `ble_pair_invalid_pin` | 422 | no | sticky |
-| any `Pair()` error after `RequestConfirmation`/`RequestAuthorization` | `ble_pair_failed` (`params.error="unexpected pairing method"`, WARNING names it) | 502 | no | sticky |
+| any `Pair()` error after `RequestConfirmation`/`RequestAuthorization` | `ble_pair_failed` (`params.error` is the method name, e.g. `"RequestConfirmation"`, WARNING names it) | 502 | no | sticky |
 | `AuthenticationFailed`/`Rejected` after `RequestPasskey` | `ble_pair_wrong_pin` | 422 | no | sticky |
 | same, PIN never requested | `ble_pair_rejected` | 422 | no | sticky |
 | `AuthenticationCanceled`, `ConnectionAttemptFailed`, `NotAvailable`, `Failed` with `le-connection-abort-by-local` / `Software caused connection abort` / `Page Timeout` / `Host is down` | `ble_pair_unreachable` | 503 | no | backoff |
@@ -168,7 +171,7 @@ automatically.
 | Route | What |
 |---|---|
 | `GET /api/radio/transport/ble-pairing` | `RadioBlePairingStatus` from the saved transport. Problems are in `state`/`error_code` (with `error_params` for interpolation, e.g. `ble_pair_failed`'s `error`), never an HTTP error. No D-Bus when not BLE, not a MAC, or while pairing; otherwise one `GetManagedObjects` (2 s), cached 1 s. |
-| `POST /api/radio/transport/ble-pairing` | Pair now with the saved PIN (`explicit`: lifts sticky/backoff). 409 `ble_pair_in_progress` while a pairing runs (the monitor's: entering the transition would cancel it). Under `lifecycle_transition` then `ble_maintenance`; disconnects meshcore first, then reconnects when the connection is wanted. A connected radio whose bond cannot be read (`unavailable`) keeps its link: the status error is returned instead. Synchronous: at most 45 + 4 s. |
+| `POST /api/radio/transport/ble-pairing` | Pair now with the saved PIN (`explicit`: lifts sticky/backoff). 409 `ble_pair_in_progress` while a pairing runs (the monitor's: entering the transition would cancel it). Under `lifecycle_transition` then `ble_maintenance`; disconnects meshcore first. A connected radio whose bond cannot be read (`unavailable`) keeps its link: the status error is returned instead. Synchronous pairing, no inline reconnect: the restarted connection monitor reconnects on its next pass (about 5 s) when the connection is wanted. Worst case 2 s status read + 1.5 s settle + 45 + 4 s + 2 s final status read, under a 60 s proxy timeout. |
 | `DELETE /api/radio/transport/ble-pairing` | Forget: `RemoveDevice` on every adapter (the picked one first), after disconnecting meshcore. The monitor pairs again afterwards. 409 if the saved transport is no longer BLE (an orphan bond is harmless; `bluetoothctl remove`). |
 | `POST /api/radio/transport/ble-scan` | 409 `ble_pair_in_progress` while a pairing runs. |
 

@@ -53,7 +53,11 @@ PAIR_TIMEOUT = 25.0  # the passkey is typed by the agent, no human in the loop
 DISCONNECT_WAIT = 3.0
 DISCONNECT_POLL = 0.2
 OVERALL_TIMEOUT = 45.0
-CLEANUP_BUDGET = 4.0  # outside OVERALL_TIMEOUT: 45 + 4 stays under a 60 s proxy timeout
+# Outside OVERALL_TIMEOUT, which also covers the bus connect. POST /ble-pairing
+# adds two status reads (STATUS_TIMEOUT each) and CANCEL_SETTLE_SECONDS:
+# 2 + 1.5 + 45 + 4 + 2 stays under a 60 s proxy timeout. It never reconnects
+# inline: the connection monitor does, after the response.
+CLEANUP_BUDGET = 4.0
 STATUS_TIMEOUT = 2.0
 STATUS_CACHE_SECONDS = 1.0
 BACKOFF_STEPS = (5, 10, 20, 40, 60)
@@ -506,6 +510,12 @@ async def _connect_bus(bus_address: str | None = None, *, system: bool = True) -
         raise BlePairingError(
             "ble_pair_dbus_unavailable", params={"error": type(exc).__name__}
         ) from None
+    except BaseException:
+        # Cancelled mid-handshake (an outer asyncio.timeout, a stopped monitor):
+        # MessageBus() already opened the socket and connect() may have added
+        # its loop reader, so close it here or it stays open until GC.
+        _quiet_disconnect(bus)
+        raise
 
 
 async def _open_bus() -> Any:
@@ -554,11 +564,12 @@ def _map_dbus_error(
             "needs with a PIN",
             agent.unexpected_method,
         )
+        # The D-Bus method name, not prose: the UI shows params.error untranslated.
         return BlePairingError(
             "ble_pair_failed",
-            "Bluetooth pairing failed (unexpected pairing method)",
+            f"Bluetooth pairing failed (unexpected pairing method {agent.unexpected_method})",
             retry="sticky",
-            params={"error": "unexpected pairing method"},
+            params={"error": agent.unexpected_method},
             dbus_name=name,
         )
     if name in (
@@ -1097,16 +1108,20 @@ async def _settle_after_cancel() -> None:
 
 async def _pair_session(address: str, pin: str) -> PairOutcome:
     global _last_cancelled_at
-    bus = await _open_bus()
-    session = _PairSession(_BlueZ(bus), address, pin)
+    bus = None
+    session: _PairSession | None = None
     cancelled = False
     failed = True
     try:
         try:
             async with asyncio.timeout(OVERALL_TIMEOUT):
+                # The connect counts in the budget (see CLEANUP_BUDGET).
+                bus = await _open_bus()
+                session = _PairSession(_BlueZ(bus), address, pin)
                 outcome = await session.run()
         except TimeoutError:
-            session.need_cancel_pairing = session.agent_registered
+            if session is not None:
+                session.need_cancel_pairing = session.agent_registered
             raise BlePairingError("ble_pair_timeout", params={"error": "overall timeout"}) from None
         failed = False
         return outcome
@@ -1114,12 +1129,12 @@ async def _pair_session(address: str, pin: str) -> PairOutcome:
         # No D-Bus round trip: closing the connection makes BlueZ drop our agent,
         # our discovery session and a pending bonding (NameOwnerChanged).
         cancelled = True
-        if session.agent_registered or session.discovery_started:
+        if session is not None and (session.agent_registered or session.discovery_started):
             _last_cancelled_at = _monotonic()
         raise
     finally:
         try:
-            if not cancelled:
+            if not cancelled and session is not None:
                 try:
                     async with asyncio.timeout(CLEANUP_BUDGET):
                         await session.cleanup(failed=failed)
