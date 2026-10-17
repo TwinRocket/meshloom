@@ -1,37 +1,20 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
 import type { Channel, Contact, Message, RadioConfig, RawPacket } from '../types';
 import { CONTACT_TYPE_ROOM } from '../types';
 import { api } from '../api';
-import {
-  findLinkedChannelReferences,
-  formatTime,
-  parseSenderFromText,
-} from '../utils/messageParser';
+import { formatTime, parseSenderFromText } from '../utils/messageParser';
 import {
   QUICK_EMOJIS,
   REACTION_EMOJIS,
   attachOpenReaction,
   formatOpenReaction,
-  giphyUrlForId,
-  locationMapUrl,
-  parseGif,
-  parseLocation,
-  parseMeshCoreOneReaction,
   parseReaction,
   openReactionHashSource,
   richMessageBody,
-  splitReplyMention,
 } from '../utils/meshcoreOpenPayloads';
 import { useTranslation } from 'react-i18next';
-import { useRichPayloads } from '../contexts/RichPayloadContext';
+import { MessageBody } from './message/MessageBody';
+import { RegionBadge, hasUnexpectedControlChars } from '../utils/messageText';
 import { getDirectContactRoute, type SenderInfo } from '../utils/pathUtils';
 import { ContactAvatar } from './ContactAvatar';
 import { ObserverReachBadge } from './ObserverReachBadge';
@@ -63,7 +46,6 @@ import {
   ChevronDown,
   Copy,
   Info,
-  MapPin,
   Plus,
   Reply,
   Smile,
@@ -109,75 +91,6 @@ interface MessageListProps {
   onMessageDeleted?: (messageId: number) => void;
   directoryEnabled?: boolean;
   conversationKey?: string;
-}
-
-// Renders a MeshCore Open GIF payload, falling back to the raw text on load error.
-function GifPayload({ gifId, rawText }: { gifId: string; rawText: string }) {
-  const { t } = useTranslation();
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return <>{rawText}</>;
-  }
-  const url = giphyUrlForId(gifId);
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-block"
-      title={t('messageList.openGif')}
-    >
-      <img
-        src={url}
-        alt={t('messageList.gifAlt')}
-        data-testid="message-gif"
-        loading="lazy"
-        onError={() => setFailed(true)}
-        className="max-w-[240px] max-h-[240px] rounded-md"
-      />
-    </a>
-  );
-}
-
-function LocationPayload({ lat, lon, label }: { lat: number; lon: number; label: string }) {
-  const { t } = useTranslation();
-  const url = locationMapUrl(lat, lon);
-  const coords = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      data-testid="message-location"
-      className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 hover:bg-muted/70"
-      title={t('messageList.openLocation')}
-    >
-      <MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-      <span className="min-w-0">
-        <span className="block text-sm font-medium leading-tight">
-          {label || t('messageList.locationAlt')}
-        </span>
-        <span className="block text-[0.6875rem] text-muted-foreground tabular-nums">{coords}</span>
-      </span>
-    </a>
-  );
-}
-
-// Renders a reaction generically (emoji + "reacted"); the target message is not
-// resolved (see issues #291 and #354). MeshCore One reactions name the target's
-// sender, so show that when it is there.
-function ReactionPayload({ emoji, targetSender }: { emoji: string; targetSender?: string }) {
-  const { t } = useTranslation();
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="text-xl leading-none">{emoji}</span>
-      <span className="text-xs text-muted-foreground italic">
-        {targetSender
-          ? t('messageList.reactedTo', { sender: targetSender })
-          : t('messageList.reacted')}
-      </span>
-    </span>
-  );
 }
 
 function MessageActionMenuItem({
@@ -258,57 +171,6 @@ function MessageActionMenu({
       <MessageActionMenuItem icon={Trash2} label={deleteLabel} onSelect={onDelete} destructive />
     </div>
   );
-}
-
-// Render a bare payload body (no reply prefix) into its rich node, or null.
-// GIFs always render — the compact `g:<id>` form is otherwise unreadable, and
-// inbound Open GIFs would otherwise stay hidden behind the reactions toggle.
-function renderPayloadBody(body: string, allowReactions: boolean): ReactNode | null {
-  const gifId = parseGif(body);
-  if (gifId) {
-    return <GifPayload gifId={gifId} rawText={body} />;
-  }
-  const location = parseLocation(body);
-  if (location) {
-    return <LocationPayload lat={location.lat} lon={location.lon} label={location.label} />;
-  }
-  if (!allowReactions) return null;
-  const reaction = parseReaction(body) ?? parseMeshCoreOneReaction(body);
-  if (reaction) {
-    return <ReactionPayload emoji={reaction.emoji} targetSender={reaction.targetSender} />;
-  }
-  return null;
-}
-
-// Recognize a MeshCore Open payload and render it. Handles both a whole-message
-// payload ("g:<id>") and a reply-prefixed one ("@[Name] g:<id>") — the form
-// meshcore-open sends when a GIF/reaction is a reply, which otherwise renders as
-// raw text (issue #291). Returns null when the content is not a recognized
-// payload, so the caller renders normally.
-function renderMeshcoreOpenPayload(
-  content: string,
-  radioName?: string,
-  onChannelReferenceClick?: (channelName: string) => void,
-  allowReactions = false
-): ReactNode | null {
-  const whole = renderPayloadBody(content, allowReactions);
-  if (whole) return whole;
-
-  const split = splitReplyMention(content);
-  if (split) {
-    const body = renderPayloadBody(split.body, allowReactions);
-    if (body) {
-      // Preserve the reply mention (rendered as a normal @[Name] mention) so the
-      // GIF/reaction still reads as a reply to that person.
-      return (
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          {renderTextWithMentions(split.mention, radioName, onChannelReferenceClick)}
-          {body}
-        </span>
-      );
-    }
-  }
-  return null;
 }
 
 const messageRichBody = richMessageBody;
@@ -533,195 +395,6 @@ const FALLBACK_VIEWPORT_HEIGHT = 800;
  */
 const BOTTOM_SCROLL_FRAME_BUDGET = 20;
 
-// URL regex for linkifying plain text
-const URL_PATTERN =
-  /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/g;
-
-function renderChannelReferences(
-  text: string,
-  keyPrefix: string,
-  onChannelReferenceClick?: (channelName: string) => void
-): ReactNode[] {
-  const references = findLinkedChannelReferences(text);
-  if (references.length === 0) {
-    return [text];
-  }
-
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-
-  references.forEach((reference, index) => {
-    if (reference.start > lastIndex) {
-      parts.push(text.slice(lastIndex, reference.start));
-    }
-
-    const className =
-      'rounded px-0.5 font-medium text-primary underline underline-offset-2 transition-colors';
-    if (onChannelReferenceClick) {
-      parts.push(
-        <button
-          key={`${keyPrefix}-channel-${index}`}
-          type="button"
-          className={cn(
-            className,
-            'inline border-0 bg-transparent p-0 align-baseline hover:text-primary/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring'
-          )}
-          onClick={() => onChannelReferenceClick(reference.label)}
-        >
-          {reference.label}
-        </button>
-      );
-    } else {
-      parts.push(
-        <span key={`${keyPrefix}-channel-${index}`} className={className}>
-          {reference.label}
-        </span>
-      );
-    }
-
-    lastIndex = reference.end;
-  });
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts;
-}
-
-// Helper to convert URLs and channel references in a plain text string into rich content
-function linkifyText(
-  text: string,
-  keyPrefix: string,
-  onChannelReferenceClick?: (channelName: string) => void
-): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let keyIndex = 0;
-
-  URL_PATTERN.lastIndex = 0;
-  while ((match = URL_PATTERN.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(
-        ...renderChannelReferences(
-          text.slice(lastIndex, match.index),
-          `${keyPrefix}-text-${keyIndex}`,
-          onChannelReferenceClick
-        )
-      );
-    }
-    parts.push(
-      <a
-        key={`${keyPrefix}-link-${keyIndex++}`}
-        href={match[0]}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary underline hover:text-primary/80"
-      >
-        {match[0]}
-      </a>
-    );
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex === 0) {
-    return renderChannelReferences(text, keyPrefix, onChannelReferenceClick);
-  }
-  if (lastIndex < text.length) {
-    parts.push(
-      ...renderChannelReferences(
-        text.slice(lastIndex),
-        `${keyPrefix}-tail`,
-        onChannelReferenceClick
-      )
-    );
-  }
-  return parts;
-}
-
-// Helper to render text with highlighted @[Name] mentions and clickable URLs
-function renderTextWithMentions(
-  text: string,
-  radioName?: string,
-  onChannelReferenceClick?: (channelName: string) => void
-): ReactNode {
-  const mentionPattern = /@\[([^\]]+)\]/g;
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let keyIndex = 0;
-
-  while ((match = mentionPattern.exec(text)) !== null) {
-    // Add text before the match (with linkification)
-    if (match.index > lastIndex) {
-      parts.push(
-        ...linkifyText(
-          text.slice(lastIndex, match.index),
-          `pre-${keyIndex}`,
-          onChannelReferenceClick
-        )
-      );
-    }
-
-    const mentionedName = match[1];
-    const isOwnMention = radioName ? mentionedName === radioName : false;
-
-    parts.push(
-      <span
-        key={`mention-${keyIndex++}`}
-        className={cn(
-          'rounded px-0.5',
-          isOwnMention ? 'bg-primary/30 text-primary font-medium' : 'bg-muted-foreground/20'
-        )}
-      >
-        @[{mentionedName}]
-      </span>
-    );
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Add remaining text after last match (with linkification)
-  if (lastIndex < text.length) {
-    parts.push(...linkifyText(text.slice(lastIndex), `post-${keyIndex}`, onChannelReferenceClick));
-  }
-
-  return parts.length > 0 ? parts : text;
-}
-
-// Region scope badge for messages that arrived via a transport-routed (region-scoped) packet.
-function RegionBadge({ region, className }: { region: string; className?: string }) {
-  const { t } = useTranslation();
-  return (
-    <span
-      className={cn(
-        'ml-1.5 align-middle text-[0.625rem] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground',
-        className
-      )}
-      title={t('messageList.regionalScope', { region })}
-    >
-      {region}
-    </span>
-  );
-}
-
-function hasUnexpectedControlChars(text: string): boolean {
-  for (const char of text) {
-    const code = char.charCodeAt(0);
-    if (
-      (code >= 0 && code <= 8) ||
-      code === 11 ||
-      code === 12 ||
-      (code >= 14 && code <= 31) ||
-      code === 127
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export function MessageList({
   messages,
   contacts,
@@ -752,7 +425,6 @@ export function MessageList({
   conversationKey,
 }: MessageListProps) {
   const { t } = useTranslation();
-  const { renderRichPayloads } = useRichPayloads();
   const listRef = useRef<HTMLDivElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
   const isInitialLoadRef = useRef<boolean>(true);
@@ -1793,20 +1465,11 @@ export function MessageList({
                         )}
                       </div>
                     )}
-                    <div className="wrap-break-word whitespace-pre-wrap">
-                      {renderMeshcoreOpenPayload(
-                        content,
-                        radioName,
-                        onChannelReferenceClick,
-                        renderRichPayloads
-                      ) ||
-                        content.split('\n').map((line, i, arr) => (
-                          <span key={i}>
-                            {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
-                            {i < arr.length - 1 && <br />}
-                          </span>
-                        ))}
-                    </div>
+                    <MessageBody
+                      content={content}
+                      radioName={radioName}
+                      onChannelReferenceClick={onChannelReferenceClick}
+                    />
                     <div
                       data-testid="message-meta"
                       className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[0.625rem] text-muted-foreground"
