@@ -8,9 +8,10 @@ name: Docker
 # EDGE_DEPLOY_WEBHOOKS (stacks on docker-compose.dev.yaml); after a preversion-5
 # build, those in NEXT_DEPLOY_WEBHOOKS (the stacks that run :next).
 #
-# forward-merge.yml merges main into preversion-5 with GITHUB_TOKEN, and a push
-# made with that token starts no workflow, so it dispatches this workflow on
-# preversion-5 itself (workflow_dispatch): that run is the one that publishes :next.
+# forward-merge.yml merges main into preversion-5 through a PR auto-merged with
+# GITHUB_TOKEN, and a merge made with that token starts no workflow, so it waits
+# for the merge and dispatches this workflow on preversion-5 itself
+# (workflow_dispatch): that run is the one that publishes :next.
 #
 # One job per architecture rather than one job building all of them: buildx on a
 # single runner shares four cores between three platforms, two of which run under

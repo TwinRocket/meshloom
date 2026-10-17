@@ -3,7 +3,7 @@ name: CodeQL
 # main and the 5.0.0 integration branch preversion-5: pushes, and pull requests
 # targeting either (the rulesets require the two `analyze` checks on both).
 # forward-merge.yml dispatches it on preversion-5 after a forward-merge, whose
-# push (GITHUB_TOKEN) starts no workflow on its own.
+# merge (GITHUB_TOKEN) starts no workflow on its own.
 on:
   push:
     branches: [main, preversion-5]
