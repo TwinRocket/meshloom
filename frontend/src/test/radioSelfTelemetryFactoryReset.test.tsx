@@ -7,6 +7,8 @@ import { RadioSelfTelemetrySettings } from '../components/settings/RadioSelfTele
 import { api } from '../api';
 import i18n from '../i18n';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
+import { resetRadioWifiStoreForTests, setRadioWifiState } from '../stores/radioWifiStore';
+import type { RadioTransportConfig, RadioWifiState } from '../types';
 
 const TELEMETRY = {
   sensors: [{ channel: 1, type_name: 'temperature', value: 23.5 }],
@@ -17,6 +19,7 @@ const TELEMETRY = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  resetRadioWifiStoreForTests();
   void i18n.changeLanguage(DEFAULT_LOCALE);
 });
 
@@ -101,5 +104,60 @@ describe('RadioFactoryReset', () => {
     );
     expect(await screen.findByRole('alert')).toHaveTextContent('Radio refused');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  describe('Wi-Fi credentials', () => {
+    const stored = {
+      check: 'done',
+      supported: true,
+      ssid: 'Home',
+      enabled: true,
+      connected: true,
+      ip: '192.168.1.50',
+      tcp_port: 5000,
+      credentials_stored: true,
+      open_network: false,
+      prompt_needed: false,
+      reboot_pending: false,
+      store_incomplete: false,
+    } as RadioWifiState;
+
+    it('says the stored credentials are erased, without the TCP warning off TCP', async () => {
+      vi.spyOn(api, 'getRadioTransport').mockResolvedValue({
+        transport: 'ble',
+      } as RadioTransportConfig);
+      setRadioWifiState(stored);
+      render(<RadioFactoryReset radioName="MyRadio" />);
+      await open();
+      expect(
+        screen.getByText(i18n.t('settings.radio.factoryReset.wifiStoredWarning'))
+      ).toBeVisible();
+      await waitFor(() => expect(api.getRadioTransport).toHaveBeenCalled());
+      expect(screen.queryByText(i18n.t('settings.radio.factoryReset.wifiTcpWarning'))).toBeNull();
+      expect(screen.getByText(i18n.t('settings.radio.factoryReset.keptWifi'))).toBeVisible();
+    });
+
+    it('adds the stronger warning when Meshloom reaches the radio over TCP', async () => {
+      vi.spyOn(api, 'getRadioTransport').mockResolvedValue({
+        transport: 'tcp',
+      } as RadioTransportConfig);
+      setRadioWifiState(stored);
+      render(<RadioFactoryReset radioName="MyRadio" />);
+      await open();
+      expect(
+        await screen.findByText(i18n.t('settings.radio.factoryReset.wifiTcpWarning'))
+      ).toBeVisible();
+    });
+
+    it('shows no Wi-Fi warning when nothing is stored', async () => {
+      const transport = vi.spyOn(api, 'getRadioTransport');
+      setRadioWifiState({ ...stored, credentials_stored: false });
+      render(<RadioFactoryReset radioName="MyRadio" />);
+      await open();
+      expect(
+        screen.queryByText(i18n.t('settings.radio.factoryReset.wifiStoredWarning'))
+      ).toBeNull();
+      expect(transport).not.toHaveBeenCalled();
+    });
   });
 });

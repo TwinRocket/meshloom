@@ -83,6 +83,10 @@
         "kindPrevious": "connexion précédente",
         "loadFailed": "Impossible de lire les réglages Wi-Fi de la radio.",
         "saveFailed": "La radio a refusé le changement."
+      },
+      "factoryReset": {
+        "wifiStoredWarning": "Les identifiants Wi-Fi enregistrés dans la radio seront effacés. Une radio jointe par le Wi-Fi peut devenir injoignable.",
+        "wifiTcpWarning": "Meshloom joint cette radio par le Wi-Fi : après la réinitialisation, elle peut rester injoignable jusqu’à ce que vous la reconnectiez en USB ou en Bluetooth, sauf si des identifiants Wi-Fi sont intégrés à son firmware."
       }
     }
   },
