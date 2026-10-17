@@ -141,6 +141,14 @@ async def lifespan(app: FastAPI):
     await db.connect()
     logger.info("Database connected")
 
+    # A SQLite snapshot put back in place: the restore hooks run once.
+    from app.services.backup_sections import run_sqlite_restore_hooks
+
+    try:
+        await run_sqlite_restore_hooks(db)
+    except Exception:
+        logger.exception("Failed to run the restore hooks of a restored database snapshot")
+
     from app.services.radio_transport import (
         database_has_mesh_history,
         get_transport,

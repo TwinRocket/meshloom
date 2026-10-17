@@ -4,8 +4,11 @@
   channels, settings, groups and push preferences, merged into the live DB.
 - ``meshloom-backup-v2``: the v1 fields plus the radio identity, every radio
   setting, Wi-Fi credentials stored in the radio and the rest of the Meshloom
-  settings (``BACKUP_COVERAGE`` lists every column and table with a decision).
-- The SQLite file download (``write_sqlite_backup``) never replaces the live DB.
+  settings (``BACKUP_COVERAGE`` lists every column and table with a decision),
+  and the optional named ``sections`` other features register
+  (``app/services/backup_sections.py``, ``docs/dev/backup.md``).
+- The SQLite file download (``write_sqlite_backup``) never replaces the live DB;
+  the copy carries a marker that runs the restore hooks if it is put back.
 """
 
 import logging
@@ -44,6 +47,12 @@ from app.repository import (
     ChannelRepository,
     ContactGroupRepository,
     ContactRepository,
+)
+from app.services.backup_sections import (
+    export_sections,
+    mark_sqlite_snapshot,
+    refuse_identity_seeds,
+    run_on_restore_hooks,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,11 +195,13 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
 
 
 async def write_sqlite_backup(database: Database, dest_path: str) -> None:
-    """Copy the live DB to ``dest_path`` via SQLite's backup API (lock held)."""
+    """Copy the live DB to ``dest_path`` via SQLite's backup API (lock held),
+    then mark the copy as a snapshot (``run_sqlite_restore_hooks``)."""
     dest = await aiosqlite.connect(dest_path)
     try:
         async with database.readonly() as conn:
             await conn.backup(dest)
+        await mark_sqlite_snapshot(dest, int(time.time()))
         await dest.commit()
     finally:
         await dest.close()
@@ -246,7 +257,7 @@ async def export_json() -> BackupExport:
         key: dict(flags)
         for key, flags in (await AppSettingsRepository.get_push_conversation_overrides()).items()
     }
-    return BackupExport(
+    export = BackupExport(
         format=BACKUP_FORMAT,
         exported_at=int(time.time()),
         contacts=[_contact_to_backup(c) for c in contacts],
@@ -257,9 +268,15 @@ async def export_json() -> BackupExport:
         push_conversation_overrides=exported_overrides,
         vapid_subject=await AppSettingsRepository.get_vapid_subject(),
     )
+    await refuse_identity_seeds(export.model_dump(mode="json"))
+    return export
 
 
-async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
+async def restore_json(
+    request: BackupRestoreRequest, *, run_hooks: bool = True
+) -> BackupRestoreResult:
+    """Merge the v1 fields. ``run_hooks=False`` for the full restore job, which
+    runs the restore hooks itself, once, at its end."""
     if not request.confirm:
         raise ValueError(
             "Restore requires confirm=true. This merges into the live database "
@@ -342,6 +359,8 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
         settings_updated,
         groups_upserted,
     )
+    if run_hooks:
+        await run_on_restore_hooks("json")
     return BackupRestoreResult(
         contacts_upserted=contacts_upserted,
         channels_upserted=channels_upserted,
@@ -687,11 +706,13 @@ async def export_backup_v2() -> BackupExportV2:
             if identity is not None and identity.private_key_status == "export_disabled"
             else "private_key_unavailable"
         )
+    sections, section_warnings = await export_sections()
+    warnings.extend(section_warnings)
     try:
         version: str | None = get_app_build_info().version
     except Exception:
         version = None
-    return BackupExportV2(
+    doc = BackupExportV2(
         **base.model_dump(exclude={"format"}),
         meshloom_version=version,
         warnings=list(dict.fromkeys(warnings)),
@@ -699,7 +720,10 @@ async def export_backup_v2() -> BackupExportV2:
         radio=radio,
         wifi=wifi,
         meshloom_extra=extra,
+        sections=sections,
     )
+    await refuse_identity_seeds(export_document(doc))
+    return doc
 
 
 # -- Full backup (v2): Meshloom settings outside v1 ------------------------------

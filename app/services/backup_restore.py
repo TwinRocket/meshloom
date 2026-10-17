@@ -670,6 +670,7 @@ async def _execute_identity(
 
 async def _meshloom_step(run: _Run) -> None:
     from app.services.backup import restore_json, restore_meshloom_extra
+    from app.services.backup_sections import restore_sections
 
     if not run.options.steps.meshloom:
         run.set("meshloom", "skipped", "step_off")
@@ -686,7 +687,8 @@ async def _meshloom_step(run: _Run) -> None:
             push_defaults=doc.push_defaults,
             push_conversation_overrides=doc.push_conversation_overrides,
             vapid_subject=doc.vapid_subject,
-        )
+        ),
+        run_hooks=False,  # once for the whole job, in _run_restore
     )
     run.result.contacts_upserted = result.contacts_upserted
     run.result.channels_upserted = result.channels_upserted
@@ -694,6 +696,8 @@ async def _meshloom_step(run: _Run) -> None:
     run.result.settings_updated = result.settings_updated
     if isinstance(doc, BackupExportV2) and doc.meshloom_extra is not None:
         run.result.warnings.extend(await restore_meshloom_extra(doc.meshloom_extra))
+    if isinstance(doc, BackupExportV2) and doc.sections:
+        run.result.warnings.extend(await restore_sections(doc.sections))
     run.set("meshloom", "done")
 
 
@@ -879,6 +883,15 @@ async def _maybe_save_ble_pin(outcome, doc: BackupExportV2) -> None:
     await RadioTransportRepository.save(snapshot)
 
 
+def _restore_wrote(run: _Run) -> bool:
+    """The job changed the identity or reached the Meshloom data: the restore
+    hooks run (a refused or radio-only job writes nothing they care about)."""
+    return run.step("identity").status == "done" or run.step("meshloom").status not in (
+        "pending",
+        "skipped",
+    )
+
+
 async def _run_restore(run: _Run) -> None:
     try:
         await _identity_step(run)
@@ -899,6 +912,10 @@ async def _run_restore(run: _Run) -> None:
                 step.code = "internal_error"
         run.job.state = "failed"
     finally:
+        if _restore_wrote(run):
+            from app.services.backup_sections import run_on_restore_hooks
+
+            await run_on_restore_hooks("json")
         run.result.steps = [step.model_copy() for step in run.job.steps]
         run.result.warnings = list(dict.fromkeys(run.result.warnings))
         run.job.result = run.result

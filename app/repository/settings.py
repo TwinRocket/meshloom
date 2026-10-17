@@ -855,6 +855,29 @@ class AppSettingsRepository:
             await AppSettingsRepository._apply_updates(conn, rejected_channels=items)
 
     @staticmethod
+    async def get_identity_seed_values() -> list[str]:
+        """Every non-empty ``app_settings`` column named ``*_seed`` (the
+        per-service instance identity seeds), as text, bytes in hex.
+
+        The backup export refuses a file holding any of them.
+        """
+        async with db.readonly() as conn:
+            async with conn.execute("PRAGMA table_info(app_settings)") as cursor:
+                columns = [row[1] for row in await cursor.fetchall() if row[1].endswith("_seed")]
+            if not columns:
+                return []
+            quoted = ", ".join(f'"{column}"' for column in columns)
+            async with conn.execute(f"SELECT {quoted} FROM app_settings WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+        values: list[str] = []
+        for value in tuple(row) if row else ():
+            if isinstance(value, bytes):
+                value = value.hex()
+            if value not in (None, ""):
+                values.append(str(value))
+        return values
+
+    @staticmethod
     async def get_vapid_keys() -> tuple[str, str]:
         """Return (private_key_pem, public_key_b64url) from app_settings.
 

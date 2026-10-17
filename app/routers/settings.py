@@ -934,7 +934,10 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
                 message=f"The passphrase needs at least {PASSPHRASE_MIN_CHARS} characters",
             )
         )
-    doc = await export_backup_v2()
+    try:
+        doc = await export_backup_v2()
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
     body = export_document(doc)
     if passphrase:
         try:

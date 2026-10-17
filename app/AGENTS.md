@@ -311,7 +311,20 @@ be wrong, because historical decryption inserts old messages with new ids.
   `services/backup.py` (formats, coverage, export, Meshloom restore),
   `services/backup_radio.py` (radio reads and writes),
   `services/backup_restore.py` (identity decision, inspect, restore job),
-  `services/backup_crypto.py` (envelope).
+  `services/backup_crypto.py` (envelope), `services/backup_sections.py` (sections, hooks).
+- **Sections and restore hooks** (`services/backup_sections.py`, contract in
+  `docs/dev/backup.md`). Other features add a named entry to the v2 file's
+  optional `sections` with `register_backup_section(name, export_fn,
+  restore_fn, *, requires=...)`, never a new top-level field or a second v2
+  format; the job restores them in its `meshloom` step after `meshloom_extra`,
+  and ignores unknown ones with a log line. `register_on_restore(name, hook)`
+  runs once per restore: a flat v1 restore, a job that wrote something (the
+  job passes `run_hooks=False` to `restore_json` and runs them at its end), or
+  a SQLite snapshot put back in place (the download carries a
+  `meshloom_backup_snapshot` table; the lifespan runs the hooks after
+  `db.connect()` and drops it). The export refuses (500
+  `backup_identity_seed_leak`) any document holding an `app_settings.*_seed`
+  value: instance identity seeds are never exported.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
   column or table until it is listed (one direction: extra entries are fine).
