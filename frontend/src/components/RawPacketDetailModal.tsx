@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ChannelCrypto, PayloadType } from '@michaelhart/meshcore-decoder';
 
 import i18n from '../i18n';
@@ -828,11 +828,14 @@ export function RawPacketInspectorDialog({
 }: RawPacketInspectorDialogProps) {
   const [packetInput, setPacketInput] = useState('');
 
-  useEffect(() => {
-    if (!open || source.kind !== 'paste') {
-      setPacketInput('');
-    }
-  }, [open, source.kind]);
+  // Clear the pasted packet once the dialog closes or leaves paste mode
+  // (adjusted during render).
+  const pasteActive = open && source.kind === 'paste';
+  const [prevPasteActive, setPrevPasteActive] = useState(pasteActive);
+  if (pasteActive !== prevPasteActive) {
+    setPrevPasteActive(pasteActive);
+    if (!pasteActive) setPacketInput('');
+  }
 
   const normalizedPacketInput = useMemo(() => normalizePacketHex(packetInput), [packetInput]);
   const packetInputError = useMemo(

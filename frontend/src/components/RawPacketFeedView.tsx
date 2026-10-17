@@ -60,6 +60,7 @@ import {
 } from '../stores/rawPacketReplayStore';
 import {
   getServerClockOffsetSec,
+  subscribeRawPacketStore,
   useRawPacketStatsSession,
   useRawPackets,
 } from '../stores/rawPacketStore';
@@ -76,6 +77,7 @@ import i18n from '../i18n';
 import { formatNumber } from '../utils/formatNumber';
 
 const DISPLAY_CAPS = [200, 500, 2000, 5000] as const;
+const EMPTY_HELD_PACKETS: RawPacket[] = [];
 type DisplayCap = (typeof DISPLAY_CAPS)[number];
 const DISPLAY_CAP_STORAGE_KEY = 'meshloom-raw-display-cap';
 const DEFAULT_DISPLAY_CAP: DisplayCap = 500;
@@ -642,9 +644,21 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
   const [customSince, setCustomSince] = useState('');
   const [customUntil, setCustomUntil] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
-  const [preview, setPreview] = useState<RawPacketHistoryResponse | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
+  // Last settled preview request, tagged with its request key. Loading is
+  // derived: the current key has no settled result yet.
+  const [previewResult, setPreviewResult] = useState<{
+    key: string;
+    preview: RawPacketHistoryResponse | null;
+    error: boolean;
+  } | null>(null);
+  // Bumped on every open so reopening refetches (and shows loading) even when
+  // the bounds are unchanged.
+  const [openEpoch, setOpenEpoch] = useState(0);
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setOpenEpoch((epoch) => epoch + 1);
+  }
   const [loading, setLoading] = useState(false);
   const loadAbortRef = useRef<AbortController | null>(null);
 
@@ -659,13 +673,17 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
   );
   const allTypesEnabled = enabledTypes.size === KNOWN_PAYLOAD_TYPES.length;
 
+  const previewKey =
+    open && !bounds.invalid ? `${openEpoch}|${bounds.since}|${bounds.until}` : null;
+  const previewLoading = previewKey !== null && previewResult?.key !== previewKey;
+  const previewError = !previewLoading && (previewResult?.error ?? false);
+  const preview = previewResult?.preview ?? null;
+
   useEffect(() => {
-    if (!open || bounds.invalid) {
+    if (previewKey === null) {
       return;
     }
     const controller = new AbortController();
-    setPreviewLoading(true);
-    setPreviewError(false);
     void fetchHistoryPage(
       {
         since: bounds.since,
@@ -676,19 +694,16 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
     )
       .then((page) => {
         if (controller.signal.aborted) return;
-        setPreview(page);
-        setPreviewLoading(false);
+        setPreviewResult({ key: previewKey, preview: page, error: false });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (error instanceof DOMException && error.name === 'AbortError') return;
         if (error instanceof Error && error.name === 'AbortError') return;
-        setPreview(null);
-        setPreviewError(true);
-        setPreviewLoading(false);
+        setPreviewResult({ key: previewKey, preview: null, error: true });
       });
     return () => controller.abort();
-  }, [bounds.invalid, bounds.since, bounds.until, open]);
+  }, [bounds.since, bounds.until, previewKey]);
 
   const handleToggleAll = () => {
     setEnabledTypes(allTypesEnabled ? new Set() : new Set(KNOWN_PAYLOAD_TYPES));
@@ -1358,7 +1373,6 @@ export function RawPacketFeedView({
   // Pause is local to #raw. The global store keeps recording.
   const [paused, setPaused] = useState(false);
   const [snapshotPackets, setSnapshotPackets] = useState<RawPacket[] | null>(null);
-  const [heldPackets, setHeldPackets] = useState<RawPacket[]>([]);
   const [displayCap, setDisplayCap] = useState<DisplayCap>(readStoredDisplayCap);
   const [rssiFilter, setRssiFilter] = useState<RssiFilter>('all');
   const [zeroHopOnly, setZeroHopOnly] = useState(false);
@@ -1370,17 +1384,13 @@ export function RawPacketFeedView({
   const liveDisplaySource = paused && snapshotPackets ? snapshotPackets : livePackets;
   const displaySource = replayActive ? replayPackets : liveDisplaySource;
 
-  useEffect(() => {
-    if (!paused || !snapshotPackets) {
-      setHeldPackets([]);
-      return;
-    }
+  // Packets that arrived while paused (derived, not mirrored into state).
+  const heldPackets = useMemo(() => {
+    if (!paused || !snapshotPackets) return EMPTY_HELD_PACKETS;
     const snapshotKeys = new Set(
       snapshotPackets.map((packet) => getRawPacketObservationKey(packet))
     );
-    setHeldPackets(
-      livePackets.filter((packet) => !snapshotKeys.has(getRawPacketObservationKey(packet)))
-    );
+    return livePackets.filter((packet) => !snapshotKeys.has(getRawPacketObservationKey(packet)));
   }, [livePackets, paused, snapshotPackets]);
 
   const derivedScope = replayActive ? 'replay' : 'live';
@@ -1507,7 +1517,6 @@ export function RawPacketFeedView({
   const handlePausedChange = (nextPaused: boolean) => {
     if (nextPaused) {
       setSnapshotPackets([...livePackets]);
-      setHeldPackets([]);
       setPaused(true);
       return;
     }
@@ -1516,7 +1525,6 @@ export function RawPacketFeedView({
     }
     setPaused(false);
     setSnapshotPackets(null);
-    setHeldPackets([]);
   };
 
   const handleDisplayCapChange = (cap: DisplayCap) => {
@@ -1599,9 +1607,16 @@ export function RawPacketFeedView({
     return () => window.clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    setNowSec(Math.floor(Date.now() / 1000));
-  }, [livePackets, rawPacketStatsSession]);
+  // Re-read the clock whenever the store hands us new packets or stats. The
+  // store notifies subscribers on every packet/stats change, so the clock is
+  // read in that callback instead of in an effect keyed on the snapshots.
+  useEffect(
+    () =>
+      subscribeRawPacketStore(() => {
+        setNowSec(Math.floor(Date.now() / 1000));
+      }),
+    []
+  );
 
   const stats = useMemo(
     () => buildRawPacketStatsSnapshot(rawPacketStatsSession, selectedWindow, nowSec),

@@ -74,7 +74,7 @@ export function LocatePane({
 }: LocatePaneProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState(locateKey ?? '');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(locateKey));
   const [communityPending, setCommunityPending] = useState(false);
   const [communityError, setCommunityError] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,26 +98,41 @@ export function LocatePane({
       .map(toCandidate);
   }, [contacts, query]);
 
-  useEffect(() => {
+  // Mirror the routed key into the input (adjusted during render).
+  const [prevLocateKey, setPrevLocateKey] = useState(locateKey);
+  if (locateKey !== prevLocateKey) {
+    setPrevLocateKey(locateKey);
     setQuery(locateKey ?? '');
-  }, [locateKey]);
+  }
 
-  useEffect(() => {
+  // Reset the lookup state whenever the request inputs change (adjusted during
+  // render); the effect below only runs the request.
+  const [prevLocateRequest, setPrevLocateRequest] = useState({ locateKey, directoryEnabled, t });
+  if (
+    prevLocateRequest.locateKey !== locateKey ||
+    prevLocateRequest.directoryEnabled !== directoryEnabled ||
+    prevLocateRequest.t !== t
+  ) {
+    setPrevLocateRequest({ locateKey, directoryEnabled, t });
     if (!locateKey) {
       setResult(null);
       setCandidates([]);
       setError(null);
       setCommunityPending(false);
       setCommunityError(false);
-      return;
+    } else {
+      setLoading(true);
+      setError(null);
+      setCandidates([]);
+      setRadiusOverrides({});
+      setCommunityPending(false);
+      setCommunityError(false);
     }
+  }
+
+  useEffect(() => {
+    if (!locateKey) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setCandidates([]);
-    setRadiusOverrides({});
-    setCommunityPending(false);
-    setCommunityError(false);
     api
       .locate(locateKey)
       .then(async (payload) => {
@@ -167,17 +182,22 @@ export function LocatePane({
     };
   }, [locateKey, directoryEnabled, t]);
 
+  const directoryNeedle = query.trim();
+  const directorySearchActive =
+    directoryEnabled &&
+    localSuggestions.length === 0 &&
+    directoryNeedle.length >= 3 &&
+    !PUBKEY_RE.test(directoryNeedle);
+  // Drop the hits once the directory search no longer applies (adjusted during render).
+  const [prevDirectorySearchActive, setPrevDirectorySearchActive] = useState(directorySearchActive);
+  if (directorySearchActive !== prevDirectorySearchActive) {
+    setPrevDirectorySearchActive(directorySearchActive);
+    if (!directorySearchActive) setDirectoryHits([]);
+  }
+
   useEffect(() => {
-    const needle = query.trim();
-    if (
-      !directoryEnabled ||
-      localSuggestions.length > 0 ||
-      needle.length < 3 ||
-      PUBKEY_RE.test(needle)
-    ) {
-      setDirectoryHits([]);
-      return;
-    }
+    if (!directorySearchActive) return;
+    const needle = directoryNeedle;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void api
@@ -200,7 +220,7 @@ export function LocatePane({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [directoryEnabled, localSuggestions.length, query]);
+  }, [directoryNeedle, directorySearchActive]);
 
   const anchors = useMemo(() => {
     if (!result) return [];

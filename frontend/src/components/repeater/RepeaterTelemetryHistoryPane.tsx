@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, type ReactNode } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import {
@@ -286,10 +286,12 @@ export function TelemetryHistoryChart({
   const [metric, setMetric] = useState<string>(includeBuiltin ? 'battery_volts' : '');
   const [brushRange, setBrushRange] = useState<{ start: number; end: number } | null>(null);
 
-  // Reset the zoom window when switching to a different contact.
-  useEffect(() => {
+  // Reset the zoom window when switching to a different contact (adjusted during render).
+  const [prevPublicKey, setPrevPublicKey] = useState(publicKey);
+  if (publicKey !== prevPublicKey) {
+    setPrevPublicKey(publicKey);
     setBrushRange(null);
-  }, [publicKey]);
+  }
 
   // Discover unique LPP sensors across all history entries
   const lppMetrics = useMemo(() => {
@@ -350,7 +352,9 @@ export function TelemetryHistoryChart({
     const ordered = [...entries].sort((a, b) => a.timestamp - b.timestamp);
     let prevRecv: number | undefined;
     let prevSent: number | undefined;
-    return ordered.map((e) => {
+    // A plain loop, not .map: the running predecessors are reassigned per sample.
+    const points: Record<string, number | undefined>[] = [];
+    for (const e of ordered) {
       const d = e.data;
       const recvErrors = d.recv_errors ?? undefined;
       const packetsReceived = d.packets_received;
@@ -390,8 +394,9 @@ export function TelemetryHistoryChart({
           point[key] = lppDisplayUnit(s.type_name, s.value, distanceUnit).value;
         }
       }
-      return point;
-    });
+      points.push(point);
+    }
+    return points;
   }, [entries, distanceUnit]);
 
   // Series descriptors drive axes, colors, labels, and tooltip formatting.

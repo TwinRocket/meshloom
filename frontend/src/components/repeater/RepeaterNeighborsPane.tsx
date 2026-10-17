@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef, useEffect, lazy } from 'react';
+import { useMemo, useState, useCallback, useEffect, lazy } from 'react';
 import { Map as MapIcon, Maximize2, List, Minimize2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -88,20 +88,23 @@ export function NeighborsPane({
   // Refreshing neighbours re-fetches node info first, and node info is what carries
   // the coordinates. Letting the map mount depend on the live value tore it down and
   // rebuilt it on every refresh. Once we have had a position, the map stays.
-  const everHadGpsRef = useRef(false);
+  const [everHadGps, setEverHadGps] = useState(false);
 
   const advertLat = repeaterContact?.lat ?? null;
   const advertLon = repeaterContact?.lon ?? null;
 
+  const nodeInfoLat = nodeInfo?.lat;
+  const nodeInfoLon = nodeInfo?.lon;
+
   const radioLat = useMemo(() => {
-    const parsed = nodeInfo?.lat != null ? parseFloat(nodeInfo.lat) : null;
+    const parsed = nodeInfoLat != null ? parseFloat(nodeInfoLat) : null;
     return Number.isFinite(parsed) ? parsed : null;
-  }, [nodeInfo?.lat]);
+  }, [nodeInfoLat]);
 
   const radioLon = useMemo(() => {
-    const parsed = nodeInfo?.lon != null ? parseFloat(nodeInfo.lon) : null;
+    const parsed = nodeInfoLon != null ? parseFloat(nodeInfoLon) : null;
     return Number.isFinite(parsed) ? parsed : null;
-  }, [nodeInfo?.lon]);
+  }, [nodeInfoLon]);
 
   const positionSource = useMemo(() => {
     if (isValidLocation(radioLat, radioLon)) {
@@ -115,8 +118,8 @@ export function NeighborsPane({
 
   const radioName = nodeInfo?.name || repeaterContact?.name || repeaterName;
   const hasValidRepeaterGps = positionSource.source !== null;
-  if (hasValidRepeaterGps) everHadGpsRef.current = true;
-  const canShowMap = hasValidRepeaterGps || everHadGpsRef.current;
+  if (hasValidRepeaterGps && !everHadGps) setEverHadGps(true);
+  const canShowMap = hasValidRepeaterGps || everHadGps;
   const headerNote =
     positionSource.source === 'reported'
       ? t('repeater.posReported')

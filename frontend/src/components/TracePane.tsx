@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
 
@@ -61,7 +61,10 @@ function loadRecentTraces(): SavedTrace[] {
   }
 }
 
-function saveRecentTrace(trace: SavedTrace): void {
+// Stamps the run time here, outside the component: a trace is only saved from
+// the async run handlers, never during render.
+function saveRecentTrace(hops: SavedTraceHop[]): void {
+  const trace: SavedTrace = { hops, ranAt: Date.now() };
   try {
     const existing = loadRecentTraces();
     // Dedupe by hop signature
@@ -350,12 +353,18 @@ export function TracePane({ onBackToTools, contacts, config, onRunTracePath }: T
   );
   const effectiveHopHashBytes: CustomHopBytes = customHopBytesLocked ?? 4;
 
-  useEffect(() => {
-    if (!customDialogOpen) return;
-    setCustomHopBytesDraft(customHopBytesLocked ?? 1);
-    setCustomHopHexDraft('');
-    setCustomHopError(null);
-  }, [customDialogOpen, customHopBytesLocked]);
+  // Seed the custom-hop dialog each time it opens (or the locked width changes
+  // while open), adjusted during render.
+  const customDialogSeedKey = `${customDialogOpen}|${customHopBytesLocked}`;
+  const [prevCustomDialogSeedKey, setPrevCustomDialogSeedKey] = useState(customDialogSeedKey);
+  if (customDialogSeedKey !== prevCustomDialogSeedKey) {
+    setPrevCustomDialogSeedKey(customDialogSeedKey);
+    if (customDialogOpen) {
+      setCustomHopBytesDraft(customHopBytesLocked ?? 1);
+      setCustomHopHexDraft('');
+      setCustomHopError(null);
+    }
+  }
 
   const clearPendingResult = () => {
     activeRunTokenRef.current += 1;
@@ -425,7 +434,7 @@ export function TracePane({ onBackToTools, contacts, config, onRunTracePath }: T
   };
 
   const recordTraceRun = (hops: SavedTraceHop[]) => {
-    saveRecentTrace({ hops, ranAt: Date.now() });
+    saveRecentTrace(hops);
     setRecentTraces(loadRecentTraces());
     saveRecentNodeKeys(hops);
     setRecentNodeKeys(loadRecentNodeKeys());

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
-import { GroupTextCracker, type ProgressReport } from 'meshcore-hashtag-cracker';
+import { GroupTextCracker, isWebGpuSupported, type ProgressReport } from 'meshcore-hashtag-cracker';
 import NoSleep from 'nosleep.js';
 import type { RawPacket, Channel } from '../types';
 import { api } from '../api';
@@ -81,7 +81,8 @@ export function CrackerPanel({
   const [queue, setQueue] = useState<Map<string, QueueItem>>(new Map());
   const [crackedChannels, setCrackedChannels] = useState<CrackedChannel[]>([]);
   const [wordlistLoaded, setWordlistLoaded] = useState(false);
-  const [gpuAvailable, setGpuAvailable] = useState<boolean | null>(null);
+  // Same probe GroupTextCracker.isGpuAvailable() runs (navigator.gpu), read once.
+  const [gpuAvailable] = useState<boolean>(() => isWebGpuSupported());
   const [undecryptedPacketCount, setUndecryptedPacketCount] = useState<number | null>(null);
   const [skippedDuplicates, setSkippedDuplicates] = useState(0);
   const [historicalStats, setHistoricalStats] = useState<{
@@ -120,7 +121,6 @@ export function CrackerPanel({
   useEffect(() => {
     const cracker = new GroupTextCracker();
     crackerRef.current = cracker;
-    setGpuAvailable(cracker.isGpuAvailable());
 
     const noSleep = new NoSleep();
     noSleepRef.current = noSleep;
@@ -265,10 +265,6 @@ export function CrackerPanel({
   }, [maxLength]);
 
   useEffect(() => {
-    setMaxLengthInput(String(maxLength));
-  }, [maxLength]);
-
-  useEffect(() => {
     includeHistoricalRef.current = includeHistorical;
   }, [includeHistorical]);
 
@@ -293,7 +289,10 @@ export function CrackerPanel({
     onQueueChange?.(queue.size);
   }, [onQueueChange, queue.size]);
 
-  // Process next packet in queue
+  // Process next packet in queue. The rescheduling timers call through
+  // processNextRef (synced below) because a callback cannot reference itself
+  // before its declaration completes.
+  const processNextRef = useRef<() => Promise<void>>(async () => {});
   const processNext = useCallback(async () => {
     // Prevent concurrent processing
     if (isProcessingRef.current) return;
@@ -328,7 +327,7 @@ export function CrackerPanel({
     if (!nextItem || nextIdentity === null) {
       // Nothing to process right now, but keep running and check again later
       if (isRunningRef.current) {
-        setTimeout(() => processNext(), 1000);
+        setTimeout(() => processNextRef.current(), 1000);
       }
       return;
     }
@@ -490,9 +489,13 @@ export function CrackerPanel({
 
     // Continue processing if still running
     if (isRunningRef.current) {
-      setTimeout(() => processNext(), 100);
+      setTimeout(() => processNextRef.current(), 100);
     }
   }, [includeOlder, onChannelCreate, onHashtagDiscovered, t]);
+
+  useLayoutEffect(() => {
+    processNextRef.current = processNext;
+  }, [processNext]);
 
   // Start/stop handlers
   const handleStart = async () => {
@@ -587,7 +590,12 @@ export function CrackerPanel({
               if (nextValue === '') return;
               const parsed = Number.parseInt(nextValue, 10);
               if (Number.isNaN(parsed)) return;
-              setMaxLength(Math.min(10, Math.max(1, parsed)));
+              const clamped = Math.min(10, Math.max(1, parsed));
+              if (clamped !== maxLength) {
+                // A new max length normalizes the field (e.g. "15" -> "10").
+                setMaxLength(clamped);
+                setMaxLengthInput(String(clamped));
+              }
             }}
             onBlur={() => {
               const parsed = Number.parseInt(maxLengthInput, 10);
