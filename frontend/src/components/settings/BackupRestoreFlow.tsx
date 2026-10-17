@@ -57,6 +57,16 @@ function defaultSteps(inspect: BackupInspectResult): BackupRestoreSteps {
   };
 }
 
+/** The identity decision only applies when the identity step runs. */
+function identityChecks(inspect: BackupInspectResult, steps: BackupRestoreSteps) {
+  const on = steps.identity && inspect.has_private_key;
+  return {
+    refusal: on ? inspect.identity_refusal : null,
+    replace: on && inspect.identity_requires.replace_live_identity,
+    wipe: on && inspect.identity_requires.wipe_history,
+  };
+}
+
 function keyPrefix(key: string | null | undefined): string {
   return (key ?? '').slice(0, 12);
 }
@@ -227,8 +237,8 @@ export function BackupRestoreFlow({
         backup: file.backup,
         ...(file.passphrase ? { passphrase: file.passphrase } : {}),
         steps,
-        replace_live_identity: result.identity_requires.replace_live_identity && confirmReplace,
-        wipe_history: result.identity_requires.wipe_history && confirmWipe,
+        replace_live_identity: identityChecks(result, steps).replace && confirmReplace,
+        wipe_history: identityChecks(result, steps).wipe && confirmWipe,
         expected_live_public_key: result.live_radio_public_key,
       });
       finishedRef.current = null;
@@ -452,13 +462,13 @@ function RestoreSummary({
 }) {
   const { t } = useTranslation();
   const v1 = V1_FORMATS.includes(inspect.format);
-  const requires = inspect.identity_requires;
+  const checks = identityChecks(inspect, steps);
   const set = (patch: Partial<BackupRestoreSteps>) => onSteps({ ...steps, ...patch });
   const blocked =
-    inspect.identity_refusal !== null ||
+    checks.refusal !== null ||
     !confirm ||
-    (requires.replace_live_identity && !confirmReplace) ||
-    (requires.wipe_history && !confirmWipe);
+    (checks.replace && !confirmReplace) ||
+    (checks.wipe && !confirmWipe);
 
   return (
     <div className="space-y-3">
@@ -585,7 +595,7 @@ function RestoreSummary({
         )}
       </div>
 
-      {inspect.identity_refusal === null && requires.replace_live_identity && (
+      {checks.refusal === null && checks.replace && (
         <Check checked={confirmReplace} onChange={onConfirmReplace}>
           {t('settings.fullRestore.identityReplacesLiveConfirm', {
             name: inspect.live_radio_name ?? '?',
@@ -593,7 +603,7 @@ function RestoreSummary({
           })}
         </Check>
       )}
-      {inspect.identity_refusal === null && requires.wipe_history && (
+      {checks.refusal === null && checks.wipe && (
         <Check checked={confirmWipe} onChange={onConfirmWipe}>
           {t('settings.fullRestore.identityWipeConfirm')}
         </Check>

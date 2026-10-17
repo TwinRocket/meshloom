@@ -198,6 +198,30 @@ describe('BackupRestoreFlow', () => {
     });
   });
 
+  it('asks no identity confirmation when the identity step is unchecked', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({
+        identity_relation: 'conflict',
+        identity_refusal: 'backup_identity_conflict',
+        identity_requires: { replace_live_identity: true, wipe_history: true },
+      })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.steps.identity')));
+    fireEvent.click(checkbox('settings.fullRestore.confirm'));
+    expect(screen.queryByLabelText(i18n.t('settings.fullRestore.identityWipeConfirm'))).toBeNull();
+    const restore = screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') });
+    expect(restore).toBeEnabled();
+    fireEvent.click(restore);
+    await waitFor(() => expect(mocks.startFullRestore).toHaveBeenCalled());
+    expect(mocks.startFullRestore.mock.calls[0][0]).toMatchObject({
+      steps: expect.objectContaining({ identity: false }),
+      replace_live_identity: false,
+      wipe_history: false,
+    });
+  });
+
   it.each(['needs_radio', 'conflict'] as const)(
     'cannot restore when the identity check refuses (%s)',
     async (relation) => {
