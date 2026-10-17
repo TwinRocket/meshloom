@@ -2072,6 +2072,10 @@ class RadioBlePairingStatus(BaseModel):
     error_code: str | None = Field(
         default=None, description="ble_pair_* code, translated under errors.<code>"
     )
+    error_params: dict[str, str] = Field(
+        default_factory=dict,
+        description="Interpolation values for errors.<code> (e.g. error); never the PIN",
+    )
     error_at: int | None = None
     auto_pair_blocked: bool = Field(
         default=False,

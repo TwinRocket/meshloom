@@ -1692,6 +1692,31 @@ class TestBlePrePairing:
         assert rm._frontend_reconnect_error_broadcasts == 0
 
     @pytest.mark.asyncio
+    async def test_failure_hidden_by_an_expected_reboot_toasts_past_it(self, monkeypatch):
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+        from app.services.ble_pairing import BlePairingError
+
+        async def _session(address, pin):
+            raise BlePairingError("ble_pair_device_not_found")
+
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(ble_pairing, "_pair_session", _session)
+        rm = RadioManager()
+        rm.note_expected_reboot("clock_sync")
+        with self._ble(), patch("app.websocket.broadcast_error") as mock_broadcast_error:
+            # Within the grace period: logged, not shown.
+            assert await rm.reconnect(broadcast_on_success=False) is False
+            assert _error_codes(mock_broadcast_error) == []
+
+            rm._expected_reboot_deadline = 0.0
+            assert ble_pairing._last_failure is not None
+            ble_pairing._last_failure.retry_at = None  # skip the backoff window
+            assert await rm.reconnect(broadcast_on_success=False) is False
+
+        assert _error_codes(mock_broadcast_error) == ["ble_pair_device_not_found"]
+
+    @pytest.mark.asyncio
     async def test_ble_maintenance_is_busy_while_reconnecting(self, monkeypatch):
         from app.radio import RadioManager, RadioOperationBusyError
         from app.services import ble_pairing

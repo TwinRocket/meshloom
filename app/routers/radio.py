@@ -1277,10 +1277,20 @@ async def get_radio_ble_pairing() -> RadioBlePairingStatus:
 async def post_radio_ble_pairing() -> RadioBlePairingStatus:
     """Pair the saved BLE radio now with the saved PIN (lifts a paused automatic pairing)."""
     address, pin = await _saved_ble_transport()
+    if ble_pairing.in_progress():
+        # The connection monitor is pairing: entering the lifecycle transition
+        # would cancel it, and the Pair() sent right after could still get
+        # InProgress while bluetoothd drops the abandoned bonding.
+        raise _ble_pairing_http_error(BlePairingError("ble_pair_in_progress"))
     try:
         async with radio_manager.lifecycle_transition("ble_pair"):
             async with radio_manager.ble_maintenance("ble_pair"):
                 status = await ble_pairing.pairing_status(address, pin, True)
+                if radio_manager.is_connected and status.state == "unavailable":
+                    # The bond cannot be checked (status read timed out, D-Bus
+                    # gone, link opened without our pre-pairing): keep the working
+                    # link rather than drop it for a pairing that may not run.
+                    raise BlePairingError(status.error_code or "ble_pair_bluez_unavailable")
                 if not (radio_manager.is_connected and status.state == "paired"):
                     # Release the link first: BlueZ cannot pair a device meshcore
                     # holds, and its auto-reconnect would race us.

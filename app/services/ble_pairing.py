@@ -58,6 +58,9 @@ STATUS_TIMEOUT = 2.0
 STATUS_CACHE_SECONDS = 1.0
 BACKOFF_STEPS = (5, 10, 20, 40, 60)
 STALE_BOND_THRESHOLD = 3
+# After a pairing was cancelled (bus closed), bluetoothd drops the pending bonding
+# asynchronously; an explicit Pair() sent sooner can still get InProgress.
+CANCEL_SETTLE_SECONDS = 1.5
 AGENT_CAPABILITY = "KeyboardOnly"
 AGENT_PATH_PREFIX = "/org/meshloom/ble_agent"
 
@@ -225,6 +228,7 @@ _stale_bond_reported: set[str] = set()
 _status_cache: dict[str, _StatusRead] = {}
 _last_fallback_code: str | None = None
 _multi_adapter_warned = False
+_last_cancelled_at: float | None = None  # monotonic, a session cancelled mid-pairing
 
 _monotonic = time.monotonic
 _wall_clock = time.time
@@ -337,6 +341,13 @@ def _record_failure(fingerprint: str, error: BlePairingError) -> BlePairingError
     return error.copy(already_reported=already) if already else error
 
 
+def mark_unreported(code: str) -> None:
+    """The caller did not show that failure (expected reboot): the next one must toast."""
+    failure = _last_failure
+    if failure is not None and failure.error.code == code:
+        failure.reported = False
+
+
 def log_fallback(exc: BlePairingError) -> None:
     """Log an environmental fallback once per distinct code, then at DEBUG."""
     global _last_fallback_code
@@ -352,10 +363,12 @@ def log_fallback(exc: BlePairingError) -> None:
         logger.debug("Automatic BLE pairing still unavailable (%s)", exc.code)
 
 
-# Texts of a connect failure where the radio answered and refused our keys, or
-# dropped the link right after it came up. A radio that is off or out of range
-# gives TimeoutError, BleakDeviceNotFoundError or meshcore's ConnectionError
-# ("Failed to connect to device") instead, and must never look like a stale bond.
+# Texts of a connect failure where the radio answered and refused our keys. A
+# radio that is off or out of range gives TimeoutError, BleakDeviceNotFoundError
+# or meshcore's ConnectionError ("Failed to connect to device") instead, and must
+# never look like a stale bond. A link that drops right after it came up ("device
+# disconnected", "Not connected") is not counted either: a radio at the edge of
+# range does that too, and a false hint would make the user delete a good bond.
 _STALE_BOND_DBUS_ERRORS = frozenset(
     {
         "org.bluez.Error.AuthenticationFailed",
@@ -372,8 +385,6 @@ _STALE_BOND_TEXTS = (
     "insufficient encryption",
     "key missing",
     "abort-by-remote",
-    "device disconnected",
-    "not connected",
 )
 
 
@@ -438,6 +449,7 @@ def note_connect_result(
 
 def reset_for_tests() -> None:
     global _lock, _in_progress, _last_failure, _last_fallback_code, _multi_adapter_warned
+    global _last_cancelled_at
     _lock = None
     _in_progress = False
     _last_failure = None
@@ -446,6 +458,7 @@ def reset_for_tests() -> None:
     _status_cache.clear()
     _last_fallback_code = None
     _multi_adapter_warned = False
+    _last_cancelled_at = None
 
 
 # D-Bus plumbing -----------------------------------------------------------------
@@ -803,6 +816,11 @@ class _PairSession:
         self.agent_registered = False
         self.discovery_started = False
         self.need_cancel_pairing = False
+        # A link up before our Pair() belongs to someone else (bluetoothctl, HA, a
+        # desktop agent) or to an earlier attempt: a failure must not drop it.
+        self.connected_before_pair = False
+        # True once our own Pair() may have brought the link up (not InProgress).
+        self.pair_owns_link = False
 
     def __repr__(self) -> str:
         return f"_PairSession(address={self.address!r}, device={self.device_path!r})"
@@ -818,6 +836,7 @@ class _PairSession:
                 raise BlePairingError("ble_pair_device_blocked")
             if is_bonded(props):
                 return await self._already_paired(props)
+            self.connected_before_pair = bool(props.get("Connected"))
             # Not paired, or a session-only pairing (Paired without Bonded): pair
             # directly. A radio that is not advertising fails Pair() as unreachable.
             self._check_pin()
@@ -880,6 +899,7 @@ class _PairSession:
             if props is not None and str(props.get("Address", "")).upper() == self.address:
                 if props.get("Blocked"):
                     raise BlePairingError("ble_pair_device_blocked")
+                self.connected_before_pair = bool(props.get("Connected"))
                 found = True
                 break
             if _monotonic() >= deadline:
@@ -920,9 +940,13 @@ class _PairSession:
         logger.info("Pairing BLE radio %s through %s", self.address, self.adapter_path)
         from dbus_fast import MessageType
 
+        self.pair_owns_link = not self.connected_before_pair
         reply = await self._pair_call(agent)
         if reply.message_type == MessageType.ERROR:
             name = reply.error_name or ""
+            if name == "org.bluez.Error.InProgress":
+                # Another client's bonding owns the link: leave it alone.
+                self.pair_owns_link = False
             if name != "org.bluez.Error.AlreadyExists":
                 text = reply.body[0] if reply.body and isinstance(reply.body[0], str) else ""
                 raise _map_dbus_error(name, text, context="pair", agent=agent)
@@ -970,7 +994,9 @@ class _PairSession:
                 logger.debug("Agent unexport failed", exc_info=True)
             self.agent_path = None
         await self._stop_discovery()
-        if failed and self.device_path:
+        if failed and self.device_path and self.pair_owns_link:
+            # Only a link our own Pair() brought up: dropping another client's link
+            # would cancel its bonding (bluetoothctl pair, HA, a desktop agent).
             try:
                 props = await bluez.device_props(self.device_path)
             except BlePairingError:
@@ -1039,6 +1065,7 @@ async def _ensure_paired_locked(address: str, pin: str, *, explicit: bool) -> Pa
     fingerprint = _fingerprint(address, pin)
     if explicit:
         _clear_failure_state()
+        await _settle_after_cancel()
     else:
         _raise_if_blocked(fingerprint)
     # The PIN format is checked by the session, after the bond lookup: a radio
@@ -1057,7 +1084,19 @@ async def _ensure_paired_locked(address: str, pin: str, *, explicit: bool) -> Pa
     return outcome
 
 
+async def _settle_after_cancel() -> None:
+    """Give bluetoothd time to drop a bonding we abandoned by closing the bus."""
+    global _last_cancelled_at
+    if _last_cancelled_at is None:
+        return
+    remaining = _last_cancelled_at + CANCEL_SETTLE_SECONDS - _monotonic()
+    _last_cancelled_at = None
+    if remaining > 0:
+        await asyncio.sleep(remaining)
+
+
 async def _pair_session(address: str, pin: str) -> PairOutcome:
+    global _last_cancelled_at
     bus = await _open_bus()
     session = _PairSession(_BlueZ(bus), address, pin)
     cancelled = False
@@ -1075,6 +1114,8 @@ async def _pair_session(address: str, pin: str) -> PairOutcome:
         # No D-Bus round trip: closing the connection makes BlueZ drop our agent,
         # our discovery session and a pending bonding (NameOwnerChanged).
         cancelled = True
+        if session.agent_registered or session.discovery_started:
+            _last_cancelled_at = _monotonic()
         raise
     finally:
         try:
@@ -1193,6 +1234,7 @@ async def pairing_status(address: str, pin: str, transport_is_ble: bool) -> Radi
         return RadioBlePairingStatus(
             state="failed",
             error_code=failure.error.code,
+            error_params=failure.error.params,
             error_at=int(failure.at),
             auto_pair_blocked=failure.sticky,
             retry_in=_retry_in(failure),
@@ -1201,7 +1243,11 @@ async def pairing_status(address: str, pin: str, transport_is_ble: bool) -> Radi
         )
     if read.error is not None:
         return RadioBlePairingStatus(
-            state="unavailable", error_code=read.error.code, hint=hint, **base
+            state="unavailable",
+            error_code=read.error.code,
+            error_params=read.error.params,
+            hint=hint,
+            **base,
         )
     if read.device is None:
         return RadioBlePairingStatus(state="unknown_device", hint=hint, **base)

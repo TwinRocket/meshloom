@@ -337,6 +337,44 @@ class TestRetryPolicy:
         assert not ble_pairing.auto_pair_blocked(ADDRESS, PIN)
         assert len(session.calls) == 2
 
+    async def test_explicit_waits_for_a_cancelled_bonding_to_settle(self, session, monkeypatch):
+        import time
+
+        monkeypatch.setattr(ble_pairing, "CANCEL_SETTLE_SECONDS", 0.3)
+        ble_pairing._last_cancelled_at = ble_pairing._monotonic()
+        started = time.monotonic()
+        await ble_pairing.ensure_paired(ADDRESS, PIN, explicit=True)
+        assert time.monotonic() - started >= 0.2
+        assert ble_pairing._last_cancelled_at is None
+
+        # Consumed: the next explicit attempt does not wait.
+        started = time.monotonic()
+        await ble_pairing.ensure_paired(ADDRESS, PIN, explicit=True)
+        assert time.monotonic() - started < 0.2
+
+    async def test_automatic_attempt_does_not_wait_for_a_cancelled_bonding(
+        self, session, monkeypatch
+    ):
+        import time
+
+        monkeypatch.setattr(ble_pairing, "CANCEL_SETTLE_SECONDS", 5.0)
+        ble_pairing._last_cancelled_at = ble_pairing._monotonic()
+        started = time.monotonic()
+        await ble_pairing.ensure_paired(ADDRESS, PIN)
+        assert time.monotonic() - started < 1.0
+
+    async def test_mark_unreported_lets_the_same_failure_toast_again(self, session, clock):
+        session.script.append(BlePairingError("ble_pair_device_not_found"))
+        with pytest.raises(BlePairingError):
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        ble_pairing.mark_unreported("ble_pair_device_not_found")
+        ble_pairing.mark_unreported("ble_pair_wrong_pin")  # another code: no effect
+        clock.now += 60
+        session.script.append(BlePairingError("ble_pair_unreachable"))
+        with pytest.raises(BlePairingError) as again:
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        assert again.value.already_reported is False
+
     async def test_backoff_windows(self, session, clock):
         windows = []
         for _ in range(6):
@@ -509,7 +547,6 @@ class TestStaleBond:
             BleakDBusError("org.bluez.Error.Failed", ["ATT error: 0x05"]),
             BleakDBusError("org.bluez.Error.Failed", ["ATT error: 0x0f"]),
             BleakDBusError("org.bluez.Error.Failed", ["le-connection-abort-by-remote"]),
-            BleakError("failed to discover services, device disconnected"),
         ]
         for error in refused:
             assert ble_pairing.connect_error_suggests_stale_bond(error), error
@@ -517,6 +554,12 @@ class TestStaleBond:
         wrapped.__cause__ = _refused()
         assert ble_pairing.connect_error_suggests_stale_bond(wrapped)
         for error in self._absent_radio_errors():
+            assert not ble_pairing.connect_error_suggests_stale_bond(error), error
+        # A link that drops right after it came up: also a radio at the edge of range.
+        for error in (
+            BleakError("failed to discover services, device disconnected"),
+            BleakError("Not connected"),
+        ):
             assert not ble_pairing.connect_error_suggests_stale_bond(error), error
         assert not ble_pairing.connect_error_suggests_stale_bond(None)
 
@@ -634,6 +677,16 @@ class TestStatusWithoutBus:
         assert status.error_code == "ble_pair_unreachable"
         assert status.retry_in == 3
         assert status.auto_pair_blocked is False
+
+    async def test_failed_state_carries_the_error_params(self, session, monkeypatch):
+        monkeypatch.setattr(ble_pairing, "pairing_supported", lambda: (True, None))
+        session.script.append(ble_pairing._map_dbus_error("org.bluez.Error.Weird", context="pair"))
+        with pytest.raises(BlePairingError):
+            await ble_pairing.ensure_paired(ADDRESS, PIN)
+        status = await ble_pairing.pairing_status(ADDRESS, PIN, True)
+        assert status.error_code == "ble_pair_failed"
+        assert status.error_params == {"error": "org.bluez.Error.Weird"}
+        assert PIN not in status.model_dump_json()
 
     async def test_unavailable_when_bus_is_missing(self, monkeypatch):
         monkeypatch.setattr(ble_pairing, "pairing_supported", lambda: (True, None))

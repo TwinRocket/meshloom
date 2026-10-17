@@ -323,6 +323,44 @@ class TestFailures:
 
         assert excinfo.value.code == "ble_pair_rejected"
 
+    async def test_in_progress_leaves_another_clients_link_alone(self, pairing, bluez):
+        """bluetoothctl (or HA) is bonding: our failure must not cancel it."""
+        adapter = bluez.add_adapter("hci0")
+        path = bluez.add_device(adapter, ADDRESS, Connected=True)
+        bluez.pair_error = "org.bluez.Error.InProgress"
+
+        with pytest.raises(pairing.BlePairingError) as excinfo:
+            await pairing.ensure_paired(ADDRESS, PIN)
+
+        assert excinfo.value.code == "ble_pair_in_progress"
+        members = bluez.members()
+        assert "Pair" in members and "UnregisterAgent" in members
+        assert "Disconnect" not in members
+        assert bluez.devices[path]["Connected"] is True
+
+    async def test_in_progress_on_an_idle_device_does_not_disconnect(self, pairing, bluez):
+        adapter = bluez.add_adapter("hci0")
+        bluez.add_device(adapter, ADDRESS)
+        bluez.pair_error = "org.bluez.Error.InProgress"
+
+        with pytest.raises(pairing.BlePairingError) as excinfo:
+            await pairing.ensure_paired(ADDRESS, PIN)
+
+        assert excinfo.value.code == "ble_pair_in_progress"
+        assert "Disconnect" not in bluez.members()
+
+    async def test_failure_on_a_link_up_before_pair_leaves_it(self, pairing, bluez):
+        """The link was not ours (another client, an earlier attempt): keep it."""
+        adapter = bluez.add_adapter("hci0")
+        path = bluez.add_device(adapter, ADDRESS, passkey=654321, Connected=True)
+
+        with pytest.raises(pairing.BlePairingError) as excinfo:
+            await pairing.ensure_paired(ADDRESS, PIN)
+
+        assert excinfo.value.code == "ble_pair_wrong_pin"
+        assert "Disconnect" not in bluez.members()
+        assert bluez.devices[path]["Connected"] is True
+
     async def test_pair_timeout_cancels_pairing_then_disconnects(self, pairing, bluez, monkeypatch):
         monkeypatch.setattr(pairing, "PAIR_TIMEOUT", 0.2)
         adapter = bluez.add_adapter("hci0")
@@ -362,6 +400,8 @@ class TestFailures:
         assert "StopDiscovery" not in bluez.members()
         assert bluez.calls_after_lost == []
         assert not pairing.in_progress()
+        # The next explicit Pair() waits for bluetoothd to drop the bonding.
+        assert pairing._last_cancelled_at is not None
 
     async def test_bluez_not_running(self, pairing):
         with pytest.raises(pairing.BlePairingError) as excinfo:

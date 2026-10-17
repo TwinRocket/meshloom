@@ -1989,3 +1989,50 @@ class TestBlePairingRoutes:
         # conftest makes the system bus unreachable.
         assert status.state == "unavailable"
         assert status.error_code == "ble_pair_dbus_unavailable"
+
+    @pytest.mark.asyncio
+    async def test_post_is_409_while_the_monitor_pairs(self, monkeypatch):
+        """Entering the lifecycle transition would cancel the monitor's pairing."""
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events)
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "in_progress", lambda: True)
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "ble_pair_in_progress"
+        assert events == []
+        ensure.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_post_keeps_a_working_link_when_the_bond_cannot_be_read(self, monkeypatch):
+        from app.models import RadioBlePairingStatus
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events, connected=True)
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        monkeypatch.setattr(
+            ble_pairing,
+            "pairing_status",
+            AsyncMock(
+                return_value=RadioBlePairingStatus(
+                    supported=True,
+                    state="unavailable",
+                    address="AA:BB:CC:DD:EE:FF",
+                    error_code="ble_pair_bluez_unavailable",
+                )
+            ),
+        )
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "ble_pair_bluez_unavailable"
+        assert "disconnect" not in events
+        ensure.assert_not_awaited()

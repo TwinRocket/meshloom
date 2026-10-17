@@ -897,6 +897,11 @@ class RadioManager:
                     logger.debug("BLE pairing still blocked: %s", e.code)
                 elif self.expected_reboot is not None:
                     logger.info("Radio not back yet after its expected reboot: %s", e.code)
+                    # Not shown during the grace period: the same failure past it
+                    # must still toast once.
+                    from app.services import ble_pairing
+
+                    ble_pairing.mark_unreported(e.code)
                 else:
                     logger.warning("BLE pairing failed: %s (%s)", e.code, e.message)
                     self._broadcast_reconnect_error_if_needed(
