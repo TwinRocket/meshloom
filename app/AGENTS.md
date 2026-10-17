@@ -128,7 +128,12 @@ and the OpenAPI page (`/docs`), not a table here.
   once per outage when it has lasted `app_settings.radio_offline_grace_s`
   (default 60, 0 = at once) **and** that much time has passed since the process
   started, judged on a monotonic clock at each pass (no timer to lose at
-  shutdown). It never starts for an expected reboot (`expected_reboot_reason`),
+  shutdown). Granularity: one pass per loop iteration, and an iteration can
+  block in `reconnect_and_prepare_radio` (setup timeout), so the offline
+  notification can be late and the loss is stamped at the first pass that sees
+  it. A transport that is up with setup incomplete does not clear a pending loss
+  (only a completed setup does), so a connect/setup-failure loop cannot reset the
+  grace forever. It never starts for an expected reboot (`expected_reboot_reason`),
   with the connection paused (`connection_desired` false: closes a notified
   outage silently), before the first completed setup since start, or while the
   transport is up (setup still running counts as up). Only a *notified* outage is

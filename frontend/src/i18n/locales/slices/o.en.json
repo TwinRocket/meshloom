@@ -9,7 +9,7 @@
       "appStartedHelp": "Notify each time Meshloom starts, with its version and whether the radio connected. Makes an unexpected restart visible and confirms an update.",
       "radioOfflineGrace": "Radio offline delay",
       "radioOfflineGraceUnit": "seconds",
-      "radioOfflineGraceHelp": "How long the radio may stay unreachable before “Radio offline” is sent. 0 notifies at once. No notification is sent in the first seconds after Meshloom starts, so a restart or an update does not raise a false alarm.",
+      "radioOfflineGraceHelp": "How long the radio may stay unreachable before “Radio offline” is sent. 0 notifies at once. No notification is sent during the same delay right after Meshloom starts, so a restart or an update does not raise a false alarm.",
       "radioOfflineGraceSaveFailed": "Failed to save the delay"
     }
   }

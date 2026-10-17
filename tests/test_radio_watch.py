@@ -408,3 +408,83 @@ async def test_startup_task_cancelled_sends_nothing(monkeypatch, test_db):
     with pytest.raises(asyncio.CancelledError):
         await main._startup_radio_connect_and_setup()
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_connect_without_setup_does_not_reset_the_grace():
+    h = Harness()
+    await h.up_and_armed()
+    h.drop()
+    await h.run(40)
+    # The transport opens but setup never completes, then drops again, in a loop.
+    for _ in range(4):
+        h.radio.is_connected = True
+        await h.tick()
+        h.radio.is_connected = False
+        await h.run(10)
+    await h.run(30)
+    assert h.names() == ["radio_offline"]
+
+
+@pytest.mark.asyncio
+async def test_flapping_after_a_notified_outage_is_one_outage_until_setup_completes():
+    h = Harness()
+    await h.up_and_armed()
+    h.drop()
+    await h.run(90)
+    assert h.names() == ["radio_offline"]
+    # Brief reconnect without a completed setup, then lost again.
+    h.radio.is_connected = True
+    await h.run(10)
+    h.radio.is_connected = False
+    await h.run(120)
+    assert h.names() == ["radio_offline"]
+    h.restore()
+    await h.run(10)
+    assert h.names() == ["radio_offline", "radio_online"]
+
+
+@pytest.mark.asyncio
+async def test_monitor_loop_survives_a_failing_watch_and_stops_on_cancel(monkeypatch):
+    import asyncio
+
+    from app.services import radio_lifecycle
+
+    calls = 0
+
+    async def boom(radio):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("watch failed")
+
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(_):
+        await real_sleep(0)
+
+    monkeypatch.setattr(radio_lifecycle.asyncio, "sleep", fast_sleep)
+    monkeypatch.setattr(radio_lifecycle.radio_watch, "observe", boom)
+
+    class Radio:
+        def expire_expected_reboot(self):
+            return None
+
+        def take_expected_reboot_teardown(self):
+            return False
+
+        is_connected = True
+        connection_desired = True
+        _last_connected = True
+        is_setup_complete = True
+        is_setup_in_progress = False
+        is_reconnecting = False
+        connection_info = None
+        expected_reboot_reason = None
+
+    task = asyncio.create_task(radio_lifecycle.connection_monitor_loop(Radio()))
+    for _ in range(20):
+        await real_sleep(0)
+    assert calls >= 2 and not task.done()
+    task.cancel()
+    await asyncio.wait_for(task, 1)
+    assert task.done()

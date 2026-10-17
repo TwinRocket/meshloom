@@ -9,7 +9,7 @@
       "appStartedHelp": "Notifier à chaque démarrage de Meshloom, avec sa version et l’état de la connexion radio. Rend visible un redémarrage inattendu et confirme une mise à jour.",
       "radioOfflineGrace": "Délai « radio hors ligne »",
       "radioOfflineGraceUnit": "secondes",
-      "radioOfflineGraceHelp": "Durée pendant laquelle la radio peut rester injoignable avant l’envoi de « Radio hors ligne ». 0 notifie aussitôt. Rien n’est envoyé pendant les premières secondes après le démarrage de Meshloom : un redémarrage ou une mise à jour ne déclenche pas de fausse alerte.",
+      "radioOfflineGraceHelp": "Durée pendant laquelle la radio peut rester injoignable avant l’envoi de « Radio hors ligne ». 0 notifie aussitôt. Rien n’est envoyé pendant le même délai juste après le démarrage de Meshloom : un redémarrage ou une mise à jour ne déclenche pas de fausse alerte.",
       "radioOfflineGraceSaveFailed": "Échec de l’enregistrement du délai"
     }
   }

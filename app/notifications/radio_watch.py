@@ -5,7 +5,10 @@ second poll). A loss of the transport starts a grace delay
 (``app_settings.radio_offline_grace_s``, 0 = at once); a radio still unreachable
 when it ends sends one ``radio_offline`` for the outage, and its return sends one
 ``radio_online`` with the downtime. The grace is judged on a monotonic clock at
-each pass, so no timer is lost when the process stops.
+each pass, so no timer is lost when the process stops. Granularity: a pass runs
+every 5 s but can be held up by a reconnect or setup in the same loop iteration
+(up to the setup timeout), so ``radio_offline`` can arrive late and the loss is
+stamped at the first pass that sees it.
 
 What never notifies:
 
@@ -149,8 +152,11 @@ class RadioWatch:
             return
 
         if radio.is_connected:
-            self._pending = None
+            # Only a completed setup ends a loss: a transport that opens but
+            # never finishes setup (connect, setup failure, drop, repeat) must
+            # not restart the grace on every cycle.
             if radio.is_setup_complete:
+                self._pending = None
                 self._first_setup_done = True
                 await self._recovered(radio)
             return
