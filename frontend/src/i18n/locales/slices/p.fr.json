@@ -14,6 +14,11 @@
         "grandfathered": "Ces intégrations ont été configurées avant que Meshloom ne vérifie les destinations : les adresses de réseau privé restent autorisées pour elles et elles continuent de fonctionner : {{names}}. Décochez « Autoriser une destination sur un réseau privé » dans une intégration si elle pointe vers un service public.",
         "grandfatheredDismiss": "Compris"
       }
+    },
+    "fullRestore": {
+      "warnings": {
+        "apprise_restored_disabled": "L’intégration Apprise {{value}} revient désactivée : une de ses URL utilise un service vers lequel Meshloom n’envoie plus, ou une URL Telegram sans identifiant de discussion. Modifiez ses URL avant de l’activer."
+      }
     }
   }
 }

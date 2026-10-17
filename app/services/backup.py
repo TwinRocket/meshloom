@@ -793,7 +793,7 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
 
     from app.fanout.manager import fanout_manager, is_reserved_fanout_id
     from app.repository.fanout import FanoutConfigRepository
-    from app.routers.fanout import prepare_fanout_config
+    from app.routers.fanout import prepare_fanout_config, prepare_refused_apprise_config
 
     written: list[str] = []
     restored_bots: list[str] = []
@@ -806,16 +806,24 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
         if entry.type == "bot" and fanout_manager.bots_disabled_effective():
             warnings.append(f"bots_disabled:{label}")
             continue
+        refused_apprise = False
         try:
             config, scope = prepare_fanout_config(
                 entry.type, entry.config, entry.scope, restored=True
             )
-        except HTTPException:
-            warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
-            continue
+        except HTTPException as exc:
+            # A coded Apprise refusal (a scheme no longer allowed, a Telegram
+            # URL with no chat id) is a row an older Meshloom accepted: kept,
+            # disabled, like migration 100 keeps it. Anything else is invalid.
+            if entry.type != "apprise" or not isinstance(exc.detail, dict):
+                warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
+                continue
+            config, scope = prepare_refused_apprise_config(entry.config, entry.scope)
+            refused_apprise = True
+            warnings.append(f"apprise_restored_disabled:{label}")
         # A bot runs code through exec() once enabled, and a backup file may
         # come from someone else: restored disabled, the user enables it.
-        enabled = entry.enabled and entry.type != "bot"
+        enabled = entry.enabled and entry.type != "bot" and not refused_apprise
         existing = await FanoutConfigRepository.get(entry.id)
         if existing is not None:
             if existing["type"] != entry.type:

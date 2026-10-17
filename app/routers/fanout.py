@@ -548,6 +548,26 @@ def prepare_fanout_config(
     return normalized, _enforce_scope(config_type, scope)
 
 
+def prepare_refused_apprise_config(config: dict, scope: dict) -> tuple[dict, dict]:
+    """The stored form of a restored Apprise row whose URLs are refused here.
+
+    A backup made before the Apprise allowlist may hold a URL Meshloom no
+    longer sends to (``egress_scheme``), or a Telegram URL with no chat id.
+    Migration 100 keeps such rows; a restore keeps them too, and the caller
+    stores them disabled. No URL is parsed: enabling or editing the row runs
+    the full check (``prepare_fanout_config`` and ``_check_destinations``).
+    """
+    normalized = dict(config)
+    if "allow_private_network" not in normalized:
+        normalized["allow_private_network"] = True
+        normalized["private_network_grandfathered"] = True
+    normalized["allow_private_network"] = bool(normalized["allow_private_network"])
+    normalized["markdown_format"] = bool(normalized.get("markdown_format", True))
+    normalized["include_outgoing"] = bool(normalized.get("include_outgoing", False))
+    _carry_grandfathered_flag("apprise", normalized, normalized)
+    return normalized, _enforce_scope("apprise", scope)
+
+
 @router.post("")
 async def create_fanout_config(body: FanoutConfigCreate) -> dict:
     """Create a new fanout config."""

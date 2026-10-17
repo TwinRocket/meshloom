@@ -14,6 +14,11 @@
         "grandfathered": "These integrations were set up before Meshloom checked destinations, so private network addresses stay allowed for them and they keep working: {{names}}. Untick \"Allow a destination on a private network\" in an integration if it points to a public service.",
         "grandfatheredDismiss": "Got it"
       }
+    },
+    "fullRestore": {
+      "warnings": {
+        "apprise_restored_disabled": "The Apprise integration {{value}} came back disabled: one of its URLs uses a service Meshloom no longer sends to, or a Telegram URL with no chat id. Edit its URLs before enabling it."
+      }
     }
   }
 }
