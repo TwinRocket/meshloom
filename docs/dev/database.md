@@ -247,9 +247,22 @@ databases). The current set:
 
 ## Backups
 
-`services/backup.py` offers a JSON export/restore (contacts, channels, settings,
-groups; the radio private key is never included) and an SQLite file snapshot via
-the SQLite backup API (`write_sqlite_backup`).
+Three kinds, all in `services/backup.py` (details, coverage and the restore
+order in `app/AGENTS.md`, "## Backups"):
+
+- An SQLite file snapshot via the SQLite backup API (`write_sqlite_backup`,
+  `GET /settings/backup/database`), never restored from the UI. The private key
+  is not in the database, so not in the snapshot.
+- `meshloom-backup-v1` (`export_json` / `restore_json`, `GET
+  /settings/backup/json`): contacts, channels, settings and groups, Meshloom
+  data only. It never holds the radio private key.
+- The full backup `meshloom-backup-v2` (`POST /settings/backup/export`): the v1
+  fields plus the radio identity (private key), the radio settings, the Wi-Fi
+  credentials (password in clear) and `meshloom_extra` (integrations, VAPID keys
+  and push subscriptions, the radio proxy, settings outside v1). It may be wrapped in a passphrase envelope
+  (`services/backup_crypto.py`). Radio reads and writes live in
+  `services/backup_radio.py`, the identity decision, inspect and the restore job
+  in `services/backup_restore.py`.
 
 ## Keeping this file honest
 
