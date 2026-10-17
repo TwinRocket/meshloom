@@ -4,6 +4,8 @@ from typing import Any
 
 from meshcore import EventType
 
+from app.log_redaction import secret_scope
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,15 +130,21 @@ async def import_private_key_and_refresh_keystore(
     *,
     export_and_store_private_key_fn: Callable[[Any], Awaitable[bool]],
 ) -> None:
-    """Import a private key and refresh the in-memory keystore immediately."""
-    result = await mc.commands.import_private_key(key_bytes)
-    if result.type == EventType.ERROR:
-        raise RadioCommandRejectedError(f"Failed to import private key: {result.payload}")
+    """Import a private key and refresh the in-memory keystore immediately.
 
-    keystore_refreshed = await export_and_store_private_key_fn(mc)
-    if not keystore_refreshed:
-        logger.warning("Keystore refresh failed after import, retrying once")
+    The key is registered as a literal secret for the whole exchange, so no form
+    of it (hex, repr) reaches a log line, on top of the structural rules that
+    already redact the import (0x18) and export (0x0E) frames.
+    """
+    with secret_scope(key_bytes):
+        result = await mc.commands.import_private_key(key_bytes)
+        if result.type == EventType.ERROR:
+            raise RadioCommandRejectedError(f"Failed to import private key: {result.payload}")
+
         keystore_refreshed = await export_and_store_private_key_fn(mc)
+        if not keystore_refreshed:
+            logger.warning("Keystore refresh failed after import, retrying once")
+            keystore_refreshed = await export_and_store_private_key_fn(mc)
 
     if not keystore_refreshed:
         raise KeystoreRefreshError(

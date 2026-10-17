@@ -8,7 +8,7 @@ from typing import Literal, TypeAlias
 
 from fastapi import APIRouter, HTTPException
 from meshcore import EventType
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
@@ -192,7 +192,11 @@ class RadioConfigUpdate(BaseModel):
 
 
 class PrivateKeyUpdate(BaseModel):
-    private_key: str = Field(description="Private key as hex string")
+    # A secret: SecretStr, and no input echoed in str(ValidationError), which a
+    # model built in service code would log as a 500 (app/AGENTS.md).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    private_key: SecretStr = Field(description="Private key as hex string")
 
 
 _CUSTOM_VAR_NAME_RE = re.compile(r"^[a-z0-9_]{1,32}$")
@@ -634,7 +638,7 @@ async def set_private_key(update: PrivateKeyUpdate) -> dict:
     radio_manager.require_connected()
 
     try:
-        key_bytes = bytes.fromhex(update.private_key)
+        key_bytes = bytes.fromhex(update.private_key.get_secret_value())
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid hex string for private key") from None
 

@@ -44,7 +44,7 @@ Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définis
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `MESHCORE_DATABASE_PATH` | `data/meshcore.db` | Emplacement de la base SQLite. Le paquet Linux la place dans `/var/lib/meshloom/meshcore.db`, l’add-on Home Assistant dans `/config/meshcore.db` |
-| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR` |
+| `MESHCORE_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` ou `ERROR`. La clé privée et les mots de passe Wi-Fi sont masqués même en `DEBUG`, et la sortie de débogage de la bibliothèque Bluetooth reste coupée |
 | `MESHCORE_MANAGED_PORTS` | `false` | Posée par un hôte qui décide lui-même des ports d’écoute, comme l’add-on Home Assistant. Les Réglages affichent alors le port du proxy en lecture seule |
 | `MESHCORE_RADIO_PROXY_PORT` | *(non défini)* | Port du proxy radio choisi par l’hôte. Utilisée seulement avec `MESHCORE_MANAGED_PORTS=true`, où elle remplace le port enregistré à chaque démarrage. L’add-on Home Assistant la fixe à `5051` |
 | `MESHCORE_EMBEDDABLE_SAME_ORIGIN` | `false` | Autorise une page de la même origine à afficher Meshloom dans un cadre. La barre latérale de Home Assistant fait exactement cela. Par défaut, Meshloom refuse d’être mis dans un cadre, ce qui donne un panneau blanc alors que le journal montre un `200` parfaitement sain |

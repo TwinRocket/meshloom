@@ -57,7 +57,7 @@ MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
 
 ## Instantané de support
 
-**Réglages > À propos > Ouvrir l’instantané de support de débogage** (`/api/debug`) est fait pour être collé dans un rapport de bug. Hors des logs, il contient versions, réglages et compteurs, jamais la clé privée ; les clés des contacts et des canaux n’apparaissent que sous forme d’empreintes à sens unique. Les logs récents peuvent contenir des noms ou des clés de canal, mais jamais la clé privée. Arrêtez la copie à la ligne `STOP COPYING HERE` pour laisser les logs de côté.
+**Réglages > À propos > Ouvrir l’instantané de support de débogage** (`/api/debug`) est fait pour être collé dans un rapport de bug. Hors des logs, il contient versions, réglages et compteurs, jamais la clé privée ; les clés des contacts et des canaux n’apparaissent que sous forme d’empreintes à sens unique. Les logs ne contiennent jamais la clé privée ni un mot de passe Wi-Fi, à aucun niveau de log, `DEBUG` compris. Les logs peuvent contenir des noms et des clés de canal à tous les niveaux ; en `DEBUG`, ils peuvent aussi contenir les mots de passe de connexion aux répéteurs et aux salons, et le code PIN Bluetooth. Arrêtez la copie à la ligne `STOP COPYING HERE` pour laisser les logs de côté.
 
 ## Ce qui sort de votre machine
 

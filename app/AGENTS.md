@@ -149,6 +149,66 @@ and the OpenAPI page (`/docs`), not a table here.
   route was not already flood. Deliberate: the server relearns the return path on
   a flood login. Do not reduce it to single-shot, and do not add a client retry.
 
+## Companion CLI and secrets in logs
+
+- **One seam.** Companion CLI commands (firmware v1.18, command 66) go through
+  `services/companion_cli.py`: `companion_cli_session(name)` takes the radio lock
+  with polling paused and auto-fetch suspended, refuses with `setup_incomplete`
+  before setup completes (checked again once the lock is held, before auto-fetch
+  is stopped), and yields a `CompanionCli`. Code that already holds
+  the lock (setup, a `radio_operation()` block) builds `CompanionCli(mc,
+  manager=...)` inside `mark_radio_lock_held()`. Never call
+  `mc.commands.run_cli_command` directly.
+- **Owner task.** `run()` refuses unless the calling task itself holds the lock,
+  so a task spawned inside a session is refused. Never wrap a CLI call in
+  `asyncio.wait_for`/`shield`/`gather` (on 3.11 they run it in a new task); use
+  `run(timeout=...)` or `async with asyncio.timeout(...)`.
+- **Gate.** `capabilities()` and `run()` send nothing when `firmware_ver_code` is
+  unknown or below 14, or through a Meshloom radio proxy (it reports fw ver 10
+  and a `MeshloomProxy/` model: `proxy_link`); `run()` raises
+  `CliUnsupportedError` with that reason (`cli_gate_reason()`). Otherwise
+  `capabilities()` probes `get wifi.status`: `untagged`, `unsupported_cmd`
+  (ERROR(1) with no tagged reply after a 1 s grace; forks and pre-release builds)
+  and `link_unreliable` stick until reconnect, and `run()` refuses them too;
+  `probe_failed` backs off 30 s, five failed probes per connection at most. Each
+  probe outcome is logged at INFO. The debug snapshot (`companion_cli`) shows the
+  gate reason, else the last probe result, else null: nothing in the backend
+  probes on its own, a feature does when it needs the CLI.
+- **Tags are the reply guard.** CLI replies carry no request id. Each command
+  starts with a 2-byte `XY|` tag that the firmware echoes; only a reply with our
+  tag is accepted. Tags come from `RadioManager.cli_link` (`CliLinkState`: random
+  start, replaced with the connection; each setup drops only the probe cache and
+  keeps the tags and the quarantine); a call that ends without its reply
+  quarantines its tag, and more than 64 quarantined tags declare the link
+  unreliable.
+- **Secrets.** The helper classifies commands itself: `set`/`get` of a name
+  containing `pwd`, `pass`, `key`, `secret` or `pin` (and `SENSITIVE_COMMANDS`)
+  is secret or a sensitive read, and so is any call given explicit `secrets`
+  (`run(..., secrets=...)`, `set(..., secret=True)`). No `set` argument, no
+  sensitive reply and no command text in a log line or an exception: for a
+  secret command they show only a verb and a name that look like a setting name
+  (never the argument of a one-word secret verb such as `password`). `reboot`,
+  `poweroff`, `shutdown`, `erase` and `start` are refused: reboot with
+  `mc.commands.reboot()` plus `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
+  use the remote CLI over the mesh.
+- **Never log a Wi-Fi password or a private key, at any level.**
+  `app/log_redaction.py` enforces it for what meshcore logs: a filter at index 0
+  of the `meshcore` logger (structural rules on the frame codes 0x42/0x18 out,
+  0x1D/0x0E in, plus `secret_scope()` literals), a redacting formatter on the
+  app's handlers (tracebacks included), `bleak`/`dbus_fast` clamped to INFO
+  (their DEBUG output dumps every BLE frame: `bluezdbus/client.py` write on
+  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`), and
+  an app-wide 422 handler that drops each error's `input` and `ctx`.
+  `tests/test_meshcore_log_sites.py` pins the meshcore log calls: on a meshcore
+  or bleak bump, review the rules, then refresh its fixture.
+- **Mandatory for every model with a secret field:** `SecretStr` and
+  `model_config = ConfigDict(hide_input_in_errors=True)`. A `ValidationError`
+  raised in service code is a 500 logged with `str(e)`, which carries the input
+  otherwise. Copy the 500-path test of `tests/test_log_redaction.py` for it.
+- Tests: `tests/test_companion_cli.py`, `tests/test_log_redaction.py`; the
+  loopback fixture `tests/fixtures/meshcore_loopback.py` runs the real meshcore
+  stack against a fake v1.18 firmware.
+
 ## Read state
 
 `GET /read-state/unreads` never windows the whole `messages` table: it enumerates
@@ -323,3 +383,10 @@ a false value (`services/legacy_env_settings.py`).
   send endpoint; it does not create a second row.
 - Contact lat/lon `0.0` is MeshCore's "no GPS" value and overwrites older
   coordinates on purpose.
+- `meshcore` 2.3.15 `import_private_key()` waits only for OK/ERROR: a firmware
+  built without key import answers DISABLED, which shows up as a timeout.
+- Repeater/room login passwords, channel secrets and the BLE PIN still reach the
+  DEBUG logs (meshcore frame dumps), and app code logs channel names and keys at
+  INFO (`routers/channels.py` channel creation, `services/message_send.py`); only
+  the Wi-Fi password and the private key are redacted for now (follow-up). The
+  user docs say so; keep them in step.

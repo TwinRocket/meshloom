@@ -5,7 +5,7 @@ from sqlite3 import OperationalError
 
 import aiosqlite
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.database import db
 from app.decoder import PayloadType, parse_packet, try_decrypt_packet_with_channel_key
@@ -32,6 +32,9 @@ router = APIRouter(prefix="/packets", tags=["packets"])
 
 
 class DecryptRequest(BaseModel):
+    # Secret fields: never echoed by str(ValidationError) (app/AGENTS.md).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     key_type: str = Field(description="Type of key: 'channel' or 'contact'")
     channel_key: str | None = Field(
         default=None, description="Channel key as hex (16 bytes = 32 chars)"
@@ -40,7 +43,7 @@ class DecryptRequest(BaseModel):
         default=None, description="Channel name (for hashtag channels, key derived from name)"
     )
     # Fields for contact (DM) decryption
-    private_key: str | None = Field(
+    private_key: SecretStr | None = Field(
         default=None,
         description="Our private key as hex (64 bytes = 128 chars, Ed25519 seed + pubkey)",
     )
@@ -384,7 +387,7 @@ async def decrypt_historical_packets(
             raise _bad_request("Must provide contact_public_key for contact decryption")
 
         try:
-            private_key_bytes = bytes.fromhex(request.private_key)
+            private_key_bytes = bytes.fromhex(request.private_key.get_secret_value())
             if len(private_key_bytes) != 64:
                 raise _bad_request("Private key must be 64 bytes (128 hex chars)")
         except ValueError:
