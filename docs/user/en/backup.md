@@ -55,7 +55,7 @@ After a restore, join **Meshloom Community** again if you want it: participation
 
 The full backup contains your radio's private key and, if the radio stores them, its Wi-Fi password, plus other secrets kept by Meshloom: channel keys, the Bluetooth PIN, the SMTP password, webhook and integration secrets. Anyone holding the file can impersonate your node.
 
-Tick **Encrypt with a passphrase** before downloading to protect it (8 characters or more). The file is then unreadable without the passphrase, and nobody can recover a lost passphrase. Meshloom asks for it when you restore. Without encryption, treat the file like the key itself.
+Tick **Encrypt with a passphrase** before downloading to protect it (8 characters or more). The file is then unreadable without the passphrase, and nobody can recover a lost passphrase. Meshloom asks for it when you restore. Without encryption, treat the file like the key itself. An encrypted backup is limited to 16 MiB; Meshloom refuses to encrypt a larger one (thousands of contacts, large bots), which then downloads only without encryption.
 
 Note that anyone who can reach your Meshloom can download this backup, and so can a web page opened in a browser on a machine that reaches it: keep Meshloom on a network you trust (see [Security](/en/docs/deep/security/#the-nodes-private-key)).
 

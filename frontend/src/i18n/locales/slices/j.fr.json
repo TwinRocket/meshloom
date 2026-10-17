@@ -206,6 +206,7 @@
     "backup_bad_envelope": "Cette sauvegarde chiffrée est abîmée ou utilise des paramètres non pris en charge.",
     "backup_passphrase_required": "Cette sauvegarde est chiffrée : saisissez sa phrase secrète.",
     "backup_passphrase_too_short": "La phrase secrète doit faire au moins 8 caractères.",
+    "backup_too_large_to_encrypt": "Cette sauvegarde est trop volumineuse pour être chiffrée (plus de 16 Mio) : téléchargez-la sans chiffrement et rangez-la en lieu sûr.",
     "backup_identity_invalid": "La clé privée de cette sauvegarde ne correspond pas à son identité.",
     "backup_identity_conflict": "Cette sauvegarde, la radio connectée et ce Meshloom appartiennent à trois identités différentes.",
     "backup_identity_replaces_live": "La restauration remplace l’identité de la radio connectée : confirmez-le d’abord.",

@@ -55,7 +55,7 @@ Après une restauration, rejoignez de nouveau **Meshloom Community** si vous le 
 
 La sauvegarde complète contient la clé privée de votre radio et, si la radio les stocke, son mot de passe Wi-Fi, ainsi que d’autres secrets conservés par Meshloom : clés de canaux, code PIN Bluetooth, mot de passe SMTP, secrets des webhooks et des intégrations. Quiconque détient le fichier peut se faire passer pour votre nœud.
 
-Cochez **Chiffrer avec une phrase secrète** avant le téléchargement pour le protéger (8 caractères ou plus). Le fichier est alors illisible sans la phrase secrète, et personne ne peut retrouver une phrase secrète perdue. Meshloom la demande à la restauration. Sans chiffrement, traitez le fichier comme la clé elle-même.
+Cochez **Chiffrer avec une phrase secrète** avant le téléchargement pour le protéger (8 caractères ou plus). Le fichier est alors illisible sans la phrase secrète, et personne ne peut retrouver une phrase secrète perdue. Meshloom la demande à la restauration. Sans chiffrement, traitez le fichier comme la clé elle-même. Une sauvegarde chiffrée est limitée à 16 Mio ; Meshloom refuse d’en chiffrer une plus grosse (des milliers de contacts, de gros bots), qui ne se télécharge alors que sans chiffrement.
 
 Notez que quiconque atteint votre Meshloom peut télécharger cette sauvegarde, tout comme une page web ouverte dans un navigateur sur une machine qui l’atteint : gardez Meshloom sur un réseau de confiance (voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud)).
 

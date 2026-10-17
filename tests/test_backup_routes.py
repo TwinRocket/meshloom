@@ -109,6 +109,19 @@ async def test_export_refuses_a_short_passphrase(backup_db, client):
     assert "short" not in json.dumps(response.json()["detail"]["params"])
 
 
+@pytest.mark.asyncio
+async def test_export_refuses_to_encrypt_what_restore_could_not_decrypt(
+    backup_db, client, monkeypatch
+):
+    import app.services.backup_crypto as crypto
+
+    monkeypatch.setattr(crypto, "MAX_CIPHERTEXT_BYTES", 64)
+    response = await client.post("/api/settings/backup/export", json={"passphrase": PASSPHRASE})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "backup_too_large_to_encrypt"
+    assert PASSPHRASE not in response.text
+
+
 # -- inspect -------------------------------------------------------------------
 
 

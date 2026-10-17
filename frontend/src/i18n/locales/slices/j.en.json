@@ -206,6 +206,7 @@
     "backup_bad_envelope": "This encrypted backup is damaged or uses unsupported settings.",
     "backup_passphrase_required": "This backup is encrypted: enter its passphrase.",
     "backup_passphrase_too_short": "The passphrase needs at least 8 characters.",
+    "backup_too_large_to_encrypt": "This backup is too large to encrypt (over 16 MiB): download it without encryption and keep it safe.",
     "backup_identity_invalid": "The private key in this backup does not match its identity.",
     "backup_identity_conflict": "This backup, the connected radio and this Meshloom all belong to different identities.",
     "backup_identity_replaces_live": "Restoring replaces the identity of the connected radio: confirm it first.",

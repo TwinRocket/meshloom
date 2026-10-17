@@ -39,7 +39,11 @@ from app.services.backup import (
     restore_json,
     write_sqlite_backup,
 )
-from app.services.backup_crypto import PASSPHRASE_MIN_CHARS, encrypt_backup_async
+from app.services.backup_crypto import (
+    PASSPHRASE_MIN_CHARS,
+    BackupCryptoError,
+    encrypt_backup_async,
+)
 from app.telemetry_interval import (
     DEFAULT_TELEMETRY_INTERVAL_HOURS,
     TELEMETRY_INTERVAL_OPTIONS_HOURS,
@@ -909,9 +913,18 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
     doc = await export_backup_v2()
     body = export_document(doc)
     if passphrase:
-        body = await encrypt_backup_async(
-            body, passphrase, public_key=doc.identity.public_key if doc.identity else None
-        )
+        try:
+            body = await encrypt_backup_async(
+                body, passphrase, public_key=doc.identity.public_key if doc.identity else None
+            )
+        except BackupCryptoError as exc:
+            # Too large for the restore to decrypt: say so now, not after a reflash.
+            raise _backup_http_error(
+                BackupError(
+                    exc.code,
+                    message="This backup is too large to encrypt: download it without encryption",
+                )
+            ) from None
     ascii_name, utf8_name = backup_filename(doc.radio.name if doc.radio else None, doc.exported_at)
     return JSONResponse(
         body,

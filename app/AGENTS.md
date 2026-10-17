@@ -245,8 +245,10 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Envelope** (`meshloom-backup-v2-encrypted`): scrypt (writes N=2^15, r=8,
   p=1) over the NFC passphrase, AES-256-GCM, AAD = canonical JSON of a fixed
   header tuple. Decrypt refuses N outside 2^14..2^16, r≠8, p≠1, bad salt/nonce
-  sizes or more than 16 MiB before any KDF call; KDF calls run one at a time in
-  a worker thread.
+  sizes or more than 16 MiB before any KDF call; encrypt refuses a plaintext
+  over the same `MAX_CIPHERTEXT_BYTES` (400 `backup_too_large_to_encrypt` from
+  the export), so it never writes a file the restore cannot open. KDF calls run
+  one at a time in a worker thread.
 - **Identity.** `decide_identity_restore(gate, bound, live, backup,
   has_history)` is the one table (TR-1 plan C.4, `tests/test_backup_identity_decision.py`):
   inspect, the synchronous 409s and the job all use it. The job decides once

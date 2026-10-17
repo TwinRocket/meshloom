@@ -146,8 +146,8 @@ def test_malformed_envelopes_refused_before_any_kdf_call(monkeypatch, change):
 
 
 def test_oversized_ciphertext_refused_before_any_kdf_call(monkeypatch):
-    monkeypatch.setattr(crypto, "MAX_CIPHERTEXT_BYTES", 64)
     envelope = encrypt_backup(DOCUMENT, PASSPHRASE, public_key=None)
+    monkeypatch.setattr(crypto, "MAX_CIPHERTEXT_BYTES", 64)
     envelope["ciphertext"] = base64.b64encode(b"x" * 200).decode()
     calls = _count_kdf(monkeypatch)
     with pytest.raises(BackupCryptoError) as exc:
@@ -225,3 +225,20 @@ async def test_async_decrypt_refuses_bad_envelope_without_kdf(monkeypatch):
     with pytest.raises(BackupCryptoError):
         await decrypt_backup_async(envelope, PASSPHRASE)
     assert calls == []
+
+
+def test_encrypt_refuses_what_decrypt_would_refuse(monkeypatch):
+    import json
+
+    size = len(json.dumps(DOCUMENT, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    monkeypatch.setattr(crypto, "MAX_CIPHERTEXT_BYTES", size)
+    envelope = encrypt_backup(DOCUMENT, PASSPHRASE, public_key=None)  # at the limit: fine
+    assert decrypt_backup(envelope, PASSPHRASE) == DOCUMENT
+
+    monkeypatch.setattr(crypto, "MAX_CIPHERTEXT_BYTES", size - 1)
+    with pytest.raises(BackupCryptoError) as exc:
+        encrypt_backup(DOCUMENT, PASSPHRASE, public_key=None)
+    assert exc.value.code == "backup_too_large_to_encrypt"
+    with pytest.raises(BackupCryptoError) as exc:
+        decrypt_backup(envelope, PASSPHRASE)
+    assert exc.value.code == "backup_bad_envelope"

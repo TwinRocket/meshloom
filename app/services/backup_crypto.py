@@ -50,10 +50,14 @@ SALT_BYTES = 16
 NONCE_BYTES = 12
 TAG_BYTES = 16
 KEY_BYTES = 32
+# Decrypt refuses more; encrypt refuses the same, so no file it writes is
+# unreadable at restore time (after a reflash).
 MAX_CIPHERTEXT_BYTES = 16 * 1024 * 1024
 PASSPHRASE_MIN_CHARS = 8
 
-BackupCryptoCode = Literal["backup_bad_passphrase", "backup_bad_envelope"]
+BackupCryptoCode = Literal[
+    "backup_bad_passphrase", "backup_bad_envelope", "backup_too_large_to_encrypt"
+]
 
 
 class BackupCryptoError(ValueError):
@@ -127,6 +131,9 @@ def encrypt_backup(document: dict[str, Any], passphrase: str, *, public_key: str
     """Encrypt a backup document. Runs the KDF: call it from a worker thread."""
     if not isinstance(passphrase, str) or len(passphrase) < PASSPHRASE_MIN_CHARS:
         raise ValueError("backup_passphrase_too_short")
+    plaintext = json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if len(plaintext) > MAX_CIPHERTEXT_BYTES:
+        raise BackupCryptoError("backup_too_large_to_encrypt")
     exported_at = document.get("exported_at")
     if not isinstance(exported_at, int) or isinstance(exported_at, bool):
         exported_at = 0
@@ -146,7 +153,6 @@ def encrypt_backup(document: dict[str, Any], passphrase: str, *, public_key: str
             nonce_b64=nonce_b64,
         )
     )
-    plaintext = json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ciphertext, tag = cipher.encrypt_and_digest(plaintext)
     return {
         "format": ENCRYPTED_FORMAT,
