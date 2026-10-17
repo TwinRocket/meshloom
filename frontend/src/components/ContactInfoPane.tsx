@@ -186,10 +186,13 @@ export function ContactInfoPane({
     };
   }, [contactKey, isNameOnly, nameOnlyValue, t]);
 
-  // Clear the telemetry history once the pane has no full-key contact to load it for.
+  // On every contact change, drop the cached analytics (so reopening a contact shows the
+  // spinner and fresh data, never a stale result) and clear the telemetry history once the
+  // pane has no full-key contact to load it for.
   const [prevContactKey, setPrevContactKey] = useState(contactKey);
   if (contactKey !== prevContactKey) {
     setPrevContactKey(contactKey);
+    setAnalyticsResult(null);
     if (!contactKey || isNameOnly) setTelemetryHistory([]);
   }
 

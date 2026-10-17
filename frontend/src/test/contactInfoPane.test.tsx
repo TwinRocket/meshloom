@@ -134,6 +134,22 @@ describe('ContactInfoPane', () => {
     });
   });
 
+  it('drops cached analytics when the pane closes, so reopening shows loading', async () => {
+    const contact = createContact();
+    getContactAnalytics.mockResolvedValueOnce(createAnalytics(contact));
+
+    const { rerender } = render(<ContactInfoPane {...baseProps} contactKey={contact.public_key} />);
+    await screen.findByText(contact.public_key);
+
+    rerender(<ContactInfoPane {...baseProps} contactKey={null} />);
+    getContactAnalytics.mockReturnValueOnce(new Promise(() => {}));
+    rerender(<ContactInfoPane {...baseProps} contactKey={contact.public_key} />);
+
+    expect(screen.getByText(i18n.t('contactInfo.loading'))).toBeInTheDocument();
+    expect(screen.queryByText(contact.public_key)).not.toBeInTheDocument();
+    expect(getContactAnalytics).toHaveBeenCalledTimes(2);
+  });
+
   it('does not show hop width for flood-routed contacts', async () => {
     const contact = createContact({ direct_path_len: -1, direct_path_hash_mode: -1 });
     getContactAnalytics.mockResolvedValue(createAnalytics(contact));

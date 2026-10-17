@@ -47,6 +47,7 @@ import {
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
 import { api } from '../api';
+import { SECRET_REDACTED } from '../types';
 import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
 import { SHOW_PATH_HOP_WIDTH_KEY } from '../utils/pathHopWidthPreference';
@@ -205,6 +206,7 @@ function renderModal(overrides?: {
     : render(<SettingsModal {...commonProps} />);
 
   return {
+    commonProps,
     onSaveAppSettings,
     onRefreshAppSettings,
     onSave,
@@ -936,6 +938,26 @@ describe('SettingsModal', () => {
     });
   });
 
+  it('re-syncs the radio drafts when the radio config or app settings change', () => {
+    const { view, commonProps } = renderModal();
+    openRadioSection();
+    expect(screen.getByLabelText(i18n.t('settings.radio.radioName'))).toHaveValue('TestNode');
+    expect(screen.getByLabelText(i18n.t('settings.radio.latitude'))).toHaveValue(1);
+
+    view.rerender(
+      <SettingsModal
+        {...commonProps}
+        config={{ ...baseConfig, name: 'Rebooted node', lat: 45.5 }}
+        appSettings={{ ...baseSettings, max_radio_contacts: 321 }}
+      />
+    );
+
+    expect(screen.getByLabelText(i18n.t('settings.radio.radioName'))).toHaveValue('Rebooted node');
+    expect(screen.getByLabelText(i18n.t('settings.radio.latitude'))).toHaveValue(45.5);
+    openRadioTab('tabMessaging');
+    expect(screen.getByLabelText(i18n.t('settings.radio.maxContacts'))).toHaveValue(321);
+  });
+
   it('saves changed max contacts value through onSaveAppSettings', async () => {
     const { onSaveAppSettings } = renderModal();
     openRadioSection();
@@ -1112,6 +1134,54 @@ describe('SettingsModal', () => {
       screen.queryByText(i18n.t('settings.notifications.telemetryAlert'))
     ).not.toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.destinations'))).toBeInTheDocument();
+  });
+
+  it('keeps the secret-kept placeholder in step with the saved secret, rollback included', async () => {
+    let rejectSave: (err: Error) => void = () => {};
+    const onSaveAppSettings = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSave = reject;
+        })
+    );
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: {
+        ...baseSettings,
+        notification_destinations: {
+          email: {
+            host: 'smtp.example.org',
+            port: 587,
+            mode: 'starttls',
+            user: 'me',
+            password: SECRET_REDACTED,
+            from: 'me@example.org',
+            to: 'you@example.org',
+          },
+          webhook: { url: 'https://example.org/hook', hmac_secret: SECRET_REDACTED },
+        },
+      },
+    });
+
+    const kept = i18n.t('settings.notifications.secretKept');
+    const password = await screen.findByLabelText(i18n.t('settings.notifications.emailPassword'));
+    expect(password).toHaveAttribute('placeholder', kept);
+    expect(screen.getByLabelText(i18n.t('settings.notifications.webhookHmac'))).toHaveAttribute(
+      'placeholder',
+      kept
+    );
+
+    // A new password is saved optimistically: the placeholder no longer claims a kept secret.
+    fireEvent.change(password, { target: { value: 'new-secret' } });
+    fireEvent.blur(password);
+    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
+    expect(password).not.toHaveAttribute('placeholder');
+
+    // The save fails: the saved secret rolls back, and so does the placeholder.
+    rejectSave(new Error('boom'));
+    await waitFor(() => expect(password).toHaveAttribute('placeholder', kept));
   });
 
   it('renders the alerts section from the external sidebar', async () => {
