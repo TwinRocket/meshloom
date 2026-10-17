@@ -175,6 +175,22 @@ purpose.
 - State keys come from `getStateKey()` (`channel-{key}`, `contact-{full public
   key}`); they are not `Message.conversation_key`.
 
+### Message rendering
+
+- `components/message/MessageBody.tsx` is the only place that renders a message's
+  text and payloads (links, `@[Name]` mentions, `#channel` references, GIF,
+  location, reactions). `MessageList` uses it; the feed and Links & Files must too,
+  so a message looks the same everywhere. Search results do not render message text
+  through it today.
+- The pieces live in `components/message/richPayloads.tsx` (payload renderers) and
+  `utils/messageText.tsx` (linkify, mentions, `RegionBadge`, `hasUnexpectedControlChars`).
+  Links keep `noopener noreferrer` and the `https?://` + TLD rule.
+- `remoteMedia={false}` keeps a GIF as its raw text instead of loading
+  `media.giphy.com`. Only reactions follow `useRichPayloads()`; GIFs and locations
+  always render.
+- `src/test/messageList.test.tsx` ("rendering snapshots") pins the markup: a change
+  there is a visual change, not a refactor.
+
 ### `MessageList` virtualization
 
 - `scrollMargin` is measured from the spacer's offset; each row subtracts it from
