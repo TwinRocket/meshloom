@@ -66,14 +66,19 @@ export function RadioBlePairing({
     setNow(at);
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      const next = await api.getRadioBlePairing();
-      if (mounted.current) setStatus(next);
-    } catch {
-      // The state line keeps its last value; a failing GET is not worth a toast.
-    }
-  }, [setStatus]);
+  // A promise chain rather than async/await: state is only set in the callback,
+  // after the request settles, so effects can call this directly.
+  const refresh = useCallback(
+    (): Promise<void> =>
+      new Promise<RadioBlePairingStatus>((resolve) => resolve(api.getRadioBlePairing()))
+        .then((next) => {
+          if (mounted.current) setStatus(next);
+        })
+        .catch(() => {
+          // The state line keeps its last value; a failing GET is not worth a toast.
+        }),
+    [setStatus]
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -120,11 +125,10 @@ export function RadioBlePairing({
   }, [busy, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
-  // A later automatic attempt (connection monitor) may succeed: drop the stale error.
+  // A later automatic attempt (connection monitor) may succeed: drop the stale error
+  // (adjusted during render, not in an effect).
   const pairedNow = status?.state === 'paired';
-  useEffect(() => {
-    if (pairedNow && !requesting) setActionError(null);
-  }, [pairedNow, requesting]);
+  if (pairedNow && !requesting && actionError !== null) setActionError(null);
 
   if (!applicable) {
     return (
