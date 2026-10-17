@@ -48,7 +48,6 @@ Certaines étapes peuvent être sautées :
 - Une radio dont le firmware refuse l’import de clé (compilé sans) ne peut pas retrouver son identité. Meshloom s’arrête avant d’écrire quoi que ce soit d’autre et le dit.
 - Si la radio redémarre pendant la restauration (elle peut le faire pour régler son horloge), les étapes restantes sont sautées : relancez la restauration quand la radio est revenue.
 - L’étape du code PIN Bluetooth est désactivée par défaut quand Meshloom joint la radio en Bluetooth et que le code diffère ; l’étape Wi-Fi est désactivée par défaut quand Meshloom joint la radio par le Wi-Fi et que la sauvegarde contient un autre réseau ou désactive le Wi-Fi, car la restaurer couperait Meshloom de la radio.
-- Une puissance d’émission inférieure à 0 dBm n’est pas réécrite (la radio garde sa puissance actuelle) : réglez-la de nouveau dans **Réglages → Radio**.
 
 Après une restauration, rejoignez de nouveau **Meshloom Community** si vous le souhaitez : la participation n’est jamais restaurée depuis un fichier. Les notifications push peuvent devoir être réactivées dans chaque navigateur.
 

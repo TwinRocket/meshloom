@@ -593,7 +593,6 @@ describe('BackupRestoreFlow', () => {
       'name_rejected',
       'coords_rejected',
       'tx_power_rejected',
-      'tx_power_negative',
       'radio_params_rejected',
       'path_hash_mode_rejected',
       'client_repeat_not_allowed',

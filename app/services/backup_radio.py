@@ -328,11 +328,20 @@ async def write_radio_node_settings(
         power = _int8(settings.tx_power)
         info = getattr(mc, "self_info", None)
         target_max = info.get("max_tx_power") if isinstance(info, dict) else None
-        if power is None or power < 0:
-            # meshcore's set_tx_power sends an unsigned value: a negative power
-            # cannot be written back, and raising it to a default would not be
-            # what the user had.
-            out.add("tx_power", "unsupported", "tx_power_negative")
+        if power is None:
+            missing("tx_power")
+        elif power < 0:
+            # meshcore's set_tx_power refuses a negative value (unsigned bytes);
+            # the firmware reads the first byte as int8 (-9 dBm and up): send
+            # the frame raw, two's complement.
+            frame = b"\x0c" + (power & 0xFFFFFFFF).to_bytes(4, "little")
+            result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+            rejected = _rejected(result)
+            out.add(
+                "tx_power",
+                "failed" if rejected else "done",
+                "tx_power_rejected" if rejected else None,
+            )
         else:
             if isinstance(target_max, int) and target_max > 0 and power > target_max:
                 power = target_max

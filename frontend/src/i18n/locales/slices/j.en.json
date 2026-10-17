@@ -117,7 +117,6 @@
         "name_rejected": "the radio refused the name",
         "coords_rejected": "the radio refused the position",
         "tx_power_rejected": "the radio refused the transmit power",
-        "tx_power_negative": "a power below 0 dBm cannot be written back",
         "radio_params_rejected": "the radio refused the radio parameters",
         "path_hash_mode_rejected": "the radio refused the path hash mode",
         "client_repeat_not_allowed": "without client repeat",

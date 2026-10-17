@@ -674,13 +674,13 @@ async def test_channel_slots_above_the_restored_ones_are_emptied(backup_db, setu
 
 
 @pytest.mark.asyncio
-async def test_negative_tx_power_is_not_raised_to_the_maximum(backup_db, setup_stub):
+@pytest.mark.parametrize("stored", [-9, 247])  # 247: a file written before the signed read
+async def test_negative_tx_power_is_written_back(backup_db, setup_stub, stored):
     node = await _same_identity_node()
     async with connected_node(node):
-        # A file written before the signed read: -9 dBm stored as 247.
-        job = await run(make_doc(radio=radio_settings(tx_power=247)))
-    assert items(job, "radio_settings")["tx_power"] == ("unsupported", "tx_power_negative")
-    assert node.tx_power == 20
+        job = await run(make_doc(radio=radio_settings(tx_power=stored)))
+    assert items(job, "radio_settings")["tx_power"] == ("done", None)
+    assert node.tx_power == -9
     assert "tx_power_clamped" not in job.result.warnings  # type: ignore[union-attr]
 
 
