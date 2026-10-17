@@ -15,6 +15,7 @@
       "webhookGrandfatheredDismiss": "Got it",
       "pushAllowPrivate": "Accept push endpoints on a private network",
       "pushAllowPrivateHelp": "Only for a self-hosted UnifiedPush distributor on your LAN or on this machine. Browser push services (Google, Mozilla, Apple) are public and do not need it.",
+      "pushGrandfathered": "Push devices were registered before Meshloom checked destinations, and at least one is not a browser push service (a UnifiedPush distributor, maybe on your LAN). Private network endpoints therefore stay accepted, so they keep receiving. Untick the box below if none of them is on your network.",
       "pushAllowPrivateSaveFailed": "Failed to save the push setting"
     }
   }

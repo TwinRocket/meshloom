@@ -733,6 +733,29 @@ export function SettingsNotificationsSection({
             )}
           </>
         )}
+        {appSettings?.push_private_endpoints_grandfathered === true && (
+          <div
+            className="flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.8125rem]"
+            role="status"
+          >
+            <p className="min-w-0 flex-1">{t('settings.notifications.pushGrandfathered')}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!onSaveAppSettings}
+              onClick={() => {
+                void onSaveAppSettings?.({ push_private_endpoints_grandfathered: false }).catch(
+                  (err: unknown) =>
+                    toast.error(t('settings.notifications.pushAllowPrivateSaveFailed'), {
+                      description: formatApiError(err, t),
+                    })
+                );
+              }}
+            >
+              {t('settings.notifications.webhookGrandfatheredDismiss')}
+            </Button>
+          </div>
+        )}
         <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
           <Checkbox
             id="push-allow-private-endpoints"

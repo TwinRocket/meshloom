@@ -597,7 +597,10 @@ Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting
-`push_allow_private_endpoints`. A refused send keeps the subscription.
+`push_allow_private_endpoints`. A refused send keeps the subscription. The
+migration that adds it turns it on, with `push_private_endpoints_grandfathered`
+(one-time notice, cleared by a PATCH of either field), when a stored
+subscription is not a browser push service (FCM, Mozilla, WNS, Apple).
 
 The test routes (`POST /push/subscriptions/{id}/test`,
 `POST /settings/notification-destinations/test`) send to a destination the

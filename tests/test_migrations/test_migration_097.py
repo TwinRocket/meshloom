@@ -50,3 +50,62 @@ async def test_missing_app_settings_table_does_not_fail():
         await run_migrations(conn)
     finally:
         await conn.close()
+
+
+async def _with_subscriptions(conn: aiosqlite.Connection, endpoints: list[str]) -> None:
+    await set_version(conn, 96)
+    await conn.execute("CREATE TABLE app_settings (id INTEGER PRIMARY KEY CHECK (id = 1))")
+    await conn.execute("INSERT INTO app_settings (id) VALUES (1)")
+    await conn.execute("CREATE TABLE push_subscriptions (id TEXT PRIMARY KEY, endpoint TEXT)")
+    for i, endpoint in enumerate(endpoints):
+        await conn.execute(
+            "INSERT INTO push_subscriptions (id, endpoint) VALUES (?, ?)", (str(i), endpoint)
+        )
+    await conn.commit()
+    await run_migrations(conn)
+
+
+async def _flags(conn: aiosqlite.Connection) -> tuple[int, int]:
+    cursor = await conn.execute(
+        "SELECT push_allow_private_endpoints, push_private_endpoints_grandfathered"
+        " FROM app_settings"
+    )
+    row = await cursor.fetchone()
+    return row[0], row[1]
+
+
+@pytest.mark.asyncio
+async def test_browser_push_services_only_start_off():
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await _with_subscriptions(
+            conn,
+            [
+                "https://fcm.googleapis.com/fcm/send/abc",
+                "https://updates.push.services.mozilla.com/wpush/v2/abc",
+                "https://wns2-par02p.notify.windows.com/w/?token=abc",
+                "https://web.push.apple.com/abc",
+            ],
+        )
+        assert await _flags(conn) == (0, 0)
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://192.168.1.20:8080/UP?token=abc",
+        "https://ntfy.home.lan/upabc",
+        "http://unifiedpush/up",
+        "https://fcm.googleapis.com.evil.example/x",
+    ],
+)
+async def test_another_endpoint_grandfathers_the_opt_in(endpoint):
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await _with_subscriptions(conn, ["https://fcm.googleapis.com/fcm/send/abc", endpoint])
+        assert await _flags(conn) == (1, 1)
+    finally:
+        await conn.close()

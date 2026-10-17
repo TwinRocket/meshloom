@@ -1572,6 +1572,14 @@ class AppSettings(BaseModel):
             "self-hosted UnifiedPush distributor. Off: such endpoints are refused"
         ),
     )
+    push_private_endpoints_grandfathered: bool = Field(
+        default=False,
+        description=(
+            "push_allow_private_endpoints was turned on by the upgrade because a "
+            "subscription stored before the egress guard is not a browser push "
+            "service; the UI shows a one-time notice until dismissed"
+        ),
+    )
     auto_update: bool = Field(
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",

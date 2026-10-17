@@ -3,6 +3,7 @@
 import pytest
 
 from app.push.vapid import get_vapid_claims, set_cached_vapid_subject
+from app.repository import AppSettingsRepository
 from app.repository.settings import DEFAULT_PUSH_DEFAULTS
 
 
@@ -164,3 +165,21 @@ async def test_subscribe_public_endpoint_and_bad_scheme(test_db, client):
 @pytest.mark.asyncio
 async def test_push_allow_private_endpoints_defaults_off(test_db, client):
     assert (await client.get("/api/settings")).json()["push_allow_private_endpoints"] is False
+
+
+@pytest.mark.asyncio
+async def test_grandfathered_notice_is_dismissed_or_cleared_by_a_choice(test_db, client):
+    await AppSettingsRepository.update(
+        push_allow_private_endpoints=True, push_private_endpoints_grandfathered=True
+    )
+    settings = (await client.get("/api/settings")).json()
+    assert settings["push_private_endpoints_grandfathered"] is True
+    dismissed = await client.patch(
+        "/api/settings", json={"push_private_endpoints_grandfathered": False}
+    )
+    assert dismissed.json()["push_private_endpoints_grandfathered"] is False
+    assert dismissed.json()["push_allow_private_endpoints"] is True
+
+    await AppSettingsRepository.update(push_private_endpoints_grandfathered=True)
+    chosen = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
+    assert chosen.json()["push_private_endpoints_grandfathered"] is False

@@ -154,6 +154,10 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="Accept Web Push endpoints on a private network (self-hosted UnifiedPush)",
     )
+    push_private_endpoints_grandfathered: bool | None = Field(
+        default=None,
+        description="Set to false to dismiss the upgrade notice (setting it also clears it)",
+    )
     telemetry_interval_hours: int | None = Field(
         default=None,
         description=(
@@ -466,6 +470,10 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
             "Updating push_allow_private_endpoints to %s", update.push_allow_private_endpoints
         )
         kwargs["push_allow_private_endpoints"] = update.push_allow_private_endpoints
+        # An explicit choice replaces the upgrade default and its notice.
+        kwargs["push_private_endpoints_grandfathered"] = False
+    if update.push_private_endpoints_grandfathered is False:
+        kwargs["push_private_endpoints_grandfathered"] = False
 
     # Flood scope
     flood_scope_changed = False

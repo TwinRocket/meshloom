@@ -1460,6 +1460,8 @@ export interface AppSettings {
   auth_allowed_origins?: string[];
   /** Accept Web Push endpoints on a private network (self-hosted UnifiedPush). */
   push_allow_private_endpoints?: boolean;
+  /** The upgrade turned push_allow_private_endpoints on: show a one-time notice. */
+  push_private_endpoints_grandfathered?: boolean;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1488,6 +1490,7 @@ export interface AppSettingsUpdate {
   auto_clock_wraparound?: boolean;
   auth_allowed_origins?: string[];
   push_allow_private_endpoints?: boolean;
+  push_private_endpoints_grandfathered?: boolean;
 }
 
 export interface DirectoryHopHit {

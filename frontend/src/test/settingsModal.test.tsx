@@ -1345,6 +1345,35 @@ describe('SettingsModal', () => {
     );
   });
 
+  it('shows the grandfathered push notice and dismisses it', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: {
+        ...baseSettings,
+        push_allow_private_endpoints: true,
+        push_private_endpoints_grandfathered: true,
+      },
+    });
+
+    expect(
+      await screen.findByText(i18n.t('settings.notifications.pushGrandfathered'))
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('settings.notifications.pushAllowPrivate'))).toBeChecked();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('settings.notifications.webhookGrandfatheredDismiss'),
+      })
+    );
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({
+        push_private_endpoints_grandfathered: false,
+      })
+    );
+  });
+
   it('keeps the secret-kept placeholder in step with the saved secret, rollback included', async () => {
     let rejectSave: (err: Error) => void = () => {};
     const onSaveAppSettings = vi.fn(

@@ -15,6 +15,7 @@
       "webhookGrandfatheredDismiss": "Compris",
       "pushAllowPrivate": "Accepter les points de terminaison push sur un réseau privé",
       "pushAllowPrivateHelp": "Uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Les services push des navigateurs (Google, Mozilla, Apple) sont publics et n'en ont pas besoin.",
+      "pushGrandfathered": "Des appareils push ont été enregistrés avant que Meshloom ne vérifie les destinations, et au moins l'un d'eux n'est pas un service push de navigateur (un distributeur UnifiedPush, peut-être sur votre réseau local). Les points de terminaison sur un réseau privé restent donc acceptés et ces appareils continuent de recevoir. Décochez la case ci-dessous si aucun n'est sur votre réseau.",
       "pushAllowPrivateSaveFailed": "Échec de l’enregistrement du réglage push"
     }
   }

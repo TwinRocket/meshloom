@@ -109,6 +109,8 @@ Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l�
 
 Les services push des navigateurs (Google, Mozilla, Apple) sont sur Internet. `POST /api/push/subscribe` refuse une adresse sur un réseau privé (réponse `400`, code `egress_private_address`), et Meshloom n’y envoie jamais rien, sauf si **Accepter les points de terminaison push sur un réseau privé** est coché dans **Réglages → Notifications** (réglage `push_allow_private_endpoints` de `/api/settings`). Cochez-le uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Comme pour le webhook, chaque push part uniquement vers l’adresse vérifiée par Meshloom, et une redirection n’est jamais suivie.
 
+Lors d’une mise à jour, si un appareil enregistré avant cette vérification n’est pas un service push de navigateur (un distributeur UnifiedPush, peut-être sur votre réseau local), la case est cochée d’office pour que l’appareil continue de recevoir, et un avis dans **Réglages → Notifications** le signale jusqu’à ce que vous le fermiez. Décochez la case si aucun de vos appareils n’est sur votre réseau. Avec uniquement des services push de navigateur, elle reste décochée.
+
 ## Quand rien n’arrive
 
 1. Vérifiez que la page est servie en HTTPS (ou depuis `localhost`).
