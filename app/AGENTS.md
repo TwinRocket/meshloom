@@ -36,6 +36,9 @@ and the OpenAPI page (`/docs`), not a table here.
   be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs).
 - Tests: `tests/test_migrations/`.
+- Schema reference (tables, indexes, retention, how to add a migration):
+  `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
+  index list drifts from a freshly migrated database.
 
 ## Radio lifecycle
 
