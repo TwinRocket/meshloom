@@ -3277,7 +3277,7 @@ export function SettingsFanoutSection({
   );
 
   // One-time notice for destinations saved before the egress guard (migration
-  // 098): "Got it" clears the flag on each row; the opt-in itself stays on.
+  // 100): "Got it" clears the flag on each row; the opt-in itself stays on.
   const handleDismissGrandfathered = async () => {
     try {
       for (const cfg of grandfatheredConfigs) {

@@ -437,7 +437,7 @@ async def _check_destinations(config_type: str, config: dict) -> None:
 
 
 def _carry_grandfathered_flag(config_type: str, config: dict, previous: dict | None) -> None:
-    """Keep ``private_network_grandfathered`` (set by migration 098 or a restore of
+    """Keep ``private_network_grandfathered`` (set by migration 100 or a restore of
     an older backup) only while the destination and its opt-in are unchanged.
 
     The UI shows a one-time banner while it is set; its "Got it" sends false.
@@ -516,7 +516,7 @@ def prepare_fanout_config(
     ``_check_destinations``; a restored row is checked by its module before
     each send. ``restored``: a row from a backup made before the egress guard
     (no ``allow_private_network`` key) keeps working, grandfathered like
-    migration 098 does.
+    migration 100 does.
     """
     if config_type not in _VALID_TYPES:
         raise HTTPException(

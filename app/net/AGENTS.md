@@ -58,9 +58,50 @@ chose (SSRF). Like every agent doc here, check it against the code.
   (`app/push/send.py`), with the instance setting `push_allow_private_endpoints`.
 - The test routes (`POST /push/subscriptions/{id}/test`,
   `POST /settings/notification-destinations/test`).
-- Planned: fanout webhook, Apprise, SQS, map upload, Store plugins, Links &
-  Files (breaker / share service), Access (Web Push). New consumers call
-  `validate_destination` and send through a pinned client; never add an
-  outbound path to a user-chosen URL around it.
+- Fanout (`app/routers/fanout.py`, `_check_destinations`): webhook `url`,
+  Apprise `urls`, SQS `endpoint_url`, map upload `api_url`, each with
+  `config.allow_private_network` (default false). Checked on create and on
+  every PATCH that leaves the row enabled (a disabled row is saved without a
+  DNS lookup; enabling it runs the check), then again by the module: before
+  each send (webhook and map upload, pinned; Apprise) or at `start()` (SQS,
+  boto3 is not pinned). Migration 100 sets `allow_private_network: true` and
+  `private_network_grandfathered: true` on every row of those types that
+  existed (one-time banner in the fanout list, "Got it" PATCHes the flag to
+  false; `_carry_grandfathered_flag` also drops it when the destination or the
+  opt-in changes). A backup restore (`prepare_fanout_config(restored=True)`)
+  grandfathers a row with no `allow_private_network` key, and does no DNS
+  lookup.
+- Planned: Store plugins, Links & Files (breaker / share service), Access
+  (Web Push). New consumers call `validate_destination` and send through a
+  pinned client; never add an outbound path to a user-chosen URL around it.
 
-Tests: `tests/test_egress_guard.py`.
+## Apprise (`apprise_urls.py`)
+
+- The host of an Apprise URL is not `urlsplit().hostname`: each URL is
+  instantiated (`Apprise.instantiate`) and the plugin is read.
+  `ALLOWED_SCHEMES` classifies a scheme `user_host` (the plugin connects to
+  `server.host`, or `smtp_host` for e-mail; that host goes through
+  `validate_destination`) or `fixed_host` (only its service's API; nothing to
+  resolve). `REFUSED_SCHEMES` lists every other plugin Apprise ships: refused
+  with `egress_scheme` whatever the opt-in, **before** instantiation (some
+  plugins touch the local machine when built). A native `https://` URL is
+  classified by the plugin Apprise maps it to (Discord, Slack...).
+- Modes: ntfy in cloud mode (`ntfy://topic`) and Matrix in t2bot mode reach a
+  fixed host. `tgram://` without a chat id is refused
+  (`apprise_chat_id_required`): Apprise would call `getUpdates`.
+- Redirects: `server.redirects = False` on every instance after parsing (a
+  `?redirect=yes` in the URL cannot win) plus `AppriseAsset.http_redirects =
+  False`. The module sends the validated instances, never the raw URLs.
+- Not pinned: Apprise resolves and connects itself (requests, smtplib, paho).
+  Residual risk, documented for users: DNS rebinding of a host the user typed.
+- Errors: `AppriseUrlRefused(code, line, scheme)`, detail `{code, message,
+  params: {line, context: "apprise", scheme}}`; the UI translates
+  `errors.<code>_apprise` (i18next context) with a fallback to
+  `errors.<code>`. Never the URL or a host.
+- `redact_apprise_url()` keeps the scheme and, for `user_host`, the host;
+  everything else is masked. The frontend `censorAppriseUrl` stays for display.
+- `tests/test_apprise_urls.py` fails when the installed Apprise exposes a
+  plugin in neither list: on an Apprise bump, read the new plugin and classify
+  it (refused unless reviewed).
+
+Tests: `tests/test_egress_guard.py`, `tests/test_apprise_urls.py`.
