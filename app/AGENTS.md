@@ -468,7 +468,7 @@ floor, never the percentage alone, and do not remove the floor.
   `Origin: null` is refused. Trusting `X-Forwarded-Host` is safe against
   CSWSH because a browser page cannot set it; DNS rebinding is the `Host`
   guard's job, not this one. Keep a new WebSocket route behind the same call.
-  Not shared with the HTTP CORS rule yet (MSHL-5).
+  Not shared with the HTTP CORS rule: it ignores `auth_allowed_origins`; a shared `app/origin_policy.py` is the follow-up.
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses
