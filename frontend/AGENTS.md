@@ -107,9 +107,11 @@ purpose.
   generation counter applies only the newest, and keys already updated by a WS
   event keep their live value.
 - `message.historical === true` marks a message stored by historical decryption
-  (an old message with a new id): it must not count as new or re-enable follow
-  mode. Absent on live frames and REST rows. The toast `historical_decrypt_complete`
-  is the single end-of-run signal.
+  (an old message with a new id). It is reserved for the client: nothing consumes
+  it yet, so these messages still count as new like any other (planned for
+  MSHL-146). Absent on live frames and REST rows. The toast
+  `historical_decrypt_complete` (`_rooms` with a count for the bulk run) is the
+  end-of-run signal.
 - `raw_packet`: key and dedupe on `observation_id`. `id` is the storage row and repeats.
 - `contact_resolved` migrates an identity: the active conversation, cached
   messages, unread state keys and reconnect reconciliation all at once.

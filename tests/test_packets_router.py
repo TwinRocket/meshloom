@@ -982,5 +982,5 @@ class TestHistoricalDecryptionFlagsMessages:
         assert len(messages) == 1
         assert messages[0][1] == {"realtime": False}
         assert messages[0][0]["historical"] is True
-        assert mock_success.call_args.kwargs["code"] == "historical_decrypt_complete"
-        assert mock_success.call_args.kwargs["params"] == {"name": "1 room"}
+        assert mock_success.call_args.kwargs["code"] == "historical_decrypt_complete_rooms"
+        assert mock_success.call_args.kwargs["params"] == {"count": 1}
