@@ -54,7 +54,7 @@ BLE needs the address and the PIN. In the Home Assistant add-on, Bluetooth needs
 
 ### Pairing
 
-A MeshCore radio asks for its PIN once, the first time a machine pairs with it over Bluetooth. On Linux, Meshloom does this itself when it connects, with the PIN you saved: the Linux package, the Raspberry Pi image, Docker running as root with the host's D-Bus socket mapped, and the Home Assistant add-on once it can reach the host's Bluetooth service. You no longer need `bluetoothctl pair` or `trust` first. A pairing made earlier with `bluetoothctl` is reused as is. Meshloom never makes itself the system's default pairing agent, so a desktop or Home Assistant keeps handling its own pairing requests.
+A MeshCore radio asks for its PIN once, the first time a machine pairs with it over Bluetooth. On Linux, Meshloom does this itself when it connects, with the PIN you saved: the Linux package, the Raspberry Pi image, Docker running as root with the host's D-Bus socket mapped, and the Home Assistant add-on once it can reach the host's Bluetooth service. You no longer need `bluetoothctl pair` or `trust` first. A pairing made earlier with `bluetoothctl` is reused as is, whatever PIN is saved. Meshloom never makes itself the system's default pairing agent, so a desktop or Home Assistant keeps handling its own pairing requests.
 
 Under the PIN field, **Pairing** shows where things stand:
 
@@ -63,7 +63,7 @@ Under the PIN field, **Pairing** shows where things stand:
 - **The last pairing attempt failed**, with the reason. After a wrong PIN, Meshloom makes one attempt only, then pauses automatic pairing for this PIN: correct the PIN and press **Save and connect**, or press **Pair again**. When the radio is absent or does not answer, automatic attempts space out, from 5 seconds up to one minute, and the panel shows when the next one is due.
 - **Automatic pairing is unavailable**, with the cause: Bluetooth service unreachable, no adapter, adapter off or blocked by rfkill, or permission refused. Meshloom then connects as before, and the radio must be paired with the system's tools.
 
-Press **Forget pairing** when the radio was reset or re-flashed: it no longer knows this machine, so the connection keeps failing. After three failures in a row on an existing pairing, the panel suggests it. Meshloom then pairs again with the saved PIN. Forget the pairing before switching to another radio too. A leftover pairing does no harm, and `bluetoothctl remove <address>` deletes it later.
+Press **Forget pairing** when the radio was reset or re-flashed: it no longer knows this machine, so the connection keeps failing. When the radio refuses the connection three times in a row on an existing pairing, the panel suggests it (a radio that is simply off or out of range does not count). After **The radio refused the pairing**, the panel offers it too. Meshloom then pairs again with the saved PIN. Switching to another radio needs nothing special: the old pairing does no harm, and `bluetoothctl remove <address>` deletes it if you wish.
 
 On macOS and Windows, or with an address that is not a MAC address (`AA:BB:CC:DD:EE:FF`), pair the radio with the system's Bluetooth tools.
 

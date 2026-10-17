@@ -82,8 +82,10 @@ reconnect, so the adapter stays pinned. Bleak 3 must keep reading
 `KeyboardOnly` against a `DisplayOnly` companion (Bluefruit `setPIN` + MITM on
 nRF52, Bluedroid `ESP_IO_CAP_OUT` + SC MITM bond on ESP32) means passkey entry:
 legacy or Secure Connections, the callback is `RequestPasskey` (`u`, 0..999999).
-The PIN must match `^\d{1,6}$` (`012345` is 12345); it is checked before any
-D-Bus call. `RequestPinCode` (BR/EDR only) returns the PIN if it is 1-16 printable
+The PIN must match `^\d{1,6}$` (`012345` is 12345). It is checked only once a
+`Pair()` is needed, after the bond lookup and before any discovery or agent: a
+radio bonded earlier (`bluetoothctl`) connects whatever the saved PIN looks like,
+since `PUT /radio/transport` only requires a non-empty PIN. `RequestPinCode` (BR/EDR only) returns the PIN if it is 1-16 printable
 ASCII. `RequestConfirmation` and `RequestAuthorization` are always rejected: a
 comparison value is random, never the static PIN, and remote-initiated Just Works
 is not a PIN radio. `AuthorizeService` is rejected. Every request for another
@@ -98,7 +100,7 @@ logs one warning per distinct code (then DEBUG) and keeps today's
 
 | D-Bus error / condition | code | HTTP | fallback | retry |
 |---|---|---|---|---|
-| PIN not 1-6 digits (before any D-Bus call) | `ble_pair_invalid_pin` | 422 | no | sticky |
+| PIN not 1-6 digits, when a `Pair()` is needed (never for a bonded radio) | `ble_pair_invalid_pin` | 422 | no | sticky |
 | socket missing / refused / bus timeout | `ble_pair_dbus_unavailable` | 503 | yes | - |
 | `ServiceUnknown`, `NameHasNoOwner`; `UnknownObject`/`UnknownMethod` on `RegisterAgent` | `ble_pair_bluez_unavailable` | 503 | yes | - |
 | `AccessDenied`, `AuthError` | `ble_pair_permission_denied` | 503 | yes | - |
@@ -113,7 +115,7 @@ logs one warning per distinct code (then DEBUG) and keeps today's
 | same, PIN never requested | `ble_pair_rejected` | 422 | no | sticky |
 | `AuthenticationCanceled`, `ConnectionAttemptFailed`, `NotAvailable`, `Failed` with `le-connection-abort-by-local` / `Software caused connection abort` / `Page Timeout` / `Host is down` | `ble_pair_unreachable` | 503 | no | backoff |
 | `AuthenticationTimeout`, `NoReply`, our own timeouts | `ble_pair_timeout` | 504 | no | backoff |
-| `InProgress` on `Pair()` | `ble_pair_in_progress` | 409 | no | - |
+| `InProgress` on `Pair()` (another client pairs the radio) | `ble_pair_in_progress` | 409 | no | backoff |
 | `AlreadyExists` on `Pair()` | success (`paired`) | - | - | - |
 | `InvalidArguments`/`AlreadyExists` on `RegisterAgent`, anything else | `ble_pair_failed` (`params.error=<name>`) | 502 | no | backoff |
 | not Linux / no dbus-fast | `ble_pair_unsupported` | 503 | yes | - |
@@ -133,12 +135,22 @@ success, explicit Pair, Forget or a new fingerprint resets it. A blocked attempt
 re-raises the stored error with `already_reported=True` and sends nothing on
 D-Bus; `reconnect()` logs those at DEBUG and broadcasts nothing. A real failure
 is logged once at WARNING and broadcast once as a coded WS `error`, outside the
-`reconnection_failed` budget; a retry failing with the same code stays quiet.
+`reconnection_failed` budget; a retry failing with the same code stays quiet, and
+so does any backoff failure after a backoff failure (a radio coming and going
+alternates `device_not_found`, `unreachable` and `timeout`). The broadcast carries
+the code, its params and the English message as fallback title, no `details`: the
+UI shows `errors.<code>` and, when defined, `errors.<code>Detail`.
 
-Stale bond: after 3 consecutive connection failures following `already_paired`
+Stale bond: after 3 consecutive connection refusals following `already_paired`
 (the radio was reset and lost our keys), one WS error `ble_pair_stale_bond` is
-sent and the status carries `hint: "stale_bond_suspected"`. The bond is never
-removed automatically.
+sent and the status carries `hint: "stale_bond_suspected"`. Only failures where
+the radio answered count (`connect_error_suggests_stale_bond`): a BlueZ
+authentication or permission error, ATT "insufficient authentication/encryption",
+`le-connection-abort-by-remote`, or a link dropped right after it came up. A
+bonded radio that is off or out of range (bleak `TimeoutError`,
+`BleakDeviceNotFoundError`, meshcore's `ConnectionError`, `create_ble` returning
+None) never counts, nor does a success in between. The bond is never removed
+automatically.
 
 ## API
 
@@ -160,7 +172,11 @@ nothing takes the `ble_pairing` lock and then a radio lock.
 `Device1.Connect` (bleak, 10 s, no scan any more) and the post-connect setup.
 Other transitions get 503 after 20 s, as they already do during a slow setup. The
 PUT swallows the reconnect error; the UI shows the outcome through the coded WS
-toast and by polling the pairing status every 2 s while saving or pairing.
+toast and by polling the pairing status: every 2 s while saving or pairing, every
+5 s while the radio is disconnected (a pairing started by the monitor, each
+backoff attempt). `retry_in` counts down locally between two polls. Forget
+pairing is offered when paired, on the stale-bond hint, and after
+`ble_pair_rejected` (BlueZ may hold no bond then).
 
 ## Discovery and other clients
 
@@ -230,15 +246,19 @@ Radio: MeshCore BLE companion, nRF52 (RAK4631/T114) and ESP32 (Heltec V3), PIN k
 3. PIN with a leading zero (`012345`).
 4. Pre-paired with `bluetoothctl`: connects;
    `dbus-monitor --system "interface=org.bluez.AgentManager1"` shows no `RegisterAgent`.
+   Same with a placeholder PIN that is not 1-6 digits (`none`).
 5. Desktop image with a desktop agent: no popup, pairing succeeds, the desktop
    agent still works afterwards.
 6. Factory-reset or re-flash the radio: connection fails; after 3 failures the
-   stale-bond hint appears; Forget → pairs again → connected.
+   stale-bond hint appears; Forget → pairs again → connected. Record the
+   exception `_connect_ble` sees (journal at DEBUG): if it matches none of the
+   `connect_error_suggests_stale_bond` signals, the hint never shows.
 7. Forget on a radio that was **not** reset (it keeps its bond for our address):
    a new pairing is accepted, on Bluefruit/nRF52 and Bluedroid/ESP32.
 8. Radio off / out of range / connected to a phone: "not found" / "did not
-   answer", attempts back off up to 60 s; afterwards `busctl introspect` and
-   `dbus-monitor` show the agent unregistered and discovery stopped.
+   answer", attempts back off up to 60 s, one toast only; afterwards `busctl introspect` and
+   `dbus-monitor` show the agent unregistered and discovery stopped. A bonded
+   radio switched off for several minutes never brings the stale-bond hint.
 9. `kill -9` the service during a pairing: the next start pairs normally.
 10. Host reboot: the bond persists, reconnects without pairing.
 11. Docker as root with the socket: works. Without the socket: the UI says the

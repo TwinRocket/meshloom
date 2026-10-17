@@ -53,9 +53,11 @@ and the OpenAPI page (`/docs`), not a table here.
   `create_ble(device=BLEDevice(path), pin=None)`: adapter pinned, bleak's
   agent-less `pair()` never runs. Environmental failures (no D-Bus, no
   bluetoothd, permission, no adapter) fall back to `create_ble(address, pin)`.
-  Auth failures are sticky per (address, PIN), transient ones back off 5-60 s,
-  and `reconnect()` reports each once (coded WS error outside the
-  `reconnection_failed` budget). Explicit pair/forget routes run under
+  The PIN format is checked only when a `Pair()` is needed (a bonded radio
+  ignores it). Auth failures are sticky per (address, PIN), transient ones back
+  off 5-60 s, and `reconnect()` reports each once (coded WS error without
+  `details`, outside the `reconnection_failed` budget; one toast for the whole
+  backoff class). Explicit pair/forget routes run under
   `lifecycle_transition` then `RadioManager.ble_maintenance()` (holds
   `_reconnect_lock`, answers busy at once). Lock order: lifecycle, reconnect,
   radio operation, `ble_pairing` lock. Tests never touch the system bus: a

@@ -54,7 +54,7 @@ Le BLE exige l’adresse et le PIN. Dans l’add-on Home Assistant, le Bluetooth
 
 ### Appairage
 
-Une radio MeshCore demande son PIN une seule fois, la première fois qu’une machine s’appaire avec elle en Bluetooth. Sous Linux, Meshloom s’en charge lui-même quand il se connecte, avec le PIN enregistré : paquet Linux, image Raspberry Pi, Docker en root avec le socket D-Bus de l’hôte mappé, et add-on Home Assistant dès qu’il peut joindre le service Bluetooth de l’hôte. Plus besoin de `bluetoothctl pair` ni `trust` au préalable. Un appairage fait auparavant avec `bluetoothctl` est réutilisé tel quel. Meshloom ne se déclare jamais agent d’appairage par défaut du système : un bureau ou Home Assistant continue de traiter ses propres demandes d’appairage.
+Une radio MeshCore demande son PIN une seule fois, la première fois qu’une machine s’appaire avec elle en Bluetooth. Sous Linux, Meshloom s’en charge lui-même quand il se connecte, avec le PIN enregistré : paquet Linux, image Raspberry Pi, Docker en root avec le socket D-Bus de l’hôte mappé, et add-on Home Assistant dès qu’il peut joindre le service Bluetooth de l’hôte. Plus besoin de `bluetoothctl pair` ni `trust` au préalable. Un appairage fait auparavant avec `bluetoothctl` est réutilisé tel quel, quel que soit le PIN enregistré. Meshloom ne se déclare jamais agent d’appairage par défaut du système : un bureau ou Home Assistant continue de traiter ses propres demandes d’appairage.
 
 Sous le champ PIN, **Appairage** indique où en sont les choses :
 
@@ -63,7 +63,7 @@ Sous le champ PIN, **Appairage** indique où en sont les choses :
 - **La dernière tentative d’appairage a échoué**, avec la raison. Après un PIN incorrect, Meshloom ne fait qu’une tentative, puis suspend l’appairage automatique pour ce PIN : corrigez le PIN et appuyez sur **Enregistrer et connecter**, ou appuyez sur **Réessayer l’appairage**. Quand la radio est absente ou ne répond pas, les tentatives automatiques s’espacent, de 5 secondes jusqu’à une minute, et le panneau indique quand aura lieu la suivante.
 - **L’appairage automatique est indisponible**, avec la cause : service Bluetooth injoignable, aucun adaptateur, adaptateur éteint ou bloqué par rfkill, ou permission refusée. Meshloom se connecte alors comme avant, et la radio doit être appairée avec les outils du système.
 
-Appuyez sur **Oublier l’appairage** quand la radio a été réinitialisée ou reflashée : elle ne connaît plus cette machine, et la connexion échoue en boucle. Après trois échecs de suite sur un appairage existant, le panneau le propose. Meshloom appaire ensuite de nouveau avec le PIN enregistré. Oubliez aussi l’appairage avant de passer à une autre radio. Un appairage resté en place ne gêne pas, et `bluetoothctl remove <adresse>` le supprime plus tard.
+Appuyez sur **Oublier l’appairage** quand la radio a été réinitialisée ou reflashée : elle ne connaît plus cette machine, et la connexion échoue en boucle. Quand la radio refuse la connexion trois fois de suite sur un appairage existant, le panneau le propose (une radio simplement éteinte ou hors de portée ne compte pas). Après **La radio a refusé l’appairage**, le panneau le propose aussi. Meshloom appaire ensuite de nouveau avec le PIN enregistré. Passer à une autre radio ne demande rien de particulier : l’ancien appairage ne gêne pas, et `bluetoothctl remove <adresse>` le supprime si vous le souhaitez.
 
 Sous macOS et Windows, ou avec une adresse qui n’est pas une adresse MAC (`AA:BB:CC:DD:EE:FF`), appairez la radio avec les outils Bluetooth du système.
 
