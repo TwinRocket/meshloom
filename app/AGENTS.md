@@ -252,9 +252,12 @@ be wrong, because historical decryption inserts old messages with new ids.
   way to tell it from a stored one: the backup pairs that SSID with the
   password, and a restore stores both (stated on the public backup page too). Errors list field paths only
   (`backup_invalid`).
-- **Envelope** (`meshloom-backup-v2-encrypted`): scrypt (writes N=2^15, r=8,
+- **Envelope** (`meshloom-backup-v2-encrypted`): scrypt (writes N=2^16, r=8,
   p=1) over the NFC passphrase, AES-256-GCM, AAD = canonical JSON of a fixed
-  header tuple. Decrypt refuses N outside 2^14..2^16, r≠8, p≠1, bad salt/nonce
+  header tuple. Decrypt accepts one step more than it writes (N up to 2^17, the
+  OWASP figure), so a later version can raise the written N without older
+  readers refusing its files; N above 2^17 needs a new format string. Decrypt
+  refuses N outside 2^14..2^17, r≠8, p≠1, bad salt/nonce
   sizes or more than 16 MiB before any KDF call; encrypt refuses a plaintext
   over the same `MAX_CIPHERTEXT_BYTES` (400 `backup_too_large_to_encrypt` from
   the export), so it never writes a file the restore cannot open. KDF calls run

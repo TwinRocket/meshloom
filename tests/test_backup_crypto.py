@@ -158,8 +158,23 @@ def test_oversized_ciphertext_refused_before_any_kdf_call(monkeypatch):
 
 def test_written_parameters_are_the_documented_ones(monkeypatch):
     monkeypatch.undo()
-    assert crypto.SCRYPT_N == 2**15 and crypto.SCRYPT_R == 8 and crypto.SCRYPT_P == 1
-    assert crypto.SCRYPT_MIN_N == 2**14 and crypto.SCRYPT_MAX_N == 2**16
+    assert crypto.SCRYPT_N == 2**16 and crypto.SCRYPT_R == 8 and crypto.SCRYPT_P == 1
+    # Readers accept one step above what this version writes (forward compatible).
+    assert crypto.SCRYPT_MIN_N == 2**14 and crypto.SCRYPT_MAX_N == 2**17
+
+
+def test_a_file_written_with_n_2_17_still_opens(monkeypatch):
+    """A later version may write N=2^17: this one must read it."""
+    monkeypatch.undo()
+    monkeypatch.setattr(crypto, "SCRYPT_N", 2**17)
+    envelope = encrypt_backup(DOCUMENT, PASSPHRASE, public_key=None)
+    assert envelope["kdf"]["n"] == 2**17
+    monkeypatch.undo()
+    assert decrypt_backup(envelope, PASSPHRASE) == DOCUMENT
+    envelope["kdf"]["n"] = 2**18
+    with pytest.raises(BackupCryptoError) as exc:
+        decrypt_backup(envelope, PASSPHRASE)
+    assert exc.value.code == "backup_bad_envelope"
 
 
 def test_passphrase_is_nfc_normalised():

@@ -6,17 +6,19 @@ Envelope::
       "format": "meshloom-backup-v2-encrypted",
       "exported_at": 1760000000,
       "public_key": "<64 hex>" | null,        # public; lets the UI say which radio
-      "kdf": {"name": "scrypt", "n": 32768, "r": 8, "p": 1, "salt": "<b64, 16 bytes>"},
+      "kdf": {"name": "scrypt", "n": 65536, "r": 8, "p": 1, "salt": "<b64, 16 bytes>"},
       "cipher": {"name": "aes-256-gcm", "nonce": "<b64, 12 bytes>"},
       "ciphertext": "<b64 of ciphertext || 16-byte tag>"
     }
 
 - Key = ``scrypt(NFC(passphrase), salt, 32, N, r, p)``. This version writes
-  N = 2^15, r = 8, p = 1 (32 MiB).
+  N = 2^16, r = 8, p = 1 (64 MiB). Decrypt already accepts N = 2^17 (128 MiB,
+  the current OWASP figure), so a later version can raise the written N without
+  older readers refusing its files; going above 2^17 needs a new format string.
 - The AAD is the canonical JSON (sorted keys, no spaces) of a fixed tuple of
   header fields, built the same way on both sides from those fields only, so an
   extra key in the file never changes it and a changed header fails the tag.
-- Decrypt accepts only N a power of two with 2^14 <= N <= 2^16, r = 8, p = 1,
+- Decrypt accepts only N a power of two with 2^14 <= N <= 2^17, r = 8, p = 1,
   a 16-byte salt, a 12-byte nonce and at most 16 MiB of ciphertext; anything
   else is refused **before** any KDF call (a file must not make the server
   allocate gigabytes).
@@ -41,11 +43,11 @@ ENCRYPTED_FORMAT = "meshloom-backup-v2-encrypted"
 KDF_NAME = "scrypt"
 CIPHER_NAME = "aes-256-gcm"
 
-SCRYPT_N = 2**15
+SCRYPT_N = 2**16
 SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_MIN_N = 2**14
-SCRYPT_MAX_N = 2**16
+SCRYPT_MAX_N = 2**17  # 128 MiB, bounded and serialized
 SALT_BYTES = 16
 NONCE_BYTES = 12
 TAG_BYTES = 16
