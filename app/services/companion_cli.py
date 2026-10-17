@@ -593,7 +593,7 @@ class CompanionCli:
             elif classified.verb == "set":
                 self._log(classified, "ok")
             else:
-                logger.debug("CLI %s -> %s", command, text)
+                self._log(classified, text)
         return result
 
     @staticmethod
