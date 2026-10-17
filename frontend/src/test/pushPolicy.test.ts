@@ -22,6 +22,9 @@ const ALL_ON: PushDefaults = {
   channel_found: ON,
   telemetry_alert: ON,
   oss_update: ON,
+  radio_offline: ON,
+  radio_online: ON,
+  app_started: ON,
 };
 
 const DM_OFF: PushDefaults = {
@@ -33,6 +36,9 @@ const DM_OFF: PushDefaults = {
   channel_found: ON,
   telemetry_alert: ON,
   oss_update: ON,
+  radio_offline: ON,
+  radio_online: ON,
+  app_started: ON,
 };
 
 type PolicyCase = {

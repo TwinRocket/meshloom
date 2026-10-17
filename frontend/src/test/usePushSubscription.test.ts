@@ -25,6 +25,9 @@ const ALL_ON_DEFAULTS = {
   channel_found: { ...DEFAULT_NOTIFICATION_MEDIA },
   telemetry_alert: { ...DEFAULT_NOTIFICATION_MEDIA },
   oss_update: { ...DEFAULT_NOTIFICATION_MEDIA },
+  radio_offline: { ...DEFAULT_NOTIFICATION_MEDIA },
+  radio_online: { ...DEFAULT_NOTIFICATION_MEDIA },
+  app_started: { ...DEFAULT_NOTIFICATION_MEDIA },
 };
 
 const EMPTY_PREFERENCES = {

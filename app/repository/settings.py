@@ -43,6 +43,9 @@ PUSH_DEFAULT_KEYS = (
     "channel_found",
     "telemetry_alert",
     "oss_update",
+    "radio_offline",
+    "radio_online",
+    "app_started",
 )
 
 NOTIFICATION_MEDIA_KEYS = ("push", "email", "webhook")
@@ -63,6 +66,9 @@ class PushDefaults(TypedDict):
     channel_found: NotificationMediaFlags
     telemetry_alert: NotificationMediaFlags
     oss_update: NotificationMediaFlags
+    radio_offline: NotificationMediaFlags
+    radio_online: NotificationMediaFlags
+    app_started: NotificationMediaFlags
 
 
 def _default_media() -> NotificationMediaFlags:
@@ -272,7 +278,8 @@ class AppSettingsRepository:
                    auto_update_weekdays, enable_message_poll_fallback,
                    force_channel_slot_reconfigure, load_with_autoevict,
                    auto_clock_wraparound, auth_allowed_origins,
-                   push_allow_private_endpoints, push_private_endpoints_grandfathered
+                   push_allow_private_endpoints, push_private_endpoints_grandfathered,
+                   radio_offline_grace_s
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -439,6 +446,12 @@ class AppSettingsRepository:
         except (KeyError, TypeError, IndexError):
             auth_allowed_origins = []
 
+        try:
+            _grace = int(row["radio_offline_grace_s"])
+        except (KeyError, TypeError, ValueError, IndexError):
+            _grace = 60
+        _grace = min(max(_grace, 0), 3600)
+
         def _flag(column: str, default: bool = False) -> bool:
             try:
                 value = row[column]
@@ -479,6 +492,7 @@ class AppSettingsRepository:
             auth_allowed_origins=auth_allowed_origins,
             push_allow_private_endpoints=_flag("push_allow_private_endpoints"),
             push_private_endpoints_grandfathered=_flag("push_private_endpoints_grandfathered"),
+            radio_offline_grace_s=_grace,
         )
 
     @staticmethod
@@ -519,6 +533,7 @@ class AppSettingsRepository:
         auth_allowed_origins: list[str] | None = None,
         push_allow_private_endpoints: bool | None = None,
         push_private_endpoints_grandfathered: bool | None = None,
+        radio_offline_grace_s: int | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -665,6 +680,10 @@ class AppSettingsRepository:
                 updates.append(f"{column} = ?")
                 params.append(1 if flag else 0)
 
+        if radio_offline_grace_s is not None:
+            updates.append("radio_offline_grace_s = ?")
+            params.append(min(max(int(radio_offline_grace_s), 0), 3600))
+
         if auth_allowed_origins is not None:
             updates.append("auth_allowed_origins = ?")
             params.append(json.dumps(auth_allowed_origins))
@@ -719,6 +738,7 @@ class AppSettingsRepository:
         auth_allowed_origins: list[str] | None = None,
         push_allow_private_endpoints: bool | None = None,
         push_private_endpoints_grandfathered: bool | None = None,
+        radio_offline_grace_s: int | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -756,6 +776,7 @@ class AppSettingsRepository:
                 auth_allowed_origins=auth_allowed_origins,
                 push_allow_private_endpoints=push_allow_private_endpoints,
                 push_private_endpoints_grandfathered=push_private_endpoints_grandfathered,
+                radio_offline_grace_s=radio_offline_grace_s,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
@@ -1316,6 +1337,28 @@ class AppSettingsRepository:
         async with db.tx() as conn:
             await conn.execute(
                 "UPDATE app_settings SET community_opt_out_pending = ? WHERE id = 1", (value,)
+            )
+
+    # -- Radio outage state (migration 099) ------------------------------------
+    # Unix time a *notified* radio outage began, NULL when none. Not part of
+    # AppSettings; written only by app/notifications/radio_watch.py.
+
+    @staticmethod
+    async def get_radio_outage_started_at() -> float | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT radio_outage_started_at FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row or row["radio_outage_started_at"] is None:
+            return None
+        return float(row["radio_outage_started_at"])
+
+    @staticmethod
+    async def set_radio_outage_started_at(started_at: float | None) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET radio_outage_started_at = ? WHERE id = 1", (started_at,)
             )
 
     # -- Wi-Fi prompt state (migration 095) -----------------------------------

@@ -70,7 +70,25 @@ const DEFAULT_KEYS: Array<{
     label: 'settings.notifications.ossUpdate',
     help: 'settings.notifications.ossUpdateHelp',
   },
+  {
+    key: 'radio_offline',
+    label: 'settings.notifications.radioOffline',
+    help: 'settings.notifications.radioOfflineHelp',
+  },
+  {
+    key: 'radio_online',
+    label: 'settings.notifications.radioOnline',
+    help: 'settings.notifications.radioOnlineHelp',
+  },
+  {
+    key: 'app_started',
+    label: 'settings.notifications.appStarted',
+    help: 'settings.notifications.appStartedHelp',
+  },
 ];
+
+const DEFAULT_RADIO_OFFLINE_GRACE_S = 60;
+const MAX_RADIO_OFFLINE_GRACE_S = 3600;
 
 const MEDIA_COLUMNS: Array<{
   channel: NotificationMediaChannel;
@@ -188,6 +206,34 @@ export function SettingsNotificationsSection({
       setVapidError(null);
     }
   }
+
+  const storedGrace = appSettings?.radio_offline_grace_s ?? DEFAULT_RADIO_OFFLINE_GRACE_S;
+  const [graceDraft, setGraceDraft] = useState(String(storedGrace));
+  const [prevStoredGrace, setPrevStoredGrace] = useState(storedGrace);
+  if (storedGrace !== prevStoredGrace) {
+    setPrevStoredGrace(storedGrace);
+    setGraceDraft(String(storedGrace));
+  }
+
+  const commitGrace = () => {
+    const parsed = Number(graceDraft.trim());
+    if (
+      graceDraft.trim() === '' ||
+      !Number.isInteger(parsed) ||
+      parsed < 0 ||
+      parsed > MAX_RADIO_OFFLINE_GRACE_S
+    ) {
+      setGraceDraft(String(storedGrace));
+      return;
+    }
+    if (parsed === storedGrace || !onSaveAppSettings) return;
+    void onSaveAppSettings({ radio_offline_grace_s: parsed }).catch((err: unknown) => {
+      setGraceDraft(String(storedGrace));
+      toast.error(t('settings.notifications.radioOfflineGraceSaveFailed'), {
+        description: formatApiError(err, t),
+      });
+    });
+  };
 
   const notificationDestinations = appSettings?.notification_destinations;
   const [prevNotificationDestinations, setPrevNotificationDestinations] =
@@ -630,6 +676,35 @@ export function SettingsNotificationsSection({
               })}
             </tbody>
           </table>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="radio-offline-grace">
+            {t('settings.notifications.radioOfflineGrace')}
+          </Label>
+          <div className="flex items-center gap-2">
+            <Input
+              id="radio-offline-grace"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={MAX_RADIO_OFFLINE_GRACE_S}
+              step={1}
+              className="w-24"
+              value={graceDraft}
+              disabled={!onSaveAppSettings || !appSettings}
+              onChange={(e) => setGraceDraft(e.target.value)}
+              onBlur={commitGrace}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+            />
+            <span className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.notifications.radioOfflineGraceUnit')}
+            </span>
+          </div>
+          <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+            {t('settings.notifications.radioOfflineGraceHelp')}
+          </p>
         </div>
       </div>
 

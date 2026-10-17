@@ -154,6 +154,14 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="Accept Web Push endpoints on a private network (self-hosted UnifiedPush)",
     )
+    radio_offline_grace_s: int | None = Field(
+        default=None,
+        ge=0,
+        le=3600,
+        description=(
+            "Seconds the radio may stay unreachable before radio_offline is sent (0 = at once)"
+        ),
+    )
     push_private_endpoints_grandfathered: bool | None = Field(
         default=None,
         description="Set to false to dismiss the upgrade notice (setting it also clears it)",
@@ -472,6 +480,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["push_allow_private_endpoints"] = update.push_allow_private_endpoints
         # An explicit choice replaces the upgrade default and its notice.
         kwargs["push_private_endpoints_grandfathered"] = False
+    if update.radio_offline_grace_s is not None:
+        logger.info("Updating radio_offline_grace_s to %s", update.radio_offline_grace_s)
+        kwargs["radio_offline_grace_s"] = update.radio_offline_grace_s
     if update.push_private_endpoints_grandfathered is False:
         kwargs["push_private_endpoints_grandfathered"] = False
 

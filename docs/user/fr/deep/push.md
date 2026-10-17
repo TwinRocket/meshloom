@@ -51,6 +51,13 @@ L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les 
 | Canaux trouvés | Meshloom trouve un nouveau canal hashtag |
 | Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils se règlent sur la page **Alertes** |
 | Mises à jour Meshloom | Une nouvelle version de Meshloom est disponible |
+| Radio hors ligne | La radio est injoignable depuis plus longtemps que le délai réglé sous le tableau (60 s par défaut). Envoyé comme urgent (le sujet de l’e-mail commence par `[URGENT]`), une fois par panne |
+| Radio de nouveau en ligne | La radio est de nouveau joignable après une notification **Radio hors ligne**, avec la durée de la panne |
+| Meshloom a démarré | Meshloom vient de démarrer : sa version, si la radio s’est connectée et en combien de temps. Activé par défaut pour le push |
+
+**Radio hors ligne** et **Radio de nouveau en ligne** ne se déclenchent jamais pour un redémarrage de la radio lancé par Meshloom (correction de l’horloge, changement Wi-Fi) ni tant que la connexion est en pause dans **Réglages → Radio** ; une pause termine une panne sans notification. Rien n’est envoyé avant que la radio se soit connectée une fois depuis le démarrage de Meshloom, ni pendant le même délai juste après un démarrage : une mise à jour ou un redémarrage ne déclenche pas de fausse alerte. Le délai se règle dans **Réglages → Notifications → Délai « radio hors ligne »** (`radio_offline_grace_s` dans `/api/settings` ; 0 notifie aussitôt, jusqu’à 3600 s). La radio est vérifiée environ toutes les 5 secondes, et une tentative de reconnexion en cours peut retarder la vérification : la notification peut arriver un peu après le délai. Si Meshloom redémarre pendant une panne, la durée compte toujours depuis le vrai début.
+
+**Radio hors ligne ne peut pas vous prévenir quand Meshloom lui-même est arrêté** (coupure de courant, redémarrage de l’hôte) : plus rien ne tourne pour l’envoyer. **Meshloom a démarré** rend visible un redémarrage inattendu. Pour être prévenu pendant l’arrêt, utilisez le `binary_sensor.<radio>_connected` de Home Assistant avec un délai « pendant » (voir `README_HA.md`) ; un battement de cœur périodique est prévu.
 
 Pour un compagnon, **Nouveaux contacts** ou **Publicités compagnon** suffit.
 

@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 097 (the value of
+- Numbering is contiguous from 001. The current head is 099 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -76,7 +76,9 @@ defaults and overrides, `ui_preferences`, `notification_destinations`,
 `telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`,
 `auth_allowed_origins`: the cross-origin sites CORS lets in, kept in memory by
 `app/cors.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
-password, outside `AppSettings`).
+password, outside `AppSettings`; `radio_outage_started_at`: Unix time of the radio outage
+that was notified, NULL when none, written by `notifications/radio_watch.py`, outside
+`AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus
 `RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`

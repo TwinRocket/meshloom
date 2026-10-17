@@ -171,6 +171,70 @@ def _telemetry_alert_titles(data: dict, lang: str) -> tuple[str, str]:
     return title, body
 
 
+def format_duration(seconds: object) -> str:
+    """``45 s``, ``12 min``, ``2 h 05``: the same abbreviations in French and English."""
+    try:
+        total = max(int(float(str(seconds))), 0)
+    except (TypeError, ValueError):
+        total = 0
+    if total < 60:
+        return f"{total} s"
+    if total < 3600:
+        return f"{total // 60} min"
+    return f"{total // 3600} h {total % 3600 // 60:02d}"
+
+
+def _radio_where(data: dict) -> str:
+    """The transport as shown to the user: ``USB /dev/ttyUSB0``, ``TCP host:port``, ``BLE addr``."""
+    info = str(data.get("connection") or "").strip()
+    kind, _, target = info.partition(": ")
+    label = {"Serial": "USB"}.get(kind, kind)
+    return f"{label} {target}".strip() if target else info
+
+
+def _radio_status_titles(data: dict, lang: str) -> tuple[str, str]:
+    where = _radio_where(data)
+    suffix = f" ({where})" if where else ""
+    event = data.get("event")
+    if event == "radio_offline":
+        duration = format_duration(data.get("offline_s"))
+        if lang == "en":
+            title = f"Radio offline for {duration}{suffix}"
+            body = "The radio is unreachable. Meshloom keeps trying to reconnect."
+        else:
+            title = f"Radio hors ligne depuis {duration}{suffix}"
+            body = "La radio est injoignable. Meshloom continue de se reconnecter."
+        return title, body
+    if event == "radio_online":
+        duration = format_duration(data.get("downtime_s"))
+        if lang == "en":
+            return f"Radio back online after {duration}", f"The radio is reachable again{suffix}."
+        return f"Radio de nouveau en ligne après {duration}", (
+            f"La radio est de nouveau joignable{suffix}."
+        )
+    version = str(data.get("version") or "").strip()
+    label = f" ({version})" if version else ""
+    seconds = data.get("connect_s")
+    connected = bool(data.get("radio_connected"))
+    if lang == "en":
+        title = f"Meshloom started{label}"
+        if connected and seconds is not None:
+            body = f"Radio connected in {format_duration(seconds)}"
+        elif connected:
+            body = "Radio connected"
+        else:
+            body = "The radio is not connected yet"
+    else:
+        title = f"Meshloom a démarré{label}"
+        if connected and seconds is not None:
+            body = f"Radio connectée en {format_duration(seconds)}"
+        elif connected:
+            body = "Radio connectée"
+        else:
+            body = "La radio n’est pas encore connectée"
+    return title, body
+
+
 def _build_payload(data: dict, language: str = "fr") -> str:
     """Build the push notification JSON payload from a message or first-seen event."""
     lang = language if language in ("fr", "en") else "fr"
@@ -206,6 +270,21 @@ def _build_payload(data: dict, language: str = "fr") -> str:
                 "body": body,
                 "tag": f"meshcore-oss-update-{latest}",
                 "url_hash": "#settings/updates",
+            }
+        )
+
+    if data.get("event") in ("radio_offline", "radio_online", "app_started"):
+        title, body = _radio_status_titles(data, lang)
+        event = str(data["event"])
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                # Online replaces the offline notification still in the tray.
+                "tag": "meshcore-app-started"
+                if event == "app_started"
+                else "meshcore-radio-status",
+                "url_hash": "#settings/radio",
             }
         )
 
