@@ -40,6 +40,7 @@
     "ble_pair_unsupported": "L’appairage Bluetooth automatique n’est pas disponible sur ce système",
     "ble_pair_not_configured": "Enregistrez d’abord une adresse et un PIN Bluetooth",
     "ble_pair_failed": "Échec de l’appairage Bluetooth ({{error}})",
+    "ble_pair_failed_generic": "Échec de l’appairage Bluetooth",
     "radio_busy": "La radio est occupée par une autre opération. Réessayez dans un instant."
   }
 }

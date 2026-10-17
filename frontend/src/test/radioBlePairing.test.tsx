@@ -39,6 +39,7 @@ function status(overrides: Partial<RadioBlePairingStatus> = {}): RadioBlePairing
     trusted: false,
     connected: false,
     error_code: null,
+    error_params: {},
     error_at: null,
     auto_pair_blocked: false,
     retry_in: null,
@@ -316,8 +317,105 @@ describe('RadioBlePairing', () => {
     expect(
       await screen.findByText(i18n.t('settings.radio.blePairingStaleBond'))
     ).toBeInTheDocument();
+    // The bond is still there: Pair would change nothing, so only Forget is offered.
     const buttons = screen.getAllByRole('button');
-    expect(buttons[0]).toHaveTextContent(i18n.t('settings.radio.bleForget'));
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      i18n.t('settings.radio.bleForget'),
+    ]);
+  });
+
+  it('offers Pair again next to Forget once the stale bond is gone', async () => {
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'not_paired', hint: 'stale_bond_suspected' })
+    );
+    renderPairing();
+
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.radio.blePairAgain') })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: i18n.t('settings.radio.bleForget') })
+    ).toBeInTheDocument();
+  });
+
+  it('waits for Save while a new PIN is typed', async () => {
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_wrong_pin', auto_pair_blocked: true })
+    );
+    const pair = vi.spyOn(api, 'pairRadioBle');
+    renderPairing({ pinPending: true });
+
+    const button = await screen.findByRole('button', {
+      name: i18n.t('settings.radio.blePairAgain'),
+    });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(i18n.t('settings.radio.blePairingSaveFirst'))).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(pair).not.toHaveBeenCalled();
+  });
+
+  it('names the D-Bus error of a generic failure, or shows the bare title', async () => {
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({
+        state: 'failed',
+        error_code: 'ble_pair_failed',
+        error_params: { error: 'org.bluez.Error.Weird' },
+      })
+    );
+    const { unmount } = renderPairing();
+    expect(
+      await screen.findByText(
+        i18n.t('settings.radio.blePairingState.failed', {
+          reason: i18n.t('errors.ble_pair_failed', { error: 'org.bluez.Error.Weird' }),
+        })
+      )
+    ).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_failed' })
+    );
+    renderPairing();
+    expect(
+      await screen.findByText(
+        i18n.t('settings.radio.blePairingState.failed', {
+          reason: i18n.t('errors.ble_pair_failed_generic'),
+        })
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ble_pair_failed/)).not.toBeInTheDocument();
+  });
+
+  it('clears a pairing error once the radio shows up paired', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, 'pairRadioBle').mockRejectedValue(
+      new ApiError('The radio did not answer over Bluetooth', 503, {
+        code: 'ble_pair_unreachable',
+        message: 'The radio did not answer over Bluetooth',
+        params: {},
+      })
+    );
+    renderPairing({ health: health(false) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_unreachable', retry_in: 5 })
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.blePairNow') }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(i18n.t('errors.ble_pair_unreachable'));
+
+    // The connection monitor pairs in the background; the poll picks it up.
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(status({ state: 'paired', paired: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(screen.getByText(i18n.t('settings.radio.blePairingState.paired'))).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('forgets only after confirmation', async () => {

@@ -55,6 +55,8 @@ export interface RadioBlePairingStatus {
   connected: boolean | null;
   /** ble_pair_* code, translated under errors.<code>. */
   error_code: string | null;
+  /** Interpolation values for errors.<code> (e.g. error). */
+  error_params: Record<string, string>;
   error_at: number | null;
   auto_pair_blocked: boolean;
   retry_in: number | null;

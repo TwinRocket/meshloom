@@ -40,6 +40,7 @@
     "ble_pair_unsupported": "Automatic Bluetooth pairing is not available on this system",
     "ble_pair_not_configured": "Save a Bluetooth address and PIN first",
     "ble_pair_failed": "Bluetooth pairing failed ({{error}})",
+    "ble_pair_failed_generic": "Bluetooth pairing failed",
     "radio_busy": "The radio is busy with another operation. Try again in a moment."
   }
 }

@@ -27,6 +27,7 @@ function normaliseAddress(address: string): string {
 export function RadioBlePairing({
   savedTransport,
   currentAddress,
+  pinPending = false,
   health,
   saving,
   onHealthRefresh,
@@ -34,6 +35,8 @@ export function RadioBlePairing({
 }: {
   savedTransport: RadioTransportConfig;
   currentAddress: string;
+  /** A PIN is typed but not saved: Pair uses the saved PIN, so it waits for Save. */
+  pinPending?: boolean;
   health: HealthStatus | null;
   /** The panel's Save and connect is in flight (it may pair). */
   saving: boolean;
@@ -117,6 +120,12 @@ export function RadioBlePairing({
   }, [busy, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
+  // A later automatic attempt (connection monitor) may succeed: drop the stale error.
+  const pairedNow = status?.state === 'paired';
+  useEffect(() => {
+    if (pairedNow && !requesting) setActionError(null);
+  }, [pairedNow, requesting]);
+
   if (!applicable) {
     return (
       <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
@@ -125,11 +134,13 @@ export function RadioBlePairing({
     );
   }
 
-  const errorText = (code: string | null): string => {
+  const errorText = (code: string | null, params?: Record<string, string>): string => {
     if (!code) return '';
     const key = `errors.${code}`;
-    const text = t(key, { error: code });
-    return text === key ? code : text;
+    if (!i18n.exists(key)) return code;
+    // ble_pair_failed names the D-Bus error; without it, the bare title.
+    if (!params?.error && code === 'ble_pair_failed') return t('errors.ble_pair_failed_generic');
+    return t(key, params ?? {});
   };
   const errorDetail = (code: string | null): string | null => {
     if (!code) return null;
@@ -192,13 +203,13 @@ export function RadioBlePairing({
       break;
     case 'unavailable':
       line = t('settings.radio.blePairingState.unavailable', {
-        reason: errorText(status?.error_code ?? null),
+        reason: errorText(status?.error_code ?? null, status?.error_params),
       });
       detail = errorDetail(status?.error_code ?? null);
       break;
     case 'failed':
       line = t('settings.radio.blePairingState.failed', {
-        reason: errorText(status?.error_code ?? null),
+        reason: errorText(status?.error_code ?? null, status?.error_params),
       });
       detail = errorDetail(status?.error_code ?? null);
       break;
@@ -209,8 +220,13 @@ export function RadioBlePairing({
       line = null;
   }
 
+  // With a stale bond still held (state 'paired'), Pair would find the bond and
+  // change nothing: only Forget pairing is offered then.
   const canPair =
-    state === 'not_paired' || state === 'unknown_device' || state === 'failed' || staleBond;
+    state === 'not_paired' ||
+    state === 'unknown_device' ||
+    state === 'failed' ||
+    (staleBond && state !== 'paired');
   // After a refusal BlueZ may hold no bond (state 'failed'), yet the fix the
   // message gives is Forget pairing, then Pair again.
   const forgetFirst =
@@ -245,6 +261,11 @@ export function RadioBlePairing({
           {t('settings.radio.blePairingStaleBond')}
         </p>
       )}
+      {canPair && pinPending && (
+        <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+          {t('settings.radio.blePairingSaveFirst')}
+        </p>
+      )}
       {actionError && (
         <p className="text-[0.8125rem] text-destructive" role="alert">
           {actionError}
@@ -269,7 +290,7 @@ export function RadioBlePairing({
               variant="outline"
               size="sm"
               onClick={() => void handlePair()}
-              disabled={busy}
+              disabled={busy || pinPending}
             >
               {requesting ? t('settings.radio.blePairingInProgress') : pairLabel}
             </Button>

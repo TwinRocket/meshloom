@@ -518,6 +518,7 @@ function RadioTransportPanel({
           <RadioBlePairing
             savedTransport={snapshot}
             currentAddress={bleAddress}
+            pinPending={blePin.trim() !== ''}
             health={health}
             saving={busy}
             onHealthRefresh={onHealthRefresh}
