@@ -7,6 +7,12 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.log_redaction import (
+    clamp_quiet_third_party_loggers,
+    install_meshcore_log_redaction,
+    install_redacting_formatter,
+)
+
 
 class Settings(BaseSettings):
     """Host-level settings read from ``MESHCORE_*`` before the database opens.
@@ -143,6 +149,10 @@ class _RepeatSquelch(logging.Filter):
     Attached to the ``meshcore`` library logger to catch its repeated
     "Serial Connection started" lines that flood the log when another
     process holds the serial port.
+
+    It reads ``record.getMessage()`` and may rewrite ``record.msg``, so it must
+    run after the secret filter (``app.log_redaction``), which is inserted at
+    index 0 of the same logger's filters.
     """
 
     def __init__(self, threshold: int = 3) -> None:
@@ -235,9 +245,20 @@ def setup_logging() -> None:
         if _recent_log_handler not in target.handlers:
             target.addHandler(_recent_log_handler)
 
+    # Secrets first: the redaction filter goes at index 0 of the meshcore
+    # logger, before _RepeatSquelch, and every handler's output is redacted
+    # again (tracebacks included) by the wrapping formatter.
+    install_meshcore_log_redaction()
+    for logger_name in ("", "uvicorn", "uvicorn.error", "uvicorn.access"):
+        for handler in logging.getLogger(logger_name).handlers:
+            if handler is _recent_log_handler or handler.name in ("default", "uvicorn_access"):
+                install_redacting_formatter(handler)
+
     # Squelch repeated messages from the meshcore library (e.g. rapid-fire
     # "Serial Connection started" when the port is contended).
     logging.getLogger("meshcore").addFilter(_RepeatSquelch())
     uvicorn_hygiene = _UvicornLogHygiene()
     for logger_name in ("uvicorn", "uvicorn.error"):
         logging.getLogger(logger_name).addFilter(uvicorn_hygiene)
+    # dictConfig may have lowered the root level; the BLE libraries stay at INFO.
+    clamp_quiet_third_party_loggers()

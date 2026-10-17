@@ -14,6 +14,7 @@ from serial.tools import list_ports
 
 from app import radio_workarounds
 from app.keystore import clear_keys
+from app.log_redaction import install_meshcore_log_redaction
 from app.models import RadioTransportSnapshot
 from app.services.ble_pairing import BlePairingError, PairOutcome
 from app.services.radio_lifecycle import (
@@ -22,6 +23,11 @@ from app.services.radio_lifecycle import (
     PostConnectSetupOutcome,
 )
 from app.services.radio_transport import get_transport, is_tcp
+
+# After the meshcore import (which imports bleak): redact secret-bearing frames
+# even where setup_logging() never ran, and clamp bleak's DEBUG frame dumps
+# that BLEAK_LOGGING turns on at bleak import time.
+install_meshcore_log_redaction()
 
 logger = logging.getLogger(__name__)
 MAX_FRONTEND_RECONNECT_ERROR_BROADCASTS = 3
