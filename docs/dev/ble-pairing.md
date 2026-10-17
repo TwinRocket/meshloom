@@ -56,7 +56,7 @@ variable):
 8. meshcore gets `create_ble(address=…, device=BLEDevice(address, name,
    {"path": device_path, "props": props}), pin=None)`.
 9. Cleanup (own 4 s budget, outside the 45 s overall budget, which also covers
-   the bus connect): `CancelPairing`
+   the bus connect and which `POST` shortens by the time it waited, see API): `CancelPairing`
    after our own `Pair()` timeout, `UnregisterAgent` then unexport (a late
    `Release()` gets `UnknownMethod`, harmless), `StopDiscovery` if ours,
    `Disconnect` if a failed attempt left up a link that **our own** `Pair()`
@@ -171,8 +171,8 @@ automatically.
 | Route | What |
 |---|---|
 | `GET /api/radio/transport/ble-pairing` | `RadioBlePairingStatus` from the saved transport. Problems are in `state`/`error_code` (with `error_params` for interpolation, e.g. `ble_pair_failed`'s `error`), never an HTTP error. No D-Bus when not BLE, not a MAC, or while pairing; otherwise one `GetManagedObjects` (2 s), cached 1 s. |
-| `POST /api/radio/transport/ble-pairing` | Pair now with the saved PIN (`explicit`: lifts sticky/backoff). 409 `ble_pair_in_progress` while a pairing runs (the monitor's: entering the transition would cancel it). Under `lifecycle_transition` then `ble_maintenance`; disconnects meshcore first. A connected radio whose bond cannot be read (`unavailable`) keeps its link: the status error is returned instead. Synchronous pairing, no inline reconnect: the restarted connection monitor reconnects on its next pass (about 5 s) when the connection is wanted. Worst case 2 s status read + 1.5 s settle + 45 + 4 s + 2 s final status read, under a 60 s proxy timeout. |
-| `DELETE /api/radio/transport/ble-pairing` | Forget: `RemoveDevice` on every adapter (the picked one first), after disconnecting meshcore. The monitor pairs again afterwards. 409 if the saved transport is no longer BLE (an orphan bond is harmless; `bluetoothctl remove`). |
+| `POST /api/radio/transport/ble-pairing` | Pair now with the saved PIN (`explicit`: lifts sticky/backoff). 409 `ble_pair_in_progress` while a pairing runs (the monitor's: entering the transition would cancel it). Under `lifecycle_transition` then `ble_maintenance`; disconnects meshcore first. A connected radio whose bond cannot be read (`unavailable`) keeps its link: the status error is returned instead. Synchronous pairing, no inline reconnect: the restarted connection monitor reconnects on its next pass (about 5 s) when the connection is wanted. Answers within 55 s (`REQUEST_BUDGET`), under a 60 s proxy timeout: unhindered, 2 s status read + 1.5 s settle + 45 + 4 s + 2 s final status read. It waits at most 5 s for the lifecycle lock (`LIFECYCLE_WAIT`, then 503 `radio_busy`), and `disconnect()` waits for the radio operation in flight; both waits come off the pairing's 45 s (`request_deadline()`). With less than 15 s left (`MIN_PAIR_BUDGET`) it answers 503 `radio_busy` without pairing, so no backoff starts. |
+| `DELETE /api/radio/transport/ble-pairing` | Forget: `RemoveDevice` on every adapter (the picked one first), after disconnecting meshcore. Waits at most 5 s for the lifecycle lock, like POST. The monitor pairs again afterwards. 409 if the saved transport is no longer BLE (an orphan bond is harmless; `bluetoothctl remove`). |
 | `POST /api/radio/transport/ble-scan` | 409 `ble_pair_in_progress` while a pairing runs. |
 
 `ble_maintenance()` holds `_reconnect_lock` and never waits: if a reconnect holds
@@ -184,7 +184,7 @@ nothing takes the `ble_pairing` lock and then a radio lock.
 
 `PUT /api/radio/transport` holds the lifecycle lock for pairing (up to 45 + 4 s),
 `Device1.Connect` (bleak, 10 s, no scan any more) and the post-connect setup.
-Other transitions get 503 after 20 s, as they already do during a slow setup. The
+Other transitions get 503 after 20 s (the BLE pair/forget routes after 5 s), as they already do during a slow setup. The
 PUT swallows the reconnect error; the UI shows the outcome through the coded WS
 toast and by polling the pairing status: every 2 s while saving or pairing, every
 5 s while the radio is disconnected (a pairing started by the monitor, each

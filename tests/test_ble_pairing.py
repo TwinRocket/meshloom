@@ -43,15 +43,18 @@ def session(monkeypatch):
     calls: list[tuple[str, str]] = []
     script: list[object] = []
 
-    async def _fake(address, pin):
+    timeouts: list[float | None] = []
+
+    async def _fake(address, pin, timeout=None):
         calls.append((address, pin))
+        timeouts.append(timeout)
         item = script.pop(0) if script else PairOutcome("paired", address, "/a", "/a/d", {})
         if isinstance(item, BaseException):
             raise item
         return item
 
     monkeypatch.setattr(ble_pairing, "_pair_session", _fake)
-    return SimpleNamespace(calls=calls, script=script)
+    return SimpleNamespace(calls=calls, script=script, timeouts=timeouts)
 
 
 class TestSupportAndValidation:
@@ -355,6 +358,40 @@ class TestRetryPolicy:
         await ble_pairing.ensure_paired(ADDRESS, PIN, explicit=True)
         assert time.monotonic() - started < 0.2
 
+    async def test_deadline_shortens_the_overall_timeout(self, session, clock):
+        # Time spent waiting for the radio before pairing comes off the session.
+        deadline = ble_pairing.request_deadline()
+        await ble_pairing.ensure_paired(ADDRESS, PIN, explicit=True, deadline=deadline)
+        clock.now += 20
+        await ble_pairing.ensure_paired(ADDRESS, PIN, explicit=True, deadline=deadline)
+        clock.now += 60
+        assert ble_pairing.time_left(deadline) == 0.0
+        await ble_pairing.ensure_paired(ADDRESS, PIN, explicit=True)
+        unhindered = (
+            ble_pairing.REQUEST_BUDGET - ble_pairing.CLEANUP_BUDGET - ble_pairing.STATUS_TIMEOUT
+        )
+        assert session.timeouts == [
+            min(ble_pairing.OVERALL_TIMEOUT, unhindered),
+            unhindered - 20,
+            ble_pairing.OVERALL_TIMEOUT,
+        ]
+
+    def test_request_budget_fits_an_unhindered_pairing(self):
+        # Two status reads, the settle, the full session and its cleanup.
+        unhindered = (
+            2 * ble_pairing.STATUS_TIMEOUT
+            + ble_pairing.CANCEL_SETTLE_SECONDS
+            + ble_pairing.OVERALL_TIMEOUT
+            + ble_pairing.CLEANUP_BUDGET
+        )
+        assert unhindered <= ble_pairing.REQUEST_BUDGET < 60
+        assert ble_pairing.MIN_PAIR_BUDGET < (
+            ble_pairing.REQUEST_BUDGET
+            - ble_pairing.LIFECYCLE_WAIT
+            - 2 * ble_pairing.STATUS_TIMEOUT
+            - ble_pairing.CLEANUP_BUDGET
+        )
+
     async def test_automatic_attempt_does_not_wait_for_a_cancelled_bonding(
         self, session, monkeypatch
     ):
@@ -479,7 +516,7 @@ class TestRetryPolicy:
     async def test_in_progress_flag(self, monkeypatch):
         seen = []
 
-        async def _fake(address, pin):
+        async def _fake(address, pin, timeout=None):
             seen.append(ble_pairing.in_progress())
             return PairOutcome("paired", address, "/a", "/a/d", {})
 

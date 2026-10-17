@@ -956,19 +956,19 @@ class RadioManager:
             self._reconnect_lock.release()
 
     @asynccontextmanager
-    async def lifecycle_transition(self, name: str):
+    async def lifecycle_transition(
+        self, name: str, *, timeout: float = LIFECYCLE_LOCK_TIMEOUT_SECONDS
+    ):
         """Serialize transport/identity changes outside radio_operation/_setup_lock.
 
         Sequence for callers: stop monitor + close ingest, then mutate, then
-        the monitor is restarted on exit. Timed acquisition fails with 503.
+        the monitor is restarted on exit. Timed acquisition fails with 503;
+        ``timeout`` lets a route with a tight time budget give up sooner.
         """
         if self._lifecycle_lock is None:
             self._lifecycle_lock = asyncio.Lock()
         try:
-            await asyncio.wait_for(
-                self._lifecycle_lock.acquire(),
-                timeout=LIFECYCLE_LOCK_TIMEOUT_SECONDS,
-            )
+            await asyncio.wait_for(self._lifecycle_lock.acquire(), timeout=timeout)
         except TimeoutError as exc:
             raise RadioOperationBusyError(f"Radio lifecycle is busy ({name})") from exc
         from app.services.radio_ingest_gate import deny_ingest

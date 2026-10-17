@@ -410,6 +410,21 @@ class TestExpectedReboot:
             assert rm.expected_reboot is None
         await rm.stop_connection_monitor()
 
+    @pytest.mark.asyncio
+    async def test_lifecycle_transition_honours_a_shorter_timeout(self):
+        from app.radio import RadioManager, RadioOperationBusyError
+
+        rm = RadioManager()
+        rm._lifecycle_lock = asyncio.Lock()
+        await rm._lifecycle_lock.acquire()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with pytest.raises(RadioOperationBusyError):
+            async with rm.lifecycle_transition("ble_pair", timeout=0.05):
+                pytest.fail("entered a held lifecycle lock")  # pragma: no cover
+        assert loop.time() - started < 1.0
+        rm._lifecycle_lock.release()
+
     def test_reconnect_errors_stay_quiet_then_surface_past_the_bound(self):
         from app.radio import RadioManager
 
@@ -1697,7 +1712,7 @@ class TestBlePrePairing:
         from app.services import ble_pairing
         from app.services.ble_pairing import BlePairingError
 
-        async def _session(address, pin):
+        async def _session(address, pin, timeout=None):
             raise BlePairingError("ble_pair_device_not_found")
 
         monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)

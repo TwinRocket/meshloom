@@ -53,12 +53,19 @@ PAIR_TIMEOUT = 25.0  # the passkey is typed by the agent, no human in the loop
 DISCONNECT_WAIT = 3.0
 DISCONNECT_POLL = 0.2
 OVERALL_TIMEOUT = 45.0
-# Outside OVERALL_TIMEOUT, which also covers the bus connect. POST /ble-pairing
-# adds two status reads (STATUS_TIMEOUT each) and CANCEL_SETTLE_SECONDS:
-# 2 + 1.5 + 45 + 4 + 2 stays under a 60 s proxy timeout. It never reconnects
-# inline: the connection monitor does, after the response.
+# Outside OVERALL_TIMEOUT, which also covers the bus connect.
 CLEANUP_BUDGET = 4.0
 STATUS_TIMEOUT = 2.0
+# POST /ble-pairing answers within REQUEST_BUDGET, under a 60 s proxy timeout.
+# Unhindered it spends 2 (status read) + 1.5 (CANCEL_SETTLE_SECONDS) + 45 + 4
+# (cleanup) + 2 (final status read). The waits before the pairing (lifecycle
+# lock, at most LIFECYCLE_WAIT; the radio operation in flight that disconnect()
+# waits for) come off the pairing's own timeout (request_deadline()); with less
+# than MIN_PAIR_BUDGET left it answers busy without pairing. It never reconnects
+# inline: the connection monitor does, after the response.
+REQUEST_BUDGET = 55.0
+LIFECYCLE_WAIT = 5.0
+MIN_PAIR_BUDGET = 15.0
 STATUS_CACHE_SECONDS = 1.0
 BACKOFF_STEPS = (5, 10, 20, 40, 60)
 STALE_BOND_THRESHOLD = 3
@@ -1053,11 +1060,27 @@ class _Locked:
 # Entry points ------------------------------------------------------------------------
 
 
-async def ensure_paired(address: str, pin: str, *, explicit: bool = False) -> PairOutcome:
+def request_deadline() -> float:
+    """Monotonic time by which an explicit pairing started now must end.
+
+    Leaves room in REQUEST_BUDGET for the session cleanup and the final status read.
+    """
+    return _monotonic() + REQUEST_BUDGET - CLEANUP_BUDGET - STATUS_TIMEOUT
+
+
+def time_left(deadline: float) -> float:
+    """Seconds left before ``deadline`` (from ``request_deadline()``), never negative."""
+    return max(0.0, deadline - _monotonic())
+
+
+async def ensure_paired(
+    address: str, pin: str, *, explicit: bool = False, deadline: float | None = None
+) -> PairOutcome:
     """Make sure the radio is bonded on the adapter meshcore will use.
 
     Raises ``BlePairingError``. ``explicit`` (the Pair button) lifts a sticky
-    failure or a backoff window first.
+    failure or a backoff window first. ``deadline`` (``request_deadline()``)
+    shortens OVERALL_TIMEOUT to the time left in the caller's budget.
     """
     global _in_progress
     address = _normalise(address)
@@ -1065,13 +1088,15 @@ async def ensure_paired(address: str, pin: str, *, explicit: bool = False) -> Pa
         _in_progress = True
         _status_cache.clear()
         try:
-            return await _ensure_paired_locked(address, pin, explicit=explicit)
+            return await _ensure_paired_locked(address, pin, explicit=explicit, deadline=deadline)
         finally:
             _in_progress = False
             _status_cache.clear()
 
 
-async def _ensure_paired_locked(address: str, pin: str, *, explicit: bool) -> PairOutcome:
+async def _ensure_paired_locked(
+    address: str, pin: str, *, explicit: bool, deadline: float | None
+) -> PairOutcome:
     global _last_fallback_code
     fingerprint = _fingerprint(address, pin)
     if explicit:
@@ -1082,7 +1107,8 @@ async def _ensure_paired_locked(address: str, pin: str, *, explicit: bool) -> Pa
     # The PIN format is checked by the session, after the bond lookup: a radio
     # bonded earlier (bluetoothctl) connects whatever the saved PIN looks like.
     try:
-        outcome = await _pair_session(address, pin)
+        timeout = OVERALL_TIMEOUT if deadline is None else min(OVERALL_TIMEOUT, time_left(deadline))
+        outcome = await _pair_session(address, pin, timeout)
     except BlePairingError as exc:
         if exc.retry in ("sticky", "backoff"):
             raise _record_failure(fingerprint, exc) from None
@@ -1106,7 +1132,7 @@ async def _settle_after_cancel() -> None:
         await asyncio.sleep(remaining)
 
 
-async def _pair_session(address: str, pin: str) -> PairOutcome:
+async def _pair_session(address: str, pin: str, timeout: float | None = None) -> PairOutcome:
     global _last_cancelled_at
     bus = None
     session: _PairSession | None = None
@@ -1114,7 +1140,7 @@ async def _pair_session(address: str, pin: str) -> PairOutcome:
     failed = True
     try:
         try:
-            async with asyncio.timeout(OVERALL_TIMEOUT):
+            async with asyncio.timeout(OVERALL_TIMEOUT if timeout is None else timeout):
                 # The connect counts in the budget (see CLEANUP_BUDGET).
                 bus = await _open_bus()
                 session = _PairSession(_BlueZ(bus), address, pin)

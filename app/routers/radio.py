@@ -1277,8 +1277,10 @@ async def get_radio_ble_pairing() -> RadioBlePairingStatus:
 async def post_radio_ble_pairing() -> RadioBlePairingStatus:
     """Pair the saved BLE radio now with the saved PIN (lifts a paused automatic pairing).
 
-    Answers once paired; the connection monitor reconnects the radio afterwards.
+    Answers once paired, within ``ble_pairing.REQUEST_BUDGET``; the connection
+    monitor reconnects the radio afterwards.
     """
+    deadline = ble_pairing.request_deadline()
     address, pin = await _saved_ble_transport()
     if ble_pairing.in_progress():
         # The connection monitor is pairing: entering the lifecycle transition
@@ -1286,7 +1288,9 @@ async def post_radio_ble_pairing() -> RadioBlePairingStatus:
         # InProgress while bluetoothd drops the abandoned bonding.
         raise _ble_pairing_http_error(BlePairingError("ble_pair_in_progress"))
     try:
-        async with radio_manager.lifecycle_transition("ble_pair"):
+        async with radio_manager.lifecycle_transition(
+            "ble_pair", timeout=ble_pairing.LIFECYCLE_WAIT
+        ):
             async with radio_manager.ble_maintenance("ble_pair"):
                 status = await ble_pairing.pairing_status(address, pin, True)
                 if radio_manager.is_connected and status.state == "unavailable":
@@ -1297,8 +1301,13 @@ async def post_radio_ble_pairing() -> RadioBlePairingStatus:
                 if not (radio_manager.is_connected and status.state == "paired"):
                     # Release the link first: BlueZ cannot pair a device meshcore
                     # holds, and its auto-reconnect would race us.
+                    # disconnect() waits for the radio operation in flight.
                     await radio_manager.disconnect()
-                    await ble_pairing.ensure_paired(address, pin, explicit=True)
+                    if ble_pairing.time_left(deadline) < ble_pairing.MIN_PAIR_BUDGET:
+                        # The waits ate the budget: a pairing squeezed into what is
+                        # left would likely time out and start a backoff.
+                        raise RadioOperationBusyError("Radio stayed busy too long (ble_pair)")
+                    await ble_pairing.ensure_paired(address, pin, explicit=True, deadline=deadline)
         # No inline reconnect: connect plus setup could push the request past a
         # 60 s proxy timeout after a long pairing. The connection monitor,
         # restarted on leaving the transition, reconnects on its next pass.
@@ -1317,7 +1326,9 @@ async def delete_radio_ble_pairing() -> RadioBlePairingStatus:
     """
     address, _pin = await _saved_ble_transport()
     try:
-        async with radio_manager.lifecycle_transition("ble_forget"):
+        async with radio_manager.lifecycle_transition(
+            "ble_forget", timeout=ble_pairing.LIFECYCLE_WAIT
+        ):
             async with radio_manager.ble_maintenance("ble_forget"):
                 # Before RemoveDevice: the live link would drop under meshcore and
                 # its auto-reconnect would race us.

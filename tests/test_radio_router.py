@@ -1781,8 +1781,8 @@ class TestBlePairingRoutes:
         manager.connection_desired = desired
 
         @asynccontextmanager
-        async def _lifecycle(name):
-            events.append(f"lifecycle:{name}")
+        async def _lifecycle(name, *, timeout=None):
+            events.append(f"lifecycle:{name}:{timeout}")
             yield
             events.append("lifecycle:exit")
 
@@ -1847,8 +1847,9 @@ class TestBlePairingRoutes:
         events: list[str] = []
         manager = self._manager(events)
 
-        async def _ensure(address, pin, *, explicit=False):
+        async def _ensure(address, pin, *, explicit=False, deadline=None):
             events.append(f"ensure:{address}:{explicit}")
+            assert deadline is not None
 
         async def _reconnect(*, broadcast_on_success):
             events.append("reconnect")
@@ -1861,7 +1862,7 @@ class TestBlePairingRoutes:
             status = await post_radio_ble_pairing()
 
         assert events == [
-            "lifecycle:ble_pair",
+            f"lifecycle:ble_pair:{ble_pairing.LIFECYCLE_WAIT}",
             "maintenance:ble_pair",
             "disconnect",
             "ensure:AA:BB:CC:DD:EE:FF:True",
@@ -1904,6 +1905,57 @@ class TestBlePairingRoutes:
         assert "123456" not in str(exc.value.detail)
 
     @pytest.mark.asyncio
+    async def test_post_answers_busy_when_the_waits_ate_the_budget(self, monkeypatch):
+        # A radio operation held the lock: disconnect() returned late. Pairing in
+        # what is left would push the answer past the proxy timeout.
+        from app.services import ble_pairing
+
+        now = [1000.0]
+        monkeypatch.setattr(ble_pairing, "_monotonic", lambda: now[0])
+        events: list[str] = []
+        manager = self._manager(events)
+
+        async def _slow_disconnect():
+            events.append("disconnect")
+            now[0] += ble_pairing.REQUEST_BUDGET - ble_pairing.MIN_PAIR_BUDGET
+
+        manager.disconnect = _slow_disconnect
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "radio_busy"
+        ensure.assert_not_awaited()
+        assert events[-1] == "disconnect"
+
+    @pytest.mark.asyncio
+    async def test_post_passes_the_time_left_to_the_pairing(self, monkeypatch):
+        from app.services import ble_pairing
+
+        now = [1000.0]
+        monkeypatch.setattr(ble_pairing, "_monotonic", lambda: now[0])
+        events: list[str] = []
+        manager = self._manager(events)
+
+        async def _disconnect():
+            now[0] += 10
+
+        manager.disconnect = _disconnect
+        seen: list[float] = []
+
+        async def _ensure(address, pin, *, explicit=False, deadline=None):
+            seen.append(ble_pairing.time_left(deadline))
+
+        monkeypatch.setattr(ble_pairing, "ensure_paired", _ensure)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3:
+            await post_radio_ble_pairing()
+        budget = ble_pairing.REQUEST_BUDGET - ble_pairing.CLEANUP_BUDGET
+        assert seen == [budget - ble_pairing.STATUS_TIMEOUT - 10]
+
+    @pytest.mark.asyncio
     async def test_lifecycle_busy_is_a_coded_503(self):
         from app.radio import RadioOperationBusyError
 
@@ -1911,7 +1963,7 @@ class TestBlePairingRoutes:
         manager = self._manager(events)
 
         @asynccontextmanager
-        async def _busy(name):
+        async def _busy(name, **_kwargs):
             raise RadioOperationBusyError("Radio lifecycle is busy (ble_pair)")
             yield  # pragma: no cover
 
@@ -1938,7 +1990,7 @@ class TestBlePairingRoutes:
         with p1, p2, p3:
             await delete_radio_ble_pairing()
         assert events == [
-            "lifecycle:ble_forget",
+            f"lifecycle:ble_forget:{ble_pairing.LIFECYCLE_WAIT}",
             "maintenance:ble_forget",
             "disconnect",
             "forget:AA:BB:CC:DD:EE:FF",
