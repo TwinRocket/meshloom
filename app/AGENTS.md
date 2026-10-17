@@ -169,9 +169,10 @@ and the OpenAPI page (`/docs`), not a table here.
 - **Reboots**: whether a change needs one is decided after the store
   (`wifi_reboot_required()`, with the flasher shortcut: nothing stored, same SSID,
   joined now, a password). A reboot is sent only when the request says
-  `reboot: true` or through `POST /radio/wifi/reboot`, both followed by
-  `note_expected_reboot("wifi_config")`. Never use the generic `POST
-  /radio/reboot` for a Wi-Fi change: it records no planned reboot, so a serial
+  `reboot: true` or through `POST /radio/wifi/reboot` (the prompt's follow-up,
+  the panel's "Reboot now" and the full backup restore's reboot after its Wi-Fi
+  step), both followed by `note_expected_reboot("wifi_config")`. Never use the
+  generic `POST /radio/reboot` for a Wi-Fi change: it records no planned reboot, so a serial
   bridge survives, setup and the Wi-Fi check do not run again and reconnect
   errors are broadcast. Never reboot after `wifi_store_unverified` or
   `wifi_store_partial`.

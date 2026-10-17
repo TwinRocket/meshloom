@@ -1145,7 +1145,7 @@ async def test_the_wifi_password_never_reaches_the_database_files(file_db, setup
             assert secret.encode() not in candidate.read_bytes(), candidate.name
 
 
-# -- Wi-Fi step and the Wi-Fi panel's state (lot B integration) ---------------
+# -- Wi-Fi step and the Wi-Fi panel's state ------------------------------------
 
 
 @pytest.fixture
