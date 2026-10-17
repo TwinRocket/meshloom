@@ -68,9 +68,19 @@ jobs:
       - name: Merge main into preversion-5
         id: merge
         run: |
-          if ! gh api "repos/$GH_REPO/branches/$TARGET" --silent 2>/dev/null; then
-            echo "::notice::$TARGET does not exist; nothing to forward-merge"
-            echo "result=absent" >> "$GITHUB_OUTPUT"
+          # Only a 404 means the branch is absent. Any other error (403, 5xx, a
+          # rate limit) must not pass for "nothing to do": it takes the failed
+          # path and the run goes red.
+          if ! lookup="$(gh api -i "repos/$GH_REPO/branches/$TARGET" 2>&1)"; then
+            if grep -qE '^HTTP/[0-9.]+ 404' <<< "$lookup"; then
+              echo "::notice::$TARGET does not exist; nothing to forward-merge"
+              echo "result=absent" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            reason="$(grep -m1 -E '^(HTTP/|gh: )' <<< "$lookup" | tr -d '\r')"
+            echo "::warning::Could not read $TARGET: $reason"
+            echo "result=failed" >> "$GITHUB_OUTPUT"
+            echo "reason=branch lookup failed (${reason:-no message})" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # 201: merged (the new commit as JSON). 204: preversion-5 already
@@ -98,10 +108,20 @@ jobs:
 
       - name: Start preversion-5 CI and the :next image
         if: steps.merge.outputs.result == 'merged'
+        # Not on "already up to date": the run that put main into preversion-5
+        # dispatched them then. A failed dispatch leaves preversion-5 without
+        # CI or :next, so it turns the run red.
         run: |
-          gh workflow run docker.yml --ref "$TARGET"
-          gh workflow run codeql.yml --ref "$TARGET"
-          echo "Dispatched docker.yml and codeql.yml on $TARGET"
+          failed=0
+          for wf in docker.yml codeql.yml; do
+            if gh workflow run "$wf" --ref "$TARGET"; then
+              echo "Dispatched $wf on $TARGET"
+            else
+              echo "::error::Merged into $TARGET, but $wf could not be dispatched; run it by hand: gh workflow run $wf --ref $TARGET"
+              failed=1
+            fi
+          done
+          exit "$failed"
 
       - name: Open or update the forward-merge PR
         if: steps.merge.outputs.result == 'failed'
@@ -132,7 +152,9 @@ jobs:
 
           Once that PR is merged, this one has nothing left and closes by itself.
           NOTE
-          pr="$(gh pr list --base "$TARGET" --head main --state open --json number --jq '.[0].number // empty')"
+          # owner:main, so a fork's main is never taken for ours.
+          pr="$(gh api "repos/$GH_REPO/pulls?state=open&base=$TARGET&head=$GITHUB_REPOSITORY_OWNER:main" \
+            --jq '.[0].number // empty')"
           if [ -n "$pr" ]; then
             gh pr comment "$pr" --body-file "$note"
             echo "::error::main could not be merged into $TARGET ($REASON); see PR #$pr"
