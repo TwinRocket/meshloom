@@ -459,6 +459,36 @@ describe('fetchJson (via api methods)', () => {
       expect(JSON.parse(options.body)).toEqual({ name: 'NewName' });
     });
 
+    it('calls the radio Wi-Fi endpoints', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ check: 'done' }),
+      });
+
+      await api.getRadioWifi();
+      await api.getRadioWifi(true);
+      await api.setRadioWifiCredentials({ ssid: ' Net ', password: 'pw', open_network: false });
+      await api.setRadioWifiEnabled({ enabled: false, reboot: true });
+      await api.dismissRadioWifiPrompt({ radio_public_key: 'ab'.repeat(32) });
+      await api.rebootRadioForWifi();
+
+      expect(mockFetch.mock.calls.map(([url, options]) => [url, options.method])).toEqual([
+        ['./api/radio/wifi', undefined],
+        ['./api/radio/wifi?refresh=true', undefined],
+        ['./api/radio/wifi/credentials', 'PUT'],
+        ['./api/radio/wifi/enabled', 'PUT'],
+        ['./api/radio/wifi/prompt/dismiss', 'POST'],
+        ['./api/radio/wifi/reboot', 'POST'],
+      ]);
+      expect(JSON.parse(mockFetch.mock.calls[2][1].body)).toEqual({
+        ssid: ' Net ',
+        password: 'pw',
+        open_network: false,
+      });
+      expect(JSON.parse(mockFetch.mock.calls[3][1].body)).toEqual({ enabled: false, reboot: true });
+    });
+
     it('calls radio transport and identity endpoints', async () => {
       installMockFetch();
       mockFetch.mockResolvedValue({

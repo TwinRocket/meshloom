@@ -7,6 +7,7 @@ import type {
   Contact,
   Message,
   MessagePath,
+  RadioWifiState,
   RawPacket,
 } from './types';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
@@ -44,6 +45,7 @@ export interface UseWebSocketOptions {
     extras?: { packet_hash?: string | null; observer_reach_eligible?: boolean | null }
   ) => void;
   onMessageDeleted?: (messageId: number) => void;
+  onRadioWifi?: (state: RadioWifiState) => void;
   onError?: (error: ErrorEvent) => void;
   onSuccess?: (success: SuccessEvent) => void;
   onReconnect?: () => void;
@@ -238,6 +240,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
           }
           case 'message_deleted':
             handlers.onMessageDeleted?.((msg.data as { message_id: number }).message_id);
+            break;
+          case 'radio_wifi':
+            handlers.onRadioWifi?.(msg.data as RadioWifiState);
             break;
           case 'error':
             handlers.onError?.(msg.data as ErrorEvent);

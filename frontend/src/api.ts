@@ -42,6 +42,11 @@ import type {
   RadioConfig,
   RadioConfigUpdate,
   RadioCustomVars,
+  RadioWifiChangeResult,
+  RadioWifiCredentialsRequest,
+  RadioWifiEnabledRequest,
+  RadioWifiPromptDismissRequest,
+  RadioWifiState,
   RadioFactoryResetResponse,
   RadioSelfTelemetry,
   RadioIdentityActionResponse,
@@ -235,6 +240,27 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ value }),
     }),
+  /** Cached Wi-Fi state; `refresh` reads it live (the full check when none completed). */
+  getRadioWifi: (refresh = false) =>
+    fetchJson<RadioWifiState>(refresh ? '/radio/wifi?refresh=true' : '/radio/wifi'),
+  setRadioWifiCredentials: (body: RadioWifiCredentialsRequest) =>
+    fetchJson<RadioWifiChangeResult>('/radio/wifi/credentials', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  setRadioWifiEnabled: (body: RadioWifiEnabledRequest) =>
+    fetchJson<RadioWifiChangeResult>('/radio/wifi/enabled', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  dismissRadioWifiPrompt: (body: RadioWifiPromptDismissRequest) =>
+    fetchJson<RadioWifiState>('/radio/wifi/prompt/dismiss', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** Reboot to apply Wi-Fi settings (a planned `wifi_config` reboot, not `/radio/reboot`). */
+  rebootRadioForWifi: () =>
+    fetchJson<RadioWifiChangeResult>('/radio/wifi/reboot', { method: 'POST' }),
   getRadioSelfTelemetry: () => fetchJson<RadioSelfTelemetry>('/radio/self-telemetry'),
   factoryResetRadio: (confirmName: string) =>
     fetchJson<RadioFactoryResetResponse>('/radio/factory-reset', {

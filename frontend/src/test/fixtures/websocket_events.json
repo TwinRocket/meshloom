@@ -87,5 +87,31 @@
         "bots_disabled": false
       }
     }
+  },
+  "radio_wifi_state": {
+    "description": "Wi-Fi state of the connected radio after the post-connect check (companion CLI)",
+    "expected_ws_event": {
+      "type": "radio_wifi",
+      "data": {
+        "check": "done",
+        "check_error": null,
+        "next_retry_at": null,
+        "supported": true,
+        "unsupported_reason": null,
+        "ssid": "FlasherNet",
+        "enabled": true,
+        "connected": true,
+        "ip": "192.168.1.50",
+        "tcp_port": 5000,
+        "credentials_stored": false,
+        "open_network": false,
+        "prompt_needed": true,
+        "reboot_pending": false,
+        "store_incomplete": false,
+        "store_target_ssid": null,
+        "radio_public_key": "abababababababababababababababababababababababababababababababab",
+        "checked_at": 1760000000
+      }
+    }
   }
 }

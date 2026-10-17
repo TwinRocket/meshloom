@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { api, formatApiError } from '../api';
 import { takePrefetchOrFetch } from '../prefetch';
 import { toast } from '../components/ui/sonner';
+import { noteRadioWifiHealth } from '../stores/radioWifiStore';
 import i18n from '../i18n';
 import type {
   HealthStatus,
@@ -25,6 +26,12 @@ export function useRadioControl() {
 
   const prevHealthRef = useRef<HealthStatus | null>(null);
   const rebootPollTokenRef = useRef(0);
+
+  // The Wi-Fi store fetches its state when the radio becomes connected and set up
+  // (the server sends no Wi-Fi event on socket connect).
+  useEffect(() => {
+    noteRadioWifiHealth(health);
+  }, [health]);
 
   // Cancel any in-flight reboot polling on unmount
   useEffect(() => {

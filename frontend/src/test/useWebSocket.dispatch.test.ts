@@ -93,6 +93,17 @@ describe('useWebSocket dispatch', () => {
     });
   });
 
+  it('routes radio_wifi events to onRadioWifi', () => {
+    const onRadioWifi = vi.fn();
+    renderHook(() => useWebSocket({ onRadioWifi }));
+
+    const { type, data } = fixtures.radio_wifi_state.expected_ws_event;
+    fireMessage({ type, data });
+
+    expect(onRadioWifi).toHaveBeenCalledOnce();
+    expect(onRadioWifi).toHaveBeenCalledWith(data);
+  });
+
   it('routes message event to onMessage with correct Message shape', () => {
     const onMessage = vi.fn();
     renderHook(() => useWebSocket({ onMessage }));

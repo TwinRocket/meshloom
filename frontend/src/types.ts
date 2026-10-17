@@ -182,6 +182,57 @@ export interface RadioCustomVars {
   vars: Record<string, string>;
 }
 
+/** Wi-Fi of the connected radio (companion CLI, firmware v1.18+). Never holds a password.
+ *  `GET /api/radio/wifi` and the `radio_wifi` WebSocket event. */
+export interface RadioWifiState {
+  /** `pending`: not checked yet on this connection; `failed`: see `check_error`. */
+  check: 'pending' | 'done' | 'failed';
+  check_error?: 'probe_failed' | 'cli_timeout' | 'cli_error' | null;
+  /** Epoch seconds of the next automatic retry, null when none is left. */
+  next_retry_at?: number | null;
+  supported?: boolean | null;
+  unsupported_reason?: 'no_cli' | 'no_wifi' | null;
+  /** Stored SSID, or the one built into the firmware (the radio cannot tell which). */
+  ssid?: string | null;
+  enabled?: boolean | null;
+  connected?: boolean | null;
+  ip?: string | null;
+  tcp_port: number;
+  credentials_stored?: boolean | null;
+  open_network: boolean;
+  prompt_needed: boolean;
+  reboot_pending: boolean;
+  /** Storing credentials was interrupted; store them again before rebooting. */
+  store_incomplete: boolean;
+  store_target_ssid?: string | null;
+  radio_public_key?: string | null;
+  checked_at?: number | null;
+}
+
+export interface RadioWifiCredentialsRequest {
+  /** Never trimmed. */
+  ssid: string;
+  password?: string | null;
+  open_network?: boolean;
+  /** The user confirmed a reboot. */
+  reboot?: boolean;
+}
+
+export interface RadioWifiEnabledRequest {
+  enabled: boolean;
+  reboot?: boolean;
+}
+
+export interface RadioWifiPromptDismissRequest {
+  radio_public_key: string;
+}
+
+export interface RadioWifiChangeResult {
+  state: RadioWifiState;
+  reboot_required: boolean;
+  rebooting: boolean;
+}
+
 export interface RadioConfigUpdate {
   name?: string;
   lat?: number;
