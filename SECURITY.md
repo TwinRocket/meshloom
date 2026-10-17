@@ -33,7 +33,10 @@ Meshloom is built for a trusted network, and some of its behaviour is
 deliberate. These are documented and are not treated as vulnerabilities:
 
 - **No user accounts.** Anyone who can reach the web interface controls the
-  node, and the server accepts requests from any origin.
+  node, and the server accepts requests from any origin. The WebSocket
+  (`/api/ws`) is the exception: an upgrade whose `Origin` does not match
+  `Host` (or `X-Forwarded-Host`) is refused with 403 before it is accepted;
+  one without `Origin` (scripts, native clients) is accepted.
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can
   make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
   turns them off; the Linux package does so by default.

@@ -13,6 +13,8 @@ Meshloom is designed for a network whose users you know. Several design choices 
 
 **No restriction on where requests come from.** The server accepts requests from any web page (`allow_origins=["*"]`, with `allow_credentials=True`). This makes it easy to open the interface from any device, but it also means a web page open in the same browser can talk to the API.
 
+The live connection (`/api/ws`, the WebSocket) is the exception: the server refuses it when a browser opens it from a page of another site, so such a page cannot listen to your messages and packets as they arrive. Its `Origin` must match the address the browser asked for (`Host`, or `X-Forwarded-Host` behind a proxy that rewrites `Host`); clients that send no `Origin`, such as scripts, are accepted. See [HTTPS](/en/docs/deep/https/#websocket).
+
 **Bots run arbitrary Python.** A bot is a small Python program written in the interface. Meshloom runs it as-is, with full access to the language (`exec()` with the complete `__builtins__`). Anyone who can reach Meshloom can therefore run code on the host machine. This is intentional.
 
 None of this weakens MeshCore's own encryption over the air: direct messages and channel messages stay encrypted as usual. These points describe who can use the application, not what travels over the air. The node's private key is the exception on the server side: anyone who reaches the interface, any web page open in a browser that can reach Meshloom included, can read it (see [The node's private key](#the-nodes-private-key)).

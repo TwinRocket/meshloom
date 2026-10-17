@@ -48,7 +48,7 @@ The certificate mounts are read-only. `command` replaces the one built into the 
 
 ## Reverse proxy under a subpath
 
-Meshloom can be served under a prefix such as `/meshcore/`, including through the Home Assistant sidebar. Addresses of assets, API and web manifest are all relative, so nothing else needs to be configured and no `X-Forwarded-*` header is required.
+Meshloom can be served under a prefix such as `/meshcore/`, including through the Home Assistant sidebar. Addresses of assets, API and web manifest are all relative, so nothing else needs to be configured and no `X-Forwarded-*` header is required, except `X-Forwarded-Host` for the live connection when the proxy rewrites `Host` (see [WebSocket](#websocket)).
 
 One thing is required of the proxy: the address must **end with a slash**. If a visitor reaches `/meshcore` without it, the relative paths break. Most proxies handle this; with Nginx, a `location /meshcore/ { ... }` block, slash included, does the job.
 
@@ -59,6 +59,8 @@ The page keeps one permanent connection to the server, at `/api/ws`, to receive 
 The page pings the server every thirty seconds. A proxy that closes idle connections sooner than that makes the page reconnect over and over.
 
 When HTTP Basic login is on, it also applies to this connection, not only to the pages.
+
+The server refuses this connection when it comes from a page of another site: a browser says which site the page belongs to (the `Origin` header), and it must match the address the browser asked for (the `Host` header). Scripts and apps that send no `Origin` are not affected. A proxy that keeps the original `Host`, as Caddy and Traefik do, needs nothing more. A proxy that replaces it must send the original one in `X-Forwarded-Host` (with Nginx: `proxy_set_header Host $host;` or `proxy_set_header X-Forwarded-Host $host;`); the Home Assistant sidebar already does. Otherwise the page displays but nothing arrives live, and the server log says `Refused a WebSocket upgrade from a foreign origin`.
 
 ## Which address to listen on
 
