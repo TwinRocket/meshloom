@@ -17,6 +17,12 @@ set. Unlike the radio transport import (``services/radio_transport.py``), which 
 new database skips, this one also runs on a new database: a variable set before the
 very first start is copied too.
 
+The developer-only ``__CLOWNTOWN_DO_CLOCK_WRAPAROUND`` is retired without an
+import: it could only switch the clock wraparound on, and ``auto_clock_wraparound``
+(Settings → Radio → Advanced, migration 094) is now on by default. It only gets the
+startup warning, plus a second one when it is set to a false value (it kept the fix
+off, the setting now starts on).
+
 The ``MESHLOOM_COMMUNITY*`` variables are retired too (Community is an opt-in in
 the UI, its addresses are fixed): ``import_legacy_community_iata`` copies a
 leftover ``MESHLOOM_COMMUNITY_IATA`` into an existing database only, once
@@ -44,6 +50,8 @@ RADIO_WORKAROUND_ENV: dict[str, str] = {
 }
 
 ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
+# Never imported: the setting that replaces it is on by default.
+ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
 _COMMUNITY_UI = "Settings → Meshloom Community"
 _COMMUNITY_FIXED = "no setting at all (the Meshloom Community addresses are fixed)"
 
@@ -55,6 +63,7 @@ RETIRED_ENV: dict[str, str] = {
     ENV_COMMUNITY_IATA: _COMMUNITY_UI,
     "MESHLOOM_COMMUNITY_BROKER_HOST": _COMMUNITY_FIXED,
     "MESHLOOM_COMMUNITY_API_BASE": _COMMUNITY_FIXED,
+    ENV_CLOCK_WRAPAROUND: "Settings → Radio → Advanced (on by default)",
 }
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
@@ -77,6 +86,14 @@ def warn_about_retired_env() -> list[str]:
             "Remove the variable from your environment.",
             name,
             RETIRED_ENV[name],
+        )
+    if ENV_CLOCK_WRAPAROUND in still_set and not _env_true(ENV_CLOCK_WRAPAROUND):
+        # The variable kept the fix off; the setting that replaces it starts on.
+        logger.warning(
+            "%s=%s used to keep the radio clock wraparound off; it is now on by "
+            "default. Turn it off in Settings → Radio → Advanced if this board needs it off.",
+            ENV_CLOCK_WRAPAROUND,
+            _env(ENV_CLOCK_WRAPAROUND),
         )
     return still_set
 

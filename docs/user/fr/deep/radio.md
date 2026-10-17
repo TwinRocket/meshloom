@@ -107,6 +107,8 @@ Sur une radio équipée d’un module GPS, la liste contient une case **GPS**. A
 
 Si la liste est vide, la radio ne signale aucun réglage. Un firmware très ancien n’en signale aucun, et Meshloom le précise.
 
+Le groupe **Contournements** du même onglet rassemble les correctifs cités sur cette page et **Corriger une horloge radio bloquée dans le futur**, le seul activé par défaut (voir [Dépannage](/docs/deep/troubleshooting/#lhorloge-de-la-radio-est-bloquée-dans-le-futur)).
+
 ## Capteurs de la radio
 
 Sous les réglages du firmware, **Capteurs de la radio** montre ce que la radio signale d’elle-même : la tension de sa batterie, la température du microcontrôleur si la carte a un capteur, et la position GPS quand le GPS est activé. Le stockage utilisé sur la radio s’affiche aussi, en Ko utilisés / total avec un pourcentage, quand la radio le signale. Les valeurs sont lues à l’ouverture de l’onglet ; **Actualiser** les relit.

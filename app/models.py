@@ -1505,6 +1505,15 @@ class AppSettings(BaseModel):
             "clear it with another MeshCore app"
         ),
     )
+    auto_clock_wraparound: bool = Field(
+        default=True,
+        description=(
+            "Radio workaround: when the radio clock is still ahead after Meshloom "
+            "rebooted the radio, set the maximum time (0xFFFFFFFF) so the clock rolls "
+            "over to zero, then set the current time. Only for a radio more than a year "
+            "ahead, during connection setup, at most once per radio per process"
+        ),
+    )
     auto_update: bool = Field(
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",

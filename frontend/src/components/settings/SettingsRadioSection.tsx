@@ -551,10 +551,14 @@ function RadioTransportPanel({
 }
 
 type RadioWorkaroundKey =
-  'enable_message_poll_fallback' | 'force_channel_slot_reconfigure' | 'load_with_autoevict';
+  | 'enable_message_poll_fallback'
+  | 'force_channel_slot_reconfigure'
+  | 'load_with_autoevict'
+  | 'auto_clock_wraparound';
 
-// Workarounds for radios or setups that misbehave. They used to be environment
-// variables (MESHCORE_*); they are now stored by Meshloom and edited here.
+// Workarounds for radios or setups that misbehave, stored by Meshloom and edited
+// here. The first three used to be environment variables (MESHCORE_*). The clock
+// fix is on by default (backend default; an older backend without it shows off).
 const RADIO_WORKAROUNDS: ReadonlyArray<{
   key: RadioWorkaroundKey;
   label: string;
@@ -577,6 +581,12 @@ const RADIO_WORKAROUNDS: ReadonlyArray<{
     key: 'load_with_autoevict',
     label: 'settings.radio.advancedAutoevict',
     help: 'settings.radio.advancedAutoevictHelp',
+    applies: 'settings.radio.advancedAppliesNextConnection',
+  },
+  {
+    key: 'auto_clock_wraparound',
+    label: 'settings.radio.advancedClockWrap',
+    help: 'settings.radio.advancedClockWrapHelp',
     applies: 'settings.radio.advancedAppliesNextConnection',
   },
 ];

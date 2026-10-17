@@ -762,9 +762,10 @@ describe('SettingsModal', () => {
 
     expect(screen.getByText(i18n.t('settings.radio.advancedIntro'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.radio.advancedAutoevictHelp'))).toBeInTheDocument();
+    // Autoevict and the clock fix both apply at the next connection.
     expect(
-      screen.getByText(i18n.t('settings.radio.advancedAppliesNextConnection'))
-    ).toBeInTheDocument();
+      screen.getAllByText(i18n.t('settings.radio.advancedAppliesNextConnection'))
+    ).toHaveLength(2);
 
     const forceSlot = screen.getByRole('checkbox', {
       name: i18n.t('settings.radio.advancedForceSlot'),
@@ -784,6 +785,24 @@ describe('SettingsModal', () => {
     fireEvent.click(forceSlot);
     await waitFor(() => {
       expect(onSaveAppSettings).toHaveBeenCalledWith({ force_channel_slot_reconfigure: false });
+    });
+  });
+
+  it('shows the clock fix toggle as stored and saves it', async () => {
+    const { onSaveAppSettings } = renderModal({
+      appSettings: { ...baseSettings, auto_clock_wraparound: true },
+    });
+    openRadioSection();
+    openRadioTab('tabAdvanced');
+
+    const clockWrap = screen.getByRole('checkbox', {
+      name: i18n.t('settings.radio.advancedClockWrap'),
+    });
+    expect(clockWrap).toHaveAttribute('data-state', 'checked');
+    expect(clockWrap).toHaveAccessibleDescription(i18n.t('settings.radio.advancedClockWrapHelp'));
+    fireEvent.click(clockWrap);
+    await waitFor(() => {
+      expect(onSaveAppSettings).toHaveBeenCalledWith({ auto_clock_wraparound: false });
     });
   });
 

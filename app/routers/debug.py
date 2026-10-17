@@ -146,6 +146,7 @@ class DebugAppSettings(BaseModel):
     enable_message_poll_fallback: bool = False
     force_channel_slot_reconfigure: bool = False
     load_with_autoevict: bool = False
+    auto_clock_wraparound: bool = True
 
 
 class DebugSnapshotResponse(BaseModel):
@@ -273,6 +274,7 @@ def _build_debug_app_settings(app_settings: AppSettings) -> DebugAppSettings:
         enable_message_poll_fallback=app_settings.enable_message_poll_fallback,
         force_channel_slot_reconfigure=app_settings.force_channel_slot_reconfigure,
         load_with_autoevict=app_settings.load_with_autoevict,
+        auto_clock_wraparound=app_settings.auto_clock_wraparound,
     )
 
 

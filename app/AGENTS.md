@@ -76,10 +76,29 @@ and the OpenAPI page (`/docs`), not a table here.
   setup times out (300 s) on both of its two attempts, the backend broadcasts a
   `radio_startup_stuck` error asking for a radio reboot.
 - Clock sync (`sync_radio_time_outcome`, `radio_sync.py`): when the radio rejects
-  the time and its clock is ahead, it is rebooted once per process; setup returns
-  `"reconnect"` before the device query and the monitor reconnects once the radio
-  is back. Without this, the device query lands on a rebooting radio: path hash
-  support goes undetected and setup hangs until its timeout.
+  the time and its clock is more than 30 s ahead (or unreadable), it is rebooted
+  once per radio public key per process (recorded only once `reboot()` returned);
+  setup returns `"reconnect"` before the
+  device query and the monitor reconnects once the radio is back. Without this,
+  the device query lands on a rebooting radio: path hash support goes undetected
+  and setup hangs until its timeout.
+- If the clock is still ahead after that reboot, the clock wraparound
+  (`set_time(0xFFFFFFFF)`, wait for the uint32 overflow, set the time, verify with
+  `get_time`) runs only from post-connect setup (`allow_wraparound=True`; the
+  periodic sync and `PATCH /radio/config` never write `0xFFFFFFFF`), only with
+  the `auto_clock_wraparound` setting (on by default), only for a radio more than
+  `_CLOCK_WRAP_MIN_AHEAD` (1 year) ahead (a host clock days or months behind must
+  not roll back a correct radio) and more than `_CLOCK_WRAP_MIN_AHEAD_OF_BUILD`
+  (10 years) past the build date (a stale fake-hwclock can leave the host clock
+  years behind), never for the shared `"unknown"` key (no
+  SELF_INFO), at most once per connection (`id(mc)`) and once per radio key per
+  process, whether it fixed the clock or not (`_clock_wrap_done`). Neither the reboot
+  nor the wraparound runs while the host clock is below `_host_clock_floor()`:
+  the later of `_HOST_CLOCK_FLOOR` (2026-01-01) and `_BUILD_EPOCH`, the mtime of
+  `radio_sync.py` (Docker `COPY` and the deb/rpm packages keep the build
+  checkout's mtime). Setup logs `Radio clock at connect` before the sync and
+  `Radio clock after sync` after the device query. Tests:
+  `tests/test_radio_clock_wraparound.py` (fake firmware clock).
 - Whoever triggered that reboot (setup, the periodic sync, `PATCH /radio/config`),
   `RadioManager.note_expected_reboot()` records it for
   `EXPECTED_REBOOT_GRACE_SECONDS` (90 s): health says `radio_state: "rebooting"`,
@@ -281,12 +300,14 @@ answering 403, 404 or 410 deletes the subscription.
 
 Not user settings: never document them in `docs/user/**`, the READMEs,
 `.env.example` or the example composes. User variables are in
-`docs/user/en/deep/environment.md`.
+`docs/user/en/deep/environment.md`. The former `__CLOWNTOWN_DO_CLOCK_WRAPAROUND`
+is retired: the `auto_clock_wraparound` setting replaces it, and a start with it
+still set only logs a warning, plus one saying the fix is now on when it was set to
+a false value (`services/legacy_env_settings.py`).
 
 | Variable | Effect |
 |---|---|
 | `MESHCORE_SKIP_POST_CONNECT_SYNC` | skip post-connect sync/offload/advert and the periodic loops (`services/radio_lifecycle.py`) |
-| `__CLOWNTOWN_DO_CLOCK_WRAPAROUND` | experimental clock fix when the radio clock is ahead: forces `0xFFFFFFFF`, waits for the uint32 wraparound, retries the time sync. No `MESHCORE_` prefix (`config.py`, `radio_sync.py`) |
 | `MESHLOOM_UPDATE_STATUS_PATH` | where the compose helper's read-only status is mounted (`services/update_apply.py`); default `/var/lib/meshloom-update/status.json` |
 | `MESHLOOM_UPDATE_JOB_PATH` | location of the legacy `update-job.json` (and of `request-update`, next to it) |
 | `MESHLOOM_UPDATE_LATEST` / `MESHLOOM_UPDATE_HTML_URL` | test pin: the updater believes this version is the latest, with an optional release page. Never shipped in `meshloom.env` |

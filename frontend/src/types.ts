@@ -1376,6 +1376,7 @@ export interface AppSettings {
   enable_message_poll_fallback?: boolean;
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
+  auto_clock_wraparound?: boolean;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1401,6 +1402,7 @@ export interface AppSettingsUpdate {
   enable_message_poll_fallback?: boolean;
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
+  auto_clock_wraparound?: boolean;
 }
 
 export interface DirectoryHopHit {

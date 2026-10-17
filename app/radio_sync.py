@@ -15,6 +15,7 @@ import math
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Literal
 
 from meshcore import EventType, MeshCore
@@ -22,7 +23,6 @@ from meshcore import EventType, MeshCore
 from app import radio_workarounds
 from app.background_tasks import spawn
 from app.channel_constants import PUBLIC_CHANNEL_KEY, PUBLIC_CHANNEL_NAME
-from app.config import settings
 from app.event_handlers import cleanup_expired_acks, on_contact_message
 from app.models import _VALID_CONTACT_TYPES, Contact, ContactUpsert
 from app.radio import RadioOperationBusyError
@@ -926,12 +926,97 @@ async def stop_periodic_advert():
         logger.info("Stopped periodic advertisement")
 
 
-# Prevents reboot-loop: once we've rebooted to fix clock skew this session,
-# don't do it again (the hardware RTC case can't be fixed by reboot).
-_clock_reboot_attempted: bool = False
+# Clock sync guards. All are per process and reset only by a restart.
+# - ``_clock_reboot_attempted``: radio keys (public key, or "unknown") whose
+#   corrective reboot was sent. One reboot per radio: a board with a persistent
+#   clock (battery-backed RTC) cannot be fixed that way, so no reboot loop.
+#   Recorded only once ``reboot()`` returned, so a reboot that never went out
+#   does not count as tried.
+# - ``_clock_wrap_attempted_conn``: ``id()`` of the ``MeshCore`` object (one per
+#   connection) that already tried the wraparound: at most once per connection.
+# - ``_clock_wrap_done``: radio keys whose wraparound ran (fixed or failed):
+#   never wrapped again, so a radio that goes back ahead (GPS or RTC right while
+#   the host is wrong), or a flapping link, does not get 0xFFFFFFFF at every
+#   reconnect.
+_clock_reboot_attempted: set[str] = set()
+_clock_wrap_attempted_conn: int | None = None
+_clock_wrap_done: set[str] = set()
+_CLOCK_SKEW_THRESHOLD = 30  # seconds the radio may run ahead before we act
+# The wraparound needs the radio to be implausibly far ahead of the host: a host
+# clock days or months behind (fake-hwclock, offline Pi, no NTP yet) must not
+# roll back a radio whose clock is right. The real failure reads decades ahead
+# (2082). The reboot still runs from _CLOCK_SKEW_THRESHOLD, as before.
+_CLOCK_WRAP_MIN_AHEAD = 365 * 86400
+_RADIO_KEY_UNKNOWN = "unknown"
 _CLOCK_WRAP_TARGET = 0xFFFFFFFF
+# A radio already this close to the uint32 edge (a previous failed wraparound)
+# is not set again: we only wait for its overflow.
+_CLOCK_WRAP_EDGE = _CLOCK_WRAP_TARGET - 3600
 _CLOCK_WRAP_POLL_INTERVAL = 0.2
 _CLOCK_WRAP_TIMEOUT = 3.0
+_CLOCK_WRAP_VERIFY_TOLERANCE = 5  # seconds
+# Below this system time (2026-01-01T00:00Z) the host clock is wrong (a board
+# booted without RTC or NTP): never reboot the radio nor rewrite its clock.
+_HOST_CLOCK_FLOOR = 1767225600
+
+
+def _read_build_epoch() -> int:
+    """When this code was built: the modification time of this file.
+
+    Docker ``COPY`` and the deb/rpm packages keep the mtime of the build
+    checkout, so the real date can only be later. Falls back to
+    ``_HOST_CLOCK_FLOOR`` when the file cannot be read.
+    """
+    try:
+        return max(_HOST_CLOCK_FLOOR, int(Path(__file__).stat().st_mtime))
+    except OSError:
+        return _HOST_CLOCK_FLOOR
+
+
+# A host clock earlier than the build is wrong too: the effective floor is the
+# later of the two (``_host_clock_floor``).
+_BUILD_EPOCH = _read_build_epoch()
+# The 1-year margin above is relative to the host clock, which a stale
+# fake-hwclock can leave years behind on an offline board. The wraparound also
+# needs the radio this far past the build date: a correct radio can only be that
+# far ahead after a decade without updating Meshloom, while the real failure
+# reads decades ahead (2082).
+_CLOCK_WRAP_MIN_AHEAD_OF_BUILD = 10 * 365 * 86400
+
+
+def _host_clock_floor() -> int:
+    """Below this system time the host clock is wrong (build date or 2026-01-01)."""
+    return max(_HOST_CLOCK_FLOOR, _BUILD_EPOCH)
+
+
+def reset_clock_sync_guards() -> None:
+    """Forget the clock reboot and wraparound guards (tests)."""
+    global _clock_wrap_attempted_conn  # noqa: PLW0603
+    _clock_reboot_attempted.clear()
+    _clock_wrap_done.clear()
+    _clock_wrap_attempted_conn = None
+
+
+def _radio_key(mc: MeshCore) -> str:
+    """The radio's public key from its SELF_INFO, else ``_RADIO_KEY_UNKNOWN``.
+
+    Radios without SELF_INFO share that key for the reboot guard (no reboot loop)
+    but never get the wraparound, which needs a per-radio guard.
+    """
+    self_info = getattr(mc, "self_info", None)
+    if isinstance(self_info, dict):
+        key = self_info.get("public_key")
+        if isinstance(key, str) and key:
+            return key.lower()
+    return _RADIO_KEY_UNKNOWN
+
+
+def format_epoch(epoch: int) -> str:
+    """``epoch`` as a UTC date for the logs (radio clocks can be anywhere in uint32)."""
+    try:
+        return datetime.fromtimestamp(epoch, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (OverflowError, OSError, ValueError):
+        return "invalid"
 
 
 async def _query_radio_time(mc: MeshCore) -> int | None:
@@ -940,7 +1025,7 @@ async def _query_radio_time(mc: MeshCore) -> int | None:
         result = await mc.commands.get_time()
     except Exception:
         return None
-    if result.payload is None:
+    if result is None or result.payload is None:
         return None
     value = result.payload.get("time")
     if isinstance(value, int):
@@ -948,60 +1033,109 @@ async def _query_radio_time(mc: MeshCore) -> int | None:
     return None
 
 
-async def _attempt_clock_wraparound(mc: MeshCore, *, now: int, observed_radio_time: int) -> bool:
-    """Try the experimental uint32 wraparound trick, then retry normal time sync.
+async def log_radio_clock(mc: MeshCore, label: str) -> int | None:
+    """Log the radio clock at INFO (best effort) and return it.
 
-    DEV-ONLY: gated by ``__CLOWNTOWN_DO_CLOCK_WRAPAROUND``, not a user setting
-    (see app/AGENTS.md, "Developer-only variables").
+    Post-connect setup logs ``"Radio clock at connect"`` before the clock sync, so
+    the faulty value of a radio stuck in the future shows up in the logs, and
+    ``"Radio clock after sync"`` once the device is queried.
     """
-    logger.warning(
-        "Experimental __CLOWNTOWN_DO_CLOCK_WRAPAROUND enabled: attempting uint32 "
-        "clock wraparound before normal time sync (radio=%d, system=%d).",
-        observed_radio_time,
+    radio_time = await _query_radio_time(mc)
+    if radio_time is None:
+        logger.debug("%s: radio clock could not be read", label)
+        return None
+    now = int(time.time())
+    logger.info(
+        "%s: epoch=%d utc=%s (system=%d, delta=%+ds)",
+        label,
+        radio_time,
+        format_epoch(radio_time),
         now,
+        radio_time - now,
     )
-    result = await mc.commands.set_time(_CLOCK_WRAP_TARGET)
-    if result.type != EventType.OK:
-        logger.warning(
-            "Clock wraparound pre-step failed: set_time(%d) returned %s.",
-            _CLOCK_WRAP_TARGET,
-            result.type,
-        )
-        return False
+    return radio_time
 
+
+async def _wait_for_clock_wrap(mc: MeshCore) -> int | None:
+    """Poll the radio until its clock overflowed to near zero; None on timeout."""
     deadline = time.monotonic() + _CLOCK_WRAP_TIMEOUT
-    wrapped_time: int | None = None
     while time.monotonic() < deadline:
         await asyncio.sleep(_CLOCK_WRAP_POLL_INTERVAL)
         wrapped_time = await _query_radio_time(mc)
         if wrapped_time is not None and wrapped_time < 60:
-            break
-    else:
-        wrapped_time = None
+            return wrapped_time
+    return None
 
+
+async def _attempt_clock_wraparound(mc: MeshCore, *, radio_time: int, now: int) -> bool:
+    """Fix a radio clock stuck in the future by rolling it over the uint32 edge.
+
+    The firmware accepts only a time ``>=`` its own, so a radio ahead of the system
+    clock rejects every update. ``set_time(0xFFFFFFFF)`` is always accepted; the
+    clock then overflows to 0, and the current time is accepted again. Verified
+    with ``get_time`` afterwards. Returns True only when the radio clock is back
+    within ``_CLOCK_WRAP_VERIFY_TOLERANCE`` seconds of the system clock.
+
+    The caller checks every guard (setting, reboot already tried, once per
+    connection, host clock sane) before calling this.
+    """
+    delta = radio_time - now
+    logger.warning(
+        "Radio clock still ahead after reboot (radio=%d, utc=%s, %+.1f hours): "
+        "applying clock wraparound",
+        radio_time,
+        format_epoch(radio_time),
+        delta / 3600.0,
+    )
+    if radio_time < _CLOCK_WRAP_EDGE:
+        result = await mc.commands.set_time(_CLOCK_WRAP_TARGET)
+        if result.type != EventType.OK:
+            logger.warning(
+                "Clock wraparound failed: set_time(%d) returned %s; radio clock unchanged.",
+                _CLOCK_WRAP_TARGET,
+                result.type,
+            )
+            return False
+
+    wrapped_time = await _wait_for_clock_wrap(mc)
     if wrapped_time is None:
-        logger.warning(
-            "Clock wraparound experiment did not observe a wrapped epoch within %.1f "
-            "seconds; falling back to normal recovery.",
+        last = await _query_radio_time(mc)
+        logger.error(
+            "Radio did not wrap its clock after 0x%X within %.1f seconds (epoch=%s, utc=%s); "
+            "its clock may now read 2106. Left as is: reboot the radio by hand, or turn "
+            "off Settings → Radio → Advanced → clock fix for this board.",
+            _CLOCK_WRAP_TARGET,
             _CLOCK_WRAP_TIMEOUT,
+            last if last is not None else "unknown",
+            format_epoch(last) if last is not None else "unknown",
         )
         return False
 
-    logger.warning(
-        "Clock wraparound experiment observed wrapped epoch %d; retrying normal time sync.",
-        wrapped_time,
-    )
-    retry = await mc.commands.set_time(now)
-    if retry.type == EventType.OK:
-        logger.warning("Clock sync succeeded after experimental wraparound.")
-        return True
+    target = int(time.time())  # up to _CLOCK_WRAP_TIMEOUT seconds went by
+    retry = await mc.commands.set_time(target)
+    if retry.type != EventType.OK:
+        logger.warning(
+            "Clock wraparound: the radio wrapped (epoch=%d) but set_time(%d) returned %s.",
+            wrapped_time,
+            target,
+            retry.type,
+        )
+        return False
 
-    logger.warning(
-        "Clock sync still failed after experimental wraparound: set_time(%d) returned %s.",
-        now,
-        retry.type,
+    verified = await _query_radio_time(mc)
+    if verified is None or abs(verified - int(time.time())) > _CLOCK_WRAP_VERIFY_TOLERANCE:
+        logger.warning(
+            "Clock wraparound: set_time(%d) was accepted but the radio now reads %s (utc=%s).",
+            target,
+            verified if verified is not None else "unknown",
+            format_epoch(verified) if verified is not None else "unknown",
+        )
+        return False
+
+    logger.info(
+        "Radio clock fixed by wraparound: epoch=%d utc=%s", verified, format_epoch(verified)
     )
-    return False
+    return True
 
 
 TimeSyncOutcome = Literal["synced", "rejected", "rebooted"]
@@ -1011,25 +1145,40 @@ async def sync_radio_time(mc: MeshCore, *, warn_on_failure: bool = True) -> bool
     """Sync the radio's clock; True if the radio accepted the new time.
 
     See ``sync_radio_time_outcome`` for the full behaviour, including the
-    one-time corrective reboot.
+    one-time corrective reboot. Never applies the clock wraparound.
     """
     return await sync_radio_time_outcome(mc, warn_on_failure=warn_on_failure) == "synced"
 
 
-async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True) -> TimeSyncOutcome:
+async def sync_radio_time_outcome(
+    mc: MeshCore, *, warn_on_failure: bool = True, allow_wraparound: bool = False
+) -> TimeSyncOutcome:
     """Sync the radio's clock with the system time.
 
     The firmware only accepts forward time adjustments (new >= current).
-    If the radio's clock is already ahead, set_time is silently rejected
-    with an ERROR response.  We detect this by checking the response and,
-    on failure, querying the radio's actual time so we can log the skew.
+    If the radio's clock is already ahead, set_time is rejected with an ERROR
+    response.  We detect this by checking the response and, on failure,
+    querying the radio's actual time so we can log the skew.
 
-    When significant forward skew is detected for the first time in a
-    session, the radio is rebooted so that boards with a volatile clock
-    (most companion radios) reset to their default epoch and accept the
-    correct time on the next connection setup.  The reboot is attempted
-    only once; if it doesn't help (hardware RTC persists the wrong time),
-    the skew is logged as a warning on subsequent syncs.
+    Recovery, when the radio is more than ``_CLOCK_SKEW_THRESHOLD`` seconds
+    ahead (or its clock cannot be read) and the system clock is sane
+    (``_host_clock_floor``: not before 2026-01-01 nor before the build):
+
+    1. The first time for a given radio (by public key) in this process, the
+       radio is rebooted, so that boards with a volatile clock (most companion
+       radios) reset to their default epoch and accept the correct time on the
+       next connection setup.
+    2. If the clock is still ahead after that reboot, and only when
+       ``allow_wraparound`` (post-connect setup) and the
+       ``auto_clock_wraparound`` setting are on: the clock wraparound
+       (``_attempt_clock_wraparound``). Only for a radio more than
+       ``_CLOCK_WRAP_MIN_AHEAD`` ahead (a host clock days or months behind must
+       not roll back a correct radio) and more than
+       ``_CLOCK_WRAP_MIN_AHEAD_OF_BUILD`` (10 years) past the build date (nor
+       must a host clock years behind), with a known public key; at most once per
+       connection and once per radio per process, whether it fixed the clock
+       or not.
+    3. Otherwise the skew is only logged.
 
     ``warn_on_failure`` controls log severity for rejected/failed sync attempts.
     Startup and reconnect setup should leave this enabled so operators see the
@@ -1043,24 +1192,10 @@ async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True)
     connection monitor then reconnects and reruns setup, and reconnect failures
     stay quiet for ``EXPECTED_REBOOT_GRACE_SECONDS``.
     """
-    global _clock_reboot_attempted  # noqa: PLW0603
+    global _clock_wrap_attempted_conn  # noqa: PLW0603
     log_failure = logger.warning if warn_on_failure else logger.debug
     try:
         now = int(time.time())
-        preflight_radio_time: int | None = None
-        wraparound_attempted = False
-
-        if settings.clowntown_do_clock_wraparound:
-            preflight_radio_time = await _query_radio_time(mc)
-            if preflight_radio_time is not None and preflight_radio_time > now:
-                wraparound_attempted = True
-                if await _attempt_clock_wraparound(
-                    mc,
-                    now=now,
-                    observed_radio_time=preflight_radio_time,
-                ):
-                    return "synced"
-
         result = await mc.commands.set_time(now)
 
         if result.type == EventType.OK:
@@ -1089,25 +1224,24 @@ async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True)
                 result.type,
             )
 
-        if (
-            settings.clowntown_do_clock_wraparound
-            and not wraparound_attempted
-            and radio_time is not None
-            and radio_time > now
-            and await _attempt_clock_wraparound(
-                mc,
-                now=now,
-                observed_radio_time=radio_time,
-            )
-        ):
-            return "synced"
+        if delta is not None and delta <= _CLOCK_SKEW_THRESHOLD:
+            return "rejected"
 
-        # If the clock is significantly ahead and we haven't already tried
-        # a corrective reboot this session, reboot the radio.  Boards with
-        # a volatile RTC (most companion radios) will reset their clock on
-        # reboot, allowing the next post-connect sync to succeed.
-        if not _clock_reboot_attempted and (delta is None or delta > 30):
-            _clock_reboot_attempted = True
+        floor = _host_clock_floor()
+        if now < floor:
+            log_failure(
+                "System clock looks wrong (%d, utc=%s, before %s): not rebooting the "
+                "radio nor rewriting its clock. Fix the system time (NTP).",
+                now,
+                format_epoch(now),
+                format_epoch(floor),
+            )
+            return "rejected"
+
+        key = _radio_key(mc)
+        if key not in _clock_reboot_attempted:
+            # Boards with a volatile RTC (most companion radios) reset their
+            # clock on reboot, so the next post-connect sync succeeds.
             log_failure(
                 "Rebooting radio to reset clock skew.  Boards with a "
                 "volatile RTC will accept the correct time after restart."
@@ -1116,16 +1250,56 @@ async def sync_radio_time_outcome(mc: MeshCore, *, warn_on_failure: bool = True)
                 await mc.commands.reboot()
             except Exception:
                 log_failure("Reboot command failed", exc_info=True)
-            else:
-                # Whoever called (setup, periodic sync, config update), the radio
-                # restarts: its reconnect is planned and setup must run again.
-                radio_manager.note_expected_reboot("clock_sync")
-                return "rebooted"
-        elif _clock_reboot_attempted:
-            logger.debug(
-                "Clock skew persists after reboot (hardware RTC); ignoring until next session."
-            )
+                return "rejected"
+            # Only a reboot that went out counts: the wraparound waits for it.
+            _clock_reboot_attempted.add(key)
+            # Whoever called (setup, periodic sync, config update), the radio
+            # restarts: its reconnect is planned and setup must run again.
+            radio_manager.note_expected_reboot("clock_sync")
+            return "rebooted"
 
+        if (
+            allow_wraparound
+            and radio_time is not None
+            and radio_workarounds.current().auto_clock_wraparound
+            and _clock_wrap_attempted_conn != id(mc)
+            and key not in _clock_wrap_done
+        ):
+            if key == _RADIO_KEY_UNKNOWN:
+                log_failure(
+                    "Radio clock still ahead after reboot, but the radio's public key "
+                    "is unknown: no clock wraparound."
+                )
+                return "rejected"
+            if radio_time - now <= _CLOCK_WRAP_MIN_AHEAD:
+                log_failure(
+                    "Radio clock still ahead after reboot by %+.1f days, less than %d "
+                    "days: no clock wraparound (the system clock may be the wrong one; "
+                    "check NTP).",
+                    (radio_time - now) / 86400.0,
+                    _CLOCK_WRAP_MIN_AHEAD // 86400,
+                )
+                return "rejected"
+            if radio_time - floor <= _CLOCK_WRAP_MIN_AHEAD_OF_BUILD:
+                log_failure(
+                    "Radio clock still ahead after reboot, but it reads %s, less than "
+                    "%d years after this Meshloom build (%s): no clock wraparound (the "
+                    "system clock may be the wrong one; check NTP).",
+                    format_epoch(radio_time),
+                    _CLOCK_WRAP_MIN_AHEAD_OF_BUILD // (365 * 86400),
+                    format_epoch(floor),
+                )
+                return "rejected"
+            _clock_wrap_attempted_conn = id(mc)
+            # Latched before the attempt: a fix, a failure or an exception (link
+            # lost mid-way) all mean this radio is never wrapped again.
+            _clock_wrap_done.add(key)
+            fixed = await _attempt_clock_wraparound(mc, radio_time=radio_time, now=now)
+            return "synced" if fixed else "rejected"
+
+        logger.debug(
+            "Clock skew persists after reboot (persistent RTC); ignoring until next session."
+        )
         return "rejected"
     except Exception as e:
         log_failure("Failed to sync radio time: %s", e, exc_info=True)

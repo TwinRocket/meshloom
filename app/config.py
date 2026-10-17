@@ -22,11 +22,6 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_path: str = "data/meshcore.db"
     disable_bots: bool = False
-    # DEV-ONLY (experimental, undocumented for users; see app/AGENTS.md "Developer-only variables").
-    clowntown_do_clock_wraparound: bool = Field(
-        default=False,
-        validation_alias="__CLOWNTOWN_DO_CLOCK_WRAPAROUND",
-    )
     enable_local_private_key_export: bool = False
     # DEV-ONLY debug switch (see app/AGENTS.md "Developer-only variables"): not a user setting.
     skip_post_connect_sync: bool = False

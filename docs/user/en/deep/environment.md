@@ -111,7 +111,7 @@ You change these in the web interface. Nothing here is set through the environme
 
 | Where | What it controls |
 |-------|------------------|
-| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour). **Advanced** tab: `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict` |
+| **Radio** | The connection (see above). **Messaging** tab: `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. **Advertising** tab: `advert_interval` (set in hours in the interface, stored in seconds; `0` turns it off, any other value is at least 1 hour). **Advanced** tab: `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, `auto_clock_wraparound` |
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |

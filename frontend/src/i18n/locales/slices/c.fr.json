@@ -451,13 +451,15 @@
       "tabAdvert": "Annonces",
       "tabAdvanced": "Avancé",
       "advanced": "Contournements",
-      "advancedIntro": "Correctifs pour les radios ou les installations qui se comportent mal. Laissez-les désactivés, sauf si Meshloom en suggère un dans un message d’erreur ou si vous constatez le problème décrit. Ils sont enregistrés par Meshloom, pas dans la radio.",
+      "advancedIntro": "Correctifs pour les radios ou les installations qui se comportent mal. Laissez-les tels quels, sauf si Meshloom en suggère un dans un message d’erreur ou si vous constatez le problème décrit. Seule la correction d’horloge est activée par défaut. Ils sont enregistrés par Meshloom, pas dans la radio.",
       "advancedPollFallback": "Vérifier les messages toutes les 10 secondes",
       "advancedPollFallbackHelp": "Meshloom reçoit normalement les messages dès que la radio les annonce, et vérifie une fois par heure s’il en a manqué. Activez cette option si des messages restent sur la radio sans jamais apparaître dans Meshloom : il demande alors à la radio ses messages en attente toutes les 10 secondes. Cela occupe un peu la radio.",
       "advancedForceSlot": "Réécrire le salon avant chaque envoi",
       "advancedForceSlotHelp": "Meshloom retient quel salon occupe quel emplacement de la radio et le réutilise. Activez cette option si des messages partent sur le mauvais salon, ou si une autre application modifie les salons de la radio : Meshloom écrit alors le salon dans la radio avant chaque envoi vers un salon. Chaque envoi prend un peu plus de temps. C’est déjà le comportement en TCP.",
       "advancedAutoevict": "Laisser la radio supprimer ses plus anciens contacts",
       "advancedAutoevictHelp": "Quand la table de contacts de la radio est pleine, la radio supprime elle-même son plus ancien contact non favori pour faire de la place. Ajouter un contact n’échoue alors jamais et Meshloom n’a pas besoin de lire la table de la radio au préalable. Activez cette option si vous voyez des erreurs « table de contacts pleine » ou « impossible de lister les contacts de la radio ». Désactiver l’option ensuite ne l’annule pas sur la radio : elle continue de supprimer ses anciens contacts tant que vous n’avez pas désactivé son réglage « écraser le plus ancien » avec une autre application MeshCore.",
+      "advancedClockWrap": "Corriger une horloge radio bloquée dans le futur",
+      "advancedClockWrapHelp": "Une radio dont l’horloge est en avance (par exemple en 2082) refuse toute mise à l’heure et date ses messages de ce jour-là. Meshloom la redémarre d’abord, ce qui corrige la plupart des radios. Si l’horloge est toujours en avance après ce redémarrage, Meshloom règle l’heure maximale que la radio peut contenir, pour que son horloge repasse à zéro, puis règle la bonne heure. Seulement pour une radio qui a plus d’un an d’avance sur le serveur et dont l’horloge dépasse de plus de dix ans la date de cette version de Meshloom, et au plus une fois par radio jusqu’au redémarrage de Meshloom. Désactivez l’option si votre carte a une horloge sur pile qui se comporte mal ensuite.",
       "advancedAppliesNextConnection": "S’applique à la prochaine connexion"
     },
     "radioApp": {
