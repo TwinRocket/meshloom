@@ -35,7 +35,7 @@ Les messages d’un canal reviennent souvent plusieurs fois : chaque répéteur 
 
 Juste après l’envoi d’un message de canal, un bouton **Renvoyer** reste disponible pendant 30 secondes, au cas où il n’aurait visiblement atteint personne. Renvoyer répète exactement le même message : seuls les répéteurs qui ne l’ont pas encore vu le relaient. **Renvoyer comme nouveau** l’envoie comme un nouveau message, que les destinataires peuvent voir en double. Si vous préférez ne pas le faire à la main, **Renvoyer automatiquement les messages de canal non entendus** dans **Réglages > Radio** (désactivé par défaut) renvoie une fois un message de canal si aucun écho n’est revenu au bout de 2 secondes.
 
-Un message contient au plus 156 octets, soit environ 156 caractères sans accents (un caractère accentué en occupe deux). Sur un canal, le nom de votre nœud part avec chaque message et prend une partie de cette place. L’envoi est bloqué quand le texte est trop long, et le champ de saisie indique « trop long ». Meshloom ne coupe pas un message à votre place.
+Un message contient au plus 156 octets, soit environ 156 caractères sans accents (un caractère accentué en occupe deux). Sur un canal, le nom de votre nœud part avec chaque message et prend une partie de cette place. L’envoi est bloqué quand le texte est trop long, et le champ de saisie indique « trop long ». Le serveur applique la même limite à tous les modes d’envoi (application web, robots, clients de l’API) et refuse un message trop long avec une erreur claire. Meshloom ne coupe pas un message à votre place.
 
 ## Répondre, réagir et partager
 

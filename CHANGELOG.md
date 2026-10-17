@@ -1,3 +1,23 @@
+## [Unreleased]
+
+The server now enforces the radio's message size limit for every way of sending.
+
+### Added
+
+- **Oversized messages are refused by the server.** Until now only the web composer checked the size, so bots and API clients could send messages the radio cannot carry. The server now applies the same limit to direct messages (156 bytes) and channel messages (156 bytes minus your node name and the `: ` separator), counted in bytes, on every path including resends. An oversized message is refused with a clear error and nothing is sent or stored. Known limit: after renaming your node to a longer name, an old message that fitted may be refused on resend.
+
+---
+
+### Français
+
+Le serveur applique désormais la limite de taille des messages de la radio, quel que soit le mode d'envoi.
+
+#### Ajouts
+
+- **Les messages trop longs sont refusés par le serveur.** Jusqu'ici, seul le champ de saisie web vérifiait la taille : les robots et les clients de l'API pouvaient envoyer des messages que la radio ne peut pas transporter. Le serveur applique maintenant la même limite aux messages directs (156 octets) et aux messages de canal (156 octets moins le nom de votre nœud et le séparateur `: `), comptée en octets, sur tous les chemins y compris les renvois. Un message trop long est refusé avec une erreur claire, sans rien envoyer ni enregistrer. Limite connue : après avoir renommé votre nœud avec un nom plus long, un ancien message qui tenait peut être refusé au renvoi.
+
+---
+
 ## [4.18.2] - 2026-10-10
 
 Re-running the installer on a Docker stack now keeps the changes you made to your compose file.
