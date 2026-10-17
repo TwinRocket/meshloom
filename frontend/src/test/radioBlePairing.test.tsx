@@ -5,7 +5,7 @@ import { ApiError, api } from '../api';
 import { RadioBlePairing } from '../components/settings/RadioBlePairing';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
-import type { RadioBlePairingStatus, RadioTransportConfig } from '../types';
+import type { HealthStatus, RadioBlePairingStatus, RadioTransportConfig } from '../types';
 
 const ADDRESS = 'AA:BB:CC:DD:EE:FF';
 
@@ -45,6 +45,10 @@ function status(overrides: Partial<RadioBlePairingStatus> = {}): RadioBlePairing
     hint: null,
     ...overrides,
   };
+}
+
+function health(radioConnected: boolean): HealthStatus {
+  return { radio_connected: radioConnected } as HealthStatus;
 }
 
 function renderPairing(
@@ -120,6 +124,101 @@ describe('RadioBlePairing', () => {
     expect(
       await screen.findByText(i18n.t('settings.radio.blePairingRetryIn', { seconds: 20 }))
     ).toBeInTheDocument();
+  });
+
+  it('counts the backoff delay down and refreshes it', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_device_not_found', retry_in: 20 })
+    );
+    renderPairing({ health: health(false) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(
+      screen.getByText(i18n.t('settings.radio.blePairingRetryIn', { seconds: 20 }))
+    ).toBeInTheDocument();
+
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_unreachable', retry_in: 40 })
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(
+      screen.getByText(i18n.t('settings.radio.blePairingRetryIn', { seconds: 17 }))
+    ).toBeInTheDocument();
+
+    // The background poll brings the next window.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(
+      screen.getByText(i18n.t('settings.radio.blePairingRetryIn', { seconds: 40 }))
+    ).toBeInTheDocument();
+  });
+
+  it('polls in the background while the radio is disconnected, not once connected', async () => {
+    vi.useFakeTimers();
+    const { rerender } = renderPairing({ health: health(false) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api.getRadioBlePairing).toHaveBeenCalledTimes(1);
+
+    // A pairing started by the connection monitor shows up and disables the buttons.
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(status({ state: 'pairing' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(api.getRadioBlePairing).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(i18n.t('settings.radio.blePairingState.pairing'))).toBeInTheDocument();
+
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(status({ state: 'paired', paired: true }));
+    rerender(
+      <RadioBlePairing
+        savedTransport={savedBle}
+        currentAddress={ADDRESS}
+        health={health(true)}
+        saving={false}
+      />
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    const connected = vi.mocked(api.getRadioBlePairing).mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    expect(vi.mocked(api.getRadioBlePairing).mock.calls.length).toBe(connected);
+  });
+
+  it('offers Forget pairing first after the radio refused the pairing', async () => {
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_rejected', auto_pair_blocked: true })
+    );
+    renderPairing();
+
+    expect(await screen.findByText(i18n.t('errors.ble_pair_rejectedDetail'))).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      i18n.t('settings.radio.bleForget'),
+      i18n.t('settings.radio.blePairAgain'),
+    ]);
+  });
+
+  it('offers no Forget pairing for a radio that is just absent', async () => {
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue(
+      status({ state: 'failed', error_code: 'ble_pair_device_not_found', retry_in: 5 })
+    );
+    renderPairing();
+
+    expect(
+      await screen.findByRole('button', { name: i18n.t('settings.radio.blePairAgain') })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: i18n.t('settings.radio.bleForget') })
+    ).not.toBeInTheDocument();
   });
 
   it('explains why automatic pairing is unavailable', async () => {

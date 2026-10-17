@@ -7,6 +7,13 @@ import { toast } from '../ui/sonner';
 
 /** Poll interval while a save or a pairing runs (the backend answers without D-Bus then). */
 const POLL_MS = 2000;
+/**
+ * Poll interval while the radio is disconnected: the connection monitor may pair
+ * in the background, and backoff attempts come and go. One cached GetManagedObjects.
+ */
+const BACKGROUND_POLL_MS = 5000;
+/** Failures whose fix starts with Forget pairing (see errors.<code>Detail). */
+const FORGET_FIRST_CODES = new Set(['ble_pair_rejected']);
 
 function normaliseAddress(address: string): string {
   return address.trim().toUpperCase();
@@ -35,7 +42,10 @@ export function RadioBlePairing({
   onBusyChange?: (busy: boolean) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const [status, setStatus] = useState<RadioBlePairingStatus | null>(null);
+  const [status, setStatusValue] = useState<RadioBlePairingStatus | null>(null);
+  // When `status` arrived: `retry_in` counts down from there.
+  const [statusAt, setStatusAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const [requesting, setRequesting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -46,6 +56,13 @@ export function RadioBlePairing({
     savedTransport.ble_pin_configured &&
     normaliseAddress(savedTransport.ble_address) === normaliseAddress(currentAddress);
 
+  const setStatus = useCallback((next: RadioBlePairingStatus) => {
+    const at = Date.now();
+    setStatusValue(next);
+    setStatusAt(at);
+    setNow(at);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       const next = await api.getRadioBlePairing();
@@ -53,7 +70,7 @@ export function RadioBlePairing({
     } catch {
       // The state line keeps its last value; a failing GET is not worth a toast.
     }
-  }, []);
+  }, [setStatus]);
 
   useEffect(() => {
     mounted.current = true;
@@ -69,12 +86,30 @@ export function RadioBlePairing({
   }, [applicable, saving, radioConnected, refresh]);
 
   const pairingNow = status?.state === 'pairing';
-  const polling = applicable && (saving || pairingNow || requesting);
+  const fastPolling = applicable && (saving || pairingNow || requesting);
+  // A pairing started by the connection monitor (not by this panel) shows up too,
+  // and so does each backoff attempt.
+  const backgroundPolling =
+    applicable &&
+    health != null &&
+    !radioConnected &&
+    status?.state !== 'unsupported' &&
+    status?.state !== 'not_configured';
+  const pollMs = fastPolling ? POLL_MS : backgroundPolling ? BACKGROUND_POLL_MS : null;
   useEffect(() => {
-    if (!polling) return;
-    const id = window.setInterval(() => void refresh(), POLL_MS);
+    if (pollMs == null) return;
+    const id = window.setInterval(() => void refresh(), pollMs);
     return () => window.clearInterval(id);
-  }, [polling, refresh]);
+  }, [pollMs, refresh]);
+
+  const retryIn = status?.state === 'failed' ? (status.retry_in ?? 0) : 0;
+  const retryLeft = retryIn > 0 ? retryIn - Math.floor((now - statusAt) / 1000) : 0;
+  const counting = retryLeft > 0;
+  useEffect(() => {
+    if (!counting) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [counting]);
 
   const busy = saving || pairingNow || requesting;
   useEffect(() => {
@@ -176,7 +211,11 @@ export function RadioBlePairing({
 
   const canPair =
     state === 'not_paired' || state === 'unknown_device' || state === 'failed' || staleBond;
-  const canForget = state === 'paired' || staleBond;
+  // After a refusal BlueZ may hold no bond (state 'failed'), yet the fix the
+  // message gives is Forget pairing, then Pair again.
+  const forgetFirst =
+    staleBond || (state === 'failed' && FORGET_FIRST_CODES.has(status?.error_code ?? ''));
+  const canForget = state === 'paired' || forgetFirst;
   const pairLabel =
     state === 'failed' || staleBond
       ? t('settings.radio.blePairAgain')
@@ -196,9 +235,9 @@ export function RadioBlePairing({
           {t('settings.radio.blePairingAutoBlocked')}
         </p>
       )}
-      {state === 'failed' && status?.retry_in != null && status.retry_in > 0 && (
+      {counting && (
         <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
-          {t('settings.radio.blePairingRetryIn', { seconds: status.retry_in })}
+          {t('settings.radio.blePairingRetryIn', { seconds: retryLeft })}
         </p>
       )}
       {staleBond && (
@@ -213,7 +252,7 @@ export function RadioBlePairing({
       )}
       {(canPair || canForget) && (
         <div className="flex flex-wrap gap-2">
-          {staleBond && canForget && (
+          {forgetFirst && (
             <Button
               type="button"
               variant="outline"
@@ -235,7 +274,7 @@ export function RadioBlePairing({
               {requesting ? t('settings.radio.blePairingInProgress') : pairLabel}
             </Button>
           )}
-          {!staleBond && canForget && (
+          {!forgetFirst && canForget && (
             <Button
               type="button"
               variant="outline"

@@ -514,7 +514,10 @@ describe('SettingsModal', () => {
     expect(
       await screen.findByText(i18n.t('settings.radio.blePairingState.pairing'))
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: i18n.t('settings.radio.bleScan') })).toBeDisabled();
+    // The busy flag reaches the panel through an effect, one render later.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: i18n.t('settings.radio.bleScan') })).toBeDisabled()
+    );
   });
 
   it('keeps a saved serial port visible when the host reports no ports', async () => {
