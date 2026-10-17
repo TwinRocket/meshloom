@@ -1,6 +1,6 @@
 ---
 title: Security
-description: What Meshloom does not protect, and the few locks that exist: Basic auth, turning bots off, exporting a key.
+description: What Meshloom does not protect, and the few locks that exist: Basic auth, turning bots off, an encrypted backup.
 level: deep
 order: 20
 ---
@@ -15,7 +15,7 @@ Meshloom is designed for a network whose users you know. Several design choices 
 
 **Bots run arbitrary Python.** A bot is a small Python program written in the interface. Meshloom runs it as-is, with full access to the language (`exec()` with the complete `__builtins__`). Anyone who can reach Meshloom can therefore run code on the host machine. This is intentional.
 
-None of this weakens MeshCore's own encryption: direct messages, channel keys and the node's private key are protected as usual. These points describe who can use the application, not what travels over the air.
+None of this weakens MeshCore's own encryption over the air: direct messages and channel messages stay encrypted as usual. These points describe who can use the application, not what travels over the air. The node's private key is the exception on the server side: anyone who reaches the interface, any web page open in a browser that can reach Meshloom included, can read it (see [The node's private key](#the-nodes-private-key)).
 
 ## The warning dialog
 

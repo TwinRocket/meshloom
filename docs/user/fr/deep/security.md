@@ -1,6 +1,6 @@
 ---
 title: Sécurité
-description: Ce que Meshloom ne protège pas, et les quelques verrous qui existent : accès Basic, désactivation des bots, export de clé.
+description: Ce que Meshloom ne protège pas, et les quelques verrous qui existent : accès Basic, désactivation des bots, sauvegarde chiffrée.
 level: deep
 order: 20
 ---
@@ -15,7 +15,7 @@ Meshloom est conçu pour un réseau dont vous connaissez les utilisateurs. Plusi
 
 **Les bots exécutent du Python quelconque.** Un bot est un petit programme Python écrit dans l’interface. Meshloom l’exécute tel quel, avec un accès complet au langage (`exec()` avec tous les `__builtins__`). Quiconque atteint Meshloom peut donc faire exécuter du code sur la machine hôte. C’est voulu.
 
-Rien de tout cela n’affaiblit le chiffrement propre à MeshCore : les messages directs, les clés de canal et la clé privée du nœud restent protégés. Ces points décrivent qui peut utiliser l’application, pas ce qui circule par radio.
+Rien de tout cela n’affaiblit le chiffrement propre à MeshCore par radio : les messages directs et les messages de canal restent chiffrés comme d’habitude. Ces points décrivent qui peut utiliser l’application, pas ce qui circule par radio. La clé privée du nœud fait exception côté serveur : quiconque atteint l’interface, y compris une page web ouverte dans un navigateur qui peut joindre Meshloom, peut la lire (voir [La clé privée du nœud](#la-clé-privée-du-nœud)).
 
 ## La fenêtre d’avertissement
 
