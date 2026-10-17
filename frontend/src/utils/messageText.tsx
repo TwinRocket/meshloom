@@ -176,13 +176,20 @@ export function RegionBadge({ region, className }: { region: string; className?:
   );
 }
 
-// C0 controls (except tab, LF, CR) and DEL, plus the bidi embeddings/overrides
-// (U+202A-202E), bidi isolates (U+2066-2069) and zero-width/direction marks
-// (U+200B-200F), which can reverse or hide text.
+// C0 controls (except tab, LF, CR) and DEL, plus characters that reverse or hide text:
+// bidi embeddings/overrides (U+202A-202E), bidi isolates (U+2066-2069), ALM (U+061C),
+// zero-width space (U+200B), word joiner (U+2060) and BOM (U+FEFF). LRM/RLM
+// (U+200E/200F), ZWNJ (U+200C) and ZWJ (U+200D) are legitimate in RTL, Indic and emoji
+// text, so they are not flagged.
 const UNEXPECTED_CONTROL_CHARS =
   // eslint-disable-next-line no-control-regex
-  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/;
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u061C\u200B\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
 
 export function hasUnexpectedControlChars(text: string): boolean {
   return UNEXPECTED_CONTROL_CHARS.test(text);
+}
+
+/** Wrap mesh-supplied text in FSI..PDI for plain-string contexts (title, aria-label). */
+export function isolateBidi(text: string): string {
+  return `\u2068${text}\u2069`;
 }

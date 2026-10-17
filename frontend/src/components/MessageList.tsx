@@ -14,7 +14,7 @@ import {
 } from '../utils/meshcoreOpenPayloads';
 import { useTranslation } from 'react-i18next';
 import { MessageBody } from './message/MessageBody';
-import { RegionBadge, hasUnexpectedControlChars } from '../utils/messageText';
+import { RegionBadge, hasUnexpectedControlChars, isolateBidi } from '../utils/messageText';
 import { getDirectContactRoute, type SenderInfo } from '../utils/pathUtils';
 import { ContactAvatar } from './ContactAvatar';
 import { ObserverReachBadge } from './ObserverReachBadge';
@@ -366,7 +366,9 @@ function MessageReactionBadges({ reactions }: { reactions: AttachedReaction[] })
             {visiblePeople.map((row) => (
               <li key={row.key} className="flex items-center gap-3 px-2 py-2">
                 <ContactAvatar name={row.label} publicKey={row.label} size={36} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.label}</span>
+                <bdi className="bidi-isolate min-w-0 flex-1 truncate text-sm font-medium">
+                  {row.label}
+                </bdi>
                 <span className="text-xl leading-none" aria-hidden="true">
                   {row.emoji}
                 </span>
@@ -1317,7 +1319,7 @@ export function MessageList({
             }
             const avatarActionLabel =
               avatarName && avatarName !== unknownLabel
-                ? t('messageList.viewInfoFor', { name: avatarName })
+                ? t('messageList.viewInfoFor', { name: isolateBidi(avatarName) })
                 : t('messageList.viewInfoFor', { name: avatarKey.slice(0, 12) });
             const canOpenContact = Boolean(
               !msg.outgoing && onOpenContactInfo && avatarKey && avatarVariant !== 'corrupt'
@@ -1448,7 +1450,7 @@ export function MessageList({
                       <ChevronDown className="h-3.5 w-3.5" />
                     </Button>
                     {showAvatar && (
-                      <div className="bidi-isolate text-[0.8125rem] font-semibold text-foreground mb-0.5">
+                      <div className="text-[0.8125rem] font-semibold text-foreground mb-0.5">
                         {canClickSender ? (
                           <span
                             className="cursor-pointer hover:text-primary transition-colors"
@@ -1456,12 +1458,12 @@ export function MessageList({
                             tabIndex={0}
                             onKeyDown={handleKeyboardActivate}
                             onClick={() => onSenderClick(displaySender)}
-                            title={t('messageList.mention', { name: displaySender })}
+                            title={t('messageList.mention', { name: isolateBidi(displaySender) })}
                           >
-                            {displaySender}
+                            <bdi>{displaySender}</bdi>
                           </span>
                         ) : (
-                          displaySender
+                          <bdi>{displaySender}</bdi>
                         )}
                       </div>
                     )}

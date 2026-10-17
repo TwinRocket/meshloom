@@ -197,10 +197,14 @@ purpose.
 - The pieces live in `components/message/richPayloads.tsx` (payload renderers) and
   `utils/messageText.tsx` (linkify, mentions, `RegionBadge`, `hasUnexpectedControlChars`).
   Links keep `noopener noreferrer` and the `https?://` + TLD rule.
-- `hasUnexpectedControlChars` flags C0 controls, DEL, zero-width/direction marks
-  (U+200B-200F) and bidi embeddings, overrides and isolates (U+202A-202E,
-  U+2066-2069). Sender and conversation names carry the `bidi-isolate` utility
-  (`unicode-bidi: isolate`, `styles.css`); give it to any new label made of mesh text.
+- `hasUnexpectedControlChars` flags C0 controls, DEL, bidi embeddings, overrides and
+  isolates (U+202A-202E, U+2066-2069), ALM (U+061C), U+200B, U+2060 and U+FEFF. It does
+  not flag LRM/RLM, ZWNJ or ZWJ (legitimate in RTL, Indic and emoji text). Its only caller
+  is the "corrupt unnamed channel message" label in `MessageList.tsx`, so it never
+  flags a message that has a sender name or key. Names made of mesh text are isolated
+  with `<bdi>` / the `bidi-isolate` utility (`unicode-bidi: isolate`, `styles.css`): the
+  block sender, reactor rows, the chat title; in plain strings (`title`, `aria-label`)
+  wrap them with `isolateBidi()`. Conversation-list and feed names are not isolated yet.
 - `remoteMedia={false}` keeps a GIF as its raw text instead of loading
   `media.giphy.com`. Only reactions follow `useRichPayloads()`; GIFs and locations
   always render.

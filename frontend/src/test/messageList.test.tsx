@@ -16,6 +16,7 @@ import { RichPayloadProvider } from '../contexts/RichPayloadContext';
 import { CONTACT_TYPE_ROOM, type Contact, type Message } from '../types';
 import { formatOpenReaction } from '../utils/meshcoreOpenPayloads';
 import { formatTime } from '../utils/messageParser';
+import { isolateBidi } from '../utils/messageText';
 
 const apiMocks = vi.hoisted(() => ({
   deleteMessage: vi.fn(async (_id: number) => ({ status: 'ok' })),
@@ -348,7 +349,9 @@ describe('MessageList channel sender rendering', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: i18n.t('messageList.viewInfoFor', { name: 'Alice' }) })
+      screen.getByRole('button', {
+        name: i18n.t('messageList.viewInfoFor', { name: isolateBidi('Alice') }),
+      })
     ).toBeInTheDocument();
   });
 
@@ -1321,15 +1324,30 @@ describe('MessageList rendering snapshots', () => {
     unmount();
   });
 
-  it('bidi override characters get the control-character treatment', () => {
+  it('isolates a named sender and does not flag a named message with an override', () => {
     const { container, unmount } = render(
       <MessageList
-        messages={[createMessage({ text: 'evil\u202Etxt.exe', sender_name: null })]}
+        messages={[createMessage({ text: 'evil\u202Etxt.exe', sender_name: 'Alice' })]}
         contacts={[]}
         loading={false}
       />
     );
-    expect(container.textContent).toContain('Sans nom — paquet corrompu ?');
+    expect(container.querySelector('bdi')?.textContent).toBe('Alice');
+    expect(container.textContent).not.toContain('paquet corrompu');
+    unmount();
+  });
+
+  it('isolates the sender name in the mention tooltip', () => {
+    const { container, unmount } = render(
+      <MessageList
+        messages={[createMessage({ text: 'hi', sender_name: 'Mal\u202Eory' })]}
+        contacts={[]}
+        loading={false}
+        onSenderClick={() => {}}
+      />
+    );
+    const target = container.querySelector('[role="button"][title]');
+    expect(target?.getAttribute('title')).toContain('\u2068Mal\u202Eory\u2069');
     unmount();
   });
 
