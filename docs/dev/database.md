@@ -221,6 +221,9 @@ databases). The current set:
 | `idx_messages_received` | `messages(received_at)` |
 | `idx_messages_sender_key` | `messages(sender_key)` |
 | `idx_messages_type_received_conversation` | `messages(type, received_at, conversation_key)` |
+| `idx_messages_feed_type` | `messages(type, received_at)` |
+| `idx_messages_feed_outgoing` | `messages(outgoing, received_at)` |
+| `idx_messages_feed_type_outgoing` | `messages(type, outgoing, received_at)` |
 | `idx_messages_unread_covering` | `messages(type, conversation_key, outgoing, received_at)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |

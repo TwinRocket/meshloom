@@ -50,8 +50,8 @@ async def get_messages_around(
 
 @router.get("", response_model=list[Message])
 async def list_messages(
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000, description="Page size, 1 to 1000"),
+    offset: int = Query(default=0, ge=0, description="Rows to skip; ignored with before/before_id"),
     type: str | None = Query(default=None, description="Filter by type: PRIV or CHAN"),
     conversation_key: str | None = Query(
         default=None, description="Filter by conversation key (channel key or contact pubkey)"
@@ -67,8 +67,32 @@ async def list_messages(
         default=None, description="Forward cursor: id of last seen message"
     ),
     q: str | None = Query(default=None, description="Full-text search query"),
+    outgoing: bool | None = Query(
+        default=None,
+        description="true: only sent messages; false: only received ones; absent: both",
+    ),
+    since_id: int | None = Query(
+        default=None,
+        description=(
+            "Integer >= 1. Reconciliation cursor: messages with id > since_id, ordered by id ascending "
+            "(historical rows included). Cannot be combined with before, after or offset"
+        ),
+    ),
 ) -> list[Message]:
     """List messages from the database."""
+    if since_id is not None and since_id < 1:
+        raise HTTPException(status_code=400, detail="since_id must be an integer >= 1")
+    if since_id is not None and (
+        before is not None
+        or after is not None
+        or before_id is not None
+        or after_id is not None
+        or offset
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="since_id cannot be combined with before, after or offset",
+        )
     settings = await AppSettingsRepository.get()
     blocked_keys = settings.blocked_keys or None
     blocked_names = settings.blocked_names or None
@@ -84,6 +108,8 @@ async def list_messages(
         q=q,
         blocked_keys=blocked_keys,
         blocked_names=blocked_names,
+        outgoing=outgoing,
+        since_id=since_id,
     )
 
 

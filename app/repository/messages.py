@@ -257,7 +257,8 @@ class MessageRepository:
         elif len(conversation_key) == 32:
             return "AND conversation_key = ?", conversation_key.upper()
         else:
-            return "AND conversation_key LIKE ?", f"{conversation_key}%"
+            escaped = MessageRepository._escape_like(conversation_key)
+            return "AND conversation_key LIKE ? ESCAPE '\\'", f"{escaped}%"
 
     @staticmethod
     def _unescape_search_quoted_value(value: str) -> str:
@@ -462,6 +463,8 @@ class MessageRepository:
         q: str | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        outgoing: bool | None = None,
+        since_id: int | None = None,
     ) -> list[Message]:
         search_query = MessageRepository._parse_search_query(q) if q else None
         query = (
@@ -484,6 +487,9 @@ class MessageRepository:
         if msg_type:
             query += " AND messages.type = ?"
             params.append(msg_type)
+        if outgoing is not None:
+            query += " AND messages.outgoing = ?"
+            params.append(1 if outgoing else 0)
         if conversation_key:
             clause, norm_key = MessageRepository._normalize_conversation_key(conversation_key)
             query += f" {clause.replace('conversation_key', 'messages.conversation_key')}"
@@ -510,8 +516,13 @@ class MessageRepository:
             query += " AND messages.text LIKE ? ESCAPE '\\' COLLATE NOCASE"
             params.append(f"%{escaped_q}%")
 
+        # Reconciliation cursor on the primary key: historical decryption inserts old
+        # received_at with new ids, which the (received_at, id) cursors never return.
+        if since_id is not None:
+            query += " AND messages.id > ? ORDER BY messages.id ASC LIMIT ?"
+            params.extend([since_id, limit])
         # Forward cursor (after/after_id) — mutually exclusive with before/before_id
-        if after is not None and after_id is not None:
+        elif after is not None and after_id is not None:
             query += (
                 " AND (messages.received_at > ? OR (messages.received_at = ? AND messages.id > ?))"
             )

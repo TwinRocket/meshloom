@@ -34,9 +34,10 @@ dependencies = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-n auto --dist worksteal"
+addopts = "-n auto --dist worksteal -m 'not slow'"
 markers = [
     "radio: opt-in bench against a live instance and its radio (docs/dev/radio-bench.md)",
+    "slow: large-fixture timing tests, outside the quality gate (run with -m slow)",
 ]
 
 [tool.ruff]
