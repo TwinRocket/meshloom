@@ -58,6 +58,34 @@ def test_the_radio_can_be_reached() -> None:
     assert config["uart"] is True
 
 
+def test_a_bluetooth_radio_can_be_reached() -> None:
+    """BLE goes through the host's BlueZ over D-Bus; without the bus every scan fails.
+
+    The transport is still offered (the adapter shows in sysfs), so the add-on
+    looks fine until the first Scan or connection, which then reports no adapter.
+    Nothing broader than the bus is needed: bleak opens no raw HCI socket.
+    """
+    config = _config()
+    assert config["host_dbus"] is True
+    assert "privileged" not in config
+    assert "full_access" not in config
+    assert "host_network" not in config
+
+
+def test_the_host_bus_is_documented_as_a_root_grant() -> None:
+    """The host's D-Bus is not a narrow grant: the add-on runs as root on it.
+
+    Bots run arbitrary Python inside the add-on, so with the bus mounted they can
+    ask systemd or logind to act as root on the host. The add-on documentation has
+    to say so where bots are described, or the option reads as harmless.
+    """
+    assert _config()["host_dbus"] is True
+    docs = (ADDON / "DOCS.md").read_text(encoding="utf-8")
+    bots_row = next(line for line in docs.splitlines() if line.startswith("| `disable_bots`"))
+    assert "D-Bus" in bots_row
+    assert "root" in bots_row
+
+
 def test_every_option_is_described_by_the_schema() -> None:
     """An option with no schema entry is silently dropped by the supervisor."""
     config = _config()

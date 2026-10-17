@@ -38,6 +38,15 @@ ports_description:
 uart: true
 usb: true
 
+# Bluetooth goes through the host's BlueZ over its D-Bus system bus: bleak opens no
+# HCI socket of its own, so host_network, privileged and full_access are not needed,
+# only the bus (mounted read-only at /run/dbus; talking over it still works).
+# Without this the transport is offered but every scan and connection fails.
+# The bus is not a narrow grant: the add-on runs as root and nothing mediates D-Bus,
+# so any code in it (bots included) can ask host services such as systemd or logind
+# to act as root on the host. DOCS.md says so and advises disable_bots when exposed.
+host_dbus: true
+
 # Everything the instance keeps: database, keys, settings.
 map:
   - addon_config:rw

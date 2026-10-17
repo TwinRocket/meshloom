@@ -22,13 +22,39 @@ anywhere else.
 
 ## Getting started
 
-1. Plug the radio into the machine running Home Assistant, or leave it on the
-   network if you reach it over TCP.
+1. Plug the radio into the machine running Home Assistant, leave it on the
+   network if you reach it over TCP, or keep it within Bluetooth range of that
+   machine.
 2. Install and start the add-on, then open it from the sidebar. The first install
    builds one small layer on top of the published Meshloom image, so it takes a
    little longer than starting it again later does.
-3. Go to **Settings → Radio** and choose the transport — the serial device, or the
-   host and port of a radio reachable over the network.
+3. Go to **Settings → Radio** and choose the transport — the serial device, the
+   host and port of a radio reachable over the network, or a Bluetooth radio
+   (**Scan**, then its PIN).
+
+## Bluetooth
+
+The add-on reaches Bluetooth through the host's BlueZ service over D-Bus, so it
+uses the adapter of the machine running Home Assistant, built-in or USB. Nothing
+needs turning on, and Home Assistant's own Bluetooth integration can stay enabled:
+it shares the adapter. Bluetooth proxies (ESPHome, Shelly) are not used: the radio
+has to be within range of the Home Assistant machine itself.
+
+**Scan** should list nearby radios. Pairing with the PIN is not confirmed yet in
+the add-on: Meshloom does not register a Bluetooth pairing agent of its own and
+relies on the host to accept the PIN. If saving fails with `BLE pairing failed`,
+connect the radio over USB or TCP instead.
+
+If the Bluetooth choice in **Settings → Radio** is marked unavailable with "No
+Bluetooth adapter", the add-on found no adapter on the host: check that Home
+Assistant lists one in **Settings → System → Hardware**. The same words after a
+**Scan** only mean the scan failed; the add-on log has the details.
+
+**Security.** The host's D-Bus system bus is shared with the add-on, which runs
+as root. Code running in the add-on can therefore ask the host's system services
+to act as root on the Home Assistant machine, not only inside the add-on. Bots
+are such code (see `disable_bots` below): if Meshloom is reachable from outside
+Home Assistant, or if anyone you do not fully trust can sign in, turn bots off.
 
 ## Options
 
@@ -38,7 +64,7 @@ anywhere else.
 | `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
 | `basic_auth_username` / `basic_auth_password` | Asks for a username and password on the whole web interface and API. Both or neither. The check has no exception for ingress: if you set them, open the sidebar entry afterwards to make sure it still loads. |
 | `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |
-| `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on. |
+| `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on, and through the host's D-Bus (needed for Bluetooth) with root access to the Home Assistant machine. Turn them off if the instance is reachable from outside Home Assistant or shared with people you do not fully trust. |
 
 Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
 
