@@ -1475,3 +1475,188 @@ class TestMaybeImportLegacyEnv:
         assert snapshot.env_imported is True
         assert snapshot.transport is None
         assert snapshot.serial_port == ""
+
+
+class TestBlePrePairing:
+    """`_connect_ble` pairs through BlueZ first, then hands meshcore the device."""
+
+    ADDRESS = "AA:BB:CC:DD:EE:FF"
+
+    def _ble(self):
+        return _patch_transport(
+            _snapshot(transport="ble", ble_address=self.ADDRESS, ble_pin="123456")
+        )
+
+    @staticmethod
+    def _outcome(state="paired"):
+        from app.services.ble_pairing import PairOutcome
+
+        return PairOutcome(
+            state,
+            "AA:BB:CC:DD:EE:FF",
+            "/org/bluez/hci0",
+            "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
+            {"Address": "AA:BB:CC:DD:EE:FF", "Name": "MeshCore-x", "Connected": False},
+        )
+
+    def test_bluez_ble_device_carries_the_path(self):
+        from bleak.backends.device import BLEDevice
+
+        from app.radio import _bluez_ble_device
+
+        device = _bluez_ble_device(self._outcome())
+        assert isinstance(device, BLEDevice)
+        assert device.address == self.ADDRESS
+        assert device.name == "MeshCore-x"
+        assert device.details["path"] == "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+        assert device.details["props"]["Address"] == self.ADDRESS
+
+    @pytest.mark.asyncio
+    async def test_pre_paired_device_is_handed_over_without_pin(self, monkeypatch):
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+
+        ensure = AsyncMock(return_value=self._outcome())
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        mock_mc = MagicMock()
+        with self._ble(), patch("app.radio.MeshCore") as mock_meshcore:
+            mock_meshcore.create_ble = AsyncMock(return_value=mock_mc)
+            rm = RadioManager()
+            await rm.connect()
+
+        ensure.assert_awaited_once_with(self.ADDRESS, "123456")
+        kwargs = mock_meshcore.create_ble.await_args.kwargs
+        assert kwargs["pin"] is None
+        assert kwargs["address"] == self.ADDRESS
+        assert kwargs["device"].details["path"] == "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+        assert rm.meshcore is mock_mc
+
+    @pytest.mark.asyncio
+    async def test_blocking_pairing_error_stops_the_connect(self, monkeypatch):
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+        from app.services.ble_pairing import BlePairingError
+
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(
+            ble_pairing,
+            "ensure_paired",
+            AsyncMock(side_effect=BlePairingError("ble_pair_wrong_pin")),
+        )
+        with self._ble(), patch("app.radio.MeshCore") as mock_meshcore:
+            mock_meshcore.create_ble = AsyncMock()
+            rm = RadioManager()
+            with pytest.raises(BlePairingError):
+                await rm.connect()
+        mock_meshcore.create_ble.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_environmental_error_falls_back_to_the_pin_path(self, monkeypatch):
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+        from app.services.ble_pairing import BlePairingError
+
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(
+            ble_pairing,
+            "ensure_paired",
+            AsyncMock(side_effect=BlePairingError("ble_pair_dbus_unavailable")),
+        )
+        with self._ble(), patch("app.radio.MeshCore") as mock_meshcore:
+            mock_meshcore.create_ble = AsyncMock(return_value=MagicMock())
+            await RadioManager().connect()
+        mock_meshcore.create_ble.assert_awaited_once_with(
+            address=self.ADDRESS, pin="123456", auto_reconnect=True, max_reconnect_attempts=15
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_mac_address_skips_pre_pairing(self, monkeypatch):
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "pairing_supported", lambda: (True, None))
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        snapshot = _snapshot(transport="ble", ble_address="MeshCore-1234", ble_pin="123456")
+        with _patch_transport(snapshot), patch("app.radio.MeshCore") as mock_meshcore:
+            mock_meshcore.create_ble = AsyncMock(return_value=MagicMock())
+            await RadioManager().connect()
+        ensure.assert_not_awaited()
+        assert mock_meshcore.create_ble.await_args.kwargs["pin"] == "123456"
+
+    @pytest.mark.asyncio
+    async def test_connect_failure_after_already_paired_is_counted(self, monkeypatch):
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+
+        noted = []
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(
+            ble_pairing, "ensure_paired", AsyncMock(return_value=self._outcome("already_paired"))
+        )
+        monkeypatch.setattr(
+            ble_pairing,
+            "note_connect_result",
+            lambda address, *, ok, after_already_paired: noted.append((ok, after_already_paired)),
+        )
+        with self._ble(), patch("app.radio.MeshCore") as mock_meshcore:
+            mock_meshcore.create_ble = AsyncMock(return_value=None)
+            with pytest.raises(RuntimeError):
+                await RadioManager().connect()
+        assert noted == [(False, True)]
+
+    @pytest.mark.asyncio
+    async def test_reconnect_reports_a_blocking_error_once(self, monkeypatch, caplog):
+        import logging
+
+        from app.radio import RadioManager
+        from app.services import ble_pairing
+        from app.services.ble_pairing import BlePairingError
+
+        attempts = []
+
+        async def _ensure(address, pin, *, explicit=False):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise BlePairingError("ble_pair_wrong_pin")
+            raise BlePairingError("ble_pair_wrong_pin", already_reported=True)
+
+        monkeypatch.setattr(ble_pairing, "should_prepair", lambda address: True)
+        monkeypatch.setattr(ble_pairing, "ensure_paired", _ensure)
+        rm = RadioManager()
+        caplog.set_level(logging.DEBUG, logger="app.radio")
+        with self._ble(), patch("app.websocket.broadcast_error") as mock_broadcast_error:
+            for _ in range(3):
+                assert await rm.reconnect(broadcast_on_success=False) is False
+
+        assert _error_codes(mock_broadcast_error) == ["ble_pair_wrong_pin"]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert rm._frontend_reconnect_error_broadcasts == 0
+
+    @pytest.mark.asyncio
+    async def test_ble_maintenance_is_busy_while_reconnecting(self, monkeypatch):
+        from app.radio import RadioManager, RadioOperationBusyError
+        from app.services import ble_pairing
+
+        rm = RadioManager()
+        rm._reconnect_lock = asyncio.Lock()
+        await rm._reconnect_lock.acquire()
+        try:
+            with pytest.raises(RadioOperationBusyError) as busy:
+                async with rm.ble_maintenance("ble_pair"):
+                    pass
+            assert busy.value.code == "radio_busy"
+
+            monkeypatch.setattr(ble_pairing, "in_progress", lambda: True)
+            with pytest.raises(RadioOperationBusyError) as pairing_busy:
+                async with rm.ble_maintenance("ble_pair"):
+                    pass
+            assert pairing_busy.value.code == "ble_pair_in_progress"
+        finally:
+            rm._reconnect_lock.release()
+
+        async with rm.ble_maintenance("ble_pair"):
+            assert rm.is_reconnecting
+        assert not rm.is_reconnecting
