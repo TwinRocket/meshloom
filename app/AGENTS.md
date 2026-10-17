@@ -177,8 +177,11 @@ and the OpenAPI page (`/docs`), not a table here.
   link unreliable.
 - **Secrets.** The helper classifies commands itself: `set`/`get` of a name
   containing `pwd`, `pass`, `key`, `secret` or `pin` (and `SENSITIVE_COMMANDS`)
-  is secret or a sensitive read. No `set` argument, no sensitive reply and no
-  command text in an exception. `reboot`, `poweroff`, `shutdown`, `erase` and
+  is secret or a sensitive read, and so is any call given explicit `secrets`
+  (`run(..., secrets=...)`, `set(..., secret=True)`). No `set` argument, no
+  sensitive reply and no command text in a log line or an exception: for a
+  secret command they show only a verb and a name that look like a setting name
+  (never the argument of a one-word secret verb such as `password`). `reboot`, `poweroff`, `shutdown`, `erase` and
   `start` are refused: reboot with `mc.commands.reboot()` plus
   `note_expected_reboot()`. Never set `CONTACT_FLAG_REMOTE_CLI` (0x10), and never
   use the remote CLI over the mesh.

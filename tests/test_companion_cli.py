@@ -348,16 +348,34 @@ async def test_names_with_spaces_are_refused(radio):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        f"set wifi.pwd {SECRET}",
-        f"SET  WIFI.PWD {SECRET}",
-        f"set foo.key {SECRET}",
-        f"set my.secret {SECRET}",
-        f"password {SECRET}",
-    ],
-)
+def assert_secret_absent(text: str) -> None:
+    """Case-insensitive: the helper lowercases verbs and names."""
+    lowered = text.lower()
+    assert SECRET.lower() not in lowered
+    assert SECRET.encode().hex() not in lowered
+
+
+def assert_error_carries_no_secret(exc: cli_module.CliError) -> None:
+    assert_secret_absent(str(exc))
+    assert_secret_absent(repr(exc))
+    assert_secret_absent(exc.name or "")
+    assert_secret_absent(exc.verb or "")
+
+
+SECRET_COMMANDS = [
+    f"set wifi.pwd {SECRET}",
+    f"SET  WIFI.PWD {SECRET}",
+    f"set foo.key {SECRET}",
+    f"set my.secret {SECRET}",
+    f"password {SECRET}",
+    f"Password {SECRET} extra",
+    f"set key={SECRET}",
+    f"set wifi.pwd={SECRET}",
+    f"pwd={SECRET}",
+]
+
+
+@pytest.mark.parametrize("command", SECRET_COMMANDS)
 async def test_raw_secret_commands_never_log_their_value(radio, caplog, command):
     caplog.set_level(logging.DEBUG)
     caplog.set_level(logging.DEBUG, logger="meshcore")
@@ -366,13 +384,67 @@ async def test_raw_secret_commands_never_log_their_value(radio, caplog, command)
         try:
             reply = await cli.run(command)
         except CliUnknownCommandError as exc:
-            assert SECRET not in str(exc) and SECRET not in repr(exc)
+            assert_error_carries_no_secret(exc)
         else:
             assert reply.sensitive
     await loop.settle()
     assert firmware.commands  # the frame went out
-    assert SECRET not in all_log_text(caplog)
-    assert SECRET.encode().hex() not in all_log_text(caplog)
+    assert_secret_absent(all_log_text(caplog))
+
+
+@pytest.mark.parametrize("command", SECRET_COMMANDS)
+async def test_raw_secret_commands_time_out_without_their_value(radio, caplog, command):
+    caplog.set_level(logging.DEBUG)
+    loop, firmware, manager = radio
+    firmware.silent.add(command)
+    async with held(manager) as cli:
+        with pytest.raises(CliTimeoutError) as error:
+            await cli.run(command, timeout=SHORT_TIMEOUT)
+    assert_error_carries_no_secret(error.value)
+    assert_secret_absent(all_log_text(caplog))
+
+
+def test_one_word_secret_verb_never_shows_its_argument():
+    classified = cli_module._classify(f"password {SECRET}")
+    assert (classified.shown_verb, classified.shown_name) == ("password", "")
+    assert cli_module._classify(f"set key={SECRET}").shown_name == "[redacted]"
+    assert cli_module._classify("set foo.key x").shown_name == "foo.key"
+    assert cli_module._classify("get wifi.pwd").shown_name == "wifi.pwd"
+    assert cli_module._classify("set a=b c").shown_name == "a=b"  # not secret
+    # A value glued to a name that looks like one is still caught when known.
+    glued = cli_module._classify("set s3cr3tpw x", extra_secrets=("S3cr3tPw",))
+    assert glued.secret and glued.shown_name == "[redacted]"
+
+
+async def test_explicit_secret_on_an_unmarked_name_is_hidden(radio, caplog):
+    caplog.set_level(logging.DEBUG)
+    loop, firmware, manager = radio
+    firmware.overrides[f"set foo {SECRET}"] = f"> foo is now {SECRET}"
+    firmware.overrides["set foo bad"] = f"Error: bad value {SECRET}"
+    async with held(manager) as cli:
+        reply = await cli.set("foo", SECRET, secret=True)
+        assert reply.sensitive and SECRET not in repr(reply)
+        firmware.overrides[f"set foo {SECRET}"] = f"Error: bad value {SECRET}"
+        with pytest.raises(CliRejectedError) as rejected:
+            await cli.set("foo", SECRET, secret=True)
+    assert rejected.value.reply_text is None
+    assert rejected.value.name == "foo"
+    assert_error_carries_no_secret(rejected.value)
+    text = all_log_text(caplog)
+    assert "CLI set foo -> [redacted]" in text and "CLI set foo -> rejected" in text
+    assert_secret_absent(text)
+
+
+async def test_run_with_explicit_secrets_hides_command_and_reply(radio, caplog):
+    caplog.set_level(logging.DEBUG)
+    loop, firmware, manager = radio
+    firmware.overrides[f"ver {SECRET}"] = f"> fine {SECRET}"
+    async with held(manager) as cli:
+        reply = await cli.run(f"ver {SECRET}", secrets=(SECRET,))
+    assert reply.sensitive and reply.value == f"fine {SECRET}"
+    text = all_log_text(caplog)
+    assert "CLI ver [redacted] -> [redacted]" in text
+    assert_secret_absent(text)
 
 
 async def test_get_wifi_pwd_is_always_a_sensitive_read(radio, caplog):

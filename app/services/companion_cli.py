@@ -18,8 +18,11 @@ this module adds the guard the protocol lacks:
 - **Secret-aware.** The helper classifies commands itself (fail closed): a
   ``set`` of a name containing ``pwd``/``pass``/``key``/``secret``/``pin`` is
   secret (its value is registered with ``secret_scope()``), a ``get`` of one
-  is a sensitive read. No ``set`` argument and no sensitive reply is ever
-  logged, and no exception carries command text.
+  is a sensitive read, and so is any call given explicit ``secrets``. No
+  ``set`` argument and no sensitive reply is ever logged, and no exception
+  carries command text: logs and exceptions show the verb and the setting
+  name only, and for a secret command only when they look like a setting
+  name (never the token after a one-word secret verb such as ``password``).
 
 Never call ``mc.commands.run_cli_command`` directly, and never wrap a CLI call
 in ``asyncio.wait_for``/``shield``/``gather``: on Python 3.11 they run it in a
@@ -208,13 +211,33 @@ class _Classified:
     secret: bool
     sensitive: bool
     secret_values: tuple[str, ...]
+    # What logs and exceptions may show: never a token that could hold a value.
+    shown_verb: str
+    shown_name: str
 
 
-def _classify(command: str) -> _Classified:
+# A token shown for a secret command must look like a setting name, nothing more.
+_SHOWABLE_TOKEN = re.compile(r"^[a-z0-9_.]+$")
+
+
+def _shown_token(token: str, *, secret: bool, values: Sequence[str]) -> str:
+    if not secret or not token:
+        return token
+    if _SHOWABLE_TOKEN.match(token) and not any(
+        value.lower() in token for value in values if value
+    ):
+        return token
+    return REDACTED
+
+
+def _classify(command: str, *, extra_secrets: Sequence[str] = ()) -> _Classified:
+    """Classify a command (fail closed). A command given ``extra_secrets`` is
+    hidden like one with a secret name."""
     tokens = command.split()
     verb = tokens[0].lower()
     name = tokens[1].lower() if len(tokens) > 1 else ""
-    marked = any(marker in token for token in (verb, name) for marker in _SECRET_NAME_MARKERS)
+    verb_marked = any(marker in verb for marker in _SECRET_NAME_MARKERS)
+    marked = verb_marked or any(marker in name for marker in _SECRET_NAME_MARKERS)
     secret = marked or (verb, name) in SENSITIVE_COMMANDS
     values: list[str] = []
     if secret:
@@ -225,17 +248,23 @@ def _classify(command: str) -> _Classified:
         match = re.match(r"\S+\s+\S+\s(.*)\Z", command, re.DOTALL)
         if match:
             values.extend((match.group(1), match.group(1).strip()))
-        if any(marker in verb for marker in _SECRET_NAME_MARKERS):
+        if verb_marked:
             # A one-word secret verb: everything after it.
             rest = command.split(None, 1)
             if len(rest) == 2:
                 values.append(rest[1])
+    hidden = secret or any(extra_secrets)
+    known = (*values, *extra_secrets)
     return _Classified(
         verb=verb,
         name=name,
-        secret=secret,
-        sensitive=secret,
+        secret=hidden,
+        sensitive=hidden,
         secret_values=tuple(value for value in values if value),
+        shown_verb=_shown_token(verb, secret=hidden, values=known),
+        # After a one-word secret verb ("password <value>") the second token
+        # is the value itself: never shown.
+        shown_name="" if verb_marked else _shown_token(name, secret=hidden, values=known),
     )
 
 
@@ -497,13 +526,14 @@ class CompanionCli:
         (a ``ValueError``) for an invalid command, ``CliUnsupportedError`` when the
         link was declared unreliable, ``CliTimeoutError``,
         ``CliUnknownCommandError`` and ``CliRejectedError``. ``timeout`` defaults to
-        ``CLI_REPLY_TIMEOUT_SECONDS``.
+        ``CLI_REPLY_TIMEOUT_SECONDS``. Passing ``secrets`` hides the whole call
+        (command and reply) like a command with a secret name.
         """
         if timeout is None:
             timeout = CLI_REPLY_TIMEOUT_SECONDS
         self._check_lock()
         encoded = _validate_command(command)
-        classified = _classify(command)
+        classified = _classify(command, extra_secrets=secrets)
         sensitive = sensitive_reply or classified.sensitive
         hidden = classified.secret or sensitive
         link = self.link
@@ -511,33 +541,35 @@ class CompanionCli:
         if cached is not None and cached.reason == "link_unreliable":
             raise CliUnsupportedError("link_unreliable")
         tag = self._allocate_tag(link)
+        verb, name = classified.shown_verb, classified.shown_name or None
+        # The scope stays open until every log line and exception is built.
         with secret_scope(*classified.secret_values, *secrets):
             outcome, text = await self._exchange(link, tag, encoded, timeout=timeout, probe=False)
-        verb, name = classified.verb, classified.name or None
-        if outcome != "reply" or text is None:
-            self._log(classified, "timeout")
-            raise CliTimeoutError("cli_timeout", verb=verb, name=name)
-        if text == "Unknown command":
-            self._log(classified, "unknown command")
-            raise CliUnknownCommandError("cli_unknown_command", verb=verb, name=name)
-        if text.startswith(("Error", "ERROR")):
-            self._log(classified, "rejected" if hidden else text)
-            raise CliRejectedError(
-                "cli_rejected", verb=verb, name=name, reply_text=None if hidden else text
-            )
-        result = CliReply(text=text, value=_value_of(text), sensitive=sensitive)
-        if hidden:
-            self._log(classified, REDACTED)
-        elif classified.verb == "set":
-            self._log(classified, "ok")
-        else:
-            logger.debug("CLI %s -> %s", command, text)
+            if outcome != "reply" or text is None:
+                self._log(classified, "timeout")
+                raise CliTimeoutError("cli_timeout", verb=verb, name=name)
+            if text == "Unknown command":
+                self._log(classified, "unknown command")
+                raise CliUnknownCommandError("cli_unknown_command", verb=verb, name=name)
+            if text.startswith(("Error", "ERROR")):
+                self._log(classified, "rejected" if hidden else text)
+                raise CliRejectedError(
+                    "cli_rejected", verb=verb, name=name, reply_text=None if hidden else text
+                )
+            result = CliReply(text=text, value=_value_of(text), sensitive=sensitive)
+            if hidden:
+                self._log(classified, REDACTED)
+            elif classified.verb == "set":
+                self._log(classified, "ok")
+            else:
+                logger.debug("CLI %s -> %s", command, text)
         return result
 
     @staticmethod
     def _log(classified: _Classified, outcome: str) -> None:
-        # Verb and name only: never a set argument, never a sensitive reply.
-        logger.debug("CLI %s %s -> %s", classified.verb, classified.name, outcome)
+        # Shown verb and name only: never a set argument, never a sensitive reply.
+        where = " ".join(part for part in (classified.shown_verb, classified.shown_name) if part)
+        logger.debug("CLI %s -> %s", where, outcome)
 
     async def get(self, name: str, *, sensitive: bool = False) -> CliReply:
         """``get <name>``."""
