@@ -2270,6 +2270,13 @@ class BackupInspectResult(BaseModel):
     )
     identity_relation: BackupIdentityRelation = "no_identity"
     identity_requires: BackupIdentityRequires = Field(default_factory=BackupIdentityRequires)
+    identity_allows_wipe: bool = Field(
+        default=False,
+        description=(
+            "The history recorded without a bound owner is kept by default and "
+            "erased only when the restore sends wipe_history=true"
+        ),
+    )
     identity_refusal: str | None = Field(
         default=None, description="Error code when the restore would be refused"
     )

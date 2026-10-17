@@ -257,7 +257,9 @@ be wrong, because historical decryption inserts old messages with new ids.
   runs setup when the key changed. A known live key
   other than the backup's needs `replace_live_identity` and
   `expected_live_public_key == live`; history under another key needs
-  `wipe_history`; a radio that is not connected never gets the backup key bound
+  `wipe_history`; history with no bound owner (row 12, or an unbound database
+  with history) is kept unless the request sends `wipe_history`, which inspect
+  offers as `identity_allows_wipe` (an unchecked box in the UI); a radio that is not connected never gets the backup key bound
   (rows 3-4: the next connect opens `identity_unbound_legacy`). The job imports
   first (re-read of the live key after the reconnect on every path, refused
   with `live_identity_changed` when it moved; raw `0x18` frame waiting for

@@ -91,6 +91,9 @@ function identityChecks(inspect: BackupInspectResult, steps: BackupRestoreSteps)
     refusal: on ? inspect.identity_refusal : null,
     replace: on && inspect.identity_requires.replace_live_identity,
     wipe: on && inspect.identity_requires.wipe_history,
+    /** An unchecked option: erase the history that has no bound owner. */
+    optionalWipe:
+      on && !inspect.identity_requires.wipe_history && Boolean(inspect.identity_allows_wipe),
   };
 }
 
@@ -294,7 +297,9 @@ export function BackupRestoreFlow({
         ...(file.passphrase ? { passphrase: file.passphrase } : {}),
         steps,
         replace_live_identity: identityChecks(result, steps).replace && confirmReplace,
-        wipe_history: identityChecks(result, steps).wipe && confirmWipe,
+        wipe_history:
+          (identityChecks(result, steps).wipe || identityChecks(result, steps).optionalWipe) &&
+          confirmWipe,
         expected_live_public_key: result.live_radio_public_key,
       });
       finishedRef.current = null;
@@ -721,6 +726,11 @@ function RestoreSummary({
       {checks.refusal === null && checks.wipe && (
         <Check checked={confirmWipe} onChange={onConfirmWipe}>
           {t('settings.fullRestore.identityWipeConfirm')}
+        </Check>
+      )}
+      {checks.refusal === null && checks.optionalWipe && (
+        <Check checked={confirmWipe} onChange={onConfirmWipe}>
+          {t('settings.fullRestore.identityWipeOptional')}
         </Check>
       )}
 

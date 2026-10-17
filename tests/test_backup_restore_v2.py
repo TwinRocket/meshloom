@@ -318,6 +318,30 @@ async def test_legacy_gate_with_another_radio_imports_and_keeps_history(backup_d
 
 
 @pytest.mark.asyncio
+async def test_legacy_gate_erases_the_history_when_asked(backup_db, setup_stub):
+    from app.services.backup_restore import inspect_backup
+
+    node = FakeNode(private_key=OTHER_KEY)
+    await RadioTransportRepository.set_identity_gate(
+        state="identity_unbound_legacy", new_public_key=L, new_name="New"
+    )
+    await ContactRepository.upsert(ContactUpsert(public_key="99" * 32, name="Legacy", type=1))
+    async with connected_node(node):
+        inspected = await inspect_backup(make_doc(), None)
+        assert inspected.identity_allows_wipe is True
+        assert inspected.identity_requires.wipe_history is False
+        job = await run(
+            make_doc(),
+            replace_live_identity=True,
+            expected_live_public_key=L,
+            wipe_history=True,
+        )
+    assert job.state == "done", statuses(job)
+    assert node.public_key == P
+    assert await ContactRepository.get_by_key("99" * 32) is None
+
+
+@pytest.mark.asyncio
 async def test_import_disabled_stops_everything_and_pauses_the_link(backup_db, setup_stub):
     node = FakeNode(private_key=OTHER_KEY)
     node.import_disabled = True

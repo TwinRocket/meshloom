@@ -205,6 +205,46 @@ describe('BackupRestoreFlow', () => {
     });
   });
 
+  it.each([false, true])(
+    'offers the optional history wipe unchecked, and sends it only when ticked (%s)',
+    async (tick) => {
+      mocks.inspectBackup.mockResolvedValue(
+        inspectResult({
+          identity_relation: 'replaces_live',
+          identity_requires: { replace_live_identity: true, wipe_history: false },
+          identity_allows_wipe: true,
+        })
+      );
+      render(<BackupRestoreFlow />);
+      pickFile(V2);
+      const optional = (await screen.findByLabelText(
+        i18n.t('settings.fullRestore.identityWipeOptional')
+      )) as HTMLInputElement;
+      expect(optional.checked).toBe(false);
+      expect(
+        screen.queryByLabelText(i18n.t('settings.fullRestore.identityWipeConfirm'))
+      ).toBeNull();
+      fireEvent.click(
+        screen.getByLabelText(
+          i18n.t('settings.fullRestore.identityReplacesLiveConfirm', {
+            name: 'Fresh',
+            key: LIVE.slice(0, 12),
+          })
+        )
+      );
+      fireEvent.click(checkbox('settings.fullRestore.confirm'));
+      if (tick) fireEvent.click(optional);
+      const restore = screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') });
+      expect(restore).toBeEnabled();
+      fireEvent.click(restore);
+      await waitFor(() => expect(mocks.startFullRestore).toHaveBeenCalled());
+      expect(mocks.startFullRestore.mock.calls[0][0]).toMatchObject({
+        replace_live_identity: true,
+        wipe_history: tick,
+      });
+    }
+  );
+
   it('asks no identity confirmation when the identity step is unchecked', async () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({

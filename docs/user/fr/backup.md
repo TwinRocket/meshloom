@@ -39,6 +39,8 @@ Le groupe contient :
 
 Sur un **nouveau Meshloom** (nouvelle machine ou nouvelle base), **configurez d’abord la connexion à la radio**, puis restaurez depuis **Réglages → Base de données → Restaurer une sauvegarde**. Si la radio n’est pas connectée au moment de la restauration, seules les données de Meshloom sont restaurées. Quand la radio se connecte ensuite, Meshloom demande quoi faire de son identité : choisissez de nouveau **Restaurer depuis une sauvegarde** pour appliquer la clé et les étapes radio, ou **Lier sans effacer** pour garder l’identité propre de la radio avec l’historique restauré. Meshloom ne se lie jamais à l’identité de la sauvegarde avant qu’une radio ait montré qu’elle la détient.
 
+Quand l’historique de Meshloom a été enregistré avant qu’il sache à quelle identité il appartient (une ancienne version, ou une base jamais liée à une radio), le résumé propose **Effacer aussi l’historique que ce Meshloom a enregistré avant**, décoché : laissé décoché, cet historique est conservé et attribué à l’identité restaurée.
+
 Certaines étapes peuvent être sautées :
 
 - Une radio dont le firmware refuse l’import de clé (compilé sans) ne peut pas retrouver son identité. Meshloom s’arrête avant d’écrire quoi que ce soit d’autre et le dit.

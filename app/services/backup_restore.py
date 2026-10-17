@@ -143,7 +143,8 @@ def decide_identity_restore(
         # Rows 5-6: a reflashed radio auto-bound; history (if any) is L's.
         return replace_live(wipe=has_history)
     if bound is None:
-        return replace(replace_live(wipe=False), wipe_optional=True)
+        # No bound owner: any history is kept unless the user asks for a wipe.
+        return replace(replace_live(wipe=False), wipe_optional=has_history)
     if bound == backup:
         return replace_live(wipe=False, relation="restores_bound")
     return IdentityDecision(relation="conflict", refusal="backup_identity_conflict")
@@ -299,6 +300,7 @@ async def inspect_backup(
         ),
         identity_relation=decision.relation,
         identity_requires=decision.requires,
+        identity_allows_wipe=decision.wipe_optional,
         identity_refusal=decision.refusal,
         live_radio_public_key=inputs.live,
         live_radio_name=inputs.live_name,

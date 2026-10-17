@@ -169,6 +169,7 @@ async def test_inspect_names_a_different_live_radio(backup_db, client):
         ).json()
     assert result["identity_relation"] == "replaces_live"
     assert result["identity_requires"] == {"replace_live_identity": True, "wipe_history": False}
+    assert result["identity_allows_wipe"] is False
     assert result["live_radio_public_key"] == other.public_key
 
 

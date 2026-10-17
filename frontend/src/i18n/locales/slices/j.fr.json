@@ -54,6 +54,7 @@
       },
       "identityReplacesLiveConfirm": "Je comprends que l’identité de la radio {{name}} ({{key}}…) sera remplacée et perdue si je ne l’ai pas sauvegardée.",
       "identityWipeConfirm": "Je comprends que l’historique enregistré par Meshloom sous l’autre identité est effacé.",
+      "identityWipeOptional": "Effacer aussi l’historique que ce Meshloom a enregistré avant (messages, contacts, télémétrie). Décoché, il est conservé et attribué à l’identité restaurée.",
       "wifiTcpWarning": "Meshloom joint la radio par le Wi-Fi et cette sauvegarde contient un autre réseau : l’enregistrer puis redémarrer couperait Meshloom de la radio. Désactivé par défaut.",
       "blePinWarning": "Le code PIN Bluetooth de la sauvegarde diffère de celui avec lequel Meshloom s’appaire. Le restaurer change aussi le code PIN qu’utilise Meshloom. Désactivé par défaut.",
       "meshloomStepRequired": "Les canaux et les contacts sont écrits à partir des données de Meshloom restaurées : restaurez-les aussi.",

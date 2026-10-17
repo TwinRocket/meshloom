@@ -54,6 +54,7 @@
       },
       "identityReplacesLiveConfirm": "I understand that the identity of radio {{name}} ({{key}}…) will be replaced and lost unless I backed it up.",
       "identityWipeConfirm": "I understand that the history Meshloom recorded under the other identity is erased.",
+      "identityWipeOptional": "Also erase the history this Meshloom recorded before (messages, contacts, telemetry). Unchecked, it is kept and attributed to the restored identity.",
       "wifiTcpWarning": "Meshloom reaches the radio over Wi-Fi and this backup holds another network: storing it and rebooting would cut Meshloom off. Off by default.",
       "blePinWarning": "The backup's Bluetooth PIN differs from the one Meshloom pairs with. Restoring it changes the PIN Meshloom uses too. Off by default.",
       "meshloomStepRequired": "Channels and contacts are written from the restored Meshloom data: restore it too.",

@@ -79,6 +79,12 @@ def test_row_12_keeps_the_history_unless_asked():
 
 
 @pytest.mark.parametrize("history", [False, True])
+def test_an_unbound_database_offers_the_wipe_only_with_history(history):
+    decision = decide_identity_restore(gate=None, bound=None, live=L, backup=P, has_history=history)
+    assert decision.wipe is False and decision.wipe_optional is history
+
+
+@pytest.mark.parametrize("history", [False, True])
 @pytest.mark.parametrize("gate,bound", [(None, L), (MISMATCH, P), (LEGACY, None), (None, None)])
 def test_a_known_live_key_other_than_the_backup_always_needs_confirmation(gate, bound, history):
     decision = decide_identity_restore(

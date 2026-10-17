@@ -1613,6 +1613,8 @@ export interface BackupInspectResult {
   radio_proxy_enabled: boolean | null;
   identity_relation: BackupIdentityRelation;
   identity_requires: BackupIdentityRequires;
+  /** The history has no bound owner: kept unless the restore sends wipe_history. */
+  identity_allows_wipe?: boolean;
   identity_refusal: string | null;
   live_radio_public_key: string | null;
   live_radio_name: string | null;

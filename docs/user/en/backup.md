@@ -39,6 +39,8 @@ The group holds:
 
 On a **new Meshloom** (a new machine or a new database), **set up the radio connection first**, then restore from **Settings → Database → Restore a backup**. If the radio is not connected when you restore, only the Meshloom data is restored. When the radio connects later, Meshloom asks what to do with its identity: choose **Restore from a backup** again so the key and the radio steps are applied, or **Bind without wipe** to keep the radio's own identity with the restored history. Meshloom never ties itself to the backup's identity before a radio has shown it holds it.
 
+When the history in Meshloom was recorded before it knew which identity it belongs to (an older version, or a database never tied to a radio), the summary offers **Also erase the history this Meshloom recorded before**, unticked: left unticked, that history is kept and attributed to the restored identity.
+
 Some steps can be skipped:
 
 - A radio whose firmware refuses key import (built without it) cannot get its identity back. Meshloom stops before writing anything else and says so.
