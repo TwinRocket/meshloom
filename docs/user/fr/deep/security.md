@@ -57,7 +57,7 @@ MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
 
 ## Mot de passe Wi-Fi
 
-Meshloom n’enregistre jamais le mot de passe Wi-Fi de la radio, ni dans sa base de données ni dans ses journaux, à aucun niveau de journalisation. Pour savoir si des identifiants sont enregistrés, il relit le mot de passe dans la radio par le lien compagnon une fois par connexion et quand il vérifie un changement, puis l’oublie. Quand vous enregistrez des identifiants, le mot de passe va jusqu’à la radio par ce même lien. En transport TCP, ce lien n’est pas chiffré : quiconque peut observer votre réseau local peut alors lire le mot de passe. En USB ou en Bluetooth, il ne traverse pas votre réseau. Voir [Radio, contacts et canaux](/docs/deep/radio/#wi-fi).
+Meshloom n’enregistre jamais le mot de passe Wi-Fi de la radio, ni dans sa base de données ni dans ses journaux, à aucun niveau de journalisation. Pour savoir si des identifiants sont enregistrés, il relit le mot de passe dans la radio par le lien compagnon, puis l’oublie : après chaque connexion, à chaque nouvelle tentative de cette vérification, et lors d’un **Réessayer** manuel tant qu’aucune vérification n’a abouti. Enregistrer des identifiants envoie le mot de passe à la radio et le relit deux fois (une fois avant, une fois pour vérifier). En transport TCP, le lien compagnon n’est pas chiffré : le mot de passe traverse votre réseau local en clair chaque fois que Meshloom le relit ou l’enregistre, et quiconque peut observer ce réseau peut le lire. En USB ou en Bluetooth, il ne traverse pas votre réseau. Voir [Radio, contacts et canaux](/docs/deep/radio/#wi-fi).
 
 ## Instantané de support
 

@@ -146,7 +146,7 @@ Quand Meshloom joint la radio en TCP (donc par son Wi-Fi), les fenêtres prévie
 
 ### Ce que Meshloom garde
 
-Meshloom n’enregistre jamais le mot de passe Wi-Fi, ni dans sa base de données ni dans ses journaux. Pour savoir s’il y en a un d’enregistré, il le relit dans la radio une fois par connexion et quand il vérifie un changement, puis l’oublie. Voir [Sécurité](/docs/deep/security/#mot-de-passe-wi-fi).
+Meshloom n’enregistre jamais le mot de passe Wi-Fi, ni dans sa base de données ni dans ses journaux. Pour savoir s’il y en a un d’enregistré, il le relit dans la radio après chaque connexion (et à chaque nouvelle tentative de cette vérification) et quand il enregistre des identifiants, puis l’oublie. En TCP, il traverse alors votre réseau local en clair à chaque fois. Voir [Sécurité](/docs/deep/security/#mot-de-passe-wi-fi).
 
 ## Remise à zéro usine
 

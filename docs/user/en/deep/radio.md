@@ -146,7 +146,7 @@ When Meshloom reaches the radio over TCP (that is, over its Wi-Fi), the dialogs 
 
 ### What Meshloom keeps
 
-Meshloom never stores the Wi-Fi password, in its database or in its logs. To know whether one is stored, it reads it back from the radio once per connection and when it checks a change, then forgets it. See [Security](/en/docs/deep/security/#wi-fi-password).
+Meshloom never stores the Wi-Fi password, in its database or in its logs. To know whether one is stored, it reads it back from the radio after each connection (and at each retry of that check) and when it stores credentials, then forgets it. Over TCP it crosses your local network in clear each time. See [Security](/en/docs/deep/security/#wi-fi-password).
 
 ## Factory reset
 

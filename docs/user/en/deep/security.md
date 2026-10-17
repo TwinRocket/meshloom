@@ -57,7 +57,7 @@ When set to `true`, `GET /api/radio/private-key` returns the key as hexadecimal 
 
 ## Wi-Fi password
 
-Meshloom never stores the radio's Wi-Fi password, in its database or in its logs, at any log level. To know whether credentials are stored, it reads the password back from the radio over the companion link once per connection and when it checks a change, then forgets it. When you store credentials, the password travels to the radio over the same link. Over a TCP transport that link is not encrypted: anyone who can watch your local network can read the password then. Over USB or Bluetooth it does not cross your network. See [Radio, contacts, and channels](/en/docs/deep/radio/#wi-fi).
+Meshloom never stores the radio's Wi-Fi password, in its database or in its logs, at any log level. To know whether credentials are stored, it reads the password back from the radio over the companion link, then forgets it: after each connection, at each retry of that check, and on a manual **Retry** while no check has completed. Storing credentials sends the password to the radio and reads it back twice (once before, once to verify). Over a TCP transport the companion link is not encrypted: the password crosses your local network in clear each time Meshloom reads it back or stores it, and anyone who can watch that network can read it. Over USB or Bluetooth it does not cross your network. See [Radio, contacts, and channels](/en/docs/deep/radio/#wi-fi).
 
 ## Support snapshot
 
