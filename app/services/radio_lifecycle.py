@@ -353,6 +353,10 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
                 start_telemetry_collect()
 
             radio_manager._setup_complete = True
+            # Wi-Fi state and stored credentials (companion CLI), in the background.
+            from app.services.radio_wifi import start_post_connect_check
+
+            start_post_connect_check()
             # The appstart of the identity check ran before the SELF_INFO
             # subscription: compare the position Community has now.
             from app.services.observer_position import note_radio_self_info

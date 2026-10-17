@@ -27,6 +27,7 @@ Rules:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -81,6 +82,10 @@ _CAPABILITY_NO_CLI = frozenset(
         "link_unreliable",
     }
 )
+
+
+class _StaleConnection(Exception):
+    """A background check outlived the connection it was started for."""
 
 
 class WifiRequestError(Exception):
@@ -574,18 +579,27 @@ async def dismiss_wifi_prompt(radio_public_key: str) -> RadioWifiState:
 
 
 async def run_full_wifi_check(
-    *, blocking: bool = True, next_retry_at: int | None = None
+    *,
+    blocking: bool = True,
+    next_retry_at: int | None = None,
+    expect: _WriteToken | None = None,
 ) -> RadioWifiState:
     """One full check (stored password read included); writes and broadcasts.
 
     A timeout or another CLI failure gives ``check="failed"`` (with
     ``next_retry_at`` when the caller schedules a retry) instead of raising.
+    With ``expect`` (the connection a background task belongs to) nothing is
+    written once the connection changed.
     """
     global _full_check_running
     _full_check_running = True
     try:
         async with companion_cli_session("wifi_check", blocking=blocking) as cli:
             token = _token()
+            if expect is not None and (
+                token.generation != expect.generation or token.link is not expect.link
+            ):
+                raise _StaleConnection()
             public_key = await connected_radio_public_key()
             previous = _current_entry()
             reboot_pending = previous.state.reboot_pending if previous else False
@@ -664,3 +678,80 @@ async def _merge_link_status(token: _WriteToken, connected: bool, ip: str | None
     entry.state = state
     _broadcast(state)
     return True
+
+
+# -- after each connect -------------------------------------------------------
+
+
+def start_post_connect_check() -> None:
+    """Called once post-connect setup completed: forget the previous
+    connection's state and spawn the Wi-Fi check (tracked by ``spawn()``)."""
+    from app.background_tasks import spawn
+
+    begin_connection()
+    spawn(run_wifi_post_connect_check(), name="wifi_post_connect")
+
+
+async def run_wifi_post_connect_check() -> None:
+    """The full check for a new connection, with bounded retries, then status
+    re-checks while Wi-Fi is enabled but not joined yet.
+
+    Retries (``POST_CONNECT_RETRY_DELAYS`` after a failure) and re-checks
+    (``LINK_RECHECK_TIMES`` after the check, no password, each in its own short
+    non-blocking session, skipped when the radio is busy) live in this one task.
+    It stops, without writing or broadcasting, as soon as the connection it was
+    started for is gone. It never stores credentials.
+    """
+    from app.radio import RadioDisconnectedError, RadioOperationBusyError
+
+    expect = _token()
+
+    def alive() -> bool:
+        return _token_alive(expect) and bool(_manager().is_setup_complete)
+
+    delays = list(POST_CONNECT_RETRY_DELAYS)
+    state: RadioWifiState | None = None
+    while True:
+        if not alive():
+            return
+        next_retry_at = _now() + int(delays[0]) if delays else None
+        try:
+            state = await run_full_wifi_check(next_retry_at=next_retry_at, expect=expect)
+        except (_StaleConnection, CliError, RadioDisconnectedError):
+            return
+        except Exception:
+            logger.exception("Wi-Fi check after connect failed")
+            return
+        if state.check != "failed":
+            break
+        if not delays:
+            logger.info("Wi-Fi check failed (%s); no automatic retry left", state.check_error)
+            return
+        delay = delays.pop(0)
+        logger.info("Wi-Fi check failed (%s); retrying in %ds", state.check_error, delay)
+        await asyncio.sleep(delay)
+
+    if not (state.supported and state.enabled and state.ssid is not None and not state.connected):
+        return
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    for at in LINK_RECHECK_TIMES:
+        await asyncio.sleep(max(0.0, started + at - loop.time()))
+        if not alive():
+            return
+        try:
+            async with companion_cli_session("wifi_link_recheck", blocking=False) as cli:
+                token = _token()
+                if token.generation != expect.generation or token.link is not expect.link:
+                    return
+                status = await wifi_link_status(cli)
+                await _merge_link_status(token, status.connected, status.ip)
+        except RadioOperationBusyError:
+            continue
+        except (CliError, RadioDisconnectedError):
+            return
+        except Exception:
+            logger.exception("Wi-Fi status re-check failed")
+            return
+        if status.connected:
+            return

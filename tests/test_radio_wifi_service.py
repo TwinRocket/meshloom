@@ -623,3 +623,159 @@ async def test_a_new_connection_drops_writes_from_the_old_one(wifi):
     assert radio_wifi._write_cache(state, token, raw_password_stored=False) is False
     assert await radio_wifi._merge_link_status(token, True, "10.0.0.1") is False
     assert radio_wifi.last_wifi_state() is None
+
+
+# --------------------------------------------------------------------------
+# After each connect: bounded retries and status re-checks
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fast_schedule(monkeypatch, fast_cli):
+    monkeypatch.setattr(radio_wifi, "POST_CONNECT_RETRY_DELAYS", (0.05, 0.1))
+    monkeypatch.setattr(radio_wifi, "LINK_RECHECK_TIMES", (0.02, 0.04, 0.06))
+
+
+def _states(env) -> list[dict]:
+    return [data for event, data, _realtime in env.broadcasts if event == "radio_wifi"]
+
+
+def _fail_first(times: int, reply: str):
+    count = 0
+
+    def override(_command: str):
+        nonlocal count
+        count += 1
+        return None if count <= times else reply
+
+    return override
+
+
+async def test_failed_check_is_retried_and_then_succeeds(wifi, fast_schedule):
+    wifi.firmware.overrides["get wifi.pwd"] = _fail_first(1, "> ")
+
+    await radio_wifi.run_wifi_post_connect_check()
+
+    states = _states(wifi)
+    assert states[0]["check"] == "failed"
+    assert states[0]["check_error"] == "cli_timeout"
+    assert states[0]["next_retry_at"] is not None
+    assert states[-1]["check"] == "done"
+    assert states[-1]["prompt_needed"] is True
+    assert radio_wifi.last_wifi_state().check == "done"
+
+
+async def test_after_the_last_retry_the_state_stays_failed(wifi, fast_schedule):
+    wifi.firmware.silent.add("get wifi.pwd")
+
+    await radio_wifi.run_wifi_post_connect_check()
+
+    states = _states(wifi)
+    assert [s["check"] for s in states] == ["failed", "failed", "failed"]
+    assert states[0]["next_retry_at"] is not None
+    assert states[1]["next_retry_at"] is not None
+    assert states[-1]["next_retry_at"] is None
+    assert wifi.firmware.commands.count("get wifi.pwd") == 3
+
+
+async def test_a_retry_from_an_old_connection_never_writes(wifi, fast_schedule, monkeypatch):
+    wifi.firmware.silent.add("get wifi.pwd")
+    sleeps = 0
+    real_sleep = radio_wifi.asyncio.sleep
+
+    async def sleep_then_reconnect(delay):
+        nonlocal sleeps
+        sleeps += 1
+        await real_sleep(0)
+        wifi.manager.reset_cli_link()  # a new connection replaced the link
+
+    monkeypatch.setattr(radio_wifi.asyncio, "sleep", sleep_then_reconnect)
+    await radio_wifi.run_wifi_post_connect_check()
+
+    assert sleeps == 1
+    assert len(_states(wifi)) == 1  # only the first failure, nothing after
+    assert wifi.firmware.commands.count("get wifi.pwd") == 1
+
+
+async def test_a_check_waiting_for_the_lock_across_a_new_connection_writes_nothing(wifi):
+    expect = radio_wifi._token()
+    radio_wifi.begin_connection()
+    with pytest.raises(radio_wifi._StaleConnection):
+        await radio_wifi.run_full_wifi_check(expect=expect)
+    assert _states(wifi) == []
+
+
+async def test_status_rechecks_until_wifi_joins_without_reading_the_password(wifi, fast_schedule):
+    count = 0
+
+    def status(_command: str) -> str:
+        nonlocal count
+        count += 1
+        # Probe, full check, then the re-checks: joins on the second re-check.
+        return "> connected" if count >= 4 else "> disconnected"
+
+    wifi.firmware.overrides["get wifi.status"] = status
+    wifi.firmware.overrides["get wifi.ip"] = lambda _c: (
+        "> 192.168.1.77" if count >= 4 else "> (not connected)"
+    )
+
+    await radio_wifi.run_wifi_post_connect_check()
+
+    assert wifi.firmware.commands.count("get wifi.pwd") == 1
+    assert count == 4  # stopped once joined
+    final = radio_wifi.last_wifi_state()
+    assert final.connected is True
+    assert final.ip == "192.168.1.77"
+    assert final.credentials_stored is False  # kept from the full check
+    assert _states(wifi)[-1]["ip"] == "192.168.1.77"
+
+
+async def test_status_rechecks_stop_when_the_radio_goes_away(wifi, fast_schedule, monkeypatch):
+    real_sleep = radio_wifi.asyncio.sleep
+    calls = 0
+
+    async def sleep_then_disconnect(delay):
+        nonlocal calls
+        calls += 1
+        await real_sleep(0)
+        if calls == 2:
+            wifi.manager._setup_complete = False
+
+    monkeypatch.setattr(radio_wifi.asyncio, "sleep", sleep_then_disconnect)
+    await radio_wifi.run_wifi_post_connect_check()
+    # Probe + full check + one re-check (status, ip), then it stopped.
+    assert wifi.firmware.commands.count("get wifi.status") == 3
+    assert wifi.firmware.commands.count("get wifi.pwd") == 1
+
+
+async def test_no_rechecks_once_joined_or_without_wifi(wifi, fast_schedule):
+    wifi.firmware.connected = True
+    await radio_wifi.run_wifi_post_connect_check()
+    assert wifi.firmware.commands.count("get wifi.status") == 2  # probe + check
+
+    radio_wifi.begin_connection()
+    wifi.manager.reset_cli_link()
+    wifi.firmware.commands.clear()
+    wifi.firmware.wifi = False
+    await radio_wifi.run_wifi_post_connect_check()
+    assert radio_wifi.last_wifi_state().unsupported_reason == "no_wifi"
+    assert not any(c.startswith(("set ", "get wifi.pwd")) for c in wifi.firmware.commands)
+
+
+async def test_the_check_never_stores_credentials(wifi, fast_schedule):
+    await radio_wifi.run_wifi_post_connect_check()
+    assert not any(c.startswith("set ") for c in wifi.firmware.commands)
+
+
+async def test_start_post_connect_check_forgets_the_previous_connection(wifi, monkeypatch):
+    await radio_wifi.run_full_wifi_check()
+    spawned: list[str] = []
+
+    def fake_spawn(coro, *, name=None):
+        spawned.append(name)
+        coro.close()
+
+    monkeypatch.setattr("app.background_tasks.spawn", fake_spawn)
+    radio_wifi.start_post_connect_check()
+    assert spawned == ["wifi_post_connect"]
+    assert radio_wifi.last_wifi_state() is None
