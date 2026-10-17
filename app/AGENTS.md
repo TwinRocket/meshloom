@@ -100,18 +100,24 @@ and the OpenAPI page (`/docs`), not a table here.
   `Radio clock after sync` after the device query. Tests:
   `tests/test_radio_clock_wraparound.py` (fake firmware clock).
 - Whoever triggered that reboot (setup, the periodic sync, `PATCH /radio/config`),
-  `RadioManager.note_expected_reboot()` records it for
-  `EXPECTED_REBOOT_GRACE_SECONDS` (90 s): health says `radio_state: "rebooting"`,
-  reconnect failures are not broadcast, `POST /radio/reconnect` (and
-  `POST /radio/reboot` while disconnected) answers 200 `pending` with
-  `code: "radio_rebooting"` instead of racing the monitor,
+  `RadioManager.note_expected_reboot(reason)` records it for
+  `EXPECTED_REBOOT_GRACE_SECONDS` (90 s). Reasons (`ExpectedRebootReason`,
+  `services/radio_lifecycle.py`): `clock_sync` (the clock fix) and `wifi_config`
+  (a reboot that applies Wi-Fi settings, sent only by the Wi-Fi routes, see
+  "Wi-Fi"). The user-initiated `POST /radio/reboot` records none. While it runs,
+  health says `radio_state: "rebooting"` with `reboot_reason` (the frontend picks
+  its copy from it), reconnect failures are not broadcast, `POST /radio/reconnect`
+  (and `POST /radio/reboot` while disconnected) answers 200 `pending` with
+  `code: "radio_rebooting"` and `params.reason` instead of racing the monitor,
   `POST /radio/identity/adopt` returns `radio_state: "rebooting"` instead of
   `"paused"`, and the monitor drops a transport that survived the reboot (a
   serial bridge keeps the port open) so setup runs again on a new session. The
   first completed setup clears it (`prepare_connected_radio` reports healthy only
   when the transport is up and setup completed, never after a setup that found
   no transport); past the bound the monitor broadcasts only
-  `radio_reboot_timeout` on that pass, then reconnect errors surface again.
+  `radio_reboot_timeout` (`params.reason`) on that pass, then reconnect errors
+  surface again. Monitor logs name the reason; the debug snapshot shows it
+  (`runtime.expected_reboot_reason`).
 - A broadcast `error` with a `code` is translated by the frontend from
   `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
   else the backend's `details` are shown as sent.

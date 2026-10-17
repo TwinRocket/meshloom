@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "radio": {
+      "rebootingWifiConfig": "Rebooting {{info}} to apply its Wi-Fi settings",
+      "rebootingReconnectRequestedWifiConfig": "The radio is rebooting to apply its Wi-Fi settings. Meshloom reconnects automatically."
+    }
+  },
+  "toast": {
+    "radioRebootingWifiConfig": "Radio rebooting to apply its Wi-Fi settings"
+  }
+}

@@ -65,6 +65,8 @@ class HealthResponse(BaseModel):
     radio_connected: bool
     radio_initializing: bool = False
     radio_state: RadioHealthState = "disconnected"
+    # Why Meshloom rebooted the radio, while radio_state is "rebooting".
+    reboot_reason: Literal["clock_sync", "wifi_config"] | None = None
     connection_info: str | None
     transport_configured: bool = False
     identity: RadioIdentityInfo | None = None
@@ -139,11 +141,14 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
     is_reconnecting = getattr(radio_manager, "is_reconnecting", False)
 
     radio_initializing = bool(radio_connected and (setup_in_progress or not setup_complete))
+    reboot_reason = None
     if not connection_desired:
         radio_state = "paused"
-    elif expected_reboot_reason(radio_manager) is not None:
-        # Rebooting on Meshloom's request (clock fix) until setup completes again.
+    elif (reason := expected_reboot_reason(radio_manager)) is not None:
+        # Rebooting on Meshloom's request (clock fix, Wi-Fi change) until setup
+        # completes again; the frontend picks its copy from reboot_reason.
         radio_state = "rebooting"
+        reboot_reason = reason
     elif radio_initializing:
         radio_state = "initializing"
     elif radio_connected:
@@ -163,6 +168,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         transport_configured = snapshot.configured
         if snapshot.identity_state in ("identity_mismatch", "identity_unbound_legacy"):
             radio_state = snapshot.identity_state
+            reboot_reason = None
             identity = await identity_health_info()
     except Exception:
         pass
@@ -210,6 +216,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "radio_connected": radio_connected,
         "radio_initializing": radio_initializing,
         "radio_state": radio_state,
+        "reboot_reason": reboot_reason,
         "connection_info": connection_info,
         "app_info": {
             "version": app_build_info.version,

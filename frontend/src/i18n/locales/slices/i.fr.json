@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "radio": {
+      "rebootingWifiConfig": "Redémarrage de {{info}} pour appliquer ses réglages Wi-Fi",
+      "rebootingReconnectRequestedWifiConfig": "La radio redémarre pour appliquer ses réglages Wi-Fi. Meshloom se reconnecte automatiquement."
+    }
+  },
+  "toast": {
+    "radioRebootingWifiConfig": "Radio en redémarrage pour appliquer ses réglages Wi-Fi"
+  }
+}

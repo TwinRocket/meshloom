@@ -1394,9 +1394,14 @@ export function SettingsRadioSection({
             info: health?.connection_info || t('settings.radio.radioNoun'),
           })
         : radioState === 'rebooting'
-          ? t('settings.radio.rebootingClockFix', {
-              info: health?.connection_info || t('settings.radio.radioNoun'),
-            })
+          ? t(
+              health?.reboot_reason === 'wifi_config'
+                ? 'settings.radio.rebootingWifiConfig'
+                : 'settings.radio.rebootingClockFix',
+              {
+                info: health?.connection_info || t('settings.radio.radioNoun'),
+              }
+            )
           : radioState === 'connecting'
             ? health?.connection_info
               ? t('settings.radio.connectingTo', { info: health.connection_info })
@@ -1460,7 +1465,13 @@ export function SettingsRadioSection({
       if (radioState === 'paused') {
         const result = await onReconnect();
         if (result?.code === 'radio_rebooting') {
-          toast.info(t('settings.radio.rebootingReconnectRequested'));
+          toast.info(
+            t(
+              result.params?.reason === 'wifi_config'
+                ? 'settings.radio.rebootingReconnectRequestedWifiConfig'
+                : 'settings.radio.rebootingReconnectRequested'
+            )
+          );
         } else {
           toast.success(t('settings.radio.reconnectRequested'));
         }

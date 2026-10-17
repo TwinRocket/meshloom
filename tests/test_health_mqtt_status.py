@@ -175,7 +175,44 @@ class TestHealthFanoutStatus:
             data = await build_health_data(False, "BLE: AA:BB:CC:DD:EE:FF")
 
         assert data["radio_state"] == "rebooting"
+        assert data["reboot_reason"] == "clock_sync"
         assert data["radio_connected"] is False
+
+    @pytest.mark.asyncio
+    async def test_health_reboot_reason_wifi_config(self, test_db):
+        with (
+            patch(
+                "app.routers.health.RawPacketRepository.get_oldest_undecrypted", return_value=None
+            ),
+            patch("app.routers.health.radio_manager") as mock_rm,
+        ):
+            mock_rm.is_setup_in_progress = False
+            mock_rm.is_setup_complete = False
+            mock_rm.connection_desired = True
+            mock_rm.is_reconnecting = True
+            mock_rm.expected_reboot = "wifi_config"
+            data = await build_health_data(False, "Serial: /dev/ttyUSB0")
+
+        assert data["radio_state"] == "rebooting"
+        assert data["reboot_reason"] == "wifi_config"
+
+    @pytest.mark.asyncio
+    async def test_health_reboot_reason_null_when_not_rebooting(self, test_db):
+        with (
+            patch(
+                "app.routers.health.RawPacketRepository.get_oldest_undecrypted", return_value=None
+            ),
+            patch("app.routers.health.radio_manager") as mock_rm,
+        ):
+            mock_rm.is_setup_in_progress = False
+            mock_rm.is_setup_complete = True
+            mock_rm.connection_desired = True
+            mock_rm.is_reconnecting = False
+            mock_rm.expected_reboot = None
+            data = await build_health_data(True, "Serial: /dev/ttyUSB0")
+
+        assert data["radio_state"] == "connected"
+        assert data["reboot_reason"] is None
 
     @pytest.mark.asyncio
     async def test_health_state_connecting_while_reconnect_in_progress(self, test_db):

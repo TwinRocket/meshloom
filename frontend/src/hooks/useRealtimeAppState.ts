@@ -212,12 +212,19 @@ export function useRealtimeAppState({
             if (nextRadioState === 'paused') {
               toast.success(i18n.t('toast.radioPaused'));
             } else if (nextRadioState === 'rebooting') {
-              // Meshloom rebooted the radio itself (clock fix): not a failure. Same
-              // id as the identity modal's toast, so the two never stack.
-              toast.info(i18n.t('toast.radioRebooting'), {
-                id: RADIO_REBOOTING_TOAST_ID,
-                description: i18n.t('toast.radioRebootingDetail'),
-              });
+              // Meshloom rebooted the radio itself (clock fix, Wi-Fi change): not a
+              // failure. Same id as the identity modal's toast, so the two never stack.
+              toast.info(
+                i18n.t(
+                  data.reboot_reason === 'wifi_config'
+                    ? 'toast.radioRebootingWifiConfig'
+                    : 'toast.radioRebooting'
+                ),
+                {
+                  id: RADIO_REBOOTING_TOAST_ID,
+                  description: i18n.t('toast.radioRebootingDetail'),
+                }
+              );
             } else if (
               nextRadioState !== 'identity_mismatch' &&
               nextRadioState !== 'identity_unbound_legacy'

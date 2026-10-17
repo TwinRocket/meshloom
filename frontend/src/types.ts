@@ -128,13 +128,18 @@ export interface RadioIdentityInfo {
   last_activity: number | null;
 }
 
+/** Why Meshloom rebooted the radio: the one-time clock fix, or applying Wi-Fi settings. */
+export type RadioRebootReason = 'clock_sync' | 'wifi_config';
+
 /** `POST /radio/reconnect`. `code: 'radio_rebooting'` (status `pending`): the radio is
- * restarting after Meshloom reset its clock, and the backend reconnects on its own. */
+ * restarting after a reboot Meshloom sent (`params.reason`), and the backend reconnects
+ * on its own. */
 export interface RadioReconnectResponse {
   status: string;
   message: string;
   connected: boolean;
   code?: string;
+  params?: { reason?: RadioRebootReason };
 }
 
 export interface RadioIdentityActionResponse {
@@ -291,6 +296,8 @@ export interface HealthStatus {
     | 'paused'
     | 'identity_mismatch'
     | 'identity_unbound_legacy';
+  /** Set while `radio_state` is `rebooting`: why Meshloom rebooted the radio. */
+  reboot_reason?: RadioRebootReason | null;
   connection_info: string | null;
   transport_configured?: boolean;
   identity?: RadioIdentityInfo | null;

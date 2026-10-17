@@ -1243,7 +1243,29 @@ class TestRebootAndReconnect:
 
         assert result["status"] == "pending"
         assert result["code"] == "radio_rebooting"
+        assert result["params"] == {"reason": "clock_sync"}
+        assert "clock" in result["message"]
         assert result["connected"] is False
+        mock_rm.reconnect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconnect_during_wifi_reboot_names_the_wifi_reason(self):
+        mock_rm = MagicMock()
+        mock_rm.is_connected = False
+        mock_rm.is_reconnecting = False
+        mock_rm.expected_reboot = "wifi_config"
+        mock_rm.reconnect = AsyncMock(return_value=False)
+
+        with (
+            patch("app.routers.radio.radio_manager", _runtime(mock_rm)),
+            _patch_configured_transport(),
+        ):
+            result = await reconnect_radio()
+
+        assert result["status"] == "pending"
+        assert result["code"] == "radio_rebooting"
+        assert result["params"] == {"reason": "wifi_config"}
+        assert "Wi-Fi" in result["message"]
         mock_rm.reconnect.assert_not_awaited()
 
     @pytest.mark.asyncio

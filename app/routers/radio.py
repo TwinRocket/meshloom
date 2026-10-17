@@ -1032,6 +1032,12 @@ async def _require_transport_ready() -> None:
 RADIO_REBOOTING_MESSAGE = (
     "The radio is rebooting to reset its clock; Meshloom reconnects automatically."
 )
+RADIO_REBOOTING_MESSAGES: dict[str, str] = {
+    "clock_sync": RADIO_REBOOTING_MESSAGE,
+    "wifi_config": (
+        "The radio is rebooting to apply its Wi-Fi settings; Meshloom reconnects automatically."
+    ),
+}
 
 
 def _rebooting_response() -> dict | None:
@@ -1039,13 +1045,16 @@ def _rebooting_response() -> dict | None:
 
     The connection monitor brings the radio back on its own: a reconnect request
     then is neither a failure nor a reason to race the monitor for the transport.
+    A 200 ``pending`` body; ``params.reason`` says why the radio reboots.
     """
-    if expected_reboot_reason(radio_manager) is None:
+    reason = expected_reboot_reason(radio_manager)
+    if reason is None:
         return None
     return {
         "status": "pending",
         "code": "radio_rebooting",
-        "message": RADIO_REBOOTING_MESSAGE,
+        "message": RADIO_REBOOTING_MESSAGES.get(reason, RADIO_REBOOTING_MESSAGE),
+        "params": {"reason": reason},
         "connected": False,
     }
 

@@ -69,6 +69,8 @@ class DebugRuntimeInfo(BaseModel):
     path_hash_mode_supported: bool
     channel_slot_reuse_enabled: bool
     channel_send_cache_capacity: int
+    # Why the radio is rebooting on Meshloom's request ("clock_sync", "wifi_config"), if it is.
+    expected_reboot_reason: str | None = None
 
 
 class DebugContactAudit(BaseModel):
@@ -487,13 +489,14 @@ async def debug_support_snapshot() -> DebugSnapshotResponse:
     channels_with_incoming_messages = (
         await MessageRepository.count_channels_with_incoming_messages()
     )
+    reboot_reason = expected_reboot_reason(radio_runtime)
     radio_state = _derive_debug_radio_state(
         radio_connected=radio_connected,
         connection_desired=connection_desired,
         setup_in_progress=setup_in_progress,
         setup_complete=setup_complete,
         is_reconnecting=is_reconnecting,
-        expected_reboot=expected_reboot_reason(radio_runtime) is not None,
+        expected_reboot=reboot_reason is not None,
     )
     return DebugSnapshotResponse(
         captured_at=datetime.now(UTC).isoformat(),
@@ -511,6 +514,7 @@ async def debug_support_snapshot() -> DebugSnapshotResponse:
             path_hash_mode_supported=radio_runtime.path_hash_mode_supported,
             channel_slot_reuse_enabled=radio_runtime.channel_slot_reuse_enabled(),
             channel_send_cache_capacity=radio_runtime.get_channel_send_cache_capacity(),
+            expected_reboot_reason=reboot_reason,
         ),
         database=DebugDatabaseInfo(
             total_dms=message_totals["total_dms"],

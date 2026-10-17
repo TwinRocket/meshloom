@@ -7,21 +7,38 @@ logger = logging.getLogger(__name__)
 POST_CONNECT_SETUP_TIMEOUT_SECONDS = 300
 POST_CONNECT_SETUP_MAX_ATTEMPTS = 2
 DEFAULT_PATH_HASH_MODE = 1  # 2-byte hops
-# How long a reboot Meshloom sent itself (the clock fix) counts as expected: reconnect
+# How long a reboot Meshloom sent itself (the clock fix, a Wi-Fi change) counts as expected: reconnect
 # failures stay quiet and reconnect requests are told the radio is rebooting. Past this
 # bound a radio that never came back surfaces errors again.
 EXPECTED_REBOOT_GRACE_SECONDS = 90
 
 PostConnectSetupOutcome = Literal["done", "reconnect"]
-# Reboots Meshloom sends on its own and then waits for (see RadioManager.note_expected_reboot).
-ExpectedRebootReason = Literal["clock_sync"]
+# Reboots Meshloom sends and then waits for (see RadioManager.note_expected_reboot):
+# "clock_sync", the one-time clock fix; "wifi_config", a reboot that applies Wi-Fi
+# settings stored through the companion CLI (POST /api/radio/wifi/reboot and the
+# Wi-Fi routes' reboot option).
+ExpectedRebootReason = Literal["clock_sync", "wifi_config"]
+EXPECTED_REBOOT_REASONS: tuple[ExpectedRebootReason, ...] = ("clock_sync", "wifi_config")
+
+# Log and toast wording per reason ("Radio rebooted <...>").
+_REBOOT_PURPOSE: dict[str, str] = {
+    "clock_sync": "to reset its clock",
+    "wifi_config": "to apply its Wi-Fi settings",
+}
 
 
 def expected_reboot_reason(radio_manager) -> ExpectedRebootReason | None:
     """The reason of the reboot the radio is expected to come back from, if any."""
-    if getattr(radio_manager, "expected_reboot", None) == "clock_sync":
-        return "clock_sync"
+    reason = getattr(radio_manager, "expected_reboot", None)
+    for known in EXPECTED_REBOOT_REASONS:
+        if reason == known:
+            return known
     return None
+
+
+def reboot_purpose(reason: str | None) -> str:
+    """``"to reset its clock"`` / ``"to apply its Wi-Fi settings"``, for logs and messages."""
+    return _REBOOT_PURPOSE.get(reason or "", "on Meshloom's request")
 
 
 def _clean_device_string(value: object) -> str | None:
@@ -448,30 +465,35 @@ async def connection_monitor_loop(radio_manager) -> None:
 
             # A radio that reconnected and is still in setup (a long offload) is
             # back: only a radio still unreachable past the bound is reported.
-            if (
-                radio_manager.expire_expected_reboot() is not None
-                and not radio_manager.is_connected
-            ):
+            expired_reason = radio_manager.expire_expected_reboot()
+            if expired_reason is not None and not radio_manager.is_connected:
+                purpose = reboot_purpose(expired_reason)
                 logger.warning(
-                    "Radio has not come back %ds after rebooting to reset its clock; "
+                    "Radio has not come back %ds after rebooting %s; "
                     "reconnect failures are reported again",
                     EXPECTED_REBOOT_GRACE_SECONDS,
+                    purpose,
                 )
                 broadcast_error(
-                    "Radio did not come back after its clock reboot",
+                    f"Radio did not come back after rebooting {purpose}",
                     "Check the radio's power and connection.",
                     code="radio_reboot_timeout",
+                    params={"reason": expired_reason},
                 )
                 # One message for this pass: the next pass retries and reports a
                 # reconnect failure the usual way.
                 continue
 
             if radio_manager.take_expected_reboot_teardown() and radio_manager.is_connected:
-                # The clock fix rebooted the radio outside setup (periodic sync,
-                # config update) and the transport survived it, as a serial bridge
-                # does. Drop it now and reconnect on the next pass, once the radio
-                # has had time to boot, so setup runs again on the new session.
-                logger.info("Radio rebooted to reset its clock; reconnecting to run setup again")
+                # Meshloom rebooted the radio outside setup (the clock fix from a
+                # periodic sync or a config update, a Wi-Fi change) and the
+                # transport survived it, as a serial bridge does. Drop it now and
+                # reconnect on the next pass, once the radio has had time to boot,
+                # so setup (and the Wi-Fi check) runs again on the new session.
+                logger.info(
+                    "Radio rebooted %s; reconnecting to run setup again",
+                    reboot_purpose(expected_reboot_reason(radio_manager)),
+                )
                 await radio_manager.disconnect()
                 radio_manager._last_connected = False
                 broadcast_health(False, radio_manager.connection_info)
