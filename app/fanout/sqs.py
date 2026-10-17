@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.fanout.base import FanoutModule
+from app.net.egress_guard import EgressBlocked, validate_destination
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,18 @@ class SqsModule(FanoutModule):
         if region_name:
             kwargs["region_name"] = region_name
         if endpoint_url:
+            # boto3 resolves and connects on its own (no IP pinning): the
+            # custom endpoint is checked when the module starts and at save.
+            try:
+                await validate_destination(
+                    endpoint_url,
+                    allow_private_network=bool(self.config.get("allow_private_network", False)),
+                )
+            except EgressBlocked as exc:
+                self._client = None
+                self._set_last_error(exc.code)
+                logger.warning("SQS %s endpoint refused (%s)", self.config_id, exc.code)
+                return
             kwargs["endpoint_url"] = endpoint_url
         if access_key_id and secret_access_key:
             kwargs["aws_access_key_id"] = access_key_id

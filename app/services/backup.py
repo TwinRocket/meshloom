@@ -807,7 +807,9 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             warnings.append(f"bots_disabled:{label}")
             continue
         try:
-            config, scope = prepare_fanout_config(entry.type, entry.config, entry.scope)
+            config, scope = prepare_fanout_config(
+                entry.type, entry.config, entry.scope, restored=True
+            )
         except HTTPException:
             warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
             continue

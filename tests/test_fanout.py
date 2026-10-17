@@ -1007,7 +1007,7 @@ class TestAppriseModule:
     async def test_status_connected_with_urls(self):
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost"})
+        mod = AppriseModule("test", {"urls": "json://localhost", "allow_private_network": True})
         assert mod.status == "connected"
 
     @pytest.mark.asyncio
@@ -1016,7 +1016,7 @@ class TestAppriseModule:
 
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost"})
+        mod = AppriseModule("test", {"urls": "json://localhost", "allow_private_network": True})
         with _patch("app.fanout.apprise_mod._send_sync") as mock_send:
             await mod.on_message({"type": "PRIV", "text": "hi", "outgoing": True})
             mock_send.assert_not_called()
@@ -1027,7 +1027,10 @@ class TestAppriseModule:
 
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost", "include_outgoing": True})
+        mod = AppriseModule(
+            "test",
+            {"urls": "json://localhost", "allow_private_network": True, "include_outgoing": True},
+        )
         with _patch("app.fanout.apprise_mod._send_sync", return_value=True) as mock_send:
             await mod.on_message(
                 {"type": "PRIV", "text": "hi", "outgoing": True, "sender_name": "Me"}
@@ -1040,7 +1043,7 @@ class TestAppriseModule:
 
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost"})
+        mod = AppriseModule("test", {"urls": "json://localhost", "allow_private_network": True})
         with _patch("app.fanout.apprise_mod._send_sync", return_value=True) as mock_send:
             await mod.on_message(
                 {"type": "PRIV", "text": "hello", "outgoing": False, "sender_name": "Alice"}
@@ -1272,7 +1275,12 @@ class TestAppriseFormatBody:
 
         mod = AppriseModule(
             "test",
-            {"urls": "json://localhost", "body_format_dm": "", "body_format_channel": "  "},
+            {
+                "urls": "json://localhost",
+                "allow_private_network": True,
+                "body_format_dm": "",
+                "body_format_channel": "  ",
+            },
         )
         with _patch("app.fanout.apprise_mod._send_sync", return_value=True) as mock_send:
             await mod.on_message(
@@ -1439,35 +1447,25 @@ class TestAppriseMarkdownFormat:
         assert "**" not in body
         assert "#gen:" in body
 
-    def test_send_sync_passes_markdown_body_format(self):
+    @pytest.mark.parametrize("markdown", [True, False])
+    def test_send_sync_adds_the_validated_servers_and_body_format(self, markdown):
         from unittest.mock import MagicMock, patch
 
-        with patch("app.fanout.apprise_mod.apprise_lib", create=True) as mock_lib:
+        from apprise import NotifyFormat
+
+        from app.fanout.apprise_mod import _send_sync
+        from app.net.apprise_urls import parse_apprise_urls
+
+        servers = parse_apprise_urls(["json://localhost"])
+        with patch("apprise.Apprise") as mock_cls:
             mock_notifier = MagicMock()
             mock_notifier.notify.return_value = True
-            mock_lib.Apprise.return_value = mock_notifier
-
-            with patch.dict("sys.modules", {"apprise": mock_lib}):
-                from app.fanout.apprise_mod import _send_sync
-
-                _send_sync("json://localhost", "test", preserve_identity=False, markdown=True)
-                call_kwargs = mock_notifier.notify.call_args
-                assert call_kwargs.kwargs.get("body_format") or call_kwargs[1].get("body_format")
-
-    def test_send_sync_passes_text_body_format_when_markdown_false(self):
-        from unittest.mock import MagicMock, patch
-
-        with patch("app.fanout.apprise_mod.apprise_lib", create=True) as mock_lib:
-            mock_notifier = MagicMock()
-            mock_notifier.notify.return_value = True
-            mock_lib.Apprise.return_value = mock_notifier
-
-            with patch.dict("sys.modules", {"apprise": mock_lib}):
-                from app.fanout.apprise_mod import _send_sync
-
-                _send_sync("json://localhost", "test", preserve_identity=False, markdown=False)
-                call_kwargs = mock_notifier.notify.call_args
-                assert call_kwargs.kwargs.get("body_format") or call_kwargs[1].get("body_format")
+            mock_cls.return_value = mock_notifier
+            assert _send_sync(servers, "test", markdown=markdown) is True
+        mock_notifier.add.assert_called_once_with(servers[0].server)
+        assert servers[0].server.redirects is False
+        expected = NotifyFormat.MARKDOWN if markdown else NotifyFormat.TEXT
+        assert mock_notifier.notify.call_args.kwargs["body_format"] == expected
 
     @pytest.mark.asyncio
     async def test_on_message_reads_markdown_format_config(self):
@@ -1475,7 +1473,10 @@ class TestAppriseMarkdownFormat:
 
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost", "markdown_format": False})
+        mod = AppriseModule(
+            "test",
+            {"urls": "json://localhost", "allow_private_network": True, "markdown_format": False},
+        )
         with _patch("app.fanout.apprise_mod._send_sync", return_value=True) as mock_send:
             await mod.on_message(
                 {"type": "PRIV", "text": "hello", "outgoing": False, "sender_name": "S_Borkin"}
@@ -1489,7 +1490,7 @@ class TestAppriseMarkdownFormat:
 
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost"})
+        mod = AppriseModule("test", {"urls": "json://localhost", "allow_private_network": True})
         with _patch("app.fanout.apprise_mod._send_sync", return_value=True) as mock_send:
             await mod.on_message(
                 {"type": "PRIV", "text": "hello", "outgoing": False, "sender_name": "Alice"}
@@ -1503,7 +1504,10 @@ class TestAppriseMarkdownFormat:
 
         from app.fanout.apprise_mod import AppriseModule
 
-        mod = AppriseModule("test", {"urls": "json://localhost", "markdown_format": False})
+        mod = AppriseModule(
+            "test",
+            {"urls": "json://localhost", "allow_private_network": True, "markdown_format": False},
+        )
         with _patch("app.fanout.apprise_mod._send_sync", return_value=True) as mock_send:
             await mod.on_message(
                 {

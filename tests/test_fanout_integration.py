@@ -557,6 +557,7 @@ async def webhook_server():
 def _webhook_config(port: int, extra_headers: dict | None = None) -> dict:
     return {
         "url": f"http://127.0.0.1:{port}/hook",
+        "allow_private_network": True,
         "method": "POST",
         "headers": extra_headers or {},
     }
@@ -1183,6 +1184,7 @@ class TestFanoutAppriseIntegration:
             name="Test Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "preserve_identity": True,
                 "body_format_dm": "**DM:** {sender_name}: {text}",
                 "body_format_channel": "**{channel_name}:** {sender_name}: {text}",
@@ -1226,6 +1228,7 @@ class TestFanoutAppriseIntegration:
             name="Channel Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "body_format_dm": "**DM:** {sender_name}: {text}",
                 "body_format_channel": "**{channel_name}:** {sender_name}: {text}",
             },
@@ -1267,6 +1270,7 @@ class TestFanoutAppriseIntegration:
             name="No Outgoing",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
             },
             scope={"messages": "all", "raw_packets": "none"},
             enabled=True,
@@ -1303,6 +1307,7 @@ class TestFanoutAppriseIntegration:
             name="Include Outgoing",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "include_outgoing": True,
             },
             scope={"messages": "all", "raw_packets": "none"},
@@ -1340,6 +1345,7 @@ class TestFanoutAppriseIntegration:
             name="Disabled Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
             },
             scope={"messages": "all", "raw_packets": "none"},
             enabled=False,
@@ -1367,6 +1373,7 @@ class TestFanoutAppriseIntegration:
             name="Selective Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "include_path": False,
             },
             scope={
@@ -1435,6 +1442,7 @@ class TestFanoutAppriseIntegration:
                 name="Apprise A",
                 config={
                     "urls": f"json://127.0.0.1:{server_a.port}",
+                    "allow_private_network": True,
                     "include_path": False,
                 },
                 scope={
@@ -1448,6 +1456,7 @@ class TestFanoutAppriseIntegration:
                 name="Apprise B",
                 config={
                     "urls": f"json://127.0.0.1:{server_b.port}",
+                    "allow_private_network": True,
                     "include_path": False,
                 },
                 scope={
@@ -1532,6 +1541,7 @@ class TestFanoutAppriseIntegration:
                 name="Room B Apprise",
                 config={
                     "urls": f"json://127.0.0.1:{apprise.port}",
+                    "allow_private_network": True,
                     "include_path": False,
                 },
                 scope={
@@ -1601,6 +1611,7 @@ class TestFanoutAppriseIntegration:
             name="Path Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "body_format_dm": "**DM:** {sender_name}: {text} **via:** [{hops_backticked}]",
                 "body_format_channel": "**{channel_name}:** {sender_name}: {text} **via:** [{hops_backticked}]",
             },
@@ -1642,6 +1653,7 @@ class TestFanoutAppriseIntegration:
             name="Plain Apprise",
             config={
                 "urls": f"json://127.0.0.1:{apprise_capture_server.port}",
+                "allow_private_network": True,
                 "markdown_format": False,
             },
             scope={"messages": "all", "raw_packets": "none"},
