@@ -145,19 +145,25 @@ and the OpenAPI page (`/docs`), not a table here.
   fields: `dismissed_at` ("don't ask again", never erased), `open_network_ssid`
   (an open network reads like "nothing stored"), and the **store-in-progress
   marker** `store_started_at`/`store_target_ssid`, written before the first `set`
-  and cleared once the store is verified or rolled back; kept on
-  `wifi_store_partial`, it makes the state report `store_incomplete` (and
+  and cleared once the store is verified or rolled back, or when it failed
+  before its first `set` (any non-`CliError`, such as a dropped link, comes from
+  there); kept on `wifi_store_partial` or a cancellation, it makes the state report `store_incomplete` (and
   `credentials_stored` false) after a reconnect until a verified store. Every
   repository helper is one `json_set`/`json_remove` UPDATE.
 - **After each connect** setup calls `start_post_connect_check()`: it clears the
-  cache and spawns (through `spawn()`) one task that runs the full check, retries
-  a failed one at 30 s and 120 s (`check: "failed"`, `next_retry_at`), then
-  re-checks status/IP only (non-blocking sessions) at 10, 30 and 60 s while Wi-Fi
-  is enabled but not joined. It stops without writing once its connection is
-  gone (generation + `cli_link` identity), and never stores credentials.
+  cache and spawns (through `spawn()`) one task, bound to that connection when it
+  is spawned, that runs the full check, retries a failed one at 30 s and 120 s
+  (`check: "failed"`, `next_retry_at`; a retry is skipped once a manual retry
+  completed a check), then re-checks status/IP only (non-blocking sessions) at
+  10, 30 and 60 s while Wi-Fi is enabled but not joined. It stops without writing
+  once its connection is gone (generation + `cli_link` identity), and never
+  stores credentials.
 - **Cache writes are ordered**: a state is written and broadcast inside the
   session that computed it, only for its connection and only if no newer write
-  landed (version); re-checks merge `connected`/`ip` only. The cache is cleared
+  landed (version); re-checks merge `connected`/`ip` only. A dismissal (no radio
+  lock) patches `prompt_needed` without bumping the version, and every later
+  write of this connection applies it, so a store in flight is not lost. The
+  cache is cleared
   in `RadioManager._reset_connected_runtime_state()`.
 - **Reboots**: whether a change needs one is decided after the store
   (`wifi_reboot_required()`, with the flasher shortcut: nothing stored, same SSID,

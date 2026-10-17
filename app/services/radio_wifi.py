@@ -110,7 +110,12 @@ class _CacheEntry:
 _cache: _CacheEntry | None = None
 _version = 0  # bumped by every cache write and clear
 _generation = 0  # bumped at every new connection (setup completed) and clear
-_full_check_running = False
+_full_checks_running = 0  # full checks in flight (a manual retry can overlap a task's)
+# Radios dismissed on the current connection. A dismissal runs without the radio
+# lock, so instead of invalidating the sessions in flight (their result would then
+# be lost), every later write applies it on top of the state it carries. Later
+# connections read it from ``wifi_prompt_state``.
+_dismissed_keys: set[str] = set()
 
 
 def _manager() -> Any:
@@ -123,6 +128,7 @@ def clear_cache() -> None:
     _cache = None
     _version += 1
     _generation += 1
+    _dismissed_keys.clear()
 
 
 def begin_connection() -> None:
@@ -180,6 +186,8 @@ def _write_cache(
     if not _token_alive(token) or token.version != _version:
         logger.debug("Dropped a stale Wi-Fi state")
         return False
+    if state.radio_public_key in _dismissed_keys:
+        state.prompt_needed = False
     _version += 1
     _cache = _CacheEntry(
         state=state,
@@ -439,6 +447,9 @@ async def apply_wifi_credentials(
         await AppSettingsRepository.mark_wifi_store_started(public_key, ssid)
         try:
             outcome = await store_wifi_credentials(cli, ssid, SecretStr(password), typed=True)
+        except asyncio.CancelledError:
+            # Cancelled at an unknown step: keep the marker (the safe reading).
+            raise
         except CliError as exc:
             if exc.code == "wifi_store_partial":
                 # Marker kept: the warning survives the link drop that usually
@@ -447,6 +458,12 @@ async def apply_wifi_credentials(
             else:
                 # Verified rollback, or nothing written at all.
                 await AppSettingsRepository.clear_wifi_store_marker(public_key)
+            raise
+        except Exception:
+            # store_wifi_credentials() turns every failure after its first ``set``
+            # into a CliError, so anything else (a dropped link during its first
+            # reads) means nothing was written.
+            await AppSettingsRepository.clear_wifi_store_marker(public_key)
             raise
         await AppSettingsRepository.clear_wifi_store_marker(public_key)
         if request.open_network:
@@ -571,13 +588,14 @@ async def dismiss_wifi_prompt(radio_public_key: str) -> RadioWifiState:
     if shown is None or connected is None or shown != connected:
         raise WifiRequestError("wifi_radio_changed", status=409)
     await AppSettingsRepository.mark_wifi_prompt_dismissed(connected)
-    global _version
+    _dismissed_keys.add(connected)
     entry = _current_entry()
     if entry is None:
         return RadioWifiState(radio_public_key=connected)
+    # Patched in place without bumping ``_version``: a session in flight (a store
+    # in another tab) still writes its result, with the dismissal applied.
     state = entry.state.model_copy()
     state.prompt_needed = False
-    _version += 1
     entry.state = state
     _broadcast(state)
     return state.model_copy()
@@ -596,8 +614,8 @@ async def run_full_wifi_check(
     With ``expect`` (the connection a background task belongs to) nothing is
     written once the connection changed.
     """
-    global _full_check_running
-    _full_check_running = True
+    global _full_checks_running
+    _full_checks_running += 1
     try:
         async with companion_cli_session("wifi_check", blocking=blocking) as cli:
             token = _token()
@@ -627,7 +645,7 @@ async def run_full_wifi_check(
             _write_cache(state, token, raw_password_stored=raw)
             return state
     finally:
-        _full_check_running = False
+        _full_checks_running -= 1
 
 
 async def refresh_wifi_state() -> RadioWifiState:
@@ -638,7 +656,7 @@ async def refresh_wifi_state() -> RadioWifiState:
     if entry is None or entry.state.check != "done" or entry.raw_password_stored is None:
         if entry is not None and entry.state.check == "done" and not entry.state.supported:
             return entry.state.model_copy()
-        if _full_check_running:
+        if _full_checks_running:
             return entry.state.model_copy() if entry is not None else RadioWifiState()
         return await run_full_wifi_check()
     async with companion_cli_session("wifi_refresh") as cli:
@@ -690,14 +708,24 @@ async def _merge_link_status(token: _WriteToken, connected: bool, ip: str | None
 
 def start_post_connect_check() -> None:
     """Called once post-connect setup completed: forget the previous
-    connection's state and spawn the Wi-Fi check (tracked by ``spawn()``)."""
+    connection's state and spawn the Wi-Fi check (tracked by ``spawn()``),
+    bound to this connection from the moment it is spawned."""
     from app.background_tasks import spawn
 
     begin_connection()
-    spawn(run_wifi_post_connect_check(), name="wifi_post_connect")
+    spawn(run_wifi_post_connect_check(_token()), name="wifi_post_connect")
 
 
-async def run_wifi_post_connect_check() -> None:
+def _completed_check() -> RadioWifiState | None:
+    """The current connection's state when a full check already completed on it
+    (a manual retry, or a store): a pending automatic retry is then moot."""
+    entry = _current_entry()
+    if entry is None or entry.state.check != "done" or entry.raw_password_stored is None:
+        return None
+    return entry.state.model_copy()
+
+
+async def run_wifi_post_connect_check(expect: _WriteToken | None = None) -> None:
     """The full check for a new connection, with bounded retries, then status
     re-checks while Wi-Fi is enabled but not joined yet.
 
@@ -705,11 +733,15 @@ async def run_wifi_post_connect_check() -> None:
     (``LINK_RECHECK_TIMES`` after the check, no password, each in its own short
     non-blocking session, skipped when the radio is busy) live in this one task.
     It stops, without writing or broadcasting, as soon as the connection it was
-    started for is gone. It never stores credentials.
+    started for is gone. A retry is skipped once a full check completed on this
+    connection meanwhile. It never stores credentials.
+
+    ``expect`` is the connection the task was spawned for (taken now when omitted).
     """
     from app.radio import RadioDisconnectedError, RadioOperationBusyError
 
-    expect = _token()
+    if expect is None:
+        expect = _token()
 
     def alive() -> bool:
         return _token_alive(expect) and bool(_manager().is_setup_complete)
@@ -735,6 +767,11 @@ async def run_wifi_post_connect_check() -> None:
         delay = delays.pop(0)
         logger.info("Wi-Fi check failed (%s); retrying in %ds", state.check_error, delay)
         await asyncio.sleep(delay)
+        if alive() and (completed := _completed_check()) is not None:
+            # A manual retry (or a store) completed a check meanwhile: no second
+            # password read.
+            state = completed
+            break
 
     if not (state.supported and state.enabled and state.ssid is not None and not state.connected):
         return

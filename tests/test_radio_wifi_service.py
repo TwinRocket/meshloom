@@ -594,6 +594,59 @@ async def test_dismiss_records_only_for_the_connected_radio(wifi):
     assert wifi.broadcasts[-1][1]["prompt_needed"] is False
 
 
+async def test_a_dismissal_during_a_store_keeps_the_store_result(wifi, monkeypatch):
+    await radio_wifi.run_full_wifi_check()
+    real_store = radio_wifi.store_wifi_credentials
+
+    async def store_then_dismiss(*args, **kwargs):
+        outcome = await real_store(*args, **kwargs)
+        # Another tab answers "don't ask again" while this store holds the lock.
+        await radio_wifi.dismiss_wifi_prompt(PK)
+        return outcome
+
+    monkeypatch.setattr(radio_wifi, "store_wifi_credentials", store_then_dismiss)
+    result = await radio_wifi.apply_wifi_credentials(_creds("Other", SECRET), public_key=PK)
+
+    cached = radio_wifi.last_wifi_state()
+    assert cached is not None
+    assert cached.credentials_stored is True
+    assert cached.reboot_pending is True
+    assert cached.prompt_needed is False
+    assert cached == result.state
+    assert _states(wifi)[-1]["credentials_stored"] is True
+
+
+async def test_a_dismissal_during_a_check_is_applied_on_top_of_its_result(wifi, monkeypatch):
+    real_compose = radio_wifi._compose_state
+
+    async def compose_then_dismiss(**kwargs):
+        state = await real_compose(**kwargs)
+        assert state.prompt_needed is True  # computed before the dismissal
+        await radio_wifi.dismiss_wifi_prompt(PK)
+        return state
+
+    monkeypatch.setattr(radio_wifi, "_compose_state", compose_then_dismiss)
+    state = await radio_wifi.run_full_wifi_check()
+
+    assert state.check == "done"
+    cached = radio_wifi.last_wifi_state()
+    assert cached is not None and cached.check == "done"
+    assert cached.prompt_needed is False
+    assert _states(wifi)[-1]["prompt_needed"] is False
+
+
+async def test_a_dropped_link_before_the_first_set_clears_the_store_marker(wifi, monkeypatch):
+    async def drop(*_args, **_kwargs):
+        raise radio_module.RadioDisconnectedError("gone")
+
+    monkeypatch.setattr(radio_wifi, "store_wifi_credentials", drop)
+    with pytest.raises(radio_module.RadioDisconnectedError):
+        await radio_wifi.apply_wifi_credentials(_creds("Home", SECRET), public_key=PK)
+    assert "store_started_at" not in (await AppSettingsRepository.get_wifi_prompt_state()).get(
+        PK, {}
+    )
+
+
 async def test_a_check_computed_before_a_store_never_overwrites_it(wifi):
     await radio_wifi.run_full_wifi_check()
     stale_token = radio_wifi._token()
@@ -695,6 +748,41 @@ async def test_a_retry_from_an_old_connection_never_writes(wifi, fast_schedule, 
     assert sleeps == 1
     assert len(_states(wifi)) == 1  # only the first failure, nothing after
     assert wifi.firmware.commands.count("get wifi.pwd") == 1
+
+
+async def test_a_task_spawned_before_a_new_connection_never_adopts_it(wifi, monkeypatch):
+    spawned = []
+    monkeypatch.setattr(
+        "app.background_tasks.spawn", lambda coro, *, name=None: spawned.append(coro)
+    )
+    radio_wifi.start_post_connect_check()
+    # Disconnect and a new setup before the old task's first step.
+    radio_wifi.start_post_connect_check()
+    old_task, new_task = spawned
+    await old_task
+    assert _states(wifi) == []
+    assert _pwd_reads(wifi.firmware) == 0
+    await new_task
+    assert _pwd_reads(wifi.firmware) == 1
+    assert radio_wifi.last_wifi_state().check == "done"
+
+
+async def test_a_manual_check_during_the_retry_wait_skips_the_retry(
+    wifi, fast_schedule, monkeypatch
+):
+    wifi.firmware.silent.add("get wifi.pwd")
+    real_sleep = radio_wifi.asyncio.sleep
+
+    async def manual_retry_meanwhile(_delay):
+        await real_sleep(0)
+        wifi.firmware.silent.discard("get wifi.pwd")
+        await radio_wifi.refresh_wifi_state()  # the panel's Retry
+
+    monkeypatch.setattr(radio_wifi.asyncio, "sleep", manual_retry_meanwhile)
+    await radio_wifi.run_wifi_post_connect_check()
+
+    assert _pwd_reads(wifi.firmware) == 2  # the failed check and the manual one
+    assert radio_wifi.last_wifi_state().check == "done"
 
 
 async def test_a_check_waiting_for_the_lock_across_a_new_connection_writes_nothing(wifi):
