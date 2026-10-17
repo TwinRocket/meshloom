@@ -45,6 +45,7 @@
       "identity": {
         "no_identity": "The radio keeps its own identity.",
         "same": "The connected radio already has this identity.",
+        "sameNotConnected": "This Meshloom already belongs to this identity. The radio is not connected, so only the Meshloom data is restored now: restore again once it is connected to apply the radio steps.",
         "restores_bound": "The connected radio gets the identity this Meshloom belongs to back.",
         "new_database": "The radio is not connected: only the Meshloom data is restored now. When the radio connects, Meshloom asks what to do with its identity: choose Restore from a backup.",
         "replaces_live": "The identity of the connected radio is replaced by this backup's.",

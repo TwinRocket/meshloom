@@ -656,7 +656,9 @@ function RestoreSummary({
             </p>
             {inspect.has_wifi && <p>{t('settings.fullRestore.hasWifi')}</p>}
             <p data-testid="identity-relation">
-              {t(`settings.fullRestore.identity.${inspect.identity_relation}`)}
+              {inspect.identity_relation === 'same' && !inspect.live_radio_public_key
+                ? t('settings.fullRestore.identity.sameNotConnected')
+                : t(`settings.fullRestore.identity.${inspect.identity_relation}`)}
             </p>
           </>
         )}

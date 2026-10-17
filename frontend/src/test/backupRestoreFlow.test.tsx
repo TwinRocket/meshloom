@@ -245,6 +245,18 @@ describe('BackupRestoreFlow', () => {
     }
   );
 
+  it.each([
+    [LIVE, 'settings.fullRestore.identity.same'],
+    [null, 'settings.fullRestore.identity.sameNotConnected'],
+  ])('says whether a radio is there when the identity is the same (%s)', async (live, key) => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({ identity_relation: 'same', live_radio_public_key: live })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(await screen.findByTestId('identity-relation')).toHaveTextContent(i18n.t(key));
+  });
+
   it('asks no identity confirmation when the identity step is unchecked', async () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({

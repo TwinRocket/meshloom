@@ -45,6 +45,7 @@
       "identity": {
         "no_identity": "La radio garde sa propre identité.",
         "same": "La radio connectée a déjà cette identité.",
+        "sameNotConnected": "Ce Meshloom appartient déjà à cette identité. La radio n’est pas connectée : seules les données de Meshloom sont restaurées maintenant. Restaurez de nouveau une fois la radio connectée pour appliquer les étapes radio.",
         "restores_bound": "La radio connectée retrouve l’identité à laquelle ce Meshloom appartient.",
         "new_database": "La radio n’est pas connectée : seules les données de Meshloom sont restaurées maintenant. Quand la radio se connectera, Meshloom demandera quoi faire de son identité : choisissez Restaurer depuis une sauvegarde.",
         "replaces_live": "L’identité de la radio connectée est remplacée par celle de la sauvegarde.",
