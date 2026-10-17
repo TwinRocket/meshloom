@@ -17,8 +17,10 @@ from app.models import (
     BackupExportRequest,
     BackupInspectRequest,
     BackupInspectResult,
+    BackupRestoreJob,
     BackupRestoreRequest,
     BackupRestoreResult,
+    BackupRestoreV2Request,
     NotificationDestinationsUpdate,
     TelemetryAlertRules,
     UiPreferences,
@@ -941,9 +943,8 @@ async def inspect_full_backup(body: Annotated[dict[str, Any], Body()]) -> Backup
         raise _backup_http_error(exc) from None
 
 
-@router.post("/backup/restore", response_model=BackupRestoreResult)
 async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreResult:
-    """Merge a JSON backup into the live database.
+    """Merge a Meshloom-only (v1) JSON backup into the live database.
 
     Requires ``confirm=true``. Does not replace meshcore.db and does not delete
     messages, packets, or rows missing from the file.
@@ -952,3 +953,81 @@ async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreRes
         return await restore_json(request)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post(
+    "/backup/restore",
+    responses={
+        200: {"model": BackupRestoreResult, "description": "Flat v1 body: merged now"},
+        202: {"description": "Body with `backup`: the restore job started, `{job_id}`"},
+    },
+)
+async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
+    """Restore a backup.
+
+    - Flat body (no ``backup`` key): the v1 request, ``{"confirm": true, ...v1
+      fields}``, merged synchronously (scripts). A flat body whose ``format`` is
+      not a v1 format answers 400 ``backup_use_full_restore``.
+    - ``{"confirm": true, "backup": <file>, "passphrase"?, "steps"?, ...}``: any
+      file (v1, v2, encrypted) through the restore job: 202 ``{"job_id"}``, then
+      ``GET /backup/restore/jobs/{job_id}``. Identity refusals are 409, before
+      anything is written.
+    """
+    from app.services.backup import V1_FORMATS, open_backup_document
+    from app.services.backup_restore import RestoreOptions, start_restore_backup_v2
+
+    try:
+        if "backup" not in body:
+            if body.get("format") is not None and body.get("format") not in V1_FORMATS:
+                raise BackupError(
+                    "backup_use_full_restore",
+                    message="This file is a full backup: restore it with the backup field",
+                )
+            return await restore_json_backup(parse_backup_model(BackupRestoreRequest, body))
+        request = parse_backup_model(BackupRestoreV2Request, normalize_backup_request(body))
+        if not request.confirm:
+            raise BackupError("backup_confirm_required", message="Restore requires confirm=true")
+        opened = await open_backup_document(
+            request.backup,
+            request.passphrase.get_secret_value() if request.passphrase else None,
+        )
+        job_id = await start_restore_backup_v2(
+            opened,
+            RestoreOptions(
+                steps=request.steps,
+                replace_live_identity=request.replace_live_identity,
+                wipe_history=request.wipe_history,
+                expected_live_public_key=request.expected_live_public_key,
+            ),
+        )
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
+    return JSONResponse({"job_id": job_id}, status_code=202)
+
+
+def _job_not_found() -> HTTPException:
+    return _backup_http_error(
+        BackupError("backup_restore_job_not_found", status=404, message="No such restore job")
+    )
+
+
+@router.get("/backup/restore/jobs/latest", response_model=BackupRestoreJob)
+async def get_latest_backup_restore_job() -> BackupRestoreJob:
+    """The most recent restore job, running or finished (lets the UI find it
+    again after a reload). Holds step statuses, counts and warnings only."""
+    from app.services.backup_restore import get_latest_restore_job
+
+    job = get_latest_restore_job()
+    if job is None:
+        raise _job_not_found()
+    return job
+
+
+@router.get("/backup/restore/jobs/{job_id}", response_model=BackupRestoreJob)
+async def get_backup_restore_job(job_id: str) -> BackupRestoreJob:
+    from app.services.backup_restore import get_restore_job
+
+    job = get_restore_job(job_id)
+    if job is None:
+        raise _job_not_found()
+    return job

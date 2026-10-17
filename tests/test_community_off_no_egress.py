@@ -322,6 +322,7 @@ _PATH_PARAMS = {
     "pubkey": "ab" * 32,
     "packet_hash": "AB" * 8,
     "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+    "job_id": "unknown-job",
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -475,6 +476,40 @@ class TestCommunityOffNoEgress:
         assert egress.forbidden() == [], egress.events
         assert set(egress.hosts()) <= {"github.com"}, egress.events
         assert ("http", "github.com", "/TwinRocket/meshloom/releases/latest") in egress.events
+
+    async def test_full_backup_restore_job_makes_no_egress(
+        self, backup_db, egress, cleanup_community
+    ):
+        """A v2 restore (meshloom_extra included) run to completion while opted out."""
+        from app.main import app
+
+        await update_community(enabled=False, iata="CDG")
+        doc = {
+            "format": "meshloom-backup-v2",
+            "exported_at": 1,
+            "contacts": [{"public_key": "ab" * 32, "name": "Alice"}],
+            "channels": [{"key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72", "name": "Public"}],
+            "meshloom_extra": {"path_hash_one_byte_opt_in": False},
+        }
+        async with _RealAsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/settings/backup/restore", json={"confirm": True, "backup": doc}
+            )
+            assert response.status_code == 202, response.text
+            job_id = response.json()["job_id"]
+            state = "running"
+            for _ in range(300):
+                job = (await client.get(f"/api/settings/backup/restore/jobs/{job_id}")).json()
+                state = job["state"]
+                if state != "running":
+                    break
+                await asyncio.sleep(0.01)
+            assert state == "done", job
+        await asyncio.sleep(0.05)
+        assert egress.forbidden() == [], egress.events
+        assert egress.events == [], egress.events
 
 
 class TestOptOutTransition:

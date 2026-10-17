@@ -256,3 +256,152 @@ async def test_inspect_refuses_the_mask(backup_db, client):
     response = await client.post("/api/settings/backup/inspect", json={"backup": exported})
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "backup_invalid"
+
+
+# -- restore and jobs -------------------------------------------------------------
+
+
+@pytest.fixture
+def no_jobs():
+    import app.services.backup_restore as restore_module
+
+    restore_module._jobs.clear()
+    restore_module._running_job_id = None
+    yield restore_module
+    restore_module._jobs.clear()
+    restore_module._running_job_id = None
+
+
+async def _wait_job(client, job_id: str) -> dict:
+    import asyncio
+
+    for _ in range(500):
+        response = await client.get(f"/api/settings/backup/restore/jobs/{job_id}")
+        assert response.status_code == 200
+        job = response.json()
+        if job["state"] != "running":
+            return job
+        await asyncio.sleep(0.01)
+    raise AssertionError("job did not finish")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"confirm": True},
+        {"confirm": True, "format": "meshloom-backup-v1", "contacts": [{"public_key": "11" * 32}]},
+        {"confirm": True, "contacts": [{"public_key": "11" * 32}]},
+        {"confirm": True, "format": "remoteterm-backup-v1"},
+    ],
+)
+async def test_flat_v1_bodies_still_restore_synchronously(backup_db, client, no_jobs, body):
+    response = await client.post("/api/settings/backup/restore", json=body)
+    assert response.status_code == 200, response.text
+    assert "contacts_upserted" in response.json()
+    assert no_jobs._jobs == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fmt", ["meshloom-backup-v2", "meshloom-backup-v2-encrypted"])
+async def test_flat_full_backup_is_refused(backup_db, client, no_jobs, fmt):
+    response = await client.post(
+        "/api/settings/backup/restore", json={"confirm": True, "format": fmt}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "backup_use_full_restore"
+
+
+@pytest.mark.asyncio
+async def test_full_restore_runs_as_a_job(backup_db, client, no_jobs, monkeypatch):
+    calls = []
+
+    async def spy(request):
+        calls.append(request)
+
+    monkeypatch.setattr("app.routers.settings.restore_json", spy)
+    doc = {
+        "format": "meshloom-backup-v2",
+        "exported_at": 1,
+        "contacts": [{"public_key": "11" * 32, "name": "Alice"}],
+        "wifi": {"ssid": "HomeNet", "password": WIFI_PASSWORD},
+    }
+    response = await client.post(
+        "/api/settings/backup/restore", json={"confirm": True, "backup": doc}
+    )
+    assert response.status_code == 202, response.text
+    job_id = response.json()["job_id"]
+    job = await _wait_job(client, job_id)
+    assert calls == []  # never the synchronous v1 path
+    steps = {step["step"]: (step["status"], step["code"]) for step in job["steps"]}
+    assert steps["meshloom"] == ("done", None)
+    assert steps["identity"] == ("skipped", "no_identity")
+    assert steps["wifi"] == ("skipped", "radio_not_connected")
+    assert job["result"]["contacts_upserted"] == 1
+
+    latest = await client.get("/api/settings/backup/restore/jobs/latest")
+    assert latest.status_code == 200 and latest.json()["job_id"] == job_id
+    assert WIFI_PASSWORD not in latest.text
+
+
+@pytest.mark.asyncio
+async def test_encrypted_full_restore(backup_db, client, no_jobs):
+    node = _node()
+    envelope = (await _export(client, node, {"passphrase": PASSPHRASE})).json()
+    await RadioTransportRepository.bind_public_key(node.public_key)
+    response = await client.post(
+        "/api/settings/backup/restore",
+        json={"confirm": True, "backup": envelope, "passphrase": "not the passphrase"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "backup_bad_passphrase"
+    response = await client.post(
+        "/api/settings/backup/restore",
+        json={"confirm": True, "backup": envelope, "passphrase": PASSPHRASE},
+    )
+    assert response.status_code == 202, response.text
+    job = await _wait_job(client, response.json()["job_id"])
+    dumped = json.dumps(job)
+    assert node.private_key.hex() not in dumped and WIFI_PASSWORD not in dumped
+
+
+@pytest.mark.asyncio
+async def test_identity_refusal_is_a_synchronous_409(backup_db, client, no_jobs):
+    node = _node()
+    exported = (await _export(client, node)).json()
+    await RadioTransportRepository.bind_public_key("cc" * 32)  # radio not connected
+    response = await client.post(
+        "/api/settings/backup/restore", json={"confirm": True, "backup": exported}
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "backup_identity_needs_radio"
+    assert no_jobs._jobs == {}
+
+
+@pytest.mark.asyncio
+async def test_one_restore_at_a_time(backup_db, client, no_jobs):
+    no_jobs._running_job_id = "busy"
+    response = await client.post(
+        "/api/settings/backup/restore",
+        json={"confirm": True, "backup": {"format": "meshloom-backup-v1"}},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "backup_restore_running"
+
+
+@pytest.mark.asyncio
+async def test_confirm_is_required(backup_db, client, no_jobs):
+    response = await client.post(
+        "/api/settings/backup/restore",
+        json={"confirm": False, "backup": {"format": "meshloom-backup-v1"}},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "backup_confirm_required"
+
+
+@pytest.mark.asyncio
+async def test_unknown_jobs(backup_db, client, no_jobs):
+    assert (await client.get("/api/settings/backup/restore/jobs/latest")).status_code == 404
+    response = await client.get("/api/settings/backup/restore/jobs/nope")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "backup_restore_job_not_found"

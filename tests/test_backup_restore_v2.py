@@ -766,3 +766,38 @@ async def test_export_then_restore_round_trip(backup_db, setup_stub):
     assert job.state == "done", statuses(job)
     assert target.public_key == P
     assert (target.stored_ssid, target.stored_pwd) == ("Net 5G", " a b c ")
+
+
+@pytest.fixture
+async def file_db(tmp_path, monkeypatch):
+    """A file-backed WAL database, as in production."""
+    import app.database as database_module
+    import app.services.radio_identity as radio_identity
+    from tests.conftest import patched_database
+
+    path = tmp_path / "meshcore.db"
+    async with patched_database(str(path)) as db:
+        monkeypatch.setattr(database_module, "db", db)
+        monkeypatch.setattr(radio_identity, "db", db)
+        yield db, path
+
+
+@pytest.mark.asyncio
+async def test_the_wifi_password_never_reaches_the_database_files(file_db, setup_stub):
+    db, path = file_db
+    secret = "Wal-Never-9x"
+    source = FakeNode(private_key=BACKUP_KEY)
+    source.stored_ssid, source.stored_pwd = "HomeNet", secret
+    keystore.set_private_key(BACKUP_KEY)
+    await RadioTransportRepository.bind_public_key(P)
+    async with connected_node(source):
+        exported = export_document(await export_backup_v2())
+        job = await run(BackupExportV2.model_validate(exported))
+    assert job.state == "done", statuses(job)
+    assert source.stored_pwd == secret
+    async with db.tx() as conn:
+        await conn.execute("PRAGMA wal_checkpoint(FULL)")
+    for suffix in ("", "-wal", "-shm"):
+        candidate = path.with_name(path.name + suffix)
+        if candidate.exists():
+            assert secret.encode() not in candidate.read_bytes(), candidate.name
