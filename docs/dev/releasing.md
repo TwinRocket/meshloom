@@ -113,9 +113,15 @@ rotation steps are in `pkg/keys/README.md`.
    `:sha-<short>` on all of them. Its `Deploy` job then POSTs Portainer
    webhooks: on `main`, those in the `EDGE_DEPLOY_WEBHOOKS` secret (stacks on
    `docker-compose.dev.yaml`); on `preversion-5`, those in
-   `NEXT_DEPLOY_WEBHOOKS` (the stacks that run `:next`). Both send the
-   Cloudflare Access service token from `CF_ACCESS_CLIENT_ID` /
-   `CF_ACCESS_CLIENT_SECRET` when set (Portainer is behind Access). An unset
+   `NEXT_DEPLOY_WEBHOOKS` (the stacks that run `:next`). The `main` path runs
+   on `ubuntu-latest` and sends the Cloudflare Access service token from
+   `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` when set (Portainer is
+   behind Access). The `preversion-5` path runs on a self-hosted runner of the
+   owner's LAN: the `meshloom-next` stack is on mininode1, whose Portainer has
+   no public route, so the secret holds a LAN URL
+   (`https://192.168.42.226:9443/api/stacks/webhooks/<uuid>`), sent without the
+   Access token and with `curl --insecure` (Portainer's self-signed certificate
+   only names `localhost`, so it cannot be verified by name). An unset
    webhook secret is a notice and a failed call a warning, never a red run.
    Tag builds also get a build provenance attestation. Pull requests build
    without pushing.
