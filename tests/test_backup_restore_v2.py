@@ -459,6 +459,71 @@ async def test_setup_not_back_after_the_import(backup_db, setup_stub):
     assert job.steps[2].detail and "again" in job.steps[2].detail
 
 
+@pytest.mark.asyncio
+async def test_reflash_restore_runs_the_real_setup_again(backup_db, monkeypatch):
+    """Row 5, the main reflash path, against the real post-connect setup.
+
+    The radio is already connected and set up (L, auto-bound). The restore
+    imports P and runs setup a second time on the same connection: the second
+    setup must bind P, reopen ingest through the identity check, keep the gate
+    closed and start no second copy of the background loops. Only the slow or
+    timed parts are stubbed (clock sync, offload, advert, drain, the loops).
+    """
+    import app.radio_sync as radio_sync
+
+    started: list[str] = []
+
+    async def time_sync(mc, **kwargs):
+        return "synced"
+
+    async def offload(mc):
+        return {}
+
+    async def nothing(*args, **kwargs):
+        return 0
+
+    monkeypatch.setattr(radio_sync, "sync_radio_time_outcome", time_sync)
+    monkeypatch.setattr(radio_sync, "sync_and_offload_all", offload)
+    monkeypatch.setattr(radio_sync, "send_advertisement", nothing)
+    monkeypatch.setattr(radio_sync, "drain_pending_messages", nothing)
+    for name in (
+        "start_periodic_sync",
+        "start_periodic_advert",
+        "start_message_polling",
+        "start_telemetry_collect",
+    ):
+        monkeypatch.setattr(radio_sync, name, lambda name=name: started.append(name))
+
+    node = FakeNode(private_key=OTHER_KEY)
+    await RadioTransportRepository.bind_public_key(L)
+    async with connected_node(node):
+        radio_manager.connection_desired = True
+        allow_ingest()
+        job = await run(make_doc(), replace_live_identity=True, expected_live_public_key=L)
+        assert ingest_allowed() is True
+        assert radio_manager.is_setup_complete is True
+        assert radio_manager.connection_desired is True
+
+    assert statuses(job)["identity"] == ("done", "restored"), statuses(job)
+    assert node.public_key == P
+    transport = await RadioTransportRepository.get()
+    assert transport.bound_public_key == P
+    assert not transport.identity_state  # the gate stays closed
+    stored = keystore.get_public_key()
+    assert stored is not None and stored.hex().upper() == P.upper()
+    # One setup ran (the restore's), so each loop was asked to start once;
+    # the starters themselves keep a running loop (one task each).
+    assert sorted(started) == sorted(
+        [
+            "start_periodic_sync",
+            "start_periodic_advert",
+            "start_message_polling",
+            "start_telemetry_collect",
+        ]
+    )
+    assert job.state == "done", statuses(job)
+
+
 # -- the ingest gate after the identity step ---------------------------------------
 #
 # Entering the lifecycle transition closes ingest and only the post-connect
