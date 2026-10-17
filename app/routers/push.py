@@ -231,10 +231,11 @@ async def test_push(subscription_id: str) -> dict:
             )
             await PushSubscriptionRepository.delete(subscription_id)
             raise HTTPException(status_code=410, detail=_coded("push_stale")) from None
-        logger.warning("Test push failed: %s", e)
+        # The type only: a WebPushException carries the push service's body.
+        logger.warning("Test push failed: %s", type(e).__name__)
         raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
     except Exception as e:
-        logger.warning("Test push failed: %s", e)
+        logger.warning("Test push failed: %s", type(e).__name__)
         raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 

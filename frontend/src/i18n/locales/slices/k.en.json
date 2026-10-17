@@ -1,9 +1,9 @@
 {
   "errors": {
-    "push_delivery_failed": "The push service could not be reached or refused the notification. The server log has the cause.",
+    "push_delivery_failed": "The push service could not be reached or refused the notification. The server log names the error type.",
     "push_stale": "This subscription is no longer valid (expired, or the server's push key changed) and was removed. Subscribe this browser again.",
     "push_timeout": "The push service did not answer in time.",
-    "notification_test_failed": "The destination could not be reached or refused the test. The server log has the cause.",
+    "notification_test_failed": "The destination could not be reached or refused the test. The server log names the error type.",
     "notification_destination_invalid": "This destination is not set up, or its address is invalid."
   }
 }

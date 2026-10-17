@@ -2,7 +2,7 @@
 
 ### Security
 
-- **Failed notification tests no longer reveal your network.** The **Test** buttons for a push subscription and for the e-mail and webhook destinations used to show the raw network error (connection refused, unknown host, HTTP status). A web page could use that answer to map the machines on your network. They now show a translated message saying only what kind of failure it was; the details are in the server's log.
+- **Failed notification tests no longer reveal your network.** The **Test** buttons for a push subscription and for the e-mail and webhook destinations used to show the raw network error (connection refused, unknown host, HTTP status). A web page could use that answer to map the machines on your network. They now show a translated message saying only what kind of failure it was. The server's log records the error type, and for the webhook its host and HTTP status, but no longer the webhook address with its token.
 
 ---
 
@@ -10,7 +10,7 @@
 
 #### Sécurité
 
-- **Un test de notification qui échoue ne révèle plus votre réseau.** Les boutons **Test** d'un abonnement push et des destinations e-mail et webhook affichaient l'erreur réseau brute (connexion refusée, hôte inconnu, statut HTTP). Une page web pouvait s'en servir pour repérer les machines de votre réseau. Ils affichent maintenant un message traduit qui dit seulement quel type d'échec s'est produit ; le détail figure dans le journal du serveur.
+- **Un test de notification qui échoue ne révèle plus votre réseau.** Les boutons **Test** d'un abonnement push et des destinations e-mail et webhook affichaient l'erreur réseau brute (connexion refusée, hôte inconnu, statut HTTP). Une page web pouvait s'en servir pour repérer les machines de votre réseau. Ils affichent maintenant un message traduit qui dit seulement quel type d'échec s'est produit. Le journal du serveur indique le type d'erreur et, pour le webhook, son hôte et son statut HTTP, mais plus l'adresse du webhook avec son jeton.
 
 ---
 

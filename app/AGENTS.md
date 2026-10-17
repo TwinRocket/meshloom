@@ -549,8 +549,10 @@ The test routes (`POST /push/subscriptions/{id}/test`,
 client chose: they answer coded details only (`push_delivery_failed`,
 `push_stale`, `push_timeout`, `notification_test_failed`,
 `notification_destination_invalid`), never the exception text, which would be
-a LAN-scanning oracle. The cause goes to the server log
-(`tests/test_test_route_error_oracles.py`).
+a LAN-scanning oracle. The log gets the exception type only (plus the
+webhook's host and HTTP status), never its text: an `httpx.HTTPStatusError`
+carries the full webhook URL and its token, a `WebPushException` the push
+service's body (`tests/test_test_route_error_oracles.py`).
 
 ## Route behaviours that are easy to break
 

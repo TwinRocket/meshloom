@@ -1,9 +1,9 @@
 {
   "errors": {
-    "push_delivery_failed": "Le service de push est injoignable ou a refusé la notification. La cause figure dans le journal du serveur.",
+    "push_delivery_failed": "Le service de push est injoignable ou a refusé la notification. Le journal du serveur indique le type d'erreur.",
     "push_stale": "Cet abonnement n'est plus valide (expiré, ou la clé push du serveur a changé) et a été supprimé. Abonnez de nouveau ce navigateur.",
     "push_timeout": "Le service de push n'a pas répondu à temps.",
-    "notification_test_failed": "La destination est injoignable ou a refusé le test. La cause figure dans le journal du serveur.",
+    "notification_test_failed": "La destination est injoignable ou a refusé le test. Le journal du serveur indique le type d'erreur.",
     "notification_destination_invalid": "Cette destination n'est pas configurée, ou son adresse n'est pas valide."
   }
 }
