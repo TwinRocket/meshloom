@@ -349,6 +349,16 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/settings/tracked-telemetry-contacts/toggle"): {"public_key": "ab" * 32},
     ("POST", "/api/settings/notification-destinations/test"): {"channel": "webhook"},
     ("POST", "/api/settings/backup/restore"): {"confirm": True},
+    ("POST", "/api/settings/backup/export"): {},
+    ("POST", "/api/settings/backup/inspect"): {
+        "backup": {
+            "format": "meshloom-backup-v1",
+            "exported_at": 0,
+            "contacts": [],
+            "channels": [],
+            "groups": [],
+        }
+    },
     ("PATCH", "/api/updates/settings"): {},
 }
 _SWEPT_PREFIXES = (
@@ -414,8 +424,10 @@ class TestCommunityOffNoEgress:
 
     @pytest.mark.asyncio
     async def test_no_community_or_airport_egress_when_off(
-        self, test_db, egress, cleanup_community
+        self, backup_db, egress, cleanup_community
     ):
+        # backup_db: test_db also behind app.database.db (backup inspect and
+        # restore read the mesh history through it).
         from app.main import app
 
         # The state an opt-out leaves behind: off, IATA still stored.
@@ -1613,7 +1625,7 @@ class TestWaitingForPosition:
     """Owner decisions 2026-10-14: Q2 last known state kept, Q3 join without a position."""
 
     @pytest.mark.asyncio
-    async def test_waiting_sends_only_the_status(self, test_db, egress, cleanup_community):
+    async def test_waiting_sends_only_the_status(self, backup_db, egress, cleanup_community):
         from app.main import app
 
         # Q3: Community turned on while the radio has no position.

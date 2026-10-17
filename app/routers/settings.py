@@ -2,10 +2,10 @@ import logging
 import os
 import tempfile
 import time
-from typing import Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.background_tasks import spawn
@@ -14,6 +14,9 @@ from app.models import (
     CONTACT_TYPE_REPEATER,
     AppSettings,
     BackupExport,
+    BackupExportRequest,
+    BackupInspectRequest,
+    BackupInspectResult,
     BackupRestoreRequest,
     BackupRestoreResult,
     NotificationDestinationsUpdate,
@@ -22,7 +25,19 @@ from app.models import (
 )
 from app.region_scope import normalize_region_scope
 from app.repository import AppSettingsRepository, ChannelRepository, ContactRepository
-from app.services.backup import PRIVATE_KEY_WARNING, export_json, restore_json, write_sqlite_backup
+from app.services.backup import (
+    PRIVATE_KEY_WARNING,
+    BackupError,
+    backup_filename,
+    export_backup_v2,
+    export_document,
+    export_json,
+    normalize_backup_request,
+    parse_backup_model,
+    restore_json,
+    write_sqlite_backup,
+)
+from app.services.backup_crypto import PASSPHRASE_MIN_CHARS, encrypt_backup_async
 from app.telemetry_interval import (
     DEFAULT_TELEMETRY_INTERVAL_HOURS,
     TELEMETRY_INTERVAL_OPTIONS_HOURS,
@@ -839,10 +854,11 @@ async def get_contact_telemetry_schedule() -> TelemetrySchedule:
 async def download_database_backup(background_tasks: BackgroundTasks) -> FileResponse:
     """Download a consistent snapshot of meshcore.db.
 
-    The radio private key is NOT in this file (it lives in memory only).
-    Everything else in the live database is, including channel keys, VAPID
-    keys, fanout configs, and push subscriptions. This endpoint never
-    replaces the live database.
+    The radio private key is NOT in this file (Meshloom keeps it in memory
+    only; the full backup, ``POST /backup/export``, includes it). Everything
+    else in the live database is, including channel keys, VAPID keys, fanout
+    configs, and push subscriptions. This endpoint never replaces the live
+    database.
     """
     fd, tmp_path = tempfile.mkstemp(prefix="meshcore-backup-", suffix=".db")
     os.close(fd)
@@ -862,8 +878,67 @@ async def download_database_backup(background_tasks: BackgroundTasks) -> FileRes
 
 @router.get("/backup/json", response_model=BackupExport)
 async def download_json_backup() -> BackupExport:
-    """Safer JSON export of contacts, channels, settings, and groups."""
+    """Meshloom data only (``meshloom-backup-v1``): contacts, channels, settings,
+    groups. No radio identity or radio settings: the full backup has them."""
     return await export_json()
+
+
+def _backup_http_error(exc: BackupError) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail=exc.detail())
+
+
+@router.post("/backup/export")
+async def export_full_backup(request: BackupExportRequest | None = None) -> JSONResponse:
+    """The full backup (``meshloom-backup-v2``), optionally encrypted.
+
+    Holds the radio private key and, when the radio stores them, its Wi-Fi
+    credentials. Works with the radio disconnected (Meshloom part only, with
+    warnings). Built from the export dump (never ``response_model``, which would
+    write the secret masks into the file).
+    """
+    passphrase = request.passphrase.get_secret_value() if request and request.passphrase else None
+    if passphrase is not None and len(passphrase) < PASSPHRASE_MIN_CHARS:
+        raise _backup_http_error(
+            BackupError(
+                "backup_passphrase_too_short",
+                message=f"The passphrase needs at least {PASSPHRASE_MIN_CHARS} characters",
+            )
+        )
+    doc = await export_backup_v2()
+    body = export_document(doc)
+    if passphrase:
+        body = await encrypt_backup_async(
+            body, passphrase, public_key=doc.identity.public_key if doc.identity else None
+        )
+    ascii_name, utf8_name = backup_filename(doc.radio.name if doc.radio else None, doc.exported_at)
+    return JSONResponse(
+        body,
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/backup/inspect", response_model=BackupInspectResult)
+async def inspect_full_backup(body: Annotated[dict[str, Any], Body()]) -> BackupInspectResult:
+    """Summarise a backup file and what restoring it would do; writes nothing.
+
+    Body ``{"backup": <file>, "passphrase": "..."}``. A file without ``format``
+    is a ``meshloom-backup-v1`` file.
+    """
+    try:
+        request = parse_backup_model(BackupInspectRequest, normalize_backup_request(body))
+        from app.services.backup_restore import inspect_backup
+
+        return await inspect_backup(
+            request.backup,
+            request.passphrase.get_secret_value() if request.passphrase else None,
+        )
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
 
 
 @router.post("/backup/restore", response_model=BackupRestoreResult)
