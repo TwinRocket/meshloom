@@ -39,6 +39,7 @@
       "hasIdentity": "Contains the radio's identity (private key).",
       "noIdentity": "This backup has no identity: the radio's private key is not in it.",
       "hasWifi": "Contains the Wi-Fi credentials stored in the radio.",
+      "hasWifiFlagOnly": "Contains whether the radio's Wi-Fi is on, without credentials (the radio stored none).",
       "v1Only": "Meshloom data only (older format): the radio is not touched.",
       "counts": "{{contacts}} contacts, {{channels}} channels, {{groups}} groups",
       "botsRestoredDisabled": "Bots ({{names}}) come back disabled: bots run code on this server; enable each one after reading it.",
@@ -57,6 +58,7 @@
       "identityWipeConfirm": "I understand that the history Meshloom recorded under the other identity is erased.",
       "identityWipeOptional": "Also erase the history this Meshloom recorded before (messages, contacts, telemetry). Unchecked, it is kept and attributed to the restored identity.",
       "wifiTcpWarning": "Meshloom reaches the radio over Wi-Fi and this backup holds another network: storing it and rebooting would cut Meshloom off. Off by default.",
+      "wifiOffTcpWarning": "Meshloom reaches the radio over Wi-Fi and this backup turns Wi-Fi off: restoring it and rebooting would cut Meshloom off. Off by default.",
       "blePinWarning": "The backup's Bluetooth PIN differs from the one Meshloom pairs with. Restoring it changes the PIN Meshloom uses too. Off by default.",
       "meshloomStepRequired": "Channels and contacts are written from the restored Meshloom data: restore it too.",
       "steps": {
@@ -66,7 +68,7 @@
         "ble_pin": "Bluetooth PIN",
         "channels": "Channels on the radio",
         "contacts": "Contacts on the radio",
-        "wifi": "Wi-Fi credentials"
+        "wifi": "Wi-Fi (credentials, on or off)"
       },
       "confirm": "I understand that this merges into the live database and writes to the radio",
       "restore": "Restore",

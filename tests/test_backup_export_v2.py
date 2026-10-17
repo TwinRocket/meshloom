@@ -120,11 +120,15 @@ async def test_export_disabled_firmware_says_so(backup_db):
 
 
 @pytest.mark.asyncio
-async def test_no_wifi_block_without_a_stored_password(backup_db):
+async def test_only_the_wifi_flag_without_a_stored_password(backup_db):
     node = _node(stored_pwd="")
+    node.enabled = False
     async with connected_node(node):
         doc = await export_backup_v2()
-    assert doc.wifi is None
+    assert doc.wifi is not None
+    assert doc.wifi.has_credentials is False
+    assert doc.wifi.ssid is None and doc.wifi.password is None
+    assert doc.wifi.enabled is False
     assert "wifi_not_stored" in doc.warnings
 
 

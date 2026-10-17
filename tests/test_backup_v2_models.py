@@ -265,3 +265,13 @@ async def test_empty_default_scope_is_read_as_none_set():
     )
     assert snapshot.settings.default_flood_scope is None
     assert snapshot.settings.default_flood_scope_read is True
+
+
+def test_wifi_block_pairs_ssid_and_password_and_is_never_empty():
+    from app.models import BackupWifi
+
+    assert BackupWifi(enabled=False).has_credentials is False
+    assert BackupWifi(ssid="HomeNet", password="secret-pw").has_credentials is True  # type: ignore[arg-type]
+    for bad in ({"ssid": "HomeNet"}, {"password": "secret-pw"}, {}):
+        with pytest.raises(ValidationError):
+            BackupWifi(**bad)  # type: ignore[arg-type]

@@ -315,6 +315,18 @@ describe('BackupRestoreFlow', () => {
     expect(checkbox('settings.fullRestore.steps.radio_settings').checked).toBe(true);
   });
 
+  it('defaults Wi-Fi off on TCP when the file turns Wi-Fi off, and names a flag-only block', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({ has_wifi_credentials: false, wifi_off_on_tcp: true })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(await screen.findByText(i18n.t('settings.fullRestore.wifiOffTcpWarning'))).toBeVisible();
+    expect(screen.getByText(i18n.t('settings.fullRestore.hasWifiFlagOnly'))).toBeVisible();
+    expect(screen.queryByText(i18n.t('settings.fullRestore.hasWifi'))).toBeNull();
+    expect(checkbox('settings.fullRestore.steps.wifi').checked).toBe(false);
+  });
+
   it('disables channels and contacts while the Meshloom step is off', async () => {
     render(<BackupRestoreFlow />);
     pickFile(V2);

@@ -125,7 +125,7 @@ function defaultSteps(inspect: BackupInspectResult): BackupRestoreSteps {
     ble_pin: inspect.has_radio_settings && !inspect.ble_pin_differs_on_ble,
     channels: true,
     contacts: true,
-    wifi: inspect.has_wifi && !inspect.wifi_ssid_differs_on_tcp,
+    wifi: inspect.has_wifi && !inspect.wifi_ssid_differs_on_tcp && !inspect.wifi_off_on_tcp,
   };
 }
 
@@ -654,7 +654,13 @@ function RestoreSummary({
                 ? t('settings.fullRestore.hasIdentity')
                 : t('settings.fullRestore.noIdentity')}
             </p>
-            {inspect.has_wifi && <p>{t('settings.fullRestore.hasWifi')}</p>}
+            {inspect.has_wifi && (
+              <p>
+                {inspect.has_wifi_credentials === false
+                  ? t('settings.fullRestore.hasWifiFlagOnly')
+                  : t('settings.fullRestore.hasWifi')}
+              </p>
+            )}
             <p data-testid="identity-relation">
               {inspect.identity_relation === 'same' && !inspect.live_radio_public_key
                 ? t('settings.fullRestore.identity.sameNotConnected')
@@ -773,6 +779,11 @@ function RestoreSummary({
                 </Check>
                 {inspect.wifi_ssid_differs_on_tcp && (
                   <p className="text-xs text-warning">{t('settings.fullRestore.wifiTcpWarning')}</p>
+                )}
+                {inspect.wifi_off_on_tcp && (
+                  <p className="text-xs text-warning">
+                    {t('settings.fullRestore.wifiOffTcpWarning')}
+                  </p>
                 )}
               </>
             )}

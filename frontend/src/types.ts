@@ -1602,7 +1602,10 @@ export interface BackupInspectResult {
   has_private_key: boolean;
   private_key_status: string | null;
   has_radio_settings: boolean;
+  /** A Wi-Fi block: credentials and/or the on/off flag. */
   has_wifi: boolean;
+  /** The block holds credentials (else only the on/off flag). */
+  has_wifi_credentials?: boolean;
   counts: BackupCounts;
   bot_names: string[];
   /** Bots are turned off on this server: the file's bots are not restored. */
@@ -1620,6 +1623,8 @@ export interface BackupInspectResult {
   live_radio_name: string | null;
   ble_pin_differs_on_ble: boolean;
   wifi_ssid_differs_on_tcp: boolean;
+  /** Reached over TCP and the file turns Wi-Fi off. */
+  wifi_off_on_tcp?: boolean;
   warnings: string[];
 }
 

@@ -2058,20 +2058,29 @@ class RadioNodeSettings(BaseModel):
 
 
 class BackupWifi(BaseModel):
-    """Wi-Fi credentials stored in the radio. ``password`` is revealed only in the
-    export document and is never written to the Meshloom database."""
+    """The radio's Wi-Fi: the credentials it stores and its on/off flag.
+    ``password`` is revealed only in the export document and is never written to
+    the Meshloom database. ``ssid`` and ``password`` are both set or both None
+    (nothing stored: an open network or credentials built into the firmware),
+    and the block then carries only ``enabled``."""
 
     model_config = ConfigDict(hide_input_in_errors=True)
 
-    ssid: str
-    password: SecretStr
+    ssid: str | None = None
+    password: SecretStr | None = None
     enabled: bool | None = None
+
+    @property
+    def has_credentials(self) -> bool:
+        return self.ssid is not None and self.password is not None
 
     @field_validator("ssid")
     @classmethod
-    def _ssid_valid(cls, value: str) -> str:
+    def _ssid_valid(cls, value: str | None) -> str | None:
         from app.services.companion_cli import CliCommandError, validate_wifi_ssid
 
+        if value is None:
+            return None
         try:
             return validate_wifi_ssid(value)
         except CliCommandError as exc:
@@ -2079,9 +2088,11 @@ class BackupWifi(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def _password_valid(cls, value: SecretStr) -> SecretStr:
+    def _password_valid(cls, value: SecretStr | None) -> SecretStr | None:
         from app.services.companion_cli import CliCommandError, validate_wifi_password
 
+        if value is None:
+            return None
         _refuse_mask(value)
         try:
             validate_wifi_password(value.get_secret_value(), typed=False)
@@ -2090,8 +2101,16 @@ class BackupWifi(BaseModel):
         return value
 
     @field_serializer("password", when_used="always")
-    def _serialize_password(self, value: SecretStr, info: SerializationInfo):
+    def _serialize_password(self, value: SecretStr | None, info: SerializationInfo):
         return _reveal_in_export(value, info)
+
+    @model_validator(mode="after")
+    def _credentials_paired(self) -> BackupWifi:
+        if (self.ssid is None) != (self.password is None):
+            raise ValueError("wifi_credentials_incomplete")
+        if not self.has_credentials and self.enabled is None:
+            raise ValueError("wifi_empty")
+        return self
 
 
 class BackupVapid(BaseModel):
@@ -2254,7 +2273,12 @@ class BackupInspectResult(BaseModel):
     has_private_key: bool = False
     private_key_status: str | None = None
     has_radio_settings: bool = False
-    has_wifi: bool = False
+    has_wifi: bool = Field(
+        default=False, description="The file has a Wi-Fi block (credentials and/or on/off)"
+    )
+    has_wifi_credentials: bool = Field(
+        default=False, description="The file holds Wi-Fi credentials stored in the radio"
+    )
     counts: BackupCounts = Field(default_factory=BackupCounts)
     bot_names: list[str] = Field(default_factory=list)
     bots_will_be_skipped: bool = Field(
@@ -2284,6 +2308,10 @@ class BackupInspectResult(BaseModel):
     live_radio_name: str | None = None
     ble_pin_differs_on_ble: bool = False
     wifi_ssid_differs_on_tcp: bool = False
+    wifi_off_on_tcp: bool = Field(
+        default=False,
+        description="Meshloom reaches the radio over TCP and the file turns Wi-Fi off",
+    )
     warnings: list[str] = Field(default_factory=list)
 
 

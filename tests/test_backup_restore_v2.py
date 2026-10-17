@@ -883,6 +883,23 @@ async def test_wifi_flag_written_with_the_credentials(backup_db, setup_stub):
 
 
 @pytest.mark.asyncio
+async def test_wifi_flag_alone_is_written_back(backup_db, setup_stub):
+    from app.services.backup_restore import inspect_backup
+
+    node = await _same_identity_node()
+    doc = make_doc(wifi=BackupWifi(enabled=False))
+    async with connected_node(node):
+        inspected = await inspect_backup(doc, None)
+        job = await run(doc)
+    assert inspected.has_wifi is True and inspected.has_wifi_credentials is False
+    assert statuses(job)["wifi"] == ("done", None)
+    assert items(job, "wifi") == {"wifi_enabled": ("done", None)}
+    assert node.enabled is False
+    assert node.stored_pwd == ""
+    assert job.result is not None and job.result.reboot_required is True
+
+
+@pytest.mark.asyncio
 async def test_ble_pin_on_a_ble_link(backup_db, setup_stub):
     node = await _same_identity_node()
     snapshot = await RadioTransportRepository.get()

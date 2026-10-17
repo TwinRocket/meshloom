@@ -190,6 +190,27 @@ async def test_inspect_flags_another_ssid_on_tcp(backup_db, client):
 
 
 @pytest.mark.asyncio
+async def test_inspect_flags_a_file_that_turns_wifi_off_on_tcp(backup_db, client):
+    node = _node()
+    node.stored_pwd = ""
+    node.enabled = False
+    exported = (await _export(client, node)).json()
+    assert exported["wifi"] == {"ssid": None, "password": None, "enabled": False}
+    snapshot = await RadioTransportRepository.get()
+    snapshot.transport = "tcp"
+    snapshot.tcp_host = "10.0.0.2"
+    await RadioTransportRepository.save(snapshot)
+    node.enabled = True
+    async with connected_node(node):
+        result = (
+            await client.post("/api/settings/backup/inspect", json={"backup": exported})
+        ).json()
+    assert result["has_wifi"] is True and result["has_wifi_credentials"] is False
+    assert result["wifi_off_on_tcp"] is True
+    assert result["wifi_ssid_differs_on_tcp"] is False
+
+
+@pytest.mark.asyncio
 async def test_inspect_flags_another_ble_pin_on_ble(backup_db, client):
     node = _node()
     exported = (await _export(client, node)).json()

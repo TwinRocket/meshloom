@@ -45,7 +45,7 @@ Certaines étapes peuvent être sautées :
 
 - Une radio dont le firmware refuse l’import de clé (compilé sans) ne peut pas retrouver son identité. Meshloom s’arrête avant d’écrire quoi que ce soit d’autre et le dit.
 - Si la radio redémarre pendant la restauration (elle peut le faire pour régler son horloge), les étapes restantes sont sautées : relancez la restauration quand la radio est revenue.
-- L’étape du code PIN Bluetooth est désactivée par défaut quand Meshloom joint la radio en Bluetooth et que le code diffère ; l’étape Wi-Fi est désactivée par défaut quand Meshloom joint la radio par le Wi-Fi et que la sauvegarde contient un autre réseau, car l’enregistrer couperait Meshloom de la radio.
+- L’étape du code PIN Bluetooth est désactivée par défaut quand Meshloom joint la radio en Bluetooth et que le code diffère ; l’étape Wi-Fi est désactivée par défaut quand Meshloom joint la radio par le Wi-Fi et que la sauvegarde contient un autre réseau ou désactive le Wi-Fi, car la restaurer couperait Meshloom de la radio.
 - Une puissance d’émission inférieure à 0 dBm n’est pas réécrite (la radio garde sa puissance actuelle) : réglez-la de nouveau dans **Réglages → Radio**.
 
 Après une restauration, rejoignez de nouveau **Meshloom Community** si vous le souhaitez : la participation n’est jamais restaurée depuis un fichier. Les notifications push peuvent devoir être réactivées dans chaque navigateur.
@@ -65,7 +65,7 @@ Notez que quiconque atteint votre Meshloom peut télécharger cette sauvegarde, 
 - Son identité (clé privée), quand le firmware permet de l’exporter.
 - Son nom, sa position, sa puissance d’émission et ses paramètres radio (fréquence, bande passante, facteur d’étalement, taux de codage), avec l’indicateur de répétition client.
 - Ses autres réglages : partage de télémétrie, politique de position dans les annonces, accusés de réception supplémentaires, ajout manuel des contacts, paramètres de temporisation, mode de hachage des chemins, règles d’ajout automatique, portée de flood par défaut (région), code PIN Bluetooth, variables personnalisées du firmware (le GPS et son intervalle quand la carte en a) et, à partir du firmware 1.18, le fuseau horaire et les réglages radio que seule la ligne de commande atteint.
-- Le nom et le mot de passe du réseau Wi-Fi, quand la radio stocke un mot de passe. Un réseau ouvert, ou des identifiants seulement compilés dans le firmware, ne sont pas enregistrés. Quand la radio stocke un mot de passe mais pas de nom de réseau, la radio annonce le nom de réseau compilé dans le firmware : la sauvegarde associe les deux, et une restauration les enregistre tous les deux (la radio les utilise alors).
+- L’état activé ou non du Wi-Fi de la radio, et le nom et le mot de passe du réseau Wi-Fi quand la radio stocke un mot de passe. Un réseau ouvert, ou des identifiants seulement compilés dans le firmware, ne sont pas enregistrés (l’état activé ou non l’est). Quand la radio stocke un mot de passe mais pas de nom de réseau, la radio annonce le nom de réseau compilé dans le firmware : la sauvegarde associe les deux, et une restauration les enregistre tous les deux (la radio les utilise alors).
 
 **Depuis Meshloom :**
 

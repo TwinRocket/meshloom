@@ -280,7 +280,10 @@ be wrong, because historical decryption inserts old messages with new ids.
   unreadable table fails the step `radio_contacts_unreadable`,
   non-selected radio contacts removed first, favourites first, 0x10 always
   stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),
-  Wi-Fi credentials last. Raw frames also for the default flood scope (keeps a
+  Wi-Fi last: the credentials (reboot required as soon as they are stored),
+  then the on/off flag as its own item. `BackupWifi` may carry only `enabled`
+  (no credentials stored); inspect sets `wifi_off_on_tcp` when the file turns
+  Wi-Fi off on a TCP link, and the UI defaults the step off. Raw frames also for the default flood scope (keeps a
   non-derived key) and auto-add (keeps `max_hops`).
 - **Job.** One at a time (409 `backup_restore_running`), `spawn()`ed, in memory
   (last 5); `GET /settings/backup/restore/jobs/{id}` and `/latest`. The decrypted

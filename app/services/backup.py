@@ -587,7 +587,8 @@ def _identity_for(live_public_key: str | None) -> BackupIdentity:
 
 
 async def _read_wifi(cli) -> tuple[BackupWifi | None, list[str]]:
-    """Wi-Fi credentials stored in the radio (read live, never stored by Meshloom)."""
+    """Wi-Fi credentials stored in the radio (read live, never stored by Meshloom)
+    and its on/off flag, kept even when no credentials are stored."""
     from app.services.companion_cli import (
         CliError,
         wifi_enabled,
@@ -605,8 +606,9 @@ async def _read_wifi(cli) -> tuple[BackupWifi | None, list[str]]:
     except CliError:
         enabled = None
     if ssid is None or not password.get_secret_value():
-        # Nothing stored (or an open network, which reads the same).
-        return None, ["wifi_not_stored"]
+        # Nothing stored (or an open network, which reads the same): keep the
+        # on/off flag, which also governs credentials built into the firmware.
+        return (BackupWifi(enabled=enabled) if enabled is not None else None), ["wifi_not_stored"]
     try:
         return BackupWifi(ssid=ssid, password=password, enabled=enabled), []
     except ValidationError:

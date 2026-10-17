@@ -317,6 +317,7 @@ async def inspect_backup(
     result.has_radio_settings = opened.radio is not None
     result.radio_name = opened.radio.name if opened.radio else None
     result.has_wifi = opened.wifi is not None
+    result.has_wifi_credentials = opened.wifi is not None and opened.wifi.has_credentials
     if extra is not None:
         result.counts.fanout_configs = len(extra.fanout_configs)
         result.counts.push_subscriptions = len(extra.push_subscriptions)
@@ -343,10 +344,13 @@ async def inspect_backup(
     ):
         result.ble_pin_differs_on_ble = True
     if transport.transport == "tcp" and opened.wifi is not None:
-        read, live_ssid = await _live_wifi_ssid()
-        # Unreadable counts as different: storing another network and
-        # rebooting would drop Meshloom's own link.
-        result.wifi_ssid_differs_on_tcp = not read or live_ssid != opened.wifi.ssid
+        # Turning Wi-Fi off, or storing another network, then rebooting would
+        # drop Meshloom's own link.
+        result.wifi_off_on_tcp = opened.wifi.enabled is False
+        if opened.wifi.has_credentials:
+            read, live_ssid = await _live_wifi_ssid()
+            # Unreadable counts as different.
+            result.wifi_ssid_differs_on_tcp = not read or live_ssid != opened.wifi.ssid
     return result
 
 
@@ -769,19 +773,23 @@ async def _radio_steps(run: _Run) -> None:
                 run.set("wifi", "unsupported", "wifi_unsupported")
             else:
                 run.set("wifi", "running")
+                wifi = doc.wifi
+                items: list[BackupRestoreItem] = []
                 try:
-                    await store_wifi_credentials(cli, doc.wifi.ssid, doc.wifi.password, typed=False)
+                    if wifi.ssid is not None and wifi.password is not None:
+                        await store_wifi_credentials(cli, wifi.ssid, wifi.password, typed=False)
+                        # Stored and verified: they apply at the next reboot, even
+                        # if the on/off flag below cannot be written.
+                        run.result.reboot_required = True
+                        items.append(BackupRestoreItem(name="wifi_credentials", status="done"))
                 except CliError as exc:
                     run.set("wifi", "failed", exc.code)
                 else:
-                    # Stored and verified: they apply at the next reboot, even if
-                    # the on/off flag below cannot be written.
-                    run.result.reboot_required = True
-                    items = [BackupRestoreItem(name="wifi_credentials", status="done")]
-                    if doc.wifi.enabled is not None:
+                    if wifi.enabled is not None:
                         try:
-                            if await wifi_enabled(cli) != doc.wifi.enabled:
-                                await set_wifi_enabled(cli, doc.wifi.enabled)
+                            if await wifi_enabled(cli) != wifi.enabled:
+                                await set_wifi_enabled(cli, wifi.enabled)
+                                run.result.reboot_required = True
                         except CliError as exc:
                             items.append(
                                 BackupRestoreItem(

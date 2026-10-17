@@ -39,6 +39,7 @@
       "hasIdentity": "Contient l’identité de la radio (clé privée).",
       "noIdentity": "Cette sauvegarde ne contient pas d’identité : la clé privée de la radio n’y est pas.",
       "hasWifi": "Contient les identifiants Wi-Fi stockés dans la radio.",
+      "hasWifiFlagOnly": "Contient l’état activé ou non du Wi-Fi de la radio, sans identifiants (la radio n’en stockait pas).",
       "v1Only": "Données de Meshloom uniquement (ancien format) : la radio n’est pas modifiée.",
       "counts": "{{contacts}} contacts, {{channels}} canaux, {{groups}} groupes",
       "botsRestoredDisabled": "Les bots ({{names}}) reviennent désactivés : un bot exécute du code sur ce serveur ; activez chacun après l’avoir relu.",
@@ -57,6 +58,7 @@
       "identityWipeConfirm": "Je comprends que l’historique enregistré par Meshloom sous l’autre identité est effacé.",
       "identityWipeOptional": "Effacer aussi l’historique que ce Meshloom a enregistré avant (messages, contacts, télémétrie). Décoché, il est conservé et attribué à l’identité restaurée.",
       "wifiTcpWarning": "Meshloom joint la radio par le Wi-Fi et cette sauvegarde contient un autre réseau : l’enregistrer puis redémarrer couperait Meshloom de la radio. Désactivé par défaut.",
+      "wifiOffTcpWarning": "Meshloom joint la radio par le Wi-Fi et cette sauvegarde désactive le Wi-Fi : la restaurer puis redémarrer couperait Meshloom de la radio. Désactivé par défaut.",
       "blePinWarning": "Le code PIN Bluetooth de la sauvegarde diffère de celui avec lequel Meshloom s’appaire. Le restaurer change aussi le code PIN qu’utilise Meshloom. Désactivé par défaut.",
       "meshloomStepRequired": "Les canaux et les contacts sont écrits à partir des données de Meshloom restaurées : restaurez-les aussi.",
       "steps": {
@@ -66,7 +68,7 @@
         "ble_pin": "Code PIN Bluetooth",
         "channels": "Canaux sur la radio",
         "contacts": "Contacts sur la radio",
-        "wifi": "Identifiants Wi-Fi"
+        "wifi": "Wi-Fi (identifiants, activé ou non)"
       },
       "confirm": "Je comprends que cela fusionne dans la base en cours et écrit sur la radio",
       "restore": "Restaurer",

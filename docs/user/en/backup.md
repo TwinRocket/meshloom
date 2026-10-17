@@ -45,7 +45,7 @@ Some steps can be skipped:
 
 - A radio whose firmware refuses key import (built without it) cannot get its identity back. Meshloom stops before writing anything else and says so.
 - If the radio restarts during the restore (it can, to set its clock), the remaining steps are skipped: run the restore again once the radio is back.
-- The Bluetooth PIN step is off by default when Meshloom reaches the radio over Bluetooth and the PIN differs; the Wi-Fi step is off by default when Meshloom reaches the radio over Wi-Fi and the backup holds another network, since storing it would cut Meshloom off.
+- The Bluetooth PIN step is off by default when Meshloom reaches the radio over Bluetooth and the PIN differs; the Wi-Fi step is off by default when Meshloom reaches the radio over Wi-Fi and the backup holds another network or turns Wi-Fi off, since restoring it would cut Meshloom off.
 - A transmit power below 0 dBm is not written back (the radio keeps its current power): set it again in **Settings → Radio**.
 
 After a restore, join **Meshloom Community** again if you want it: participation is never restored from a file. Push notifications may need to be turned on again in each browser.
@@ -65,7 +65,7 @@ Note that anyone who can reach your Meshloom can download this backup, and so ca
 - Its identity (private key), when the firmware allows exporting it.
 - Its name, position, transmit power and radio parameters (frequency, bandwidth, spreading factor, coding rate), with the client repeat flag.
 - Its other settings: telemetry sharing, advert location policy, extra acknowledgements, manual contact adding, timing parameters, path hash mode, auto-add rules, the default flood scope (region), the Bluetooth PIN, firmware custom variables (GPS and its interval when the board has them) and, on firmware 1.18 and later, the time zone and the radio tuning settings only the command line reaches.
-- The Wi-Fi network name and password, when the radio stores a password. An open network, or credentials only built into the firmware, are not saved. When the radio stores a password but no network name, the radio reports the network name built into the firmware: the backup pairs those two, and a restore stores both (the radio then uses them).
+- Whether the radio's Wi-Fi is on or off, and the Wi-Fi network name and password when the radio stores a password. An open network, or credentials only built into the firmware, are not saved (the on/off setting is). When the radio stores a password but no network name, the radio reports the network name built into the firmware: the backup pairs those two, and a restore stores both (the radio then uses them).
 
 **From Meshloom:**
 
