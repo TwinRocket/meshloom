@@ -30,7 +30,7 @@
     "ble_pair_stale_bond": "La radio refuse l’appairage enregistré sur cette machine",
     "ble_pair_stale_bondDetail": "Si elle a été réinitialisée ou reflashée, appuyez sur Oublier l’appairage dans Réglages > Radio.",
     "ble_pair_dbus_unavailable": "Le service Bluetooth du système est injoignable",
-    "ble_pair_dbus_unavailableDetail": "Dans Docker, montez le /run/dbus/system_bus_socket de l’hôte dans le conteneur. Dans Home Assistant, mettez à jour l’add-on.",
+    "ble_pair_dbus_unavailableDetail": "Dans Docker, montez le /run/dbus/system_bus_socket de l’hôte dans le conteneur. Dans Home Assistant, redémarrez l’add-on ; si le problème persiste, son journal donne le détail.",
     "ble_pair_bluez_unavailable": "Le service Bluetooth (bluetoothd) n’est pas lancé",
     "ble_pair_permission_denied": "Meshloom n’a pas le droit d’appairer via le service Bluetooth",
     "ble_pair_no_adapter": "Aucun adaptateur Bluetooth",

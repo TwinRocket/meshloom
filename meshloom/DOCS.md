@@ -40,10 +40,13 @@ needs turning on, and Home Assistant's own Bluetooth integration can stay enable
 it shares the adapter. Bluetooth proxies (ESPHome, Shelly) are not used: the radio
 has to be within range of the Home Assistant machine itself.
 
-**Scan** should list nearby radios. Pairing with the PIN is not confirmed yet in
-the add-on: Meshloom does not register a Bluetooth pairing agent of its own and
-relies on the host to accept the PIN. If saving fails with `BLE pairing failed`,
-connect the radio over USB or TCP instead.
+**Scan** should list nearby radios. Meshloom then pairs the radio with its PIN by
+itself, through a pairing agent of its own used for that request only. It never
+becomes the host's default agent, so Home Assistant keeps handling its own
+pairing requests. **Settings → Radio** shows the pairing state under the PIN
+field, with **Pair now** (or **Pair again**) and **Forget pairing**. This is not
+confirmed on Home Assistant hardware yet: if pairing keeps failing, connect the
+radio over USB or TCP instead.
 
 If the Bluetooth choice in **Settings → Radio** is marked unavailable with "No
 Bluetooth adapter", the add-on found no adapter on the host: check that Home

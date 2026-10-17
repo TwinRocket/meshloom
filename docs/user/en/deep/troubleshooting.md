@@ -52,7 +52,7 @@ The **Pairing** block in **Settings > Radio** (under the BLE PIN) gives the reas
 | **The radio refuses this machine's saved pairing** | The radio was reset or re-flashed while this machine kept its pairing: press **Forget pairing**. |
 | **Radio not found** or **did not answer** | Turn the radio on, bring it closer, and disconnect any phone using it. Meshloom retries on its own, up to once a minute. |
 | **The PIN must be 1 to 6 digits** | Enter the PIN as the radio shows it. |
-| **The system Bluetooth service cannot be reached** | In Docker, map the host's `/run/dbus/system_bus_socket` into the container (the installer does it with Docker as root). In Home Assistant, update the add-on. Meshloom still tries to connect without pairing. |
+| **The system Bluetooth service cannot be reached** | In Docker, map the host's `/run/dbus/system_bus_socket` into the container (the installer does it with Docker as root). In Home Assistant, the add-on reaches the host's bus by itself: restart it, and if the problem persists, its log has the details. Meshloom still tries to connect without pairing. |
 | **bluetoothd is not running** | Start it: `sudo systemctl start bluetooth`. |
 | **not allowed to pair** | The system refused Meshloom access to the Bluetooth service. Check the D-Bus policy of BlueZ, or pair with `bluetoothctl`. |
 | **No Bluetooth adapter**, **adapter is turned off**, **blocked (rfkill)** | Plug in or turn on the adapter: `bluetoothctl power on`, or `rfkill unblock bluetooth`. |

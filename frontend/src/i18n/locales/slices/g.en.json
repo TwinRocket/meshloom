@@ -30,7 +30,7 @@
     "ble_pair_stale_bond": "The radio refuses this machine’s saved pairing",
     "ble_pair_stale_bondDetail": "If it was reset or re-flashed, press Forget pairing in Settings > Radio.",
     "ble_pair_dbus_unavailable": "The system Bluetooth service cannot be reached",
-    "ble_pair_dbus_unavailableDetail": "In Docker, map the host’s /run/dbus/system_bus_socket into the container. In Home Assistant, update the add-on.",
+    "ble_pair_dbus_unavailableDetail": "In Docker, map the host’s /run/dbus/system_bus_socket into the container. In Home Assistant, restart the add-on; if it persists, its log has the details.",
     "ble_pair_bluez_unavailable": "The Bluetooth service (bluetoothd) is not running",
     "ble_pair_permission_denied": "Meshloom is not allowed to pair through the Bluetooth service",
     "ble_pair_no_adapter": "No Bluetooth adapter",

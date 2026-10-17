@@ -52,7 +52,7 @@ Le bloc **Appairage** de **Réglages > Radio** (sous le PIN BLE) en donne la rai
 | **La radio refuse l’appairage enregistré sur cette machine** | La radio a été réinitialisée ou reflashée alors que cette machine gardait son appairage : appuyez sur **Oublier l’appairage**. |
 | **Radio introuvable** ou **n’a pas répondu** | Allumez la radio, rapprochez-la et déconnectez le téléphone qui l’utilise. Meshloom réessaie tout seul, jusqu’à une fois par minute. |
 | **Le PIN doit compter de 1 à 6 chiffres** | Saisissez le PIN tel que la radio l’affiche. |
-| **Le service Bluetooth du système est injoignable** | Dans Docker, montez le `/run/dbus/system_bus_socket` de l’hôte dans le conteneur (l’installeur le fait avec Docker en root). Dans Home Assistant, mettez à jour l’add-on. Meshloom tente quand même de se connecter sans appairer. |
+| **Le service Bluetooth du système est injoignable** | Dans Docker, montez le `/run/dbus/system_bus_socket` de l’hôte dans le conteneur (l’installeur le fait avec Docker en root). Dans Home Assistant, l’add-on joint le bus de l’hôte tout seul : redémarrez-le, et si le problème persiste, son journal donne le détail. Meshloom tente quand même de se connecter sans appairer. |
 | **bluetoothd n’est pas lancé** | Démarrez-le : `sudo systemctl start bluetooth`. |
 | **n’a pas le droit d’appairer** | Le système a refusé à Meshloom l’accès au service Bluetooth. Vérifiez la politique D-Bus de BlueZ, ou appairez avec `bluetoothctl`. |
 | **Aucun adaptateur Bluetooth**, **adaptateur éteint**, **bloqué (rfkill)** | Branchez ou allumez l’adaptateur : `bluetoothctl power on`, ou `rfkill unblock bluetooth`. |
