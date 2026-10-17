@@ -63,6 +63,8 @@ scripts/build/        publish.sh (release), tag_release.sh (recovery); see CONTR
 scripts/setup/        install.sh and the embeds it carries (sync_installer_embeds.py)
 docs/user/            user docs, published by meshloom.app from the latest X.Y.Z tag, not from main
 docker-compose.dev.yaml  runs ghcr.io/twinrocket/meshloom:edge (never builds; see below)
+.github/workflows/    docker.yml (:edge from main, :next from preversion-5, release images),
+                      forward-merge.yml (main into preversion-5); see docs/dev/releasing.md
 ```
 
 ## Architecture invariants
@@ -155,6 +157,10 @@ the gate (`CONTRIBUTING.md`).
 1. Outside contributors open or reuse an issue first (`CONTRIBUTING.md`). The
    repository owners may open a PR directly.
 2. Branch off up-to-date `origin/main`, one branch per lot (`fix/…`, `docs/…`, `feat/…`).
+   **5.0.0 work** branches off `origin/preversion-5` and its PR targets
+   `preversion-5`, the integration branch; `main` stays the 4.18.x line
+   (hotfixes, CI, docs). At the 5.0.0 cut, `preversion-5` merges into `main` and
+   is deleted. Branches and images: `docs/dev/releasing.md`, "Branches".
 3. Small, atomic commits that each pass the tests: history is kept, bisect relies on it.
 4. Get `./scripts/quality/all_quality.sh` green locally.
 5. Open a PR that links the issue (`Closes #N`, when there is one) and states
@@ -162,8 +168,12 @@ the gate (`CONTRIBUTING.md`).
 6. `main` is protected by a ruleset: PR required, checks `all-quality`,
    `analyze (python)` and `analyze (javascript-typescript)` green, merge commit
    only, no deletion or force-push. Admins bypass it (that is how `publish.sh`
-   pushes the release commit). The `release-tags` ruleset reserves `X.Y.Z` tags
-   to admins. No workflow pushes `main` or creates a tag.
+   pushes the release commit). `preversion-5` gets the same rules. The
+   `release-tags` ruleset reserves `X.Y.Z` tags to admins. No workflow pushes
+   `main` or creates a tag; the only workflow that writes a branch is
+   `forward-merge.yml`, which merges every push to `main` into `preversion-5`
+   (a merge commit, never a rebase or a force push) and opens a PR
+   `main → preversion-5` on a conflict.
 7. Merge with a **merge commit**, only after a human approves (a convention: the
    ruleset requires no review).
 
