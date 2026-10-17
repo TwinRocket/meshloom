@@ -420,6 +420,41 @@ class _Run:
                 self.set(name, "skipped", code, detail)
 
 
+def _settle_identity(run: _Run, inputs: IdentityInputs) -> IdentityDecision | None:
+    """Decide and check; record the outcomes that need no write and return None.
+
+    Returns the decision only when an import, a wipe or a bind is needed.
+    """
+    options = run.options
+    decision = decide_for(run.doc, inputs)
+    try:
+        check_identity_confirmations(
+            decision,
+            live=inputs.live,
+            replace_live_identity=options.replace_live_identity,
+            wipe_history=options.wipe_history,
+            expected_live_public_key=options.expected_live_public_key,
+        )
+    except BackupError as exc:
+        run.set("identity", "failed", exc.code, exc.message)
+        run.stop = True
+        return None
+    if decision.deferred:
+        run.set(
+            "identity",
+            "skipped",
+            "radio_not_connected",
+            "Connect the radio: Meshloom asks what to do with its identity; "
+            "choose Restore from a backup.",
+        )
+        run.radio_skip_code = "radio_not_connected"
+        return None
+    if not (decision.import_key or decision.wipe or decision.bind):
+        run.set("identity", "done", "already_this_identity")
+        return None
+    return decision
+
+
 async def _identity_step(run: _Run) -> None:
     from app.services.radio_runtime import radio_runtime
 
@@ -438,40 +473,27 @@ async def _identity_step(run: _Run) -> None:
 
     manager = radio_runtime.manager
     run.set("identity", "running")
+    # Decided first outside the lifecycle transition: entering it closes ingest,
+    # and only the post-connect setup opens it again. The common outcomes (same
+    # radio, radio not connected, a refusal) must leave the running session alone.
+    if _settle_identity(run, await gather_identity_inputs()) is None:
+        return
+
     gate_was_open = False
     try:
         async with manager.lifecycle_transition("backup_identity_restore"):
-            # Re-decided with fresh inputs: adverts may have filled the history
-            # (row 5 becoming row 6) since inspect.
-            inputs = await gather_identity_inputs()
-            gate_was_open = inputs.gate is not None
-            decision = decide_for(doc, inputs)
+            setup_ran = False
             try:
-                check_identity_confirmations(
-                    decision,
-                    live=inputs.live,
-                    replace_live_identity=options.replace_live_identity,
-                    wipe_history=options.wipe_history,
-                    expected_live_public_key=options.expected_live_public_key,
-                )
-            except BackupError as exc:
-                run.set("identity", "failed", exc.code, exc.message)
-                run.stop = True
-                return
-            if decision.deferred:
-                run.set(
-                    "identity",
-                    "skipped",
-                    "radio_not_connected",
-                    "Connect the radio: Meshloom asks what to do with its identity; "
-                    "choose Restore from a backup.",
-                )
-                run.radio_skip_code = "radio_not_connected"
-                return
-            if not (decision.import_key or decision.wipe or decision.bind):
-                run.set("identity", "done", "already_this_identity")
-                return
-            await _execute_identity(run, decision, backup_key)
+                # Re-decided with fresh inputs: adverts may have filled the history
+                # (row 5 becoming row 6) since the first decision.
+                inputs = await gather_identity_inputs()
+                gate_was_open = inputs.gate is not None
+                decision = _settle_identity(run, inputs)
+                if decision is not None:
+                    setup_ran = await _execute_identity(run, decision, backup_key, inputs)
+            finally:
+                if not setup_ran and not gate_was_open:
+                    await _restore_session()
     except RadioOperationBusyError:
         run.set("identity", "failed", "radio_busy")
         run.stop = True
@@ -481,14 +503,44 @@ async def _identity_step(run: _Run) -> None:
             await manager.pause_connection()
 
 
+async def _restore_session() -> None:
+    """Reopen the ingest the lifecycle transition closed, when nothing ran setup.
+
+    Same session, same identity: ingest opens again for it. Otherwise the
+    post-connect setup decides (it opens the identity gate on another key).
+    """
+    from app.services.radio_ingest_gate import allow_ingest
+    from app.services.radio_runtime import radio_runtime
+
+    manager = radio_runtime.manager
+    if not manager.connection_desired or not manager.is_connected:
+        return  # the connection monitor reconnects and runs setup
+    try:
+        if manager.is_setup_complete:
+            snapshot = await _transport_snapshot()
+            live, _name = await read_live_identity()
+            bound = _norm(snapshot.bound_public_key)
+            if not snapshot.identity_state and bound is not None and live == bound:
+                allow_ingest()
+                return
+        await radio_runtime.prepare_connected(broadcast_on_success=True)
+    except Exception:
+        logger.exception("Setup after a stopped identity restore failed")
+
+
 async def _transport_snapshot() -> RadioTransportSnapshot:
     from app.services import radio_transport
 
     return await radio_transport.get_transport()
 
 
-async def _execute_identity(run: _Run, decision: IdentityDecision, backup_key: str) -> None:
-    """Inside the lifecycle transition: reconnect, import, wipe, bind, setup."""
+async def _execute_identity(
+    run: _Run, decision: IdentityDecision, backup_key: str, inputs: IdentityInputs
+) -> bool:
+    """Inside the lifecycle transition: reconnect, check, import, wipe, bind, setup.
+
+    Returns True once the bind ran and the post-connect setup was started.
+    """
     from app import keystore
     from app.repository.radio_transport import RadioTransportRepository
     from app.services.backup_radio import import_private_key_raw
@@ -504,49 +556,43 @@ async def _execute_identity(run: _Run, decision: IdentityDecision, backup_key: s
     doc = run.doc
     assert isinstance(doc, BackupExportV2) and doc.identity and doc.identity.private_key
 
+    def fail(code: str) -> bool:
+        run.set("identity", "failed", code)
+        run.stop = True
+        return False
+
     # a. Transport only (works while the identity gate is open).
     manager.resume_connection()
     if not await manager.reconnect(broadcast_on_success=False):
-        run.set("identity", "failed", "radio_not_connected")
-        run.stop = True
-        return
+        return fail("radio_not_connected")
 
-    # b. Import first and verify: a refused import must not cost the history.
-    if decision.import_key:
-        key = bytes.fromhex(doc.identity.private_key.get_secret_value())
-        try:
-            async with radio_runtime.radio_operation("backup_identity_import") as mc:
+    # b. Re-read the live key on every path: the decision may rest on a gate
+    # snapshot written before this reconnect. Then import first and verify: a
+    # refused import must not cost the history.
+    key = bytes.fromhex(doc.identity.private_key.get_secret_value())
+    try:
+        async with radio_runtime.radio_operation("backup_identity_verify") as mc:
+            live, _name = await read_radio_public_key(mc)
+            if live != backup_key and (not decision.import_key or live != inputs.live):
+                return fail("live_identity_changed")
+            if decision.import_key and live != backup_key:
+                outcome = await import_private_key_raw(mc, key)
+                if outcome != "ok":
+                    return fail(
+                        {
+                            "disabled": "private_key_import_disabled",
+                            "rejected": "private_key_import_rejected",
+                        }.get(outcome, "private_key_import_unverified")
+                    )
                 live, _name = await read_radio_public_key(mc)
-                expected = _norm(run.options.expected_live_public_key)
-                if live != backup_key and expected is not None and live != expected:
-                    run.set("identity", "failed", "live_identity_changed")
-                    run.stop = True
-                    return
                 if live != backup_key:
-                    outcome = await import_private_key_raw(mc, key)
-                    if outcome != "ok":
-                        run.set(
-                            "identity",
-                            "failed",
-                            {
-                                "disabled": "private_key_import_disabled",
-                                "rejected": "private_key_import_rejected",
-                            }.get(outcome, "private_key_import_unverified"),
-                        )
-                        run.stop = True
-                        return
-                    live, _name = await read_radio_public_key(mc)
-                    if live != backup_key:
-                        run.set("identity", "failed", "private_key_import_unverified")
-                        run.stop = True
-                        return
-                    await keystore.export_and_store_private_key(mc)
-        except RadioOperationError:
-            run.set("identity", "failed", "radio_not_connected")
-            run.stop = True
-            return
-        finally:
-            key = b""
+                    return fail("private_key_import_unverified")
+                await keystore.export_and_store_private_key(mc)
+    except RadioOperationError:
+        return fail("radio_not_connected")
+    finally:
+        key = b""
+    if decision.import_key:
         run.result.identity_restored = True
 
     # c. Wipe the history recorded under another key, when the table says so.
@@ -565,6 +611,7 @@ async def _execute_identity(run: _Run, decision: IdentityDecision, backup_key: s
         connected = False
     if not connected:
         run.radio_skip_code = "radio_not_connected"
+    return True
 
 
 async def _meshloom_step(run: _Run) -> None:

@@ -37,6 +37,7 @@ from app.services.backup_restore import (
     get_restore_job,
     start_restore_backup_v2,
 )
+from app.services.radio_ingest_gate import allow_ingest, deny_ingest, ingest_allowed
 from app.services.radio_runtime import RadioRuntime
 from tests.fixtures.fake_node import FakeNode, connected_node
 from tests.fixtures.log_capture import assert_no_secret_logged
@@ -63,6 +64,7 @@ def _reset_jobs():
     restore_module._jobs.clear()
     restore_module._running_job_id = None
     keystore.clear_keys()
+    deny_ingest()
 
 
 class SetupStub:
@@ -80,6 +82,8 @@ def setup_stub(monkeypatch):
     async def prepare(self, *, broadcast_on_success: bool = True) -> bool:
         stub.calls += 1
         radio_manager._setup_complete = stub.result
+        if stub.result:
+            allow_ingest()  # as evaluate_connected_identity does on the bound key
         return stub.result
 
     async def time_sync(mc, **kwargs):
@@ -348,7 +352,7 @@ async def test_live_key_changed_before_the_import(backup_db, setup_stub, monkeyp
             nonlocal calls
             calls += 1
             inputs = await real()
-            if calls == 2:  # the job's own check, then the radio is swapped
+            if calls == 3:  # the job's check inside the transition, then a swap
                 node.private_key = bytes(range(150, 214))
             return inputs
 
@@ -429,6 +433,81 @@ async def test_setup_not_back_after_the_import(backup_db, setup_stub):
     assert statuses(job)["meshloom"] == ("done", None)
     assert statuses(job)["radio_settings"] == ("skipped", "radio_not_connected")
     assert job.steps[2].detail and "again" in job.steps[2].detail
+
+
+# -- the ingest gate after the identity step ---------------------------------------
+#
+# Entering the lifecycle transition closes ingest and only the post-connect
+# setup opens it again: a restore that runs no setup must leave ingest open.
+
+
+@pytest.mark.asyncio
+async def test_same_identity_keeps_ingest_open(backup_db, setup_stub):
+    node = await _same_identity_node()
+    async with connected_node(node):
+        allow_ingest()
+        job = await run(make_doc())
+        assert ingest_allowed() is True
+    assert statuses(job)["identity"] == ("done", "already_this_identity")
+    assert setup_stub.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_import_refused_without_gate_reopens_ingest(backup_db, setup_stub):
+    node = FakeNode(private_key=OTHER_KEY)
+    node.import_disabled = True
+    await RadioTransportRepository.bind_public_key(L)
+    async with connected_node(node):
+        allow_ingest()
+        job = await run(make_doc(), replace_live_identity=True, expected_live_public_key=L)
+        assert ingest_allowed() is True
+        assert radio_manager.connection_desired is True
+    assert statuses(job)["identity"] == ("failed", "private_key_import_disabled")
+    assert setup_stub.calls == 0  # same session, same key: no setup needed
+
+
+@pytest.mark.asyncio
+async def test_refusal_inside_the_transition_reopens_ingest(backup_db, setup_stub, monkeypatch):
+    node = FakeNode(private_key=OTHER_KEY)
+    await RadioTransportRepository.bind_public_key(L)
+    real = restore_module.gather_identity_inputs
+    calls = 0
+
+    async def history_appears():
+        nonlocal calls
+        calls += 1
+        if calls == 3:  # inside the transition: adverts filled the history
+            await ContactRepository.upsert(ContactUpsert(public_key="77" * 32, name="Adv", type=1))
+        return await real()
+
+    monkeypatch.setattr(restore_module, "gather_identity_inputs", history_appears)
+    async with connected_node(node):
+        allow_ingest()
+        job = await run(make_doc(), replace_live_identity=True, expected_live_public_key=L)
+        assert ingest_allowed() is True
+    assert statuses(job)["identity"] == ("failed", "backup_identity_wipe_required")
+    assert "import_key" not in node.names()
+
+
+@pytest.mark.asyncio
+async def test_swapped_radio_after_the_gate_snapshot_never_wipes(backup_db, setup_stub):
+    """Row 9 rests on the gate snapshot (live == P); the reconnected radio is L."""
+    node = FakeNode(private_key=OTHER_KEY)
+    b_key = "cc" * 32
+    await RadioTransportRepository.bind_public_key(b_key)
+    await RadioTransportRepository.set_identity_gate(
+        state="identity_mismatch", previous_public_key=b_key, new_public_key=P, new_name="P"
+    )
+    await ContactRepository.upsert(ContactUpsert(public_key="99" * 32, name="B's", type=1))
+    async with connected_node(node):
+        job = await run(make_doc(), wipe_history=True)
+        assert radio_manager.connection_desired is False  # paused on the open gate
+    assert statuses(job)["identity"] == ("failed", "live_identity_changed")
+    assert await ContactRepository.get_by_key("99" * 32) is not None
+    snapshot = await RadioTransportRepository.get()
+    assert snapshot.bound_public_key == b_key
+    assert snapshot.identity_state == "identity_mismatch"
+    assert "import_key" not in node.names()
 
 
 # -- radio steps -----------------------------------------------------------------

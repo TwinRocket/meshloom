@@ -249,14 +249,19 @@ be wrong, because historical decryption inserts old messages with new ids.
   a worker thread.
 - **Identity.** `decide_identity_restore(gate, bound, live, backup,
   has_history)` is the one table (TR-1 plan C.4, `tests/test_backup_identity_decision.py`):
-  inspect, the synchronous 409s and the job (again, inside the
-  `lifecycle_transition`, right before acting) all use it. A known live key
+  inspect, the synchronous 409s and the job all use it. The job decides once
+  outside the `lifecycle_transition` and enters it only for an import, a wipe
+  or a bind (entering it closes ingest, and only post-connect setup opens it
+  again), then decides again inside, right before acting; leaving it without
+  setup (a refusal, a refused import) reopens ingest for the same session, or
+  runs setup when the key changed. A known live key
   other than the backup's needs `replace_live_identity` and
   `expected_live_public_key == live`; history under another key needs
   `wipe_history`; a radio that is not connected never gets the backup key bound
   (rows 3-4: the next connect opens `identity_unbound_legacy`). The job imports
-  first (raw `0x18` frame waiting for OK/ERROR/DISABLED, then a re-read), then
-  wipes, then binds and runs setup; any identity failure stops the job and
+  first (re-read of the live key after the reconnect on every path, refused
+  with `live_identity_changed` when it moved; raw `0x18` frame waiting for
+  OK/ERROR/DISABLED, then a re-read), then wipes, then binds and runs setup; any identity failure stops the job and
   pauses the link when the gate was open.
 - **Restore order** (owner decision): identity, Meshloom data (only the settings
   present in the file; `meshloom_extra` through the route code paths: fanout
