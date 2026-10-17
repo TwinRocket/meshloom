@@ -186,6 +186,8 @@
         "autoadd": "Règles d’ajout automatique",
         "ble_pin": "Code PIN Bluetooth",
         "cli_prefs": "Réglages de la ligne de commande",
+        "wifi_credentials": "Identifiants Wi-Fi",
+        "wifi_enabled": "Wi-Fi activé ou désactivé",
         "table_full": "{{value}} contacts n’ont pas trouvé de place"
       },
       "jobLost": "Le serveur ne connaît plus cette restauration (il a redémarré). Vérifiez le résultat, puis relancez la restauration si besoin."

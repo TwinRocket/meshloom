@@ -515,6 +515,24 @@ describe('BackupRestoreFlow', () => {
     expect(item).toHaveTextContent(i18n.t('settings.fullRestore.codes.radio_params_rejected'));
   });
 
+  it('names the Wi-Fi part that failed after the credentials were stored', async () => {
+    const finished = job({ state: 'done' });
+    finished.steps[5] = {
+      step: 'wifi',
+      status: 'failed',
+      code: null,
+      detail: null,
+      items: [
+        { name: 'wifi_credentials', status: 'done', code: null },
+        { name: 'wifi_enabled', status: 'failed', code: 'cli_unexpected_reply' },
+      ],
+    };
+    await runJob(finished);
+    expect(document.querySelector('[data-item="wifi_credentials"]')).toBeNull();
+    const item = document.querySelector('[data-item="wifi_enabled"]');
+    expect(item).toHaveTextContent(i18n.t('settings.fullRestore.items.wifi_enabled'));
+  });
+
   it('translates every code and warning the backend can report', () => {
     const codes = [
       // step codes

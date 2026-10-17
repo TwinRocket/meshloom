@@ -846,6 +846,42 @@ async def test_firmware_without_cli(backup_db, setup_stub):
     assert items(job, "radio_settings")["name"] == ("done", None)
 
 
+class _WifiFlagRefused(FakeNode):
+    def handle(self, command: str) -> str:
+        if command.startswith("set wifi.enabled "):
+            return "> unknown"
+        return super().handle(command)
+
+
+@pytest.mark.asyncio
+async def test_wifi_credentials_stored_but_flag_refused_still_asks_the_reboot(
+    backup_db, setup_stub
+):
+    node = _WifiFlagRefused(private_key=BACKUP_KEY)
+    await RadioTransportRepository.bind_public_key(P)
+    wifi = BackupWifi(ssid="HomeNet", password="secret-pw", enabled=False)  # type: ignore[arg-type]
+    async with connected_node(node):
+        job = await run(make_doc(wifi=wifi))
+    assert node.stored_pwd == "secret-pw"
+    assert items(job, "wifi") == {
+        "wifi_credentials": ("done", None),
+        "wifi_enabled": ("failed", "cli_unexpected_reply"),
+    }
+    assert statuses(job)["wifi"] == ("failed", None)
+    assert job.result is not None and job.result.reboot_required is True
+
+
+@pytest.mark.asyncio
+async def test_wifi_flag_written_with_the_credentials(backup_db, setup_stub):
+    node = await _same_identity_node()
+    wifi = BackupWifi(ssid="HomeNet", password="secret-pw", enabled=False)  # type: ignore[arg-type]
+    async with connected_node(node):
+        job = await run(make_doc(wifi=wifi))
+    assert statuses(job)["wifi"] == ("done", None)
+    assert node.enabled is False
+    assert items(job, "wifi")["wifi_enabled"] == ("done", None)
+
+
 @pytest.mark.asyncio
 async def test_ble_pin_on_a_ble_link(backup_db, setup_stub):
     node = await _same_identity_node()

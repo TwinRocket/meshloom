@@ -186,6 +186,8 @@
         "autoadd": "Auto-add rules",
         "ble_pin": "Bluetooth PIN",
         "cli_prefs": "Command line settings",
+        "wifi_credentials": "Wi-Fi credentials",
+        "wifi_enabled": "Wi-Fi on or off",
         "table_full": "{{value}} contacts did not fit"
       },
       "jobLost": "The server no longer knows this restore (it restarted). Check the result, then restore again if needed."

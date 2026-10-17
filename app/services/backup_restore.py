@@ -771,15 +771,28 @@ async def _radio_steps(run: _Run) -> None:
                 run.set("wifi", "running")
                 try:
                     await store_wifi_credentials(cli, doc.wifi.ssid, doc.wifi.password, typed=False)
-                    if doc.wifi.enabled is not None and (
-                        await wifi_enabled(cli) != doc.wifi.enabled
-                    ):
-                        await set_wifi_enabled(cli, doc.wifi.enabled)
                 except CliError as exc:
                     run.set("wifi", "failed", exc.code)
                 else:
+                    # Stored and verified: they apply at the next reboot, even if
+                    # the on/off flag below cannot be written.
                     run.result.reboot_required = True
-                    run.set("wifi", "done")
+                    items = [BackupRestoreItem(name="wifi_credentials", status="done")]
+                    if doc.wifi.enabled is not None:
+                        try:
+                            if await wifi_enabled(cli) != doc.wifi.enabled:
+                                await set_wifi_enabled(cli, doc.wifi.enabled)
+                        except CliError as exc:
+                            items.append(
+                                BackupRestoreItem(
+                                    name="wifi_enabled", status="failed", code=exc.code
+                                )
+                            )
+                        else:
+                            items.append(BackupRestoreItem(name="wifi_enabled", status="done"))
+                    run.step("wifi").items = items
+                    failed = any(item.status == "failed" for item in items)
+                    run.set("wifi", "failed" if failed else "done")
     except (CliError, RadioOperationError):
         for name in RADIO_STEPS:
             if run.step(name).status == "running":
