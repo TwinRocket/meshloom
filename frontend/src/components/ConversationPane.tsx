@@ -1,4 +1,4 @@
-import { lazy, useEffect, useMemo, useState, type Ref } from 'react';
+import { lazy, useMemo, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Radio } from 'lucide-react';
@@ -277,9 +277,12 @@ export function ConversationPane({
   }, [activeConversation, contacts]);
   const activeContactIsRoom = activeContact?.type === CONTACT_TYPE_ROOM;
   const activeContactIsSensor = activeContact?.type === CONTACT_TYPE_SENSOR;
-  useEffect(() => {
+  const activeConversationId = activeConversation?.id;
+  const [prevActiveConversationId, setPrevActiveConversationId] = useState(activeConversationId);
+  if (activeConversationId !== prevActiveConversationId) {
+    setPrevActiveConversationId(activeConversationId);
     setRoomAuthenticated(false);
-  }, [activeConversation?.id]);
+  }
   const isPrefixOnlyActiveContact = activeContact
     ? isPrefixOnlyContact(activeContact.public_key)
     : false;

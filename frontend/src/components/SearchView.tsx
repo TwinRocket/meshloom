@@ -113,22 +113,31 @@ export function SearchView({
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Reset results when query changes
-  useEffect(() => {
+  // Reset results when query changes; a non-empty query starts loading straight away.
+  const [searchedFrom, setSearchedFrom] = useState({ debouncedQuery, visibilityVersion });
+  if (
+    searchedFrom.debouncedQuery !== debouncedQuery ||
+    searchedFrom.visibilityVersion !== visibilityVersion
+  ) {
+    setSearchedFrom({ debouncedQuery, visibilityVersion });
     setResults([]);
     setOffset(0);
     setHasMore(false);
-  }, [debouncedQuery, visibilityVersion]);
+    if (debouncedQuery) setLoading(true);
+  }
+
+  const [prevPrefillRequest, setPrevPrefillRequest] = useState<typeof prefillRequest>(null);
+  if (prefillRequest !== prevPrefillRequest) {
+    setPrevPrefillRequest(prefillRequest);
+    if (prefillRequest) {
+      const nextQuery = prefillRequest.query.trim();
+      setQuery(nextQuery);
+      setDebouncedQuery(nextQuery);
+    }
+  }
 
   useEffect(() => {
-    if (!prefillRequest) {
-      return;
-    }
-
-    const nextQuery = prefillRequest.query.trim();
-    setQuery(nextQuery);
-    setDebouncedQuery(nextQuery);
-    inputRef.current?.focus();
+    if (prefillRequest) inputRef.current?.focus();
   }, [prefillRequest]);
 
   useEffect(() => {
@@ -139,17 +148,13 @@ export function SearchView({
 
   // Fetch search results
   useEffect(() => {
-    if (!debouncedQuery) {
-      setResults([]);
-      setHasMore(false);
-      return;
-    }
+    // Results were already cleared (and loading set) when the query changed.
+    if (!debouncedQuery) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setLoading(true);
     api
       .getMessages({ q: debouncedQuery, limit: SEARCH_PAGE_SIZE, offset: 0 }, controller.signal)
       .then((data) => {

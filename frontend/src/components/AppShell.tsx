@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useRef, useState, type ComponentProps } from 'react';
+import { lazy, useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
@@ -176,6 +176,10 @@ export function AppShell({
     preventScrollOnSwipe: false,
   });
 
+  // Settings open on the index on a phone: the bar cannot say which section you
+  // wanted, and the rail that used to answer that went with the drawer.
+  const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
+
   const handleOpenSettings = useCallback(
     (section: SettingsSection) => {
       onSettingsSectionChange(section);
@@ -185,9 +189,9 @@ export function AppShell({
     [onSettingsSectionChange, onToggleSettingsView, showSettings]
   );
 
-  const searchMounted = useRef(false);
-  if (conversationPaneProps.activeConversation?.type === 'search') {
-    searchMounted.current = true;
+  const [searchMounted, setSearchMounted] = useState(false);
+  if (conversationPaneProps.activeConversation?.type === 'search' && !searchMounted) {
+    setSearchMounted(true);
   }
 
   const [identityModalForced, setIdentityModalForced] = useState(false);
@@ -199,9 +203,9 @@ export function AppShell({
     void refreshCommunityStatus();
   }, []);
 
-  const crackerMounted = useRef(false);
-  if (showCracker) {
-    crackerMounted.current = true;
+  const [crackerMounted, setCrackerMounted] = useState(false);
+  if (showCracker && !crackerMounted) {
+    setCrackerMounted(true);
   }
 
   // Position toasts below the conversation header when in chat, otherwise below the status bar
@@ -210,9 +214,6 @@ export function AppShell({
   const hasLocalLabel = !!serverLabel.text;
   // Which screen the phone layout is on when no conversation or tool is open.
   const [mobileScreen, setMobileScreen] = useState<'conversations' | 'tools'>('conversations');
-  // Settings open on the index on a phone: the bar cannot say which section you
-  // wanted, and the rail that used to answer that went with the drawer.
-  const [settingsIndexOpen, setSettingsIndexOpen] = useState(true);
   const [radioStatusOpen, setRadioStatusOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const ossUpdates = useOssUpdates({
@@ -278,6 +279,7 @@ export function AppShell({
     onClearActiveConversation();
   }, [onClearActiveConversation]);
 
+  const { onSelectConversation } = sidebarProps;
   const handleBottomNav = useCallback(
     (target: BottomNavTarget) => {
       if (target === 'settings') {
@@ -296,7 +298,7 @@ export function AppShell({
       if (showSettings) onCloseSettingsView(false);
       if (target === 'map') {
         setMobileScreen('conversations');
-        sidebarProps.onSelectConversation({ type: 'map', id: 'map', name: 'map' } as never);
+        onSelectConversation({ type: 'map', id: 'map', name: 'map' } as never);
         return;
       }
       // Conversations and Tools are screens of their own, so they clear whatever
@@ -315,7 +317,7 @@ export function AppShell({
       onToggleSettingsView,
       onCloseSettingsView,
       onSettingsSectionChange,
-      sidebarProps,
+      onSelectConversation,
       onClearActiveConversation,
       conversationListCollapsed,
       onExpandConversationList,
@@ -521,7 +523,7 @@ export function AppShell({
             />
           </div>
 
-          {searchMounted.current && (
+          {searchMounted && (
             <div
               className={cn(
                 'flex-1 flex flex-col min-h-0',
@@ -619,7 +621,7 @@ export function AppShell({
           showCracker ? 'h-[min(42vh,420px)]' : 'h-0'
         )}
       >
-        {crackerMounted.current && (
+        {crackerMounted && (
           <LazyBoundary
             fallback={
               <div className="flex items-center justify-center h-full text-muted-foreground">

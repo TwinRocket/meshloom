@@ -28,8 +28,18 @@ export function ChannelInfoPane({
 }: ChannelInfoPaneProps) {
   const { t } = useTranslation();
   const [detail, setDetail] = useState<ChannelDetail | null>(null);
-  const [loading, setLoading] = useState(false);
+  // The channel whose detail request last settled; loading until it matches channelKey.
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  const loading = channelKey !== null && settledKey !== channelKey;
   const [showKey, setShowKey] = useState(false);
+
+  const [prevChannelKey, setPrevChannelKey] = useState(channelKey);
+  if (channelKey !== prevChannelKey) {
+    setPrevChannelKey(channelKey);
+    setShowKey(false);
+    setSettledKey(null);
+    if (!channelKey) setDetail(null);
+  }
 
   // Get live channel data from channels array (real-time via WS)
   const liveChannel = channelKey ? (channels.find((c) => c.key === channelKey) ?? null) : null;
@@ -39,14 +49,9 @@ export function ChannelInfoPane({
   const chartReady = useEntranceSettled(channelKey !== null);
 
   useEffect(() => {
-    setShowKey(false);
-    if (!channelKey) {
-      setDetail(null);
-      return;
-    }
+    if (!channelKey) return;
 
     let cancelled = false;
-    setLoading(true);
     api
       .getChannelDetail(channelKey)
       .then((data) => {
@@ -59,7 +64,7 @@ export function ChannelInfoPane({
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setSettledKey(channelKey);
       });
     return () => {
       cancelled = true;

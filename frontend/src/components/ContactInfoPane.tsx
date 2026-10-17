@@ -135,8 +135,15 @@ export function ContactInfoPane({
   const isNameOnly = contactKey?.startsWith('name:') ?? false;
   const nameOnlyValue = isNameOnly && contactKey ? contactKey.slice(5) : null;
 
-  const [analytics, setAnalytics] = useState<ContactAnalytics | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Tagged with the contact it was fetched for, so a stale result vanishes as soon as the
+  // pane switches contact; `fetchedAt` dates the "last 7 days" filters below.
+  const [analyticsResult, setAnalyticsResult] = useState<{
+    key: string;
+    data: ContactAnalytics | null;
+    fetchedAt: number;
+  } | null>(null);
+  const analytics = contactKey && analyticsResult?.key === contactKey ? analyticsResult.data : null;
+  const loading = contactKey !== null && analyticsResult?.key !== contactKey;
   const [telemetryLoading, setTelemetryLoading] = useState(false);
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryHistoryEntry[]>([]);
 
@@ -149,14 +156,9 @@ export function ContactInfoPane({
   const chartsReady = useEntranceSettled(contactKey !== null);
 
   useEffect(() => {
-    if (!contactKey) {
-      setAnalytics(null);
-      return;
-    }
+    if (!contactKey) return;
 
     const controller = new AbortController();
-    setAnalytics(null);
-    setLoading(true);
     const request =
       isNameOnly && nameOnlyValue
         ? api.getContactAnalytics({ name: nameOnlyValue }, controller.signal)
@@ -164,7 +166,8 @@ export function ContactInfoPane({
 
     request
       .then((data) => {
-        if (!controller.signal.aborted) setAnalytics(data);
+        if (!controller.signal.aborted)
+          setAnalyticsResult({ key: contactKey, data, fetchedAt: Date.now() });
       })
       .catch((err) => {
         if (!isAbortError(err)) {
@@ -173,19 +176,26 @@ export function ContactInfoPane({
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted)
+          setAnalyticsResult((prev) =>
+            prev?.key === contactKey ? prev : { key: contactKey, data: null, fetchedAt: Date.now() }
+          );
       });
     return () => {
       controller.abort();
     };
   }, [contactKey, isNameOnly, nameOnlyValue, t]);
 
+  // Clear the telemetry history once the pane has no full-key contact to load it for.
+  const [prevContactKey, setPrevContactKey] = useState(contactKey);
+  if (contactKey !== prevContactKey) {
+    setPrevContactKey(contactKey);
+    if (!contactKey || isNameOnly) setTelemetryHistory([]);
+  }
+
   // Load telemetry history when pane opens for a contact
   useEffect(() => {
-    if (!contactKey || isNameOnly) {
-      setTelemetryHistory([]);
-      return;
-    }
+    if (!contactKey || isNameOnly) return;
     let cancelled = false;
     api
       .contactTelemetryHistory(contactKey)
@@ -584,8 +594,9 @@ export function ContactInfoPane({
 
             {/* Nearest Repeaters (Hops) — last 7 days only */}
             {analytics &&
+              analyticsResult &&
               (() => {
-                const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 86400;
+                const sevenDaysAgo = Math.floor(analyticsResult.fetchedAt / 1000) - 7 * 86400;
                 const recent = analytics.nearest_repeaters.filter(
                   (r) => r.last_seen >= sevenDaysAgo
                 );
@@ -1012,8 +1023,10 @@ function NearbyRepeatersSection({
   contacts: Contact[];
   distanceUnit: import('../utils/distanceUnits').DistanceUnit;
 }) {
+  // "Now" as of mount; repeaters heard since then are newer anyway.
+  const [mountedAt] = useState(() => Date.now());
   const nearby = useMemo(() => {
-    const sevenDaysAgo = Math.floor(Date.now() / 1000) - 7 * 86400;
+    const sevenDaysAgo = Math.floor(mountedAt / 1000) - 7 * 86400;
     const results: Array<{ name: string; publicKey: string; distance: number }> = [];
     for (const other of contacts) {
       const heardAt = Math.max(other.last_seen ?? 0, other.last_advert ?? 0);
@@ -1036,7 +1049,7 @@ function NearbyRepeatersSection({
     }
     results.sort((a, b) => a.distance - b.distance);
     return results.slice(0, 5);
-  }, [contact.public_key, contact.lat, contact.lon, contacts]);
+  }, [contact.public_key, contact.lat, contact.lon, contacts, mountedAt]);
 
   const { t } = useTranslation();
   if (nearby.length === 0) return null;

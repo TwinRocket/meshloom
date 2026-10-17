@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from './ui/button';
@@ -39,11 +39,15 @@ export function ChannelPathHashModeOverrideModal({
   const { t } = useTranslation();
   const [selected, setSelected] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      setSelected(currentOverride);
-    }
-  }, [currentOverride, open]);
+  // Reseed the choice whenever the dialog opens or the override changes while open.
+  const [seededFrom, setSeededFrom] = useState<{
+    open: boolean;
+    currentOverride: number | null;
+  } | null>(null);
+  if (seededFrom?.open !== open || seededFrom.currentOverride !== currentOverride) {
+    setSeededFrom({ open, currentOverride });
+    if (open) setSelected(currentOverride);
+  }
 
   const radioDefaultLabel = pathHashModeLabel(radioDefault, t);
 

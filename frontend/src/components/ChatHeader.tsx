@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronsLeftRight,
@@ -91,12 +91,15 @@ export function ChatHeader({
   const [channelOverrideOpen, setChannelOverrideOpen] = useState(false);
   const [pathHashModeOverrideOpen, setPathHashModeOverrideOpen] = useState(false);
 
-  useEffect(() => {
+  // Close every menu and dialog when the conversation changes.
+  const [prevConversationId, setPrevConversationId] = useState(conversation.id);
+  if (conversation.id !== prevConversationId) {
+    setPrevConversationId(conversation.id);
     setActionsOpen(false);
     setPathDiscoveryOpen(false);
     setChannelOverrideOpen(false);
     setPathHashModeOverrideOpen(false);
-  }, [conversation.id]);
+  }
 
   const activeChannel =
     conversation.type === 'channel'

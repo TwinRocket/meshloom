@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -36,13 +36,17 @@ export function ChannelFloodScopeOverrideModal({
   const { t } = useTranslation();
   const [region, setRegion] = useState('');
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
+  // Reseed the input whenever the dialog opens or the override changes while open.
+  const [seededFrom, setSeededFrom] = useState<{
+    open: boolean;
+    currentOverride: string | null;
+  } | null>(null);
+  if (seededFrom?.open !== open || seededFrom.currentOverride !== currentOverride) {
+    setSeededFrom({ open, currentOverride });
     // The unscoped marker isn't a region name, so start the input blank for it.
-    setRegion(isUnscopedMarker(currentOverride) ? '' : stripRegionScopePrefix(currentOverride));
-  }, [currentOverride, open]);
+    if (open)
+      setRegion(isUnscopedMarker(currentOverride) ? '' : stripRegionScopePrefix(currentOverride));
+  }
 
   const trimmedRegion = region.trim();
 

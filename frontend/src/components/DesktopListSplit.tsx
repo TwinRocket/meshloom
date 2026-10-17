@@ -26,9 +26,8 @@ interface Props {
 export function DesktopListSplit({ children }: Props) {
   const { t } = useTranslation();
   const [width, setWidth] = useState(() => getSavedDesktopSplitWidth(window.innerWidth));
-  const widthRef = useRef(width);
-  widthRef.current = width;
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  // `latest` is the width the drag last set, saved on release without waiting for a render.
+  const dragRef = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
   const bucketRef = useRef(
     desktopSplitBucket(typeof window === 'undefined' ? 1280 : window.innerWidth)
   );
@@ -59,7 +58,7 @@ export function DesktopListSplit({ children }: Props) {
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { startX: event.clientX, startWidth: width };
+    dragRef.current = { startX: event.clientX, startWidth: width, latest: width };
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -69,15 +68,16 @@ export function DesktopListSplit({ children }: Props) {
       drag.startWidth + (event.clientX - drag.startX),
       window.innerWidth
     );
-    widthRef.current = next;
+    drag.latest = next;
     setWidth(next);
   };
 
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return;
+    const drag = dragRef.current;
+    if (!drag) return;
     dragRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    setSavedDesktopSplitWidth(widthRef.current, window.innerWidth);
+    setSavedDesktopSplitWidth(drag.latest, window.innerWidth);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
