@@ -16,6 +16,9 @@ if command -v usermod >/dev/null 2>&1 && getent passwd meshloom >/dev/null 2>&1;
     if getent group dialout >/dev/null 2>&1; then
         usermod -aG dialout meshloom || true
     fi
+    # BLE pairing (app/services/ble_pairing.py) calls BlueZ over D-Bus. The
+    # BlueZ policies of Debian 12/13 and Fedora let any local user do that;
+    # the group is kept for hardened policies that only allow it.
     if getent group bluetooth >/dev/null 2>&1; then
         usermod -aG bluetooth meshloom || true
     fi

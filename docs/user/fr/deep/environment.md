@@ -35,7 +35,7 @@ La connexion se choisit dans **Réglages → Radio** et se stocke dans la base :
 | `radio_tcp_host` | vide | Adresse de la radio sur le réseau |
 | `radio_tcp_port` | `5000` | Port TCP |
 | `radio_ble_address` | vide | Adresse Bluetooth de la radio |
-| `radio_ble_pin` | vide | Code PIN Bluetooth, obligatoire en Bluetooth |
+| `radio_ble_pin` | vide | Code PIN Bluetooth, obligatoire en Bluetooth. Sous Linux, Meshloom s’appaire avec (1 à 6 chiffres) |
 
 Tant qu’aucune connexion n’est choisie, la radio reste en pause. Ne définissez pas `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` ni `MESHCORE_BLE_ADDRESS` (ni leurs compléments `MESHCORE_SERIAL_BAUDRATE`, `MESHCORE_TCP_PORT` et `MESHCORE_BLE_PIN`). Une base neuve les ignore. Une base existante sans connexion enregistrée les recopie une seule fois, pour reprendre une ancienne configuration, puis ne les lit plus jamais. Si plusieurs des trois sont définies, aucune n’est recopiée.
 

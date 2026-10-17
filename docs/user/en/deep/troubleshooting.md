@@ -41,6 +41,23 @@ Variables such as `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` and `MESHCORE_BLE_
 4. A radio running repeater firmware does not answer a client. It needs companion firmware.
 5. Meshloom retries on its own every five seconds. **Reconnect** forces an attempt.
 
+## Bluetooth pairing fails
+
+The **Pairing** block in **Settings > Radio** (under the BLE PIN) gives the reason. See [Pairing](/en/docs/deep/transports/#pairing).
+
+| Message | What to do |
+|---|---|
+| **wrong PIN** | Check the PIN shown on the radio, save it, then press **Pair again**. Automatic pairing stays paused for that PIN until then. |
+| **The radio refused the pairing** | The radio was reset, or paired with another machine: press **Forget pairing**, then **Pair again**. On Ubuntu or Home Assistant OS, the system may also block Meshloom from receiving the PIN request; the log then says so. |
+| **The radio refuses this machine's saved pairing** | The radio was reset or re-flashed while this machine kept its pairing: press **Forget pairing**. |
+| **Radio not found** or **did not answer** | Turn the radio on, bring it closer, and disconnect any phone using it. Meshloom retries on its own, up to once a minute. |
+| **The PIN must be 1 to 6 digits** | Enter the PIN as the radio shows it. |
+| **The system Bluetooth service cannot be reached** | In Docker, map the host's `/run/dbus/system_bus_socket` into the container (the installer does it with Docker as root). In Home Assistant, update the add-on. Meshloom still tries to connect without pairing. |
+| **bluetoothd is not running** | Start it: `sudo systemctl start bluetooth`. |
+| **not allowed to pair** | The system refused Meshloom access to the Bluetooth service. Check the D-Bus policy of BlueZ, or pair with `bluetoothctl`. |
+| **No Bluetooth adapter**, **adapter is turned off**, **blocked (rfkill)** | Plug in or turn on the adapter: `bluetoothctl power on`, or `rfkill unblock bluetooth`. |
+| **blocked in this machine's Bluetooth settings** | Unblock the radio: `bluetoothctl unblock <address>`. |
+
 ## Dialog "This radio is not bound" or "does not match the stored identity"
 
 Meshloom ties its database to the public key of your radio, so that it never mixes the history of two radios.

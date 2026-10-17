@@ -44,6 +44,23 @@ and the OpenAPI page (`/docs`), not a table here.
   radio stays paused. Legacy `MESHCORE_SERIAL_PORT` / `_TCP_HOST` / `_BLE_ADDRESS`
   are imported once into an existing database with no transport, then never read;
   a new database ignores them (`services/radio_transport.py`).
+- BLE pairing (`services/ble_pairing.py`, `services/ble_agent.py`; detail in
+  `docs/dev/ble-pairing.md`): on Linux with a MAC address, `_connect_ble` first
+  pairs through BlueZ over D-Bus. A one-shot `Agent1` is registered on the same
+  connection that calls `Device1.Pair()`, never as the default agent. After
+  pairing the link is released (bleak's `BleakClient(address)` scans first and a
+  connected companion does not advertise), and meshcore gets
+  `create_ble(device=BLEDevice(path), pin=None)`: adapter pinned, bleak's
+  agent-less `pair()` never runs. Environmental failures (no D-Bus, no
+  bluetoothd, permission, no adapter) fall back to `create_ble(address, pin)`.
+  Auth failures are sticky per (address, PIN), transient ones back off 5-60 s,
+  and `reconnect()` reports each once (coded WS error outside the
+  `reconnection_failed` budget). Explicit pair/forget routes run under
+  `lifecycle_transition` then `RadioManager.ble_maintenance()` (holds
+  `_reconnect_lock`, answers busy at once). Lock order: lifecycle, reconnect,
+  radio operation, `ble_pairing` lock. Tests never touch the system bus: a
+  conftest guard replaces `_open_bus`; `tests/fake_bluez.py` runs on a private
+  dbus-daemon.
 - A live key that differs from `radio_bound_public_key`, or mesh history with no
   bound key (`identity_unbound_legacy`), closes ingest and pauses setup until the
   user adopts or rejects (`POST /radio/identity/adopt|reject`). Do not call
