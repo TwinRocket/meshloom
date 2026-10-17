@@ -1040,3 +1040,28 @@ def test_remote_cli_flag_constant():
     from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
 
     assert CONTACT_FLAG_REMOTE_CLI == 0x10
+
+
+@pytest.mark.parametrize(
+    ("command", "tail"),
+    [
+        ("set wifi.pwd ", ""),
+        ("set wifi.pwd  x y ", " x y "),
+        ("set  wifi.pwd abc", "abc"),
+        ("set\twifi.pwd\nabc", "abc"),
+        ("get wifi.ssid", None),
+        ("reboot", None),
+        ("", None),
+    ],
+)
+def test_after_two_tokens_matches_the_former_regex(command, tail):
+    from app.services.companion_cli import _after_two_tokens
+
+    assert _after_two_tokens(command) == tail
+
+
+def test_after_two_tokens_is_linear_on_long_input():
+    from app.services.companion_cli import _after_two_tokens
+
+    # CodeQL py/polynomial-redos: the former regex backtracked on this shape.
+    assert _after_two_tokens("a " + "!" * 200_000) is None
