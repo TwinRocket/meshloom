@@ -422,16 +422,23 @@ class RedactingFormatter(logging.Formatter):
         self.inner = inner
 
     def format(self, record: logging.LogRecord) -> str:
+        had_traceback = bool(record.exc_info or record.exc_text)
         try:
-            if record.exc_info and not record.exc_text:
-                record.exc_text = self.inner.formatException(record.exc_info)
-            if record.exc_text:
-                # Written back so a handler that is not wrapped reuses it.
-                record.exc_text = redact_text(record.exc_text, unanchored=True)
+            exc_text = record.exc_text
+            if record.exc_info and not exc_text:
+                exc_text = self.inner.formatException(record.exc_info)
+            if exc_text:
+                # Written back, only once redacted, so a handler that is not
+                # wrapped reuses it.
+                record.exc_text = redact_text(exc_text, unanchored=True)
             if record.stack_info:
                 record.stack_info = redact_text(record.stack_info, unanchored=True)
             return redact_text(self.inner.format(record), unanchored=True)
         except Exception:
+            # Never leave a traceback behind that later handlers would reuse.
+            record.exc_info = None
+            record.exc_text = REDACTION_FAILED if had_traceback else None
+            record.stack_info = None
             return self._placeholder(record)
 
     def _placeholder(self, record: logging.LogRecord) -> str:

@@ -773,6 +773,24 @@ async def test_redaction_failure_never_breaks_meshcore(debug_logs, monkeypatch, 
     assert SECRET not in err and SECRET.encode().hex() not in err
 
 
+def test_formatter_failure_leaves_no_raw_traceback_on_the_record(monkeypatch):
+    formatter = RedactingFormatter(logging.Formatter("%(message)s"))
+    try:
+        raise RuntimeError(f"boom {SECRET}")
+    except RuntimeError:
+        record = logging.LogRecord(
+            "app.x", logging.ERROR, __file__, 1, "failed", None, sys.exc_info()
+        )
+    monkeypatch.setattr(log_redaction, "redact_text", _raise)
+    line = formatter.format(record)
+    monkeypatch.undo()
+    assert line.endswith(REDACTION_FAILED)
+    # A later, unwrapped handler reuses exc_text: it must not be the raw traceback.
+    assert record.exc_info is None and record.exc_text == REDACTION_FAILED
+    later = logging.Formatter("%(message)s").format(record)
+    assert SECRET not in later and SECRET not in line
+
+
 def test_formatter_whose_inner_raises_gives_the_placeholder(capsys):
     class Broken(logging.Formatter):
         def format(self, record):
