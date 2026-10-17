@@ -110,6 +110,42 @@ async def test_identity_only_when_the_key_derives_to_the_live_radio(backup_db):
 
 
 @pytest.mark.asyncio
+async def test_a_key_export_missed_at_setup_is_retried_by_the_full_export(backup_db):
+    """The setup export timed out (keystore empty, firmware allows it): the
+    full backup asks once more instead of shipping without the identity."""
+    node = _node()
+    async with connected_node(node):
+        assert keystore.get_private_key() is None
+        doc = await export_backup_v2()
+    assert doc.identity is not None and doc.identity.private_key_status == "included"
+    assert export_document(doc)["identity"]["private_key"] == node.private_key.hex()
+    assert "private_key_unavailable" not in doc.warnings
+    assert keystore.get_private_key() == node.private_key
+
+
+@pytest.mark.asyncio
+async def test_identity_uses_the_cached_self_info_when_the_appstart_read_fails(
+    backup_db, monkeypatch
+):
+    from meshcore import EventType
+    from meshcore.events import Event
+
+    node = _node()
+    keystore.set_private_key(node.private_key)
+    async with connected_node(node) as (loop, _node_):
+        loop.mc._self_info = {"public_key": node.public_key}
+
+        async def failing_appstart():
+            return Event(EventType.ERROR, {"reason": "timeout"})
+
+        monkeypatch.setattr(loop.mc.commands, "send_appstart", failing_appstart)
+        doc = await export_backup_v2()
+    assert "radio_read_failed:self_info" in doc.warnings
+    assert doc.identity is not None and doc.identity.private_key_status == "included"
+    assert doc.identity.public_key == node.public_key
+
+
+@pytest.mark.asyncio
 async def test_export_disabled_firmware_says_so(backup_db):
     node = _node(export_disabled=True)
     async with connected_node(node) as (loop, _node_):

@@ -16,7 +16,7 @@ Do this before a **full install** with the flasher, or before any flash that era
 3. In **Backup & Restore**, under **Full backup (radio and Meshloom)**, click **Download the full backup**.
 4. Read the notes Meshloom shows after the download. If it says **this backup has no identity**, read why:
    - **the radio firmware does not allow exporting its private key**: no backup can carry this node's identity. The file holds the settings, contacts and channels, but restoring it will not bring the identity back.
-   - **the radio did not give its private key**: the radio was probably not ready. Check that the status bar shows **Radio OK**, then download the backup again.
+   - **the radio did not give its private key**: the radio was probably not ready. Check that the status bar shows **Radio OK**, then download the backup again. If the note comes back, press **Disconnect** then **Reconnect** in **Settings → Radio**, wait for **Radio OK**, and download it once more. Do not reflash with a backup that has no identity.
 5. Keep the file somewhere safe, away from the radio's machine if possible. It contains secrets: see [Encryption](#encryption).
 
 An **update without wipe** keeps the radio's identity and settings: it needs no restore. A firmware built without Wi-Fi credentials then relies on the ones the radio stores, so make sure the radio stores them before such an update.

@@ -586,6 +586,36 @@ def _identity_for(live_public_key: str | None) -> BackupIdentity:
     )
 
 
+async def _ensure_keystore_key(mc, live_public_key: str | None) -> None:
+    """Export the key once more when the keystore has none.
+
+    The keystore is filled once per connection by the post-connect setup; one
+    export that timed out there would otherwise leave every full backup without
+    the identity until the next reconnect. A firmware that refused the export
+    (DISABLED) is not asked again, and a keystore key for another radio is left
+    alone (the identity is then reported unavailable).
+    """
+    from app import keystore
+
+    if not live_public_key or keystore.last_export_disabled():
+        return
+    if keystore.get_private_key() is not None:
+        return
+    try:
+        await keystore.export_and_store_private_key(mc)
+    except RuntimeError:
+        # No answer at all: the backup reports the identity unavailable.
+        logger.warning("Backup export: the radio did not answer the key export")
+
+
+def _self_info_public_key(mc) -> str | None:
+    """The public key meshcore cached from the last SELF_INFO, when the export's
+    own appstart read failed."""
+    info = getattr(mc, "self_info", None)
+    key = info.get("public_key") if isinstance(info, dict) else None
+    return key.lower() if isinstance(key, str) and key else None
+
+
 async def _read_wifi(cli) -> tuple[BackupWifi | None, list[str]]:
     """Wi-Fi credentials stored in the radio (read live, never stored by Meshloom)
     and its on/off flag, kept even when no credentials are stored."""
@@ -649,7 +679,9 @@ async def export_backup_v2() -> BackupExportV2:
                 snapshot = await read_radio_node_settings(mc, cli if cli_supported else None)
                 radio = snapshot.settings
                 warnings.extend(snapshot.warnings)
-                identity = _identity_for(snapshot.public_key)
+                live_public_key = snapshot.public_key or _self_info_public_key(mc)
+                await _ensure_keystore_key(mc, live_public_key)
+                identity = _identity_for(live_public_key)
                 if cli_supported and capabilities is not None and capabilities.wifi:
                     wifi, wifi_warnings = await _read_wifi(cli)
                     warnings.extend(wifi_warnings)

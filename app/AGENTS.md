@@ -239,7 +239,11 @@ be wrong, because historical decryption inserts old messages with new ids.
   serialization context `{"backup_export": True}` (`export_document()`); every
   other dump, repr and the restore job show the mask, and a restore refuses the
   mask. The export route returns a `JSONResponse` from that dump, never a
-  `response_model`. The Wi-Fi password is read live (`wifi_stored_password`) and
+  `response_model`. The key comes from the keystore (filled once per
+  connection by setup); when it is empty and the firmware did not answer
+  DISABLED, the export asks the radio once more inside its CLI session, and it
+  falls back to meshcore's cached `self_info` key when its own appstart read
+  fails. The Wi-Fi password is read live (`wifi_stored_password`) and
   never written to the database. With a password stored and no SSID, `get
   wifi.ssid` answers the compile-time fallback SSID, and the firmware gives no
   way to tell it from a stored one: the backup pairs that SSID with the

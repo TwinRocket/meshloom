@@ -16,7 +16,7 @@ Meshloom peut enregistrer dans un seul fichier tout ce qui fait de votre nœud l
 3. Dans **Sauvegarde et restauration**, sous **Sauvegarde complète (radio et Meshloom)**, cliquez sur **Télécharger la sauvegarde complète**.
 4. Lisez les remarques que Meshloom affiche après le téléchargement. S’il indique que **cette sauvegarde ne contient pas d’identité**, regardez pourquoi :
    - **le firmware de la radio n’autorise pas l’export de sa clé privée** : aucune sauvegarde ne peut contenir l’identité de ce nœud. Le fichier contient les réglages, les contacts et les canaux, mais sa restauration ne rendra pas l’identité.
-   - **la radio n’a pas donné sa clé privée** : la radio n’était sans doute pas prête. Vérifiez que la barre d’état affiche **Radio OK**, puis téléchargez de nouveau la sauvegarde.
+   - **la radio n’a pas donné sa clé privée** : la radio n’était sans doute pas prête. Vérifiez que la barre d’état affiche **Radio OK**, puis téléchargez de nouveau la sauvegarde. Si la note revient, appuyez sur **Déconnecter** puis **Reconnecter** dans **Réglages → Radio**, attendez **Radio OK**, et téléchargez-la encore une fois. Ne reflashez pas avec une sauvegarde sans identité.
 5. Rangez le fichier en lieu sûr, si possible ailleurs que sur la machine de la radio. Il contient des secrets : voir [Chiffrement](#chiffrement).
 
 Une **mise à jour sans effacement** garde l’identité et les réglages de la radio : elle ne demande aucune restauration. Un firmware compilé sans identifiants Wi-Fi s’appuie alors sur ceux que la radio stocke : vérifiez que la radio les stocke avant une telle mise à jour.
