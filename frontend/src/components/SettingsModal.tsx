@@ -291,6 +291,10 @@ export function SettingsModal(props: SettingsModalProps) {
                   },
                 })
               }
+              allowedOrigins={appSettings?.auth_allowed_origins}
+              onSaveAllowedOrigins={(auth_allowed_origins) =>
+                onSaveAppSettings({ auth_allowed_origins })
+              }
               className={sectionContentClass}
             />
           )}

@@ -46,13 +46,13 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api_docs import API_DESCRIPTION, API_TAGS_METADATA, register_api_docs_routes
 from app.config import settings as server_settings
 from app.config import setup_logging
+from app.cors import AllowedOriginsCORSMiddleware
 from app.database import db
 from app.frontend_static import (
     register_first_available_frontend_static_routes,
@@ -184,7 +184,7 @@ async def lifespan(app: FastAPI):
     # Retired MESHCORE_* settings (VAPID contact, radio workarounds): copied into
     # app_settings once, then only a warning while they (or a retired
     # MESHLOOM_COMMUNITY* variable) are still set.
-    from app import radio_workarounds
+    from app import cors, radio_workarounds
     from app.services.legacy_env_settings import import_legacy_env_settings
 
     try:
@@ -196,6 +196,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         # The workarounds stay off (their defaults) rather than block startup.
         logger.exception("Failed to load the radio workarounds from app_settings")
+    try:
+        await cors.load()
+    except Exception:
+        # Same-origin only (the default) rather than block startup.
+        logger.exception("Failed to load the allowed origins from app_settings")
 
     # Initialize VAPID keys for Web Push (generates on first run)
     from app.push.vapid import ensure_vapid_keys
@@ -351,13 +356,8 @@ app = FastAPI(
 register_api_docs_routes(app)
 add_optional_basic_auth_middleware(app, server_settings)
 app.add_middleware(GZipMiddleware, minimum_size=500)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Same-origin by default; Settings lists the other sites allowed (app/cors.py).
+app.add_middleware(AllowedOriginsCORSMiddleware)
 
 
 @app.exception_handler(RadioDisconnectedError)

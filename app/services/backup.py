@@ -159,6 +159,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         )
     },
     "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
+    "app_settings.auth_allowed_origins": (
+        "excluded",
+        "access control for this host's addresses: never restored silently",
+    ),
     **{
         f"app_settings.{column}": ("excluded", _RUNTIME)
         for column in (

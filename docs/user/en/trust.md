@@ -11,9 +11,9 @@ Meshloom assumes it runs on a network whose users you know. This is not an overs
 
 There are no user accounts, sessions, roles or per-feature permissions. Anyone who can reach the server on port `8000` gets the full interface without typing anything.
 
-That means reading the whole history of direct messages and channels, writing as your node, changing its name and radio settings, deleting contacts and emptying the database. There is no middle ground between "cannot open the page" and "controls everything". It also includes changing the radio's Wi-Fi network and rebooting the radio; since the server accepts requests from any web page (below), a web page opened on a machine that can reach Meshloom can do it too.
+That means reading the whole history of direct messages and channels, writing as your node, changing its name and radio settings, deleting contacts and emptying the database. There is no middle ground between "cannot open the page" and "controls everything". It also includes changing the radio's Wi-Fi network and rebooting the radio.
 
-The server also accepts requests from any web page. This is deliberate: it lets you open the interface from any device on the network with no extra setup. It relies on the same trusted network.
+Other web sites open in the same browser cannot read Meshloom's answers: the server only talks to its own address, plus any site you list in **Settings > Local Configuration > Allowed origins** (empty by default). They can still trigger a few simple requests blind and watch the live feed, so this too relies on the trusted network (see [Security](/en/docs/deep/security/#what-does-not-exist)).
 
 ## Bots run code
 
@@ -49,7 +49,7 @@ A few rules prevent most problems:
 
 - **Do not expose port `8000` to the Internet.** Do not forward it on your router. For remote access, use a VPN into your home or office network.
 - On a shared network (shared house, office, guest network), set the password and keep bots disabled.
-- Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, but anyone who reaches the interface can read it back, through the API and in the full backup, and so can a web page opened on a machine that can reach it. A compromised machine is a compromised machine.
+- Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, but anyone who reaches the interface can read it back, through the API and in the full backup. A compromised machine is a compromised machine.
 - If you turn on **Settings > Proxy** to share your radio with other apps, know that it has no login at all, and that Basic auth does not cover it.
 - Treat channels for what they are. The key is the only access: giving it to someone lets them read and write there.
 

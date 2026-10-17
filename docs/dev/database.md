@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 095 (the value of
+- Numbering is contiguous from 001. The current head is 096 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -44,7 +44,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 
 ### Adding a migration
 
-1. Create `app/migrations/_095_what_it_does.py` (next number, no gap) with
+1. Create `app/migrations/_097_what_it_does.py` (next number, no gap) with
    `async def migrate(conn)`. Make it idempotent as above.
 2. New table or column: the migration creates it for existing databases. Recent
    practice (082-084) also adds it to `SCHEMA_TABLES` in `app/database.py` so fresh
@@ -74,7 +74,8 @@ destinations, telemetry alert rules, auto-update window and the one-shot
 "imported legacy env" flags. Many columns hold JSON (blocked lists, push
 defaults and overrides, `ui_preferences`, `notification_destinations`,
 `telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`,
-`wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
+`auth_allowed_origins`: the cross-origin sites CORS lets in, kept in memory by
+`app/cors.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
 password, outside `AppSettings`).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus

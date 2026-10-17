@@ -8,9 +8,10 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.background_tasks import spawn
+from app.cors import normalize_origins
 from app.database import db
 from app.models import (
     CONTACT_TYPE_REPEATER,
@@ -141,6 +142,14 @@ class AppSettingsUpdate(BaseModel):
             "it over (0xFFFFFFFF, then the current time). Applies at the next connection"
         ),
     )
+    auth_allowed_origins: list[str] | None = Field(
+        default=None,
+        description=(
+            "Other sites (scheme://host[:port]) allowed to call this API from a browser "
+            "with credentials (CORS). Replaces the whole list; empty means same-origin "
+            "only. No wildcard, no path"
+        ),
+    )
     telemetry_interval_hours: int | None = Field(
         default=None,
         description=(
@@ -180,6 +189,11 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="SMTP and webhook destinations; omit/null secrets keep stored values",
     )
+
+    @field_validator("auth_allowed_origins")
+    @classmethod
+    def _normalize_allowed_origins(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else normalize_origins(value)
 
 
 class BlockKeyRequest(BaseModel):
@@ -397,6 +411,12 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         if value is not None:
             logger.info("Updating %s to %s", field, value)
             kwargs[field] = value
+    # CORS allowlist (already normalized by the model). The repository refreshes
+    # the in-memory copy the CORS middleware reads (app/cors.py).
+    if update.auth_allowed_origins is not None:
+        logger.info("Updating auth_allowed_origins to %s", update.auth_allowed_origins)
+        kwargs["auth_allowed_origins"] = update.auth_allowed_origins
+
     if update.enable_message_poll_fallback is not None:
         current_settings = await AppSettingsRepository.get()
         poll_fallback_changed = (

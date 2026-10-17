@@ -149,6 +149,16 @@ def _reset_radio_workarounds():
 
 
 @pytest.fixture(autouse=True)
+def _reset_cors_allowed_origins():
+    """An origin allowed by one test must not leak into the next one."""
+    from app import cors
+
+    cors.reset()
+    yield
+    cors.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_position_rebind():
     """A SELF_INFO seen by one test must not re-bind in the next one."""
     from app.services.observer_position import reset_position_rebind_for_tests

@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 import aiosqlite
 from pydantic import ValidationError
 
-from app import radio_workarounds
+from app import cors, radio_workarounds
 from app.database import db
 from app.models import (
     AppSettings,
@@ -169,6 +169,17 @@ def _parse_auto_update_hhmm(raw: object, default: str = "00:00") -> str:
         return default
 
 
+def _parse_allowed_origins(raw: object) -> list[str]:
+    """The stored CORS allowlist; anything unreadable is same-origin only."""
+    try:
+        loaded = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [origin for origin in loaded if isinstance(origin, str) and origin]
+
+
 def _parse_auto_update_weekdays(raw: object) -> list[int]:
     loaded: object = raw
     if isinstance(raw, str):
@@ -260,7 +271,7 @@ class AppSettingsRepository:
                    auto_update_window_start, auto_update_window_end,
                    auto_update_weekdays, enable_message_poll_fallback,
                    force_channel_slot_reconfigure, load_with_autoevict,
-                   auto_clock_wraparound
+                   auto_clock_wraparound, auth_allowed_origins
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -422,6 +433,11 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             auto_update_weekdays = list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
+        try:
+            auth_allowed_origins = _parse_allowed_origins(row["auth_allowed_origins"])
+        except (KeyError, TypeError, IndexError):
+            auth_allowed_origins = []
+
         def _flag(column: str, default: bool = False) -> bool:
             try:
                 value = row[column]
@@ -459,6 +475,7 @@ class AppSettingsRepository:
             force_channel_slot_reconfigure=_flag("force_channel_slot_reconfigure"),
             load_with_autoevict=_flag("load_with_autoevict"),
             auto_clock_wraparound=_flag("auto_clock_wraparound", default=True),
+            auth_allowed_origins=auth_allowed_origins,
         )
 
     @staticmethod
@@ -496,6 +513,7 @@ class AppSettingsRepository:
         force_channel_slot_reconfigure: bool | None = None,
         load_with_autoevict: bool | None = None,
         auto_clock_wraparound: bool | None = None,
+        auth_allowed_origins: list[str] | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -640,6 +658,10 @@ class AppSettingsRepository:
                 updates.append(f"{column} = ?")
                 params.append(1 if flag else 0)
 
+        if auth_allowed_origins is not None:
+            updates.append("auth_allowed_origins = ?")
+            params.append(json.dumps(auth_allowed_origins))
+
         if updates:
             query = f"UPDATE app_settings SET {', '.join(updates)} WHERE id = 1"
             async with conn.execute(query, params):
@@ -687,6 +709,7 @@ class AppSettingsRepository:
         force_channel_slot_reconfigure: bool | None = None,
         load_with_autoevict: bool | None = None,
         auto_clock_wraparound: bool | None = None,
+        auth_allowed_origins: list[str] | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -721,9 +744,11 @@ class AppSettingsRepository:
                 force_channel_slot_reconfigure=force_channel_slot_reconfigure,
                 load_with_autoevict=load_with_autoevict,
                 auto_clock_wraparound=auto_clock_wraparound,
+                auth_allowed_origins=auth_allowed_origins,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
+        cors.apply(result)
         return result
 
     @staticmethod

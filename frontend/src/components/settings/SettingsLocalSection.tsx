@@ -72,11 +72,14 @@ import {
 } from '../../utils/languagePreference';
 import i18n from '../../i18n';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { AllowedOriginsSettings } from './AllowedOriginsSettings';
 
 export function SettingsLocalSection({
   serverLabel,
   onPersistServerLabel,
   onPersistTheme,
+  allowedOrigins,
+  onSaveAllowedOrigins,
   className,
 }: {
   serverLabel?: ServerLabel;
@@ -84,6 +87,9 @@ export function SettingsLocalSection({
   onPersistServerLabel?: (label: ServerLabel) => void;
   /** Stores the theme with the instance so every device reaching it follows. */
   onPersistTheme?: (themeId: string) => void;
+  /** CORS allowlist of the instance (Allowed origins). Hidden without a saver. */
+  allowedOrigins?: string[];
+  onSaveAllowedOrigins?: (origins: string[]) => Promise<void>;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -580,6 +586,13 @@ export function SettingsLocalSection({
           </p>
         </div>
       </div>
+
+      {onSaveAllowedOrigins && (
+        <>
+          <Separator />
+          <AllowedOriginsSettings origins={allowedOrigins ?? []} onSave={onSaveAllowedOrigins} />
+        </>
+      )}
     </div>
   );
 }

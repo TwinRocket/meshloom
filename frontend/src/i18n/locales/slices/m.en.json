@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "allowedOrigins": {
+      "title": "Allowed origins",
+      "label": "Other sites allowed to call this instance",
+      "help": "One origin per line (https://dashboard.example.org, http://192.168.1.20:8080). A page served from one of these addresses may call Meshloom's API from the browser with your credentials. Meshloom itself, the Vite dev server and Home Assistant ingress never need an entry. Only list sites you control: each one can do everything you can.",
+      "sameOriginOnly": "Empty: same-origin only. No other site can call this instance from a browser.",
+      "invalid": "Not an origin (scheme://host[:port], no path, no *): {{origins}}",
+      "save": "Save origins",
+      "saving": "Saving…",
+      "saved": "Allowed origins saved",
+      "saveFailed": "Could not save the allowed origins"
+    }
+  }
+}
