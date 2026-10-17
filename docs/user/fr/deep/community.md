@@ -68,7 +68,7 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 - Les **noms de salons hashtag.** Quand vous créez ou adoptez un salon hashtag, ou quand Meshloom en trouve un, son nom (50 au plus à la fois) est ajouté à la liste globale. Les noms ne sont pas regroupés par aéroport. Les clés ne sont pas partagées. Un salon dont la clé ne découle pas de son nom est privé : son nom n’est jamais partagé, même s’il commence par `#`.
 - Des **recherches de canaux.** Pour reconnaître un canal inconnu, Meshloom envoie l’identifiant d’un octet du canal pour demander quels noms peuvent correspondre. Si rien ne correspond, il peut aussi envoyer un paquet chiffré de ce canal (une fois par identifiant tant que Meshloom tourne), pour que la communauté essaie d’en retrouver le nom. Seuls les canaux que vous ne pouvez pas lire sont concernés.
 
-La clé privée de votre radio ne quitte jamais votre machine. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
+Meshloom n’envoie jamais la clé privée de votre radio à Community. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. Quiconque atteint votre Meshloom peut toutefois relire la clé, par l’API et dans la sauvegarde complète (voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud)). La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
 
 ## Quitter Community
 

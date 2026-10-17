@@ -66,7 +66,7 @@ With Community on and a code saved, your server sends:
 - **Hashtag channel names.** When you create or adopt a hashtag channel, or when Meshloom finds one, its name (up to 50 at a time) is added to the global list. Names are not grouped by airport. Keys are not shared. A channel whose key does not come from its name is private: its name is never shared, even when it starts with `#`.
 - **Channel look-ups.** To recognize an unknown channel, Meshloom sends the one-byte identifier of the channel to ask which names match. If nothing matches, it may also send one encrypted packet of that channel (once per identifier while Meshloom runs), so the community can try to find its name. Only channels you cannot read are concerned.
 
-Your radio's private key never leaves your machine. It is only used to sign the short-lived passes that prove to Community who is calling. Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
+Meshloom never sends your radio's private key to Community. It is only used to sign the short-lived passes that prove to Community who is calling. Anyone who can reach your Meshloom can still read the key back, through the API and in the full backup (see [Security](/en/docs/deep/security/#the-nodes-private-key)). Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
 ## Leaving
 
