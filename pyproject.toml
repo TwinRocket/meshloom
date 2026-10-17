@@ -16,7 +16,9 @@ dependencies = [
     "pycryptodome>=3.20.0,<4",
     "pynacl>=1.5.0",
     "meshcore==2.3.15",
-    # meshcore declares bleak=* and has not stated Bleak 3 compatibility.
+    # meshcore declares bleak=* (unpinned). Meshloom imports bleak only for the
+    # availability probe and BleakScanner.discover; the rest goes through meshcore.
+    # Bleak 3 on Linux subscribes with BlueZ StartNotify instead of AcquireNotify.
     "bleak>=2.1,<4",
     "aiomqtt>=2.0",
     "apprise>=2.0.1",  # inline cid: attachments (alert email logo)
@@ -77,6 +79,7 @@ dev = [
 ]
 
 [tool.uv]
-# dbus-fast 5 is pulled by an unpinned bleak 2.x Linux extra; keep the 3.x line
-# until Bleak 3 is an explicit, hardware-tested upgrade.
+# bleak 3 still requires dbus-fast>=1.83 on Linux without an upper bound, which
+# would pull dbus-fast 5; keep the 3.x line until dbus-fast 4+ is evaluated on
+# BLE hardware.
 constraint-dependencies = ["dbus-fast>=3.1,<4"]

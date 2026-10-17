@@ -8,6 +8,7 @@ from app.services.radio_identity import wipe_mesh_identity_data
 from app.services.radio_transport import (
     maybe_import_legacy_env,
     probe_ble_available,
+    scan_ble_devices,
     serial_ports_unavailable_reason,
 )
 
@@ -118,6 +119,39 @@ async def test_probe_ble_available_does_not_scan(monkeypatch) -> None:
     assert available is True
     assert reason is None
     assert scanned is False
+
+
+@pytest.mark.asyncio
+async def test_scan_ble_devices_maps_bleak_devices(monkeypatch) -> None:
+    from bleak.backends.device import BLEDevice
+
+    devices = [
+        BLEDevice("AA:BB:CC:DD:EE:FF", "MeshCore-node", None),
+        BLEDevice("11:22:33:44:55:66", None, None),
+        BLEDevice("", "no-address", None),
+    ]
+    calls: list[dict] = []
+
+    class _Scanner:
+        @staticmethod
+        async def discover(**kwargs):
+            calls.append(kwargs)
+            return devices
+
+    import bleak
+
+    monkeypatch.setattr(bleak, "BleakScanner", _Scanner, raising=False)
+    found = await scan_ble_devices()
+    assert found == [("AA:BB:CC:DD:EE:FF", "MeshCore-node"), ("11:22:33:44:55:66", None)]
+    assert calls == [{"timeout": 5.0}]
+
+
+def test_meshcore_ble_transport_imports_installed_bleak() -> None:
+    # meshcore swallows bleak import errors and silently disables BLE; fail
+    # loudly if a bleak upgrade moves a symbol meshcore.ble_cx imports.
+    from meshcore import ble_cx
+
+    assert ble_cx.BLEAK_AVAILABLE is True
 
 
 @pytest.mark.asyncio
