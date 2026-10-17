@@ -662,9 +662,11 @@ function RestoreSummary({
               </p>
             )}
             <p data-testid="identity-relation">
-              {inspect.identity_relation === 'same' && !inspect.live_radio_public_key
-                ? t('settings.fullRestore.identity.sameNotConnected')
-                : t(`settings.fullRestore.identity.${inspect.identity_relation}`)}
+              {!steps.identity || !inspect.has_private_key
+                ? t('settings.fullRestore.identity.no_identity')
+                : inspect.identity_relation === 'same' && !inspect.live_radio_public_key
+                  ? t('settings.fullRestore.identity.sameNotConnected')
+                  : t(`settings.fullRestore.identity.${inspect.identity_relation}`)}
             </p>
           </>
         )}

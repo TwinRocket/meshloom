@@ -281,6 +281,25 @@ describe('BackupRestoreFlow', () => {
     });
   });
 
+  it.each([
+    ['replaces_live', null],
+    ['conflict', 'backup_identity_conflict'],
+  ] as const)(
+    'says the radio keeps its identity once the identity step is unchecked (%s)',
+    async (relation, refusal) => {
+      mocks.inspectBackup.mockResolvedValue(
+        inspectResult({ identity_relation: relation, identity_refusal: refusal })
+      );
+      render(<BackupRestoreFlow />);
+      pickFile(V2);
+      const text = await screen.findByTestId('identity-relation');
+      expect(text).toHaveTextContent(i18n.t(`settings.fullRestore.identity.${relation}`));
+      fireEvent.click(screen.getByLabelText(i18n.t('settings.fullRestore.steps.identity')));
+      expect(text).toHaveTextContent(i18n.t('settings.fullRestore.identity.no_identity'));
+      expect(screen.queryByText(i18n.t(`settings.fullRestore.identity.${relation}`))).toBeNull();
+    }
+  );
+
   it.each(['needs_radio', 'conflict'] as const)(
     'cannot restore when the identity check refuses (%s)',
     async (relation) => {
