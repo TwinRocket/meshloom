@@ -241,6 +241,25 @@ def _shown_token(token: str, *, secret: bool, values: Sequence[str]) -> str:
     return REDACTED
 
 
+def _after_two_tokens(command: str) -> str | None:
+    """What follows ``<token> <spaces> <token> <one space>``, raw; None when the
+    command has no such tail. A linear scan (a regex here backtracks)."""
+    n = len(command)
+    i = 0
+    while i < n and not command[i].isspace():
+        i += 1
+    if i in (0, n):
+        return None
+    while i < n and command[i].isspace():
+        i += 1
+    start = i
+    while i < n and not command[i].isspace():
+        i += 1
+    if i in (start, n):
+        return None
+    return command[i + 1 :]
+
+
 def _classify(command: str, *, extra_secrets: Sequence[str] = ()) -> _Classified:
     """Classify a command (fail closed). A command given ``extra_secrets`` is
     hidden like one with a secret name."""
@@ -256,9 +275,9 @@ def _classify(command: str, *, extra_secrets: Sequence[str] = ()) -> _Classified
             values.append(command[len(_SET_WIFI_PWD_PREFIX) :])
         # Whatever follows the first two tokens, raw and stripped: covers case
         # and spacing variants the firmware would not even recognise.
-        match = re.match(r"\S+\s+\S+\s(.*)\Z", command, re.DOTALL)
-        if match:
-            values.extend((match.group(1), match.group(1).strip()))
+        rest = _after_two_tokens(command)
+        if rest is not None:
+            values.extend((rest, rest.strip()))
         if verb_marked:
             # A one-word secret verb: everything after it.
             rest = command.split(None, 1)
