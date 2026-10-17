@@ -6,7 +6,10 @@ import type {
   AppSettings,
   AppSettingsUpdate,
   BackupExport,
+  BackupInspectResult,
+  BackupRestoreJob,
   BackupRestoreResult,
+  BackupRestoreV2Request,
   ContactGroup,
   BulkCreateHashtagChannelsResult,
   Channel,
@@ -173,25 +176,45 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw new ApiError('Authentication required', res.status);
   }
   if (!res.ok) {
-    const errorText = await res.text();
-    // FastAPI returns errors as {"detail": "message"}, extract the message
-    let errorMessage = errorText || res.statusText;
-    let detail: unknown = errorText;
-    try {
-      const errorJson = JSON.parse(errorText);
-      if (errorJson.detail !== undefined) {
-        detail = errorJson.detail;
-        errorMessage =
-          typeof errorJson.detail === 'string'
-            ? errorJson.detail
-            : errorJson.detail?.message || errorJson.detail?.reason || errorText;
-      }
-    } catch {
-      // Not JSON, use raw text
-    }
-    throw new ApiError(errorMessage, res.status, detail);
+    throw await apiErrorFrom(res);
   }
   return res.json();
+}
+
+/** The ApiError for a failed response (FastAPI's {"detail": ...} unwrapped). */
+async function apiErrorFrom(res: Response): Promise<ApiError> {
+  const errorText = await res.text();
+  // FastAPI returns errors as {"detail": "message"}, extract the message
+  let errorMessage = errorText || res.statusText;
+  let detail: unknown = errorText;
+  try {
+    const errorJson = JSON.parse(errorText);
+    if (errorJson.detail !== undefined) {
+      detail = errorJson.detail;
+      errorMessage =
+        typeof errorJson.detail === 'string'
+          ? errorJson.detail
+          : errorJson.detail?.message || errorJson.detail?.reason || errorText;
+    }
+  } catch {
+    // Not JSON, use raw text
+  }
+  return new ApiError(errorMessage, res.status, detail);
+}
+
+/** The file name a Content-Disposition header proposes (RFC 5987 first). */
+export function filenameFromDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const extended = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // fall through to the ASCII name
+    }
+  }
+  const plain = /filename="([^"]+)"/i.exec(header);
+  return plain ? plain[1] : fallback;
 }
 
 /** Check if an error is an AbortError (request was cancelled) */
@@ -621,6 +644,52 @@ export const api = {
     }),
 
   getJsonBackup: () => fetchJson<BackupExport>('/settings/backup/json'),
+  /** The full backup (radio identity, settings, Wi-Fi, Meshloom), optionally encrypted. */
+  exportFullBackup: async (
+    passphrase?: string
+  ): Promise<{ data: unknown; filename: string; warnings: string[] }> => {
+    const res = await fetch(`${API_BASE}/settings/backup/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(passphrase ? { passphrase } : {}),
+    });
+    if (!res.ok) {
+      throw await apiErrorFrom(res);
+    }
+    const warnings = (res.headers.get('X-Backup-Warnings') ?? '')
+      .split(',')
+      .map((w) => w.trim())
+      .filter(Boolean);
+    return {
+      data: await res.json(),
+      filename: filenameFromDisposition(
+        res.headers.get('Content-Disposition'),
+        'meshloom-backup.json'
+      ),
+      warnings,
+    };
+  },
+  inspectBackup: (body: { backup: unknown; passphrase?: string }) =>
+    fetchJson<BackupInspectResult>('/settings/backup/inspect', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  startFullRestore: (body: BackupRestoreV2Request) =>
+    fetchJson<{ job_id: string }>('/settings/backup/restore', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getRestoreJob: (jobId: string) =>
+    fetchJson<BackupRestoreJob>(`/settings/backup/restore/jobs/${encodeURIComponent(jobId)}`),
+  /** The most recent restore job, or null when there is none. */
+  getLatestRestoreJob: async (): Promise<BackupRestoreJob | null> => {
+    try {
+      return await fetchJson<BackupRestoreJob>('/settings/backup/restore/jobs/latest');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null;
+      throw err;
+    }
+  },
   restoreJsonBackup: (payload: BackupExport) =>
     fetchJson<BackupRestoreResult>('/settings/backup/restore', {
       method: 'POST',

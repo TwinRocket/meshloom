@@ -69,6 +69,7 @@ async def test_export_without_radio_still_works(backup_db, client):
     body = response.json()
     assert body["identity"] is None and body["radio"] is None
     assert "radio_not_connected" in body["warnings"]
+    assert "radio_not_connected" in response.headers["x-backup-warnings"].split(",")
     assert "meshloom-backup-meshloom-" in response.headers["content-disposition"]
 
 

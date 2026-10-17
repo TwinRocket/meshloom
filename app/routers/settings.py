@@ -920,6 +920,8 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
                 f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
             ),
             "Cache-Control": "no-store",
+            # Not secret; readable even when the body is encrypted.
+            "X-Backup-Warnings": ",".join(doc.warnings),
         },
     )
 
