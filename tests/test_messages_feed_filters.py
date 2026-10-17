@@ -91,6 +91,8 @@ async def test_since_id_api_validation(test_db, client):
     for qs in (
         "since_id=0",
         "since_id=-3",
+        "since_id=99999999999999999999",
+        f"since_id={2**63}",
         "since_id=1&before=5&before_id=2",
         "since_id=1&after=5&after_id=2",
         "since_id=1&offset=10",
@@ -99,7 +101,8 @@ async def test_since_id_api_validation(test_db, client):
         assert resp.status_code == 400, qs
         assert "since_id" in resp.json()["detail"]
     resp = await client.get("/api/messages?since_id=abc")
-    assert resp.status_code in (400, 422)
+    assert resp.status_code == 422
+    assert (await client.get(f"/api/messages?since_id={2**63 - 1}")).status_code == 200
     assert (await client.get("/api/messages?since_id=1&offset=0")).status_code == 200
 
 
@@ -112,7 +115,7 @@ async def test_outgoing_api(test_db, client):
     resp = await client.get("/api/messages?outgoing=false")
     assert [m["text"] for m in resp.json()] == ["in"]
     assert len((await client.get("/api/messages")).json()) == 2
-    assert (await client.get("/api/messages?outgoing=maybe")).status_code in (400, 422)
+    assert (await client.get("/api/messages?outgoing=maybe")).status_code == 422
 
 
 async def _plan(db, sql, params):
@@ -156,8 +159,14 @@ async def _listing_sql(db, **kw):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "kw",
-    [{}, {"msg_type": "CHAN"}, {"msg_type": "CHAN", "outgoing": True}],
-    ids=["no-filter", "type", "type+outgoing"],
+    [
+        {},
+        {"msg_type": "CHAN"},
+        {"msg_type": "CHAN", "outgoing": True},
+        {"since_id": 1},
+        {"since_id": 1, "msg_type": "CHAN"},
+    ],
+    ids=["no-filter", "type", "type+outgoing", "since_id", "since_id+type"],
 )
 async def test_listing_plan_uses_index_without_temp_sort(test_db, kw):
     sql, params = await _listing_sql(test_db, **kw)

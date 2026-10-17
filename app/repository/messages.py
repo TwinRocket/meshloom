@@ -484,11 +484,14 @@ class MessageRepository:
             query += f" AND {blocked_clause}"
             params.extend(blocked_params)
 
+        # With since_id the rowid range is the access path: the unary plus keeps the planner
+        # off the type/outgoing indexes, which would force a temp sort by id.
+        plus = "+" if since_id is not None else ""
         if msg_type:
-            query += " AND messages.type = ?"
+            query += f" AND {plus}messages.type = ?"
             params.append(msg_type)
         if outgoing is not None:
-            query += " AND messages.outgoing = ?"
+            query += f" AND {plus}messages.outgoing = ?"
             params.append(1 if outgoing else 0)
         if conversation_key:
             clause, norm_key = MessageRepository._normalize_conversation_key(conversation_key)

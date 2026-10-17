@@ -25,6 +25,8 @@ from app.websocket import broadcast_error, broadcast_event
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/messages", tags=["messages"])
 
+_SQLITE_MAX_INT = 2**63 - 1
+
 
 @router.get("/around/{message_id}", response_model=MessagesAroundResponse)
 async def get_messages_around(
@@ -74,13 +76,13 @@ async def list_messages(
     since_id: int | None = Query(
         default=None,
         description=(
-            "Integer >= 1. Reconciliation cursor: messages with id > since_id, ordered by id ascending "
+            "Integer between 1 and 2**63-1. Reconciliation cursor: messages with id > since_id, ordered by id ascending "
             "(historical rows included). Cannot be combined with before, after or offset"
         ),
     ),
 ) -> list[Message]:
     """List messages from the database."""
-    if since_id is not None and since_id < 1:
+    if since_id is not None and not 1 <= since_id <= _SQLITE_MAX_INT:
         raise HTTPException(status_code=400, detail="since_id must be an integer >= 1")
     if since_id is not None and (
         before is not None
