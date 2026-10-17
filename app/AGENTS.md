@@ -284,6 +284,14 @@ be wrong, because historical decryption inserts old messages with new ids.
   (last 5); `GET /settings/backup/restore/jobs/{id}` and `/latest`. The decrypted
   document lives in the run object only and is dropped when the job ends. The
   reboot the restore offers is the plain `POST /radio/reboot` (unannounced).
+  Outcomes that are not a step status go in `result.warnings` (`code` or
+  `code:param`) and in a step's `items`; the UI translates every one (keep
+  `frontend/src/test/backupRestoreFlow.test.tsx`'s code list in sync). Nothing a
+  restore writes is broadcast: the Settings flow reloads the client
+  (`onBackupRestored`), the identity window runs the identity-adopt reload.
+- **Inspect** also lists the non-bot integrations with their `enabled` flag,
+  the file's proxy setting and `bots_will_be_skipped`: integrations and the
+  proxy come back as in the file and start at once, so the summary names them.
 - **Restore body.** `POST /settings/backup/restore` reads a raw dict: no
   `backup` key is the v1 flat request (synchronous); a `backup` key starts the
   job (202). A file without `format` is v1 everywhere.
