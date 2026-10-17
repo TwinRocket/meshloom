@@ -839,9 +839,22 @@ async def test_notification_destinations(
         else:
             await send_webhook_alert(dest, TEST_ALERT_PAYLOAD)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.info("Notification test (%s) refused: %s", request.channel, exc)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "notification_destination_invalid",
+                "message": "Notification destination is not configured or invalid",
+            },
+        ) from None
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # Never the exception text: the destination is user-supplied, so a
+        # network error would reveal what lives on the LAN. Server log only.
+        logger.warning("Notification test (%s) failed: %s", request.channel, exc)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "notification_test_failed", "message": "Notification test failed"},
+        ) from None
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 

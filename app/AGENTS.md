@@ -544,6 +544,14 @@ Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
 `frontend/src/utils/pushPolicy.ts`) decides per conversation. A push service
 answering 403, 404 or 410 deletes the subscription.
 
+The test routes (`POST /push/subscriptions/{id}/test`,
+`POST /settings/notification-destinations/test`) send to a destination the
+client chose: they answer coded details only (`push_delivery_failed`,
+`push_stale`, `push_timeout`, `notification_test_failed`,
+`notification_destination_invalid`), never the exception text, which would be
+a LAN-scanning oracle. The cause goes to the server log
+(`tests/test_test_route_error_oracles.py`).
+
 ## Route behaviours that are easy to break
 
 - `GET /radio/private-key` is ungated (404 when the keystore is empty);

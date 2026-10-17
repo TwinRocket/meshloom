@@ -166,6 +166,21 @@ async def unsubscribe(subscription_id: str) -> dict:
     return {"deleted": True}
 
 
+# The test route answers a fixed code, never the exception text: the endpoint
+# is client-supplied, so a network error would reveal what lives on the LAN.
+# The cause goes to the server log only. Translated by the UI under errors.<code>.
+_TEST_PUSH_MESSAGES = {
+    "push_timeout": "Push delivery timed out",
+    "push_stale": "Subscription is stale (VAPID key mismatch or expired). "
+    "Re-enable push from a conversation header.",
+    "push_delivery_failed": "Push delivery failed",
+}
+
+
+def _coded(code: str) -> dict:
+    return {"code": code, "message": _TEST_PUSH_MESSAGES[code]}
+
+
 @router.post("/subscriptions/{subscription_id}/test")
 async def test_push(subscription_id: str) -> dict:
     """Send a test notification to a subscription."""
@@ -205,7 +220,7 @@ async def test_push(subscription_id: str) -> dict:
             )
         return {"status": "sent"}
     except TimeoutError:
-        raise HTTPException(status_code=408, detail="Push delivery timed out") from None
+        raise HTTPException(status_code=408, detail=_coded("push_timeout")) from None
     except WebPushException as e:
         status_code = getattr(getattr(e, "response", None), "status_code", 0)
         if status_code in (403, 404, 410):
@@ -215,16 +230,12 @@ async def test_push(subscription_id: str) -> dict:
                 subscription_id,
             )
             await PushSubscriptionRepository.delete(subscription_id)
-            raise HTTPException(
-                status_code=410,
-                detail="Subscription is stale (VAPID key mismatch or expired). "
-                "Re-enable push from a conversation header.",
-            ) from None
+            raise HTTPException(status_code=410, detail=_coded("push_stale")) from None
         logger.warning("Test push failed: %s", e)
-        raise HTTPException(status_code=422, detail=f"Push delivery failed: {e}") from None
+        raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
     except Exception as e:
         logger.warning("Test push failed: %s", e)
-        raise HTTPException(status_code=422, detail=f"Push delivery failed: {e}") from None
+        raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 
 # ── Preferences ──────────────────────────────────────────────────────────
