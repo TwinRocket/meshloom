@@ -14,6 +14,7 @@ from app.models import (
     Contact,
     Message,
     MessagePath,
+    RadioWifiState,
     RawPacketBroadcast,
 )
 from app.routers.health import HealthResponse
@@ -33,6 +34,7 @@ WsEventType = Literal[
     "community_live",
     "message_acked",
     "message_deleted",
+    "radio_wifi",
     "error",
     "success",
 ]
@@ -84,6 +86,7 @@ _PAYLOAD_ADAPTERS: dict[WsEventType, TypeAdapter[Any]] = {
     "community_live": TypeAdapter(CommunityLiveStatus),
     "message_acked": TypeAdapter(MessageAckedPayload),
     "message_deleted": TypeAdapter(MessageDeletedPayload),
+    "radio_wifi": TypeAdapter(RadioWifiState),
     "error": TypeAdapter(ToastPayload),
     "success": TypeAdapter(ToastPayload),
 }

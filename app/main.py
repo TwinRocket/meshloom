@@ -80,6 +80,7 @@ from app.routers import (
     packets,
     push,
     radio,
+    radio_wifi,
     read_state,
     repeaters,
     rooms,
@@ -420,6 +421,7 @@ app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
 app.include_router(radio.router, prefix="/api")
+app.include_router(radio_wifi.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(contact_groups.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")
