@@ -12,7 +12,9 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 - Two map stacks on purpose: `maplibre-gl` + `@deck.gl/*` for `#live`
   (`components/live/`), Leaflet / react-leaflet for the node map, mini-maps and pickers.
 - `vite.config.ts` sets `server.watch.usePolling` so the dev server sees edits
-  on WSL and Docker bind mounts.
+  on WSL and Docker bind mounts. Its `/api` proxy keeps `changeOrigin: false`:
+  the backend refuses a WebSocket whose `Origin` does not match `Host`, and
+  `rewriteWsOrigin` would defeat that check.
 - `npm run build` type-checks only what `src/main.tsx` reaches; `npm run typecheck`
   checks all of `src/` (root `AGENTS.md`, "Deployments that never delete files").
 

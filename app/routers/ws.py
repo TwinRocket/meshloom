@@ -6,7 +6,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.routers.health import build_health_data
 from app.services.radio_runtime import radio_runtime as radio_manager
-from app.websocket import ws_manager
+from app.websocket import reject_foreign_origin, ws_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -18,7 +18,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     Only sends health status on initial connect. Contacts and channels
     are fetched via REST endpoints for faster parallel loading.
+
+    A foreign ``Origin`` is refused before accept (``reject_foreign_origin``).
     """
+    if await reject_foreign_origin(websocket):
+        return
     await ws_manager.connect(websocket)
 
     # Send initial health status
