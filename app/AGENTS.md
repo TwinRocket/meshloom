@@ -120,9 +120,13 @@ floor, never the percentage alone, and do not remove the floor.
 
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
-  `broadcast_event()` never awaits socket I/O. A slow client loses `raw_packet`
-  frames first, then is evicted (close 1013). Never call `websocket.send_text` on
-  a managed socket: use `ws_manager.send_raw`.
+  `broadcast_event()` never awaits socket I/O. A slow client first loses
+  best-effort frames (drop-newest once its backlog reaches the type's limit:
+  `community_packet` at 256, `raw_packet` at 1024), then is evicted (close 1013)
+  when the 2048-frame queue is full. Every other frame type carries state and is
+  never dropped. Drops are counted (`ws_manager.dropped_frames`) and logged at
+  most once a minute per client. Never call `websocket.send_text` on a managed
+  socket: use `ws_manager.send_raw`.
 - When `realtime=True`, `broadcast_event()` also notifies the radio proxy and
   dispatches to fanout and Web Push; `realtime=False` (historical decryption)
   skips all three.

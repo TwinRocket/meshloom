@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -196,6 +197,138 @@ class TestWebSocketBroadcast:
 
         assert sent.count("raw_packet") <= 4
         assert sent[-2:] == ["message", "contact"]
+
+    @pytest.mark.asyncio
+    async def test_community_packet_is_shed_before_raw_packet(self, ws_manager: WebSocketManager):
+        """community_packet drops at its own smaller backlog; raw_packet and state still fit."""
+        ws = _client_ws()
+        gate = asyncio.Event()
+        sent: list[str] = []
+
+        async def gated_send(message):
+            await gate.wait()
+            sent.append(json.loads(message)["type"])
+
+        ws.send_text.side_effect = gated_send
+        with (
+            patch("app.websocket.CLIENT_QUEUE_MAX", 12),
+            patch("app.websocket.CLIENT_RAW_PACKET_BACKLOG_MAX", 6),
+            patch("app.websocket.CLIENT_COMMUNITY_PACKET_BACKLOG_MAX", 3),
+        ):
+            await ws_manager.connect(ws)
+            await _flush()  # writer parked on the empty queue; bursts below never yield
+            for i in range(100):
+                ws_manager.broadcast_nowait("community_packet", {"i": i})
+            assert ws_manager.active_connections[ws].queue.qsize() == 3
+            for i in range(10):
+                ws_manager.broadcast_nowait("raw_packet", {"i": i})
+            assert ws_manager.active_connections[ws].queue.qsize() == 6
+            for i in range(20):
+                ws_manager.broadcast_nowait("community_packet", {"i": i})
+            ws_manager.broadcast_nowait("message", {"id": 1})
+            ws_manager.broadcast_nowait("message_acked", {"message_id": 1, "ack_count": 1})
+            ws_manager.broadcast_nowait("community_live", {"state": "connected"})
+
+            assert ws in ws_manager.active_connections
+            ws.close.assert_not_called()
+            gate.set()
+            await _flush(40)
+
+        assert sent == ["community_packet"] * 3 + ["raw_packet"] * 3 + [
+            "message",
+            "message_acked",
+            "community_live",
+        ]
+        assert ws_manager.dropped_frames == {"community_packet": 117, "raw_packet": 7}
+
+    @pytest.mark.asyncio
+    async def test_state_frames_are_never_dropped_and_overflow_evicts(
+        self, ws_manager: WebSocketManager
+    ):
+        """Past the hard bound only eviction remains: state frames are never shed."""
+        ws = _client_ws()
+        gate = asyncio.Event()
+
+        async def blocked_send(_):
+            await gate.wait()
+
+        ws.send_text.side_effect = blocked_send
+        with (
+            patch("app.websocket.CLIENT_QUEUE_MAX", 4),
+            patch("app.websocket.CLIENT_COMMUNITY_PACKET_BACKLOG_MAX", 2),
+        ):
+            await ws_manager.connect(ws)
+            await _flush()
+            ws_manager.broadcast_nowait("community_packet", {})  # taken by the writer
+            await _flush()
+            for i in range(10):
+                ws_manager.broadcast_nowait("community_packet", {"i": i})
+            assert ws in ws_manager.active_connections
+            for i in range(5):
+                ws_manager.broadcast_nowait("message", {"id": i})
+            await _flush()
+
+        assert ws not in ws_manager.active_connections
+        ws.close.assert_awaited_once_with(code=EVICT_CLOSE_CODE)
+        assert ws_manager.dropped_frames == {"community_packet": 8}
+        gate.set()
+
+    @pytest.mark.asyncio
+    async def test_dropped_frames_are_logged_at_a_rate_limited_interval(self, caplog):
+        now = 1000.0
+        manager = WebSocketManager(clock=lambda: now)
+        ws = _client_ws()
+        gate = asyncio.Event()
+
+        async def blocked_send(_):
+            await gate.wait()
+
+        ws.send_text.side_effect = blocked_send
+
+        def drop_logs() -> list[str]:
+            return [r.getMessage() for r in caplog.records if "dropped" in r.getMessage()]
+
+        caplog.set_level(logging.INFO, logger="app.websocket")
+        with (
+            patch("app.websocket.CLIENT_QUEUE_MAX", 8),
+            patch("app.websocket.CLIENT_COMMUNITY_PACKET_BACKLOG_MAX", 2),
+            patch("app.websocket.DROP_LOG_INTERVAL_SECONDS", 60.0),
+        ):
+            await manager.connect(ws)
+            await _flush()
+            manager.broadcast_nowait("message", {"id": 0})  # taken by the writer
+            await _flush()
+            for i in range(2):
+                manager.broadcast_nowait("message", {"id": i + 1})
+            # First drop logs at once.
+            manager.broadcast_nowait("community_packet", {})
+            assert drop_logs() == [
+                "WebSocket client lagging: dropped 1 community_packet frame(s) (backlog 2)"
+            ]
+
+            # Further drops inside the interval are only counted.
+            now += 30
+            for _ in range(5):
+                manager.broadcast_nowait("community_packet", {})
+            manager.broadcast_nowait("contact", {"k": 1})
+            assert len(drop_logs()) == 1
+
+            # Once the interval is up, the next frame for that client reports them.
+            now += 31
+            manager.broadcast_nowait("contact", {"k": 2})
+            assert drop_logs()[1:] == [
+                "WebSocket client lagging: dropped 5 community_packet frame(s) (backlog 4)"
+            ]
+
+            # Unreported drops are flushed when the client leaves.
+            manager.broadcast_nowait("community_packet", {})
+            assert len(drop_logs()) == 2
+            await manager.disconnect(ws)
+            assert drop_logs()[2:] == [
+                "WebSocket client lagging: dropped 1 community_packet frame(s) (backlog 4)"
+            ]
+        assert manager.dropped_frames["community_packet"] == 7
+        gate.set()
 
     @pytest.mark.asyncio
     async def test_broadcast_empty_connections(self, ws_manager: WebSocketManager):
