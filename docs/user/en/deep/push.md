@@ -107,7 +107,7 @@ A subscription is unique by its address, so registering again updates the existi
 
 1. Check that the page is served over HTTPS (or `localhost`).
 2. Check the notification permission in your browser and your system.
-3. Send a test from **Settings → Notifications**.
+3. Send a test from **Settings → Notifications**. When a test fails, Meshloom says only whether the service could not be reached or refused it, timed out, or no longer accepts the subscription; it never shows the network error itself (so a page cannot use the test to probe your network). The cause is in the server's log, as `Test push failed` or `Notification test (webhook) failed`.
 4. Check the defaults and exceptions, also visible at `/api/push/preferences`. A private-key channel stays silent unless an exception turns it on. A muted channel stays silent whatever the settings.
 5. On Apple devices, check the VAPID subject (see above) and look for `403 BadJwtToken` in the server's log.
 6. Check that the server can reach the Internet.

@@ -107,7 +107,7 @@ Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l�
 
 1. Vérifiez que la page est servie en HTTPS (ou depuis `localhost`).
 2. Vérifiez l’autorisation de notifications dans votre navigateur et votre système.
-3. Envoyez un test depuis **Réglages → Notifications**.
+3. Envoyez un test depuis **Réglages → Notifications**. Quand un test échoue, Meshloom indique seulement si le service est injoignable ou l’a refusé, n’a pas répondu à temps, ou n’accepte plus l’abonnement ; il n’affiche jamais l’erreur réseau elle-même (une page ne peut donc pas se servir du test pour sonder votre réseau). La cause figure dans le journal du serveur, sous `Test push failed` ou `Notification test (webhook) failed`.
 4. Vérifiez les valeurs par défaut et les exceptions, visibles aussi sur `/api/push/preferences`. Un salon à clé privée reste muet sans exception qui l’active. Un salon en sourdine reste muet quels que soient les réglages.
 5. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
 6. Vérifiez que le serveur peut joindre Internet.
