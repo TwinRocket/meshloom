@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { ContactInfoPane } from '../components/ContactInfoPane';
@@ -148,6 +148,28 @@ describe('ContactInfoPane', () => {
     expect(screen.getByText(i18n.t('contactInfo.loading'))).toBeInTheDocument();
     expect(screen.queryByText(contact.public_key)).not.toBeInTheDocument();
     expect(getContactAnalytics).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the loaded analytics and does not refetch when the language changes', async () => {
+    const contact = createContact();
+    getContactAnalytics.mockResolvedValue(createAnalytics(contact));
+    const initialLanguage = i18n.language;
+
+    render(<ContactInfoPane {...baseProps} contactKey={contact.public_key} />);
+    await screen.findByText(contact.public_key);
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage(initialLanguage === 'fr' ? 'en' : 'fr');
+      });
+      expect(getContactAnalytics).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(contact.public_key)).toBeInTheDocument();
+      expect(screen.queryByText(i18n.t('contactInfo.loading'))).not.toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage(initialLanguage);
+      });
+    }
   });
 
   it('does not show hop width for flood-routed contacts', async () => {

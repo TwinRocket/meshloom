@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { Star } from 'lucide-react';
+import i18n from '../i18n';
 import { api } from '../api';
 import { formatTime } from '../utils/messageParser';
 import { handleKeyboardActivate } from '../utils/a11y';
@@ -48,6 +49,8 @@ export function ChannelInfoPane({
   // mounting it mid-transform crashes Safari (React #185). See #317.
   const chartReady = useEntranceSettled(channelKey !== null);
 
+  // The i18n singleton rather than `t` (which changes with the language): the detail does not
+  // depend on it, so a language switch must not refetch it.
   useEffect(() => {
     if (!channelKey) return;
 
@@ -60,7 +63,7 @@ export function ChannelInfoPane({
       .catch((err) => {
         if (!cancelled) {
           console.error('Failed to fetch channel detail:', err);
-          toast.error(t('channelInfo.loadFailed'));
+          toast.error(i18n.t('channelInfo.loadFailed'));
         }
       })
       .finally(() => {
@@ -69,7 +72,7 @@ export function ChannelInfoPane({
     return () => {
       cancelled = true;
     };
-  }, [channelKey, t]);
+  }, [channelKey]);
 
   // Use live channel data where available, fall back to detail snapshot
   const channel = liveChannel ?? detail?.channel ?? null;

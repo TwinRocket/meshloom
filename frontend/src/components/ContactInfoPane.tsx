@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import i18n from '../i18n';
 import { api, isAbortError } from '../api';
 import { formatTime } from '../utils/messageParser';
 import {
@@ -155,6 +156,8 @@ export function ContactInfoPane({
   // settles; mounting them mid-transform crashes Safari (React #185). See #317.
   const chartsReady = useEntranceSettled(contactKey !== null);
 
+  // The i18n singleton rather than `t` (which changes with the language): analytics do not
+  // depend on it, so a language switch must not refetch them.
   useEffect(() => {
     if (!contactKey) return;
 
@@ -172,7 +175,7 @@ export function ContactInfoPane({
       .catch((err) => {
         if (!isAbortError(err)) {
           console.error('Failed to fetch contact analytics:', err);
-          toast.error(t('contactInfo.loadFailed'));
+          toast.error(i18n.t('contactInfo.loadFailed'));
         }
       })
       .finally(() => {
@@ -184,7 +187,7 @@ export function ContactInfoPane({
     return () => {
       controller.abort();
     };
-  }, [contactKey, isNameOnly, nameOnlyValue, t]);
+  }, [contactKey, isNameOnly, nameOnlyValue]);
 
   // On every contact change, drop the cached analytics (so reopening a contact shows the
   // spinner and fresh data, never a stale result) and clear the telemetry history once the

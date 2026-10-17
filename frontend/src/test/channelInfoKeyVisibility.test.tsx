@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ChannelInfoPane } from '../components/ChannelInfoPane';
@@ -132,6 +132,29 @@ describe('ChannelInfoPane key visibility', () => {
     });
     expect(screen.queryByText(key2.toLowerCase())).not.toBeInTheDocument();
     expect(screen.getByText(i18n.t('channelInfo.showKey'))).toBeInTheDocument();
+  });
+
+  it('does not refetch the channel detail when the language changes', async () => {
+    const key = 'FF'.repeat(16);
+    const channel = makeChannel(key, 'Lingo', false);
+    mockGetChannelDetail.mockReset();
+    mockGetChannelDetail.mockResolvedValue(makeDetail(channel));
+    const initialLanguage = i18n.language;
+
+    render(<ChannelInfoPane {...baseProps} channelKey={key} channels={[channel]} />);
+    await screen.findByText('Lingo');
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage(initialLanguage === 'fr' ? 'en' : 'fr');
+      });
+      expect(mockGetChannelDetail).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('Lingo')).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage(initialLanguage);
+      });
+    }
   });
 
   it('copies the official channel share URI, including region_scope', async () => {
