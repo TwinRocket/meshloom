@@ -43,10 +43,21 @@ rotation steps are in `pkg/keys/README.md`.
     Actions > General), for the conflict PR. Without it the job still fails,
     with a compare link in the run summary.
   - the `NEXT_DEPLOY_WEBHOOKS` secret (below).
-- GitHub refuses a `GITHUB_TOKEN` push that changes a file under
-  `.github/workflows/`, so a `main` commit that does may come back as a
-  conflict PR and is then merged by hand. A PR opened with `GITHUB_TOKEN` runs
-  no checks until someone pushes to it.
+- Some `main` commits are expected to come back as a conflict PR and a red
+  forward-merge run, not as a bug:
+  - a release commit (`publish.sh`: the version files, `uv.lock`,
+    `CHANGELOG.md`, `LICENSES.md`), whenever `preversion-5` has changed the
+    same lines (its own `CHANGELOG.md` entries, a dependency bump);
+  - a commit touching `.github/workflows/`: GitHub refuses a `GITHUB_TOKEN`
+    push that changes a workflow file, whatever its content.
+
+  Resolve them the same way: `git switch -c fm/main origin/main && git merge
+  origin/preversion-5`, keep `preversion-5`'s side for 5.0.0 content and
+  `main`'s for the 4.18.x release lines (the 5.0.0 version is set at the cut),
+  push, and open a PR into `preversion-5` (merge commit). Your push is a human
+  one, so its checks run; a PR opened with `GITHUB_TOKEN` runs none until
+  someone pushes to it. A failed lookup of `preversion-5` (anything but a 404)
+  or a failed dispatch after a merge also turns the run red.
 
 ## Chain
 
@@ -96,10 +107,10 @@ rotation steps are in `pkg/keys/README.md`.
 3. `docker.yml`, triggered by the same tag push, builds the multi-arch GHCR
    image (amd64, arm64, armv7): `:edge` and `:main` on `main`; `:next` and
    `:preversion-5` on `preversion-5`; `:latest`, `:X.Y.Z` and `:X.Y` on tags;
-   `:sha-<short>` on all of them. Its `deploy` job then POSTs Portainer
-   webhooks: `Deploy edge` on `main`, from the `EDGE_DEPLOY_WEBHOOKS` secret
-   (stacks on `docker-compose.dev.yaml`); `Deploy next` on `preversion-5`,
-   from `NEXT_DEPLOY_WEBHOOKS` (the stacks that run `:next`). Both send the
+   `:sha-<short>` on all of them. Its `Deploy` job then POSTs Portainer
+   webhooks: on `main`, those in the `EDGE_DEPLOY_WEBHOOKS` secret (stacks on
+   `docker-compose.dev.yaml`); on `preversion-5`, those in
+   `NEXT_DEPLOY_WEBHOOKS` (the stacks that run `:next`). Both send the
    Cloudflare Access service token from `CF_ACCESS_CLIENT_ID` /
    `CF_ACCESS_CLIENT_SECRET` when set (Portainer is behind Access). An unset
    webhook secret is a notice and a failed call a warning, never a red run.
