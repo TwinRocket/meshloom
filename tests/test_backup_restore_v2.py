@@ -637,6 +637,75 @@ async def test_channels_raw_frames_keep_private_secrets(backup_db, setup_stub):
 
 
 @pytest.mark.asyncio
+async def test_channel_slots_above_the_restored_ones_are_emptied(backup_db, setup_stub):
+    node = await _same_identity_node()
+    node.channels = {5: ("#removed", b"\x01" * 16)}
+    async with connected_node(node):
+        radio_manager.note_channel_slot_loaded("AA" * 16, 5)
+        job = await run(make_doc(channels=[BackupChannel(key="0F" * 16, name="#kept")]))
+        assert radio_manager.get_cached_channel_slot("AA" * 16) is None
+    assert statuses(job)["channels"] == ("done", None)
+    assert node.channels[5] == ("", bytes(16))
+    assert all(node.channels[slot] == ("", bytes(16)) for slot in range(2, node.max_channels))
+
+
+@pytest.mark.asyncio
+async def test_negative_tx_power_is_not_raised_to_the_maximum(backup_db, setup_stub):
+    node = await _same_identity_node()
+    async with connected_node(node):
+        # A file written before the signed read: -9 dBm stored as 247.
+        job = await run(make_doc(radio=radio_settings(tx_power=247)))
+    assert items(job, "radio_settings")["tx_power"] == ("unsupported", "tx_power_negative")
+    assert node.tx_power == 20
+    assert "tx_power_clamped" not in job.result.warnings  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_contacts_unreadable_fails_the_step_and_restarts_reconcile(
+    backup_db, setup_stub, monkeypatch
+):
+    from app import radio_sync
+
+    started: list[dict] = []
+    real_start = radio_sync.start_background_contact_reconciliation
+
+    def start(**kwargs):
+        started.append(kwargs["initial_radio_contacts"])
+        real_start(**kwargs)
+
+    monkeypatch.setattr(radio_sync, "start_background_contact_reconciliation", start)
+    node = await _same_identity_node()
+    node.reject = {0x04}  # GET_CONTACTS
+    async with connected_node(node):
+        job = await run(make_doc(contacts=[contact("41" * 32)]))
+    assert statuses(job)["contacts"] == ("failed", "radio_contacts_unreadable")
+    assert started == [{}]
+
+
+@pytest.mark.asyncio
+async def test_contact_push_raising_still_restarts_reconcile(backup_db, setup_stub, monkeypatch):
+    from app import radio_sync
+    from app.services.backup_radio import push_contacts_to_radio
+
+    started: list[dict] = []
+    monkeypatch.setattr(
+        radio_sync,
+        "start_background_contact_reconciliation",
+        lambda **kwargs: started.append(kwargs["initial_radio_contacts"]),
+    )
+
+    async def boom():
+        raise RuntimeError("db")
+
+    monkeypatch.setattr(radio_sync, "get_contacts_selected_for_radio_sync", boom)
+    node = await _same_identity_node()
+    async with connected_node(node) as (loop, _n):
+        with pytest.raises(RuntimeError):
+            await push_contacts_to_radio(loop.mc)
+    assert len(started) == 1
+
+
+@pytest.mark.asyncio
 async def test_channels_skipped_without_device_info(backup_db, setup_stub):
     node = await _same_identity_node()
     async with connected_node(node):

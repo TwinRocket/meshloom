@@ -85,6 +85,19 @@ async def test_export_reads_the_radio_and_includes_the_identity(backup_db):
 
 
 @pytest.mark.asyncio
+async def test_out_of_range_values_never_abort_the_export(backup_db):
+    # An odd board's uint32 PIN, and -9 dBm read as the unsigned byte 247.
+    node = _node(ble_pin=4_000_000_000, tx_power=247)
+    async with connected_node(node):
+        doc = await export_backup_v2()
+    assert doc.radio is not None
+    assert doc.radio.ble_pin is None
+    assert "radio_read_failed:ble_pin" in doc.warnings
+    assert doc.radio.tx_power == -9
+    assert doc.radio.name == "Base"
+
+
+@pytest.mark.asyncio
 async def test_identity_only_when_the_key_derives_to_the_live_radio(backup_db):
     node = _node()
     keystore.set_private_key(bytes(range(100, 164)))  # another radio's key

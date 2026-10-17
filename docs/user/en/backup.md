@@ -44,6 +44,7 @@ Some steps can be skipped:
 - A radio whose firmware refuses key import (built without it) cannot get its identity back. Meshloom stops before writing anything else and says so.
 - If the radio restarts during the restore (it can, to set its clock), the remaining steps are skipped: run the restore again once the radio is back.
 - The Bluetooth PIN step is off by default when Meshloom reaches the radio over Bluetooth and the PIN differs; the Wi-Fi step is off by default when Meshloom reaches the radio over Wi-Fi and the backup holds another network, since storing it would cut Meshloom off.
+- A transmit power below 0 dBm is not written back (the radio keeps its current power): set it again in **Settings → Radio**.
 
 After a restore, join **Meshloom Community** again if you want it: participation is never restored from a file. Push notifications may need to be turned on again in each browser.
 
@@ -78,4 +79,4 @@ Note that anyone who can reach your Meshloom can download this backup, and so ca
 - Meshloom Community participation and its region code: joining is your choice, made again.
 - The radio's clock (Meshloom sets it) and a few settings no command reaches (buzzer and vibration).
 
-Channels are written into the radio's slots by the restore, but Meshloom manages those slots itself on every connection: they are filled again as you use the channels.
+Channels are written into the radio's slots by the restore, and the slots above them are emptied. Meshloom manages those slots itself on every connection: they are filled again as you use the channels.

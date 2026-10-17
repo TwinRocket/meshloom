@@ -729,18 +729,21 @@ async def _radio_steps(run: _Run) -> None:
                 run.set("contacts", "skipped", "step_off")
             else:
                 run.set("contacts", "running")
-                written, table_full, warnings = await push_contacts_to_radio(mc)
-                run.result.contacts_on_radio = written
-                run.result.warnings.extend(warnings)
-                if table_full:
-                    run.step("contacts").items = [
-                        BackupRestoreItem(
-                            name=f"table_full:{table_full}",
-                            status="failed",
-                            code="contacts_table_full",
-                        )
-                    ]
-                run.set("contacts", "done")
+                pushed = await push_contacts_to_radio(mc)
+                run.result.contacts_on_radio = pushed.written
+                run.result.warnings.extend(pushed.warnings)
+                if pushed.unreadable:
+                    run.set("contacts", "failed", "radio_contacts_unreadable")
+                else:
+                    if pushed.table_full:
+                        run.step("contacts").items = [
+                            BackupRestoreItem(
+                                name=f"table_full:{pushed.table_full}",
+                                status="failed",
+                                code="contacts_table_full",
+                            )
+                        ]
+                    run.set("contacts", "done")
 
             # 6. Wi-Fi credentials, stored in the radio (never in Meshloom).
             if doc.wifi is None:

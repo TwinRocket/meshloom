@@ -53,6 +53,14 @@ def _str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _int8(value: object) -> int | None:
+    """A signed byte meshcore reads unsigned (tx_power: SX126x goes below 0 dBm)."""
+    raw = _int(value)
+    if raw is None:
+        return None
+    return raw - 256 if 127 < raw <= 255 else raw
+
+
 async def _read(name: str, warnings: list[str], call) -> Any:
     try:
         return await call()
@@ -67,7 +75,7 @@ def _self_info_fields(info: dict, settings: dict[str, Any]) -> None:
     lat, lon = info.get("adv_lat"), info.get("adv_lon")
     if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
         settings["lat"], settings["lon"] = float(lat), float(lon)
-    settings["tx_power"] = _int(info.get("tx_power"))
+    settings["tx_power"] = _int8(info.get("tx_power"))
     settings["max_tx_power"] = _int(info.get("max_tx_power"))
     freq, bw = info.get("radio_freq"), info.get("radio_bw")
     sf, cr = _int(info.get("radio_sf")), _int(info.get("radio_cr"))
@@ -121,7 +129,11 @@ async def read_radio_node_settings(mc, cli: CompanionCli | None) -> RadioSnapsho
     else:
         ver_code = _int(device.get("fw ver")) or ver_code
         if (ver_code or 0) >= 3:
-            fields["ble_pin"] = _int(device.get("ble_pin"))
+            pin = _int(device.get("ble_pin"))
+            if pin is not None and not 0 <= pin <= 999999:
+                warnings.append("radio_read_failed:ble_pin")
+                pin = None
+            fields["ble_pin"] = pin
         if isinstance(device.get("repeat"), bool):
             fields["client_repeat"] = device["repeat"]
         if (ver_code or 0) >= 10:
@@ -146,7 +158,10 @@ async def read_radio_node_settings(mc, cli: CompanionCli | None) -> RadioSnapsho
     else:
         rx, af = _int(tuning.get("rx_delay")), _int(tuning.get("airtime_factor"))
         if rx is not None and af is not None:
-            fields["tuning"] = BackupTuning(rx_delay_raw=rx, airtime_factor_raw=af)
+            try:
+                fields["tuning"] = BackupTuning(rx_delay_raw=rx, airtime_factor_raw=af)
+            except ValueError:
+                warnings.append("radio_read_failed:tuning")
 
     custom = _payload(
         await _read("custom_vars", warnings, mc.commands.get_custom_vars), EventType.CUSTOM_VARS
@@ -180,7 +195,12 @@ async def read_radio_node_settings(mc, cli: CompanionCli | None) -> RadioSnapsho
     else:
         config = _int(autoadd.get("config"))
         if config is not None:
-            fields["autoadd"] = BackupAutoadd(config=config, max_hops=_int(autoadd.get("max_hops")))
+            try:
+                fields["autoadd"] = BackupAutoadd(
+                    config=config, max_hops=_int(autoadd.get("max_hops"))
+                )
+            except ValueError:
+                warnings.append("radio_read_failed:autoadd")
 
     if cli is not None:
         prefs = await _read("cli_prefs", warnings, lambda: read_cli_node_prefs(cli))
@@ -304,13 +324,20 @@ async def write_radio_node_settings(
         missing("coords")
 
     if settings.tx_power is not None:
-        power = settings.tx_power
+        # Files written before the signed read hold -9 dBm as 247.
+        power = _int8(settings.tx_power)
         info = getattr(mc, "self_info", None)
         target_max = info.get("max_tx_power") if isinstance(info, dict) else None
-        if isinstance(target_max, int) and target_max > 0 and power > target_max:
-            power = target_max
-            out.warnings.append("tx_power_clamped")
-        await apply("tx_power", RadioConfigUpdate(tx_power=power))
+        if power is None or power < 0:
+            # meshcore's set_tx_power sends an unsigned value: a negative power
+            # cannot be written back, and raising it to a default would not be
+            # what the user had.
+            out.add("tx_power", "unsupported", "tx_power_negative")
+        else:
+            if isinstance(target_max, int) and target_max > 0 and power > target_max:
+                power = target_max
+                out.warnings.append("tx_power_clamped")
+            await apply("tx_power", RadioConfigUpdate(tx_power=power))
     else:
         missing("tx_power")
 
@@ -503,7 +530,8 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
     )
     warnings: list[str] = []
     written = 0
-    for slot, channel in enumerate(channels[: max(0, int(manager.max_channels))]):
+    capacity = max(0, int(manager.max_channels))
+    for slot, channel in enumerate(channels[:capacity]):
         try:
             secret = bytes.fromhex(channel.key)
         except ValueError:
@@ -521,33 +549,69 @@ async def push_channels_to_radio(mc) -> tuple[int, list[str]]:
             continue
         manager.note_channel_slot_loaded(channel.key, slot)
         written += 1
-    if len(channels) > written and len(channels) > int(manager.max_channels):
+    # Empty the slots above: on the same radio they may still hold a channel
+    # the user removed since (name "" and a zero secret, as setup clears them).
+    for slot in range(min(len(channels), capacity), capacity):
+        frame = b"\x20" + bytes([slot]) + bytes(32) + bytes(16)
+        result = await mc.commands.send(frame, [EventType.OK, EventType.ERROR])
+        if _rejected(result):
+            warnings.append("channel_clear_failed")
+        manager.forget_channel_slot(slot)
+    if len(channels) > written and len(channels) > capacity:
         warnings.append("channels_over_radio_limit")
-    return written, warnings
+    return written, list(dict.fromkeys(warnings))
 
 
 RADIO_CONTACT_FAVORITE = 0x01
 
 
-async def push_contacts_to_radio(mc) -> tuple[int, int, list[str]]:
+@dataclass
+class ContactPushOutcome:
+    written: int = 0
+    table_full: int = 0
+    unreadable: bool = False
+    warnings: list[str] = field(default_factory=list)
+
+
+async def push_contacts_to_radio(mc) -> ContactPushOutcome:
     """Load the restored working set (favourites first, then recents, within the
-    limits) onto the radio. Returns (written, table_full_failures, warnings)."""
+    limits) onto the radio.
+
+    The background contact reconcile is stopped for the push and always started
+    again, even when the radio's table cannot be read or the push raises.
+    """
     from app import radio_sync
     from app.repository import AppSettingsRepository
-    from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
 
     autoevict = bool((await AppSettingsRepository.get()).load_with_autoevict)
     await radio_sync.stop_background_contact_reconciliation()
-    warnings: list[str] = []
+    radio_contacts: dict[str, dict] = {}
+    try:
+        return await _push_contacts(mc, autoevict, radio_contacts)
+    finally:
+        radio_sync.start_background_contact_reconciliation(
+            initial_radio_contacts=radio_contacts, expected_mc=mc, autoevict=autoevict
+        )
 
+
+async def _push_contacts(
+    mc, autoevict: bool, radio_contacts: dict[str, dict]
+) -> ContactPushOutcome:
+    """Fills ``radio_contacts`` with what the radio holds, as it goes."""
+    from app import radio_sync
+    from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
+
+    warnings: list[str] = []
     fetched = await mc.commands.get_contacts()
     if fetched is None or getattr(fetched, "type", None) != EventType.CONTACTS:
-        return 0, 0, ["radio_contacts_unreadable"]
-    radio_contacts: dict[str, dict] = {
-        str(key).lower(): value
-        for key, value in (fetched.payload or {}).items()
-        if isinstance(value, dict)
-    }
+        return ContactPushOutcome(unreadable=True, warnings=["radio_contacts_unreadable"])
+    radio_contacts.update(
+        {
+            str(key).lower(): value
+            for key, value in (fetched.payload or {}).items()
+            if isinstance(value, dict)
+        }
+    )
     selected = [
         c
         for c in await radio_sync.get_contacts_selected_for_radio_sync()
@@ -598,10 +662,9 @@ async def push_contacts_to_radio(mc) -> tuple[int, int, list[str]]:
         else:
             warnings.append("contact_load_failed")
 
-    radio_sync.start_background_contact_reconciliation(
-        initial_radio_contacts=radio_contacts, expected_mc=mc, autoevict=autoevict
+    return ContactPushOutcome(
+        written=written, table_full=table_full, warnings=list(dict.fromkeys(warnings))
     )
-    return written, table_full, list(dict.fromkeys(warnings))
 
 
 async def import_private_key_raw(mc, key: bytes) -> str:

@@ -270,8 +270,12 @@ be wrong, because historical decryption inserts old messages with new ids.
   subscriptions only on a host with no subscriptions of its own, proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
-  then skips the rest), channels into slots `0..n-1` with raw `0x20` frames (the
-  secret is never re-derived from a `#name`), contacts (reconcile stopped,
+  then skips the rest; `tx_power` is a signed byte meshcore reads unsigned, so it
+  is read as int8 and a negative power is reported `tx_power_negative`, never
+  written), channels into slots `0..n-1` with raw `0x20` frames (the secret is
+  never re-derived from a `#name`; the slots above are emptied and dropped from
+  the slot cache), contacts (reconcile stopped and always restarted, an
+  unreadable table fails the step `radio_contacts_unreadable`,
   non-selected radio contacts removed first, favourites first, 0x10 always
   stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),
   Wi-Fi credentials last. Raw frames also for the default flood scope (keeps a
