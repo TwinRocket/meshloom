@@ -989,7 +989,11 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
       anything is written.
     """
     from app.services.backup import V1_FORMATS, open_backup_document
-    from app.services.backup_restore import RestoreOptions, start_restore_backup_v2
+    from app.services.backup_restore import (
+        RestoreOptions,
+        restore_job_running,
+        start_restore_backup_v2,
+    )
 
     try:
         if "backup" not in body:
@@ -1002,6 +1006,12 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
         request = parse_backup_model(BackupRestoreV2Request, normalize_backup_request(body))
         if not request.confirm:
             raise BackupError("backup_confirm_required", message="Restore requires confirm=true")
+        if restore_job_running():
+            # Early answer, before the KDF of an encrypted file (one at a time,
+            # tens of MiB); start_restore_backup_v2 stays the authoritative guard.
+            raise BackupError(
+                "backup_restore_running", status=409, message="A restore is already running"
+            )
         opened = await open_backup_document(
             request.backup,
             request.passphrase.get_secret_value() if request.passphrase else None,

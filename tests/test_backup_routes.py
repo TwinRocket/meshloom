@@ -426,6 +426,29 @@ async def test_one_restore_at_a_time(backup_db, client, no_jobs):
 
 
 @pytest.mark.asyncio
+async def test_running_restore_answers_409_before_any_kdf(backup_db, client, no_jobs, monkeypatch):
+    node = _node()
+    envelope = (await _export(client, node, {"passphrase": PASSPHRASE})).json()
+    kdf_calls = 0
+    real_derive = crypto._derive_key
+
+    def counting_derive(*args, **kwargs):
+        nonlocal kdf_calls
+        kdf_calls += 1
+        return real_derive(*args, **kwargs)
+
+    monkeypatch.setattr(crypto, "_derive_key", counting_derive)
+    no_jobs._running_job_id = "busy"
+    response = await client.post(
+        "/api/settings/backup/restore",
+        json={"confirm": True, "backup": envelope, "passphrase": PASSPHRASE},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "backup_restore_running"
+    assert kdf_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_confirm_is_required(backup_db, client, no_jobs):
     response = await client.post(
         "/api/settings/backup/restore",

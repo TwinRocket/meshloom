@@ -287,7 +287,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   (no credentials stored); inspect sets `wifi_off_on_tcp` when the file turns
   Wi-Fi off on a TCP link, and the UI defaults the step off. Raw frames also for the default flood scope (keeps a
   non-derived key) and auto-add (keeps `max_hops`).
-- **Job.** One at a time (409 `backup_restore_running`), `spawn()`ed, in memory
+- **Job.** One at a time (409 `backup_restore_running`, answered by the route
+  before an encrypted file's KDF), `spawn()`ed, in memory
   (last 5); `GET /settings/backup/restore/jobs/{id}` and `/latest`. The decrypted
   document lives in the run object only and is dropped when the job ends. The
   reboot the restore offers is the plain `POST /radio/reboot` (unannounced).
