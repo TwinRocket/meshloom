@@ -1,0 +1,21 @@
+{
+  "errors": {
+    "egress_scheme": "The address must start with http:// or https://.",
+    "egress_private_address": "This address is on a private network (LAN, this machine) or is a cloud metadata address. Allow private networks for this destination if it is yours; metadata addresses are always refused.",
+    "egress_unresolvable": "The host name was not found. Check it, or type the IP address instead.",
+    "timeout": "The destination did not answer in time.",
+    "tls_error": "The secure (TLS) connection failed: check the certificate, or use http:// if the destination has no TLS.",
+    "service_error": "The destination answered with HTTP error {{status}}."
+  },
+  "settings": {
+    "notifications": {
+      "webhookAllowPrivate": "Allow a destination on a private network (LAN, localhost)",
+      "webhookAllowPrivateHelp": "Off by default: Meshloom refuses a webhook on your local network or on this machine, so a changed setting cannot turn the server into a probe of your network. Turn it on for Home Assistant, Node-RED or a script on your LAN. Cloud metadata addresses are always refused.",
+      "webhookGrandfathered": "This webhook was set up before Meshloom checked destinations, so private network addresses stay allowed for it and it keeps working. Untick the box below if it points to a public service.",
+      "webhookGrandfatheredDismiss": "Got it",
+      "pushAllowPrivate": "Accept push endpoints on a private network",
+      "pushAllowPrivateHelp": "Only for a self-hosted UnifiedPush distributor on your LAN or on this machine. Browser push services (Google, Mozilla, Apple) are public and do not need it.",
+      "pushAllowPrivateSaveFailed": "Failed to save the push setting"
+    }
+  }
+}
