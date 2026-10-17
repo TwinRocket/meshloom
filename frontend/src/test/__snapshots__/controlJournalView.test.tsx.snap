@@ -154,7 +154,7 @@ exports[`ControlJournalView > renders a mixed fixture as before (snapshot) 1`] =
               <span
                 class="ml-auto text-xs text-muted-foreground"
               >
-                11:13:23 PM
+                12:00:00
               </span>
             </div>
             <p

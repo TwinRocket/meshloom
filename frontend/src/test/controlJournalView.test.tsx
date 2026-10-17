@@ -260,6 +260,8 @@ describe('ControlJournalView', () => {
   });
 
   it('renders a mixed fixture as before (snapshot)', () => {
+    // The card time is formatted in the machine's time zone: pin it.
+    vi.spyOn(Date.prototype, 'toLocaleTimeString').mockReturnValue('12:00:00');
     const tag = '77'.repeat(4);
     seedRawPacketStore({
       packets: [
