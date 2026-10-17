@@ -1,16 +1,27 @@
 {
   "settings": {
+    "fullBackup": {
+      "warningSensitiveUnencrypted": "This backup holds secrets from parts added by other features (accounts, plugins…) and is not encrypted: keep it like the radio key itself, or download it again with a passphrase.",
+      "warningSectionExportFailed": "Part of this backup could not be exported: it is not in the file."
+    },
     "fullRestore": {
+      "sections": "Other parts in this backup, restored with the Meshloom data: {{list}}.",
+      "sectionSensitive": "{{name}} (contains secrets)",
+      "sectionsTooNew": "Made by a newer Meshloom and not restored here: {{list}}. Update Meshloom first to restore them.",
+      "sectionsUnknown": "Not known to this version of Meshloom and not restored: {{list}}.",
       "fileWarnings": {
-        "section_export_failed": "Part of this backup ({{value}}) could not be exported: it is not in the file."
+        "section_export_failed": "Part of this backup ({{value}}) could not be exported: it is not in the file.",
+        "section_sensitive_unencrypted": "This file holds secrets ({{value}}) and is not encrypted: keep it safe."
       },
       "warnings": {
-        "section_failed": "Part of the backup ({{value}}) could not be restored: the rest was.",
-        "section_skipped": "Part of the backup ({{value}}) was not restored: it depends on a part that is missing or failed."
+        "section_failed": "Part of the backup ({{value}}) could not be restored and was left as it was: the rest was restored.",
+        "section_skipped": "Part of the backup ({{value}}) was not restored: it depends on a part that is missing or failed.",
+        "section_too_new": "Part of the backup ({{value}}) was made by a newer Meshloom and was not restored: update Meshloom first."
       }
     }
   },
   "errors": {
-    "backup_identity_seed_leak": "This backup would contain an instance identity key, which never leaves the server: export refused. Report this bug."
+    "backup_identity_seed_leak": "This backup would contain an instance identity key, which never leaves the server: export refused. Report this bug.",
+    "backup_too_large": "This backup file is too large (over 64 MiB) to be read."
   }
 }

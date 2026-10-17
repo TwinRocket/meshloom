@@ -745,6 +745,7 @@ describe('BackupRestoreFlow', () => {
       'contact_load_failed',
       'section_failed:plugins',
       'section_skipped:api_tokens',
+      'section_too_new:plugins',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);
@@ -813,6 +814,44 @@ describe('BackupRestoreFlow', () => {
       screen.getByText(
         i18n.t('settings.fullRestore.fileWarnings.section_export_failed', { value: 'plugins' })
       )
+    ).toBeVisible();
+  });
+
+  it('describes the file sections and flags the ones holding secrets', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({
+        sections: [
+          {
+            name: 'accounts',
+            known: true,
+            too_new: false,
+            sensitive: true,
+            description: { en: 'User accounts', fr: 'Comptes utilisateurs' },
+          },
+          {
+            name: 'plugins',
+            known: true,
+            too_new: true,
+            sensitive: false,
+            description: { en: 'Plugins', fr: 'Extensions' },
+          },
+          { name: 'future', known: false, too_new: false, sensitive: false, description: null },
+        ],
+      })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const accounts = i18n.t('settings.fullRestore.sectionSensitive', {
+      name: 'Comptes utilisateurs',
+    });
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.sections', { list: accounts }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.sectionsTooNew', { list: 'Extensions' }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.sectionsUnknown', { list: 'future' }))
     ).toBeVisible();
   });
 

@@ -1,16 +1,27 @@
 {
   "settings": {
+    "fullBackup": {
+      "warningSensitiveUnencrypted": "Cette sauvegarde contient des secrets de parties ajoutées par d’autres fonctions (comptes, extensions…) et n’est pas chiffrée : gardez-la comme la clé de la radio elle-même, ou téléchargez-la de nouveau avec une phrase secrète.",
+      "warningSectionExportFailed": "Une partie de cette sauvegarde n’a pas pu être exportée : elle n’est pas dans le fichier."
+    },
     "fullRestore": {
+      "sections": "Autres parties de cette sauvegarde, restaurées avec les données de Meshloom : {{list}}.",
+      "sectionSensitive": "{{name}} (contient des secrets)",
+      "sectionsTooNew": "Faites par un Meshloom plus récent et non restaurées ici : {{list}}. Mettez d’abord Meshloom à jour pour les restaurer.",
+      "sectionsUnknown": "Inconnues de cette version de Meshloom et non restaurées : {{list}}.",
       "fileWarnings": {
-        "section_export_failed": "Une partie de cette sauvegarde ({{value}}) n’a pas pu être exportée : elle n’est pas dans le fichier."
+        "section_export_failed": "Une partie de cette sauvegarde ({{value}}) n’a pas pu être exportée : elle n’est pas dans le fichier.",
+        "section_sensitive_unencrypted": "Ce fichier contient des secrets ({{value}}) et n’est pas chiffré : conservez-le en lieu sûr."
       },
       "warnings": {
-        "section_failed": "Une partie de la sauvegarde ({{value}}) n’a pas pu être restaurée : le reste l’a été.",
-        "section_skipped": "Une partie de la sauvegarde ({{value}}) n’a pas été restaurée : elle dépend d’une partie absente ou en échec."
+        "section_failed": "Une partie de la sauvegarde ({{value}}) n’a pas pu être restaurée et a été laissée telle quelle : le reste a été restauré.",
+        "section_skipped": "Une partie de la sauvegarde ({{value}}) n’a pas été restaurée : elle dépend d’une partie absente ou en échec.",
+        "section_too_new": "Une partie de la sauvegarde ({{value}}) a été faite par un Meshloom plus récent et n’a pas été restaurée : mettez d’abord Meshloom à jour."
       }
     }
   },
   "errors": {
-    "backup_identity_seed_leak": "Cette sauvegarde contiendrait une clé d’identité d’instance, qui ne quitte jamais le serveur : export refusé. Signalez ce bug."
+    "backup_identity_seed_leak": "Cette sauvegarde contiendrait une clé d’identité d’instance, qui ne quitte jamais le serveur : export refusé. Signalez ce bug.",
+    "backup_too_large": "Ce fichier de sauvegarde est trop gros (plus de 64 Mio) pour être lu."
   }
 }

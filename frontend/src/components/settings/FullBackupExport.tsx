@@ -17,6 +17,12 @@ export function fullBackupWarningKey(code: string): string | null {
   if (code === 'wifi_not_stored') return 'settings.fullBackup.warningWifiNotStored';
   if (code === 'wifi_read_failed') return 'settings.fullBackup.warningWifiReadFailed';
   if (code.startsWith('radio_read_failed:')) return 'settings.fullBackup.warningReadFailed';
+  if (code.startsWith('section_sensitive_unencrypted:')) {
+    return 'settings.fullBackup.warningSensitiveUnencrypted';
+  }
+  if (code.startsWith('section_export_failed:')) {
+    return 'settings.fullBackup.warningSectionExportFailed';
+  }
   return null;
 }
 
