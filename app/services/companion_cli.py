@@ -31,15 +31,19 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import hmac
+import ipaddress
 import logging
 import re
 import secrets as _secrets
+import unicodedata
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from meshcore import EventType
+from pydantic import SecretStr
 
 from app.log_redaction import REDACTED, secret_scope
 
@@ -485,15 +489,18 @@ class CompanionCli:
         *,
         secrets: Sequence[str] = (),
         sensitive_reply: bool = False,
-        timeout: float = CLI_REPLY_TIMEOUT_SECONDS,
+        timeout: float | None = None,
     ) -> CliReply:
         """Run one CLI command and return its reply.
 
         Raises ``CliLockError`` outside a session of this task, ``CliCommandError``
         (a ``ValueError``) for an invalid command, ``CliUnsupportedError`` when the
         link was declared unreliable, ``CliTimeoutError``,
-        ``CliUnknownCommandError`` and ``CliRejectedError``.
+        ``CliUnknownCommandError`` and ``CliRejectedError``. ``timeout`` defaults to
+        ``CLI_REPLY_TIMEOUT_SECONDS``.
         """
+        if timeout is None:
+            timeout = CLI_REPLY_TIMEOUT_SECONDS
         self._check_lock()
         encoded = _validate_command(command)
         classified = _classify(command)
@@ -571,3 +578,239 @@ async def companion_cli_session(
     ) as mc:
         with mark_radio_lock_held():
             yield CompanionCli(mc, manager=manager)
+
+
+# --------------------------------------------------------------------------
+# Typed helpers: Wi-Fi credentials and pure-CLI node prefs
+# --------------------------------------------------------------------------
+
+WIFI_SSID_MAX_BYTES = 32  # wifi_ssid[33] in NodePrefs
+WIFI_PASSWORD_MAX_BYTES = 63  # wifi_pwd[64]
+WIFI_DEFAULT_TCP_PORT = 5000  # TCP_PORT, compile-time
+NOT_SET_SSID = "(not set)"
+
+# Node prefs that only the CLI reads and writes (no binary command exists).
+CLI_NODE_PREFS: tuple[str, ...] = (
+    "tz.offset",
+    "cad",
+    "int.thresh",
+    "radio.rxgain",
+    "agc.reset.interval",
+    "txdelay",
+    "direct.txdelay",
+)
+
+# ContactInfo flag 0x10: the contact may run the remote CLI over the mesh.
+# Owner decision: Meshloom never sets it.
+CONTACT_FLAG_REMOTE_CLI = 0x10
+
+
+@dataclass(frozen=True)
+class WifiLinkStatus:
+    connected: bool
+    ip: str | None  # None for "(not connected)" or an unparsable answer
+
+
+@dataclass(frozen=True)
+class WifiStoreOutcome:
+    """What a verified store changed. Computed from the helper's own first read;
+    holds no password."""
+
+    previous_ssid: str | None
+    previously_stored: bool  # the previous stored password was non-empty
+    ssid_changed: bool
+    password_changed: bool
+
+
+def _has_control_characters(value: str) -> bool:
+    return any(unicodedata.category(char) == "Cc" for char in value)
+
+
+def validate_wifi_ssid(ssid: str) -> str:
+    """1 to 32 UTF-8 bytes, no control character, never trimmed, and not the
+    literal ``"(not set)"`` (the firmware's answer when nothing is set)."""
+    if not isinstance(ssid, str):
+        raise CliCommandError("wifi_ssid_invalid")
+    size = len(ssid.encode("utf-8"))
+    if size < 1 or size > WIFI_SSID_MAX_BYTES:
+        raise CliCommandError("wifi_ssid_length")
+    if _has_control_characters(ssid):
+        raise CliCommandError("wifi_ssid_control_character")
+    if ssid == NOT_SET_SSID:
+        raise CliCommandError("wifi_ssid_reserved")
+    return ssid
+
+
+def validate_wifi_password(password: str, *, typed: bool = True) -> str:
+    """0 to 63 UTF-8 bytes (empty: open network), no control character, never trimmed.
+
+    The same bounds apply to a password the user typed (``typed=True``) and to
+    one read from the radio or a backup (``typed=False``): WEP keys are 5 or 13
+    characters, so no WPA minimum is enforced here; the UI warns below 8.
+    """
+    del typed  # kept so a stricter rule for typed input needs no caller change
+    if not isinstance(password, str):
+        raise CliCommandError("wifi_password_invalid")
+    if len(password.encode("utf-8")) > WIFI_PASSWORD_MAX_BYTES:
+        raise CliCommandError("wifi_password_length")
+    if _has_control_characters(password):
+        raise CliCommandError("wifi_password_control_character")
+    return password
+
+
+async def wifi_ssid(cli: CompanionCli) -> str | None:
+    """The stored SSID, or the compile-time fallback when none is stored; None
+    for ``"(not set)"``. Not a secret."""
+    value = (await cli.get("wifi.ssid")).value
+    return None if value == NOT_SET_SSID else value
+
+
+async def wifi_enabled(cli: CompanionCli) -> bool:
+    value = (await cli.get("wifi.enabled")).value.strip()
+    if value in ("1", "on"):
+        return True
+    if value in ("0", "off"):
+        return False
+    raise CliError("cli_unexpected_reply", verb="get", name="wifi.enabled")
+
+
+async def wifi_link_status(cli: CompanionCli) -> WifiLinkStatus:
+    status = (await cli.get("wifi.status")).value.strip()
+    raw_ip = (await cli.get("wifi.ip")).value.strip()
+    try:
+        ip: str | None = str(ipaddress.ip_address(raw_ip))
+    except ValueError:
+        ip = None
+    return WifiLinkStatus(connected=status == "connected", ip=ip)
+
+
+async def wifi_stored_password(cli: CompanionCli) -> SecretStr:
+    """The stored password (``""`` when nothing is stored; never the
+    compile-time one). Sensitive read.
+
+    Known limit: meshcore decodes the reply with ``errors="ignore"``, so a
+    password with invalid UTF-8 bytes stored by another tool reads altered.
+    """
+    return SecretStr((await cli.get("wifi.pwd", sensitive=True)).value)
+
+
+async def wifi_credentials_stored(cli: CompanionCli) -> bool:
+    """True when the radio holds a non-empty stored password. An empty one is
+    ambiguous (nothing stored, or an open network stored)."""
+    return bool((await wifi_stored_password(cli)).get_secret_value())
+
+
+async def set_wifi_enabled(cli: CompanionCli, enabled: bool) -> None:
+    """Takes effect after a reboot."""
+    reply = await cli.set("wifi.enabled", "1" if enabled else "0")
+    if not reply.text.startswith("> wifi.enabled is now"):
+        raise CliError("cli_unexpected_reply", verb="set", name="wifi.enabled")
+
+
+def _same_secret(left: str, right: str) -> bool:
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+async def _set_checked(
+    cli: CompanionCli, name: str, value: str, *, expected_prefix: str, secret: bool = False
+) -> None:
+    reply = await cli.set(name, value, secret=secret)
+    if not reply.text.startswith(expected_prefix):
+        raise CliError("cli_unexpected_reply", verb="set", name=name)
+
+
+async def _rollback_wifi(cli: CompanionCli, previous_ssid: str | None, previous_pwd: str) -> None:
+    if previous_pwd and previous_ssid is not None:
+        await _set_checked(cli, "wifi.ssid", previous_ssid, expected_prefix="> wifi.ssid is now")
+        await _set_checked(
+            cli, "wifi.pwd", previous_pwd, expected_prefix="> wifi.pwd updated", secret=True
+        )
+    else:
+        # Nothing was stored (or an open network, which reads the same): clear,
+        # which brings back the compile-time fallback, if any.
+        reply = await cli.run("set wifi.clear")
+        if not reply.text.startswith("> wifi config cleared"):
+            raise CliError("cli_unexpected_reply", verb="set", name="wifi.clear")
+
+
+async def store_wifi_credentials(
+    cli: CompanionCli, ssid: str, password: SecretStr, *, typed: bool = True
+) -> WifiStoreOutcome:
+    """Store Wi-Fi credentials in the radio, verified, with rollback.
+
+    1. Validate both; read the previous SSID and stored password (kept in
+       memory for this call only).
+    2. ``set wifi.ssid`` then ``set wifi.pwd`` (``"set wifi.pwd "`` for an open
+       network). SSID first: a link lost in between leaves an empty stored
+       password, which reads as "not stored" and is asked again; the other
+       order would leave a password with no SSID that reads as "stored" while
+       the firmware ignores it. A password timeout is retried once.
+    3. Read both back and compare.
+    4. Any failure after step 2 started rolls the previous values back and
+       raises ``CliError("wifi_store_unverified")``; if the rollback itself
+       fails, ``CliError("wifi_store_partial")`` (the radio may hold the new SSID
+       with the old or an empty password). Never reboot after either code.
+
+    Writes nothing to the database. The change applies after a reboot.
+    """
+    ssid = validate_wifi_ssid(ssid)
+    new_pwd = validate_wifi_password(password.get_secret_value(), typed=typed)
+
+    previous_ssid = await wifi_ssid(cli)
+    previous_pwd = (await wifi_stored_password(cli)).get_secret_value()
+    outcome = WifiStoreOutcome(
+        previous_ssid=previous_ssid,
+        previously_stored=bool(previous_pwd),
+        ssid_changed=previous_ssid != ssid,
+        password_changed=not _same_secret(previous_pwd, new_pwd),
+    )
+    try:
+        await _set_checked(cli, "wifi.ssid", ssid, expected_prefix="> wifi.ssid is now")
+        try:
+            await _set_checked(
+                cli, "wifi.pwd", new_pwd, expected_prefix="> wifi.pwd updated", secret=True
+            )
+        except CliTimeoutError:
+            await _set_checked(
+                cli, "wifi.pwd", new_pwd, expected_prefix="> wifi.pwd updated", secret=True
+            )
+        stored_ssid = await wifi_ssid(cli)
+        stored_pwd = (await wifi_stored_password(cli)).get_secret_value()
+        verified = stored_ssid == ssid and _same_secret(stored_pwd, new_pwd)
+        stored_pwd = ""
+        if not verified:
+            raise CliError("wifi_store_mismatch")
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning("Wi-Fi credentials store could not be verified; rolling back")
+        try:
+            await _rollback_wifi(cli, previous_ssid, previous_pwd)
+        except Exception:
+            logger.warning("Wi-Fi credentials rollback failed; the radio may hold a partial change")
+            raise CliError("wifi_store_partial") from None
+        raise CliError("wifi_store_unverified") from None
+    finally:
+        previous_pwd = ""
+    return outcome
+
+
+async def read_cli_node_prefs(cli: CompanionCli) -> dict[str, str]:
+    """The ``CLI_NODE_PREFS`` the firmware answers; skips "Unknown command" and
+    "Error" answers (a pref this board does not have)."""
+    prefs: dict[str, str] = {}
+    for name in CLI_NODE_PREFS:
+        try:
+            prefs[name] = (await cli.get(name)).value
+        except (CliUnknownCommandError, CliRejectedError):
+            continue
+    return prefs
+
+
+async def write_cli_node_pref(cli: CompanionCli, name: str, value: str) -> None:
+    """Write one of ``CLI_NODE_PREFS``. Raises ``CliRejectedError`` when refused."""
+    if name not in CLI_NODE_PREFS:
+        raise CliCommandError("cli_pref_unknown")
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        raise CliCommandError("cli_pref_value_invalid")
+    await cli.set(name, value)

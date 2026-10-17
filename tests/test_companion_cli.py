@@ -621,3 +621,238 @@ async def test_debug_snapshot_reports_the_probe(radio, monkeypatch):
     block = _build_companion_cli()
     assert block is not None
     assert (block.supported, block.reason, block.wifi) == (False, "untagged", False)
+
+
+# --------------------------------------------------------------------------
+# Typed helpers
+# --------------------------------------------------------------------------
+
+
+async def test_wifi_reads(radio):
+    from app.services.companion_cli import (
+        WifiLinkStatus,
+        wifi_credentials_stored,
+        wifi_enabled,
+        wifi_link_status,
+        wifi_ssid,
+        wifi_stored_password,
+    )
+
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        assert await wifi_ssid(cli) == "FlasherNet"  # compile-time fallback
+        assert await wifi_credentials_stored(cli) is False
+        assert await wifi_link_status(cli) == WifiLinkStatus(connected=False, ip=None)
+        assert await wifi_enabled(cli) is True
+        firmware.fallback_ssid = None
+        assert await wifi_ssid(cli) is None
+        firmware.stored_ssid, firmware.stored_pwd = "Home", "  p w  "
+        firmware.connected, firmware.ip = True, "192.168.1.42"
+        assert await wifi_ssid(cli) == "Home"
+        assert (await wifi_stored_password(cli)).get_secret_value() == "  p w  "
+        assert await wifi_credentials_stored(cli) is True
+        assert await wifi_link_status(cli) == WifiLinkStatus(connected=True, ip="192.168.1.42")
+        firmware.ip = "garbage"
+        assert (await wifi_link_status(cli)).ip is None
+
+
+async def test_set_wifi_enabled(radio):
+    from app.services.companion_cli import set_wifi_enabled, wifi_enabled
+
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        await set_wifi_enabled(cli, False)
+        assert firmware.enabled is False
+        assert await wifi_enabled(cli) is False
+        await set_wifi_enabled(cli, True)
+    assert firmware.commands[0] == "set wifi.enabled 0"
+
+
+async def test_wifi_reads_without_wifi_raise_unknown_command(radio):
+    from app.services.companion_cli import wifi_ssid
+
+    loop, firmware, manager = radio
+    firmware.wifi = False
+    async with held(manager) as cli:
+        with pytest.raises(CliUnknownCommandError):
+            await wifi_ssid(cli)
+
+
+async def test_store_credentials_ssid_then_password_and_verifies(radio, caplog):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import WifiStoreOutcome, store_wifi_credentials
+
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="meshcore")
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        outcome = await store_wifi_credentials(cli, "FlasherNet", SecretStr(SECRET))
+    await loop.settle()
+    assert outcome == WifiStoreOutcome(
+        previous_ssid="FlasherNet",
+        previously_stored=False,
+        ssid_changed=False,
+        password_changed=True,
+    )
+    assert (firmware.stored_ssid, firmware.stored_pwd) == ("FlasherNet", SECRET)
+    sets = [command for command in firmware.commands if command.startswith("set ")]
+    assert sets == ["set wifi.ssid FlasherNet", f"set wifi.pwd {SECRET}"]
+    # The password is read once before and once after, no more.
+    assert firmware.commands.count("get wifi.pwd") == 2
+    assert SECRET not in all_log_text(caplog)
+    assert SECRET not in repr(outcome)
+
+
+async def test_store_open_network_sends_an_empty_password(radio):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import store_wifi_credentials
+
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        outcome = await store_wifi_credentials(cli, "Cafe Wifi ", SecretStr(""))
+    assert firmware.raw_payloads[-3].endswith(b"|set wifi.pwd ")
+    assert (firmware.stored_ssid, firmware.stored_pwd) == ("Cafe Wifi ", "")
+    assert outcome.password_changed is False and outcome.ssid_changed is True
+
+
+async def test_store_mismatch_rolls_back_to_clear(radio):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import CliError, store_wifi_credentials
+
+    loop, firmware, manager = radio
+    reads = {"count": 0}
+
+    def pwd_reader(command):
+        reads["count"] += 1
+        return "> " if reads["count"] == 1 else "> something-else"
+
+    firmware.overrides["get wifi.pwd"] = pwd_reader
+    async with held(manager) as cli:
+        with pytest.raises(CliError) as error:
+            await store_wifi_credentials(cli, "Home", SecretStr(SECRET))
+    assert error.value.code == "wifi_store_unverified"
+    assert firmware.commands[-1] == "set wifi.clear"
+    assert (firmware.stored_ssid, firmware.stored_pwd) == ("", "")
+
+
+async def test_store_mismatch_restores_previous_credentials(radio):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import CliError, store_wifi_credentials
+
+    loop, firmware, manager = radio
+    firmware.stored_ssid, firmware.stored_pwd = "Old", "old-password"
+    firmware.overrides["get wifi.ssid"] = lambda _c: (
+        "> Old" if firmware.commands.count("get wifi.ssid") == 1 else "> Wrong"
+    )
+    async with held(manager) as cli:
+        with pytest.raises(CliError) as error:
+            await store_wifi_credentials(cli, "New", SecretStr(SECRET))
+    assert error.value.code == "wifi_store_unverified"
+    assert (firmware.stored_ssid, firmware.stored_pwd) == ("Old", "old-password")
+
+
+async def test_store_password_timeout_is_retried_once_then_rolled_back(radio, fast_probe):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import CliError, store_wifi_credentials
+
+    loop, firmware, manager = radio
+    firmware.silent.add(f"set wifi.pwd {SECRET}")
+    async with held(manager) as cli:
+        with pytest.raises(CliError) as error:
+            await store_wifi_credentials(cli, "Home", SecretStr(SECRET))
+    assert error.value.code == "wifi_store_unverified"
+    assert firmware.commands.count(f"set wifi.pwd {SECRET}") == 2
+    assert firmware.commands[-1] == "set wifi.clear"
+    assert (firmware.stored_ssid, firmware.stored_pwd) == ("", "")
+
+
+async def test_store_link_lost_after_ssid_is_partial(radio, fast_probe):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import CliError, store_wifi_credentials
+
+    loop, firmware, manager = radio
+
+    def store_then_drop_the_link(command):
+        reply = firmware.handle(command)
+        firmware.silent.update({f"set wifi.pwd {SECRET}", "set wifi.clear"})
+        return reply
+
+    firmware.overrides["set wifi.ssid Home"] = store_then_drop_the_link
+    async with held(manager) as cli:
+        with pytest.raises(CliError) as error:
+            await store_wifi_credentials(cli, "Home", SecretStr(SECRET))
+    assert error.value.code == "wifi_store_partial"
+    assert firmware.stored_ssid == "Home" and firmware.stored_pwd == ""
+
+
+@pytest.mark.parametrize(
+    ("ssid", "password", "code"),
+    [
+        ("x" * 33, "password", "wifi_ssid_length"),
+        ("é" * 17, "password", "wifi_ssid_length"),
+        ("", "password", "wifi_ssid_length"),
+        ("(not set)", "password", "wifi_ssid_reserved"),
+        ("Net\x07", "password", "wifi_ssid_control_character"),
+        ("Net", "p" * 64, "wifi_password_length"),
+        ("Net", "pass\nword", "wifi_password_control_character"),
+    ],
+)
+async def test_store_validation(radio, ssid, password, code):
+    from pydantic import SecretStr
+
+    from app.services.companion_cli import store_wifi_credentials
+
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        with pytest.raises(CliCommandError) as error:
+            await store_wifi_credentials(cli, ssid, SecretStr(password))
+    assert error.value.code == code
+    assert password not in str(error.value)
+    assert firmware.commands == []
+
+
+def test_validators_accept_short_and_untrimmed_values():
+    from app.services.companion_cli import validate_wifi_password, validate_wifi_ssid
+
+    assert validate_wifi_password("abcde") == "abcde"  # WEP-40
+    assert validate_wifi_password("abc", typed=False) == "abc"
+    assert validate_wifi_password("") == ""
+    assert validate_wifi_password(" spaced ") == " spaced "
+    assert validate_wifi_ssid(" My Net ") == " My Net "
+    assert validate_wifi_ssid("x" * 32) == "x" * 32
+
+
+async def test_read_cli_node_prefs_skips_unknown(radio):
+    from app.services.companion_cli import read_cli_node_prefs
+
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        prefs = await read_cli_node_prefs(cli)
+    assert prefs == {"tz.offset": "0", "cad": "off", "int.thresh": "14", "txdelay": "0.5"}
+
+
+async def test_write_cli_node_pref(radio):
+    from app.services.companion_cli import write_cli_node_pref
+
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        await write_cli_node_pref(cli, "tz.offset", "2")
+        with pytest.raises(CliRejectedError):
+            await write_cli_node_pref(cli, "tz.offset", "20")
+        with pytest.raises(CliCommandError):
+            await write_cli_node_pref(cli, "wifi.pwd", "x")
+        with pytest.raises(CliCommandError):
+            await write_cli_node_pref(cli, "cad", "on off")
+    assert firmware.prefs["tz.offset"] == "2"
+
+
+def test_remote_cli_flag_constant():
+    from app.services.companion_cli import CONTACT_FLAG_REMOTE_CLI
+
+    assert CONTACT_FLAG_REMOTE_CLI == 0x10
