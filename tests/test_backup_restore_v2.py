@@ -816,6 +816,58 @@ async def test_one_restore_at_a_time(backup_db, setup_stub):
 
 
 @pytest.mark.asyncio
+async def test_two_posts_racing_the_identity_check_start_one_job(
+    backup_db, setup_stub, monkeypatch
+):
+    release = asyncio.Event()
+    real = restore_module.gather_identity_inputs
+
+    async def slow_inputs():
+        await release.wait()
+        return await real()
+
+    monkeypatch.setattr(restore_module, "gather_identity_inputs", slow_inputs)
+    first = asyncio.ensure_future(
+        start_restore_backup_v2(make_doc(), RestoreOptions(steps=BackupRestoreSteps()))
+    )
+    await asyncio.sleep(0)
+    with pytest.raises(BackupError) as exc:
+        await start_restore_backup_v2(make_doc(), RestoreOptions(steps=BackupRestoreSteps()))
+    assert exc.value.code == "backup_restore_running"
+    release.set()
+    job_id = await first
+    for _ in range(500):
+        if not restore_module.restore_job_running():
+            break
+        await asyncio.sleep(0.01)
+    assert get_restore_job(job_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_refused_identity_check_releases_the_slot(backup_db, setup_stub):
+    await RadioTransportRepository.bind_public_key("cc" * 32)
+    with pytest.raises(BackupError):
+        await run(make_doc())
+    assert restore_module.restore_job_running() is False
+
+
+@pytest.mark.asyncio
+async def test_radio_lost_mid_step_fails_the_running_step(backup_db, setup_stub, monkeypatch):
+    from app.radio import RadioOperationError
+
+    async def lost(mc):
+        raise RadioOperationError("gone")
+
+    monkeypatch.setattr("app.services.backup_radio.push_channels_to_radio", lost)
+    node = await _same_identity_node()
+    async with connected_node(node):
+        job = await run(make_doc(channels=[BackupChannel(key="CD" * 16, name="#ops")]))
+    assert statuses(job)["channels"] == ("failed", "radio_not_connected")
+    assert statuses(job)["contacts"] == ("skipped", "radio_not_connected")
+    assert all(step.status != "running" for step in job.steps)
+
+
+@pytest.mark.asyncio
 async def test_finished_job_holds_no_secret_and_logs_none(backup_db, setup_stub, secret_debug_logs):
     node = FakeNode(private_key=OTHER_KEY)
     await RadioTransportRepository.bind_public_key(L)

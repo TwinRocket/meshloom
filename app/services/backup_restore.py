@@ -763,6 +763,9 @@ async def _radio_steps(run: _Run) -> None:
                     run.result.reboot_required = True
                     run.set("wifi", "done")
     except (CliError, RadioOperationError):
+        for name in RADIO_STEPS:
+            if run.step(name).status == "running":
+                run.set(name, "failed", "radio_not_connected", RERUN_HINT)
         run.skip_radio_steps("radio_not_connected", RERUN_HINT)
 
 
@@ -826,21 +829,27 @@ async def start_restore_backup_v2(
         raise BackupError(
             "backup_restore_running", status=409, message="A restore is already running"
         )
-    if options.steps.identity and backup_public_key(doc) is not None:
-        inputs = await gather_identity_inputs()
-        check_identity_confirmations(
-            decide_for(doc, inputs),
-            live=inputs.live,
-            replace_live_identity=options.replace_live_identity,
-            wipe_history=options.wipe_history,
-            expected_live_public_key=options.expected_live_public_key,
-        )
     job = BackupRestoreJob(
         job_id=uuid.uuid4().hex,
         started_at=int(time.time()),
         steps=[BackupRestoreStep(step=name) for name in STEP_ORDER],
     )
-    _register(job)
+    # Reserved before the first await: a second POST (double click, two tabs)
+    # must see it while the identity check below reads the radio.
     _running_job_id = job.job_id
+    try:
+        if options.steps.identity and backup_public_key(doc) is not None:
+            inputs = await gather_identity_inputs()
+            check_identity_confirmations(
+                decide_for(doc, inputs),
+                live=inputs.live,
+                replace_live_identity=options.replace_live_identity,
+                wipe_history=options.wipe_history,
+                expected_live_public_key=options.expected_live_public_key,
+            )
+    except BaseException:
+        _running_job_id = None
+        raise
+    _register(job)
     spawn(_run_restore(_Run(job, doc, options)), name=f"backup_restore_{job.job_id[:8]}")
     return job.job_id
