@@ -415,3 +415,209 @@ async def test_timeout_error_carries_no_command_text(radio):
             await cli.run(f"set wifi.pwd {SECRET}", timeout=SHORT_TIMEOUT)
     assert SECRET not in str(error.value)
     assert error.value.verb == "set" and error.value.name == "wifi.pwd"
+
+
+# --------------------------------------------------------------------------
+# Support detection
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fast_probe(monkeypatch):
+    monkeypatch.setattr(cli_module, "CLI_REPLY_TIMEOUT_SECONDS", SHORT_TIMEOUT)
+    monkeypatch.setattr(cli_module, "CLI_PROBE_ERROR_GRACE_SECONDS", 0.05)
+
+
+@pytest.mark.parametrize(
+    ("version", "model", "reason"),
+    [
+        (None, "Heltec V3", "firmware_unknown"),
+        (13, "Heltec V3", "firmware_too_old"),
+        (14, "MeshloomProxy/0123456789ab", "proxy_link"),
+        (10, "MeshloomProxy/0123456789ab", "proxy_link"),
+    ],
+)
+async def test_gate_sends_nothing_and_is_not_cached(radio, version, model, reason):
+    loop, firmware, manager = radio
+    manager.firmware_ver_code = version
+    manager.device_model = model
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+        assert (caps.supported, caps.reason, caps.wifi) == (False, reason, False)
+        assert firmware.commands == [] and manager.cli_link.capabilities is None
+        # Once the device query fills the version, the next call probes.
+        manager.firmware_ver_code = 14
+        manager.device_model = "Heltec V3"
+        caps = await cli.capabilities()
+    assert caps.supported and caps.reason == "ok"
+    assert firmware.commands == ["get wifi.status"]
+
+
+async def test_gate_needs_no_lock(radio):
+    loop, firmware, manager = radio
+    manager.firmware_ver_code = 12
+    cli = CompanionCli(loop.mc, manager=manager)
+    assert (await cli.capabilities()).reason == "firmware_too_old"
+
+
+async def test_probe_detects_cli_with_wifi_and_caches_it(radio, caplog):
+    caplog.set_level(logging.INFO, logger="app.services.companion_cli")
+    loop, firmware, manager = radio
+    firmware.connected = True
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+        again = await cli.capabilities()
+    assert (caps.supported, caps.reason, caps.wifi, caps.firmware_ver_code) == (
+        True,
+        "ok",
+        True,
+        14,
+    )
+    assert again is caps
+    assert firmware.commands == ["get wifi.status"]
+    assert "Companion CLI probe: supported=True reason=ok wifi=True" in all_log_text(caplog)
+
+
+async def test_probe_cli_without_wifi(radio):
+    loop, firmware, manager = radio
+    firmware.wifi = False
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+    assert (caps.supported, caps.wifi) == (True, False)
+
+
+async def test_refresh_reprobes_a_supported_link(radio):
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        await cli.capabilities()
+        await cli.capabilities(refresh=True)
+    assert firmware.commands == ["get wifi.status", "get wifi.status"]
+
+
+async def test_untagged_reply_fails_closed_and_sticks(radio):
+    loop, firmware, manager = radio
+    firmware.echo_tags = False
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+        await cli.capabilities(refresh=True)
+    assert (caps.supported, caps.reason) == (False, "untagged")
+    assert len(firmware.commands) == 1
+
+
+async def test_error_unsupported_then_no_reply_is_unsupported_cmd(radio, fast_probe):
+    loop, firmware, manager = radio
+    firmware.overrides["get wifi.status"] = lambda _command: None
+    firmware.extra_frames.append(b"\x01\x01")
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+        assert (caps.supported, caps.reason) == (False, "unsupported_cmd")
+        again = await cli.capabilities(refresh=True)
+    assert again.reason == "unsupported_cmd"
+    assert len(firmware.commands) == 1
+
+
+async def test_error_unsupported_followed_by_our_reply_is_supported(radio, fast_probe):
+    loop, firmware, manager = radio
+    # A late ERROR(1) to an earlier command arrives first, then our tagged reply.
+    firmware.extra_frames.append(b"\x01\x01")
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+    assert (caps.supported, caps.reason, caps.wifi) == (True, "ok", True)
+
+
+async def test_other_error_codes_are_ignored_during_the_probe(radio, fast_probe):
+    loop, firmware, manager = radio
+    firmware.extra_frames.append(b"\x01\x02")
+    async with held(manager) as cli:
+        caps = await cli.capabilities()
+    assert caps.supported
+
+
+async def test_late_reply_of_attempt_one_is_stale_during_attempt_two(radio, fast_probe):
+    loop, firmware, manager = radio
+    answers = iter([None, "> disconnected"])
+    firmware.overrides["get wifi.status"] = lambda _command: next(answers)
+
+    async with held(manager) as cli:
+        original_call = firmware.__call__
+
+        def responder(payload):
+            frames = original_call(payload)
+            if len(firmware.tags) == 2:
+                # Attempt 1's reply, tagged with attempt 1's tag, lands first.
+                frames.insert(0, cli_reply(f"{firmware.tags[0]}|> disconnected"))
+            return frames
+
+        loop.set_responder(responder)
+        caps = await cli.capabilities()
+    assert (caps.supported, caps.reason) == (True, "ok")
+    assert len(firmware.commands) == 2
+    assert firmware.tags[0] in manager.cli_link.quarantined
+
+
+async def test_probe_timeouts_back_off_and_cap(radio, fast_probe, monkeypatch):
+    loop, firmware, manager = radio
+    firmware.silent.add("get wifi.status")
+    link = manager.cli_link
+
+    async def probe(cli, **kwargs):
+        # Unanswered sends trip meshcore's TCP disconnect heuristic: forget them.
+        loop.balance()
+        return await cli.capabilities(**kwargs)
+
+    async with held(manager) as cli:
+        caps = await probe(cli)
+        assert (caps.supported, caps.reason) == (False, "probe_failed")
+        assert len(firmware.commands) == 2  # retried once with a new tag
+        assert len(set(firmware.tags)) == 2
+        # Within the backoff: nothing is sent.
+        assert (await probe(cli)).reason == "probe_failed"
+        assert len(firmware.commands) == 2
+        # After the backoff: a new probe.
+        link.probe_retry_after = 0.0
+        await probe(cli)
+        assert len(firmware.commands) == 4
+        # refresh skips the backoff, not the cap.
+        for _ in range(3):
+            await probe(cli, refresh=True)
+        assert link.probe_failures == 5
+        assert len(firmware.commands) == 10
+        await probe(cli, refresh=True)
+        link.probe_retry_after = 0.0
+        await probe(cli)
+    assert len(firmware.commands) == 10
+
+
+async def test_probe_counters_reset_with_the_connection(radio, fast_probe):
+    loop, firmware, manager = radio
+    firmware.silent.add("get wifi.status")
+    async with held(manager) as cli:
+        await cli.capabilities()
+    assert manager.cli_link.probe_failures == 1
+    manager.reset_cli_link()
+    assert manager.cli_link.capabilities is None and manager.cli_link.probe_failures == 0
+    manager.cli_link.probe_failures = 2
+    manager._reset_connected_runtime_state()
+    assert manager.cli_link.probe_failures == 0
+
+
+async def test_probe_is_refused_outside_a_session(radio):
+    loop, firmware, manager = radio
+    cli = CompanionCli(loop.mc, manager=manager)
+    with pytest.raises(CliLockError):
+        await cli.capabilities()
+    assert firmware.commands == []
+
+
+async def test_debug_snapshot_reports_the_probe(radio, monkeypatch):
+    from app.routers.debug import _build_companion_cli
+
+    loop, firmware, manager = radio
+    monkeypatch.setattr(radio_module, "radio_manager", manager)
+    assert _build_companion_cli() is None
+    firmware.echo_tags = False
+    async with held(manager) as cli:
+        await cli.capabilities()
+    block = _build_companion_cli()
+    assert block is not None
+    assert (block.supported, block.reason, block.wifi) == (False, "untagged", False)

@@ -402,6 +402,81 @@ class CompanionCli:
             if not matched:
                 link.quarantined.add(tag)
 
+    # -- support detection ------------------------------------------------
+
+    async def capabilities(self, *, refresh: bool = False) -> CliCapabilities:
+        """Whether the connected radio has a usable companion CLI, and Wi-Fi.
+
+        The gate reasons (``proxy_link``, ``firmware_unknown``,
+        ``firmware_too_old``) are computed on every call and send nothing. Only
+        probe results are cached in the link state, until reconnect: ``untagged``,
+        ``unsupported_cmd`` and ``link_unreliable`` stick; ``probe_failed`` is
+        retried after ``CLI_PROBE_BACKOFF_SECONDS`` (``refresh`` skips the backoff)
+        and sticks after ``CLI_MAX_PROBES_PER_CONNECTION`` failed probes.
+        """
+        from app.radio_proxy.protocol import PROXY_MODEL_PREFIX
+
+        manager = self._manager
+        version = getattr(manager, "firmware_ver_code", None)
+        model = getattr(manager, "device_model", None) or ""
+        if model.startswith(PROXY_MODEL_PREFIX):
+            # A Meshloom radio proxy virtualizes DEVICE_QUERY (fw ver 10) and
+            # answers ERROR to command 66: never probe through it.
+            return CliCapabilities(False, "proxy_link", False, version)
+        if version is None:
+            return CliCapabilities(False, "firmware_unknown", False, version)
+        if version < CLI_MIN_FIRMWARE_VER_CODE:
+            return CliCapabilities(False, "firmware_too_old", False, version)
+
+        link = self.link
+        cached = link.capabilities
+        if cached is not None:
+            if cached.reason == "probe_failed":
+                if link.probe_failures >= CLI_MAX_PROBES_PER_CONNECTION:
+                    return cached
+                if not refresh and asyncio.get_running_loop().time() < link.probe_retry_after:
+                    return cached
+            elif not refresh or not cached.supported:
+                return cached
+        self._check_lock()
+        return await self._probe(link, version)
+
+    async def _probe(self, link: CliLinkState, version: int) -> CliCapabilities:
+        result: CliCapabilities | None = None
+        for _attempt in range(2):
+            try:
+                tag = self._allocate_tag(link)
+            except CliUnsupportedError:
+                assert link.capabilities is not None
+                return link.capabilities
+            outcome, text = await self._exchange(
+                link, tag, b"get wifi.status", timeout=CLI_REPLY_TIMEOUT_SECONDS, probe=True
+            )
+            if outcome == "timeout":
+                continue  # once more, with a new tag
+            if outcome == "reply":
+                wifi = _value_of(text or "") in ("connected", "disconnected")
+                result = CliCapabilities(True, "ok", wifi, version)
+            elif outcome == "untagged":
+                # No untagged mode: without the tag echo a late reply could be
+                # taken for the answer to the next command.
+                result = CliCapabilities(False, "untagged", False, version)
+            else:
+                result = CliCapabilities(False, "unsupported_cmd", False, version)
+            break
+        if result is None:
+            link.probe_failures += 1
+            link.probe_retry_after = asyncio.get_running_loop().time() + CLI_PROBE_BACKOFF_SECONDS
+            result = CliCapabilities(False, "probe_failed", False, version)
+        link.capabilities = result
+        logger.info(
+            "Companion CLI probe: supported=%s reason=%s wifi=%s",
+            result.supported,
+            result.reason,
+            result.wifi,
+        )
+        return result
+
     # -- public calls -----------------------------------------------------
 
     async def run(
