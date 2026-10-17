@@ -174,6 +174,13 @@ and the OpenAPI page (`/docs`), not a table here.
   bridge survives, setup and the Wi-Fi check do not run again and reconnect
   errors are broadcast. Never reboot after `wifi_store_unverified` or
   `wifi_store_partial`.
+- **No prompt during a restore.** While a full backup restore job runs
+  (`backup_restore.restore_job_running()`), `_write_cache()` holds
+  `prompt_needed` False and keeps the unheld value (`prompt_wanted`); the job
+  calls `reevaluate_prompt()` when it starts and when it ends (`_set_running()`),
+  which patches the cached state without bumping the version and broadcasts
+  only a change, so the prompt closes in every tab and comes back afterwards
+  if it is still needed.
 - `radio_wifi` WS event (`RadioWifiState`), broadcast with `realtime=False`
   (WS clients only, never the proxy, fanout or Web Push).
 - `POST /radio/transport/revert` restores `previous_transport` on the server (BLE

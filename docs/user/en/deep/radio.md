@@ -126,7 +126,7 @@ So when Wi-Fi is on and nothing is stored, Meshloom asks once for the password, 
 - **Store in the radio** sends the network name, then the password, reads both back and checks them. If they do not match, the previous values are put back.
 - **Don't ask again for this radio** is remembered for that radio (by its public key): Meshloom never asks again for it. **Store the credentials** in the Wi-Fi group stays available.
 
-The question has no close button and waits for one of these two answers. A wrong password, or **Open network** ticked for a protected network, stops the radio joining Wi-Fi after its next reboot. Credentials you type in Meshloom for any other reason are stored in the radio the same way.
+The question has no close button and waits for one of these two answers. It waits while a [full backup restore](/en/docs/backup/) runs, since the restore may store the credentials itself, and comes back once the restore ends only if they are still missing. A wrong password, or **Open network** ticked for a protected network, stops the radio joining Wi-Fi after its next reboot. Credentials you type in Meshloom for any other reason are stored in the radio the same way.
 
 ### Changing network, turning Wi-Fi on or off
 

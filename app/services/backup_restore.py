@@ -406,6 +406,19 @@ def restore_job_running() -> bool:
     return _running_job_id is not None
 
 
+def _set_running(job_id: str | None) -> None:
+    """Mark a job as running (or none), and let the Wi-Fi prompt follow: it is
+    held while a restore runs and re-evaluated once it ends."""
+    global _running_job_id
+    _running_job_id = job_id
+    try:
+        from app.services.radio_wifi import reevaluate_prompt
+
+        reevaluate_prompt()
+    except Exception:
+        logger.exception("Could not re-evaluate the Wi-Fi prompt")
+
+
 def _register(job: BackupRestoreJob) -> None:
     _jobs[job.job_id] = job
     while len(_jobs) > MAX_KEPT_JOBS:
@@ -844,7 +857,6 @@ async def _maybe_save_ble_pin(outcome, doc: BackupExportV2) -> None:
 
 
 async def _run_restore(run: _Run) -> None:
-    global _running_job_id
     try:
         await _identity_step(run)
         if run.stop:
@@ -869,7 +881,7 @@ async def _run_restore(run: _Run) -> None:
         run.job.result = run.result
         run.job.finished_at = int(time.time())
         run.doc = None  # type: ignore[assignment]  # drop the secrets now
-        _running_job_id = None
+        _set_running(None)
 
 
 async def start_restore_backup_v2(
@@ -880,7 +892,6 @@ async def start_restore_backup_v2(
     Refusals (another restore running, a missing identity confirmation) are
     raised here, synchronously, before any write.
     """
-    global _running_job_id
     from app.background_tasks import spawn
 
     if _running_job_id is not None:
@@ -894,7 +905,7 @@ async def start_restore_backup_v2(
     )
     # Reserved before the first await: a second POST (double click, two tabs)
     # must see it while the identity check below reads the radio.
-    _running_job_id = job.job_id
+    _set_running(job.job_id)
     try:
         if options.steps.identity and backup_public_key(doc) is not None:
             inputs = await gather_identity_inputs()
@@ -906,7 +917,7 @@ async def start_restore_backup_v2(
                 expected_live_public_key=options.expected_live_public_key,
             )
     except BaseException:
-        _running_job_id = None
+        _set_running(None)
         raise
     _register(job)
     spawn(_run_restore(_Run(job, doc, options)), name=f"backup_restore_{job.job_id[:8]}")

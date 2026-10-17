@@ -126,7 +126,7 @@ Quand le Wi-Fi est activé et que rien n’est enregistré, Meshloom demande don
 - **Enregistrer dans la radio** envoie le nom du réseau, puis le mot de passe, les relit et les vérifie. S’ils ne correspondent pas, les valeurs précédentes sont rétablies.
 - **Ne plus demander pour cette radio** est mémorisé pour cette radio (par sa clé publique) : Meshloom ne la redemande plus jamais. **Enregistrer les identifiants**, dans le groupe Wi-Fi, reste disponible.
 
-La question n’a pas de bouton de fermeture et attend l’une de ces deux réponses. Un mauvais mot de passe, ou **Réseau ouvert** coché pour un réseau protégé, empêche la radio de rejoindre le Wi-Fi après son prochain redémarrage. Les identifiants que vous saisissez dans Meshloom pour toute autre raison sont enregistrés dans la radio de la même façon.
+La question n’a pas de bouton de fermeture et attend l’une de ces deux réponses. Elle attend pendant la [restauration d’une sauvegarde complète](/docs/backup/), qui peut elle-même enregistrer les identifiants, et ne revient à la fin de la restauration que s’ils manquent encore. Un mauvais mot de passe, ou **Réseau ouvert** coché pour un réseau protégé, empêche la radio de rejoindre le Wi-Fi après son prochain redémarrage. Les identifiants que vous saisissez dans Meshloom pour toute autre raison sont enregistrés dans la radio de la même façon.
 
 ### Changer de réseau, activer ou désactiver le Wi-Fi
 

@@ -23,6 +23,9 @@ Rules:
 - **Cache writes are ordered.** A state is written to the in-memory cache and
   broadcast while the session that computed it still holds the radio lock, only
   for the connection it was computed on, and only if no newer write landed.
+- **No prompt during a restore.** While a full backup restore job runs,
+  ``prompt_needed`` is held False; the job calls ``reevaluate_prompt()`` when it
+  starts and ends, so the prompt closes and comes back (or not) accordingly.
 """
 
 from __future__ import annotations
@@ -105,6 +108,9 @@ class _CacheEntry:
     # The stored password read non-empty (before the open-network and marker
     # adjustments); None when no full check ran on this connection.
     raw_password_stored: bool | None
+    # ``prompt_needed`` before the restore hold (see ``_prompt_held()``), so the
+    # prompt can come back when the restore ends.
+    prompt_wanted: bool = False
 
 
 _cache: _CacheEntry | None = None
@@ -177,23 +183,39 @@ def _broadcast(state: RadioWifiState) -> None:
     broadcast_event("radio_wifi", state.model_dump(mode="json"), realtime=False)
 
 
+def _prompt_held() -> bool:
+    """A full backup restore job is running: the prompt waits until it ends
+    (its Wi-Fi step may store the credentials, and the prompt would sit on top
+    of the restore view)."""
+    from app.services.backup_restore import restore_job_running
+
+    return restore_job_running()
+
+
 def _write_cache(
     state: RadioWifiState, token: _WriteToken, *, raw_password_stored: bool | None
 ) -> bool:
     """Store and broadcast ``state`` if ``token`` is still current. Returns
-    whether it was written; ``token`` must not be reused after a write."""
+    whether it was written; ``token`` must not be reused after a write.
+
+    The dismissal and the restore hold are applied to ``state`` itself (the
+    caller returns it), written or not."""
     global _cache, _version
+    if state.radio_public_key in _dismissed_keys:
+        state.prompt_needed = False
+    wanted = state.prompt_needed
+    if wanted and _prompt_held():
+        state.prompt_needed = False
     if not _token_alive(token) or token.version != _version:
         logger.debug("Dropped a stale Wi-Fi state")
         return False
-    if state.radio_public_key in _dismissed_keys:
-        state.prompt_needed = False
     _version += 1
     _cache = _CacheEntry(
         state=state,
         link=token.link,
         generation=token.generation,
         raw_password_stored=raw_password_stored,
+        prompt_wanted=wanted,
     )
     _broadcast(state)
     return True
@@ -597,8 +619,32 @@ async def dismiss_wifi_prompt(radio_public_key: str) -> RadioWifiState:
     state = entry.state.model_copy()
     state.prompt_needed = False
     entry.state = state
+    entry.prompt_wanted = False
     _broadcast(state)
     return state.model_copy()
+
+
+def reevaluate_prompt() -> None:
+    """A restore job started or ended: hold the prompt, or let it come back.
+
+    Patches the cached state in place without bumping ``_version`` (like a
+    dismissal): a session in flight still writes its own result, and
+    ``_write_cache()`` applies the hold as it stands then. Broadcasts only a
+    change, so every tab closes or reopens the prompt."""
+    entry = _current_entry()
+    if entry is None:
+        return
+    needed = (
+        entry.prompt_wanted
+        and entry.state.radio_public_key not in _dismissed_keys
+        and not _prompt_held()
+    )
+    if entry.state.prompt_needed == needed:
+        return
+    state = entry.state.model_copy()
+    state.prompt_needed = needed
+    entry.state = state
+    _broadcast(state)
 
 
 async def run_full_wifi_check(

@@ -898,3 +898,73 @@ async def test_a_recheck_without_answer_does_not_stop_the_rechecks(wifi, fast_sc
 
     assert count == 4
     assert radio_wifi.last_wifi_state().ip == "10.0.0.7"
+
+
+# --------------------------------------------------------------------------
+# No prompt while a full backup restore runs
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def restore_job(monkeypatch):
+    """Drive the restore job's running flag the way the job does."""
+    import app.services.backup_restore as restore_module
+
+    monkeypatch.setattr(restore_module, "_running_job_id", None)
+    return restore_module._set_running
+
+
+def _prompt_broadcasts(env) -> list[bool]:
+    return [data["prompt_needed"] for kind, data, _ in env.broadcasts if kind == "radio_wifi"]
+
+
+async def test_a_check_during_a_restore_holds_the_prompt_until_it_ends(wifi, restore_job):
+    restore_job("job")
+    state = await radio_wifi.run_full_wifi_check()
+    assert state.credentials_stored is False
+    assert state.prompt_needed is False
+    assert radio_wifi.last_wifi_state().prompt_needed is False
+    assert _prompt_broadcasts(wifi) == [False]
+
+    restore_job(None)
+
+    assert radio_wifi.last_wifi_state().prompt_needed is True
+    assert _prompt_broadcasts(wifi) == [False, True]
+
+
+async def test_a_restore_starting_closes_an_open_prompt(wifi, restore_job):
+    assert (await radio_wifi.run_full_wifi_check()).prompt_needed is True
+    restore_job("job")
+    assert radio_wifi.last_wifi_state().prompt_needed is False
+    assert (await radio_wifi.get_wifi_state(refresh=False)).prompt_needed is False
+    assert _prompt_broadcasts(wifi) == [True, False]
+    restore_job(None)
+    assert _prompt_broadcasts(wifi) == [True, False, True]
+
+
+async def test_the_end_of_a_restore_does_not_bring_back_a_dismissed_prompt(wifi, restore_job):
+    restore_job("job")
+    await radio_wifi.run_full_wifi_check()
+    await radio_wifi.dismiss_wifi_prompt(PK)
+    restore_job(None)
+    assert radio_wifi.last_wifi_state().prompt_needed is False
+    assert True not in _prompt_broadcasts(wifi)
+
+
+async def test_the_end_of_a_restore_keeps_quiet_when_nothing_is_needed(wifi, restore_job):
+    wifi.firmware.stored_ssid = "Home"
+    wifi.firmware.stored_pwd = SECRET
+    restore_job("job")
+    await radio_wifi.run_full_wifi_check()
+    restore_job(None)
+    assert _prompt_broadcasts(wifi) == [False]
+    restore_job("job")  # no cached state change either: nothing broadcast
+    assert _prompt_broadcasts(wifi) == [False]
+
+
+async def test_a_store_during_a_restore_is_held_too(wifi, restore_job):
+    restore_job("job")
+    result = await radio_wifi.apply_wifi_credentials(_creds("Home", SECRET), public_key=PK)
+    assert result.state.prompt_needed is False
+    restore_job(None)
+    assert radio_wifi.last_wifi_state().prompt_needed is False
