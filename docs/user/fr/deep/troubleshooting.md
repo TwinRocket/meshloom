@@ -21,7 +21,7 @@ MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Instantané de support
 
-Ouvrez **Réglages > À propos > Ouvrir l’instantané de support de débogage** (les mêmes données sont sur `/api/debug`). Il liste la version, le système, l’état de la radio, l’écart entre la radio et la base de données (contacts et canaux) et les logs récents. Hors des logs, il ne contient jamais la clé privée, et les autres clés n’y figurent que sous forme d’empreintes. Les logs peuvent contenir des noms ou des clés de canal, mais jamais la clé privée. Arrêtez la copie à la ligne `STOP COPYING HERE` si vous ne voulez pas les partager.
+Ouvrez **Réglages > À propos > Ouvrir l’instantané de support de débogage** (les mêmes données sont sur `/api/debug`). Il liste la version, le système, l’état de la radio, l’écart entre la radio et la base de données (contacts et canaux), si la CLI compagnon de la radio a répondu (firmware v1.18 et suivants) et les logs récents. Hors des logs, il ne contient jamais la clé privée, et les autres clés n’y figurent que sous forme d’empreintes. Les logs ne contiennent jamais la clé privée ni un mot de passe Wi-Fi, même en `DEBUG` ; en `DEBUG`, ils peuvent encore contenir des noms et des clés de canal, les mots de passe de connexion aux répéteurs et aux salons, et le code PIN Bluetooth. Arrêtez la copie à la ligne `STOP COPYING HERE` si vous ne voulez pas les partager.
 
 ## `ModuleNotFoundError: No module named 'meshcore'`
 

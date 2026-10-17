@@ -21,7 +21,7 @@ MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ## Support snapshot
 
-Open **Settings > About > Open debug support snapshot** (the same data is at `/api/debug`). It lists the version, the system, the radio state, the gap between the radio and the database (contacts and channels), and the recent logs. Outside the logs it never contains the private key, and other keys appear only as fingerprints. The logs can contain channel names or keys, but never the private key. Stop copying at the line `STOP COPYING HERE` if you do not want to share them.
+Open **Settings > About > Open debug support snapshot** (the same data is at `/api/debug`). It lists the version, the system, the radio state, the gap between the radio and the database (contacts and channels), whether the radio's companion CLI answered (firmware v1.18 and later), and the recent logs. Outside the logs it never contains the private key, and other keys appear only as fingerprints. The logs never contain the private key or a Wi-Fi password, even at `DEBUG`; at `DEBUG` they can still contain channel names and keys, repeater and room login passwords, and the Bluetooth PIN. Stop copying at the line `STOP COPYING HERE` if you do not want to share them.
 
 ## `ModuleNotFoundError: No module named 'meshcore'`
 

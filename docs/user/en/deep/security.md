@@ -57,7 +57,7 @@ When set to `true`, `GET /api/radio/private-key` returns the key as hexadecimal 
 
 ## Support snapshot
 
-**Settings > About > Open debug support snapshot** (`/api/debug`) is meant to be pasted into a bug report. Outside the logs it holds versions, settings and counters, never the private key; the keys of contacts and channels appear only as one-way fingerprints. The recent logs can contain channel names or keys, but never the private key. Stop copying at the line `STOP COPYING HERE` to leave the logs out.
+**Settings > About > Open debug support snapshot** (`/api/debug`) is meant to be pasted into a bug report. Outside the logs it holds versions, settings and counters, never the private key; the keys of contacts and channels appear only as one-way fingerprints. The logs never contain the private key or a Wi-Fi password, at any log level, `DEBUG` included; at `DEBUG` they can still contain channel names and keys, repeater and room login passwords, and the Bluetooth PIN. Stop copying at the line `STOP COPYING HERE` to leave the logs out.
 
 ## What leaves your machine
 
