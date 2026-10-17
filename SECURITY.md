@@ -46,8 +46,9 @@ deliberate. These are documented and are not treated as vulnerabilities:
   interface** (`GET /api/radio/private-key`, the full backup in
   **Settings > Database**). Because the server accepts any origin with
   credentials, a web page opened in a browser that can reach Meshloom can read
-  the key and, with a preflight, download the full backup (Wi-Fi password
-  included). The backup file can be encrypted with a passphrase.
+  the key and download the full backup (Wi-Fi password included): the export
+  accepts a POST without a body, which needs no preflight. The backup file can
+  be encrypted with a passphrase.
 
 They are described in [A trusted network](docs/user/en/trust.md) and
 [Security](docs/user/en/deep/security.md). A way around one of the protections
