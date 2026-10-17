@@ -113,6 +113,41 @@ The **Workarounds** group of the same tab holds the fixes mentioned on this page
 
 Below the firmware settings, **Radio sensors** shows what the radio itself reports: its battery voltage, the MCU temperature when the board has a sensor, and the GPS position when the GPS is on. The storage used on the radio is shown too, as used / total KB with a percentage, when the radio reports it. The values are read when you open the tab; **Refresh** reads them again.
 
+## Wi-Fi
+
+Radios with companion firmware 1.18 or later built with Wi-Fi have a Wi-Fi interface that Meshloom reads and sets through the radio's companion command line. That covers the official Bluetooth + Wi-Fi builds and the Wi-Fi builds made by the Meshloom flasher. **Settings → Radio → Connection** then shows a **Wi-Fi** group: the network name (SSID), whether Wi-Fi is on, whether the radio is connected and its address, and **Credentials stored in the radio** (yes or no). The network name shown is the stored one, or the one built into the firmware when nothing is stored: the radio cannot tell which. The group is hidden when the firmware has no command line (older than 1.18, or a radio reached through another Meshloom's radio proxy) or no Wi-Fi.
+
+### The one-time question
+
+After each connection, Meshloom checks whether the radio holds stored Wi-Fi credentials. A Wi-Fi radio built by the flasher joins with credentials compiled into its firmware and has nothing stored. The flasher's "update without wipe" can build firmware without credentials and rely on stored ones: with nothing stored, the radio would never start Wi-Fi again.
+
+So when Wi-Fi is on and nothing is stored, Meshloom asks once for the password, with the network name filled in (you can change it) and an **Open network** option, and says why: this lets the flasher update this radio without retyping Wi-Fi credentials.
+
+- **Store in the radio** sends the network name, then the password, reads both back and checks them. If they do not match, the previous values are put back.
+- **Don't ask again for this radio** is remembered for that radio (by its public key): Meshloom never asks again for it. **Store the credentials** in the Wi-Fi group stays available.
+
+The question has no close button and waits for one of these two answers. A wrong password, or **Open network** ticked for a protected network, stops the radio joining Wi-Fi after its next reboot. Credentials you type in Meshloom for any other reason are stored in the radio the same way.
+
+### Changing network, turning Wi-Fi on or off
+
+**Change Wi-Fi network** takes the network name and the password twice, or **Open network**. **Turn Wi-Fi off** and **Turn Wi-Fi on** change the radio's setting. Every change applies when the radio restarts. When a change needs a restart, Meshloom asks before rebooting the radio; **Later** keeps the change with **Change pending a reboot** and a **Reboot now** button. Storing the credentials of the network the radio already uses with its built-in credentials needs no restart.
+
+When the radio has no network name at all, **Set up Wi-Fi** replaces **Turn Wi-Fi on**: the radio starts Wi-Fi only once a name is stored.
+
+When Meshloom reaches the radio over TCP (that is, over its Wi-Fi), the dialogs warn that changing network or turning Wi-Fi off can make the radio unreachable. Reconnect it over USB or Bluetooth if that happens. Once the radio is on Wi-Fi, Meshloom offers to use it over TCP (see [Transports](/en/docs/deep/transports/#from-bluetooth-to-wi-fi)).
+
+### Limits
+
+- A network literally named `(not set)` cannot be used: the radio prints that when no name is set.
+- The network name takes 1 to 32 bytes, the password up to 63. Neither is trimmed: spaces count. Below 8 characters Meshloom warns (WPA needs 8, WEP keys have 5 or 13) and stores the password as typed.
+- On the radio, an open network reads like "nothing stored". Meshloom remembers that you stored one for that network.
+- If storing is interrupted (the link dropped between the two commands), the radio may hold the new network name with the old password or none. Meshloom then shows a warning, even after a reconnect, and offers no reboot: store the credentials again, or check them over USB or Bluetooth before rebooting the radio.
+- If the check after connecting fails (the radio did not answer in time), Meshloom tries again after 30 seconds, then after 2 minutes. **Retry** in the Wi-Fi group checks again.
+
+### What Meshloom keeps
+
+Meshloom never stores the Wi-Fi password, in its database or in its logs. To know whether one is stored, it reads it back from the radio once per connection and when it checks a change, then forgets it. See [Security](/en/docs/deep/security/#wi-fi-password).
+
 ## Factory reset
 
 At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. The button needs the radio connected. A window lists what happens, and you must type the radio's name exactly before the confirm button works.
@@ -122,11 +157,12 @@ At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. 
 - Its identity. A new key pair is generated, so other nodes see a new node.
 - Its contacts and channels.
 - Its radio settings (frequency, bandwidth, SF, CR, TX power). They go back to the firmware defaults: set them again in the **Radio** tab.
+- The Wi-Fi credentials stored in it (see [Wi-Fi](#wi-fi)). A radio reached over Wi-Fi may become unreachable: reconnect it over USB or Bluetooth. The window warns about it when credentials are stored.
 
 **Kept:**
 
 - Meshloom's own database: your messages and contacts.
-- The Wi-Fi credentials, which are built into the firmware. A Wi-Fi radio stays reachable.
+- Wi-Fi credentials built into the firmware, if any.
 
 The radio restarts and Meshloom reconnects by itself. It then asks whether to adopt the new identity, with the usual identity prompt. This cannot be undone.
 

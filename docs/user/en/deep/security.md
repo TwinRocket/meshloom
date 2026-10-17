@@ -55,6 +55,10 @@ When set to `true`, `GET /api/radio/private-key` returns the key as hexadecimal 
 
 **Settings > Proxy** can make Meshloom behave like a radio on the network, so a phone app or a second Meshloom can use your radio through it. It is off by default. The protocol it speaks has no authentication, and Basic auth does not cover it. Enable it only on a network you trust.
 
+## Wi-Fi password
+
+Meshloom never stores the radio's Wi-Fi password, in its database or in its logs, at any log level. To know whether credentials are stored, it reads the password back from the radio over the companion link once per connection and when it checks a change, then forgets it. When you store credentials, the password travels to the radio over the same link. Over a TCP transport that link is not encrypted: anyone who can watch your local network can read the password then. Over USB or Bluetooth it does not cross your network. See [Radio, contacts, and channels](/en/docs/deep/radio/#wi-fi).
+
 ## Support snapshot
 
 **Settings > About > Open debug support snapshot** (`/api/debug`) is meant to be pasted into a bug report. Outside the logs it holds versions, settings and counters, never the private key; the keys of contacts and channels appear only as one-way fingerprints. The logs never contain the private key or a Wi-Fi password, at any log level, `DEBUG` included. The logs can contain channel names and channel keys at any level; at `DEBUG` they can also contain repeater and room login passwords and the Bluetooth PIN. Stop copying at the line `STOP COPYING HERE` to leave the logs out.

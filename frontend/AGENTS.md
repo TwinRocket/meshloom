@@ -98,6 +98,24 @@ purpose.
 - `contact_resolved` migrates an identity: the active conversation, cached
   messages, unread state keys and reconnect reconciliation all at once.
 
+### Radio Wi-Fi state
+
+- `stores/radioWifiStore.ts` holds the radio's Wi-Fi state for the Settings panel
+  (`components/settings/RadioWifiSettings.tsx`) and the one-time prompt
+  (`components/RadioWifiPrompt.tsx`, mounted in `AppShell`). The server sends
+  only `health` on socket connect, so the store fetches `GET /api/radio/wifi`
+  itself when health first says the radio is connected and set up (wired in
+  `useRadioControl`), once more while the answer is `pending`, and after a WS
+  reconnect; the `radio_wifi` event keeps it current. An answer older than the
+  last event is dropped; a radio that goes away resets it.
+- The prompt has exactly two exits (store / "don't ask again"): no close button,
+  Escape and outside clicks ignored. A reboot for Wi-Fi always goes through
+  `api.rebootRadioForWifi()` after a confirm, never `api.rebootRadio()`.
+- Password inputs are `type="password"` with `autoComplete="new-password"`; the
+  SSID is never trimmed; the password leaves React state once a request settles.
+- The "Go back" after a switch to TCP calls `api.revertRadioTransport()` (the
+  server keeps the BLE PIN); never re-send transport settings from the browser.
+
 ### Community state
 
 - `stores/communityStore.ts` is the only source of "is Community on"

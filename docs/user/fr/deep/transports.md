@@ -67,6 +67,12 @@ Appuyez sur **Oublier l’appairage** quand la radio a été réinitialisée ou 
 
 Sous macOS et Windows, ou avec une adresse qui n’est pas une adresse MAC (`AA:BB:CC:DD:EE:FF`), appairez la radio avec les outils Bluetooth du système.
 
+## Du Bluetooth au Wi-Fi
+
+Une radio dotée du Wi-Fi (firmware compagnon 1.18 ou plus récent) peut être configurée en Bluetooth ou en USB, puis utilisée par le Wi-Fi. Enregistrez son réseau Wi-Fi dans **Réglages → Radio → Connexion → Wi-Fi** (voir [Radio, contacts et canaux](/docs/deep/radio/#wi-fi)) et laissez-la redémarrer. Dès que la radio signale une adresse Wi-Fi, Meshloom propose de passer en TCP à cette adresse, sur le port `5000` (la valeur par défaut du firmware ; vous pouvez la changer). La proposition arrive aussi en notification après un redémarrage lancé depuis les réglages Wi-Fi. **Pas maintenant** la masque pour cette radio dans ce navigateur.
+
+La bascule exécute toute la reconnexion. Si Meshloom ne joint toujours pas la radio 30 secondes après la bascule, ou si la bascule a échoué, il propose de revenir à la connexion précédente. Le retour la rétablit telle qu’elle était, code PIN Bluetooth compris : le code PIN ne quitte jamais le serveur.
+
 ## Partager votre radio avec d’autres applications
 
 **Réglages > Proxy** (**Proxy radio**) permet à Meshloom de se faire passer pour une radio companion MeshCore en TCP. Une application mobile, ou un autre Meshloom réglé sur le transport TCP, peut alors utiliser votre radio à travers celui-ci. Il reste désactivé tant que vous ne cochez pas **Activer le proxy companion TCP**.
