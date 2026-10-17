@@ -172,6 +172,26 @@ E2E_PARTNER_RADIO_NAME="MyTestNode" \
 npx playwright test
 ```
 
+## Radio Bench
+
+`tests/radio_bench/` is an opt-in pytest suite (marker `radio`) that drives a
+running Meshloom instance and its radio over the API, the WebSocket and the
+radio proxy: channel round trips, a radio settings round trip and reconnection.
+It is skipped unless `MESHLOOM_RADIO_BENCH_URL` is set, so the gate never runs
+it, and it must run with `-n 0`:
+
+```bash
+MESHLOOM_RADIO_BENCH_URL=http://host:8010 \
+MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
+uv run pytest tests/radio_bench -m radio -n 0 -v
+```
+
+It never factory-resets the radio or touches its identity, restores every
+setting it changes and fails the run if any differs afterwards. What it
+touches and how to add a test (it runs from your own machine on the LAN,
+there is no CI workflow for it):
+[`docs/dev/radio-bench.md`](docs/dev/radio-bench.md).
+
 ## Pull Request Expectations
 
 - Keep scope tight.

@@ -35,6 +35,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-n auto --dist worksteal"
+markers = [
+    "radio: opt-in bench against a live instance and its radio (docs/dev/radio-bench.md)",
+]
 
 [tool.ruff]
 target-version = "py311"
