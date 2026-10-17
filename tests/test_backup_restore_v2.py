@@ -1143,3 +1143,154 @@ async def test_the_wifi_password_never_reaches_the_database_files(file_db, setup
         candidate = path.with_name(path.name + suffix)
         if candidate.exists():
             assert secret.encode() not in candidate.read_bytes(), candidate.name
+
+
+# -- Wi-Fi step and the Wi-Fi panel's state (lot B integration) ---------------
+
+
+@pytest.fixture
+def wifi_broadcasts(monkeypatch):
+    from app.services import radio_wifi
+
+    radio_wifi.clear_cache()
+    sent: list[dict] = []
+
+    def broadcast(event_type, data, *, realtime=True):
+        if event_type == "radio_wifi":
+            sent.append(data)
+
+    monkeypatch.setattr("app.websocket.broadcast_event", broadcast)
+    yield sent
+    radio_wifi.clear_cache()
+
+
+@pytest.mark.asyncio
+async def test_wifi_step_brackets_the_store_with_the_panel_marker(
+    backup_db, setup_stub, wifi_broadcasts, monkeypatch
+):
+    node = await _same_identity_node()
+    await AppSettingsRepository.mark_wifi_open_network(P, "OldCafe")
+    marks: list[tuple[str, int]] = []
+    real_mark = AppSettingsRepository.mark_wifi_store_started
+    real_clear = AppSettingsRepository.clear_wifi_store_marker
+
+    async def mark(public_key, ssid):
+        marks.append(("mark", len(node.commands)))
+        await real_mark(public_key, ssid)
+
+    async def clear(public_key):
+        marks.append(("clear", len(node.commands)))
+        await real_clear(public_key)
+
+    monkeypatch.setattr(AppSettingsRepository, "mark_wifi_store_started", mark)
+    monkeypatch.setattr(AppSettingsRepository, "clear_wifi_store_marker", clear)
+    async with connected_node(node):
+        job = await run(make_doc(wifi=BackupWifi(ssid="HomeNet", password="secret-pw")))  # type: ignore[arg-type]
+
+    assert statuses(job)["wifi"] == ("done", None)
+    (mark_kind, mark_at), (clear_kind, clear_at) = marks
+    assert (mark_kind, clear_kind) == ("mark", "clear")
+    first_set = node.commands.index("set wifi.ssid HomeNet")
+    last_read = max(i for i, c in enumerate(node.commands) if c == "get wifi.pwd")
+    assert mark_at <= first_set < last_read < clear_at  # cleared after the read-back
+    entry = (await AppSettingsRepository.get_wifi_prompt_state()).get(P, {})
+    assert "store_started_at" not in entry
+    assert "open_network_ssid" not in entry  # a password store drops the record
+
+
+@pytest.mark.asyncio
+async def test_wifi_step_refreshes_the_panel_state_in_its_session(
+    backup_db, setup_stub, wifi_broadcasts
+):
+    from app.services import radio_wifi
+
+    node = await _same_identity_node()
+    async with connected_node(node):
+        before = await radio_wifi.run_full_wifi_check()
+        assert before.credentials_stored is False and before.prompt_needed is True
+        reads_before = node.commands.count("get wifi.pwd")
+        job = await run(make_doc(wifi=BackupWifi(ssid="HomeNet", password="secret-pw")))  # type: ignore[arg-type]
+        state = radio_wifi.last_wifi_state()
+
+    assert statuses(job)["wifi"] == ("done", None)
+    assert state is not None
+    assert state.ssid == "HomeNet"
+    assert state.credentials_stored is True
+    assert state.store_incomplete is False
+    assert state.reboot_pending is True
+    assert state.prompt_needed is False
+    # Only the store's own two reads: the refresh trusts the verified store.
+    assert node.commands.count("get wifi.pwd") - reads_before == 2
+    restored = [s for s in wifi_broadcasts if s["ssid"] == "HomeNet"]
+    assert restored and restored[-1]["credentials_stored"] is True
+    assert "secret-pw" not in json.dumps(wifi_broadcasts)
+
+
+@pytest.mark.asyncio
+async def test_wifi_flag_alone_refreshes_the_panel_state(backup_db, setup_stub, wifi_broadcasts):
+    from app.services import radio_wifi
+
+    node = await _same_identity_node()
+    async with connected_node(node):
+        job = await run(make_doc(wifi=BackupWifi(enabled=False)))
+        state = radio_wifi.last_wifi_state()
+    assert statuses(job)["wifi"] == ("done", None)
+    assert state is not None
+    assert state.enabled is False
+    assert state.reboot_pending is True
+    assert state.credentials_stored is False  # read once: nothing was cached
+    assert state.prompt_needed is False  # Wi-Fi off: never asked
+
+
+@pytest.mark.asyncio
+async def test_restoring_the_credentials_already_stored_needs_no_reboot(
+    backup_db, setup_stub, wifi_broadcasts
+):
+    node = await _same_identity_node()
+    node.stored_ssid = "HomeNet"
+    node.stored_pwd = "secret-pw"
+    async with connected_node(node):
+        job = await run(make_doc(wifi=BackupWifi(ssid="HomeNet", password="secret-pw")))  # type: ignore[arg-type]
+    assert statuses(job)["wifi"] == ("done", None)
+    assert job.result is not None and job.result.reboot_required is False
+
+
+class _RollbackRefused(FakeNode):
+    """The password reads back wrong, and the rollback (a clear, since nothing
+    was stored before) is refused."""
+
+    def handle(self, command: str) -> str:
+        if command == "set wifi.clear":
+            return "> unknown"
+        if command.startswith("set wifi.pwd "):
+            self.stored_pwd = "mangled"
+            return "> wifi.pwd updated (reboot to apply)"
+        return super().handle(command)
+
+
+@pytest.mark.asyncio
+async def test_a_partial_wifi_store_keeps_the_panel_marker(backup_db, setup_stub, wifi_broadcasts):
+    node = _RollbackRefused(private_key=BACKUP_KEY)
+    await RadioTransportRepository.bind_public_key(P)
+    async with connected_node(node):
+        job = await run(make_doc(wifi=BackupWifi(ssid="HomeNet", password="secret-pw")))  # type: ignore[arg-type]
+    assert statuses(job)["wifi"] == ("failed", "wifi_store_partial")
+    entry = (await AppSettingsRepository.get_wifi_prompt_state())[P]
+    assert entry["store_target_ssid"] == "HomeNet"
+    assert "store_started_at" in entry
+    assert job.result is not None and job.result.reboot_required is False
+
+
+@pytest.mark.asyncio
+async def test_the_wifi_prompt_waits_for_the_restore_to_end(backup_db, setup_stub, wifi_broadcasts):
+    from app.services import radio_wifi
+
+    node = await _same_identity_node()
+    async with connected_node(node):
+        assert (await radio_wifi.run_full_wifi_check()).prompt_needed is True
+        job = await run(make_doc())  # no Wi-Fi in the file: nothing stored
+        state = radio_wifi.last_wifi_state()
+    assert job.state == "done", statuses(job)
+    prompts = [s["prompt_needed"] for s in wifi_broadcasts]
+    assert prompts == [True, False, True]  # closed while the job ran, back after
+    assert state is not None and state.prompt_needed is True

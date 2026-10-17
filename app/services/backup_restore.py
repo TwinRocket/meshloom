@@ -705,10 +705,10 @@ async def _radio_steps(run: _Run) -> None:
         CliError,
         companion_cli_session,
         set_wifi_enabled,
-        store_wifi_credentials,
         wifi_enabled,
     )
     from app.services.radio_runtime import radio_runtime
+    from app.services.radio_wifi import refresh_after_restore, store_restored_credentials
 
     doc, steps = run.doc, run.options.steps
     if run.radio_skip_code is not None:
@@ -807,12 +807,24 @@ async def _radio_steps(run: _Run) -> None:
                 run.set("wifi", "running")
                 wifi = doc.wifi
                 items: list[BackupRestoreItem] = []
+                # The raw "password stored" reading for the Wi-Fi panel's state
+                # (None: no credentials stored by this step).
+                stored_raw: bool | None = None
+                wifi_reboot = False
                 try:
                     if wifi.ssid is not None and wifi.password is not None:
-                        await store_wifi_credentials(cli, wifi.ssid, wifi.password, typed=False)
+                        # The Wi-Fi panel's bookkeeping comes along: its "store
+                        # in progress" marker around the store, then the
+                        # open-network record.
+                        wifi_reboot = await store_restored_credentials(
+                            cli, wifi.ssid, wifi.password, open_network=False
+                        )
+                        stored_raw = True
                         # Stored and verified: they apply at the next reboot, even
-                        # if the on/off flag below cannot be written.
-                        run.result.reboot_required = True
+                        # if the on/off flag below cannot be written. The Wi-Fi
+                        # panel's rule decides whether that reboot is needed (not
+                        # when nothing changes, nor for the flasher case).
+                        run.result.reboot_required = run.result.reboot_required or wifi_reboot
                         items.append(BackupRestoreItem(name="wifi_credentials", status="done"))
                 except CliError as exc:
                     run.set("wifi", "failed", exc.code)
@@ -822,6 +834,7 @@ async def _radio_steps(run: _Run) -> None:
                             if await wifi_enabled(cli) != wifi.enabled:
                                 await set_wifi_enabled(cli, wifi.enabled)
                                 run.result.reboot_required = True
+                                wifi_reboot = True
                         except CliError as exc:
                             items.append(
                                 BackupRestoreItem(
@@ -833,6 +846,11 @@ async def _radio_steps(run: _Run) -> None:
                     run.step("wifi").items = items
                     failed = any(item.status == "failed" for item in items)
                     run.set("wifi", "failed" if failed else "done")
+                    # Same session: the Wi-Fi panel and its indicator show the
+                    # restored values (the prompt stays held until the job ends).
+                    await refresh_after_restore(
+                        cli, credentials_stored=stored_raw, reboot_pending=wifi_reboot
+                    )
     except (CliError, RadioOperationError):
         for name in RADIO_STEPS:
             if run.step(name).status == "running":

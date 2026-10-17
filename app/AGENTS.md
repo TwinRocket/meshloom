@@ -174,6 +174,10 @@ and the OpenAPI page (`/docs`), not a table here.
   bridge survives, setup and the Wi-Fi check do not run again and reconnect
   errors are broadcast. Never reboot after `wifi_store_unverified` or
   `wifi_store_partial`.
+- **Full backup restore.** Its Wi-Fi step calls `store_restored_credentials()`
+  and `refresh_after_restore()` inside the restore's own CLI session, so the
+  marker, the open-network record and the cached state follow the same rules
+  as a store from the panel (see "Backups").
 - **No prompt during a restore.** While a full backup restore job runs
   (`backup_restore.restore_job_running()`), `_write_cache()` holds
   `prompt_needed` False and keeps the unheld value (`prompt_wanted`); the job
@@ -362,8 +366,14 @@ be wrong, because historical decryption inserts old messages with new ids.
   unreadable table fails the step `radio_contacts_unreadable`,
   non-selected radio contacts removed first, favourites first, 0x10 always
   stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),
-  Wi-Fi last: the credentials (reboot required as soon as they are stored),
-  then the on/off flag as its own item. `BackupWifi` may carry only `enabled`
+  Wi-Fi last, through `services/radio_wifi.py` inside the restore's session:
+  the credentials with `store_restored_credentials()` (the Wi-Fi panel's
+  store-in-progress marker around the store, cleared after the verified
+  read-back and kept on `wifi_store_partial`; a reboot required only by
+  `wifi_reboot_required()`), then the on/off flag as its own item, then
+  `refresh_after_restore()` writes and broadcasts the panel's state (no
+  second password read after a verified store; a read failure writes a
+  `failed` state). `BackupWifi` may carry only `enabled`
   (no credentials stored); inspect sets `wifi_off_on_tcp` when the file turns
   Wi-Fi off on a TCP link, and the UI defaults the step off. Raw frames also for the default flood scope (keeps a
   non-derived key) and auto-add (keeps `max_hops`).

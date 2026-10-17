@@ -968,3 +968,51 @@ async def test_a_store_during_a_restore_is_held_too(wifi, restore_job):
     assert result.state.prompt_needed is False
     restore_job(None)
     assert radio_wifi.last_wifi_state().prompt_needed is False
+
+
+# --------------------------------------------------------------------------
+# Full backup restore helpers (called inside the restore's CLI session)
+# --------------------------------------------------------------------------
+
+
+async def test_restored_credentials_use_the_marker_and_the_reboot_rule(wifi, monkeypatch):
+    from app.services.companion_cli import companion_cli_session
+
+    calls: list[str] = []
+    real_mark = AppSettingsRepository.mark_wifi_store_started
+
+    async def mark(public_key, ssid):
+        calls.append(f"mark:{len(wifi.firmware.commands)}")
+        await real_mark(public_key, ssid)
+
+    monkeypatch.setattr(AppSettingsRepository, "mark_wifi_store_started", mark)
+    wifi.firmware.connected = True  # joined on the compile-time FlasherNet
+    async with companion_cli_session("backup_restore") as cli:
+        required = await radio_wifi.store_restored_credentials(
+            cli, "FlasherNet", SecretStr(SECRET), open_network=False
+        )
+        state = await radio_wifi.refresh_after_restore(
+            cli, credentials_stored=True, reboot_pending=required
+        )
+    assert calls and int(calls[0].split(":")[1]) <= wifi.firmware.commands.index(
+        "set wifi.ssid FlasherNet"
+    )
+    assert required is False  # the flasher case
+    assert "store_started_at" not in (await AppSettingsRepository.get_wifi_prompt_state())[PK]
+    assert state.credentials_stored is True
+    assert state.reboot_pending is False
+    assert radio_wifi.last_wifi_state() == state
+    assert SECRET not in str(wifi.broadcasts)
+
+
+async def test_refresh_after_restore_failure_writes_a_failed_state(wifi, fast_cli):
+    from app.services.companion_cli import companion_cli_session
+
+    wifi.firmware.silent.add("get wifi.ssid")
+    async with companion_cli_session("backup_restore") as cli:
+        state = await radio_wifi.refresh_after_restore(
+            cli, credentials_stored=True, reboot_pending=True
+        )
+    assert state.check == "failed"
+    assert state.check_error == "cli_timeout"
+    assert radio_wifi.last_wifi_state().check == "failed"
