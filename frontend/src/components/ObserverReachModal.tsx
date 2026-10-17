@@ -90,16 +90,25 @@ export function ObserverReachModal({
   // Enrolled but waiting for the radio's position: say that, not "turn it on".
   const waitingForPosition = useCommunityWaitingForPosition();
 
+  // Each open (or new packet) starts from a clean slate, reset during render.
+  const fetchHash = open && packetHash && !communityOff ? packetHash : null;
+  const [prevFetchHash, setPrevFetchHash] = useState<string | null>(null);
+  if (fetchHash !== prevFetchHash) {
+    setPrevFetchHash(fetchHash);
+    if (fetchHash) {
+      setLoading(true);
+      setError(null);
+      setDetail(null);
+      setExpandedKey(null);
+      setDirectoryHits({});
+    }
+  }
+
   useEffect(() => {
-    if (!open || !packetHash || communityOff) return;
+    if (!fetchHash) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setDetail(null);
-    setExpandedKey(null);
-    setDirectoryHits({});
     void api
-      .getPacketObserverReach(packetHash)
+      .getPacketObserverReach(fetchHash)
       .then((payload) => {
         if (cancelled) return;
         setDetail(payload);
@@ -114,14 +123,11 @@ export function ObserverReachModal({
     return () => {
       cancelled = true;
     };
-  }, [open, packetHash, communityOff]);
+  }, [fetchHash]);
 
-  useEffect(() => {
-    if (!detail) {
-      setDirectoryHits({});
-      return;
-    }
+  const directoryPrefixes = useMemo(() => {
     const prefixes = new Set<string>();
+    if (!detail) return prefixes;
     for (const observer of detail.observers) {
       for (const raw of observerPath(observer)) {
         const hop = toPathHop(raw, contacts);
@@ -130,10 +136,17 @@ export function ObserverReachModal({
         }
       }
     }
-    if (prefixes.size === 0) {
-      setDirectoryHits((current) => (Object.keys(current).length === 0 ? current : {}));
-      return;
-    }
+    return prefixes;
+  }, [detail, contacts]);
+
+  // Nothing left to resolve: drop the previous hits (adjusted during render).
+  if (directoryPrefixes.size === 0 && Object.keys(directoryHits).length > 0) {
+    setDirectoryHits({});
+  }
+
+  useEffect(() => {
+    const prefixes = directoryPrefixes;
+    if (prefixes.size === 0) return;
     let cancelled = false;
     void api.resolveDirectoryHops([...prefixes]).then(
       (res) => {
@@ -146,7 +159,7 @@ export function ObserverReachModal({
     return () => {
       cancelled = true;
     };
-  }, [detail, contacts]);
+  }, [directoryPrefixes]);
 
   const observers = useMemo(() => detail?.observers ?? [], [detail]);
   const distanceLabel =

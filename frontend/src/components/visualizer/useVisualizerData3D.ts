@@ -13,6 +13,7 @@ import {
 
 import { api } from '../../api';
 import type { PacketNetworkNode } from '../../networkGraph/packetNetworkGraph';
+import type { PacketNetworkState } from '../../networkGraph/packetNetworkGraph';
 import {
   buildPacketNetworkContext,
   clearPacketNetworkState,
@@ -91,6 +92,34 @@ export interface VisualizerData3D {
   clearAndReset: () => void;
 }
 
+/** The graph structures the scene and the tooltip read, captured outside render. */
+interface ProjectionSnapshot {
+  nodes: Map<string, GraphNode>;
+  links: Map<string, GraphLink>;
+  canonicalNodes: Map<string, PacketNetworkNode>;
+  canonicalNeighborIds: Map<string, string[]>;
+  renderedNodeIds: Set<string>;
+  particles: Particle[];
+}
+
+function snapshotProjection(
+  networkState: PacketNetworkState,
+  nodes: Map<string, GraphNode>,
+  links: Map<string, GraphLink>,
+  particles: Particle[]
+): ProjectionSnapshot {
+  // nodes, links and particles keep their identity: the scene mutates them in place
+  // between snapshots (particle compaction, node positions from the simulation).
+  return {
+    nodes,
+    links,
+    canonicalNodes: networkState.nodes,
+    canonicalNeighborIds: snapshotNeighborIds(networkState),
+    renderedNodeIds: new Set(nodes.keys()),
+    particles,
+  };
+}
+
 function communityNameMapsEqual(left: Map<string, string>, right: Map<string, string>): boolean {
   if (left.size !== right.size) {
     return false;
@@ -149,10 +178,16 @@ export function useVisualizerData3D({
   directoryEnabled = false,
   focusHandoff = null,
 }: UseVisualizerData3DOptions): VisualizerData3D {
-  const networkStateRef = useRef(createPacketNetworkState(config?.name || 'Me'));
-  const nodesRef = useRef<Map<string, GraphNode>>(new Map());
-  const linksRef = useRef<Map<string, GraphLink>>(new Map());
-  const particlesRef = useRef<Particle[]>([]);
+  const [initialGraph] = useState(() => ({
+    networkState: createPacketNetworkState(config?.name || 'Me'),
+    nodes: new Map<string, GraphNode>(),
+    links: new Map<string, GraphLink>(),
+    particles: [] as Particle[],
+  }));
+  const networkStateRef = useRef(initialGraph.networkState);
+  const nodesRef = useRef(initialGraph.nodes);
+  const linksRef = useRef(initialGraph.links);
+  const particlesRef = useRef(initialGraph.particles);
   const simulationRef = useRef<Simulation3D<GraphNode, GraphLink> | null>(null);
   const processedRef = useRef<Set<string>>(new Set());
   const pendingRef = useRef<Map<string, PendingPacket>>(new Map());
@@ -168,7 +203,26 @@ export function useVisualizerData3D({
   const [directoryHits, setDirectoryHits] = useState<Record<string, DirectoryHopHit>>({});
   const [communityNames, setCommunityNames] = useState<Map<string, string>>(() => new Map());
   const [stats, setStats] = useState({ processed: 0, animated: 0, nodes: 0, links: 0 });
-  const [, setProjectionVersion] = useState(0);
+  // Refreshed whenever the refs above are rebuilt or reassigned, so render never
+  // reads a ref (the scene's mutations stay visible through the shared identities).
+  const [projection, setProjection] = useState(() =>
+    snapshotProjection(
+      initialGraph.networkState,
+      initialGraph.nodes,
+      initialGraph.links,
+      initialGraph.particles
+    )
+  );
+  const publishProjection = useCallback(() => {
+    setProjection(
+      snapshotProjection(
+        networkStateRef.current,
+        nodesRef.current,
+        linksRef.current,
+        particlesRef.current
+      )
+    );
+  }, []);
   const [focusHighlight, setFocusHighlight] = useState<{
     observationKey: string | null;
     nodeIds: string[];
@@ -277,8 +331,8 @@ export function useVisualizerData3D({
         ? prev
         : { ...prev, nodes: nodes.length, links: links.length }
     );
-    setProjectionVersion((prev) => prev + 1);
-  }, []);
+    publishProjection();
+  }, [publishProjection]);
 
   const upsertRenderNode = useCallback(
     (node: PacketNetworkNode, existing?: GraphNode): GraphNode => {
@@ -745,7 +799,8 @@ export function useVisualizerData3D({
 
     setStats({ processed: 0, animated: 0, nodes: selfNode ? 1 : 0, links: 0 });
     setFocusHighlight({ observationKey: null, nodeIds: [], linkKeys: [] });
-  }, [config?.name, upsertRenderNode]);
+    publishProjection();
+  }, [config?.name, publishProjection, upsertRenderNode]);
 
   useEffect(() => {
     const stretchRaf = stretchRafRef;
@@ -784,13 +839,13 @@ export function useVisualizerData3D({
   }, [pruneStaleMinutes, pruneStaleNodes, rebuildRenderProjection]);
 
   return {
-    nodes: nodesRef.current,
-    links: linksRef.current,
-    canonicalNodes: networkStateRef.current.nodes,
-    canonicalNeighborIds: snapshotNeighborIds(networkStateRef.current),
-    renderedNodeIds: new Set(nodesRef.current.keys()),
+    nodes: projection.nodes,
+    links: projection.links,
+    canonicalNodes: projection.canonicalNodes,
+    canonicalNeighborIds: projection.canonicalNeighborIds,
+    renderedNodeIds: projection.renderedNodeIds,
     communityNames,
-    particles: particlesRef.current,
+    particles: projection.particles,
     stats,
     focusedObservationKey: focusHighlight.observationKey,
     focusedNodeIds: new Set(focusHighlight.nodeIds),

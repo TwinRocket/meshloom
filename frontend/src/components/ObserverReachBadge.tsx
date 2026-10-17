@@ -1,5 +1,5 @@
 import { Ear } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ObserverReachCountState } from '../types';
@@ -23,15 +23,15 @@ function RollingCount({ value }: { value: number }) {
   const [shown, setShown] = useState(target);
   const [incoming, setIncoming] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (target === (incoming ?? shown)) return;
+  // A new value starts a roll (adjusted during render); reduced motion swaps at once.
+  if (target !== (incoming ?? shown)) {
     if (prefersReducedMotion()) {
       setShown(target);
       setIncoming(null);
-      return;
+    } else {
+      setIncoming(target);
     }
-    setIncoming(target);
-  }, [target, incoming, shown]);
+  }
 
   const from = shown;
   const to = incoming ?? shown;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '../api';
 import type { Message, ObserverReachCountState } from '../types';
@@ -99,18 +99,16 @@ export function applyCommunityPacketObserverTick(packet: {
   for (const listener of liveListeners) listener(event);
 }
 
-function readyVisibleHashes(
-  messages: Message[],
-  visibleIndexes: number[],
-  now: number,
-  offsetSec: number
-): string[] {
+/**
+ * Eligible visible hashes, in display order. Readiness depends on the clock, so it is
+ * checked where the list is consumed (the debounce timer), not here in render.
+ */
+function eligibleVisibleHashes(messages: Message[], visibleIndexes: number[]): string[] {
   const hashes: string[] = [];
   const seen = new Set<string>();
   for (const index of visibleIndexes) {
     const msg = messages[index];
-    if (!msg || !isObserverReachEligible(msg) || !isOutgoingReachReady(msg, now, offsetSec))
-      continue;
+    if (!msg || !isObserverReachEligible(msg)) continue;
     const hash = msg.packet_hash!.toUpperCase();
     if (seen.has(hash)) continue;
     seen.add(hash);
@@ -131,11 +129,15 @@ export function useVisibleObserverReach(options: {
   const [counts, setCounts] = useState<Record<string, ObserverReachCountState>>({});
   const [delayTick, setDelayTick] = useState(0);
   const conversationRef = useRef(conversationKey);
-  conversationRef.current = conversationKey;
   const messagesRef = useRef(messages);
-  messagesRef.current = messages;
   const indexesRef = useRef(visibleIndexes);
-  indexesRef.current = visibleIndexes;
+  // Latest values for the live listener and the timers. A layout effect runs before
+  // the passive effects below, so they never see an older render's values.
+  useLayoutEffect(() => {
+    conversationRef.current = conversationKey;
+    messagesRef.current = messages;
+    indexesRef.current = visibleIndexes;
+  });
 
   useEffect(() => {
     if (!directoryEnabled || !conversationKey) return;
@@ -177,12 +179,8 @@ export function useVisibleObserverReach(options: {
 
   const hashSignature = useMemo(() => {
     if (!directoryEnabled || !conversationKey) return '';
-    return readyVisibleHashes(messages, visibleIndexes, Date.now(), getServerClockOffsetSec()).join(
-      ','
-    );
-    // delayTick is a deliberate re-evaluation trigger: readiness depends on Date.now().
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [directoryEnabled, conversationKey, messages, visibleIndexes, delayTick]);
+    return eligibleVisibleHashes(messages, visibleIndexes).join(',');
+  }, [directoryEnabled, conversationKey, messages, visibleIndexes]);
 
   useEffect(() => {
     if (!directoryEnabled || !conversationKey) {
@@ -243,6 +241,9 @@ export function useVisibleObserverReach(options: {
         const cached = countCache.get(key);
         const last = lastFetchAt.get(key);
         const msg = messagesRef.current.find((item) => item.packet_hash?.toUpperCase() === hash);
+        // Not ready yet (an outgoing message stamped ahead of this clock): the wake
+        // timer re-runs this effect once it is.
+        if (msg && !isOutgoingReachReady(msg, now, offsetSec)) continue;
         const interval =
           msg != null ? observerReachPollIntervalMs(messageAgeMs(msg, now, offsetSec)) : null;
         const due = cached?.sealed
