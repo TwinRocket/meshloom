@@ -17,6 +17,7 @@ from app.keystore import clear_keys
 from app.log_redaction import install_meshcore_log_redaction
 from app.models import RadioTransportSnapshot
 from app.services.ble_pairing import BlePairingError, PairOutcome
+from app.services.companion_cli import CliLinkState, new_cli_link_state
 from app.services.radio_lifecycle import (
     EXPECTED_REBOOT_GRACE_SECONDS,
     ExpectedRebootReason,
@@ -254,6 +255,13 @@ class RadioManager:
         self._channel_slot_by_key: OrderedDict[str, int] = OrderedDict()
         self._channel_key_by_slot: dict[int, str] = {}
         self._pending_message_channel_key_by_slot: dict[int, str] = {}
+        # Companion CLI tags, quarantine and probe cache for the current
+        # connection (app/services/companion_cli.py).
+        self.cli_link: CliLinkState = new_cli_link_state()
+
+    def reset_cli_link(self) -> None:
+        """Start a fresh companion CLI link state (new connection or new setup)."""
+        self.cli_link = new_cli_link_state()
 
     async def _acquire_operation_lock(
         self,
@@ -309,6 +317,7 @@ class RadioManager:
         self.path_hash_mode_supported = False
         self.reset_channel_send_cache()
         self.clear_pending_message_channel_slots()
+        self.reset_cli_link()
 
     @asynccontextmanager
     async def radio_operation(

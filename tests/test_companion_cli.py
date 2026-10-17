@@ -1,0 +1,417 @@
+"""Companion CLI helper: serialization, tagged replies, secrets, validation."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import sys
+from contextlib import asynccontextmanager
+
+import pytest
+
+import app.radio as radio_module
+import app.services.companion_cli as cli_module
+from app.radio import RadioManager
+from app.services.companion_cli import (
+    CLI_FORBIDDEN_VERBS,
+    CLI_MAX_QUARANTINED_TAGS,
+    CLI_TAG_ALPHABET,
+    CliCommandError,
+    CliLockError,
+    CliRejectedError,
+    CliReply,
+    CliTimeoutError,
+    CliUnknownCommandError,
+    CliUnsupportedError,
+    CompanionCli,
+    companion_cli_session,
+    mark_radio_lock_held,
+    new_cli_link_state,
+)
+from tests.fixtures.meshcore_loopback import FakeCompanionFirmware, cli_reply, make_loopback
+
+SECRET = "S3cr3t-Pw!"
+SHORT_TIMEOUT = 0.1
+
+
+@pytest.fixture
+async def radio():
+    firmware = FakeCompanionFirmware()
+    loop = await make_loopback(responder=firmware)
+    manager = RadioManager()
+    manager._meshcore = loop.mc
+    manager.firmware_ver_code = 14
+    manager.device_model = "Heltec V3"
+    manager._setup_complete = True
+    yield loop, firmware, manager
+    await loop.close()
+
+
+@asynccontextmanager
+async def held(manager: RadioManager):
+    async with manager.radio_operation("test") as mc:
+        with mark_radio_lock_held():
+            yield CompanionCli(mc, manager=manager)
+
+
+def all_log_text(caplog) -> str:
+    return "\n".join(
+        [record.getMessage() for record in caplog.records]
+        + [record.exc_text or "" for record in caplog.records]
+    )
+
+
+# --------------------------------------------------------------------------
+# Calls and tags
+# --------------------------------------------------------------------------
+
+
+async def test_run_sends_a_tagged_frame_and_parses_the_reply(radio):
+    loop, firmware, manager = radio
+    firmware.stored_ssid = "Home"
+    async with held(manager) as cli:
+        reply = await cli.get("wifi.ssid")
+    assert reply == CliReply(text="> Home", value="Home", sensitive=False)
+    [payload] = firmware.raw_payloads
+    tag = firmware.tags[0]
+    assert payload == b"\x42" + f"{tag}|get wifi.ssid".encode()
+    assert len(tag) == 2 and all(char in CLI_TAG_ALPHABET for char in tag)
+    assert "|" not in CLI_TAG_ALPHABET and " " not in CLI_TAG_ALPHABET
+    assert len(CLI_TAG_ALPHABET) == 93
+
+
+async def test_reply_value_strips_exactly_one_prompt(radio):
+    loop, firmware, manager = radio
+    firmware.overrides["get a.b"] = ">   a b  "
+    firmware.overrides["get empty"] = "> "
+    firmware.overrides["get raw"] = "OK"
+    async with held(manager) as cli:
+        assert (await cli.get("a.b")).value == "  a b  "
+        assert (await cli.get("empty")).value == ""
+        assert (await cli.get("raw")).value == "OK"
+
+
+async def test_unknown_and_rejected_replies(radio):
+    loop, firmware, manager = radio
+    firmware.wifi = False
+    async with held(manager) as cli:
+        with pytest.raises(CliUnknownCommandError) as unknown:
+            await cli.get("wifi.status")
+        with pytest.raises(CliRejectedError) as rejected:
+            await cli.set("tz.offset", "20")
+    assert unknown.value.code == "cli_unknown_command"
+    assert rejected.value.reply_text == "Error, must be from -12 to +14"
+
+
+async def test_rejected_sensitive_reply_text_is_not_kept(radio):
+    loop, firmware, manager = radio
+    firmware.overrides[f"set wifi.pwd {SECRET}"] = f"ERROR: bad {SECRET}"
+    async with held(manager) as cli:
+        with pytest.raises(CliRejectedError) as rejected:
+            await cli.set("wifi.pwd", SECRET, secret=True)
+    assert rejected.value.reply_text is None
+    assert SECRET not in str(rejected.value) and SECRET not in repr(rejected.value)
+
+
+async def test_error_frame_during_a_normal_call_is_ignored(radio):
+    loop, firmware, manager = radio
+    firmware.extra_frames.append(b"\x01\x01")  # ERROR(ERR_CODE_UNSUPPORTED_CMD)
+    async with held(manager) as cli:
+        reply = await cli.get("wifi.status")
+    assert reply.value == "disconnected"
+
+
+async def test_stale_reply_within_a_session_is_discarded(radio):
+    loop, firmware, manager = radio
+    firmware.stored_pwd = SECRET
+    firmware.silent.add("get wifi.pwd")
+    async with held(manager) as cli:
+        with pytest.raises(CliTimeoutError):
+            await cli.run("get wifi.pwd", timeout=SHORT_TIMEOUT)
+        stale_tag = firmware.tags[-1]
+        # The late password reply arrives right before the status reply.
+        firmware.extra_frames.append(cli_reply(f"{stale_tag}|> {SECRET}"))
+        reply = await cli.get("wifi.status")
+    assert reply.value == "disconnected"
+    assert stale_tag in manager.cli_link.quarantined
+
+
+async def test_stale_reply_across_sessions_is_discarded(radio):
+    loop, firmware, manager = radio
+    firmware.silent.add("get wifi.pwd")
+    async with held(manager) as cli:
+        with pytest.raises(CliTimeoutError):
+            await cli.run("get wifi.pwd", timeout=SHORT_TIMEOUT)
+    stale_tag = firmware.tags[-1]
+    firmware.silent.clear()
+    firmware.overrides["get wifi.pwd"] = lambda _command: None
+    async with held(manager) as cli:
+        loop.feed(cli_reply(f"{stale_tag}|> {SECRET}"))
+        with pytest.raises(CliTimeoutError):
+            await cli.run("get wifi.pwd", timeout=SHORT_TIMEOUT)
+        firmware.overrides.clear()
+        firmware.extra_frames.append(cli_reply(f"{stale_tag}|> {SECRET}"))
+        reply = await cli.get("wifi.status")
+    assert reply.value == "disconnected"
+
+
+async def test_tag_is_quarantined_after_cancellation(radio):
+    loop, firmware, manager = radio
+    firmware.silent.add("get wifi.status")
+    async with held(manager) as cli:
+        # Cancelled by a timeout scope in this task (asyncio.timeout, not wait_for).
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(SHORT_TIMEOUT):
+                await cli.run("get wifi.status", timeout=5)
+    assert firmware.tags[-1] in manager.cli_link.quarantined
+
+
+async def test_tag_exhaustion_declares_the_link_unreliable(radio):
+    loop, firmware, manager = radio
+    link = manager.cli_link
+    link.quarantined.update(f"q{index}" for index in range(CLI_MAX_QUARANTINED_TAGS + 1))
+    async with held(manager) as cli:
+        with pytest.raises(CliUnsupportedError) as error:
+            await cli.get("wifi.status")
+        assert error.value.code == "link_unreliable"
+        with pytest.raises(CliUnsupportedError):
+            await cli.get("wifi.status")
+    assert firmware.commands == []
+    assert link.capabilities is not None and link.capabilities.reason == "link_unreliable"
+
+
+async def test_every_tag_quarantined_never_hangs(radio):
+    loop, firmware, manager = radio
+    link = manager.cli_link
+    link.quarantined.update(a + b for a in CLI_TAG_ALPHABET for b in CLI_TAG_ALPHABET)
+    assert len(link.quarantined) == len(CLI_TAG_ALPHABET) ** 2
+    async with held(manager) as cli:
+        with pytest.raises(CliUnsupportedError):
+            await cli.get("wifi.status")
+    assert firmware.commands == []
+
+
+def test_allocator_with_a_full_quarantine_below_the_cap_raises(monkeypatch):
+    # Even if the cap were lifted, a full scan never loops forever.
+    monkeypatch.setattr(cli_module, "CLI_MAX_QUARANTINED_TAGS", 10**6)
+    link = new_cli_link_state()
+    link.quarantined.update(a + b for a in CLI_TAG_ALPHABET for b in CLI_TAG_ALPHABET)
+    cli = CompanionCli(object(), manager=object())  # type: ignore[arg-type]
+    with pytest.raises(CliUnsupportedError):
+        cli._allocate_tag(link)
+
+
+def test_allocator_skips_quarantined_tags():
+    link = new_cli_link_state()
+    link.next_tag = 0
+    first = CLI_TAG_ALPHABET[0] + CLI_TAG_ALPHABET[0]
+    second = CLI_TAG_ALPHABET[0] + CLI_TAG_ALPHABET[1]
+    link.quarantined.add(first)
+    cli = CompanionCli(object(), manager=object())  # type: ignore[arg-type]
+    assert cli._allocate_tag(link) == second
+
+
+def test_tag_start_is_random_per_connection(monkeypatch):
+    values = iter([17, 4242])
+    monkeypatch.setattr(cli_module, "_randbelow", lambda bound: next(values))
+    assert new_cli_link_state().next_tag != new_cli_link_state().next_tag
+
+
+def test_link_state_is_reset_with_the_connection():
+    manager = RadioManager()
+    manager.cli_link.quarantined.add("ab")
+    manager.cli_link.probe_failures = 3
+    manager._reset_connected_runtime_state()
+    assert manager.cli_link.quarantined == set() and manager.cli_link.probe_failures == 0
+    manager.cli_link.quarantined.add("cd")
+    manager.reset_cli_link()
+    assert manager.cli_link.quarantined == set()
+
+
+# --------------------------------------------------------------------------
+# Lock ownership
+# --------------------------------------------------------------------------
+
+
+async def test_refused_without_marking_the_lock(radio):
+    loop, firmware, manager = radio
+    async with manager.radio_operation("test") as mc:
+        cli = CompanionCli(mc, manager=manager)
+        with pytest.raises(CliLockError):
+            await cli.get("wifi.status")
+    assert firmware.commands == []
+
+
+async def test_refused_when_another_task_holds_the_lock(radio):
+    loop, firmware, manager = radio
+    holding = asyncio.Event()
+    release = asyncio.Event()
+
+    async def holder():
+        async with manager.radio_operation("other"):
+            holding.set()
+            await release.wait()
+
+    task = asyncio.create_task(holder())
+    await holding.wait()
+    try:
+        assert manager._operation_lock is not None and manager._operation_lock.locked()
+        cli = CompanionCli(loop.mc, manager=manager)
+        with pytest.raises(CliLockError):
+            await cli.get("wifi.status")
+    finally:
+        release.set()
+        await task
+    assert firmware.commands == []
+
+
+async def test_refused_in_a_task_spawned_inside_a_session(radio):
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        child = asyncio.create_task(cli.get("wifi.status"))
+        with pytest.raises(CliLockError):
+            await child
+    assert firmware.commands == []
+
+
+async def test_refused_before_any_lock_was_created():
+    manager = RadioManager()
+    assert manager._operation_lock is None
+    cli = CompanionCli(object(), manager=manager)  # type: ignore[arg-type]
+    with mark_radio_lock_held(), pytest.raises(CliLockError):
+        await cli.get("wifi.status")
+
+
+async def test_wait_for_around_a_call(radio):
+    """Documented: on 3.11 wait_for runs the call in a new task and is refused."""
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        assert (await cli.run("get wifi.status", timeout=1)).value == "disconnected"
+        if sys.version_info < (3, 12):
+            with pytest.raises(CliLockError):
+                await asyncio.wait_for(cli.get("wifi.status"), 1)
+        else:
+            assert (await asyncio.wait_for(cli.get("wifi.status"), 1)).value == "disconnected"
+
+
+async def test_session_refuses_before_setup_completes(radio, monkeypatch):
+    loop, firmware, manager = radio
+    manager._setup_complete = False
+    monkeypatch.setattr(radio_module, "radio_manager", manager)
+    with pytest.raises(cli_module.CliError) as error:
+        async with companion_cli_session("test"):
+            pass
+    assert error.value.code == "setup_incomplete"
+    assert manager._operation_lock is None
+    assert firmware.commands == [] and loop.transport.writes == []
+
+
+async def test_session_runs_calls_under_the_radio_operation(radio, monkeypatch):
+    loop, firmware, manager = radio
+    monkeypatch.setattr(radio_module, "radio_manager", manager)
+    async with companion_cli_session("test") as cli:
+        assert manager._operation_lock is not None and manager._operation_lock.locked()
+        assert (await cli.get("wifi.status")).value == "disconnected"
+    assert not manager._operation_lock.locked()
+
+
+# --------------------------------------------------------------------------
+# Validation
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["x", " get wifi.ssid", "get wifi.ssid\nreboot", "get\rx", "get\0x"]
+    + sorted(CLI_FORBIDDEN_VERBS)
+    + ["REBOOT now", "x" * 200],
+)
+async def test_invalid_commands_are_refused(radio, command):
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        with pytest.raises(CliCommandError) as error:
+            await cli.run(command)
+    assert isinstance(error.value, ValueError)
+    assert command.strip() not in str(error.value) or len(command.strip()) < 2
+    assert firmware.commands == []
+
+
+async def test_names_with_spaces_are_refused(radio):
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        with pytest.raises(CliCommandError):
+            await cli.get("wifi ssid")
+
+
+# --------------------------------------------------------------------------
+# Secrets never reach a log line or an exception
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"set wifi.pwd {SECRET}",
+        f"SET  WIFI.PWD {SECRET}",
+        f"set foo.key {SECRET}",
+        f"set my.secret {SECRET}",
+        f"password {SECRET}",
+    ],
+)
+async def test_raw_secret_commands_never_log_their_value(radio, caplog, command):
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="meshcore")
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        try:
+            reply = await cli.run(command)
+        except CliUnknownCommandError as exc:
+            assert SECRET not in str(exc) and SECRET not in repr(exc)
+        else:
+            assert reply.sensitive
+    await loop.settle()
+    assert firmware.commands  # the frame went out
+    assert SECRET not in all_log_text(caplog)
+    assert SECRET.encode().hex() not in all_log_text(caplog)
+
+
+async def test_get_wifi_pwd_is_always_a_sensitive_read(radio, caplog):
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="meshcore")
+    loop, firmware, manager = radio
+    firmware.stored_pwd = SECRET
+    async with held(manager) as cli:
+        reply = await cli.run("get wifi.pwd")
+    await loop.settle()
+    assert reply.sensitive and reply.value == SECRET
+    assert SECRET not in repr(reply) and SECRET not in str(reply)
+    assert "CLI get wifi.pwd -> [redacted]" in all_log_text(caplog)
+    assert SECRET not in all_log_text(caplog)
+
+
+async def test_set_logs_only_the_name(radio, caplog):
+    caplog.set_level(logging.DEBUG, logger="app.services.companion_cli")
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        await cli.set("wifi.ssid", "MyNet")
+    text = all_log_text(caplog)
+    assert "CLI set wifi.ssid -> ok" in text
+    assert "MyNet" not in text
+
+
+async def test_get_of_a_plain_value_is_logged(radio, caplog):
+    caplog.set_level(logging.DEBUG, logger="app.services.companion_cli")
+    loop, firmware, manager = radio
+    async with held(manager) as cli:
+        await cli.get("wifi.status")
+    assert "CLI get wifi.status -> > disconnected" in all_log_text(caplog)
+
+
+async def test_timeout_error_carries_no_command_text(radio):
+    loop, firmware, manager = radio
+    firmware.silent.add(f"set wifi.pwd {SECRET}")
+    async with held(manager) as cli:
+        with pytest.raises(CliTimeoutError) as error:
+            await cli.run(f"set wifi.pwd {SECRET}", timeout=SHORT_TIMEOUT)
+    assert SECRET not in str(error.value)
+    assert error.value.verb == "set" and error.value.name == "wifi.pwd"

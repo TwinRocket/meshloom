@@ -120,3 +120,111 @@ async def make_loopback(kind: str = "tcp", responder: Responder | None = None) -
     protocol.connection_made(transport)
     await mc.dispatcher.start()
     return Loopback(mc=mc, connection=connection, transport=transport, kind=kind)
+
+
+class FakeCompanionFirmware:
+    """A responder emulating the v1.18 companion CLI (``MyMesh.cpp``) and its Wi-Fi prefs.
+
+    - Tags: a command ``"XY|..."`` gets ``"XY|<reply>"`` (``echo_tags=False``
+      emulates a firmware that does not echo them).
+    - ``silent``: commands (exact text) that get no reply at all.
+    - ``overrides``: exact command -> reply text, or a callable returning one
+      (``None`` = no reply).
+    - ``extra_frames``: frames sent before the next reply (an ERROR, a late reply).
+    - Answers SYNC_NEXT_MESSAGE with NO_MORE_MSGS so auto-fetch restarts cleanly.
+    """
+
+    def __init__(self, *, wifi: bool = True, fallback_ssid: str | None = "FlasherNet") -> None:
+        self.wifi = wifi
+        self.fallback_ssid = fallback_ssid
+        self.stored_ssid = ""
+        self.stored_pwd = ""
+        self.enabled = True
+        self.connected = False
+        self.ip: str | None = None
+        self.prefs: dict[str, str] = {
+            "tz.offset": "0",
+            "cad": "off",
+            "int.thresh": "14",
+            "txdelay": "0.5",
+        }
+        self.echo_tags = True
+        self.silent: set[str] = set()
+        self.overrides: dict[str, object] = {}
+        self.extra_frames: list[bytes] = []
+        self.commands: list[str] = []
+        self.tags: list[str] = []
+        self.raw_payloads: list[bytes] = []
+
+    # -- firmware behaviour ------------------------------------------------
+
+    def handle(self, command: str) -> str:
+        if self.wifi:
+            if command == "get wifi.ssid":
+                if self.stored_ssid:
+                    return f"> {self.stored_ssid}"
+                return f"> {self.fallback_ssid}" if self.fallback_ssid else "> (not set)"
+            if command == "get wifi.pwd":
+                return f"> {self.stored_pwd}"
+            if command.startswith("set wifi.ssid "):
+                self.stored_ssid = command[len("set wifi.ssid ") :]
+                return f"> wifi.ssid is now {self.stored_ssid} (set wifi.pwd too, then reboot)"
+            if command.startswith("set wifi.pwd "):
+                self.stored_pwd = command[len("set wifi.pwd ") :]
+                return "> wifi.pwd updated (reboot to apply)"
+            if command == "set wifi.clear":
+                self.stored_ssid = ""
+                self.stored_pwd = ""
+                return "> wifi config cleared (reboot to apply)"
+            if command == "get wifi.enabled":
+                return "> 1" if self.enabled else "> 0"
+            if command.startswith("set wifi.enabled "):
+                self.enabled = command.endswith("1")
+                return f"> wifi.enabled is now {int(self.enabled)} (reboot to apply)"
+            if command == "get wifi.status":
+                return "> connected" if self.connected else "> disconnected"
+            if command == "get wifi.ip":
+                return f"> {self.ip}" if self.ip else "> (not connected)"
+        if command.startswith("get "):
+            name = command[4:]
+            if name in self.prefs:
+                return f"> {self.prefs[name]}"
+        if command.startswith("set "):
+            parts = command.split(" ", 2)
+            if len(parts) == 3 and parts[1] in self.prefs:
+                if parts[1] == "tz.offset" and not -12 <= int(parts[2]) <= 14:
+                    return "Error, must be from -12 to +14"
+                self.prefs[parts[1]] = parts[2]
+                return "OK"
+        if command == "ver":
+            return "v1.18.0 (Build: 01-Jan-2026)"
+        return "Unknown command"
+
+    # -- responder ---------------------------------------------------------
+
+    def __call__(self, payload: bytes) -> list[bytes]:
+        if payload[:1] == b"\x0a":  # SYNC_NEXT_MESSAGE
+            return [b"\x0a"]
+        if payload[:1] != b"\x42":
+            return []
+        self.raw_payloads.append(payload)
+        body = payload[1:].decode("utf-8")
+        tagged = len(body) > 4 and body[2] == "|"
+        tag, command = (body[:2], body[3:]) if tagged else ("", body)
+        self.commands.append(command)
+        self.tags.append(tag)
+        frames = list(self.extra_frames)
+        self.extra_frames.clear()
+        if command in self.silent:
+            return frames
+        override = self.overrides.get(command, ...)
+        if override is ...:
+            reply: object = self.handle(command)
+        elif callable(override):
+            reply = override(command)
+        else:
+            reply = override
+        if reply is None:
+            return frames
+        text = f"{tag}|{reply}" if tagged and self.echo_tags else str(reply)
+        return [*frames, cli_reply(text)]

@@ -299,6 +299,72 @@ def test_exc_text_is_written_back_for_unwrapped_handlers(debug_logs):
 
 
 # --------------------------------------------------------------------------
+# CompanionCli on the real stack
+# --------------------------------------------------------------------------
+
+
+async def _companion_cli(kind: str = "tcp"):
+    from app.radio import RadioManager
+    from app.services.companion_cli import CompanionCli
+    from tests.fixtures.meshcore_loopback import FakeCompanionFirmware
+
+    firmware = FakeCompanionFirmware()
+    loop = await make_loopback(kind, firmware)
+    manager = RadioManager()
+    manager._meshcore = loop.mc
+    manager.firmware_ver_code = 14
+    return loop, firmware, manager, CompanionCli
+
+
+@pytest.mark.parametrize("kind", ["tcp", "serial"])
+async def test_companion_cli_password_set_and_read_are_redacted(debug_logs, kind):
+    from app.services.companion_cli import mark_radio_lock_held
+
+    loop, firmware, manager, CompanionCli = await _companion_cli(kind)
+    try:
+        async with manager.radio_operation("test") as mc:
+            with mark_radio_lock_held():
+                cli = CompanionCli(mc, manager=manager)
+                await cli.set("wifi.pwd", SECRET, secret=True)
+                reply = await cli.get("wifi.pwd", sensitive=True)
+        await loop.settle()
+    finally:
+        await loop.close()
+    assert firmware.stored_pwd == SECRET and reply.value == SECRET
+    assert find(debug_logs, "Sending raw data: ") == [f"Sending raw data: 42...{REDACTED}"] * 2
+    assert find(debug_logs, "sending pkt : ") == ["sending pkt : [redacted frame 42]"] * 2
+    assert find(debug_logs, "Received data: ") == [f"Received data: {REDACTED}"] * 2
+    assert "CLI set wifi.pwd -> [redacted]" in messages(debug_logs)
+    assert "CLI get wifi.pwd -> [redacted]" in messages(debug_logs)
+    assert_no_secret(debug_logs)
+
+
+async def test_companion_cli_late_reply_after_timeout_is_redacted(debug_logs):
+    from app.services.companion_cli import CliTimeoutError, mark_radio_lock_held
+
+    loop, firmware, manager, CompanionCli = await _companion_cli()
+    firmware.stored_pwd = SECRET
+    firmware.silent.add("get wifi.pwd")
+    try:
+        async with manager.radio_operation("test") as mc:
+            with mark_radio_lock_held():
+                cli = CompanionCli(mc, manager=manager)
+                with pytest.raises(CliTimeoutError):
+                    await cli.run("get wifi.pwd", timeout=0.05)
+        # The reply lands after the call returned: logged by the reader task,
+        # outside any call, still redacted.
+        loop.feed(cli_reply(f"{firmware.tags[-1]}|> {SECRET}"))
+        await loop.settle()
+    finally:
+        await loop.close()
+    assert find(debug_logs, "Dispatching event: EventType.CLI_REPLY") == [
+        f"Dispatching event: EventType.CLI_REPLY, {REDACTED}"
+    ]
+    assert "Discarded a stale CLI reply" not in messages(debug_logs)
+    assert_no_secret(debug_logs)
+
+
+# --------------------------------------------------------------------------
 # Private key export and import
 # --------------------------------------------------------------------------
 
