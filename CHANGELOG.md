@@ -6,6 +6,10 @@ The server now enforces the radio's message size limit for every way of sending.
 
 - **Oversized messages are refused by the server.** Until now only the web composer checked the size, so bots and API clients could send messages the radio cannot carry. The server now applies the same limit to direct messages (156 bytes) and channel messages (156 bytes minus your node name and the `: ` separator), counted in bytes, on every path including resends. An oversized message is refused with a clear error and nothing is sent or stored. Known limit: after renaming your node to a longer name, an old message that fitted may be refused on resend.
 
+### Security
+
+- **Failed notification tests no longer reveal your network.** The **Test** buttons for a push subscription and for the e-mail and webhook destinations used to show the raw network error (connection refused, unknown host, HTTP status). A web page could use that answer to map the machines on your network. They now show a translated message saying only what kind of failure it was. The server's log records the error type, and for the webhook its host and HTTP status, but no longer the webhook address with its token.
+
 ---
 
 ### Français
@@ -15,6 +19,10 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 #### Ajouts
 
 - **Les messages trop longs sont refusés par le serveur.** Jusqu'ici, seul le champ de saisie web vérifiait la taille : les robots et les clients de l'API pouvaient envoyer des messages que la radio ne peut pas transporter. Le serveur applique maintenant la même limite aux messages directs (156 octets) et aux messages de canal (156 octets moins le nom de votre nœud et le séparateur `: `), comptée en octets, sur tous les chemins y compris les renvois. Un message trop long est refusé avec une erreur claire, sans rien envoyer ni enregistrer. Limite connue : après avoir renommé votre nœud avec un nom plus long, un ancien message qui tenait peut être refusé au renvoi.
+
+#### Sécurité
+
+- **Un test de notification qui échoue ne révèle plus votre réseau.** Les boutons **Test** d'un abonnement push et des destinations e-mail et webhook affichaient l'erreur réseau brute (connexion refusée, hôte inconnu, statut HTTP). Une page web pouvait s'en servir pour repérer les machines de votre réseau. Ils affichent maintenant un message traduit qui dit seulement quel type d'échec s'est produit. Le journal du serveur indique le type d'erreur et, pour le webhook, son hôte et son statut HTTP, mais plus l'adresse du webhook avec son jeton.
 
 ---
 

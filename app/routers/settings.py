@@ -3,7 +3,9 @@ import os
 import tempfile
 import time
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -839,9 +841,31 @@ async def test_notification_destinations(
         else:
             await send_webhook_alert(dest, TEST_ALERT_PAYLOAD)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.info("Notification test (%s) refused: %s", request.channel, exc)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "notification_destination_invalid",
+                "message": "Notification destination is not configured or invalid",
+            },
+        ) from None
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        # Never the exception text, in the answer (a LAN-scanning oracle) or in
+        # the log (an HTTPStatusError carries the full webhook URL and its token).
+        if request.channel == "webhook":
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            logger.warning(
+                "Notification test (webhook) failed: %s (host %s, HTTP %s)",
+                type(exc).__name__,
+                urlsplit(dest.webhook.url or "").hostname,
+                status,
+            )
+        else:
+            logger.warning("Notification test (email) failed: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "notification_test_failed", "message": "Notification test failed"},
+        ) from None
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 

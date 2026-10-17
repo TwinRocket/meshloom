@@ -1,15 +1,20 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../api';
 import { usePushSubscription } from '../hooks/usePushSubscription';
 import i18n from '../i18n';
 import fEn from '../i18n/locales/slices/f.en.json';
 import fFr from '../i18n/locales/slices/f.fr.json';
+import kEn from '../i18n/locales/slices/k.en.json';
+import kFr from '../i18n/locales/slices/k.fr.json';
 import { DEFAULT_NOTIFICATION_MEDIA } from '../types';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
 
 i18n.addResourceBundle('en', 'translation', fEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fFr, true, true);
+i18n.addResourceBundle('en', 'translation', kEn, true, true);
+i18n.addResourceBundle('fr', 'translation', kFr, true, true);
 
 const ALL_ON_DEFAULTS = {
   new_contact: { ...DEFAULT_NOTIFICATION_MEDIA },
@@ -45,7 +50,8 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api')>()),
   api: mocks.api,
 }));
 
@@ -360,5 +366,23 @@ describe('usePushSubscription', () => {
         messageType: 'PRIV',
       })
     ).toBe(false);
+  });
+
+  it('shows the translated code of a failed test push, never the backend text', async () => {
+    mocks.api.testPushSubscription.mockRejectedValue(
+      new ApiError('Push delivery failed', 422, {
+        code: 'push_delivery_failed',
+        message: 'Push delivery failed',
+      })
+    );
+
+    const { result } = renderHook(() => usePushSubscription());
+    await act(async () => {
+      await result.current.testPush('sub-1');
+    });
+
+    expect(mocks.toast.error).toHaveBeenCalledWith(i18n.t('notifications.pushTestFailed'), {
+      description: i18n.t('errors.push_delivery_failed'),
+    });
   });
 });

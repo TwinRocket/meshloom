@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from '../components/ui/sonner';
-import { api } from '../api';
+import { api, formatApiError } from '../api';
 import i18n from '../i18n';
 import type {
   ConversationMediaOverride,
@@ -344,8 +344,10 @@ export function usePushSubscription(): PushSubscriptionState {
     try {
       await api.testPushSubscription(subscriptionId);
       toast.success(i18n.t('notifications.pushTestSent'));
-    } catch {
-      toast.error(i18n.t('notifications.pushTestFailed'));
+    } catch (err) {
+      toast.error(i18n.t('notifications.pushTestFailed'), {
+        description: formatApiError(err, i18n.t),
+      });
     }
   }, []);
 
