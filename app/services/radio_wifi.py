@@ -1,0 +1,666 @@
+"""Wi-Fi settings of the connected radio, through the companion CLI.
+
+The radio's Wi-Fi interface (companion firmware v1.18+ built with
+``ENABLE_WIFI_INTERFACE``) is read and changed with the CLI helpers of
+``app/services/companion_cli.py``. This service owns the CLI session: every
+public function opens ``companion_cli_session()`` itself, so routers only
+validate and map errors.
+
+Rules:
+
+- **Never a password in the database or a log.** The stored password is read
+  only to learn whether credentials are stored (value discarded at once), by a
+  full check (after each connect, its bounded retries, or a manual retry when no
+  check completed) and inside ``store_wifi_credentials()`` (one read before, one
+  read-back after). A refresh re-reads SSID, enabled, status and IP only.
+- **Ask once per radio.** ``wifi_prompt_state`` (migration 095), keyed by the
+  radio public key, records "don't ask again", an open network (which reads the
+  same as "nothing stored") and a "store in progress" marker written before the
+  first ``set`` and cleared once the store is verified or rolled back.
+- **Planned reboots.** A reboot that applies Wi-Fi settings calls
+  ``RadioManager.note_expected_reboot("wifi_config")``, so a transport that
+  survives the reboot is dropped and setup (and this check) runs again.
+- **Cache writes are ordered.** A state is written to the in-memory cache and
+  broadcast while the session that computed it still holds the radio lock, only
+  for the connection it was computed on, and only if no newer write landed.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import SecretStr
+
+from app.models import (
+    RadioWifiChangeResult,
+    RadioWifiCredentialsRequest,
+    RadioWifiEnabledRequest,
+    RadioWifiState,
+)
+from app.services.companion_cli import (
+    WIFI_DEFAULT_TCP_PORT,
+    CliCommandError,
+    CliError,
+    CliLinkState,
+    CliTimeoutError,
+    CliUnknownCommandError,
+    CliUnsupportedError,
+    CompanionCli,
+    WifiStoreOutcome,
+    companion_cli_session,
+    set_wifi_enabled,
+    store_wifi_credentials,
+    validate_wifi_password,
+    validate_wifi_ssid,
+    wifi_credentials_stored,
+    wifi_enabled,
+    wifi_link_status,
+    wifi_ssid,
+)
+from app.services.radio_runtime import radio_runtime
+
+logger = logging.getLogger(__name__)
+
+# Bounded automatic retries of a failed post-connect check (seconds after the
+# failure; the first matches the companion CLI probe backoff).
+POST_CONNECT_RETRY_DELAYS: tuple[float, ...] = (30.0, 120.0)
+# Status/IP re-checks (no password) after a check found Wi-Fi enabled but not
+# joined yet: the radio retries joining every 10 s (30 s on RP2040).
+LINK_RECHECK_TIMES: tuple[float, ...] = (10.0, 30.0, 60.0)
+
+_CAPABILITY_NO_CLI = frozenset(
+    {
+        "firmware_unknown",
+        "firmware_too_old",
+        "proxy_link",
+        "untagged",
+        "unsupported_cmd",
+        "link_unreliable",
+    }
+)
+
+
+class WifiRequestError(Exception):
+    """A request the service refuses before touching the radio. ``code`` is stable."""
+
+    def __init__(self, code: str, status: int = 422) -> None:
+        self.code = code
+        self.status = status
+        super().__init__(code)
+
+
+@dataclass
+class _CacheEntry:
+    state: RadioWifiState
+    link: CliLinkState
+    generation: int
+    # The stored password read non-empty (before the open-network and marker
+    # adjustments); None when no full check ran on this connection.
+    raw_password_stored: bool | None
+
+
+_cache: _CacheEntry | None = None
+_version = 0  # bumped by every cache write and clear
+_generation = 0  # bumped at every new connection (setup completed) and clear
+_full_check_running = False
+
+
+def _manager() -> Any:
+    return radio_runtime.manager
+
+
+def clear_cache() -> None:
+    """Forget the cached state (called on every transport teardown)."""
+    global _cache, _version, _generation
+    _cache = None
+    _version += 1
+    _generation += 1
+
+
+def begin_connection() -> None:
+    """A new setup completed: earlier checks and their tasks are stale."""
+    clear_cache()
+
+
+def _current_entry() -> _CacheEntry | None:
+    entry = _cache
+    if entry is None:
+        return None
+    if entry.link is not _manager().cli_link or entry.generation != _generation:
+        return None
+    return entry
+
+
+def last_wifi_state() -> RadioWifiState | None:
+    """The cached state of the current connection, if a check or change ran."""
+    entry = _current_entry()
+    return entry.state.model_copy() if entry is not None else None
+
+
+@dataclass(frozen=True)
+class _WriteToken:
+    """Taken when a session starts: its write is refused if the connection
+    changed or a newer write landed meanwhile."""
+
+    version: int
+    generation: int
+    link: CliLinkState
+
+
+def _token() -> _WriteToken:
+    return _WriteToken(version=_version, generation=_generation, link=_manager().cli_link)
+
+
+def _token_alive(token: _WriteToken) -> bool:
+    return token.generation == _generation and token.link is _manager().cli_link
+
+
+def _broadcast(state: RadioWifiState) -> None:
+    from app.websocket import broadcast_event
+
+    # WebSocket clients only: Wi-Fi state is local UI state, never for the radio
+    # proxy, fanout modules or Web Push.
+    broadcast_event("radio_wifi", state.model_dump(mode="json"), realtime=False)
+
+
+def _write_cache(
+    state: RadioWifiState, token: _WriteToken, *, raw_password_stored: bool | None
+) -> bool:
+    """Store and broadcast ``state`` if ``token`` is still current. Returns
+    whether it was written; ``token`` must not be reused after a write."""
+    global _cache, _version
+    if not _token_alive(token) or token.version != _version:
+        logger.debug("Dropped a stale Wi-Fi state")
+        return False
+    _version += 1
+    _cache = _CacheEntry(
+        state=state,
+        link=token.link,
+        generation=token.generation,
+        raw_password_stored=raw_password_stored,
+    )
+    _broadcast(state)
+    return True
+
+
+# -- state computation --------------------------------------------------------
+
+
+def _now() -> int:
+    return int(time.time())
+
+
+def _normalize_key(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    key = value.strip().lower()
+    if len(key) != 64 or set(key) == {"0"}:
+        return None
+    try:
+        bytes.fromhex(key)
+    except ValueError:
+        return None
+    return key
+
+
+async def connected_radio_public_key() -> str | None:
+    """The connected radio's public key (setup completes only once it matches
+    the bound identity)."""
+    mc = _manager().meshcore
+    info = getattr(mc, "self_info", None)
+    if isinstance(info, dict):
+        key = _normalize_key(info.get("public_key"))
+        if key:
+            return key
+    from app.services.radio_transport import get_transport
+
+    return _normalize_key((await get_transport()).bound_public_key)
+
+
+def _unsupported_state(reason: str, public_key: str | None) -> RadioWifiState:
+    return RadioWifiState(
+        check="done",
+        supported=False,
+        unsupported_reason="no_wifi" if reason == "no_wifi" else "no_cli",
+        radio_public_key=public_key,
+        checked_at=_now(),
+    )
+
+
+def _failed_state(
+    error: str, public_key: str | None, next_retry_at: int | None = None
+) -> RadioWifiState:
+    return RadioWifiState(
+        check="failed",
+        check_error=error,  # type: ignore[arg-type]
+        next_retry_at=next_retry_at,
+        radio_public_key=public_key,
+        checked_at=_now(),
+    )
+
+
+async def _prompt_entry(public_key: str | None) -> dict[str, Any]:
+    if not public_key:
+        return {}
+    from app.repository import AppSettingsRepository
+
+    return (await AppSettingsRepository.get_wifi_prompt_state()).get(public_key, {})
+
+
+async def _compose_state(
+    *,
+    public_key: str | None,
+    ssid: str | None,
+    enabled: bool,
+    connected: bool,
+    ip: str | None,
+    raw_password_stored: bool | None,
+    reboot_pending: bool,
+) -> RadioWifiState:
+    entry = await _prompt_entry(public_key)
+    open_record = entry.get("open_network_ssid")
+    store_incomplete = "store_started_at" in entry
+    target = entry.get("store_target_ssid")
+    credentials_stored = raw_password_stored
+    open_network = False
+    if raw_password_stored is False and isinstance(open_record, str) and open_record == ssid:
+        credentials_stored = True
+        open_network = True
+    if store_incomplete:
+        # After a dropped link the radio may hold the new SSID with the old
+        # password, which reads as stored: never trust it until a verified store.
+        credentials_stored = False
+        open_network = False
+    dismissed = "dismissed_at" in entry
+    prompt_needed = bool(
+        enabled
+        and ssid is not None
+        and credentials_stored is not None
+        and (not credentials_stored or store_incomplete)
+        and not dismissed
+    )
+    return RadioWifiState(
+        check="done",
+        supported=True,
+        ssid=ssid,
+        enabled=enabled,
+        connected=connected,
+        ip=ip,
+        tcp_port=WIFI_DEFAULT_TCP_PORT,
+        credentials_stored=credentials_stored,
+        open_network=open_network,
+        prompt_needed=prompt_needed,
+        reboot_pending=reboot_pending,
+        store_incomplete=store_incomplete,
+        store_target_ssid=target if store_incomplete and isinstance(target, str) else None,
+        radio_public_key=public_key,
+        checked_at=_now(),
+    )
+
+
+async def _read_wifi_state(
+    cli: CompanionCli,
+    *,
+    public_key: str | None,
+    read_password: bool,
+    raw_password_stored: bool | None = None,
+    reboot_pending: bool = False,
+) -> tuple[RadioWifiState, bool | None]:
+    """Read the Wi-Fi state. With ``read_password`` the stored password is read
+    (and discarded); otherwise ``raw_password_stored`` is reused."""
+    link = cli.link
+    cached = link.capabilities
+    refresh = cached is not None and cached.reason == "probe_failed"
+    caps = await cli.capabilities(refresh=refresh)
+    if not caps.supported:
+        if caps.reason == "probe_failed":
+            return _failed_state("probe_failed", public_key), None
+        return _unsupported_state("no_cli", public_key), None
+    if not caps.wifi:
+        return _unsupported_state("no_wifi", public_key), None
+    try:
+        ssid = await wifi_ssid(cli)
+        enabled = await wifi_enabled(cli)
+        status = await wifi_link_status(cli)
+        if read_password:
+            raw_password_stored = await wifi_credentials_stored(cli)
+    except CliUnknownCommandError:
+        return _unsupported_state("no_wifi", public_key), None
+    except CliUnsupportedError:
+        return _unsupported_state("no_cli", public_key), None
+    state = await _compose_state(
+        public_key=public_key,
+        ssid=ssid,
+        enabled=enabled,
+        connected=status.connected,
+        ip=status.ip,
+        raw_password_stored=raw_password_stored,
+        reboot_pending=reboot_pending,
+    )
+    return state, raw_password_stored
+
+
+async def _require_wifi(cli: CompanionCli) -> None:
+    caps = await cli.capabilities()
+    if not caps.supported:
+        raise CliUnsupportedError(caps.reason)
+    if not caps.wifi:
+        raise CliUnknownCommandError("cli_unknown_command", verb="get", name="wifi.status")
+
+
+def wifi_reboot_required(
+    outcome: WifiStoreOutcome,
+    *,
+    connected: bool,
+    open_record_ssid: str | None,
+    new_password_empty: bool,
+) -> bool:
+    """Whether the stored credentials differ from what the radio runs on.
+
+    When credentials were stored (a non-empty password, or an open network
+    Meshloom recorded for the previous SSID), old and new values compare. When
+    nothing was stored the radio runs on the compile-time credentials, which
+    cannot be read: storing the SSID it is joined to right now, with a password
+    (the flasher case), needs no reboot; anything else does. Ticking "open
+    network" for the running SSID may not match the compiled password, so it
+    always counts as a change.
+    """
+    if outcome.previously_stored or (
+        open_record_ssid is not None and open_record_ssid == outcome.previous_ssid
+    ):
+        return outcome.ssid_changed or outcome.password_changed
+    flasher_shortcut = not outcome.ssid_changed and connected and not new_password_empty
+    return not flasher_shortcut
+
+
+async def _send_wifi_reboot() -> None:
+    """Reboot the radio to apply Wi-Fi settings; called with the radio lock held."""
+    manager = _manager()
+    mc = manager.meshcore
+    if mc is None:
+        raise CliError("setup_incomplete")
+    logger.info("Rebooting the radio to apply its Wi-Fi settings")
+    await mc.commands.reboot()
+    manager.note_expected_reboot("wifi_config")
+
+
+# -- public API ---------------------------------------------------------------
+
+
+def _validated_credentials(request: RadioWifiCredentialsRequest) -> tuple[str, str]:
+    try:
+        ssid = validate_wifi_ssid(request.ssid)
+    except CliCommandError:
+        raise WifiRequestError("wifi_invalid_ssid") from None
+    password = request.password.get_secret_value() if request.password is not None else ""
+    if request.open_network == bool(password):
+        # Open network with a password, or a protected one without.
+        raise WifiRequestError("wifi_invalid_password")
+    try:
+        password = validate_wifi_password(password, typed=True)
+    except CliCommandError:
+        raise WifiRequestError("wifi_invalid_password") from None
+    return ssid, password
+
+
+async def apply_wifi_credentials(
+    request: RadioWifiCredentialsRequest, *, public_key: str
+) -> RadioWifiChangeResult:
+    """Store Wi-Fi credentials in the radio (verified, rolled back on failure).
+
+    Raises ``WifiRequestError`` for an invalid request (nothing sent),
+    ``CliError`` subclasses for radio failures (``wifi_store_unverified``,
+    ``wifi_store_partial``, timeouts, no CLI or no Wi-Fi).
+    """
+    from app.repository import AppSettingsRepository
+
+    ssid, password = _validated_credentials(request)
+    async with companion_cli_session("wifi_credentials") as cli:
+        token = _token()
+        await _require_wifi(cli)
+        # Read before writing: stored credentials apply only after a reboot, so
+        # these do not change, and nothing is left to read once the store is done.
+        enabled = await wifi_enabled(cli)
+        status = await wifi_link_status(cli)
+        open_record = (await _prompt_entry(public_key)).get("open_network_ssid")
+        await AppSettingsRepository.mark_wifi_store_started(public_key, ssid)
+        try:
+            outcome = await store_wifi_credentials(cli, ssid, SecretStr(password), typed=True)
+        except CliError as exc:
+            if exc.code == "wifi_store_partial":
+                # Marker kept: the warning survives the link drop that usually
+                # causes this, and the cache clear that follows it.
+                await _note_store_incomplete(token, public_key, ssid)
+            else:
+                # Verified rollback, or nothing written at all.
+                await AppSettingsRepository.clear_wifi_store_marker(public_key)
+            raise
+        await AppSettingsRepository.clear_wifi_store_marker(public_key)
+        if request.open_network:
+            await AppSettingsRepository.mark_wifi_open_network(public_key, ssid)
+        else:
+            await AppSettingsRepository.clear_wifi_open_network(public_key)
+        raw = bool(password)
+        password = ""
+        previous = _current_entry()
+        state = await _compose_state(
+            public_key=public_key,
+            ssid=ssid,
+            enabled=enabled,
+            connected=status.connected,
+            ip=status.ip,
+            raw_password_stored=raw,
+            reboot_pending=previous.state.reboot_pending if previous else False,
+        )
+        required = wifi_reboot_required(
+            outcome,
+            connected=status.connected,
+            open_record_ssid=open_record if isinstance(open_record, str) else None,
+            new_password_empty=request.open_network,
+        )
+        return await _finish_change(state, raw, token, required=required, reboot=request.reboot)
+
+
+async def _finish_change(
+    state: RadioWifiState,
+    raw: bool | None,
+    token: _WriteToken,
+    *,
+    required: bool,
+    reboot: bool,
+) -> RadioWifiChangeResult:
+    """Write the new state, then reboot when required and confirmed (lock held)."""
+    rebooting = False
+    if required and reboot:
+        state.reboot_pending = False
+        _write_cache(state, token, raw_password_stored=raw)
+        await _send_wifi_reboot()
+        rebooting = True
+    else:
+        state.reboot_pending = state.reboot_pending or required
+        _write_cache(state, token, raw_password_stored=raw)
+    return RadioWifiChangeResult(state=state, reboot_required=required, rebooting=rebooting)
+
+
+async def _note_store_incomplete(token: _WriteToken, public_key: str, ssid: str) -> None:
+    """Mark the cached state after a partial store (the link is usually gone)."""
+    entry = _current_entry()
+    if entry is None:
+        return
+    state = entry.state.model_copy()
+    state.store_incomplete = True
+    state.store_target_ssid = ssid
+    state.credentials_stored = False
+    state.open_network = False
+    dismissed = "dismissed_at" in await _prompt_entry(public_key)
+    state.prompt_needed = bool(state.enabled and state.ssid is not None and not dismissed)
+    _write_cache(state, token, raw_password_stored=entry.raw_password_stored)
+
+
+async def apply_wifi_enabled(
+    request: RadioWifiEnabledRequest, *, public_key: str
+) -> RadioWifiChangeResult:
+    """Turn the radio's Wi-Fi on or off (applies after a reboot).
+
+    Enabling with no network name stored (``ssid`` None) stores the setting but
+    needs no reboot: the firmware starts Wi-Fi only once an SSID is stored.
+    """
+    async with companion_cli_session("wifi_enabled") as cli:
+        token = _token()
+        await _require_wifi(cli)
+        ssid = await wifi_ssid(cli)
+        was_enabled = await wifi_enabled(cli)
+        status = await wifi_link_status(cli)
+        await set_wifi_enabled(cli, request.enabled)
+        previous = _current_entry()
+        raw = previous.raw_password_stored if previous else None
+        state = await _compose_state(
+            public_key=public_key,
+            ssid=ssid,
+            enabled=request.enabled,
+            connected=status.connected,
+            ip=status.ip,
+            raw_password_stored=raw,
+            reboot_pending=previous.state.reboot_pending if previous else False,
+        )
+        required = was_enabled != request.enabled and ssid is not None
+        return await _finish_change(state, raw, token, required=required, reboot=request.reboot)
+
+
+async def reboot_for_wifi_config() -> RadioWifiChangeResult:
+    """Reboot the radio to apply stored Wi-Fi settings (a user-confirmed action).
+
+    Allowed whenever the radio is connected and set up, with or without a
+    pending change, so the prompt's follow-up, the panel's "Reboot now" and a
+    restore share it. Unlike ``POST /radio/reboot`` it records the planned
+    reboot (``wifi_config``).
+    """
+    manager = _manager()
+    if not manager.is_setup_complete:
+        raise CliError("setup_incomplete")
+    async with radio_runtime.radio_operation("wifi_reboot") as mc:
+        if not manager.is_setup_complete or mc is not manager.meshcore:
+            raise CliError("setup_incomplete")
+        entry = _current_entry()
+        state = entry.state.model_copy() if entry is not None else RadioWifiState()
+        state.reboot_pending = False
+        await _send_wifi_reboot()
+    return RadioWifiChangeResult(state=state, reboot_required=False, rebooting=True)
+
+
+async def dismiss_wifi_prompt(radio_public_key: str) -> RadioWifiState:
+    """Never ask again for this radio. Refused (``wifi_radio_changed``) when the
+    connected radio is not the one the dialog was shown for."""
+    from app.repository import AppSettingsRepository
+
+    shown = _normalize_key(radio_public_key)
+    connected = await connected_radio_public_key()
+    if shown is None or connected is None or shown != connected:
+        raise WifiRequestError("wifi_radio_changed", status=409)
+    await AppSettingsRepository.mark_wifi_prompt_dismissed(connected)
+    global _version
+    entry = _current_entry()
+    if entry is None:
+        return RadioWifiState(radio_public_key=connected)
+    state = entry.state.model_copy()
+    state.prompt_needed = False
+    _version += 1
+    entry.state = state
+    _broadcast(state)
+    return state.model_copy()
+
+
+async def run_full_wifi_check(
+    *, blocking: bool = True, next_retry_at: int | None = None
+) -> RadioWifiState:
+    """One full check (stored password read included); writes and broadcasts.
+
+    A timeout or another CLI failure gives ``check="failed"`` (with
+    ``next_retry_at`` when the caller schedules a retry) instead of raising.
+    """
+    global _full_check_running
+    _full_check_running = True
+    try:
+        async with companion_cli_session("wifi_check", blocking=blocking) as cli:
+            token = _token()
+            public_key = await connected_radio_public_key()
+            previous = _current_entry()
+            reboot_pending = previous.state.reboot_pending if previous else False
+            raw: bool | None = None
+            try:
+                state, raw = await _read_wifi_state(
+                    cli,
+                    public_key=public_key,
+                    read_password=True,
+                    reboot_pending=reboot_pending,
+                )
+            except CliTimeoutError:
+                state = _failed_state("cli_timeout", public_key)
+            except CliError as exc:
+                if exc.code == "setup_incomplete":
+                    raise
+                state = _failed_state("cli_error", public_key)
+            if state.check == "failed":
+                state.next_retry_at = next_retry_at
+            _write_cache(state, token, raw_password_stored=raw)
+            return state
+    finally:
+        _full_check_running = False
+
+
+async def refresh_wifi_state() -> RadioWifiState:
+    """Re-read SSID, enabled, status and IP (no password), keeping the cached
+    ``credentials_stored``. Runs a full check when none completed on this
+    connection (unless one is running)."""
+    entry = _current_entry()
+    if entry is None or entry.state.check != "done" or entry.raw_password_stored is None:
+        if entry is not None and entry.state.check == "done" and not entry.state.supported:
+            return entry.state.model_copy()
+        if _full_check_running:
+            return entry.state.model_copy() if entry is not None else RadioWifiState()
+        return await run_full_wifi_check()
+    async with companion_cli_session("wifi_refresh") as cli:
+        token = _token()
+        entry = _current_entry()
+        raw = entry.raw_password_stored if entry is not None else None
+        reboot_pending = entry.state.reboot_pending if entry is not None else False
+        public_key = await connected_radio_public_key()
+        state, raw = await _read_wifi_state(
+            cli,
+            public_key=public_key,
+            read_password=raw is None,
+            raw_password_stored=raw,
+            reboot_pending=reboot_pending,
+        )
+        _write_cache(state, token, raw_password_stored=raw)
+        return state
+
+
+async def get_wifi_state(*, refresh: bool) -> RadioWifiState:
+    """GET /api/radio/wifi: the cached state (``pending`` when none yet), or a
+    live read with ``refresh``."""
+    if refresh:
+        return await refresh_wifi_state()
+    state = last_wifi_state()
+    return state if state is not None else RadioWifiState(check="pending")
+
+
+async def _merge_link_status(token: _WriteToken, connected: bool, ip: str | None) -> bool:
+    """Merge only ``connected``/``ip`` into the cached state (re-checks never
+    write a whole snapshot). Returns whether it changed."""
+    global _version
+    entry = _current_entry()
+    if entry is None or not _token_alive(token):
+        return False
+    if entry.state.connected == connected and entry.state.ip == ip:
+        return False
+    state = entry.state.model_copy()
+    state.connected = connected
+    state.ip = ip
+    _version += 1
+    entry.state = state
+    _broadcast(state)
+    return True
