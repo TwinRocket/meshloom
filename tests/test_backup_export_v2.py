@@ -268,3 +268,34 @@ async def test_export_logs_no_secret_at_debug(backup_db, secret_debug_logs):
     assert doc.wifi is not None
     assert any("get wifi.pwd" in m for m in (r.getMessage() for r in secret_debug_logs.records))
     assert_no_secret_logged(secret_debug_logs, WIFI_PASSWORD.strip(), node.private_key)
+
+
+@pytest.mark.asyncio
+async def test_an_open_network_recorded_for_this_radio_is_exported(backup_db):
+    node = _node(stored_ssid="Cafe", stored_pwd="")
+    await AppSettingsRepository.mark_wifi_open_network(node.public_key, "Cafe")
+    async with connected_node(node):
+        doc = await export_backup_v2()
+    assert doc.wifi is not None
+    assert doc.wifi.open_network is True
+    assert doc.wifi.ssid == "Cafe"
+    assert export_document(doc)["wifi"]["password"] == ""
+    assert "wifi_not_stored" not in doc.warnings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("record", ["other_ssid", "other_radio", "store_interrupted"])
+async def test_an_open_network_is_exported_only_with_a_matching_record(backup_db, record):
+    node = _node(stored_ssid="Cafe", stored_pwd="")
+    if record == "other_ssid":
+        await AppSettingsRepository.mark_wifi_open_network(node.public_key, "Elsewhere")
+    elif record == "other_radio":
+        await AppSettingsRepository.mark_wifi_open_network("ef" * 32, "Cafe")
+    else:
+        await AppSettingsRepository.mark_wifi_open_network(node.public_key, "Cafe")
+        await AppSettingsRepository.mark_wifi_store_started(node.public_key, "Cafe")
+    async with connected_node(node):
+        doc = await export_backup_v2()
+    assert doc.wifi is not None
+    assert doc.wifi.has_credentials is False
+    assert "wifi_not_stored" in doc.warnings

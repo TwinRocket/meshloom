@@ -140,7 +140,7 @@ Quand Meshloom joint la radio en TCP (donc par son Wi-Fi), les fenêtres prévie
 
 - Un réseau nommé littéralement `(not set)` ne peut pas être utilisé : la radio affiche ce texte quand aucun nom n’est défini.
 - Le nom du réseau fait de 1 à 32 octets, le mot de passe jusqu’à 63. Aucun des deux n’est rogné : les espaces comptent. Sous 8 caractères, Meshloom prévient (le WPA en demande 8, les clés WEP en ont 5 ou 13) et enregistre le mot de passe tel quel.
-- Sur la radio, un réseau ouvert se lit comme « rien d’enregistré ». Meshloom retient que vous en avez enregistré un pour ce réseau.
+- Sur la radio, un réseau ouvert se lit comme « rien d’enregistré ». Meshloom retient que vous en avez enregistré un pour ce réseau, et une [sauvegarde complète](/docs/backup/) le contient.
 - Si l’enregistrement est interrompu (le lien a coupé entre les deux commandes), la radio peut contenir le nouveau nom de réseau avec l’ancien mot de passe ou aucun. Meshloom affiche alors un avertissement, même après une reconnexion, et ne propose aucun redémarrage (pas même avec **Activer le Wi-Fi** ou **Désactiver le Wi-Fi**) : enregistrez de nouveau les identifiants, ou vérifiez-les en USB ou en Bluetooth avant de redémarrer la radio.
 - Si la vérification après la connexion échoue (la radio n’a pas répondu à temps), Meshloom réessaie après 30 secondes, puis après 2 minutes. **Réessayer**, dans le groupe Wi-Fi, vérifie de nouveau. Si Meshloom ne peut pas lire du tout l’état du Wi-Fi, le groupe l’indique, avec **Réessayer**.
 

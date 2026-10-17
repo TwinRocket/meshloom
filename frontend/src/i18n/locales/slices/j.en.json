@@ -19,7 +19,7 @@
       "warningIdentityDisabled": "This backup has no identity: the radio firmware does not allow exporting its private key.",
       "warningRadioDisconnected": "The radio is not connected: this backup holds the Meshloom data only, without the radio's identity and settings.",
       "warningRadioNotReady": "The radio is still starting: this backup holds the Meshloom data only. Try again in a moment.",
-      "warningWifiNotStored": "The radio stores no Wi-Fi password, so none is in this backup (an open network is not saved either).",
+      "warningWifiNotStored": "The radio stores no Wi-Fi password, so none is in this backup (an open network is saved only when it was stored from Meshloom).",
       "warningWifiReadFailed": "The radio's Wi-Fi credentials could not be read.",
       "warningReadFailed": "Some radio settings could not be read and are not in this backup.",
       "downloadedNoIdentity": "Full backup downloaded, without the radio's identity: read the notes below."
@@ -39,6 +39,7 @@
       "hasIdentity": "Contains the radio's identity (private key).",
       "noIdentity": "This backup has no identity: the radio's private key is not in it.",
       "hasWifi": "Contains the Wi-Fi credentials stored in the radio.",
+      "hasWifiOpenNetwork": "Contains the Wi-Fi network stored in the radio, an open network (no password).",
       "hasWifiFlagOnly": "Contains whether the radio's Wi-Fi is on, without credentials (the radio stored none).",
       "v1Only": "Meshloom data only (older format): the radio is not touched.",
       "counts": "{{contacts}} contacts, {{channels}} channels, {{groups}} groups",

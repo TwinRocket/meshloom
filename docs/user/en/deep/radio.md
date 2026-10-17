@@ -140,7 +140,7 @@ When Meshloom reaches the radio over TCP (that is, over its Wi-Fi), the dialogs 
 
 - A network literally named `(not set)` cannot be used: the radio prints that when no name is set.
 - The network name takes 1 to 32 bytes, the password up to 63. Neither is trimmed: spaces count. Below 8 characters Meshloom warns (WPA needs 8, WEP keys have 5 or 13) and stores the password as typed.
-- On the radio, an open network reads like "nothing stored". Meshloom remembers that you stored one for that network.
+- On the radio, an open network reads like "nothing stored". Meshloom remembers that you stored one for that network, and a [full backup](/en/docs/backup/) carries it.
 - If storing is interrupted (the link dropped between the two commands), the radio may hold the new network name with the old password or none. Meshloom then shows a warning, even after a reconnect, and offers no reboot (not even with **Turn Wi-Fi on** or **Turn Wi-Fi off**): store the credentials again, or check them over USB or Bluetooth before rebooting the radio.
 - If the check after connecting fails (the radio did not answer in time), Meshloom tries again after 30 seconds, then after 2 minutes. **Retry** in the Wi-Fi group checks again. If Meshloom cannot read the Wi-Fi state at all, the group says so, with **Retry**.
 

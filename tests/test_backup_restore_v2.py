@@ -1294,3 +1294,49 @@ async def test_the_wifi_prompt_waits_for_the_restore_to_end(backup_db, setup_stu
     prompts = [s["prompt_needed"] for s in wifi_broadcasts]
     assert prompts == [True, False, True]  # closed while the job ran, back after
     assert state is not None and state.prompt_needed is True
+
+
+@pytest.mark.asyncio
+async def test_an_open_network_in_the_backup_is_stored_and_recorded(
+    backup_db, setup_stub, wifi_broadcasts
+):
+    from app.services import radio_wifi
+    from app.services.backup_restore import inspect_backup
+
+    node = await _same_identity_node()
+    node.stored_ssid = "Home"
+    node.stored_pwd = "old-password"
+    doc = make_doc(wifi=BackupWifi(ssid="Cafe", password="", open_network=True))  # type: ignore[arg-type]
+    async with connected_node(node):
+        inspected = await inspect_backup(doc, None)
+        job = await run(doc)
+        state = radio_wifi.last_wifi_state()
+
+    assert inspected.has_wifi_credentials is True and inspected.wifi_open_network is True
+    assert statuses(job)["wifi"] == ("done", None)
+    assert "set wifi.pwd " in node.commands  # the empty password, trailing space
+    assert node.stored_ssid == "Cafe" and node.stored_pwd == ""
+    entry = (await AppSettingsRepository.get_wifi_prompt_state())[P]
+    assert entry["open_network_ssid"] == "Cafe"
+    assert state is not None
+    assert state.credentials_stored is True and state.open_network is True
+    assert job.result is not None and job.result.reboot_required is True
+
+
+@pytest.mark.asyncio
+async def test_an_open_network_round_trips_through_a_backup(backup_db, setup_stub, wifi_broadcasts):
+    node = await _same_identity_node()
+    node.stored_ssid = "Cafe"
+    await AppSettingsRepository.mark_wifi_open_network(P, "Cafe")
+    async with connected_node(node):
+        exported = export_document(await export_backup_v2())
+    assert exported["wifi"]["open_network"] is True
+
+    await AppSettingsRepository.clear_wifi_open_network(P)
+    fresh = FakeNode(private_key=BACKUP_KEY)  # reflashed: nothing stored
+    async with connected_node(fresh):
+        job = await run(BackupExportV2.model_validate(exported))
+    assert statuses(job)["wifi"] == ("done", None)
+    assert fresh.stored_ssid == "Cafe" and fresh.stored_pwd == ""
+    entry = (await AppSettingsRepository.get_wifi_prompt_state())[P]
+    assert entry["open_network_ssid"] == "Cafe"

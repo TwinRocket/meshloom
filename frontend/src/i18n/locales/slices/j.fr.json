@@ -19,7 +19,7 @@
       "warningIdentityDisabled": "Cette sauvegarde ne contient pas d’identité : le firmware de la radio n’autorise pas l’export de sa clé privée.",
       "warningRadioDisconnected": "La radio n’est pas connectée : cette sauvegarde ne contient que les données de Meshloom, sans l’identité ni les réglages de la radio.",
       "warningRadioNotReady": "La radio démarre encore : cette sauvegarde ne contient que les données de Meshloom. Réessayez dans un instant.",
-      "warningWifiNotStored": "La radio ne stocke aucun mot de passe Wi-Fi : la sauvegarde n’en contient donc pas (un réseau ouvert n’est pas enregistré non plus).",
+      "warningWifiNotStored": "La radio ne stocke aucun mot de passe Wi-Fi : la sauvegarde n’en contient donc pas (un réseau ouvert n’est enregistré que s’il a été enregistré depuis Meshloom).",
       "warningWifiReadFailed": "Les identifiants Wi-Fi de la radio n’ont pas pu être lus.",
       "warningReadFailed": "Certains réglages de la radio n’ont pas pu être lus et ne sont pas dans cette sauvegarde.",
       "downloadedNoIdentity": "Sauvegarde complète téléchargée, sans l’identité de la radio : lisez les remarques ci-dessous."
@@ -39,6 +39,7 @@
       "hasIdentity": "Contient l’identité de la radio (clé privée).",
       "noIdentity": "Cette sauvegarde ne contient pas d’identité : la clé privée de la radio n’y est pas.",
       "hasWifi": "Contient les identifiants Wi-Fi stockés dans la radio.",
+      "hasWifiOpenNetwork": "Contient le réseau Wi-Fi stocké dans la radio, un réseau ouvert (sans mot de passe).",
       "hasWifiFlagOnly": "Contient l’état activé ou non du Wi-Fi de la radio, sans identifiants (la radio n’en stockait pas).",
       "v1Only": "Données de Meshloom uniquement (ancien format) : la radio n’est pas modifiée.",
       "counts": "{{contacts}} contacts, {{channels}} canaux, {{groups}} groupes",

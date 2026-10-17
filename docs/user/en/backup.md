@@ -66,7 +66,7 @@ Note that anyone who can reach your Meshloom can download this backup, and so ca
 - Its identity (private key), when the firmware allows exporting it.
 - Its name, position, transmit power and radio parameters (frequency, bandwidth, spreading factor, coding rate), with the client repeat flag.
 - Its other settings: telemetry sharing, advert location policy, extra acknowledgements, manual contact adding, timing parameters, path hash mode, auto-add rules, the default flood scope (region), the Bluetooth PIN, firmware custom variables (GPS and its interval when the board has them) and, on firmware 1.18 and later, the time zone and the radio tuning settings only the command line reaches.
-- Whether the radio's Wi-Fi is on or off, and the Wi-Fi network name and password when the radio stores a password. An open network, or credentials only built into the firmware, are not saved (the on/off setting is). When the radio stores a password but no network name, the radio reports the network name built into the firmware: the backup pairs those two, and a restore stores both (the radio then uses them).
+- Whether the radio's Wi-Fi is on or off, and the Wi-Fi network name and password when the radio stores a password. An open network is saved when it was stored from Meshloom (with **Open network**, or by an earlier restore), since the radio cannot tell it from "nothing stored"; a restore stores it again. Credentials only built into the firmware are not saved (the on/off setting is). When the radio stores a password but no network name, the radio reports the network name built into the firmware: the backup pairs those two, and a restore stores both (the radio then uses them).
 
 **From Meshloom:**
 

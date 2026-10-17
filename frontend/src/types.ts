@@ -1672,6 +1672,8 @@ export interface BackupInspectResult {
   has_wifi: boolean;
   /** The block holds credentials (else only the on/off flag). */
   has_wifi_credentials?: boolean;
+  /** Those credentials are an open network (an SSID with no password). */
+  wifi_open_network?: boolean;
   counts: BackupCounts;
   bot_names: string[];
   /** Bots are turned off on this server: the file's bots are not restored. */

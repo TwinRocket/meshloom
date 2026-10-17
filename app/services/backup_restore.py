@@ -331,6 +331,9 @@ async def inspect_backup(
     result.radio_name = opened.radio.name if opened.radio else None
     result.has_wifi = opened.wifi is not None
     result.has_wifi_credentials = opened.wifi is not None and opened.wifi.has_credentials
+    result.wifi_open_network = result.has_wifi_credentials and bool(
+        opened.wifi and opened.wifi.open_network
+    )
     if extra is not None:
         result.counts.fanout_configs = len(extra.fanout_configs)
         result.counts.push_subscriptions = len(extra.push_subscriptions)
@@ -817,9 +820,11 @@ async def _radio_steps(run: _Run) -> None:
                         # in progress" marker around the store, then the
                         # open-network record.
                         wifi_reboot = await store_restored_credentials(
-                            cli, wifi.ssid, wifi.password, open_network=False
+                            cli, wifi.ssid, wifi.password, open_network=wifi.open_network
                         )
-                        stored_raw = True
+                        # An open network reads as "nothing stored"; the record
+                        # written by the store makes the panel say "stored".
+                        stored_raw = not wifi.open_network
                         # Stored and verified: they apply at the next reboot, even
                         # if the on/off flag below cannot be written. The Wi-Fi
                         # panel's rule decides whether that reboot is needed (not

@@ -143,7 +143,8 @@ and the OpenAPI page (`/docs`), not a table here.
 - **Prompt state** (`app_settings.wifi_prompt_state`, migration 095, not in
   `AppSettings`): JSON keyed by the lowercase radio public key with independent
   fields: `dismissed_at` ("don't ask again", never erased), `open_network_ssid`
-  (an open network reads like "nothing stored"), and the **store-in-progress
+  (an open network reads like "nothing stored"; the full backup exports it
+  from this record), and the **store-in-progress
   marker** `store_started_at`/`store_target_ssid`, written before the first `set`
   and cleared once the store is verified or rolled back, or when it failed
   before its first `set` (any non-`CliError`, such as a dropped link, comes from
@@ -374,7 +375,11 @@ be wrong, because historical decryption inserts old messages with new ids.
   `refresh_after_restore()` writes and broadcasts the panel's state (no
   second password read after a verified store; a read failure writes a
   `failed` state). `BackupWifi` may carry only `enabled`
-  (no credentials stored); inspect sets `wifi_off_on_tcp` when the file turns
+  (no credentials stored), or an open network: `open_network` with an empty
+  password, exported only when the panel's `open_network_ssid` record for the
+  live key matches the SSID and no store marker is left (the radio reads it as
+  "nothing stored"); an SSID with an empty password is always an open network,
+  and its restore stores `set wifi.pwd ` and records it again; inspect sets `wifi_off_on_tcp` when the file turns
   Wi-Fi off on a TCP link, and the UI defaults the step off. Raw frames also for the default flood scope (keeps a
   non-derived key) and auto-add (keeps `max_hops`).
 - **Job.** One at a time (409 `backup_restore_running`, answered by the route

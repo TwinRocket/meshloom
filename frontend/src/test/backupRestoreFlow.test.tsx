@@ -347,6 +347,18 @@ describe('BackupRestoreFlow', () => {
     expect(checkbox('settings.fullRestore.steps.radio_settings').checked).toBe(true);
   });
 
+  it('names an open network in the summary', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({ has_wifi_credentials: true, wifi_open_network: true })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.hasWifiOpenNetwork'))
+    ).toBeVisible();
+    expect(screen.queryByText(i18n.t('settings.fullRestore.hasWifi'))).toBeNull();
+  });
+
   it('defaults Wi-Fi off on TCP when the file turns Wi-Fi off, and names a flag-only block', async () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({ has_wifi_credentials: false, wifi_off_on_tcp: true })

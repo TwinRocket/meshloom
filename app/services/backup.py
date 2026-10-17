@@ -588,9 +588,21 @@ def _self_info_public_key(mc) -> str | None:
     return key.lower() if isinstance(key, str) and key else None
 
 
-async def _read_wifi(cli) -> tuple[BackupWifi | None, list[str]]:
+async def _open_network_recorded(public_key: str | None, ssid: str) -> bool:
+    """Meshloom recorded ``ssid`` as an open network stored in this radio (the
+    Wi-Fi panel's ``wifi_prompt_state``), and no interrupted store casts doubt
+    on it (the same rule as the panel's state)."""
+    if not public_key:
+        return False
+    entry = (await AppSettingsRepository.get_wifi_prompt_state()).get(public_key.lower(), {})
+    return entry.get("open_network_ssid") == ssid and "store_started_at" not in entry
+
+
+async def _read_wifi(cli, public_key: str | None) -> tuple[BackupWifi | None, list[str]]:
     """Wi-Fi credentials stored in the radio (read live, never stored by Meshloom)
-    and its on/off flag, kept even when no credentials are stored."""
+    and its on/off flag, kept even when no credentials are stored. An empty
+    stored password is an open network only when Meshloom recorded one for this
+    radio and SSID (the radio cannot tell it from "nothing stored")."""
     from app.services.companion_cli import (
         CliError,
         wifi_enabled,
@@ -607,9 +619,18 @@ async def _read_wifi(cli) -> tuple[BackupWifi | None, list[str]]:
         enabled: bool | None = await wifi_enabled(cli)
     except CliError:
         enabled = None
+    if ssid is not None and not password.get_secret_value():
+        try:
+            if await _open_network_recorded(public_key, ssid):
+                return BackupWifi(
+                    ssid=ssid, password=SecretStr(""), open_network=True, enabled=enabled
+                ), []
+        except ValidationError:
+            return None, ["wifi_read_failed"]
     if ssid is None or not password.get_secret_value():
-        # Nothing stored (or an open network, which reads the same): keep the
-        # on/off flag, which also governs credentials built into the firmware.
+        # Nothing stored (or an open network Meshloom did not record, which reads
+        # the same): keep the on/off flag, which also governs credentials built
+        # into the firmware.
         return (BackupWifi(enabled=enabled) if enabled is not None else None), ["wifi_not_stored"]
     try:
         return BackupWifi(ssid=ssid, password=password, enabled=enabled), []
@@ -655,7 +676,7 @@ async def export_backup_v2() -> BackupExportV2:
                 await _ensure_keystore_key(mc, live_public_key)
                 identity = _identity_for(live_public_key)
                 if cli_supported and capabilities is not None and capabilities.wifi:
-                    wifi, wifi_warnings = await _read_wifi(cli)
+                    wifi, wifi_warnings = await _read_wifi(cli, live_public_key)
                     warnings.extend(wifi_warnings)
         except (CliError, RadioOperationError):
             warnings.append("radio_not_ready")

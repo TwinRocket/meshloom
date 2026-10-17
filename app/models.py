@@ -2061,14 +2061,20 @@ class BackupWifi(BaseModel):
     """The radio's Wi-Fi: the credentials it stores and its on/off flag.
     ``password`` is revealed only in the export document and is never written to
     the Meshloom database. ``ssid`` and ``password`` are both set or both None
-    (nothing stored: an open network or credentials built into the firmware),
-    and the block then carries only ``enabled``."""
+    (nothing stored, or credentials built into the firmware), and the block then
+    carries only ``enabled``. An open network reads like "nothing stored" on the
+    radio: it is in the file only when Meshloom recorded it for that radio and
+    SSID (``wifi_prompt_state``), as ``open_network`` with an empty password."""
 
     model_config = ConfigDict(hide_input_in_errors=True)
 
     ssid: str | None = None
     password: SecretStr | None = None
     enabled: bool | None = None
+    open_network: bool = Field(
+        default=False,
+        description="The SSID is an open network: stored with an empty password",
+    )
 
     @property
     def has_credentials(self) -> bool:
@@ -2110,6 +2116,12 @@ class BackupWifi(BaseModel):
             raise ValueError("wifi_credentials_incomplete")
         if not self.has_credentials and self.enabled is None:
             raise ValueError("wifi_empty")
+        empty = self.password is not None and not self.password.get_secret_value()
+        if self.open_network and not empty:
+            raise ValueError("wifi_open_network_invalid")
+        # An SSID with an empty password is what the radio stores for an open
+        # network, whatever the flag says.
+        self.open_network = empty
         return self
 
 
@@ -2285,6 +2297,9 @@ class BackupInspectResult(BaseModel):
     )
     has_wifi_credentials: bool = Field(
         default=False, description="The file holds Wi-Fi credentials stored in the radio"
+    )
+    wifi_open_network: bool = Field(
+        default=False, description="Those credentials are an open network (no password)"
     )
     counts: BackupCounts = Field(default_factory=BackupCounts)
     bot_names: list[str] = Field(default_factory=list)

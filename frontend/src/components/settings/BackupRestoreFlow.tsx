@@ -680,7 +680,9 @@ function RestoreSummary({
               <p>
                 {inspect.has_wifi_credentials === false
                   ? t('settings.fullRestore.hasWifiFlagOnly')
-                  : t('settings.fullRestore.hasWifi')}
+                  : inspect.wifi_open_network
+                    ? t('settings.fullRestore.hasWifiOpenNetwork')
+                    : t('settings.fullRestore.hasWifi')}
               </p>
             )}
             <p data-testid="identity-relation">

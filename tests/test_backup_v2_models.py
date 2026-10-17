@@ -275,3 +275,23 @@ def test_wifi_block_pairs_ssid_and_password_and_is_never_empty():
     for bad in ({"ssid": "HomeNet"}, {"password": "secret-pw"}, {}):
         with pytest.raises(ValidationError):
             BackupWifi(**bad)  # type: ignore[arg-type]
+
+
+def test_wifi_open_network_is_an_ssid_with_an_empty_password():
+    from app.models import BackupWifi
+
+    wifi = BackupWifi(ssid="Cafe", password="", open_network=True)  # type: ignore[arg-type]
+    assert wifi.has_credentials is True and wifi.open_network is True
+    dumped = wifi.model_dump(mode="json", context={"backup_export": True})
+    assert dumped == {"ssid": "Cafe", "password": "", "enabled": None, "open_network": True}
+    assert BackupWifi.model_validate(dumped).open_network is True
+    # An SSID with an empty password is an open network whatever the flag says.
+    assert BackupWifi(ssid="Cafe", password="").open_network is True  # type: ignore[arg-type]
+    assert BackupWifi(ssid="Cafe", password="pw").open_network is False  # type: ignore[arg-type]
+    for bad in (
+        {"ssid": "Cafe", "password": "secret-pw", "open_network": True},
+        {"enabled": True, "open_network": True},
+    ):
+        with pytest.raises(ValidationError) as exc:
+            BackupWifi(**bad)  # type: ignore[arg-type]
+        assert "secret-pw" not in str(exc.value)

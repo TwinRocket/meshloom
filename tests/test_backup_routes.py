@@ -208,7 +208,12 @@ async def test_inspect_flags_a_file_that_turns_wifi_off_on_tcp(backup_db, client
     node.stored_pwd = ""
     node.enabled = False
     exported = (await _export(client, node)).json()
-    assert exported["wifi"] == {"ssid": None, "password": None, "enabled": False}
+    assert exported["wifi"] == {
+        "ssid": None,
+        "password": None,
+        "enabled": False,
+        "open_network": False,
+    }
     snapshot = await RadioTransportRepository.get()
     snapshot.transport = "tcp"
     snapshot.tcp_host = "10.0.0.2"
