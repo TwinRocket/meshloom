@@ -120,6 +120,10 @@ class DebugEnvironment(BaseModel):
     tcp_host: str
     tcp_port: int
     ble_address: str
+    ble_pairing_state: str | None = Field(
+        default=None, description="BlueZ pairing state of the BLE radio (codes only, no PIN)"
+    )
+    ble_pairing_error: str | None = None
     log_level: str
     database_path: str
     disable_bots: bool
@@ -234,6 +238,12 @@ def _coerce_live_max_channels(device_info: dict[str, Any] | None) -> int | None:
 
 async def _build_environment() -> DebugEnvironment:
     snapshot = await get_transport()
+    pairing_state = pairing_error = None
+    if snapshot.transport == "ble":
+        from app.services.ble_pairing import pairing_status
+
+        pairing = await pairing_status(snapshot.ble_address, snapshot.ble_pin, True)
+        pairing_state, pairing_error = pairing.state, pairing.error_code
     return DebugEnvironment(
         connection_type=snapshot.connection_type,
         serial_port=snapshot.serial_port,
@@ -241,6 +251,8 @@ async def _build_environment() -> DebugEnvironment:
         tcp_host=snapshot.tcp_host,
         tcp_port=snapshot.tcp_port,
         ble_address=snapshot.ble_address,
+        ble_pairing_state=pairing_state,
+        ble_pairing_error=pairing_error,
         log_level=settings.log_level,
         database_path=settings.database_path,
         disable_bots=settings.disable_bots,

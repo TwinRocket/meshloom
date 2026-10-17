@@ -47,6 +47,7 @@ import {
   type RadioTransportKind,
   type RadioTransportUpdate,
 } from '../../types';
+import { RadioBlePairing } from './RadioBlePairing';
 import { RadioFactoryReset } from './RadioFactoryReset';
 import { RadioFirmwareSettings } from './RadioFirmwareSettings';
 import { RadioSelfTelemetrySettings } from './RadioSelfTelemetrySettings';
@@ -244,6 +245,9 @@ function RadioTransportPanel({
   const [scanning, setScanning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [bleDevices, setBleDevices] = useState<RadioBleDeviceInfo[]>([]);
+  // A pairing (automatic during Save and connect, or Pair now) uses the adapter:
+  // no scan meanwhile (the backend refuses it too).
+  const [blePairingBusy, setBlePairingBusy] = useState(false);
 
   const applySnapshot = (next: RadioTransportConfig) => {
     setSnapshot(next);
@@ -466,7 +470,12 @@ function RadioTransportPanel({
               onChange={(e) => setBleAddress(e.target.value)}
               className="font-mono"
             />
-            <Button type="button" variant="outline" onClick={handleScanBle} disabled={scanning}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleScanBle}
+              disabled={scanning || blePairingBusy}
+            >
               {scanning ? t('settings.radio.bleScanning') : t('settings.radio.bleScan')}
             </Button>
           </div>
@@ -506,6 +515,15 @@ function RadioTransportPanel({
               {t('settings.radio.blePinConfigured')}
             </p>
           )}
+          <RadioBlePairing
+            savedTransport={snapshot}
+            currentAddress={bleAddress}
+            pinPending={blePin.trim() !== ''}
+            health={health}
+            saving={busy}
+            onHealthRefresh={onHealthRefresh}
+            onBusyChange={setBlePairingBusy}
+          />
         </div>
       )}
 

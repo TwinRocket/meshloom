@@ -29,12 +29,15 @@ from app.routers.radio import (
     RadioSettings,
     _dedupe_region_names,
     adopt_radio_identity,
+    delete_radio_ble_pairing,
     disconnect_radio,
     discover_mesh,
     discover_regions,
     get_private_key,
+    get_radio_ble_pairing,
     get_radio_config,
     get_radio_transport,
+    post_radio_ble_pairing,
     post_radio_ble_scan,
     put_radio_transport,
     reboot_radio,
@@ -1761,3 +1764,327 @@ class TestRadioIdentityRoutes:
         assert snapshot.ble_address == "AA:BB:CC:DD:EE:FF"
         assert snapshot.ble_pin == "654321"
         assert snapshot.identity_state is None
+
+
+_BLE_TRANSPORT = RadioTransportSnapshot(
+    transport="ble", ble_address="AA:BB:CC:DD:EE:FF", ble_pin="123456"
+)
+
+
+class TestBlePairingRoutes:
+    """GET/POST/DELETE /radio/transport/ble-pairing and the scan guard."""
+
+    @staticmethod
+    def _manager(events, *, connected=False, desired=True):
+        manager = MagicMock()
+        manager.is_connected = connected
+        manager.connection_desired = desired
+
+        @asynccontextmanager
+        async def _lifecycle(name, *, timeout=None):
+            events.append(f"lifecycle:{name}:{timeout}")
+            yield
+            events.append("lifecycle:exit")
+
+        @asynccontextmanager
+        async def _maintenance(name):
+            events.append(f"maintenance:{name}")
+            yield
+            events.append("maintenance:exit")
+
+        async def _disconnect():
+            events.append("disconnect")
+
+        manager.lifecycle_transition = _lifecycle
+        manager.ble_maintenance = _maintenance
+        manager.disconnect = _disconnect
+        return manager
+
+    @staticmethod
+    def _patches(manager, snapshot=_BLE_TRANSPORT):
+        from app.services import ble_pairing
+
+        return (
+            patch("app.routers.radio.radio_manager", _runtime(manager)),
+            patch("app.routers.radio.get_transport", new=AsyncMock(return_value=snapshot)),
+            patch.object(ble_pairing, "pairing_supported", lambda: (True, None)),
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_non_ble_reads_no_dbus(self, monkeypatch):
+        from app.services import ble_pairing
+
+        opened = []
+
+        async def _open():
+            opened.append(1)
+            raise AssertionError("D-Bus opened")
+
+        monkeypatch.setattr(ble_pairing, "_open_bus", _open)
+        with patch(
+            "app.routers.radio.get_transport", new=AsyncMock(return_value=_CONFIGURED_TRANSPORT)
+        ):
+            status = await get_radio_ble_pairing()
+        assert status.state == "not_configured"
+        assert opened == []
+
+    @pytest.mark.asyncio
+    async def test_post_requires_a_saved_ble_transport(self):
+        events: list[str] = []
+        manager = self._manager(events)
+        p1, p2, p3 = self._patches(manager, _CONFIGURED_TRANSPORT)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "ble_pair_not_configured"
+        assert events == []
+
+    @pytest.mark.asyncio
+    async def test_post_pairs_and_leaves_the_reconnect_to_the_monitor(self, monkeypatch):
+        # Connect + setup inline could push the request past a 60 s proxy timeout.
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events)
+
+        async def _ensure(address, pin, *, explicit=False, deadline=None):
+            events.append(f"ensure:{address}:{explicit}")
+            assert deadline is not None
+
+        async def _reconnect(*, broadcast_on_success):
+            events.append("reconnect")
+            return True
+
+        monkeypatch.setattr(ble_pairing, "ensure_paired", _ensure)
+        monkeypatch.setattr("app.routers.radio._reconnect_and_prepare", _reconnect)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3:
+            status = await post_radio_ble_pairing()
+
+        assert events == [
+            f"lifecycle:ble_pair:{ble_pairing.LIFECYCLE_WAIT}",
+            "maintenance:ble_pair",
+            "disconnect",
+            "ensure:AA:BB:CC:DD:EE:FF:True",
+            "maintenance:exit",
+            "lifecycle:exit",
+        ]
+        assert "123456" not in status.model_dump_json()
+
+    @pytest.mark.asyncio
+    async def test_post_does_not_connect_while_paused(self, monkeypatch):
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events, desired=False)
+        monkeypatch.setattr(ble_pairing, "ensure_paired", AsyncMock())
+        reconnect = AsyncMock()
+        monkeypatch.setattr("app.routers.radio._reconnect_and_prepare", reconnect)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3:
+            await post_radio_ble_pairing()
+        reconnect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_post_coded_pairing_error(self, monkeypatch):
+        from app.services import ble_pairing
+        from app.services.ble_pairing import BlePairingError
+
+        events: list[str] = []
+        manager = self._manager(events)
+        monkeypatch.setattr(
+            ble_pairing,
+            "ensure_paired",
+            AsyncMock(side_effect=BlePairingError("ble_pair_wrong_pin")),
+        )
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 422
+        assert exc.value.detail["code"] == "ble_pair_wrong_pin"
+        assert "123456" not in str(exc.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_post_answers_busy_when_the_waits_ate_the_budget(self, monkeypatch):
+        # A radio operation held the lock: disconnect() returned late. Pairing in
+        # what is left would push the answer past the proxy timeout.
+        from app.services import ble_pairing
+
+        now = [1000.0]
+        monkeypatch.setattr(ble_pairing, "_monotonic", lambda: now[0])
+        events: list[str] = []
+        manager = self._manager(events)
+
+        async def _slow_disconnect():
+            events.append("disconnect")
+            now[0] += ble_pairing.REQUEST_BUDGET - ble_pairing.MIN_PAIR_BUDGET
+
+        manager.disconnect = _slow_disconnect
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "radio_busy"
+        ensure.assert_not_awaited()
+        assert events[-1] == "disconnect"
+
+    @pytest.mark.asyncio
+    async def test_post_passes_the_time_left_to_the_pairing(self, monkeypatch):
+        from app.services import ble_pairing
+
+        now = [1000.0]
+        monkeypatch.setattr(ble_pairing, "_monotonic", lambda: now[0])
+        events: list[str] = []
+        manager = self._manager(events)
+
+        async def _disconnect():
+            now[0] += 10
+
+        manager.disconnect = _disconnect
+        seen: list[float] = []
+
+        async def _ensure(address, pin, *, explicit=False, deadline=None):
+            seen.append(ble_pairing.time_left(deadline))
+
+        monkeypatch.setattr(ble_pairing, "ensure_paired", _ensure)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3:
+            await post_radio_ble_pairing()
+        budget = ble_pairing.REQUEST_BUDGET - ble_pairing.CLEANUP_BUDGET
+        assert seen == [budget - ble_pairing.STATUS_TIMEOUT - 10]
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_busy_is_a_coded_503(self):
+        from app.radio import RadioOperationBusyError
+
+        events: list[str] = []
+        manager = self._manager(events)
+
+        @asynccontextmanager
+        async def _busy(name, **_kwargs):
+            raise RadioOperationBusyError("Radio lifecycle is busy (ble_pair)")
+            yield  # pragma: no cover
+
+        manager.lifecycle_transition = _busy
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "radio_busy"
+
+    @pytest.mark.asyncio
+    async def test_delete_disconnects_before_forgetting(self, monkeypatch):
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events, connected=True)
+
+        async def _forget(address):
+            events.append(f"forget:{address}")
+            return 1
+
+        monkeypatch.setattr(ble_pairing, "forget", _forget)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3:
+            await delete_radio_ble_pairing()
+        assert events == [
+            f"lifecycle:ble_forget:{ble_pairing.LIFECYCLE_WAIT}",
+            "maintenance:ble_forget",
+            "disconnect",
+            "forget:AA:BB:CC:DD:EE:FF",
+            "maintenance:exit",
+            "lifecycle:exit",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_delete_is_busy_during_a_manual_reconnect(self, monkeypatch):
+        """A real manager holding the reconnect lock: forget is never called."""
+        from app.services import ble_pairing
+
+        manager = RadioManager()
+        manager._meshcore = MagicMock()
+        manager._reconnect_lock = asyncio.Lock()
+        await manager._reconnect_lock.acquire()
+        forget = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "forget", forget)
+        monkeypatch.setattr(manager, "start_connection_monitor", AsyncMock())
+        try:
+            p1, p2, p3 = self._patches(manager)
+            with p1, p2, p3, pytest.raises(HTTPException) as exc:
+                await delete_radio_ble_pairing()
+        finally:
+            manager._reconnect_lock.release()
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "radio_busy"
+        forget.assert_not_awaited()
+        assert manager._meshcore is not None
+
+    @pytest.mark.asyncio
+    async def test_scan_refused_while_pairing(self, monkeypatch):
+        from app.services import ble_pairing
+
+        monkeypatch.setattr(ble_pairing, "in_progress", lambda: True)
+        with pytest.raises(HTTPException) as exc:
+            await post_radio_ble_scan()
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "ble_pair_in_progress"
+
+    @pytest.mark.asyncio
+    async def test_get_reports_unavailable_without_raising(self):
+        events: list[str] = []
+        manager = self._manager(events)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3:
+            status = await get_radio_ble_pairing()
+        # conftest makes the system bus unreachable.
+        assert status.state == "unavailable"
+        assert status.error_code == "ble_pair_dbus_unavailable"
+
+    @pytest.mark.asyncio
+    async def test_post_is_409_while_the_monitor_pairs(self, monkeypatch):
+        """Entering the lifecycle transition would cancel the monitor's pairing."""
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events)
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "in_progress", lambda: True)
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "ble_pair_in_progress"
+        assert events == []
+        ensure.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_post_keeps_a_working_link_when_the_bond_cannot_be_read(self, monkeypatch):
+        from app.models import RadioBlePairingStatus
+        from app.services import ble_pairing
+
+        events: list[str] = []
+        manager = self._manager(events, connected=True)
+        ensure = AsyncMock()
+        monkeypatch.setattr(ble_pairing, "ensure_paired", ensure)
+        monkeypatch.setattr(
+            ble_pairing,
+            "pairing_status",
+            AsyncMock(
+                return_value=RadioBlePairingStatus(
+                    supported=True,
+                    state="unavailable",
+                    address="AA:BB:CC:DD:EE:FF",
+                    error_code="ble_pair_bluez_unavailable",
+                )
+            ),
+        )
+        p1, p2, p3 = self._patches(manager)
+        with p1, p2, p3, pytest.raises(HTTPException) as exc:
+            await post_radio_ble_pairing()
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "ble_pair_bluez_unavailable"
+        assert "disconnect" not in events
+        ensure.assert_not_awaited()

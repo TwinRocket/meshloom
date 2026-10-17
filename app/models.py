@@ -2045,6 +2045,48 @@ class RadioBleScanResponse(BaseModel):
     devices: list[RadioBleDeviceInfo] = Field(default_factory=list)
 
 
+RadioBlePairingState = Literal[
+    "unsupported",  # not Linux / no dbus-fast / not a MAC address
+    "unavailable",  # bus, bluetoothd, permission or adapter problem (error_code says which)
+    "not_configured",  # transport is not ble, or no address/PIN saved
+    "unknown_device",  # BlueZ has not seen the radio on the selected adapter
+    "not_paired",
+    "pairing",
+    "paired",
+    "failed",  # the last attempt failed (error_code)
+]
+
+
+class RadioBlePairingStatus(BaseModel):
+    """GET/POST/DELETE /api/radio/transport/ble-pairing. Never includes the PIN."""
+
+    supported: bool
+    state: RadioBlePairingState
+    address: str = ""
+    adapter: str = Field(default="", description='BlueZ adapter name, e.g. "hci0"')
+    paired: bool | None = Field(
+        default=None, description="BlueZ Bonded when exposed (BlueZ >= 5.70), else Paired"
+    )
+    trusted: bool | None = None
+    connected: bool | None = None
+    error_code: str | None = Field(
+        default=None, description="ble_pair_* code, translated under errors.<code>"
+    )
+    error_params: dict[str, str] = Field(
+        default_factory=dict,
+        description="Interpolation values for errors.<code> (e.g. error); never the PIN",
+    )
+    error_at: int | None = None
+    auto_pair_blocked: bool = Field(
+        default=False,
+        description="Automatic pairing is paused until the PIN changes or Pair is pressed",
+    )
+    retry_in: int | None = Field(
+        default=None, description="Seconds until the next automatic attempt (backoff)"
+    )
+    hint: Literal["stale_bond_suspected"] | None = None
+
+
 class RadioIdentityInfo(BaseModel):
     """Persistent identity gate details for health REST/WS. No secrets."""
 

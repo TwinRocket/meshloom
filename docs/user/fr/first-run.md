@@ -23,7 +23,7 @@ Meshloom ne sait pas encore comment joindre votre radio. Le lien (USB, réseau o
 
 1. Appuyez sur **Connecter une radio** dans la bannière, ou sur **Connecter** dans la barre d’état. Cela ouvre **Réglages > Radio**.
 2. Dans **Transport**, choisissez **Série** (câble USB), **TCP** (radio sur le réseau) ou **Bluetooth**.
-3. Remplissez le champ qui apparaît : le port série (laissez **Détection automatique** si une seule radio est branchée), l’hôte et le port, ou l’adresse et le PIN Bluetooth.
+3. Remplissez le champ qui apparaît : le port série (laissez **Détection automatique** si une seule radio est branchée), l’hôte et le port, ou l’adresse et le PIN Bluetooth. Sous Linux, Meshloom s’appaire avec la radio grâce à ce PIN.
 4. Appuyez sur **Enregistrer et connecter**.
 
 [Transports radio](/docs/deep/transports/) détaille chaque champ.

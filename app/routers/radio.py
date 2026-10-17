@@ -16,6 +16,7 @@ from app.models import (
     ContactUpsert,
     LppSensor,
     RadioBleDeviceInfo,
+    RadioBlePairingStatus,
     RadioBleScanResponse,
     RadioDiscoveryRequest,
     RadioDiscoveryResponse,
@@ -54,6 +55,8 @@ from app.repository.radio_transport import (
 )
 from app.routers.repeaters import request_anon_region_names_detailed
 from app.routers.server_control import _monotonic
+from app.services import ble_pairing
+from app.services.ble_pairing import BlePairingError
 from app.services.contact_reconciliation import (
     promote_prefix_contacts_for_contact,
     reconcile_contact_messages,
@@ -1214,6 +1217,8 @@ async def patch_radio_proxy(update: RadioProxyUpdate) -> RadioProxyStatus:
 
 @router.post("/transport/ble-scan", response_model=RadioBleScanResponse)
 async def post_radio_ble_scan() -> RadioBleScanResponse:
+    if ble_pairing.in_progress():
+        raise _ble_pairing_http_error(BlePairingError("ble_pair_in_progress"))
     try:
         devices = await scan_ble_devices()
     except RuntimeError as exc:
@@ -1221,6 +1226,119 @@ async def post_radio_ble_scan() -> RadioBleScanResponse:
     return RadioBleScanResponse(
         devices=[RadioBleDeviceInfo(address=address, name=name) for address, name in devices]
     )
+
+
+def _ble_pairing_http_error(exc: BlePairingError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.http_status,
+        detail={"code": exc.code, "message": exc.message, "params": exc.params},
+    )
+
+
+def _radio_busy_http_error(exc: RadioOperationBusyError) -> HTTPException:
+    code = getattr(exc, "code", "radio_busy")
+    return HTTPException(
+        status_code=409 if code == "ble_pair_in_progress" else 503,
+        detail={"code": code, "message": str(exc), "params": {}},
+    )
+
+
+async def _saved_ble_transport() -> tuple[str, str]:
+    """Saved BLE address and PIN, or a coded 409 / unsupported error."""
+    snapshot = await get_transport()
+    if snapshot.transport != "ble" or not snapshot.ble_address or not snapshot.ble_pin:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ble_pair_not_configured",
+                "message": "Save a Bluetooth address and PIN first",
+                "params": {},
+            },
+        )
+    if not ble_pairing.should_prepair(snapshot.ble_address):
+        raise _ble_pairing_http_error(BlePairingError("ble_pair_unsupported"))
+    return snapshot.ble_address, snapshot.ble_pin
+
+
+async def _ble_pairing_status() -> RadioBlePairingStatus:
+    snapshot = await get_transport()
+    return await ble_pairing.pairing_status(
+        snapshot.ble_address, snapshot.ble_pin, snapshot.transport == "ble"
+    )
+
+
+@router.get("/transport/ble-pairing", response_model=RadioBlePairingStatus)
+async def get_radio_ble_pairing() -> RadioBlePairingStatus:
+    """BlueZ pairing state of the saved BLE radio. Problems are in the state, not HTTP errors."""
+    return await _ble_pairing_status()
+
+
+@router.post("/transport/ble-pairing", response_model=RadioBlePairingStatus)
+async def post_radio_ble_pairing() -> RadioBlePairingStatus:
+    """Pair the saved BLE radio now with the saved PIN (lifts a paused automatic pairing).
+
+    Answers once paired, within ``ble_pairing.REQUEST_BUDGET``; the connection
+    monitor reconnects the radio afterwards.
+    """
+    deadline = ble_pairing.request_deadline()
+    address, pin = await _saved_ble_transport()
+    if ble_pairing.in_progress():
+        # The connection monitor is pairing: entering the lifecycle transition
+        # would cancel it, and the Pair() sent right after could still get
+        # InProgress while bluetoothd drops the abandoned bonding.
+        raise _ble_pairing_http_error(BlePairingError("ble_pair_in_progress"))
+    try:
+        async with radio_manager.lifecycle_transition(
+            "ble_pair", timeout=ble_pairing.LIFECYCLE_WAIT
+        ):
+            async with radio_manager.ble_maintenance("ble_pair"):
+                status = await ble_pairing.pairing_status(address, pin, True)
+                if radio_manager.is_connected and status.state == "unavailable":
+                    # The bond cannot be checked (status read timed out, D-Bus
+                    # gone, link opened without our pre-pairing): keep the working
+                    # link rather than drop it for a pairing that may not run.
+                    raise BlePairingError(status.error_code or "ble_pair_bluez_unavailable")
+                if not (radio_manager.is_connected and status.state == "paired"):
+                    # Release the link first: BlueZ cannot pair a device meshcore
+                    # holds, and its auto-reconnect would race us.
+                    # disconnect() waits for the radio operation in flight.
+                    await radio_manager.disconnect()
+                    if ble_pairing.time_left(deadline) < ble_pairing.MIN_PAIR_BUDGET:
+                        # The waits ate the budget: a pairing squeezed into what is
+                        # left would likely time out and start a backoff.
+                        raise RadioOperationBusyError("Radio stayed busy too long (ble_pair)")
+                    await ble_pairing.ensure_paired(address, pin, explicit=True, deadline=deadline)
+        # No inline reconnect: connect plus setup could push the request past a
+        # 60 s proxy timeout after a long pairing. The connection monitor,
+        # restarted on leaving the transition, reconnects on its next pass.
+    except RadioOperationBusyError as exc:
+        raise _radio_busy_http_error(exc) from exc
+    except BlePairingError as exc:
+        raise _ble_pairing_http_error(exc) from exc
+    return await _ble_pairing_status()
+
+
+@router.delete("/transport/ble-pairing", response_model=RadioBlePairingStatus)
+async def delete_radio_ble_pairing() -> RadioBlePairingStatus:
+    """Forget the saved BLE radio's pairing on every adapter of this machine.
+
+    The connection monitor pairs again with the saved PIN afterwards.
+    """
+    address, _pin = await _saved_ble_transport()
+    try:
+        async with radio_manager.lifecycle_transition(
+            "ble_forget", timeout=ble_pairing.LIFECYCLE_WAIT
+        ):
+            async with radio_manager.ble_maintenance("ble_forget"):
+                # Before RemoveDevice: the live link would drop under meshcore and
+                # its auto-reconnect would race us.
+                await radio_manager.disconnect()
+                await ble_pairing.forget(address)
+    except RadioOperationBusyError as exc:
+        raise _radio_busy_http_error(exc) from exc
+    except BlePairingError as exc:
+        raise _ble_pairing_http_error(exc) from exc
+    return await _ble_pairing_status()
 
 
 @router.post("/identity/adopt", response_model=RadioIdentityActionResponse)

@@ -35,7 +35,7 @@ The connection is chosen in **Settings → Radio** and stored in the database:
 | `radio_tcp_host` | empty | Address of the radio on the network |
 | `radio_tcp_port` | `5000` | TCP port |
 | `radio_ble_address` | empty | Bluetooth address of the radio |
-| `radio_ble_pin` | empty | Bluetooth PIN, required with Bluetooth |
+| `radio_ble_pin` | empty | Bluetooth PIN, required with Bluetooth. On Linux, Meshloom pairs with it (1 to 6 digits) |
 
 Until a connection is chosen, the radio stays paused. Do not set `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` or `MESHCORE_BLE_ADDRESS` (nor their companions `MESHCORE_SERIAL_BAUDRATE`, `MESHCORE_TCP_PORT` and `MESHCORE_BLE_PIN`). A new database ignores them. An existing database without a saved connection copies them once, to carry over an old setup, and never reads them again. If more than one of the three is set, none is copied.
 

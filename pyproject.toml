@@ -25,6 +25,9 @@ dependencies = [
     "boto3>=1.38.0",
     "pywebpush>=0.14.0",
     "packaging>=26.3",
+    # BLE PIN pairing talks to BlueZ directly (app/services/ble_pairing.py).
+    # Upper bound: [tool.uv] constraint-dependencies.
+    "dbus-fast>=3.1; sys_platform == 'linux'",
 ]
 
 [tool.pytest.ini_options]

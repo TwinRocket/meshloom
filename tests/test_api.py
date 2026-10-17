@@ -238,6 +238,24 @@ class TestDebugEndpoint:
         assert not hasattr(env, "ble_pin")
         assert not hasattr(env, "basic_auth_password")
         assert not hasattr(env, "basic_auth_username")
+        assert env.ble_pairing_state is None
+
+    @pytest.mark.asyncio
+    async def test_build_environment_reports_ble_pairing_codes_without_pin(self, monkeypatch):
+        from app.models import RadioTransportSnapshot
+        from app.routers.debug import _build_environment
+        from app.services import ble_pairing
+
+        monkeypatch.setattr(ble_pairing, "pairing_supported", lambda: (True, None))
+        snapshot = RadioTransportSnapshot(
+            transport="ble", ble_address="AA:BB:CC:DD:EE:FF", ble_pin="482913"
+        )
+        with patch("app.routers.debug.get_transport", new=AsyncMock(return_value=snapshot)):
+            env = await _build_environment()
+
+        assert env.ble_pairing_state == "unavailable"
+        assert env.ble_pairing_error == "ble_pair_dbus_unavailable"
+        assert "482913" not in env.model_dump_json()
 
     def test_support_snapshot_sanitizes_radio_probe_location_fields(self):
         """Debug radio probe should redact advertised lat/lon from self_info."""

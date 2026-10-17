@@ -41,6 +41,23 @@ Les variables `MESHCORE_SERIAL_PORT`, `MESHCORE_TCP_HOST` et `MESHCORE_BLE_ADDRE
 4. Une radio qui tourne avec le firmware répéteur ne répond pas à un client. Il lui faut le firmware companion.
 5. Meshloom réessaie tout seul toutes les cinq secondes. **Reconnecter** force une tentative.
 
+## L’appairage Bluetooth échoue
+
+Le bloc **Appairage** de **Réglages > Radio** (sous le PIN BLE) en donne la raison. Voir [Appairage](/docs/deep/transports/#appairage).
+
+| Message | Que faire |
+|---|---|
+| **PIN incorrect** | Vérifiez le PIN affiché par la radio, enregistrez-le, puis appuyez sur **Réessayer l’appairage**. D’ici là, l’appairage automatique reste suspendu pour ce PIN. |
+| **La radio a refusé l’appairage** | La radio a été réinitialisée, ou appairée avec une autre machine : appuyez sur **Oublier l’appairage**, puis sur **Réessayer l’appairage**. Sous Ubuntu ou Home Assistant OS, le système peut aussi empêcher Meshloom de recevoir la demande de PIN ; le journal le signale alors. |
+| **La radio refuse l’appairage enregistré sur cette machine** | La radio a été réinitialisée ou reflashée alors que cette machine gardait son appairage : appuyez sur **Oublier l’appairage**. |
+| **Radio introuvable** ou **n’a pas répondu** | Allumez la radio, rapprochez-la et déconnectez le téléphone qui l’utilise. Meshloom réessaie tout seul, jusqu’à une fois par minute. |
+| **Le PIN doit compter de 1 à 6 chiffres** | Saisissez le PIN tel que la radio l’affiche. |
+| **Le service Bluetooth du système est injoignable** | Dans Docker, montez le `/run/dbus/system_bus_socket` de l’hôte dans le conteneur (l’installeur le fait avec Docker en root). Dans Home Assistant, l’add-on joint le bus de l’hôte tout seul : redémarrez-le, et si le problème persiste, son journal donne le détail. Meshloom tente quand même de se connecter sans appairer. |
+| **bluetoothd n’est pas lancé** | Démarrez-le : `sudo systemctl start bluetooth`. |
+| **n’a pas le droit d’appairer** | Le système a refusé à Meshloom l’accès au service Bluetooth. Vérifiez la politique D-Bus de BlueZ, ou appairez avec `bluetoothctl`. |
+| **Aucun adaptateur Bluetooth**, **adaptateur éteint**, **bloqué (rfkill)** | Branchez ou allumez l’adaptateur : `bluetoothctl power on`, ou `rfkill unblock bluetooth`. |
+| **bloquée dans les réglages Bluetooth de cette machine** | Débloquez la radio : `bluetoothctl unblock <adresse>`. |
+
 ## Fenêtre « Cette radio n’est pas liée » ou « ne correspond pas à l’identité enregistrée »
 
 Meshloom lie sa base à la clé publique de votre radio, pour ne jamais mélanger l’historique de deux radios.

@@ -14,7 +14,7 @@ you work there:
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
 
 Developer reference: `docs/dev/` (Community client, frontend Community state,
-releasing). User docs: `docs/user/` (en, fr). Environment variables for users:
+releasing, BLE pairing). User docs: `docs/user/` (en, fr). Environment variables for users:
 `docs/user/en/deep/environment.md`.
 
 ## Working rules

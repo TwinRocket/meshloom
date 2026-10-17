@@ -15,6 +15,7 @@ from serial.tools import list_ports
 from app import radio_workarounds
 from app.keystore import clear_keys
 from app.models import RadioTransportSnapshot
+from app.services.ble_pairing import BlePairingError, PairOutcome
 from app.services.radio_lifecycle import (
     EXPECTED_REBOOT_GRACE_SECONDS,
     ExpectedRebootReason,
@@ -33,7 +34,14 @@ class RadioOperationError(RuntimeError):
 
 
 class RadioOperationBusyError(RadioOperationError):
-    """Raised when a non-blocking radio operation cannot acquire the lock."""
+    """Raised when a non-blocking radio operation cannot acquire the lock.
+
+    ``code`` is a stable i18n key for routes that answer with a coded detail.
+    """
+
+    def __init__(self, message: str = "Radio is busy", *, code: str = "radio_busy") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class RadioDisconnectedError(RadioOperationError):
@@ -89,6 +97,23 @@ def detect_serial_devices() -> list[str]:
     return devices
 
 
+def _bluez_ble_device(outcome: PairOutcome):
+    """The BlueZ device object meshcore connects to after our pre-pairing.
+
+    A ``BLEDevice`` whose ``details["path"]`` is the device path makes bleak skip
+    its address scan (a just-paired companion may not advertise yet) and pins
+    the adapter we paired on; meshcore reuses it on every library reconnect.
+    """
+    from bleak.backends.device import BLEDevice
+
+    name = outcome.device_props.get("Name") or outcome.device_props.get("Alias")
+    return BLEDevice(
+        outcome.address,
+        str(name) if name else None,
+        {"path": outcome.device_path, "props": outcome.device_props},
+    )
+
+
 def _extract_serial_port_from_error(exc: Exception) -> str | None:
     """Best-effort extraction of a serial port path from a pyserial error."""
     message = str(exc)
@@ -105,6 +130,8 @@ def _format_reconnect_failure(
     connection_info: str | None = None,
 ) -> tuple[str, str, bool]:
     """Return log message, frontend detail, and whether to log a traceback."""
+    if isinstance(exc, BlePairingError):
+        return (f"BLE pairing failed: {exc.code}", exc.message, False)
     connection_type = None
     serial_port = ""
     if snapshot is not None and snapshot.configured:
@@ -546,12 +573,28 @@ class RadioManager:
     def _reset_reconnect_error_broadcasts(self) -> None:
         self._frontend_reconnect_error_broadcasts = 0
 
-    def _broadcast_reconnect_error_if_needed(self, details: str) -> None:
+    def _broadcast_reconnect_error_if_needed(
+        self,
+        details: str,
+        *,
+        code: str = "reconnection_failed",
+        params: dict | None = None,
+        counted: bool = True,
+    ) -> None:
         from app.websocket import broadcast_error
 
         if self.expected_reboot is not None:
             # The radio is still restarting after a reboot Meshloom sent: failures
             # are expected and not counted. Past the grace period they surface.
+            return
+
+        if not counted:
+            # BLE pairing failures: ble_pairing already sends each one once per
+            # (address, PIN), so they neither use nor consume the budget below.
+            # ``details`` is the code's English message: sent as the fallback title
+            # only, never as details, which the UI would show untranslated under
+            # the translated errors.<code> title (it uses errors.<code>Detail).
+            broadcast_error(details, code=code, params=params)
             return
 
         self._frontend_reconnect_error_broadcasts += 1
@@ -711,15 +754,50 @@ class RadioManager:
         address = snapshot.ble_address
         pin = snapshot.ble_pin
 
+        from app.services import ble_pairing
+
+        outcome: PairOutcome | None = None
+        if ble_pairing.should_prepair(address):
+            try:
+                outcome = await ble_pairing.ensure_paired(address, pin)
+            except BlePairingError as exc:
+                if not exc.fallback:
+                    raise
+                ble_pairing.log_fallback(exc)
+
         logger.debug("Connecting to radio at %s (BLE)", address)
-        mc = await MeshCore.create_ble(
-            address=address,
-            pin=pin,
-            auto_reconnect=True,
-            max_reconnect_attempts=15,
-        )
-        if mc is None:
-            raise RuntimeError(f"Failed to open BLE connection to {address}")
+        try:
+            if outcome is not None:
+                # Bonded by us (or earlier): hand meshcore the BlueZ device on the
+                # adapter we paired on, and no PIN so bleak's agent-less pair()
+                # never runs.
+                mc = await MeshCore.create_ble(
+                    address=address,
+                    device=_bluez_ble_device(outcome),
+                    pin=None,
+                    auto_reconnect=True,
+                    max_reconnect_attempts=15,
+                )
+            else:
+                mc = await MeshCore.create_ble(
+                    address=address,
+                    pin=pin,
+                    auto_reconnect=True,
+                    max_reconnect_attempts=15,
+                )
+            if mc is None:
+                raise RuntimeError(f"Failed to open BLE connection to {address}")
+        except Exception as exc:
+            if outcome is not None:
+                ble_pairing.note_connect_result(
+                    address,
+                    ok=False,
+                    after_already_paired=outcome.state == "already_paired",
+                    error=exc,
+                )
+            raise
+        if outcome is not None:
+            ble_pairing.note_connect_result(address, ok=True, after_already_paired=False)
         self._meshcore = mc
         self._connection_info = f"BLE: {address}"
         self._last_connected = True
@@ -813,6 +891,23 @@ class RadioManager:
                     logger.warning("Reconnection failed: not connected after connect()")
                     return False
 
+            except BlePairingError as e:
+                if e.already_reported:
+                    # Re-raised from memory (sticky or backoff): already told once.
+                    logger.debug("BLE pairing still blocked: %s", e.code)
+                elif self.expected_reboot is not None:
+                    logger.info("Radio not back yet after its expected reboot: %s", e.code)
+                    # Not shown during the grace period: the same failure past it
+                    # must still toast once.
+                    from app.services import ble_pairing
+
+                    ble_pairing.mark_unreported(e.code)
+                else:
+                    logger.warning("BLE pairing failed: %s (%s)", e.code, e.message)
+                    self._broadcast_reconnect_error_if_needed(
+                        e.message, code=e.code, params=e.params, counted=False
+                    )
+                return False
             except Exception as e:
                 log_message, frontend_detail, include_traceback = _format_reconnect_failure(
                     e,
@@ -827,19 +922,53 @@ class RadioManager:
                 return False
 
     @asynccontextmanager
-    async def lifecycle_transition(self, name: str):
+    async def ble_maintenance(self, name: str):
+        """Exclude reconnects while an explicit BLE pair/forget runs.
+
+        Used inside ``lifecycle_transition`` (which stops only the monitor) so the
+        startup connect task and ``POST /radio/reconnect`` cannot race a pairing.
+        Never waits: a reconnect can hold the lock through a long post-connect
+        setup, so a busy radio answers at once. Lock order: lifecycle, then
+        ``_reconnect_lock``, then the radio operation lock (``disconnect``), then
+        ``ble_pairing``'s own lock.
+        """
+        from app.services import ble_pairing
+
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        if self._reconnect_lock.locked():
+            if ble_pairing.in_progress():
+                raise RadioOperationBusyError(
+                    f"A Bluetooth pairing is already in progress ({name})",
+                    code="ble_pair_in_progress",
+                )
+            raise RadioOperationBusyError(f"Radio is reconnecting ({name})", code="radio_busy")
+        try:
+            await self._reconnect_lock.acquire()
+        except RuntimeError as exc:
+            if "different event loop" not in str(exc):
+                raise
+            self._reconnect_lock = asyncio.Lock()
+            await self._reconnect_lock.acquire()
+        try:
+            yield
+        finally:
+            self._reconnect_lock.release()
+
+    @asynccontextmanager
+    async def lifecycle_transition(
+        self, name: str, *, timeout: float = LIFECYCLE_LOCK_TIMEOUT_SECONDS
+    ):
         """Serialize transport/identity changes outside radio_operation/_setup_lock.
 
         Sequence for callers: stop monitor + close ingest, then mutate, then
-        the monitor is restarted on exit. Timed acquisition fails with 503.
+        the monitor is restarted on exit. Timed acquisition fails with 503;
+        ``timeout`` lets a route with a tight time budget give up sooner.
         """
         if self._lifecycle_lock is None:
             self._lifecycle_lock = asyncio.Lock()
         try:
-            await asyncio.wait_for(
-                self._lifecycle_lock.acquire(),
-                timeout=LIFECYCLE_LOCK_TIMEOUT_SECONDS,
-            )
+            await asyncio.wait_for(self._lifecycle_lock.acquire(), timeout=timeout)
         except TimeoutError as exc:
             raise RadioOperationBusyError(f"Radio lifecycle is busy ({name})") from exc
         from app.services.radio_ingest_gate import deny_ingest

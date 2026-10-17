@@ -298,6 +298,21 @@ describe('SettingsModal', () => {
       model: 'MeshloomProxy/abc123def456',
     });
     vi.spyOn(api, 'scanRadioBle').mockResolvedValue({ devices: [] });
+    vi.spyOn(api, 'getRadioBlePairing').mockResolvedValue({
+      supported: true,
+      state: 'not_configured',
+      address: '',
+      adapter: '',
+      paired: null,
+      trusted: null,
+      connected: null,
+      error_code: null,
+      error_params: {},
+      error_at: null,
+      auto_pair_blocked: false,
+      retry_in: null,
+      hint: null,
+    });
     vi.spyOn(api, 'getTelemetryAlertCatalog').mockResolvedValue({
       metrics: [],
       latches: [],
@@ -470,6 +485,41 @@ describe('SettingsModal', () => {
     expect(
       screen.getByText(i18n.t('settings.radio.bleUnavailable', { reason: 'No Bluetooth adapter' }))
     ).toBeInTheDocument();
+  });
+
+  it('disables the BLE scan while the radio is pairing', async () => {
+    vi.mocked(api.getRadioTransport).mockResolvedValue({
+      ...baseTransport,
+      transport: 'ble',
+      ble_address: 'AA:BB:CC:DD:EE:FF',
+      ble_pin_configured: true,
+    });
+    vi.mocked(api.getRadioBlePairing).mockResolvedValue({
+      supported: true,
+      state: 'pairing',
+      address: 'AA:BB:CC:DD:EE:FF',
+      adapter: 'hci0',
+      paired: null,
+      trusted: null,
+      connected: null,
+      error_code: null,
+      error_params: {},
+      error_at: null,
+      auto_pair_blocked: false,
+      retry_in: null,
+      hint: null,
+    });
+    renderModal();
+    openRadioSection();
+    openRadioTab('tabConnection');
+
+    expect(
+      await screen.findByText(i18n.t('settings.radio.blePairingState.pairing'))
+    ).toBeInTheDocument();
+    // The busy flag reaches the panel through an effect, one render later.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: i18n.t('settings.radio.bleScan') })).toBeDisabled()
+    );
   });
 
   it('keeps a saved serial port visible when the host reports no ports', async () => {
