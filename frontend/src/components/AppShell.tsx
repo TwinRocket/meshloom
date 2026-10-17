@@ -26,6 +26,7 @@ import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { CommandPalette } from './CommandPalette';
 import { SecurityWarningModal } from './SecurityWarningModal';
 import { RadioIdentityModal } from './RadioIdentityModal';
+import { RadioWifiPrompt } from './RadioWifiPrompt';
 import { Toaster } from './ui/sonner';
 import {
   SETTINGS_SECTION_LABELS,
@@ -696,6 +697,7 @@ export function AppShell({
           await settingsProps.onHealthRefresh();
         }}
       />
+      <RadioWifiPrompt />
       {/* Info sheets pull recharts/leaflet/qrcode: load them on first open, then keep
           them mounted so the close animation still plays. */}
       {contactPaneLoaded && (

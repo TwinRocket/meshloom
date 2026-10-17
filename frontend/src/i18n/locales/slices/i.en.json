@@ -101,5 +101,14 @@
     "wifi_store_unverified": "The radio did not keep the Wi-Fi credentials as sent; the previous values were restored.",
     "wifi_store_partial": "Storing the Wi-Fi credentials was interrupted: the radio may hold incomplete ones. Check them over USB or Bluetooth before rebooting it.",
     "wifi_radio_changed": "The connected radio changed; this question was about another radio."
+  },
+  "wifiPrompt": {
+    "title": "Store this radio's Wi-Fi password",
+    "reason": "Meshloom can store the Wi-Fi credentials in the radio itself. That lets the flasher update this radio without retyping Wi-Fi credentials. Meshloom never keeps the password.",
+    "store": "Store in the radio",
+    "dismiss": "Don't ask again for this radio",
+    "dismissing": "Saving…",
+    "stored": "Wi-Fi credentials for \"{{ssid}}\" stored in the radio",
+    "storedOpen": "Open network \"{{ssid}}\" stored in the radio"
   }
 }

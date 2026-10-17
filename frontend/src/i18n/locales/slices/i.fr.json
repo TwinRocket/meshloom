@@ -101,5 +101,14 @@
     "wifi_store_unverified": "La radio n’a pas gardé les identifiants Wi-Fi envoyés ; les valeurs précédentes ont été rétablies.",
     "wifi_store_partial": "L’enregistrement des identifiants Wi-Fi a été interrompu : la radio en contient peut-être d’incomplets. Vérifiez-les en USB ou en Bluetooth avant de la redémarrer.",
     "wifi_radio_changed": "La radio connectée a changé ; cette question concernait une autre radio."
+  },
+  "wifiPrompt": {
+    "title": "Enregistrer le mot de passe Wi-Fi de cette radio",
+    "reason": "Meshloom peut enregistrer les identifiants Wi-Fi dans la radio elle-même. Le flasheur peut alors mettre à jour cette radio sans retaper les identifiants Wi-Fi. Meshloom ne garde jamais le mot de passe.",
+    "store": "Enregistrer dans la radio",
+    "dismiss": "Ne plus demander pour cette radio",
+    "dismissing": "Enregistrement…",
+    "stored": "Identifiants Wi-Fi pour « {{ssid}} » enregistrés dans la radio",
+    "storedOpen": "Réseau ouvert « {{ssid}} » enregistré dans la radio"
   }
 }
