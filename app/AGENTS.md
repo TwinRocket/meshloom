@@ -142,7 +142,7 @@ floor, never the percentage alone, and do not remove the floor.
 
 ## Community client
 
-Detail, constants and owner decisions: `docs/dev/community-client.md`. Contracts:
+Mechanics and constants: `docs/dev/community-client.md`. Contracts:
 `meshloom-community/docs/contracts/` (`identity.md`).
 
 - **Fixed addresses.** `DEFAULT_BROKER_HOST` / `DEFAULT_API_BASE` are read at call

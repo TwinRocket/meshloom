@@ -1,48 +1,287 @@
 # Community client (backend)
 
 Developer reference for `app/services/meshloom_community.py`, `community_live.py`,
-`community_ban.py`, `community_status_clear.py` and `observer_position.py`. The invariants an agent must
-not break are summarised in `app/AGENTS.md`, "Community client"; this page holds the
-detail and the owner decisions behind it. The Community side of every call is
-specified in `meshloom-community/docs/contracts/` (`identity.md` in particular).
-Check everything here against the code: it is a hypothesis like every other doc.
+`community_ban.py`, `community_status_clear.py`, `observer_position.py` and the
+Stats publisher (`app/fanout/meshloom_stats.py`). The rules an agent must not
+break are in `app/AGENTS.md`, "Community client"; this page holds the mechanics
+behind them. The Community side of every call is in
+`meshloom-community/docs/contracts/` (`identity.md`, `errors.md`,
+`live-events.md`); this page does not repeat it. Like every doc, it is a
+hypothesis: check it against the code. Constants are named so you can grep them.
 
-## HTTP (`services/meshloom_community.py`)
+## Configuration and state
 
-- Effective config = the DB (`community_enabled`, `community_iata`) plus the fixed addresses `DEFAULT_BROKER_HOST` / `DEFAULT_API_BASE`, read at call time by `get_community_effective()` (tests `monkeypatch.setattr` them; nothing imports them by value: the Stats publisher takes `state.broker_host`). No env var is read: a new DB starts off (opt-in in the UI). `services/legacy_env_settings.py` handles the retired `MESHLOOM_COMMUNITY*` variables: `import_legacy_community_iata()` (lifespan) copies a valid `MESHLOOM_COMMUNITY_IATA` into an existing DB once (marker `community_env_imported`, migration 091, which also empties the unused `community_broker_host` / `community_api_base` columns; a new DB ignores it), and `warn_about_retired_env()` warns at each start while any of them is set (they are in `RETIRED_ENV`). `GET /community` returns `enabled`, `iata`, `publisher_configured`, `publisher_connected`, `state` (`off`, `active`, `waiting_for_position`), `banned` (see **Banned key** below) and `opt_out_pending` only; `PATCH` accepts `enabled`, `iata` and `opt_out_reason`. `position_precision` values this version does not know (bind result, `/me/stats`) parse as `null`, so a successful bind never turns into a 500.
-- Upstream mapping: transport error/timeout/5xx → **503**; 429 → 429; 400 → 400; 401 → 502 (with a clock hint when `classify_auth_rejection` reports `clock_skew`, drift > 60 s); 403 with body `code: banned` → **403** `{"detail": {"code": "community_banned", "message": str}}`, raised by `stats_request` itself for every caller (see **Banned key**); other non-200 → 502 (`CommunityUpstreamError.upstream_status`); an unexpected body → 502.
-- **Banned key** (`services/community_ban.py`). A Community operator can ban a radio key: Community then answers **403** `{"detail", "code": "banned", "server_time"}` (`meshloom-community/docs/contracts/errors.md`) on the key's authenticated write routes (`BANNED_REFUSED_ROUTES`: `PUT /v1/me/iata`, `POST /v1/me/iata/override`, `PUT /v1/me/hashtags`, `POST /v1/hashtags/resolve`, `POST /v1/hashtags/samples`, `POST /v1/directory/packets/observations`) and on the Live handshake, and its MQTT auth refuses the key. No retry can lift a ban, so the first such answer (`note_banned()`, from `stats_request` or the Live relay) puts the process in a banned state for `BANNED_HOLD_S` (12 h), in memory only: `stats_request` refuses those six routes locally with the same 403 `community_banned` (no request; checked after the egress guard, so off still answers its own 403); the Live relay stops with state `banned` (`stop_for_ban()`, spawned by `_apply_ban()` when the ban comes from HTTP) and opens nothing (`_ensure_reader_locked`, `_run`); the Stats publisher does not connect (`MeshloomStatsPublisher._pre_connect` waits `BANNED_RECHECK_INTERVAL_S`, 300 s, then checks the local state again) and shows no error toast (`_error_toast_allowed`). An EMQX refusal alone cannot be told from any other auth failure, so the publisher asks: on a CONNACK refusing its credentials (`is_auth_refusal`: MQTT 3.1.1 codes 4 and 5, MQTT 5 0x86, 0x87 and 0x8A), `MeshloomStatsPublisher._on_connection_error` (a `BaseMqttPublisher` hook run before the error toast is decided) sends one probe, `probe_community_ban()`: `POST /v1/hashtags/resolve` with `{"hash_bytes": []}`, which Community refuses with 403 `banned` for a banned key and otherwise answers with an empty list, with no side effect (no position, no IATA change, nothing stored). A ban answer starts the banned state before the toast check, so a running instance that only publishes learns the ban on its first refused reconnect. Not while an opt-out runs or the ban is already known, and at most once per `BAN_PROBE_MIN_INTERVAL_S` (1 h; `take_ban_probe()`, reset by `clear_ban()`), so a refusal for another reason does not turn every reconnect into a request. Other routes (reads such as `GET /v1/me/stats`, the directory, the opt-out) keep working. The state ends on a restart, on a user action (`PATCH /community`, a join or an IATA change through `bind_community_iata()`, whose bind is then the one request that checks again, `POST /community/live/restart`, the opt-out teardown) and on its own after `BANNED_HOLD_S`: `_pre_connect` then lets the publisher connect again within `BANNED_RECHECK_INTERVAL_S`, and the broker refusal sends the probe above, which starts the state again while the ban holds (any other call that meets the ban does the same). The re-bind worker treats the 403 like an opt-out (`skipped`, no retry). The settings show it from `GET /community` `banned: true`. Covered by `tests/test_community_ban.py`.
-- `CommunityBreaker`: 3 consecutive failures open it for 30 s (503 without network), then one trial call decides.
-- Observer reach falls back to one GET per hash only when the batch route is missing upstream (404/405).
-- The hashtag catalogue is global: `GET /community/hashtags` proxies `GET /v1/hashtags`. There is no per-IATA catalogue (`/community/iata/{code}/hashtags` was removed; Community answers 410 on its old `/v1/iata/{code}/hashtags`).
-- Hashtag names go out (`PUT /v1/me/hashtags`) only with Community on and an IATA saved, and only for a `#` channel whose key is `SHA256(name)[:16]` (`is_public_hashtag_channel`); a `#` name on a channel with its own secret is private and never published. Resolve and sample uploads (`services/hashtag_catalogue.py`) also wait for the IATA.
-- **Egress guard (two levels).** Opted out means no connection to the Community hosts, with four exceptions: the leftover status clear below, the `PUT /v1/me/iata` of a join (`_bind_state`, see **Joining** below), the one request that leaves before the database says on, the `POST /v1/me/opt-out` of an opt-out and of its manual retry (`_opt_out_state`, see **Opt-out call** below), which `stats_request` honours for that path only, and the IATA suggestion (`_iata_suggest_state`, see **IATA suggestion** below), honoured for `GET /v1/iata/suggest` only. No outside airport search is ever called any more (the FX-Port autocomplete is gone): placing a code reads the bundled list (`lookup_airport`). Waiting for a position (on, but no publishable position) cuts the same connections, except the Stats MQTT publisher (status only, no packets) and the `PUT /v1/me/iata` binds: an IATA change and the automatic re-bind also pass then. `community_egress_state()` is the one check made by HTTP (`stats_request`), the Live socket (before every reconnect, and `subscribe`/`restart`/`unsubscribe` through `community_active()`), the release mirror (`fetch_meshloom_latest`), `active_iata_codes`, the hashtag name publish and resolve, and, through `community_active()`, `directory_is_available()` (so `directory_available` in the settings), the directory, observer reach and the update poll cadence. It answers None while off **and while waiting for a position** (below). The enrolled-level `community_enrolled_state()` (on, waiting or not) is used only by `FanoutManager.sync_system_modules()`, the Stats publisher (`MeshloomStatsPublisher._pre_connect`, before every reconnect, in case a stop abandoned its loop) and the `PUT /v1/me/iata` binds: an IATA change and the automatic position re-bind (`rebind_current_iata`, under `_update_lock`) set `_bind_state` around the `await bind()` only (`_with_bind_state`; never around the status retire or the publisher restore, whose spawned tasks would inherit it, and the spawned state transition clears it), which `stats_request` reads before the guard, so a chosen position can still be bound while waiting. `POST /me/iata/override` and every other `/v1/me/*` call stay cut while waiting.
-- **Waiting for a position.** `community_state_of()` gives `waiting_for_position` when Community is on and `_position_missing` is set. `note_radio_position()` sets it as soon as an accepted identity (`ingest_allowed()`) reports a `self_info` with no publishable position (`publishable_position(self_info) is None`: none, `0, 0`, out of bounds). It runs right after the identity gate in `run_post_connect_setup` (the appstart `SELF_INFO` goes to the gate, not to the handlers), **before** `export_and_store_private_key`, so no packet and no authenticated call can leave first; then on every `SELF_INFO` and at the end of the setup, through `observer_position.note_radio_self_info()`. No radio, or an identity not accepted yet, keeps the last known state (owner decision Q2, no flicker). A position alone does not clear it: only a `PUT /v1/me/iata` that carried a position and succeeded does (`note_position_bound()`, from `put_iata_bind`), or a `self_info` whose position this process already bound (`position_already_bound`), so no packet leaves before Community has the position; a refused bind keeps waiting and the re-bind retries. The flag is persisted in `app_settings.community_waiting_for_position` (migration 092) and loaded by `load_position_state()` in the lifespan, before the update poll and the fanout start, so a radio known to be waiting makes no call at all after a restart (unauthenticated ones included: stats, hashtags, active IATA list, release mirror; the IATA suggestion is the settings' explicit exception). A new database, or one migrated from 091, starts at 0 (not waiting) until the radio connects. Joining without a position is allowed and lands in this state (Q3). A change spawns `_apply_position_state()`: it saves the flag (also while off), then, under `_update_lock`, reads the state again; to waiting it bumps `_egress_generation`, cancels Community requests in flight and closes Live (`sync_community_live(False)`); back to active it reopens Live for its sessions and nudges the update poll; both ways the Stats publisher re-publishes its retained status at once (`FanoutManager.republish_system_status()`) and the `community_live` status broadcast makes every tab read `GET /community` again. Off, it only saves the flag. Covered by `TestWaitingForPosition` in `tests/test_community_off_no_egress.py`.
-- **Opt-out call.** On an opt-out (`enabled` true to false, `PATCH /community` with an optional `opt_out_reason`: `privacy`, `not_useful`, `technical_issue`, `other`), `_update_community_locked()` first sets `_leaving` (`opt_out_in_progress()`): from then until the end of the teardown `community_enrolled_state()`, hence `community_egress_state()`, answers None, so the Stats publisher does not reconnect (`_pre_connect`) and shows no error toast (`_error_toast_allowed`, a `BaseMqttPublisher` hook) when Community kicks its session, and Live does not reopen. Then `_announce_opt_out()` saves the opt-out as pending (`app_settings.community_opt_out_pending`, JSON `{pubkey, reason, requested_at, iata}`, migration 093, write-ahead) and sends `POST /v1/me/opt-out` (`{"reason": ...}` or `{}`; JWT without the `iata` requirement, `_path_requires_iata`) through `_with_opt_out_state`, within `OPT_OUT_LAST_CALL_TIMEOUT_S` (5 s; its HTTP timeout, `OPT_OUT_LAST_CALL_HTTP_TIMEOUT`, is `httpx.Timeout(6, connect=2.5)`: a connection that never opens fails as a `ConnectTimeout` before the bound, a slow answer ends as a timeout). The result (`OptOutResult`) is `confirmed` for any 2xx (the body is not read), `maybe` for a timeout after the request left (Community may have recorded it; `_may_have_reached`), `failed` otherwise (refused, unreachable, connect timeout, no radio key). Confirmed empties the pending record. Community deletes the position, kicks the MQTT session, clears the retained status (at once, else by its own follow-up and reconciliation) and refuses the key (auth 10 to 15 s later, ingest, `403 opted_out` on the rest of `/v1/me/*` and Live) until a `PUT /v1/me/iata` re-join. The teardown gets the result (`community_teardown(before, opt_out=...)`): the publisher still clears the status in its own session at `stop()`, but the leftover status clear below is armed only for `failed`. `confirmed` also drops every clear still pending for that key and the recorded topic (`community_status_clear.drop_pubkey`), since the broker refuses them; `maybe` arms nothing and leaves the decision to the manual retry (idempotent upstream). The teardown also forgets the last bind (`observer_position.forget_last_bind()`). Coming back on is a join (`PUT /community/me/iata` with `enable: true`; a `PATCH {enabled: true}` is refused, see **Opt-out teardown**), whose bind goes out even with an unchanged position, which is what lifts Community's refusal. A failure is logged and the local opt-out goes on (fail closed); the record stays and `GET /community` reports it as `opt_out_pending: {requested_at, reason}` while off. The record keeps the radio key; with the radio away it falls back to the key of the last published status topic (`last_published()`). Nothing retries on its own (owner decision Q7), not even after a restart: `POST /community/opt-out/retry` (`retry_opt_out()`, under `_update_lock`) is the only way, and the only Community request allowed by hand while off besides the IATA suggestion. It waits up to `OPT_OUT_RETRY_TIMEOUT_S` (20 s: the operator is waiting; connect 3 s, `OPT_OUT_RETRY_HTTP_TIMEOUT`). It answers 409 `no_pending_opt_out` when nothing is pending, 409 `opt_out_key_unknown` when the record has no key (never the radio connected now), 503 without a radio key, 409 `opt_out_other_radio` when the radio key is not the one that left, and the mapped Community error on failure (the record stays); on success it empties the record and drops the leftover clears for that key. A re-join (the off-to-on write of a join) empties the record too. Covered by `TestOptOutCall` in `tests/test_community_off_no_egress.py`.
-- **Opt-out teardown.** `update_community()` holds one lock (`_update_lock`), so an opt-in sent during the teardown waits for it instead of being undone by it; `sync_system_modules()` is serialised too, so two overlapping syncs never leave a second publisher running. It runs `community_teardown()` when `enabled` goes from true to false, in a `finally` block: a reset that raises after the write, or a cancelled caller (dropped request), still gets the whole teardown, and an opt-out tears down even when the write itself failed (fail closed). `_run_to_completion()` runs that work as a tracked task and holds the caller's cancellation until it is done; the move of the status topic on an IATA change is run the same way. Each step is bounded and runs even if the previous one failed: cancel Community requests in flight, close the Live relay (`close_stats()` bounds the close handshake and the reader, `CLOSE_TIMEOUT_S`), clear the retained MQTT status and stop the publisher, then reset the breaker, the sample quota and the Live queue. The status clear runs before the DISCONNECT through `BaseMqttPublisher._before_disconnect`: a retained `offline` first (QoS 1), then an empty retained payload (QoS 1), so a failed clear leaves `offline`, never `online`. Any other clean stop (reload, shutdown) publishes the retained `offline` only, as the Will would. If the broker is unreachable at that moment nothing is sent; the broker's own Will (`offline`, retained) covers a connection it saw drop, and that `offline` would stay. An IATA change clears the old status topic the same way (`FanoutManager.retire_system_status()`, which returns the module so the caller can read `retired_status_topic`), and an IATA change reopens the Live socket (the addresses are fixed, so only the IATA can move a topic or the Live target). `PUT /community/me/iata` (`bind_community_iata()`) follows the Community order for an IATA change, since `/authz` ties a status topic to the IATA of the MQTT session: under `_update_lock` it first clears the old retained status from the running session (still bound to the old IATA) and stops the publisher (`FanoutManager.stop_system_module()`), then calls `PUT /v1/me/iata`, then saves the IATA and starts the publisher with a JWT for the new one. A failed bind, or a caller cancelled at any point before the bind answers (the retire is inside the `try`), starts the publisher again on the old topic and leaves the stored IATA as it was. The UI changes the IATA with that call alone (no `PATCH /community` first). **Joining** is the same call with `enable: true` (`bind_community_iata(..., enable=True)`): while Community is off, the bind goes out first with a token carrying the requested IATA (the only request allowed while off besides the manual opt-out retry and the IATA suggestion, through the `_bind_state` context variable read by `stats_request`), and only a successful bind writes `enabled` and the IATA and starts the publisher, so the first `online` never meets another bind (`iata_mismatch`). A refused bind (429 IATA change cap, 503 no radio key, ...) leaves Community off and the stored IATA unchanged. Without `enable`, the route still answers 403 while off. After a successful bind, the database write and the publisher and Live reload (`_update_community_locked`) run through `_run_to_completion()` too, so a caller cancelled in between never leaves Community on without its publisher. The very first bind of a pubkey is free (`meshloom-community/docs/contracts/identity.md`). **The PATCH never turns Community on**: from off, `PATCH /community {enabled: true}` is refused with 409 `{"detail": {"code": "join_requires_bind", "message": str}}` (`enable_through_bind`, checked under `_update_lock`), nothing is written and nothing leaves. Turned on without a bind, the publisher would connect with the stored IATA before Community knows it (or after a join whose bind answer was lost, with another IATA than Community's): `iata_mismatch`, and after an opt-out a key Community still refuses. `{enabled: true}` while already on is a no-op. **The PATCH never changes the IATA** either: an `iata` other than the stored one is refused with 409 `{"detail": {"code": "iata_requires_bind", "message": str}}` (`iata_through_bind`), whether Community is on or off and whether `enabled` is sent; the stored IATA itself is accepted (idempotent). Saved without a bind, it would reach the publisher (at once, or at the next opt-in) and the re-bind while Community still knows the old one, outside the retire → bind → reconnect order. An IATA change is `PUT /community/me/iata` (with `enable: true` to join); the frontend only PATCHes `{enabled: false}` (with an optional `opt_out_reason`).
-- **Leftover status clear (the only connection after an opt-out).** `_retire_status_and_reload(before)` first saves the old topic (IATA, broker, audience, pubkey) in `app_settings.community_status_clear` (JSON list, migration 088), then retires and stops the publisher. If the publisher acknowledged the empty retained payload on that topic (`retired_status_topic`), the entry is removed; otherwise `services/community_status_clear.py` starts its worker. Each attempt holds `_update_lock`, saves the attempt count first, then opens one MQTT connection (no Will, JWT minted with that entry's `iata`, which the Community `/authz` requires to match the topic), publishes `b""` retained QoS 1 on the status topic, and disconnects, within `CLEAR_ATTEMPT_TIMEOUT_S` (15 s). At most `CLEAR_MAX_ATTEMPTS` (6) attempts, spaced by `CLEAR_RETRY_DELAYS_S` (1 min to 8 h), and none after `CLEAR_GIVE_UP_AFTER_S` (24 h from the opt-out): the entry is then dropped and the worker exits. It waits for this radio's key without spending attempts, and reads the key again under the lock. The lifespan resumes it at startup (`start_status_clear_worker`, before the fanout modules start) and stops it at shutdown.
-- **Status topic left behind while stopped.** The Stats publisher records the last topic it made retained (`note_published`, `app_settings.community_status_last`, JSON object, migration 089; written only when it changes). At startup, before the fanout starts, `adopt_orphaned_status()` compares it with the effective state: Community off, or another IATA (database changed while the app was stopped) or another broker (a custom one retired by migration 091: `broker_host` stays in the recorded JSON on purpose, so that old broker gets one final clear), hands that topic to the same bounded clear (`mark_pending`, unless already pending) and forgets it. The public key is not compared (unknown before the radio connects). A retire (`_retire_status_and_reload`) forgets the topic once it is pending or cleared, and uses it in place of `target_for(before)` when the radio key is away. Covered by `TestOrphanedStatusAtStartup`. Being on again on the same topic drops the entry (`drop_current`), so a fresh `online` is never cleared. Community's ingest drops the empty payload as `invalid_json` before any bind or status write. Covered by `TestRetainedStatusClear` in `tests/test_community_off_no_egress.py`: one connection carrying only the clear, nothing after success, nothing after giving up (attempts or 24 h), survival across a restart, the old IATA's token. After an opt-out it is armed only when its `POST /v1/me/opt-out` surely did not reach Community (see **Opt-out call**).
-- **IATA suggestion** (`suggest_iata()`, `GET /community/iata/suggest`; owner decision 2026-10-14: nothing is ever assigned). The settings ask it only when the user clicks "Suggest codes" in the IATA form (the join form while off, the IATA field while on or waiting), never on display or after an opt-out; nothing in the backend calls it on its own. It reads the radio's `self_info` (`suggestion_position`: always rounded to 2 decimals, whatever the advert policy; None in the same cases as `publishable_position`) and, without a position, sends nothing and answers both codes null. Otherwise it calls Community's public `GET /v1/iata/suggest?lat=..&lon=..` (`meshloom-community/docs/contracts/identity.md`, § *IATA suggestion*: no JWT, the position as 2-decimal text, 5 s) through `stats_request` with `_iata_suggest_state` set around that one call (`_ask_iata_suggestion`), so it also leaves while Community is off or waiting for a position, but not during an opt-out: `stats_request` reads `_leaving` again for that path, after the caller's awaits. It never touches the circuit breaker (`uses_breaker`): no `allow()`, so it never spends the half-open trial a join needs, and no failure or success is recorded. The answer must hold `neighbors` and `nearest_airport`, each null or `[A-Z]{3}`. Anything else (429 shared public budget, 503, 400, transport error, opt-out started, cancelled by a teardown, unexpected body) falls back to the bundled list: `nearest_airport` from `iata_airports.nearest_airport_iata` (Community's rule: no `heliport`, no `seaplane_base`, no `metro_area`, no `XXX`/`LOC`/`AAA`; haversine, ties to the smaller code), `neighbors` null, `source: "local"`; a null `nearest_airport` from Community is completed the same way. The routes sweeps of `tests/test_community_off_no_egress.py` leave it out (`_NOT_SWEPT`); `TestIataSuggestion` covers it.
-- **Position in the bind** (`services/observer_position.py`). `PUT /v1/me/iata` is the only request that carries this radio's position besides the IATA suggestion above (always rounded to 2 decimals; Community records no code for it, but the request shows in its access logs, behind Cloudflare, with the caller's IP address and the rounded position), and `put_iata_bind()` is the only place that builds the bind's: `publishable_position(self_info)` gives `lat`/`lon` to 6 decimals with `position_precision: "exact"` when the adverts carry the position (`advert_location_broadcast`: `adv_loc_policy` is an `int`, not a `bool`, other than 0), else rounded to 2 decimals (about 1 km) with `"rounded"`; nothing about a position when there is none (absent, not finite, out of bounds, (0, 0), or rounding onto (0, 0)). The browser cannot supply a position (`CommunityIataBindRequest` has no `lat`/`lon`; extra fields are ignored). `adv_loc_policy` missing or untrusted reads as off everywhere (`GET /radio/config` reports `"off"`).
-- **Automatic re-bind.** A `SELF_INFO` subscription (`event_handlers.on_self_info`; every appstart: connect, `set_coords`, policy change) and the end of the post-connect setup call `note_radio_self_info()`. When `(public key, publishable_position)` differs from what the last successful bind sent (kept in memory, so the first `self_info` after a start re-binds once), a worker waits 5 s (`REBIND_DEBOUNCE_S`), then sends the bind again with the stored IATA through `rebind_current_iata()`: under `_update_lock`, after `community_enrolled_state()` (so also while waiting for a position: this is how a chosen position reaches Community), with no status retire and no database write; Community does not count a same-IATA bind as an IATA change. Off or without an IATA it returns without any request, and so it does when, compared again under the lock (`still_needed`), a join or IATA change that held the lock already sent this position. Any exception (an `HTTPException`, or an unexpected body failing validation) is logged and counted as a failure, so the worker never dies. It waits for an accepted radio identity (`ingest_allowed()`), retries a failure after 60 s, 5 min and 30 min (a new radio change cuts the wait short), then, while Community still waits for a position (`waiting_for_position()`), every 30 min (`REBIND_WAITING_RETRY_S`) instead of giving up until the next radio change, and cannot loop (a bind does not change `self_info`). Covered by `tests/test_observer_position.py` and `TestPositionRebindOff`.
-- **Ear position precision (`observer_reach.py`).** Community marks each ear position `position_precision: exact|rounded`. Only `exact` positions count in `max_distance_km` (and, in the browser, the mesh test distances, `meshTestObserverDistanceKm`); a `rounded` one still places the ear. A missing field reads `exact` on `/v1/directory/packets/*` (before the field existed these carried advert positions only, sealed copies included) and `rounded` on `/v1/directory/observers` and the `/reach` direct observers; `null` (a `/reach` coordinate completed by CoreScope, for instance) and an unknown value read `rounded`. `IataBindResult` and `MeStats` echo the stored bind's `position_precision` (`exact`, `rounded` or null). A later `exact` row for the same ear replaces a `rounded` one. Local advert fill (`_fill_local_contact_coordinates`, owner decision: by public key, never by name): an ear with no position or a `rounded` one takes the advert position of the contact with its full 64-hex public key (`get_by_key`, never a prefix) and becomes `exact`, so it counts in `max_distance_km`. An ear with no position and no such contact may be placed from the one contact with its name and a position, but marked `rounded` (map only, no distance or record, no key borrowed). An ear that has its own full key is never placed from a same-name contact with another key. So `position_precision: "rounded"` on an ear means "not usable for distances": a Community position rounded to about 1 km, or coordinates placed by name, which are not literally rounded. An `exact` ear keeps its own position. The browser does the same in the radio test: `placedObserverCoordinates` (`utils/meshTest.ts`) returns `byName: true` for a name-only placement (only for an ear without a full key), and `meshTestObserverDistanceKm` then gives no distance.
-- Hashtag keys hash the exact name everywhere; the official-app normalisation is UI input only (see root `AGENTS.md`, "Hashtag rule").
+- Effective config is the DB (`community_enabled`, `community_iata`) plus the fixed
+  `DEFAULT_BROKER_HOST` / `DEFAULT_API_BASE`, read at call time by
+  `get_community_effective()`. No env var is read, and a new DB starts off.
+  `services/legacy_env_settings.py` handles the retired `MESHLOOM_COMMUNITY*`
+  variables: `import_legacy_community_iata()` copies a valid IATA into an existing
+  DB once (marker `community_env_imported`, migration 091), and
+  `warn_about_retired_env()` warns at every start while one is set.
+- `GET /community` returns `enabled`, `iata`, `publisher_configured`,
+  `publisher_connected`, `state` (`off`, `active`, `waiting_for_position`),
+  `banned` and `opt_out_pending`. `PATCH` accepts `enabled`, `iata` and
+  `opt_out_reason`.
+- An unknown `position_precision` (bind result, `/me/stats`) parses as `null`.
 
-## Live relay (`services/community_live.py`)
+## HTTP (`stats_request`)
 
-- One process-wide upstream socket to `/v1/live/packets`. The reader is claimed under the relay lock, so concurrent `subscribe()` calls cannot open two sockets. Sessions expire after 90 s without a heartbeat; the upstream closes 1.5 s after the last session leaves.
-- Frames go out as `community_packet` through `ws_manager.broadcast`, i.e. to **every** connected WS client, not only to subscribed tabs. The upstream reader feeds a 32-frame queue (`FANOUT_QUEUE_MAX`, surplus dropped) that one task drains at once into the per-client WS queues; there, a client whose backlog reaches 256 frames (`CLIENT_COMMUNITY_PACKET_BACKLOG_MAX`, `app/websocket.py`) stops receiving `community_packet` until it catches up, so a slow reader never piles up Live frames or gets evicted because of them. Live "heard by" bumps lost that way are reconciled by REST.
-- Reconnect backoff: 0.5 s doubling up to 30 s. It resets only after a socket stayed up ≥ 10 s (`JWT_EXPIRY_MIN_UPTIME_S`). The JWT is reminted locally on every attempt. A 4001 close on such a socket reconnects at once. Every backoff sleep (`_sleep_backoff`, 401 retries and pauses included) is spread by ±20 % (`BACKOFF_JITTER`, `jittered()`), so instances cut off at the same moment do not come back in step; a reconnect at once (0 s) stays at once.
-- **Feed paused** (Community `KILL_LIVE_PUBLIC`): open sockets close with 1013 (`CLOSE_FEED_PAUSED`) and handshakes get 503 with body `code: live_disabled` (`is_feed_paused()`). The relay reports `state: paused` (no close code, no error) and retries after 30 s, then every 60 s (`PAUSED_RETRY_MIN_S`/`_MAX_S`, before jitter, so 24 to 72 s), whatever the socket's uptime. The first socket that opens clears the pause and resets both delays; any handshake answer that is not a pause (401, 409, 429, 502, `live_viewer_cap`, a 503 with an HTML body...), an opt-out and the end of the reader (`close_stats()`, no consumers left) clear it too, and each of them broadcasts the status (the 400 filter fallback and `close_stats()` included), so the browser's chip goes away. The egress guard still runs before every attempt. A 503 with another code (`live_viewer_cap`) or no body is not a pause: it stays a 4004 with the short backoff.
-- A handshake 401 is not a 4001: retry at 2 s, doubling, and give up after 5 refusals (`AUTH_REJECT_MAX_ATTEMPTS`), or at once for `AUTH_FATAL_CODES`. The relay then reports `state: auth_rejected`, with `auth_error` = `clock_skew` or `token_rejected` (`auth_code` keeps the raw code). `POST /community/live/restart` or `PATCH /community` clears it.
-- **Banned key**: a handshake 403 with body `code: banned` records the ban (`note_banned()`, see **Banned key** above) and stops the reader at once (state `banned`, no close code); nothing reopens while the ban state holds, heartbeats included. `POST /community/live/restart` ends the state and tries again.
-- Other handshake refusals: 409 maps to 4005, 429 and 503 (except `live_disabled`, above) to 4004; any other status, 403 other than `banned` included, has no close code. All of them reconnect with the normal backoff.
-- 4002 is reserved and Community never sends it. If a 4002 close ever arrives, the reader stops that generation and waits for `POST /community/live/restart`. 4003/4004/4005 are never shown to the user (`CommunityLiveStatus` hides them).
-- `community_live.state` values: `connected`, `reconnecting`, `paused`, `opted_out`, `idle`, `auth_rejected`, `banned`. `opted_out` also covers Community waiting for a position (the Live relay treats it as off).
-- **Region filter.** `POST /community/live/subscribe` takes `iata` (list of codes, at most 64 (`LIVE_IATA_SELECTION_MAX`), the placeholders `XXX`, `LOC`, `AAA` (`LIVE_PLACEHOLDER_IATAS`, the set Community ingest uses) refused with 422; null or empty = every region), on the first call and on every heartbeat. Sessions are `{sid: (last_seen, regions)}`. The socket asks Community for `?iata=` = the union of the sessions' regions **plus the radio's IATA**, sorted; one session for every region, or more than 16 codes (`UPSTREAM_IATA_MAX`), means the global feed. When the union changes (subscribe, unsubscribe, a session expiring), a check runs after 2 s (`FILTER_DEBOUNCE_S`) and, if the open socket asked for something else, closes it and opens a new one with the same `X-Live-Instance`. That check goes through `community_egress_state()` before and after the close, so an opt-out in between never reopens anything. A handshake **400** on a filtered URL (`live_bad_filter`) switches to the global feed at once. For an hour (`FILTER_RETRY_S`) no union change or reconnect asks for a filter again; `restart`/`PATCH /community` clear that hour at once. Past it nothing retries on its own: the global socket stays until the next union change or reconnect (JWT expiry, for instance). A Community that ignores the parameter just sends the global feed. Either way frames still go to every WS client, and the browser filters them again (`docs/dev/frontend-community.md`, "#live"). `CommunityLiveStatus.upstream_iata` reports the filter of the open socket (null = global). A region change that lands while a handshake is in flight is checked again once that socket opens. The "heard by" counts in conversations are also bumped live by this feed (frontend `applyCommunityPacketObserverTick`, whatever regions the Live tab shows), then reconciled by REST. Because the radio's IATA is always in the upstream filter, packets heard in its region stay complete; accepted limit: a far observation of a packet never heard in the radio's region no longer bumps the count live, only on the next REST poll. `#test` only polls REST (`GET /directory/packets/{hash}/reach`), so the filter does not change it.
-- `GET /community/iata/active` proxies Community `GET /v1/iata/active` (`[{code, unique_hashes_24h}]`, the placeholders `XXX`, `LOC`, `AAA` dropped), cached 60 s. Opted out or waiting for a position it answers `available: false` without any request; a Community without the route (404/405) gives `available: false` too (cached); other failures are raised as usual.
+- Upstream mapping: transport error, timeout or 5xx gives 503; 429 gives 429; 400
+  gives 400; 401 gives 502 (with a clock hint when `classify_auth_rejection` reports
+  `clock_skew`); 403 `code: banned` gives 403 `community_banned` (see Banned key);
+  any other non-200 gives 502 (`CommunityUpstreamError.upstream_status`); an
+  unexpected body gives 502.
+- `CommunityBreaker`: 3 consecutive failures (`BREAKER_FAILURE_THRESHOLD`) open it
+  for 30 s (`BREAKER_OPEN_SECONDS`, 503 without network), then one trial call
+  decides. The IATA suggestion and the release mirror never touch it.
+- The hashtag catalogue is global (`GET /community/hashtags` proxies
+  `GET /v1/hashtags`). Hashtag names go out (`PUT /v1/me/hashtags`) only with
+  Community on and an IATA saved, and only for a `#` channel whose key is
+  `SHA256(name)[:16]` (`is_public_hashtag_channel`); resolve and sample uploads
+  (`services/hashtag_catalogue.py`) also wait for the IATA. Keys hash the exact
+  name; the official-app normalisation is UI input only (root `AGENTS.md`,
+  "Hashtag rule").
+- `GET /community/iata/active` (`active_iata_codes`, `community_live.py`) is cached
+  60 s (`ACTIVE_IATA_CACHE_S`); off, waiting or a Community without the route
+  (404/405) gives `available: false`.
 
-## Stats publisher (fanout system module `system:meshloom-stats`)
+## Egress guard
 
-`meshloom_stats.py` (`MeshloomStatsModule`, id `system:meshloom-stats`) uploads raw packets to the Meshloom Community Stats broker. `sync_system_modules()` starts it from the Community state (`services/meshloom_community.community_enrolled_state()`, the enrolled level of the egress guard: it also runs while Community waits for a position), not from `fanout_configs`. While waiting (`waiting_for_position()`), `MeshloomStatsPublisher._status_extra()` puts `state: waiting_for_position` right after `status` in the retained `online` payload, and `MeshloomStatsModule.on_raw` publishes no packet; each change of that state re-publishes the status at once (`FanoutManager.republish_system_status()` → `republish_status()`). `_status_extra()` is a `CommunityMqttPublisher` hook that returns `{}` there, so user `mqtt_community` rows never carry `state`. A clean DISCONNECT makes the broker drop the Will, so every clean `stop()` of a `CommunityMqttPublisher` (this module and user `mqtt_community` rows alike) first publishes the Will's `offline` payload, retained, QoS 1, on the last status topic. On opt-out or an IATA change, `FanoutManager.retire_system_status()` makes the next `stop()` also publish an empty retained payload there, which deletes the retained message; once acknowledged, the publisher's `retired_status_topic` names that topic. When it is not (broker unreachable), `services/community_status_clear.py` retries that one clear on its own connection (see "Leftover status clear" above). Each retained `online` sent on a live connection goes through the `_on_status_retained` hook; `MeshloomStatsPublisher` uses it to record the topic (`community_status_clear.note_published`), so a restart with another IATA or broker, or with Community off, clears the old one. `MeshloomStatsPublisher._pre_connect` re-checks the enrolled-level guard before every reconnect, and waits without connecting while Community has banned the key; `_on_connection_error` probes Community after a broker auth refusal (see **Banned key**); that guard answers None from the start of an opt-out (`opt_out_in_progress()`), because Community kicks the session while answering `POST /v1/me/opt-out`, before the local teardown stops the publisher, and `_error_toast_allowed()` (a `BaseMqttPublisher` hook, true by default) keeps that lost connection out of the UI. Once Community confirmed the opt-out (any 2xx), or the call timed out, the opt-out arms no clear retry: the in-session clear at `stop()` still runs. It is hidden from `/api/fanout` and from fanout statuses. `PATCH`/`DELETE` on any `system:*` id answer 403. It can run next to a user `mqtt_community` row.
+Opted out means no connection to the Community hosts. `community_egress_state()` is
+the single check, made by `stats_request`, the Live socket (before every
+reconnect, and through `community_active()` for `subscribe`/`restart`/
+`unsubscribe`), the release mirror, `active_iata_codes`, the hashtag publish and
+resolve, the directory, observer reach and the update poll cadence. It answers
+None while off **and while waiting for a position**. `community_enrolled_state()`
+(on, waiting or not) is for `FanoutManager.sync_system_modules()`, the Stats
+publisher (`_pre_connect`) and the `PUT /v1/me/iata` binds only.
 
+Four exceptions, each a context variable read by `stats_request` for one path
+(do not add a fifth without an owner decision):
+
+| Exception | Variable | Allowed |
+|---|---|---|
+| Join or IATA bind | `_bind_state` | `PUT /v1/me/iata`, also while waiting |
+| Opt-out call and its manual retry | `_opt_out_state` | `POST /v1/me/opt-out` only |
+| IATA suggestion | `_iata_suggest_state` | `GET /v1/iata/suggest` only; not during an opt-out |
+| Leftover status clear | its own MQTT connection | one retained clear (below) |
+
+While waiting for a position the Stats publisher (status only, no packets) and the
+binds keep working; every other `/v1/me/*` call, including
+`POST /me/iata/override`, stays cut. `tests/test_community_off_no_egress.py` sweeps
+the routes: a new call path must be covered there (`_NOT_SWEPT` lists the
+exceptions).
+
+## Waiting for a position
+
+- `community_state_of()` gives `waiting_for_position` when on and `_position_missing`
+  is set. `note_radio_position()` sets it when an accepted identity
+  (`ingest_allowed()`) reports a `self_info` without a publishable position (none,
+  `0, 0`, out of bounds). It runs right after the identity gate in
+  `run_post_connect_setup`, before `export_and_store_private_key`, so nothing leaves
+  first; then on every `SELF_INFO` through `observer_position.note_radio_self_info()`.
+  No radio, or an identity not yet accepted, keeps the last state.
+- A position alone does not clear it. Only a successful `PUT /v1/me/iata` that
+  carried a position does (`note_position_bound()`), or a `self_info` this process
+  already bound (`position_already_bound`). A refused bind keeps waiting.
+- The flag is persisted in `app_settings.community_waiting_for_position` (migration
+  092) and loaded by `load_position_state()` in the lifespan before the update poll
+  and the fanout start, so a restart while waiting makes no call at all (the IATA
+  suggestion excepted). A new DB starts not waiting. Joining without a position is
+  allowed and lands in this state.
+- A change spawns `_apply_position_state()`: save the flag (also while off), then
+  under `_update_lock` re-read the state. To waiting: bump `_egress_generation`,
+  cancel requests in flight, close Live. Back to active: reopen Live and nudge the
+  update poll. Both ways, the Stats publisher re-publishes its retained status
+  (`FanoutManager.republish_system_status()`). Tested by `TestWaitingForPosition`.
+
+## Joining, IATA change, opt-out
+
+All three run under `_update_lock`.
+
+- **The PATCH never turns Community on or changes the IATA.** From off,
+  `PATCH {enabled: true}` gives 409 `join_requires_bind`; another `iata` gives 409
+  `iata_requires_bind` (`enable_through_bind`, `iata_through_bind`). Nothing is
+  written or sent. The frontend only PATCHes `{enabled: false}`.
+- **Join or IATA change** is `PUT /community/me/iata` (`bind_community_iata()`,
+  `enable: true` to join). Order, because `/authz` ties a status topic to the
+  session's IATA: clear the old retained status from the running session and stop
+  the publisher, call `PUT /v1/me/iata`, save the IATA, start the publisher with a
+  JWT for the new one. A failed or cancelled bind restarts the publisher on the old
+  topic and keeps the stored IATA. When off, the bind goes out first (through
+  `_bind_state`) and only success writes `enabled`; a refusal (429 cap, 503 no
+  radio key) leaves Community off. The write and the publisher/Live reload then run
+  through `_run_to_completion()`, so a cancelled caller never leaves Community on
+  without its publisher. The first bind of a key is free (`identity.md`).
+- **Position in the bind** (`observer_position.py`). `put_iata_bind()` is the only
+  builder: `publishable_position(self_info)` gives 6 decimals with
+  `position_precision: "exact"` when the adverts broadcast the position
+  (`advert_location_broadcast`: `adv_loc_policy` is an int other than 0), else 2
+  decimals (about 1 km) with `"rounded"`; no position field when there is none. The
+  browser cannot supply one (`CommunityIataBindRequest` has no `lat`/`lon`).
+  `GET /radio/config` reports an untrusted or missing policy as `"off"`.
+- **Automatic re-bind.** `note_radio_self_info()` compares `(public key,
+  publishable_position)` with the last successful bind (in memory, so the first
+  `self_info` after a start re-binds once); on a difference a worker waits
+  `REBIND_DEBOUNCE_S` (5 s) and calls `rebind_current_iata()` under the lock (same
+  IATA, no retire, no DB write; nothing when off). Failures retry after
+  `REBIND_RETRY_DELAYS_S`, then every `REBIND_WAITING_RETRY_S` while waiting. Tested
+  by `tests/test_observer_position.py`, `TestPositionRebindOff`.
+- **Opt-out** (`PATCH {enabled: false, opt_out_reason?}`: `privacy`, `not_useful`,
+  `technical_issue`, `other`). `_update_community_locked()` sets `_leaving`
+  (`opt_out_in_progress()`): the guard answers None until the teardown ends, so the
+  publisher neither reconnects nor toasts when Community kicks its session. Then
+  `_announce_opt_out()` writes the pending record first
+  (`app_settings.community_opt_out_pending`, migration 093: `{pubkey, reason,
+  requested_at, iata}`) and sends `POST /v1/me/opt-out` within
+  `OPT_OUT_LAST_CALL_TIMEOUT_S` (5 s). The `OptOutResult` is `confirmed` (any 2xx),
+  `maybe` (timeout after the request left) or `failed`. `confirmed` empties the
+  record and drops every pending status clear for the key
+  (`community_status_clear.drop_pubkey`); `failed` arms the leftover clear; `maybe`
+  arms nothing. A failure never blocks the local opt-out (fail closed). The record
+  shows as `opt_out_pending` while off. Nothing retries automatically, even after
+  a restart: `POST /community/opt-out/retry` (`retry_opt_out()`, up to
+  `OPT_OUT_RETRY_TIMEOUT_S`, 20 s) is the only way. It answers 409
+  `no_pending_opt_out`, 409 `opt_out_key_unknown`, 409 `opt_out_other_radio`, 503
+  without a radio key, or the mapped Community error (record kept). Coming back on is
+  a join, whose bind goes out even with an unchanged position, which lifts
+  Community's refusal. Tested by `TestOptOutCall`.
+- **Teardown.** `community_teardown()` runs in a `finally` through
+  `_run_to_completion()` (a tracked task that holds the caller's cancellation), so a
+  failed write, a reset that raises or a dropped request still gets all of it. Each
+  step is bounded (`TEARDOWN_STEP_TIMEOUT_S`) and runs even if the previous one
+  failed: cancel requests in flight, close Live (`close_stats()`,
+  `CLOSE_TIMEOUT_S`), clear the retained status and stop the publisher, reset the
+  breaker, the sample quota and the Live queue; it also calls
+  `observer_position.forget_last_bind()`. The clear runs before the DISCONNECT
+  (`BaseMqttPublisher._before_disconnect`): retained `offline`, then an empty
+  retained payload, so a failed clear leaves `offline`, never `online`.
+
+## Retained status left behind
+
+- **Leftover clear** (`community_status_clear.py`). `_retire_status_and_reload()`
+  saves the old topic (IATA, broker, audience, pubkey) in
+  `app_settings.community_status_clear` (migration 088) before retiring. If the
+  publisher acknowledged the empty payload (`retired_status_topic`) the entry goes;
+  otherwise a worker retries. Each attempt holds `_update_lock`, opens one MQTT
+  connection without a Will (JWT minted with the entry's IATA), publishes `b""`
+  retained QoS 1 and disconnects, within `CLEAR_ATTEMPT_TIMEOUT_S` (15 s). At most
+  `CLEAR_MAX_ATTEMPTS` (6), spaced by `CLEAR_RETRY_DELAYS_S` (1 min to 8 h), and none
+  after `CLEAR_GIVE_UP_AFTER_S` (24 h). It waits for this radio's key without
+  spending attempts. The lifespan resumes it (`start_status_clear_worker`) before
+  the fanout starts. Tested by `TestRetainedStatusClear`.
+- **Orphaned topic.** The publisher records the last retained topic
+  (`note_published`, `app_settings.community_status_last`, migration 089). At startup
+  `adopt_orphaned_status()` hands it to the same clear when Community is off or the
+  IATA or broker differs (the recorded `broker_host` stays on purpose, so an old
+  custom broker still gets one clear). Being on again on the same topic drops the
+  entry (`drop_current`). Tested by `TestOrphanedStatusAtStartup`.
+
+## IATA suggestion
+
+`suggest_iata()` (`GET /community/iata/suggest`) runs only on the user's click;
+nothing is ever assigned automatically. Without a position (`suggestion_position`,
+always 2 decimals) it sends nothing and answers both codes null. Otherwise it calls
+the public `GET /v1/iata/suggest` (`IATA_SUGGEST_TIMEOUT_SECONDS`, 5 s) through
+`_iata_suggest_state`. Any failure or malformed answer falls back to the bundled
+list (`nearest_airport_iata`, `source: "local"`). Tested by `TestIataSuggestion`.
+
+## Ear position precision (`observer_reach.py`)
+
+Only `exact` ear positions count in `max_distance_km` and the browser's mesh-test
+distances; a `rounded` one still places the ear. A missing field reads `exact` on
+`/v1/directory/packets/*` and `rounded` on `/v1/directory/observers` and `/reach`;
+`null` and unknown values read `rounded`. `_fill_local_contact_coordinates` completes
+ears from local adverts **by full 64-hex public key only** (never a prefix, never a
+name): the ear becomes `exact`. An ear with no key match may be placed from the one
+contact with its name, but stays `rounded` (map only, no distance). The browser
+mirrors this (`placedObserverCoordinates`, `byName`, in `utils/meshTest.ts`).
+
+## Banned key (`community_ban.py`)
+
+Community answers 403 `code: banned` (`errors.md`) on the key's write routes
+(`BANNED_REFUSED_ROUTES`: six routes, `PUT /v1/me/iata`,
+`POST /v1/me/iata/override`, `PUT /v1/me/hashtags`, `POST /v1/hashtags/resolve`,
+`POST /v1/hashtags/samples`, `POST /v1/directory/packets/observations`), on the Live
+handshake, and refuses the key at MQTT auth. A retry cannot lift it, so the first
+such answer (`note_banned()`, from `stats_request` or Live) starts an in-memory
+state for `BANNED_HOLD_S` (12 h):
+
+- `stats_request` refuses those six routes locally with 403 `community_banned`, after
+  the egress guard.
+- Live stops with state `banned` (`stop_for_ban()`, spawned by `_apply_ban()`) and
+  opens nothing.
+- The Stats publisher does not connect (`_pre_connect` waits
+  `BANNED_RECHECK_INTERVAL_S`, 300 s) and shows no toast (`_error_toast_allowed`).
+- Reads (`/v1/me/stats`, directory) and the opt-out keep working.
+
+The broker refusal alone cannot be told from other auth failures. On a CONNACK
+refusing the credentials (`is_auth_refusal`), the publisher's `_on_connection_error`
+sends one probe, `probe_community_ban()`: `POST /v1/hashtags/resolve` with
+`{"hash_bytes": []}`, which has no side effect. Not during an opt-out or when the ban
+is known, and at most every `BAN_PROBE_MIN_INTERVAL_S` (1 h, `take_ban_probe()`).
+
+The state ends on restart, on a user action (`PATCH /community`, a join or IATA bind,
+`POST /community/live/restart`, the opt-out teardown) or after `BANNED_HOLD_S`, when
+the next refused reconnect probes again and restarts it if the ban holds. The
+re-bind worker treats the 403 like an opt-out (no retry). Tested by
+`tests/test_community_ban.py`.
+
+## Live relay (`community_live.py`)
+
+- One process-wide upstream socket to `/v1/live/packets`, claimed under the relay
+  lock. Sessions expire after `SESSION_TTL_S` (90 s) without a heartbeat; the
+  upstream closes 1.5 s after the last one leaves.
+- Frames go out as `community_packet` through `ws_manager.broadcast` to **every** WS
+  client. The upstream reader feeds a queue of `FANOUT_QUEUE_MAX` (32, surplus
+  dropped); per client, backlog at `CLIENT_COMMUNITY_PACKET_BACKLOG_MAX` (256,
+  `app/websocket.py`) stops `community_packet` until it catches up, without evicting
+  the client. Missed "heard by" bumps are reconciled by REST.
+- States (`LiveState`): `connected`, `reconnecting`, `paused`, `opted_out` (also
+  while waiting for a position), `idle`, `auth_rejected`, `banned`.
+- Reconnect backoff 0.5 s doubling to 30 s, reset only after a socket stayed up
+  `JWT_EXPIRY_MIN_UPTIME_S` (10 s). The JWT is reminted each attempt; a 4001 close
+  reconnects at once. Sleeps are jittered by +/-20 % (`BACKOFF_JITTER`).
+- **Feed paused** (`live_disabled`: 1013 close or handshake 503 with that code):
+  state `paused`, retry after 30 s then 60 s (`PAUSED_RETRY_MIN_S`/`_MAX_S`). Any
+  socket that opens, any other handshake answer, an opt-out and `close_stats()` clear
+  it. A 503 with another code is a 4004.
+- **Handshake 401** is not a 4001: retry at 2 s doubling, give up after
+  `AUTH_REJECT_MAX_ATTEMPTS` (5), or at once for `AUTH_FATAL_CODES`. State
+  `auth_rejected`, `auth_error` = `clock_skew` or `token_rejected`.
+- Other refusals: 409 maps to 4005, 429 and 503 to 4004, any other status (403 not
+  `banned` included) has no close code; all reconnect with the normal backoff. A
+  `banned` 403 stops the reader. 4002 is reserved and never sent; if it arrives the
+  reader stops. 4003 to 4005 are never shown (`CommunityLiveStatus` hides them).
+  `POST /community/live/restart` clears 4002, a given-up 401 and a ban.
+- **Region filter.** `POST /community/live/subscribe` takes `iata` (at most
+  `LIVE_IATA_SELECTION_MAX` = 64 codes, in `models.py`; placeholders `XXX`, `LOC`,
+  `AAA` give 422; empty means every region), on the first call and every
+  heartbeat. The socket asks for `?iata=` = union of the sessions' regions **plus the
+  radio's IATA**, sorted; one session for every region, or more than
+  `UPSTREAM_IATA_MAX` (16) codes, means the global feed. After a union change a check
+  runs `FILTER_DEBOUNCE_S` (2 s) later and, if the open socket asked for something
+  else, reopens with the same `X-Live-Instance` (guard checked before and after the
+  close). A handshake 400 (`live_bad_filter`) switches to the global feed for
+  `FILTER_RETRY_S` (1 h); `restart` and `PATCH /community` clear that. Frames still
+  reach every client and the browser filters again (`docs/dev/frontend-community.md`,
+  "#live"). `CommunityLiveStatus.upstream_iata` reports the open filter (null =
+  global).
+
+## Stats publisher (`system:meshloom-stats`)
+
+`MeshloomStatsModule` (`app/fanout/meshloom_stats.py`) uploads raw packets to the
+Stats broker. `sync_system_modules()` (serialised) starts it from
+`community_enrolled_state()`, not from `fanout_configs`; it is hidden from
+`/api/fanout` and `PATCH`/`DELETE` on any `system:*` id answer 403. It can run next
+to a user `mqtt_community` row.
+
+- While waiting, `_status_extra()` adds `state: waiting_for_position` to the retained
+  `online` payload and `on_raw` publishes no packet. `_status_extra()` returns `{}`
+  for user `mqtt_community` rows.
+- Every clean `stop()` publishes the Will's retained `offline` first; after
+  `retire_system_status()` it also publishes the empty payload.
+- Hooks on `BaseMqttPublisher`: `_pre_connect` (re-checks the enrolled guard and the
+  ban before every reconnect), `_on_connection_error` (ban probe),
+  `_error_toast_allowed` (false during an opt-out or a ban), `_on_status_retained`
+  (records the topic for the orphan clear).
