@@ -6,6 +6,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
 import { ApiError, api, formatApiError, getApiErrorCode } from '../../api';
+import { noteWifiRebootStarted, setRadioWifiState } from '../../stores/radioWifiStore';
 import {
   BACKUP_FORMATS,
   type BackupInspectResult,
@@ -78,6 +79,17 @@ export function restoreChanges(job: BackupRestoreJob): {
     identity?.status === 'done' && (identity.code === 'restored' || identity.code === 'bound');
   const dataChanged = job.steps.some((step) => step.step === 'meshloom' && step.status === 'done');
   return { identityChanged, dataChanged };
+}
+
+/**
+ * The restore's Wi-Fi step wrote something to the radio (the credentials or the
+ * on/off flag). Its reboot then goes through `POST /radio/wifi/reboot`, a planned
+ * `wifi_config` reboot (reconnect errors stay quiet, setup and the Wi-Fi check run
+ * again, the switch to TCP is offered), never the plain `/radio/reboot`.
+ */
+export function restoreWroteWifi(job: BackupRestoreJob): boolean {
+  const wifi = job.steps.find((step) => step.step === 'wifi');
+  return Boolean(wifi?.items.some((item) => item.status === 'done'));
 }
 
 // Finished jobs whose onFinished already ran, so a view opened later runs it once
@@ -379,10 +391,17 @@ export function BackupRestoreFlow({
     }
   };
 
-  const reboot = async () => {
+  const reboot = async (finished: BackupRestoreJob) => {
     setRebooting(true);
     try {
-      await api.rebootRadio();
+      if (restoreWroteWifi(finished)) {
+        const result = await api.rebootRadioForWifi();
+        setRadioWifiState(result.state);
+        // Wi-Fi left on: offer TCP once the radio is back with an address.
+        if (result.state.enabled === true) noteWifiRebootStarted();
+      } else {
+        await api.rebootRadio();
+      }
       toast.success(t('settings.fullRestore.rebootSent'));
     } catch (err) {
       toast.error(formatApiError(err, t));
@@ -539,7 +558,11 @@ export function BackupRestoreFlow({
               {phase.job.result?.reboot_required && (
                 <div className="space-y-1">
                   <p className="text-[0.8125rem]">{t('settings.fullRestore.rebootRequired')}</p>
-                  <Button variant="outline" disabled={rebooting} onClick={reboot}>
+                  <Button
+                    variant="outline"
+                    disabled={rebooting}
+                    onClick={() => phase.job && void reboot(phase.job)}
+                  >
                     {t('settings.fullRestore.rebootNow')}
                   </Button>
                 </div>

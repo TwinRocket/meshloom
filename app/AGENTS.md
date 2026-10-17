@@ -381,7 +381,11 @@ be wrong, because historical decryption inserts old messages with new ids.
   before an encrypted file's KDF), `spawn()`ed, in memory
   (last 5); `GET /settings/backup/restore/jobs/{id}` and `/latest`. The decrypted
   document lives in the run object only and is dropped when the job ends. The
-  reboot the restore offers is the plain `POST /radio/reboot` (unannounced).
+  reboot the restore offers (`result.reboot_required`, set only by the Wi-Fi
+  step) is `POST /radio/wifi/reboot` whenever the Wi-Fi step wrote an item
+  (`restoreWroteWifi()` in `BackupRestoreFlow.tsx`): a planned `wifi_config`
+  reboot, so reconnect errors stay quiet, setup and the Wi-Fi check run again
+  and the switch-to-TCP toast is armed. Otherwise the plain `POST /radio/reboot`.
   Outcomes that are not a step status go in `result.warnings` (`code` or
   `code:param`) and in a step's `items`; the UI translates every one (keep
   `frontend/src/test/backupRestoreFlow.test.tsx`'s code list in sync). Nothing a

@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   getRestoreJob: vi.fn(),
   getLatestRestoreJob: vi.fn(),
   rebootRadio: vi.fn(),
+  rebootRadioForWifi: vi.fn(),
+  setRadioWifiState: vi.fn(),
+  noteWifiRebootStarted: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
@@ -20,7 +23,17 @@ vi.mock('../api', async (importOriginal) => {
       getRestoreJob: mocks.getRestoreJob,
       getLatestRestoreJob: mocks.getLatestRestoreJob,
       rebootRadio: mocks.rebootRadio,
+      rebootRadioForWifi: mocks.rebootRadioForWifi,
     },
+  };
+});
+
+vi.mock('../stores/radioWifiStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../stores/radioWifiStore')>();
+  return {
+    ...actual,
+    setRadioWifiState: mocks.setRadioWifiState,
+    noteWifiRebootStarted: mocks.noteWifiRebootStarted,
   };
 });
 
@@ -385,6 +398,72 @@ describe('BackupRestoreFlow', () => {
     expect(screen.getByText(i18n.t('settings.fullRestore.done'))).toBeVisible();
     fireEvent.click(reboot);
     await waitFor(() => expect(mocks.rebootRadio).toHaveBeenCalled());
+    // No Wi-Fi item written: the plain reboot.
+    expect(mocks.rebootRadioForWifi).not.toHaveBeenCalled();
+  });
+
+  it('reboots through the Wi-Fi route when the Wi-Fi step wrote to the radio', async () => {
+    const wifiJob = job();
+    wifiJob.steps[5] = {
+      step: 'wifi',
+      status: 'done',
+      code: null,
+      detail: null,
+      items: [{ name: 'wifi_credentials', status: 'done', code: null }],
+    };
+    mocks.getRestoreJob.mockResolvedValue(wifiJob);
+    const state = { check: 'done', supported: true, enabled: true, ssid: 'HomeNet' };
+    mocks.rebootRadioForWifi.mockResolvedValue({
+      state,
+      reboot_required: false,
+      rebooting: true,
+    });
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.confirm')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') }));
+    fireEvent.click(
+      await screen.findByRole(
+        'button',
+        { name: i18n.t('settings.fullRestore.rebootNow') },
+        { timeout: 3000 }
+      )
+    );
+    await waitFor(() => expect(mocks.rebootRadioForWifi).toHaveBeenCalled());
+    expect(mocks.rebootRadio).not.toHaveBeenCalled();
+    expect(mocks.setRadioWifiState).toHaveBeenCalledWith(state);
+    expect(mocks.noteWifiRebootStarted).toHaveBeenCalled();
+    expect(mocks.toast.success).toHaveBeenCalledWith(i18n.t('settings.fullRestore.rebootSent'));
+  });
+
+  it('offers no switch to TCP after a Wi-Fi reboot that leaves Wi-Fi off', async () => {
+    const wifiJob = job();
+    wifiJob.steps[5] = {
+      step: 'wifi',
+      status: 'done',
+      code: null,
+      detail: null,
+      items: [{ name: 'wifi_enabled', status: 'done', code: null }],
+    };
+    mocks.getRestoreJob.mockResolvedValue(wifiJob);
+    mocks.rebootRadioForWifi.mockResolvedValue({
+      state: { check: 'done', supported: true, enabled: false },
+      reboot_required: false,
+      rebooting: true,
+    });
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    fireEvent.click(await screen.findByLabelText(i18n.t('settings.fullRestore.confirm')));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.restore') }));
+    fireEvent.click(
+      await screen.findByRole(
+        'button',
+        { name: i18n.t('settings.fullRestore.rebootNow') },
+        { timeout: 3000 }
+      )
+    );
+    await waitFor(() => expect(mocks.rebootRadioForWifi).toHaveBeenCalled());
+    expect(mocks.noteWifiRebootStarted).not.toHaveBeenCalled();
   });
 
   it('re-runs inspect when a 409 says the identity decision changed', async () => {
