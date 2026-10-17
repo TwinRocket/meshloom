@@ -68,14 +68,14 @@ export function BottomNav({
                 className={cn(
                   'relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[1.375rem] px-0.5 py-2.5',
                   'text-[0.625rem] leading-none transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                   isActive
                     ? 'bg-primary/15 text-primary'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
                 <span className="relative">
-                  <Icon className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+                  <Icon className="h-5.5 w-5.5" aria-hidden="true" />
                   {badge > 0 && (
                     <span
                       className="absolute -right-2.5 -top-1.5 min-w-[1.05rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground"
@@ -95,7 +95,7 @@ export function BottomNav({
                   type="button"
                   onClick={() => onOpenUpdate?.()}
                   aria-label={t('updates.badgeLabel')}
-                  className="absolute right-[calc(50%-1.35rem)] top-1.5 z-10 min-w-[1.15rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="absolute right-[calc(50%-1.35rem)] top-1.5 z-10 min-w-[1.15rem] rounded-full bg-primary px-1 py-px text-[0.5625rem] font-semibold leading-tight text-primary-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   !
                 </button>

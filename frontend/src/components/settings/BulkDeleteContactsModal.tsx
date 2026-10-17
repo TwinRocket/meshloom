@@ -367,7 +367,7 @@ export function BulkDeleteContactsModal({
                 </div>
               ) : (
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm">
+                  <thead className="sticky top-0 bg-muted/90 backdrop-blur-xs">
                     <tr className="text-left text-xs text-muted-foreground">
                       <th className="px-3 py-1.5 w-8" />
                       <SortableHeader
@@ -431,13 +431,13 @@ export function BulkDeleteContactsModal({
                             className="rounded border-input"
                           />
                         </td>
-                        <td className="px-3 py-1.5 truncate max-w-[10rem]">
+                        <td className="px-3 py-1.5 truncate max-w-40">
                           {getContactDisplayName(c.name, c.public_key, c.last_advert)}
                         </td>
                         <td className="px-3 py-1.5 hidden sm:table-cell text-xs text-muted-foreground">
                           {typeLabel(c.type)}
                         </td>
-                        <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground truncate max-w-[8rem]">
+                        <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground truncate max-w-32">
                           {c.public_key.slice(0, 12)}
                         </td>
                         <td className="px-3 py-1.5 hidden sm:table-cell text-xs text-muted-foreground">
@@ -473,7 +473,7 @@ export function BulkDeleteContactsModal({
           <>
             <div className="flex-1 overflow-y-auto min-h-0 border border-border rounded-md">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm">
+                <thead className="sticky top-0 bg-muted/90 backdrop-blur-xs">
                   <tr className="text-left text-xs text-muted-foreground">
                     <th className="px-3 py-1.5">{t('settings.radioApp.bulk.name')}</th>
                     <th className="px-3 py-1.5">{t('settings.radioApp.bulk.type')}</th>
@@ -489,13 +489,13 @@ export function BulkDeleteContactsModal({
                 <tbody>
                   {selectedContacts.map((c) => (
                     <tr key={c.public_key} className="border-t border-border">
-                      <td className="px-3 py-1.5 truncate max-w-[12rem]">
+                      <td className="px-3 py-1.5 truncate max-w-48">
                         {getContactDisplayName(c.name, c.public_key, c.last_advert)}
                       </td>
                       <td className="px-3 py-1.5 text-xs text-muted-foreground">
                         {typeLabel(c.type)}
                       </td>
-                      <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground truncate max-w-[8rem]">
+                      <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground truncate max-w-32">
                         {c.public_key.slice(0, 12)}
                       </td>
                       <td className="px-3 py-1.5 hidden sm:table-cell text-xs text-muted-foreground">

@@ -551,7 +551,7 @@ export function ControlJournalView({
                 {t('controlJournal.selectThread')}
               </p>
             ) : (
-              <div className="mx-auto flex w-full max-w-none flex-col gap-2 lg:max-w-[52rem] 2xl:max-w-[64rem]">
+              <div className="mx-auto flex w-full max-w-none flex-col gap-2 lg:max-w-208 2xl:max-w-5xl">
                 {activeThread.entries.map((entry) => {
                   const subtype = subtypeLabel(entry);
                   const destSrc =
@@ -578,7 +578,7 @@ export function ControlJournalView({
                           setSelectedPacket(entry.packet);
                         }
                       }}
-                      className="w-full cursor-pointer rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-sm transition-colors hover:border-primary/40"
+                      className="w-full cursor-pointer rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-xs transition-colors hover:border-primary/40"
                     >
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary">

@@ -72,7 +72,7 @@ export function ChannelMuteMenu({ muted, mutedUntil, onMute }: ChannelMuteMenuPr
   return (
     <div ref={rootRef} className="relative">
       <button
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded p-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded p-2 transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setOpen((value) => !value)}
         title={muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')}
         aria-label={muted ? t('chatHeader.unmuteChannel') : t('chatHeader.muteChannel')}
@@ -88,7 +88,7 @@ export function ChannelMuteMenu({ muted, mutedUntil, onMute }: ChannelMuteMenuPr
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-1 min-w-[12rem] rounded-md border border-border bg-background py-1 shadow-md"
+          className="absolute right-0 z-50 mt-1 min-w-48 rounded-md border border-border bg-background py-1 shadow-md"
         >
           {status && <p className="px-3 py-1.5 text-[0.6875rem] text-muted-foreground">{status}</p>}
           {muted && (

@@ -1,6 +1,230 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@plugin 'tailwindcss-animate';
+
+/* `index.html` puts `class="dark"` on <html>, so `dark:` utilities always apply,
+   as they did with Tailwind 3's `darkMode: ['class']`. */
+@custom-variant dark (&:is(.dark *));
+
+/* Tailwind 4 wraps `hover:` in `@media (hover: hover)`, so a tap on a touch screen
+   no longer leaves the hover style behind. Kept on Tailwind 3's plain `:hover`
+   for parity during the migration; the media-gated behaviour can be adopted
+   later as a deliberate change. */
+@custom-variant hover (&:hover);
+
+/*
+ * Design tokens. `inline` makes every utility carry the value itself
+ * (`background-color: hsl(var(--card))`, `font-family: var(--font-mono),
+ * 'Meshloom Marks'`) instead of a reference to a theme variable, the way
+ * Tailwind 3 compiled them, so they resolve on the element. Without it the font
+ * tokens below silently lost 'Meshloom Marks' (src/test/tailwindBuild.test.ts).
+ */
+@theme inline {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-msg-outgoing: hsl(var(--msg-outgoing));
+  --color-msg-incoming: hsl(var(--msg-incoming));
+  --color-status-connected: hsl(var(--status-connected));
+  --color-status-disconnected: hsl(var(--status-disconnected));
+
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+
+  --color-favorite: hsl(var(--favorite));
+  --color-console: hsl(var(--console));
+  --color-console-command: hsl(var(--console-command));
+  --color-console-bg: hsl(var(--console-bg));
+  --color-code-editor-bg: hsl(var(--code-editor-bg));
+  --color-overlay: hsl(var(--overlay));
+
+  --color-badge-unread: hsl(var(--badge-unread));
+  --color-badge-unread-foreground: hsl(var(--badge-unread-foreground));
+
+  --color-badge-mention: hsl(var(--badge-mention));
+  --color-badge-mention-foreground: hsl(var(--badge-mention-foreground));
+
+  --color-toast-error: hsl(var(--toast-error));
+  --color-toast-error-foreground: hsl(var(--toast-error-foreground));
+  --color-toast-error-border: hsl(var(--toast-error-border));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* Tailwind 3 parity: line heights as lengths. Tailwind 4 writes them as ratios
+   (`text-xs` is 0.75rem / 1.3333), and a ratio is inherited as a ratio: a
+   `text-[0.625rem]` inside a `text-xs` row got 13.3px instead of the 16px it
+   inherited before, which shrank every control that sets only a size. */
+@theme {
+  --text-xs--line-height: 1rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+}
+
+/* Tailwind 3 parity: the palette shades the app uses keep their Tailwind 3 sRGB
+   values. Tailwind 4 redefined the palette in OKLCH, slightly more saturated,
+   and the status and packet colours were tuned against the old values on every
+   theme. A shade used for the first time must be added here (the build test
+   fails on any palette colour still in OKLCH). */
+@theme {
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-amber-700: #b45309;
+  --color-cyan-500: #06b6d4;
+  --color-cyan-600: #0891b2;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-fuchsia-500: #d946ef;
+  --color-fuchsia-600: #c026d3;
+  --color-gray-200: #e5e7eb;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-green-400: #4ade80;
+  --color-green-600: #16a34a;
+  --color-green-700: #15803d;
+  --color-lime-500: #84cc16;
+  --color-lime-600: #65a30d;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-purple-400: #c084fc;
+  --color-purple-500: #a855f7;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #e11d48;
+  --color-sky-500: #0ea5e9;
+  --color-sky-600: #0284c7;
+  --color-violet-500: #8b5cf6;
+  --color-violet-600: #7c3aed;
+}
+
+/* The font tokens extend the app's own `--font-sans`/`--font-mono` (`:root`
+   below, overridden per theme). `reference` keeps Tailwind from also emitting
+   them as theme variables: `--font-mono: var(--font-mono), …` would be a
+   self-reference, harmless only as long as `:root` overwrites it. */
+@theme inline reference {
+  --font-sans: var(--font-sans), 'Meshloom Marks';
+  --font-mono: var(--font-mono), 'Meshloom Marks';
+}
+
+/*
+ * Cascade layers. Tailwind 4 emits native `@layer theme, base, components,
+ * utilities`; Tailwind 3 emitted plain CSS, so everything written outside its
+ * `@layer` directives came after the utilities and won or lost against them by
+ * specificity and source order. An unlayered rule now beats every layered one
+ * whatever its specificity, so each rule here, in themes.css and in styles.css
+ * sits where it keeps its Tailwind 3 outcome:
+ * - `@layer base`: palettes (custom properties) and element or universal
+ *   selectors. They always lost to utilities and still do.
+ * - `@layer components`: class rules no utility on the same element competes with.
+ * - `@layer utilities`, after Tailwind's own utilities: rules that must beat
+ *   utilities (theme restyling of `.bg-card`, `button`…, safe-area and platform
+ *   overrides). Inside one layer specificity and order decide again, exactly as
+ *   in Tailwind 3. Unlayered, they would also beat `hover:`, `focus-visible:`
+ *   and `disabled:` variants, which they never did.
+ * - Unlayered: only overrides of third-party stylesheets (Leaflet, CodeMirror,
+ *   MapLibre), which are unlayered themselves and would beat any layer.
+ */
+
+/*
+ * Tailwind 3 parity for `space-y-*` and `space-x-*`. Tailwind 4 moved the gap
+ * from the start margin of every child but the first (`> :not([hidden]) ~
+ * :not([hidden])`) to the end margin of every child but the last. A `<label>`
+ * is inline, so a bottom margin on it does nothing: every label in a
+ * `space-y-1` stack lost its gap to the input below, and a hidden last child
+ * left a stray gap under the one before it. These utilities bring back the
+ * Tailwind 3 rule, and set Tailwind 4's `--tw-space-*-reverse` to an invalid
+ * value on the children so the margins of its own rule compute to zero (a
+ * child's own `m*-` utility still beats that rule, as before).
+ * src/test/tailwindBuild.test.ts checks this against the compiled CSS. Drop it
+ * only together with a move of the stacks to `flex flex-col gap-*`.
+ */
+@utility space-y-* {
+  & > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(var(--spacing) * --value(number));
+    margin-top: --value([length]);
+    margin-bottom: 0;
+  }
+  & > * {
+    --tw-space-y-reverse: none;
+  }
+}
+
+@utility space-x-* {
+  & > :not([hidden]) ~ :not([hidden]) {
+    margin-left: calc(var(--spacing) * --value(number));
+    margin-left: --value([length]);
+    margin-right: 0;
+  }
+  & > * {
+    --tw-space-x-reverse: none;
+  }
+}
+
+/* Tailwind 3 parity for Preflight defaults that changed in Tailwind 4. */
+@layer base {
+  /* Tailwind 4 defaults borders to `currentcolor`; Tailwind 3 used gray-200,
+     and the `*` rule below sets the theme border colour on elements. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  /* Tailwind 4 paints placeholders in the text colour at 50%. */
+  input::placeholder,
+  textarea::placeholder {
+    opacity: 1;
+    color: #9ca3af;
+  }
+
+  /* Tailwind 4 leaves buttons on the browser's default arrow cursor. */
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+  :disabled {
+    cursor: default;
+  }
+}
 
 /*
  * Last-resort font for stacked combining marks (U+1AB0–1AFF, U+1DC0–1DFF…)
@@ -117,26 +341,41 @@
   }
 }
 
-/* Custom scrollbar — thin, unobtrusive, matches palette */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--scrollbar));
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--scrollbar-hover));
-}
+@layer base {
+  /* Custom scrollbar — thin, unobtrusive, matches palette */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--scrollbar));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--scrollbar-hover));
+  }
 
-/* Firefox scrollbar */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--scrollbar)) transparent;
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--scrollbar)) transparent;
+  }
+
+  /* The default theme painted every .bg-primary surface with the brand gradient.
+     White text measured 1.62:1 against its cyan end — WCAG AA wants 4.5:1 — so the
+     left half of every primary button was effectively unreadable. The gradient also
+     put decoration on routine controls: a plain Save button rendered in two brand
+     colours while the button beside it was flat. The gradient stays part of the
+     identity (the wordmark), buttons go solid, and the foreground goes dark so the
+     brand violet still passes: 5.25:1.
+     A palette value, so it sits with the palettes: the follow-the-OS light palette
+     in themes.css comes later in this layer and overrides it. */
+  :root:not([data-theme]) {
+    --primary-foreground: 280 60% 10%;
+  }
 }
 
 /* Message highlight animation for jump-to-message */
@@ -147,9 +386,6 @@
   100% {
     box-shadow: 0 0 0 2px transparent;
   }
-}
-.message-highlight {
-  animation: message-highlight 2s ease-out forwards;
 }
 
 @keyframes meshloom-msg-highlight {
@@ -165,87 +401,6 @@
   }
 }
 
-/* Meshloom default atmosphere — only when no data-theme override is set */
-:root:not([data-theme]) .text-primary {
-  text-shadow: 0 0 10px hsl(var(--primary) / 0.35);
-}
-
-/* The default theme painted every .bg-primary surface with the brand gradient.
-   White text measured 1.62:1 against its cyan end — WCAG AA wants 4.5:1 — so the
-   left half of every primary button was effectively unreadable. The gradient also
-   put decoration on routine controls: a plain Save button rendered in two brand
-   colours while the button beside it was flat. The gradient stays part of the
-   identity (the wordmark), buttons go solid, and the foreground goes dark so the
-   brand violet still passes: 5.25:1. */
-:root:not([data-theme]) {
-  --primary-foreground: 280 60% 10%;
-}
-
-:root:not([data-theme]) input:focus,
-:root:not([data-theme]) textarea:focus {
-  box-shadow:
-    0 0 0 1px hsl(var(--ring) / 0.5),
-    0 0 10px hsl(188 100% 52% / 0.22),
-    0 0 14px hsl(280 85% 65% / 0.18);
-}
-
-:root:not([data-theme]) .message-highlight {
-  animation: meshloom-msg-highlight 2s ease-out forwards;
-}
-
-.sidebar-tool-icon {
-  display: inline-flex;
-  height: 1.5rem;
-  width: 1.5rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.45rem;
-  color: var(--sidebar-icon-color);
-  opacity: 1;
-  transition:
-    color 150ms ease,
-    opacity 150ms ease;
-}
-
-.sidebar-tool-icon svg {
-  stroke-width: 2.35;
-}
-
-.sidebar-tool-label {
-  color: var(--sidebar-label-color);
-  transition: color 150ms ease;
-}
-
-.sidebar-action-row:hover .sidebar-tool-icon,
-.sidebar-action-row:focus-visible .sidebar-tool-icon {
-  color: var(--sidebar-icon-hover-color);
-  opacity: 1;
-}
-
-.sidebar-action-row:hover .sidebar-tool-label,
-.sidebar-action-row:focus-visible .sidebar-tool-label {
-  color: var(--sidebar-label-hover-color);
-}
-
-.sidebar-action-row[data-active='true'] .sidebar-tool-icon {
-  color: var(--sidebar-icon-active-color);
-  opacity: 1;
-}
-
-.sidebar-action-row[data-active='true'] .sidebar-tool-label {
-  color: var(--sidebar-label-active-color);
-}
-
-/* Constrain CodeMirror editor width */
-.cm-editor {
-  max-width: 100% !important;
-  contain: inline-size;
-}
-.cm-editor .cm-scroller {
-  overflow-x: auto !important;
-}
-
 /* Rapid pulse when a Meshloom update is available. Colour stays the radio state. */
 @keyframes status-dot-update-pulse {
   0%,
@@ -259,12 +414,96 @@
   }
 }
 
-.status-dot-update-available {
-  animation: status-dot-update-pulse 450ms ease-in-out infinite;
+@layer components {
+  .message-highlight {
+    animation: message-highlight 2s ease-out forwards;
+  }
+
+  .sidebar-tool-icon {
+    display: inline-flex;
+    height: 1.5rem;
+    width: 1.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.45rem;
+    color: var(--sidebar-icon-color);
+    opacity: 1;
+    transition:
+      color 150ms ease,
+      opacity 150ms ease;
+  }
+
+  .sidebar-tool-icon svg {
+    stroke-width: 2.35;
+  }
+
+  .sidebar-tool-label {
+    color: var(--sidebar-label-color);
+    transition: color 150ms ease;
+  }
+
+  .sidebar-action-row:hover .sidebar-tool-icon,
+  .sidebar-action-row:focus-visible .sidebar-tool-icon {
+    color: var(--sidebar-icon-hover-color);
+    opacity: 1;
+  }
+
+  .sidebar-action-row:hover .sidebar-tool-label,
+  .sidebar-action-row:focus-visible .sidebar-tool-label {
+    color: var(--sidebar-label-hover-color);
+  }
+
+  .sidebar-action-row[data-active='true'] .sidebar-tool-icon {
+    color: var(--sidebar-icon-active-color);
+    opacity: 1;
+  }
+
+  .sidebar-action-row[data-active='true'] .sidebar-tool-label {
+    color: var(--sidebar-label-active-color);
+  }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .status-dot-update-available {
-    animation: none;
+/* Must beat utilities (see the layer note at the top of this file). */
+@layer utilities {
+  /* Meshloom default atmosphere — only when no data-theme override is set */
+  :root:not([data-theme]) .text-primary {
+    text-shadow: 0 0 10px hsl(var(--primary) / 0.35);
   }
+
+  /* Beats `focus-visible:ring-*` on inputs by specificity, as in Tailwind 3. */
+  :root:not([data-theme]) input:focus,
+  :root:not([data-theme]) textarea:focus {
+    box-shadow:
+      0 0 0 1px hsl(var(--ring) / 0.5),
+      0 0 10px hsl(188 100% 52% / 0.22),
+      0 0 14px hsl(280 85% 65% / 0.18);
+  }
+
+  :root:not([data-theme]) .message-highlight {
+    animation: meshloom-msg-highlight 2s ease-out forwards;
+  }
+
+  /* The dots also carry `duration-150` for their size transition, and
+     tailwindcss-animate makes that utility set `animation-duration` too: in a
+     lower layer this shorthand would lose its 450ms to it. */
+  .status-dot-update-available {
+    animation: status-dot-update-pulse 450ms ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot-update-available {
+      animation: none;
+    }
+  }
+}
+
+/* Unlayered on purpose: CodeMirror injects unlayered styles. */
+/* Constrain CodeMirror editor width */
+.cm-editor {
+  max-width: 100% !important;
+  contain: inline-size;
+}
+.cm-editor .cm-scroller {
+  overflow-x: auto !important;
 }

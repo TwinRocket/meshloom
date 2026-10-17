@@ -274,7 +274,7 @@ export function VisualizerControls({
         <button
           type="button"
           onClick={() => setShowControls(true)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/70 text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background/70 text-muted-foreground backdrop-blur-xs transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           title={t('visualizer.showToolbar')}
           aria-label={t('visualizer.showToolbar')}
         >
@@ -314,7 +314,7 @@ export function VisualizerControls({
             aria-label={label}
             className={cn(
               'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors',
-              'hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
               openPanel === id && 'bg-accent text-foreground'
             )}
           >
@@ -328,7 +328,7 @@ export function VisualizerControls({
         <button
           type="button"
           onClick={onClearAndReset}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           title={t('visualizer.clearResetTitle')}
           aria-label={t('visualizer.clearReset')}
         >
@@ -348,7 +348,7 @@ export function VisualizerControls({
             <button
               type="button"
               onClick={() => onFullScreenChange(!fullScreen)}
-              className="hidden h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex"
+              className="hidden h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex"
               title={t('visualizer.showPacketFeedTitle')}
               aria-label={t('visualizer.showPacketFeed')}
               aria-pressed={!fullScreen}
@@ -366,7 +366,7 @@ export function VisualizerControls({
               close();
               setShowControls(false);
             }}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             title={t('visualizer.hideToolbar')}
             aria-label={t('visualizer.hideToolbar')}
           >
@@ -384,7 +384,7 @@ export function VisualizerControls({
           className={cn(
             // Narrow: bottom sheet, thumb-reachable. Wide: dropped under its trigger.
             'fixed inset-x-0 bottom-0 z-30 max-h-[70vh] overflow-y-auto rounded-t-xl border-t border-border bg-popover p-4 text-xs shadow-xl',
-            'md:absolute md:inset-x-auto md:bottom-auto md:left-1.5 md:top-full md:mt-1 md:max-h-[28rem] md:w-80 md:rounded-lg md:border md:p-3 md:shadow-lg'
+            'md:absolute md:inset-x-auto md:bottom-auto md:left-1.5 md:top-full md:mt-1 md:max-h-112 md:w-80 md:rounded-lg md:border md:p-3 md:shadow-lg'
           )}
         >
           <div className="mb-2 flex items-center justify-between md:hidden">
@@ -511,7 +511,7 @@ export function VisualizerControls({
                 type="button"
                 onClick={onExpandContract}
                 title={t('visualizer.bigStretchTitle')}
-                className="mt-2 rounded border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:py-1.5"
+                className="mt-2 rounded border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:py-1.5"
               >
                 {t('visualizer.bigStretch')}
               </button>

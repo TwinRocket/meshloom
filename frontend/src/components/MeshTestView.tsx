@@ -359,7 +359,7 @@ function MeshTestRunView({
           </LazyBoundary>
         </div>
 
-        <aside className="flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:w-2/5 lg:min-w-[22rem] lg:max-w-[38rem] lg:flex-none">
+        <aside className="flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:w-2/5 lg:min-w-88 lg:max-w-152 lg:flex-none">
           {!run ? (
             <div className="flex flex-1 items-center justify-center px-6 py-8 text-center text-sm text-muted-foreground">
               {t('meshTest.idle')}
@@ -465,7 +465,7 @@ function MeshTestRunView({
                           }
                           className={cn(
                             'w-full px-3 py-2 text-left transition-colors hover:bg-accent/40',
-                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                            'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                             selectedKey === observer.key && 'bg-accent/60'
                           )}
                         >

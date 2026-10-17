@@ -413,7 +413,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 flex-shrink-0"
+            className="h-8 w-8 shrink-0"
             aria-label={t('chat.cancelReply')}
             onClick={() => setReplyQuote(null)}
           >
@@ -441,7 +441,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           type="button"
           variant="ghost"
           size="icon"
-          className="h-10 w-10 flex-shrink-0"
+          className="h-10 w-10 shrink-0"
           aria-label={t('chat.attach')}
           aria-expanded={composerPanel !== null}
           data-testid="composer-attach-trigger"
@@ -473,7 +473,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             // distinct from the surface behind it, so the outline was a line doing
             // nothing but drawing itself.
             'rounded-3xl border border-transparent bg-muted/60 px-4 py-2 text-base',
-            'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
             'disabled:cursor-not-allowed disabled:opacity-50 md:text-sm'
           )}
           style={{ minHeight: '40px', maxHeight: '160px' }}
@@ -482,7 +482,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           type="submit"
           disabled={disabled || sending || !canSubmit}
           className={cn(
-            'h-10 w-10 flex-shrink-0 px-0 sm:w-auto sm:px-4',
+            'h-10 w-10 shrink-0 px-0 sm:w-auto sm:px-4',
             !canSubmit && 'hidden md:inline-flex'
           )}
           aria-label={sending ? t('chat.sending') : t('chat.send')}

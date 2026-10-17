@@ -190,11 +190,11 @@ export function SettingsModal(props: SettingsModalProps) {
     : 'mx-auto w-full max-w-[800px] space-y-6 border-t border-input p-4 lg:max-w-[1080px] lg:p-6';
 
   const settingsContainerClass = externalDesktopSidebarMode
-    ? 'w-full h-full min-w-0 overflow-x-hidden overflow-y-auto [contain:layout_paint]'
-    : 'w-full h-full min-w-0 overflow-x-hidden overflow-y-auto space-y-3 [contain:layout_paint]';
+    ? 'w-full h-full min-w-0 overflow-x-hidden overflow-y-auto contain-[layout_paint]'
+    : 'w-full h-full min-w-0 overflow-x-hidden overflow-y-auto space-y-3 contain-[layout_paint]';
 
   const sectionButtonClasses =
-    'w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset';
+    'w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset';
 
   const renderSectionHeader = (section: SettingsSection): ReactNode => {
     if (!showSectionButton) return null;

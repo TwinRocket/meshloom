@@ -49,7 +49,7 @@ interface Props {
 
 /** The bottom group's controls: same size as a destination, never marked current. */
 const DOOR_CLASS =
-  'inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+  'inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring';
 
 export function DesktopRail({
   active,
@@ -85,12 +85,12 @@ export function DesktopRail({
         rel="noopener noreferrer"
         aria-label={t('desktopRail.siteLink')}
         title={t('desktopRail.siteLink')}
-        className="mb-16 inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="mb-16 inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <img
           src="./meshloom-mark.svg"
           alt=""
-          className="h-7 w-7 object-contain [filter:drop-shadow(0_0_6px_rgba(34,211,238,0.28))]"
+          className="h-7 w-7 object-contain filter-[drop-shadow(0_0_6px_rgba(34,211,238,0.28))]"
         />
       </a>
       {railItems.map(({ id, labelKey, Icon, permanent, overlay }) => {
@@ -114,13 +114,13 @@ export function DesktopRail({
             title={t(labelKey)}
             className={cn(
               'relative inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
               current
                 ? 'bg-primary/15 text-primary'
                 : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
             )}
           >
-            <Icon className="h-[1.25rem] w-[1.25rem]" aria-hidden="true" />
+            <Icon className="h-5 w-5" aria-hidden="true" />
             {badge && (
               <span
                 className="absolute -right-0.5 -top-0.5 min-w-[1.05rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground"
@@ -168,14 +168,14 @@ export function DesktopRail({
                 active === target && 'bg-primary/15 text-primary hover:text-primary'
               )}
             >
-              <Icon className="h-[1.25rem] w-[1.25rem]" aria-hidden="true" />
+              <Icon className="h-5 w-5" aria-hidden="true" />
             </button>
             {target === 'settings' && updateAvailable && (
               <button
                 type="button"
                 onClick={() => onOpenUpdate?.()}
                 aria-label={t('updates.badgeLabel')}
-                className="absolute -right-0.5 -top-0.5 z-10 min-w-[1.15rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="absolute -right-0.5 -top-0.5 z-10 min-w-[1.15rem] rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-[1.05rem] text-primary-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 !
               </button>

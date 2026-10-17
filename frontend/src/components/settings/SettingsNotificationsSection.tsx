@@ -342,7 +342,7 @@ export function SettingsNotificationsSection({
                   const mode = event.target.value as NotificationEmailMode;
                   commitDestField('mode', mode);
                 }}
-                className="h-9 w-full px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="h-9 w-full px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
               >
                 <option value="none">{t('settings.notifications.emailModeNone')}</option>
                 <option value="starttls">{t('settings.notifications.emailModeStarttls')}</option>
@@ -535,7 +535,7 @@ export function SettingsNotificationsSection({
           {t('settings.notifications.defaultsHelp')}
         </p>
         <div className="overflow-x-auto rounded-md border border-border/60">
-          <table className="w-full min-w-[28rem] text-sm">
+          <table className="w-full min-w-md text-sm">
             <thead>
               <tr className="border-b border-border/60 text-left">
                 <th className="px-3 py-2 font-medium">

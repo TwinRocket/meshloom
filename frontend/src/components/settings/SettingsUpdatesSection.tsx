@@ -30,7 +30,7 @@ function StatusRow({ label, value }: { label: string; value: string }) {
       <dt className="shrink-0 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
-      <dd className="min-w-0 break-words text-right text-sm">{value}</dd>
+      <dd className="min-w-0 wrap-break-word text-right text-sm">{value}</dd>
     </div>
   );
 }

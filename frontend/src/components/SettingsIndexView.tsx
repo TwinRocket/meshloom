@@ -63,7 +63,7 @@ export function SettingsIndexView({
             type="button"
             onClick={onCollapseList}
             aria-label={t('conversationList.collapseList')}
-            className="-ml-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+            className="-ml-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
           >
             <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -75,7 +75,7 @@ export function SettingsIndexView({
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}
           updateAvailable={updateAvailable}
-          className="ml-auto max-w-[9rem] md:hidden"
+          className="ml-auto max-w-36 md:hidden"
         />
       </div>
 
@@ -101,7 +101,7 @@ export function SettingsIndexView({
                       onClick={() => onSelectSection(section)}
                       className={cn(
                         'flex w-full items-center gap-3 px-4 py-3.5 text-left',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                        'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                         disabled
                           ? 'cursor-not-allowed opacity-50'
                           : current

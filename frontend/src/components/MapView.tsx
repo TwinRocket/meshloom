@@ -497,7 +497,7 @@ export function MapView({
                 onClick={() => setSinceId(preset.id)}
                 aria-pressed={sinceId === preset.id}
                 className={cn(
-                  'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                   sinceId === preset.id
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'bg-muted hover:bg-accent'
@@ -511,7 +511,7 @@ export function MapView({
               onClick={() => setSinceId('custom')}
               aria-pressed={sinceId === 'custom'}
               className={cn(
-                'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                 sinceId === 'custom'
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'bg-muted hover:bg-accent'
@@ -526,13 +526,13 @@ export function MapView({
                   value={customSince}
                   onChange={(e) => setCustomSince(e.target.value)}
                   aria-label={t('map.sinceCustomAria')}
-                  className="rounded border border-input bg-background px-1.5 py-0.5 text-[0.6875rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="rounded border border-input bg-background px-1.5 py-0.5 text-[0.6875rem] text-foreground outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 {customSince && (
                   <button
                     type="button"
                     onClick={() => setCustomSince('')}
-                    className="rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider bg-muted hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="rounded px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider bg-muted hover:bg-accent transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {t('map.sinceClear')}
                   </button>
@@ -570,7 +570,7 @@ export function MapView({
           <button
             type="button"
             onClick={() => fitAllRef.current?.()}
-            className="liquid-surface absolute bottom-[calc(var(--bottom-nav-height)+0.75rem)] left-1/2 z-[500] inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-foreground shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:bottom-4"
+            className="liquid-surface absolute bottom-[calc(var(--bottom-nav-height)+0.75rem)] left-1/2 z-500 inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium text-foreground shadow-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:bottom-4"
           >
             <Maximize2 className="h-4 w-4" aria-hidden="true" />
             {t('map.fitAllNodes')}

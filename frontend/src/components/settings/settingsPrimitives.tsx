@@ -88,7 +88,7 @@ export function SettingsGroup({
 export function AdvancedBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
     <details className="group rounded-2xl bg-muted/40 md:rounded-lg md:border md:border-border md:bg-card/40">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 md:rounded-lg text-base font-semibold tracking-tight hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:px-5">
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-4 py-3 md:rounded-lg text-base font-semibold tracking-tight hover:bg-accent/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring lg:px-5">
         <ChevronRight
           className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
           aria-hidden="true"

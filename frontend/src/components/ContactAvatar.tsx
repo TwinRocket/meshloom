@@ -45,10 +45,12 @@ export function ContactAvatar({
   clickable,
   variant = 'default',
 }: ContactAvatarProps) {
+  // Keep a space before each `${`: Tailwind 4's scanner does not split a class
+  // glued to an interpolation, so `bg-black/10${…}` generated no CSS.
   if (variant === 'corrupt') {
     return (
       <div
-        className={`flex items-center justify-center rounded-md flex-shrink-0 select-none bg-black/10${clickable ? ' cursor-pointer' : ''}`}
+        className={`flex items-center justify-center rounded-md shrink-0 select-none bg-black/10 ${clickable ? 'cursor-pointer' : ''}`}
         style={{
           width: size,
           height: size,
@@ -66,7 +68,7 @@ export function ContactAvatar({
     <div
       data-testid="contact-avatar"
       data-avatar-text={avatar.text}
-      className={`flex items-center justify-center rounded-full font-semibold flex-shrink-0 select-none${clickable ? ' cursor-pointer' : ''}`}
+      className={`flex items-center justify-center rounded-full font-semibold shrink-0 select-none ${clickable ? 'cursor-pointer' : ''}`}
       style={{
         background: avatar.background,
         color: avatar.textColor,

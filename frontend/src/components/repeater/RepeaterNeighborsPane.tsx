@@ -280,7 +280,7 @@ export function NeighborsPane({
                 disabled={mode === 'map' && !hasValidRepeaterGps}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                   view === mode
                     ? 'bg-accent text-foreground'
                     : 'text-muted-foreground hover:text-foreground'
@@ -300,7 +300,7 @@ export function NeighborsPane({
             type="button"
             onClick={onRefresh}
             disabled={disabled || state.loading}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             <RefreshCw
               className={cn('h-3.5 w-3.5', state.loading && 'animate-spin')}
@@ -317,7 +317,7 @@ export function NeighborsPane({
               type="button"
               onClick={onRefresh}
               disabled={disabled || state.loading}
-              className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning transition-colors hover:bg-warning/20 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning transition-colors hover:bg-warning/20 disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t('repeater.loadRemaining', {
                 missing: data.reported_count - data.neighbors.length,
@@ -330,7 +330,7 @@ export function NeighborsPane({
               <button
                 type="button"
                 onClick={() => setRecenterToken((n) => n + 1)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {t('repeater.recenter')}
               </button>
@@ -339,7 +339,7 @@ export function NeighborsPane({
                 onClick={() => setDetailed((v) => !v)}
                 aria-pressed={detailed}
                 className={cn(
-                  'ml-auto inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'ml-auto inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                   detailed
                     ? 'border-border bg-accent text-foreground'
                     : 'border-border text-muted-foreground hover:text-foreground'
@@ -352,7 +352,7 @@ export function NeighborsPane({
                 onClick={() => setPermanent((v) => !v)}
                 aria-pressed={permanent}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                   permanent
                     ? 'border-border bg-accent text-foreground'
                     : 'border-border text-muted-foreground hover:text-foreground'
@@ -364,7 +364,7 @@ export function NeighborsPane({
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-pressed={expanded}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {expanded ? (
                   <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -395,7 +395,7 @@ export function NeighborsPane({
                 type="button"
                 onClick={onRefresh}
                 disabled={disabled || state.loading}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <RefreshCw
                   className={cn('h-3.5 w-3.5', state.loading && 'animate-spin')}

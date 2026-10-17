@@ -103,7 +103,7 @@ export function RadioIdentityModal({
     <Dialog open>
       <DialogContent
         hideCloseButton
-        className="w-[calc(100vw-1rem)] max-w-[32rem] gap-5 overflow-y-auto px-4 py-5 dialog-safe-height sm:w-full sm:max-h-[min(85dvh,40rem)] sm:px-6"
+        className="w-[calc(100vw-1rem)] max-w-lg gap-5 overflow-y-auto px-4 py-5 dialog-safe-height sm:w-full sm:max-h-[min(85dvh,40rem)] sm:px-6"
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
       >

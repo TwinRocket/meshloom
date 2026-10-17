@@ -122,7 +122,7 @@ export function ColorPicker({
         aria-label={label}
         onClick={() => setOpen((wasOpen) => !wasOpen)}
         style={{ backgroundColor: value, color: getContrastTextColor(value) }}
-        className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium ring-1 ring-inset ring-black/20 transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium ring-1 ring-inset ring-black/20 transition hover:brightness-110 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="font-mono uppercase">{value}</span>
       </button>

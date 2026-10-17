@@ -464,7 +464,7 @@ export function AppShell({
             type="button"
             onClick={onToggleConversationList}
             aria-label={t('conversationList.expandList')}
-            className="hidden h-full w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:flex"
+            className="hidden h-full w-8 shrink-0 items-center justify-center border-r border-border text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:flex"
           >
             <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -559,9 +559,9 @@ export function AppShell({
                   type="button"
                   onClick={() => setSettingsIndexOpen(true)}
                   aria-label={t('settingsIndex.back')}
-                  className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="liquid-surface glass-back-button focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+                  <ChevronLeft className="h-5.5 w-5.5" aria-hidden="true" />
                 </button>
                 <h1 className="pointer-events-none absolute inset-x-14 truncate text-center text-base font-semibold">
                   {t(SETTINGS_SECTION_LABELS[settingsSection])}

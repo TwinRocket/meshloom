@@ -308,11 +308,11 @@ export function SearchView({
                   {typeBadge}
                 </span>
                 <span className="text-xs font-medium text-foreground truncate">{convName}</span>
-                <span className="text-[0.6875rem] text-muted-foreground ml-auto flex-shrink-0">
+                <span className="text-[0.6875rem] text-muted-foreground ml-auto shrink-0">
                   {formatTime(result.received_at)}
                 </span>
               </div>
-              <div className="text-[0.8125rem] text-foreground/80 line-clamp-2 break-words">
+              <div className="text-[0.8125rem] text-foreground/80 line-clamp-2 wrap-break-word">
                 {result.sender_name && !result.outgoing && (
                   <span className="text-muted-foreground">{result.sender_name}: </span>
                 )}

@@ -73,7 +73,7 @@ export function LiveIataMenu({ options, selection, radioIata, onChange }: LiveIa
       <button
         ref={buttonRef}
         type="button"
-        className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
@@ -89,7 +89,7 @@ export function LiveIataMenu({ options, selection, radioIata, onChange }: LiveIa
           id={panelId}
           role="group"
           aria-label={t('live.iataMenu')}
-          className="absolute left-0 z-50 mt-1 max-h-80 min-w-[12rem] overflow-y-auto rounded-md border border-border bg-background p-2 shadow-md"
+          className="absolute left-0 z-50 mt-1 max-h-80 min-w-48 overflow-y-auto rounded-md border border-border bg-background p-2 shadow-md"
         >
           <p className="px-1 pb-2 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
             {t('live.iataMenu')}

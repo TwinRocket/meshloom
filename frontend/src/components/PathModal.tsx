@@ -434,9 +434,9 @@ function PathNode({
   return (
     <div className="flex gap-3">
       {/* Vertical line and dot column */}
-      <div className="flex flex-col items-center w-4 flex-shrink-0">
+      <div className="flex flex-col items-center w-4 shrink-0">
         {!isFirst && <div className="w-0.5 h-3 bg-border" />}
-        <div className="w-3 h-3 rounded-full bg-primary flex-shrink-0" />
+        <div className="w-3 h-3 rounded-full bg-primary shrink-0" />
         {!isLast && <div className="w-0.5 flex-1 bg-border" />}
       </div>
 
@@ -494,9 +494,9 @@ function HopNode({ hop, hopNumber, prevLocation, distanceUnit, directoryHit }: H
   return (
     <div className="flex gap-3">
       {/* Vertical line and dot column */}
-      <div className="flex flex-col items-center w-4 flex-shrink-0">
+      <div className="flex flex-col items-center w-4 shrink-0">
         <div className="w-0.5 h-3 bg-border" />
-        <div className="w-3 h-3 rounded-full bg-primary/50 flex-shrink-0" />
+        <div className="w-3 h-3 rounded-full bg-primary/50 shrink-0" />
         <div className="w-0.5 flex-1 bg-border" />
       </div>
 

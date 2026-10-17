@@ -222,7 +222,7 @@ export function RadioBatteryChip({
       onClick={onOpenStatus}
       className={cn(
         classes,
-        'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        'transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring'
       )}
       title={title}
       aria-label={label}
@@ -344,7 +344,7 @@ export function RadioStatusChip({
       onClick={action}
       className={cn(
         classes,
-        'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        'transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring'
       )}
       title={title}
       aria-label={

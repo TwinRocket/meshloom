@@ -357,7 +357,7 @@ export function NewMessageModal({
                 id="contact-type"
                 value={contactType}
                 onChange={(e) => setContactType(Number(e.target.value))}
-                className="block h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
+                className="block h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs"
               >
                 <option value={1}>{t('newMessage.typeClient')}</option>
                 <option value={2}>{t('newMessage.typeRepeater')}</option>
@@ -462,7 +462,7 @@ export function NewMessageModal({
                   value={bulkChannelText}
                   onChange={(e) => setBulkChannelText(e.target.value)}
                   placeholder={'#ops\nmesh-chat\nanother-channel'}
-                  className="min-h-48 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-h-48 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-hidden transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 <p className="text-xs text-muted-foreground">
                   {permitExtended ? t('newMessage.bulkHelpExtended') : t('newMessage.bulkHelp')}

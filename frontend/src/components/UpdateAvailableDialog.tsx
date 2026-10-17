@@ -45,13 +45,13 @@ function VersionRows({ current, latest }: { current: string; latest: string }) {
         <dt className="shrink-0 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
           {t('updates.current')}
         </dt>
-        <dd className="min-w-0 break-words text-right text-sm">v{current}</dd>
+        <dd className="min-w-0 wrap-break-word text-right text-sm">v{current}</dd>
       </div>
       <div className="flex items-baseline justify-between gap-4 py-2">
         <dt className="shrink-0 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
           {t('updates.latest')}
         </dt>
-        <dd className="min-w-0 break-words text-right text-sm">v{latest}</dd>
+        <dd className="min-w-0 wrap-break-word text-right text-sm">v{latest}</dd>
       </div>
     </dl>
   );
