@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "fullRestore": {
+      "fileWarnings": {
+        "section_export_failed": "Une partie de cette sauvegarde ({{value}}) n’a pas pu être exportée : elle n’est pas dans le fichier."
+      },
+      "warnings": {
+        "section_failed": "Une partie de la sauvegarde ({{value}}) n’a pas pu être restaurée : le reste l’a été.",
+        "section_skipped": "Une partie de la sauvegarde ({{value}}) n’a pas été restaurée : elle dépend d’une partie absente ou en échec."
+      }
+    }
+  },
+  "errors": {
+    "backup_identity_seed_leak": "Cette sauvegarde contiendrait une clé d’identité d’instance, qui ne quitte jamais le serveur : export refusé. Signalez ce bug."
+  }
+}

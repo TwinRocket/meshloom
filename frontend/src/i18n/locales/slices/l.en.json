@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "fullRestore": {
+      "fileWarnings": {
+        "section_export_failed": "Part of this backup ({{value}}) could not be exported: it is not in the file."
+      },
+      "warnings": {
+        "section_failed": "Part of the backup ({{value}}) could not be restored: the rest was.",
+        "section_skipped": "Part of the backup ({{value}}) was not restored: it depends on a part that is missing or failed."
+      }
+    }
+  },
+  "errors": {
+    "backup_identity_seed_leak": "This backup would contain an instance identity key, which never leaves the server: export refused. Report this bug."
+  }
+}

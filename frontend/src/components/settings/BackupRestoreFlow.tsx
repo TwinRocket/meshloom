@@ -54,9 +54,10 @@ function restoreItemName(raw: string, t: TFunction): string {
 
 /** Export warnings carried by the file, in the restore summary's words. */
 function fileWarningTexts(warnings: string[], t: TFunction): string[] {
-  const texts = warnings.map(
-    (raw) => translated(t, `settings.fullRestore.fileWarnings.${splitCode(raw)[0]}`) ?? raw
-  );
+  const texts = warnings.map((raw) => {
+    const [code, value] = splitCode(raw);
+    return translated(t, `settings.fullRestore.fileWarnings.${code}`, { value }) ?? raw;
+  });
   return [...new Set(texts)];
 }
 

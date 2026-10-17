@@ -743,6 +743,8 @@ describe('BackupRestoreFlow', () => {
       'channels_over_radio_limit',
       'radio_contacts_unreadable',
       'contact_load_failed',
+      'section_failed:plugins',
+      'section_skipped:api_tokens',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);
@@ -790,7 +792,11 @@ describe('BackupRestoreFlow', () => {
       inspectResult({
         integrations: [{ name: 'Hook', type: 'webhook', enabled: true }],
         radio_proxy_enabled: true,
-        warnings: ['radio_read_failed:tuning', 'radio_read_failed:autoadd'],
+        warnings: [
+          'radio_read_failed:tuning',
+          'radio_read_failed:autoadd',
+          'section_export_failed:plugins',
+        ],
       })
     );
     render(<BackupRestoreFlow />);
@@ -803,6 +809,11 @@ describe('BackupRestoreFlow', () => {
     expect(
       screen.getAllByText(i18n.t('settings.fullRestore.fileWarnings.radio_read_failed'))
     ).toHaveLength(1);
+    expect(
+      screen.getByText(
+        i18n.t('settings.fullRestore.fileWarnings.section_export_failed', { value: 'plugins' })
+      )
+    ).toBeVisible();
   });
 
   it('names the hosts restored push notifications go to', async () => {
