@@ -167,6 +167,7 @@ class TestRunPostConnectSetup:
             patch("app.event_handlers.register_event_handlers") as mock_register_handlers,
             patch("app.keystore.export_and_store_private_key", new=AsyncMock()) as mock_export_key,
             patch("app.radio_sync.sync_radio_time_outcome", new=AsyncMock()) as mock_sync_time,
+            patch("app.radio_sync.log_radio_clock", new=AsyncMock()) as mock_log_clock,
             patch(
                 "app.repository.AppSettingsRepository.get",
                 new=AsyncMock(return_value=MagicMock(flood_scope=None)),
@@ -182,7 +183,13 @@ class TestRunPostConnectSetup:
 
         mock_register_handlers.assert_called_once_with(replacement_mc)
         mock_export_key.assert_awaited_once_with(replacement_mc)
-        mock_sync_time.assert_awaited_once_with(replacement_mc)
+        # Only the setup sync may apply the clock wraparound, and the clock is
+        # logged before it (the faulty value of a radio stuck in the future).
+        mock_sync_time.assert_awaited_once_with(replacement_mc, allow_wraparound=True)
+        assert mock_log_clock.await_args_list[0].args == (
+            replacement_mc,
+            "Radio clock at connect",
+        )
         replacement_mc.start_auto_message_fetching.assert_awaited_once()
         initial_mc.start_auto_message_fetching.assert_not_called()
         assert radio_manager.max_channels == 8

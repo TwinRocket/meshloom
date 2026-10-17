@@ -41,15 +41,6 @@ class TestBasicAuthConfiguration:
             )
 
 
-class TestExperimentalAliases:
-    """Ensure exact-name experimental env vars still map into settings."""
-
-    def test_clowntown_wraparound_alias_reads_exact_env_var(self, monkeypatch):
-        monkeypatch.setenv("__CLOWNTOWN_DO_CLOCK_WRAPAROUND", "true")
-        s = Settings()
-        assert s.clowntown_do_clock_wraparound is True
-
-
 class TestRetiredVariables:
     """Settings no longer read the variables whose settings moved to the database."""
 
@@ -59,6 +50,7 @@ class TestRetiredVariables:
             "MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK",
             "MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE",
             "MESHCORE_LOAD_WITH_AUTOEVICT",
+            "__CLOWNTOWN_DO_CLOCK_WRAPAROUND",
         ):
             monkeypatch.setenv(name, "true")
         s = Settings()
@@ -67,6 +59,8 @@ class TestRetiredVariables:
             "enable_message_poll_fallback",
             "force_channel_slot_reconfigure",
             "load_with_autoevict",
+            "clowntown_do_clock_wraparound",
+            "auto_clock_wraparound",
         ):
             assert not hasattr(s, field)
 

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import UTC, datetime
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -76,6 +75,7 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
     from app.keystore import export_and_store_private_key
     from app.radio_sync import (
         drain_pending_messages,
+        log_radio_clock,
         send_advertisement,
         start_message_polling,
         start_periodic_advert,
@@ -135,8 +135,11 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
 
                 # Sync radio clock with system time. A corrective reboot drops
                 # the transport: stop here instead of querying a radio that is
-                # restarting, and let prepare_connected_radio() reconnect.
-                if await sync_radio_time_outcome(mc) == "rebooted":
+                # restarting, and let prepare_connected_radio() reconnect. Only
+                # this call may apply the clock wraparound (once per connection,
+                # after a reboot that did not fix the clock).
+                await log_radio_clock(mc, "Radio clock at connect")
+                if await sync_radio_time_outcome(mc, allow_wraparound=True) == "rebooted":
                     logger.warning("Radio rebooted to reset its clock; reconnecting before setup")
                     return "reconnect"
 
@@ -245,23 +248,7 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
                             else "unknown",
                             radio_manager.max_channels,
                         )
-                        try:
-                            time_result = await mc.commands.get_time()
-                            radio_time = (
-                                time_result.payload.get("time")
-                                if time_result is not None and time_result.payload
-                                else None
-                            )
-                            if isinstance(radio_time, int):
-                                logger.info(
-                                    "Radio clock at connect: epoch=%d utc=%s",
-                                    radio_time,
-                                    datetime.fromtimestamp(radio_time, UTC).strftime(
-                                        "%Y-%m-%d %H:%M:%S UTC"
-                                    ),
-                                )
-                        except Exception as exc:
-                            logger.debug("Failed to query radio clock after device info: %s", exc)
+                        await log_radio_clock(mc, "Radio clock after sync")
                     logger.info("Max channel slots: %d", radio_manager.max_channels)
                 except Exception as exc:
                     logger.debug("Failed to query device info capabilities: %s", exc)

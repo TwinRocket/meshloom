@@ -6,7 +6,7 @@ contact/channel sync operations, and default channel management.
 
 import asyncio
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from meshcore import EventType
@@ -176,15 +176,10 @@ class TestSyncRadioTime:
 
     @pytest.fixture(autouse=True)
     def _reset_reboot_flag(self):
-        """Reset the module-level reboot guard between tests."""
-        import app.radio_sync as _mod
-
-        _mod._clock_reboot_attempted = False
-        prev_wrap = _mod.settings.clowntown_do_clock_wraparound
-        _mod.settings.clowntown_do_clock_wraparound = False
+        """Reset the module-level clock guards between tests."""
+        radio_sync.reset_clock_sync_guards()
         yield
-        _mod._clock_reboot_attempted = False
-        _mod.settings.clowntown_do_clock_wraparound = prev_wrap
+        radio_sync.reset_clock_sync_guards()
 
     @pytest.mark.asyncio
     async def test_returns_true_on_success(self):
@@ -279,81 +274,15 @@ class TestSyncRadioTime:
         assert manager.expected_reboot is None
 
     @pytest.mark.asyncio
-    async def test_wraparound_can_fix_future_skew_before_normal_set(self):
-        """Experimental wraparound retries time sync before the reboot fallback."""
-        import app.radio_sync as _mod
-
-        _mod.settings.clowntown_do_clock_wraparound = True
-
-        mock_mc = MagicMock()
-        mock_mc.commands.get_time = AsyncMock(
-            side_effect=[
-                Event(EventType.CURRENT_TIME, {"time": 2000}),
-                Event(EventType.CURRENT_TIME, {"time": 1}),
-            ]
-        )
-        mock_mc.commands.set_time = AsyncMock(
-            side_effect=[
-                Event(EventType.OK, {}),
-                Event(EventType.OK, {}),
-            ]
-        )
-        mock_mc.commands.reboot = AsyncMock()
-
-        with (
-            patch("app.radio_sync.asyncio.sleep", new=AsyncMock()),
-            patch("app.radio_sync.time.time", return_value=1000),
-            patch("app.radio_sync.time.monotonic", side_effect=[0.0, 0.0]),
-        ):
-            result = await sync_radio_time(mock_mc)
-
-        assert result is True
-        assert mock_mc.commands.set_time.call_args_list == [
-            call(0xFFFFFFFF),
-            call(1000),
-        ]
-        assert mock_mc.commands.get_time.call_count == 2
-        mock_mc.commands.reboot.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_wraparound_failure_falls_back_to_reboot(self):
-        """A failed experimental wraparound still uses the existing reboot recovery."""
-        import app.radio_sync as _mod
-
-        _mod.settings.clowntown_do_clock_wraparound = True
-
-        mock_mc = MagicMock()
-        mock_mc.commands.set_time = AsyncMock(
-            return_value=Event(EventType.ERROR, {"reason": "illegal_arg"})
-        )
-        mock_mc.commands.get_time = AsyncMock(
-            side_effect=[
-                Event(EventType.CURRENT_TIME, {"time": 2000}),
-                Event(EventType.CURRENT_TIME, {"time": 2000}),
-            ]
-        )
-        mock_mc.commands.reboot = AsyncMock()
-
-        with (
-            patch("app.radio_sync.time.time", return_value=1000),
-            patch("app.radio_sync._attempt_clock_wraparound", new=AsyncMock(return_value=False)),
-        ):
-            result = await sync_radio_time(mock_mc)
-
-        assert result is False
-        mock_mc.commands.reboot.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_does_not_reboot_twice(self):
-        """Second rejection logs hardware RTC warning instead of rebooting."""
+        """A second rejection for the same radio only logs; it does not reboot again."""
         import time as _time
 
-        import app.radio_sync as _mod
-
-        _mod._clock_reboot_attempted = True  # simulate prior reboot
+        radio_sync._clock_reboot_attempted.add("unknown")  # simulate prior reboot
 
         radio_time = int(_time.time()) + 86400
         mock_mc = MagicMock()
+        mock_mc.self_info = {}
         mock_mc.commands.set_time = AsyncMock(
             return_value=Event(EventType.ERROR, {"reason": "illegal_arg"})
         )
@@ -366,6 +295,8 @@ class TestSyncRadioTime:
 
         assert result is False
         mock_mc.commands.reboot.assert_not_called()
+        # sync_radio_time never applies the wraparound.
+        mock_mc.commands.set_time.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_returns_false_when_rejected_and_get_time_fails(self):

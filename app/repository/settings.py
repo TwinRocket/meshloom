@@ -258,7 +258,8 @@ class AppSettingsRepository:
                    ui_preferences, auto_update,
                    auto_update_window_start, auto_update_window_end,
                    auto_update_weekdays, enable_message_poll_fallback,
-                   force_channel_slot_reconfigure, load_with_autoevict
+                   force_channel_slot_reconfigure, load_with_autoevict,
+                   auto_clock_wraparound
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -420,11 +421,12 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             auto_update_weekdays = list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
-        def _flag(column: str) -> bool:
+        def _flag(column: str, default: bool = False) -> bool:
             try:
-                return bool(row[column])
+                value = row[column]
             except (KeyError, TypeError, IndexError):
-                return False
+                return default
+            return default if value is None else bool(value)
 
         return AppSettings(
             max_radio_contacts=row["max_radio_contacts"],
@@ -455,6 +457,7 @@ class AppSettingsRepository:
             enable_message_poll_fallback=_flag("enable_message_poll_fallback"),
             force_channel_slot_reconfigure=_flag("force_channel_slot_reconfigure"),
             load_with_autoevict=_flag("load_with_autoevict"),
+            auto_clock_wraparound=_flag("auto_clock_wraparound", default=True),
         )
 
     @staticmethod
@@ -491,6 +494,7 @@ class AppSettingsRepository:
         enable_message_poll_fallback: bool | None = None,
         force_channel_slot_reconfigure: bool | None = None,
         load_with_autoevict: bool | None = None,
+        auto_clock_wraparound: bool | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -629,6 +633,7 @@ class AppSettingsRepository:
             ("enable_message_poll_fallback", enable_message_poll_fallback),
             ("force_channel_slot_reconfigure", force_channel_slot_reconfigure),
             ("load_with_autoevict", load_with_autoevict),
+            ("auto_clock_wraparound", auto_clock_wraparound),
         ):
             if flag is not None:
                 updates.append(f"{column} = ?")
@@ -680,6 +685,7 @@ class AppSettingsRepository:
         enable_message_poll_fallback: bool | None = None,
         force_channel_slot_reconfigure: bool | None = None,
         load_with_autoevict: bool | None = None,
+        auto_clock_wraparound: bool | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -713,6 +719,7 @@ class AppSettingsRepository:
                 enable_message_poll_fallback=enable_message_poll_fallback,
                 force_channel_slot_reconfigure=force_channel_slot_reconfigure,
                 load_with_autoevict=load_with_autoevict,
+                auto_clock_wraparound=auto_clock_wraparound,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)

@@ -185,12 +185,16 @@ async def test_restore_brings_back_the_radio_workarounds(test_db):
     from app import radio_workarounds
 
     await AppSettingsRepository.update(
-        force_channel_slot_reconfigure=True, load_with_autoevict=True
+        force_channel_slot_reconfigure=True,
+        load_with_autoevict=True,
+        auto_clock_wraparound=False,
     )
     export = await export_json()
     assert export.settings is not None
     await AppSettingsRepository.update(
-        force_channel_slot_reconfigure=False, load_with_autoevict=False
+        force_channel_slot_reconfigure=False,
+        load_with_autoevict=False,
+        auto_clock_wraparound=True,
     )
 
     await restore_json(BackupRestoreRequest(confirm=True, settings=export.settings))
@@ -198,5 +202,7 @@ async def test_restore_brings_back_the_radio_workarounds(test_db):
     stored = await AppSettingsRepository.get()
     assert stored.force_channel_slot_reconfigure is True
     assert stored.load_with_autoevict is True
+    assert stored.auto_clock_wraparound is False
+    assert radio_workarounds.current().auto_clock_wraparound is False
     assert stored.enable_message_poll_fallback is False
     assert radio_workarounds.current().force_channel_slot_reconfigure is True

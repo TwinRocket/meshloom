@@ -10,11 +10,13 @@ from app.repository.settings import AppSettingsRepository
 
 
 @pytest.mark.asyncio
-async def test_defaults_are_off(test_db):
+async def test_defaults(test_db):
+    """Three workarounds start off; the clock wraparound starts on."""
     stored = await AppSettingsRepository.get()
     assert stored.enable_message_poll_fallback is False
     assert stored.force_channel_slot_reconfigure is False
     assert stored.load_with_autoevict is False
+    assert stored.auto_clock_wraparound is True
     assert await radio_workarounds.load() == radio_workarounds.RadioWorkarounds()
 
 
@@ -46,6 +48,16 @@ async def test_patch_settings_round_trip(test_db, client):
 
     again = await client.get("/api/settings")
     assert again.json()["enable_message_poll_fallback"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_auto_clock_wraparound_round_trip(test_db, client):
+    assert (await client.get("/api/settings")).json()["auto_clock_wraparound"] is True
+    response = await client.patch("/api/settings", json={"auto_clock_wraparound": False})
+    assert response.status_code == 200
+    assert response.json()["auto_clock_wraparound"] is False
+    assert radio_workarounds.current().auto_clock_wraparound is False
+    assert (await client.get("/api/settings")).json()["auto_clock_wraparound"] is False
 
 
 @pytest.mark.asyncio

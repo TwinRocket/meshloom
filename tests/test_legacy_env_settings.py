@@ -111,6 +111,20 @@ async def test_a_variable_still_set_after_the_import_is_logged(test_db, monkeypa
     assert (await AppSettingsRepository.get()).force_channel_slot_reconfigure is False
 
 
+@pytest.mark.asyncio
+async def test_clock_wraparound_variable_is_warned_about_never_imported(
+    test_db, monkeypatch, caplog
+):
+    await AppSettingsRepository.update(auto_clock_wraparound=False)
+    monkeypatch.setenv("__CLOWNTOWN_DO_CLOCK_WRAPAROUND", "true")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert await import_legacy_env_settings() == {}
+    assert "__CLOWNTOWN_DO_CLOCK_WRAPAROUND is set but no longer read" in caplog.text
+    assert "Settings → Radio → Advanced" in caplog.text
+    # The user's choice in the UI wins: the variable does not switch it back on.
+    assert (await AppSettingsRepository.get()).auto_clock_wraparound is False
+
+
 def test_warn_lists_only_the_variables_that_are_set(monkeypatch):
     monkeypatch.setenv("MESHCORE_VAPID_SUBJECT", "mailto:x@example.org")
     monkeypatch.setenv("MESHCORE_LOAD_WITH_AUTOEVICT", "   ")  # blank: not a leftover

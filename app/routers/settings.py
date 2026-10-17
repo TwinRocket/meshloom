@@ -110,6 +110,13 @@ class AppSettingsUpdate(BaseModel):
             "does not clear the radio's own preference"
         ),
     )
+    auto_clock_wraparound: bool | None = Field(
+        default=None,
+        description=(
+            "Radio workaround: fix a radio clock still ahead after a reboot by rolling "
+            "it over (0xFFFFFFFF, then the current time). Applies at the next connection"
+        ),
+    )
     telemetry_interval_hours: int | None = Field(
         default=None,
         description=(
@@ -360,6 +367,7 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         "enable_message_poll_fallback",
         "force_channel_slot_reconfigure",
         "load_with_autoevict",
+        "auto_clock_wraparound",
     ):
         value = getattr(update, field)
         if value is not None:
