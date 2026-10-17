@@ -63,7 +63,7 @@ Home Assistant, or if anyone you do not fully trust can sign in, turn bots off.
 
 | Option | What it does |
 |---|---|
-| `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. The private key and Wi-Fi passwords are redacted even at `DEBUG`; repeater and room login passwords and the Bluetooth PIN may still appear at `DEBUG`. |
+| `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. The private key and Wi-Fi passwords are redacted even at `DEBUG`. Channel names and channel keys may appear at any level; repeater and room login passwords and the Bluetooth PIN may also appear at `DEBUG`. |
 | `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
 | `basic_auth_username` / `basic_auth_password` | Asks for a username and password on the whole web interface and API. Both or neither. The check has no exception for ingress: if you set them, open the sidebar entry afterwards to make sure it still loads. |
 | `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |

@@ -386,5 +386,7 @@ a false value (`services/legacy_env_settings.py`).
 - `meshcore` 2.3.15 `import_private_key()` waits only for OK/ERROR: a firmware
   built without key import answers DISABLED, which shows up as a timeout.
 - Repeater/room login passwords, channel secrets and the BLE PIN still reach the
-  DEBUG logs (meshcore frame dumps); only the Wi-Fi password and the private key
-  are redacted for now (follow-up).
+  DEBUG logs (meshcore frame dumps), and app code logs channel names and keys at
+  INFO (`routers/channels.py` channel creation, `services/message_send.py`); only
+  the Wi-Fi password and the private key are redacted for now (follow-up). The
+  user docs say so; keep them in step.
