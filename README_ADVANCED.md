@@ -33,7 +33,7 @@ If room sends appear to be using the wrong channel slot or another client is cha
 
 The full backup (**Settings → Database**, `POST /api/settings/backup/export`) carries the key, every radio setting, the Wi-Fi credentials the radio stores and the Meshloom settings; it can be encrypted with a passphrase. Restoring it pushes everything back to the radio. See `docs/user/en/backup.md`.
 
-Import via `PUT /api/radio/private-key` is write-only and does not expose key material. The radio profile export in **Settings → Radio** never includes the key.
+Import via `PUT /api/radio/private-key` is write-only and does not expose key material. The radio profile export in **Settings → Radio** includes the key when the firmware exported it.
 
 ## ModuleNotFoundError: No module named 'meshcore'
 

@@ -196,7 +196,7 @@
       "jobLost": "The server no longer knows this restore (it restarted). Check the result, then restore again if needed."
     },
     "radio": {
-      "exportHelpNoKey": "The radio profile never contains the private key: use the full backup in Settings > Database to keep the identity."
+      "exportHelpKeyWarning": "The file contains the radio's private key when the firmware exports it: anyone who has the file can impersonate the radio, so keep it private."
     }
   },
   "radioIdentity": {

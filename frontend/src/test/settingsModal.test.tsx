@@ -755,9 +755,15 @@ describe('SettingsModal', () => {
     });
   });
 
-  it('exports the radio profile without asking for the private key', async () => {
-    const getPrivateKey = vi.spyOn(api, 'getPrivateKey');
-    URL.createObjectURL = vi.fn(() => 'blob:x');
+  it('exports the radio profile with the private key when the radio exported it', async () => {
+    const getPrivateKey = vi
+      .spyOn(api, 'getPrivateKey')
+      .mockResolvedValue({ private_key: 'ab'.repeat(64) });
+    let exported: Blob | undefined;
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      exported = blob;
+      return 'blob:x';
+    });
     URL.revokeObjectURL = vi.fn();
     const success = vi.spyOn(toast, 'success');
     renderModal();
@@ -768,12 +774,40 @@ describe('SettingsModal', () => {
       screen.getByRole('button', { name: i18n.t('settings.radio.exportConfig'), hidden: true })
     );
 
-    expect(getPrivateKey).not.toHaveBeenCalled();
-    expect(success).toHaveBeenCalledWith(i18n.t('settings.radio.exportWithoutKey'), {
-      description: i18n.t('settings.radio.exportHelpNoKey'),
-    });
+    await waitFor(() =>
+      expect(success).toHaveBeenCalledWith(i18n.t('settings.radio.exportWithKey'))
+    );
+    expect(getPrivateKey).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await exported!.text()).private_key).toBe('ab'.repeat(64));
     getPrivateKey.mockRestore();
     success.mockRestore();
+  });
+
+  it('exports the radio profile without the key when the firmware did not export it', async () => {
+    const getPrivateKey = vi.spyOn(api, 'getPrivateKey').mockRejectedValue(new Error('404'));
+    let exported: Blob | undefined;
+    URL.createObjectURL = vi.fn((blob: Blob) => {
+      exported = blob;
+      return 'blob:x';
+    });
+    URL.revokeObjectURL = vi.fn();
+    const info = vi.spyOn(toast, 'info');
+    renderModal();
+    openRadioSection();
+    openRadioTab('tabDevice');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.exportConfig'), hidden: true })
+    );
+
+    await waitFor(() =>
+      expect(info).toHaveBeenCalledWith(i18n.t('settings.radio.exportWithoutKey'), {
+        description: i18n.t('settings.radio.exportWithoutKeyHelp'),
+      })
+    );
+    expect(JSON.parse(await exported!.text())).not.toHaveProperty('private_key');
+    getPrivateKey.mockRestore();
+    info.mockRestore();
   });
 
   it('shows the radio workarounds in the Advanced tab and saves each toggle', async () => {

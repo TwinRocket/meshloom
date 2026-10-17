@@ -196,7 +196,7 @@
       "jobLost": "Le serveur ne connaît plus cette restauration (il a redémarré). Vérifiez le résultat, puis relancez la restauration si besoin."
     },
     "radio": {
-      "exportHelpNoKey": "Le profil radio ne contient jamais la clé privée : utilisez la sauvegarde complète de Réglages > Base de données pour conserver l’identité."
+      "exportHelpKeyWarning": "Le fichier contient la clé privée de la radio quand le firmware l’exporte : quiconque a le fichier peut se faire passer pour la radio, gardez-le privé."
     }
   },
   "radioIdentity": {
