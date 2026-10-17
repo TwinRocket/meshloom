@@ -1825,6 +1825,7 @@
     }
   },
   "errors": {
+    "message_too_long": "The message is too long for the radio: {{bytes}} bytes, the limit is {{limit}} bytes.",
     "radio_not_connected": "Radio not connected",
     "resend_window_expired": "The resend window has expired ({{seconds}} seconds). Use “Resend as new” instead.",
     "resend_window_expired_server": "The resend window has expired: the server sent this message more than {{seconds}} seconds ago. Use “Resend as new” instead.",

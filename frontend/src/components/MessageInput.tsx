@@ -15,6 +15,7 @@ import { Send, Smile, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
+import { formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
 import {
@@ -235,7 +236,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      const description = err instanceof Error ? err.message : t('chat.checkRadio');
+      const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
       const isRadioNoResponse =
         err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
       toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
@@ -323,7 +324,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         setComposerPanel(null);
       } catch (err) {
         console.error('Failed to send message:', err);
-        const description = err instanceof Error ? err.message : t('chat.checkRadio');
+        const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
         const isRadioNoResponse =
           err instanceof Error && err.message.toLowerCase().includes(RADIO_NO_RESPONSE_SNIPPET);
         toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {

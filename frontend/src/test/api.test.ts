@@ -21,6 +21,20 @@ describe('formatApiError', () => {
     expect(formatApiError(err, i18n.t)).toBe(i18n.t('errors.radio_not_connected'));
   });
 
+  it('translates message_too_long in both languages with limit and bytes', async () => {
+    const err = new ApiError('Message too long', 400, {
+      code: 'message_too_long',
+      params: { limit: 156, bytes: 157 },
+    });
+    await i18n.changeLanguage('en');
+    expect(formatApiError(err, i18n.t)).toContain('157 bytes');
+    expect(formatApiError(err, i18n.t)).toContain('156 bytes');
+    await i18n.changeLanguage('fr');
+    expect(formatApiError(err, i18n.t)).toContain('157 octets');
+    expect(formatApiError(err, i18n.t)).toContain('156 octets');
+    await i18n.changeLanguage('en');
+  });
+
   it('falls back to Error.message for unknown values', () => {
     expect(formatApiError(new Error('boom'), i18n.t)).toBe('boom');
     expect(formatApiError('plain', i18n.t)).toBe('plain');

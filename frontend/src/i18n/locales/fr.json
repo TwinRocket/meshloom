@@ -1825,6 +1825,7 @@
     }
   },
   "errors": {
+    "message_too_long": "Le message est trop long pour la radio : {{bytes}} octets, la limite est de {{limit}} octets.",
     "radio_not_connected": "Radio non connectée",
     "resend_window_expired": "Le délai de renvoi est dépassé ({{seconds}} secondes). Utilisez plutôt « Renvoyer comme nouveau ».",
     "resend_window_expired_server": "Le délai de renvoi est dépassé : le serveur a envoyé ce message il y a plus de {{seconds}} secondes. Utilisez plutôt « Renvoyer comme nouveau ».",
