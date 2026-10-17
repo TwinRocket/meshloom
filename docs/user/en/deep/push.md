@@ -79,6 +79,8 @@ On a channel, the mute button silences everything for a time you choose (15 minu
 
 In **Settings → Notifications → Delivery destinations**, enter an SMTP server (host, port, encryption, user, password, sender and recipient) and/or a webhook address with an optional HMAC secret. Secrets are not shown again after saving. Each destination has a test button. This webhook is for Meshloom notifications. It is not the message webhook of fanout.
 
+Meshloom refuses a webhook on a private network (your LAN, this machine, `localhost`, carrier-grade NAT, link-local addresses) unless you tick **Allow a destination on a private network (LAN, localhost)** under the address: Home Assistant, Node-RED or a script on your network need it. The check runs when you save the address and again before each send, and Meshloom then connects only to the address it checked, so a DNS answer that changes in between cannot redirect the call. Cloud metadata addresses (`169.254.169.254` and its equivalents) are always refused. If the host name cannot be found, type the IP address instead. A webhook saved before this check existed keeps working: the box starts ticked for it, and a one-time notice says so.
+
 The e-mail is HTML, with a plain-text copy. The Meshloom logo travels inside the message (an inline image), so opening the e-mail loads nothing from the Internet and contains no link.
 
 ## Behind the scenes
@@ -103,11 +105,17 @@ The e-mail is HTML, with a plain-text copy. The Meshloom logo travels inside the
 
 A subscription is unique by its address, so registering again updates the existing one. The old `/api/push/conversations` routes no longer exist.
 
+### Push services on a private network
+
+Browser push services (Google, Mozilla, Apple) are on the Internet. `POST /api/push/subscribe` refuses an address on a private network (answer `400`, code `egress_private_address`), and Meshloom never sends to one, unless **Accept push endpoints on a private network** is ticked in **Settings → Notifications** (setting `push_allow_private_endpoints` of `/api/settings`). Tick it only for a self-hosted UnifiedPush distributor on your LAN or on this machine. Like the webhook, each push is sent only to the address Meshloom checked, and a redirect is never followed.
+
+On an upgrade, if a device registered before this check is not a browser push service (a UnifiedPush distributor, perhaps on your LAN), the box starts ticked so the device keeps receiving, and a notice in **Settings → Notifications** says so until you dismiss it. Untick the box if none of your devices is on your network. With browser push services only, it starts unticked.
+
 ## When nothing arrives
 
 1. Check that the page is served over HTTPS (or `localhost`).
 2. Check the notification permission in your browser and your system.
-3. Send a test from **Settings → Notifications**. When a test fails, Meshloom says only whether the service could not be reached or refused it, timed out, or no longer accepts the subscription; it never shows the network error itself (so a page cannot use the test to probe your network). The server's log records the kind of error, plus the webhook's host and HTTP status, as `Test push failed` or `Notification test (webhook) failed`; it never records the webhook address or its token.
+3. Send a test from **Settings → Notifications**. A destination on a private network that is not allowed is refused at once, before any connection. Past that check, when a test fails, Meshloom says only what kind of failure it was (unreachable, timed out, TLS failure, the HTTP status the webhook answered, or a subscription the push service no longer accepts); it never shows the network error itself, a host name or an address (so a page cannot use the test to probe your network). The server's log records the kind of error, plus the webhook's host and HTTP status, as `Test push failed` or `Notification test (webhook) failed`; it never records the webhook address or its token.
 4. Check the defaults and exceptions, also visible at `/api/push/preferences`. A private-key channel stays silent unless an exception turns it on. A muted channel stays silent whatever the settings.
 5. On Apple devices, check the VAPID subject (see above) and look for `403 BadJwtToken` in the server's log.
 6. Check that the server can reach the Internet.

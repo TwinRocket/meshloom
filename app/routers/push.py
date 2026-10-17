@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException
 
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.push.send import send_push
 from app.push.vapid import (
     get_vapid_claims,
@@ -123,7 +124,17 @@ async def vapid_public_key() -> VapidPublicKeyResponse:
 
 @router.post("/subscribe")
 async def subscribe(body: PushSubscribeRequest) -> dict:
-    """Register or update a push subscription (device). Upserts by endpoint."""
+    """Register or update a push subscription (device). Upserts by endpoint.
+
+    The endpoint must pass the egress guard: a private-network endpoint (a
+    self-hosted UnifiedPush distributor) needs ``push_allow_private_endpoints``.
+    """
+    allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
+    try:
+        await validate_destination(body.endpoint, allow_private_network=allow_private)
+    except EgressBlocked as exc:
+        logger.info("Push subscribe refused by the egress guard: %s", exc.code)
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
     sub = await PushSubscriptionRepository.create(
         endpoint=body.endpoint,
         p256dh=body.p256dh,
@@ -168,6 +179,10 @@ async def unsubscribe(subscription_id: str) -> dict:
 
 # The test route answers a fixed code, never the exception text: the endpoint
 # is client-supplied, so a network error would reveal what lives on the LAN.
+# The egress guard refuses a private endpoint before any connection (unless
+# push_allow_private_endpoints), so neither the status code nor the answer time
+# says anything about the LAN: every delivery failure, timeout included, is a
+# 422, and push_stale (410) only follows an answer from a guarded endpoint.
 # The cause goes to the server log only. Translated by the UI under errors.<code>.
 _TEST_PUSH_MESSAGES = {
     "push_timeout": "Push delivery timed out",
@@ -206,6 +221,7 @@ async def test_push(subscription_id: str) -> dict:
             "url_hash": "",
         }
     )
+    allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
 
     try:
         async with asyncio.timeout(15):
@@ -217,10 +233,14 @@ async def test_push(subscription_id: str) -> dict:
                 payload=payload,
                 vapid_private_key=vapid_key,
                 vapid_claims=get_vapid_claims(),
+                allow_private_network=allow_private,
             )
         return {"status": "sent"}
+    except EgressBlocked as e:
+        logger.info("Test push refused by the egress guard: %s", e.code)
+        raise HTTPException(status_code=422, detail=egress_detail(e.code)) from None
     except TimeoutError:
-        raise HTTPException(status_code=408, detail=_coded("push_timeout")) from None
+        raise HTTPException(status_code=422, detail=_coded("push_timeout")) from None
     except WebPushException as e:
         status_code = getattr(getattr(e, "response", None), "status_code", 0)
         if status_code in (403, 404, 410):

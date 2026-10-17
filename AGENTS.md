@@ -9,6 +9,7 @@ This file is the entry point for every coding agent. Area files, read only when
 you work there:
 
 - `app/AGENTS.md`: backend (radio lifecycle, sending, migrations, Community client, updates, telemetry, push).
+- `app/net/AGENTS.md`: the egress guard for user-chosen destinations (SSRF, IP pinning).
 - `app/fanout/AGENTS.md`: the fanout bus (MQTT, bots, webhooks, Apprise, SQS, map upload).
 - `frontend/AGENTS.md`: frontend (state, WebSocket client, i18n, layout).
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
@@ -90,6 +91,11 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
   call path around it. The few bounded exceptions and the "waiting for a
   position" level are in `app/AGENTS.md`. The radio's position leaves only in
   the IATA bind and the on-click IATA suggestion.
+- **User-chosen destinations.** The notification webhook, Web Push and their
+  test routes go through the egress guard (`app/net/egress_guard.py`, see
+  `app/net/AGENTS.md`): validated before any connection, then sent pinned to a
+  validated IP. The fanout outputs (webhook, Apprise, SQS, map upload) do not
+  yet; a new outbound path to a user-chosen URL must use the guard.
 
 ## Commands
 

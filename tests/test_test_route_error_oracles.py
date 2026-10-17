@@ -2,9 +2,12 @@
 
 Both routes send to a destination the client chose, so a network error in the
 answer (connection refused, unknown host, TLS failure, HTTP status, timeout)
-would let a page probe the LAN. The server log gets the exception type (plus the
-webhook's host and HTTP status), never its text: an HTTPStatusError carries the
-full webhook URL and its token, a WebPushException the push service's body.
+would let a page probe the LAN. The egress guard refuses a private destination
+before any connection (no status-code or timing oracle); past the guard, the
+answer carries a failure class only. The server log gets the exception type
+(plus the webhook's host and HTTP status), never its text: an HTTPStatusError
+carries the full webhook URL and its token, a WebPushException the push
+service's body.
 """
 
 import asyncio
@@ -13,10 +16,9 @@ import contextlib
 import json
 import logging
 import socket
-from types import SimpleNamespace
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -128,6 +130,10 @@ def _assert_coded(response, status: int, code: str) -> None:
         assert word not in text, f"{word!r} leaked into {text}"
 
 
+async def _allow_private_push() -> None:
+    await AppSettingsRepository.update(push_allow_private_endpoints=True)
+
+
 async def _subscription(endpoint: str) -> str:
     p256dh, auth = _client_keys()
     sub = await PushSubscriptionRepository.create(endpoint=endpoint, p256dh=p256dh, auth=auth)
@@ -136,8 +142,23 @@ async def _subscription(endpoint: str) -> str:
 
 class TestPushTestRoute:
     @pytest.mark.asyncio
+    async def test_private_endpoint_is_refused_before_any_connection(self, test_db, client):
+        await ensure_vapid_keys()
+        async with _silent_server() as port:
+            sub_id = await _subscription(f"http://127.0.0.1:{port}/push")
+            with patch("app.push.send.webpush") as webpush:
+                started = time.monotonic()
+                response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
+                elapsed = time.monotonic() - started
+        _assert_coded(response, 422, "egress_private_address")
+        webpush.assert_not_called()
+        assert elapsed < 1.0
+        assert await PushSubscriptionRepository.get(sub_id) is not None
+
+    @pytest.mark.asyncio
     async def test_refused_connection_is_coded(self, test_db, client, caplog):
         await ensure_vapid_keys()
+        await _allow_private_push()
         sub_id = await _subscription(f"http://127.0.0.1:{_closed_port()}/push")
         with caplog.at_level(logging.WARNING, logger="app.routers.push"):
             response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
@@ -148,15 +169,16 @@ class TestPushTestRoute:
     async def test_dns_failure_is_coded(self, test_db, client, caplog):
         await ensure_vapid_keys()
         sub_id = await _subscription("https://push.lan.invalid/push")
-        with caplog.at_level(logging.WARNING, logger="app.routers.push"), _dns_failure():
+        with caplog.at_level(logging.INFO, logger="app.routers.push"), _dns_failure():
             response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
-        _assert_coded(response, 422, "push_delivery_failed")
-        assert "Test push failed: ConnectionError" in caplog.text
+        _assert_coded(response, 422, "egress_unresolvable")
+        assert "egress guard: egress_unresolvable" in caplog.text
         assert DNS_MARKER not in caplog.text
 
     @pytest.mark.asyncio
     async def test_push_server_error_is_coded(self, test_db, client, caplog):
         await ensure_vapid_keys()
+        await _allow_private_push()
         async with _failing_http_server(500) as port:
             sub_id = await _subscription(f"http://127.0.0.1:{port}/push")
             with caplog.at_level(logging.WARNING, logger="app.routers.push"):
@@ -169,6 +191,7 @@ class TestPushTestRoute:
     @pytest.mark.asyncio
     async def test_tls_error_is_coded(self, test_db, client, caplog):
         await ensure_vapid_keys()
+        await _allow_private_push()
         async with _silent_server(plain_reply=True) as port:
             # https:// to a plain-HTTP peer: the TLS handshake fails.
             sub_id = await _subscription(f"https://127.0.0.1:{port}/push")
@@ -180,7 +203,7 @@ class TestPushTestRoute:
     @pytest.mark.asyncio
     async def test_stale_subscription_is_coded_and_removed(self, test_db, client):
         await ensure_vapid_keys()
-        sub_id = await _subscription("https://push.example.test/push")
+        sub_id = await _subscription("https://93.184.215.14/push")
         exc = WebPushException("Push failed: 410 Gone marker", response=MagicMock(status_code=410))
         with patch("app.routers.push.send_push", new=AsyncMock(side_effect=exc)):
             response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
@@ -188,22 +211,18 @@ class TestPushTestRoute:
         assert await PushSubscriptionRepository.get(sub_id) is None
 
     @pytest.mark.asyncio
-    async def test_timeout_is_coded(self, test_db, client):
+    async def test_timeout_is_a_422_like_every_delivery_failure(self, test_db, client):
         await ensure_vapid_keys()
-        sub_id = await _subscription("https://push.example.test/push")
+        sub_id = await _subscription("https://93.184.215.14/push")
         with patch("app.routers.push.send_push", new=AsyncMock(side_effect=TimeoutError)):
             response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
-        _assert_coded(response, 408, "push_timeout")
+        _assert_coded(response, 422, "push_timeout")
 
 
-def _short_timeout_httpx() -> SimpleNamespace:
-    """``httpx`` as app.notify sees it, with a 0.3 s timeout instead of 10 s."""
-    return SimpleNamespace(AsyncClient=httpx.AsyncClient, Timeout=lambda _s: httpx.Timeout(0.3))
-
-
-async def _set_webhook(url: str) -> None:
+async def _set_webhook(url: str, *, allow_private_network: bool = True) -> None:
     dest = (await AppSettingsRepository.get()).notification_destinations
     dest.webhook.url = url
+    dest.webhook.allow_private_network = allow_private_network
     await AppSettingsRepository.update(notification_destinations=dest)
 
 
@@ -215,21 +234,31 @@ async def _test_destination(client, channel: str):
 
 class TestNotificationDestinationTestRoute:
     @pytest.mark.asyncio
+    async def test_private_webhook_is_refused_before_any_connection(self, test_db, client):
+        async with _silent_server() as port:
+            await _set_webhook(_webhook_url("http", "127.0.0.1", port), allow_private_network=False)
+            started = time.monotonic()
+            response = await _test_destination(client, "webhook")
+            elapsed = time.monotonic() - started
+        _assert_coded(response, 400, "egress_private_address")
+        # The 10 s webhook timeout never started: no connection was made.
+        assert elapsed < 1.0
+
+    @pytest.mark.asyncio
     async def test_refused_connection_is_coded(self, test_db, client, caplog):
         await _set_webhook(_webhook_url("http", "127.0.0.1", _closed_port()))
         with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
             response = await _test_destination(client, "webhook")
         _assert_coded(response, 502, "notification_test_failed")
-        assert "Notification test (webhook) failed: ConnectError (host 127.0.0.1" in caplog.text
+        assert "failed: connect_error: ConnectError (host 127.0.0.1" in caplog.text
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
     async def test_dns_failure_is_coded(self, test_db, client, caplog):
         await _set_webhook(_webhook_url("https", "hook.lan.invalid"))
-        with caplog.at_level(logging.WARNING, logger="app.routers.settings"), _dns_failure():
+        with caplog.at_level(logging.INFO, logger="app.routers.settings"), _dns_failure():
             response = await _test_destination(client, "webhook")
-        _assert_coded(response, 502, "notification_test_failed")
-        assert "ConnectError (host hook.lan.invalid, HTTP None)" in caplog.text
+        _assert_coded(response, 400, "egress_unresolvable")
         assert DNS_MARKER not in caplog.text
         _assert_log_clean(caplog)
 
@@ -239,35 +268,32 @@ class TestNotificationDestinationTestRoute:
             await _set_webhook(_webhook_url("http", "127.0.0.1", port))
             with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
                 response = await _test_destination(client, "webhook")
-        _assert_coded(response, 502, "notification_test_failed")
+        _assert_coded(response, 502, "service_error")
+        assert response.json()["detail"]["params"] == {"status": 500}
         assert "HTTPStatusError (host 127.0.0.1, HTTP 500)" in caplog.text
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
-    async def test_tls_error_is_coded(self, test_db, client, caplog):
+    async def test_tls_error_is_coded(self, test_db, client, caplog, monkeypatch):
+        monkeypatch.setattr("app.notify.WEBHOOK_TIMEOUT_SECONDS", 0.3)
         async with _silent_server(plain_reply=True) as port:
             # https:// to a plain-HTTP peer: the TLS handshake fails.
             await _set_webhook(_webhook_url("https", "127.0.0.1", port))
-            with (
-                caplog.at_level(logging.WARNING, logger="app.routers.settings"),
-                patch("app.notify.httpx", _short_timeout_httpx()),
-            ):
+            with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
                 response = await _test_destination(client, "webhook")
-        _assert_coded(response, 502, "notification_test_failed")
-        assert "Notification test (webhook) failed: ConnectError" in caplog.text
+        _assert_coded(response, 502, "tls_error")
+        assert "failed: tls_error: ConnectError" in caplog.text
         assert "Timeout" not in caplog.text
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
-    async def test_timeout_is_coded(self, test_db, client, caplog):
+    async def test_timeout_is_coded(self, test_db, client, caplog, monkeypatch):
+        monkeypatch.setattr("app.notify.WEBHOOK_TIMEOUT_SECONDS", 0.3)
         async with _silent_server() as port:
             await _set_webhook(_webhook_url("http", "127.0.0.1", port))
-            with (
-                caplog.at_level(logging.WARNING, logger="app.routers.settings"),
-                patch("app.notify.httpx", _short_timeout_httpx()),
-            ):
+            with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
                 response = await _test_destination(client, "webhook")
-        _assert_coded(response, 502, "notification_test_failed")
+        _assert_coded(response, 502, "timeout")
         assert "ReadTimeout (host 127.0.0.1, HTTP None)" in caplog.text
         _assert_log_clean(caplog)
 

@@ -3,7 +3,6 @@ import os
 import tempfile
 import time
 from typing import Any, Literal
-from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -28,6 +27,7 @@ from app.models import (
     TelemetryAlertRules,
     UiPreferences,
 )
+from app.net.egress_guard import EgressBlocked, egress_detail, error_code, validate_destination
 from app.region_scope import normalize_region_scope
 from app.repository import AppSettingsRepository, ChannelRepository, ContactRepository
 from app.services.backup import (
@@ -149,6 +149,14 @@ class AppSettingsUpdate(BaseModel):
             "with credentials (CORS). Replaces the whole list; empty means same-origin "
             "only. No wildcard, no path"
         ),
+    )
+    push_allow_private_endpoints: bool | None = Field(
+        default=None,
+        description="Accept Web Push endpoints on a private network (self-hosted UnifiedPush)",
+    )
+    push_private_endpoints_grandfathered: bool | None = Field(
+        default=None,
+        description="Set to false to dismiss the upgrade notice (setting it also clears it)",
     )
     telemetry_interval_hours: int | None = Field(
         default=None,
@@ -454,7 +462,18 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["telemetry_alert_rules"] = update.telemetry_alert_rules
 
     if update.notification_destinations is not None:
+        await _check_webhook_destination(update.notification_destinations)
         kwargs["notification_destinations"] = update.notification_destinations
+
+    if update.push_allow_private_endpoints is not None:
+        logger.info(
+            "Updating push_allow_private_endpoints to %s", update.push_allow_private_endpoints
+        )
+        kwargs["push_allow_private_endpoints"] = update.push_allow_private_endpoints
+        # An explicit choice replaces the upgrade default and its notice.
+        kwargs["push_private_endpoints_grandfathered"] = False
+    if update.push_private_endpoints_grandfathered is False:
+        kwargs["push_private_endpoints_grandfathered"] = False
 
     # Flood scope
     flood_scope_changed = False
@@ -845,6 +864,47 @@ async def get_telemetry_alert_catalog() -> TelemetryAlertCatalog:
     )
 
 
+_WEBHOOK_TEST_MESSAGES = {
+    "timeout": "The destination did not answer in time",
+    "tls_error": "The TLS handshake with the destination failed (certificate or protocol)",
+    "service_error": "The destination answered with an HTTP error",
+}
+
+
+def _webhook_test_detail(exc: BaseException) -> dict[str, Any]:
+    code = error_code(exc)
+    if code not in _WEBHOOK_TEST_MESSAGES:
+        return {"code": "notification_test_failed", "message": "Notification test failed"}
+    detail: dict[str, Any] = {"code": code, "message": _WEBHOOK_TEST_MESSAGES[code]}
+    if isinstance(exc, httpx.HTTPStatusError):
+        detail["params"] = {"status": exc.response.status_code}
+    return detail
+
+
+async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> None:
+    """Refuse at save a webhook the guard would refuse at send (400, coded).
+
+    Checked only when the URL or its private-network flag changes, so saving an
+    unrelated field never depends on the webhook host's DNS.
+    """
+    if patch.webhook is None:
+        return
+    from app.telemetry_alerts import merge_notification_destinations
+
+    current = (await AppSettingsRepository.get()).notification_destinations
+    merged = merge_notification_destinations(current, patch).webhook
+    url = merged.url.strip()
+    if not url or (
+        url == current.webhook.url.strip()
+        and merged.allow_private_network == current.webhook.allow_private_network
+    ):
+        return
+    try:
+        await validate_destination(url, allow_private_network=merged.allow_private_network)
+    except EgressBlocked as exc:
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
+
+
 @router.post(
     "/notification-destinations/test",
     response_model=NotificationDestTestResponse,
@@ -853,7 +913,12 @@ async def test_notification_destinations(
     request: NotificationDestTestRequest,
 ) -> NotificationDestTestResponse:
     """Send a fixed test payload on one channel. Does not create a latch."""
-    from app.notify import TEST_ALERT_PAYLOAD, send_email_alert, send_webhook_alert
+    from app.notify import (
+        TEST_ALERT_PAYLOAD,
+        describe_webhook_failure,
+        send_email_alert,
+        send_webhook_alert,
+    )
 
     dest = (await AppSettingsRepository.get()).notification_destinations
     try:
@@ -870,23 +935,26 @@ async def test_notification_destinations(
                 "message": "Notification destination is not configured or invalid",
             },
         ) from None
+    except EgressBlocked as exc:
+        # Refused before any connection, so the answer time says nothing either.
+        logger.info("Notification test (%s) refused by the egress guard: %s", request.channel, exc)
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
     except Exception as exc:
         # Never the exception text, in the answer (a LAN-scanning oracle) or in
         # the log (an HTTPStatusError carries the full webhook URL and its token).
-        if request.channel == "webhook":
-            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
-            logger.warning(
-                "Notification test (webhook) failed: %s (host %s, HTTP %s)",
-                type(exc).__name__,
-                urlsplit(dest.webhook.url or "").hostname,
-                status,
-            )
-        else:
+        if request.channel != "webhook":
             logger.warning("Notification test (email) failed: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=502,
-            detail={"code": "notification_test_failed", "message": "Notification test failed"},
-        ) from None
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "notification_test_failed", "message": "Notification test failed"},
+            ) from None
+        logger.warning(
+            "Notification test (webhook) failed: %s",
+            describe_webhook_failure(exc, dest.webhook.url or ""),
+        )
+        # The guard passed: the destination is public, or one the user allowed
+        # on their network, so the failure class may be shown.
+        raise HTTPException(status_code=502, detail=_webhook_test_detail(exc)) from None
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 

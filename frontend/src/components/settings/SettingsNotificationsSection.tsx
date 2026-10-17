@@ -451,6 +451,21 @@ export function SettingsNotificationsSection({
           <p className="text-[0.8125rem] text-muted-foreground">
             {t('settings.notifications.webhookNotFanout')}
           </p>
+          {savedDest.webhook.private_network_grandfathered && (
+            <div
+              className="flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.8125rem]"
+              role="status"
+            >
+              <p className="min-w-0 flex-1">{t('settings.notifications.webhookGrandfathered')}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => commitWebhookField('private_network_grandfathered', false)}
+              >
+                {t('settings.notifications.webhookGrandfatheredDismiss')}
+              </Button>
+            </div>
+          )}
           <div className="grid gap-3 lg:grid-cols-2">
             <div className="space-y-1.5 lg:col-span-2">
               <Label htmlFor="notify-webhook-url">{t('settings.notifications.webhookUrl')}</Label>
@@ -487,6 +502,24 @@ export function SettingsNotificationsSection({
                 }
                 onBlur={() => commitWebhookField('hmac_secret', destDraft.webhook.hmac_secret)}
               />
+            </div>
+            <div className="flex items-start gap-3 rounded-md border border-border/60 p-3 lg:col-span-2">
+              <Checkbox
+                id="notify-webhook-allow-private"
+                checked={destDraft.webhook.allow_private_network}
+                onCheckedChange={(checked) =>
+                  commitWebhookField('allow_private_network', checked === true)
+                }
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <Label htmlFor="notify-webhook-allow-private">
+                  {t('settings.notifications.webhookAllowPrivate')}
+                </Label>
+                <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+                  {t('settings.notifications.webhookAllowPrivateHelp')}
+                </p>
+              </div>
             </div>
           </div>
           <Button
@@ -700,6 +733,53 @@ export function SettingsNotificationsSection({
             )}
           </>
         )}
+        {appSettings?.push_private_endpoints_grandfathered === true && (
+          <div
+            className="flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.8125rem]"
+            role="status"
+          >
+            <p className="min-w-0 flex-1">{t('settings.notifications.pushGrandfathered')}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!onSaveAppSettings}
+              onClick={() => {
+                void onSaveAppSettings?.({ push_private_endpoints_grandfathered: false }).catch(
+                  (err: unknown) =>
+                    toast.error(t('settings.notifications.pushAllowPrivateSaveFailed'), {
+                      description: formatApiError(err, t),
+                    })
+                );
+              }}
+            >
+              {t('settings.notifications.webhookGrandfatheredDismiss')}
+            </Button>
+          </div>
+        )}
+        <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
+          <Checkbox
+            id="push-allow-private-endpoints"
+            checked={appSettings?.push_allow_private_endpoints === true}
+            disabled={!onSaveAppSettings || !appSettings}
+            onCheckedChange={(checked) => {
+              void onSaveAppSettings?.({ push_allow_private_endpoints: checked === true }).catch(
+                (err: unknown) =>
+                  toast.error(t('settings.notifications.pushAllowPrivateSaveFailed'), {
+                    description: formatApiError(err, t),
+                  })
+              );
+            }}
+            className="mt-0.5"
+          />
+          <div className="space-y-1">
+            <Label htmlFor="push-allow-private-endpoints">
+              {t('settings.notifications.pushAllowPrivate')}
+            </Label>
+            <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+              {t('settings.notifications.pushAllowPrivateHelp')}
+            </p>
+          </div>
+        </div>
       </div>
 
       <Separator />

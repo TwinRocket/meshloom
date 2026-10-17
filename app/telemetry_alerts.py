@@ -20,6 +20,7 @@ from app.models import (
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
     TelemetryRuleSpec,
+    grandfather_legacy_webhook,
 )
 from app.repository.contact_telemetry import ContactTelemetryRepository
 from app.repository.repeater_telemetry import RepeaterTelemetryRepository
@@ -576,7 +577,7 @@ async def _history_had_lpp_fix(public_key: str) -> bool:
 
 
 def coerce_notification_destinations(raw: object) -> NotificationDestinations:
-    parsed = _parse_json_object(raw)
+    parsed = grandfather_legacy_webhook(_parse_json_object(raw))
     try:
         return NotificationDestinations.model_validate(
             {**DEFAULT_NOTIFICATION_DESTINATIONS, **parsed}
@@ -611,6 +612,7 @@ def merge_notification_destinations(
     webhook_patch = payload.get("webhook")
     if isinstance(webhook_patch, Mapping):
         webhook = dict(merged.get("webhook") or {})
+        previous_url = str(webhook.get("url") or "").strip()
         for key, value in webhook_patch.items():
             if key == "hmac_secret":
                 if value is None or value == REDACTED_SECRET:
@@ -618,6 +620,9 @@ def merge_notification_destinations(
                 webhook["hmac_secret"] = value
             elif value is not None:
                 webhook[key] = value
+        if str(webhook.get("url") or "").strip() != previous_url:
+            # The banner was about the old destination.
+            webhook["private_network_grandfathered"] = False
         merged["webhook"] = webhook
 
     return coerce_notification_destinations(merged)

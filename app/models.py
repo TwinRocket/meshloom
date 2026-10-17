@@ -1345,6 +1345,38 @@ class NotificationEmailDest(BaseModel):
 class NotificationWebhookDest(BaseModel):
     url: str = ""
     hmac_secret: str = ""
+    # Egress guard opt-in (app/net/egress_guard.py): a LAN or loopback target.
+    # A webhook saved before the guard existed reads as allowed and grandfathered
+    # (coerce_notification_destinations); the UI shows a one-time banner then.
+    allow_private_network: bool = False
+    private_network_grandfathered: bool = False
+
+
+def grandfather_legacy_webhook(raw: Any) -> Any:
+    """A stored webhook from before the egress guard keeps reaching its LAN target.
+
+    Lazy default, applied where stored or backed-up destinations are parsed (the
+    repository read, a backup restore): a raw ``webhook`` with a URL and no
+    ``allow_private_network`` key reads as allowed and grandfathered. The first
+    save writes the key, so this runs only until then. A new URL starts refused.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    webhook = raw.get("webhook")
+    if (
+        isinstance(webhook, dict)
+        and str(webhook.get("url") or "").strip()
+        and "allow_private_network" not in webhook
+    ):
+        raw = {
+            **raw,
+            "webhook": {
+                **webhook,
+                "allow_private_network": True,
+                "private_network_grandfathered": True,
+            },
+        }
+    return raw
 
 
 class NotificationDestinations(BaseModel):
@@ -1369,6 +1401,8 @@ class NotificationEmailDestUpdate(BaseModel):
 class NotificationWebhookDestUpdate(BaseModel):
     url: str | None = None
     hmac_secret: str | None = None
+    allow_private_network: bool | None = None
+    private_network_grandfathered: bool | None = None
 
 
 class NotificationDestinationsUpdate(BaseModel):
@@ -1467,6 +1501,13 @@ class AppSettings(BaseModel):
         default_factory=NotificationDestinations,
         description="SMTP and webhook destinations for system telemetry alerts",
     )
+
+    @field_validator("notification_destinations", mode="before")
+    @classmethod
+    def _grandfather_legacy_webhook(cls, value: Any) -> Any:
+        # A backup written before the egress guard restores its LAN webhook.
+        return grandfather_legacy_webhook(value)
+
     auto_resend_channel: bool = Field(
         default=False,
         description=(
@@ -1522,6 +1563,21 @@ class AppSettings(BaseModel):
             "rebooted the radio, set the maximum time (0xFFFFFFFF) so the clock rolls "
             "over to zero, then set the current time. Only for a radio more than a year "
             "ahead, during connection setup, at most once per radio per process"
+        ),
+    )
+    push_allow_private_endpoints: bool = Field(
+        default=False,
+        description=(
+            "Accept Web Push endpoints on a private network (LAN, localhost), for a "
+            "self-hosted UnifiedPush distributor. Off: such endpoints are refused"
+        ),
+    )
+    push_private_endpoints_grandfathered: bool = Field(
+        default=False,
+        description=(
+            "push_allow_private_endpoints was turned on by the upgrade because a "
+            "subscription stored before the egress guard is not a browser push "
+            "service; the UI shows a one-time notice until dismissed"
         ),
     )
     auto_update: bool = Field(

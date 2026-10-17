@@ -3,6 +3,7 @@
 import pytest
 
 from app.push.vapid import get_vapid_claims, set_cached_vapid_subject
+from app.repository import AppSettingsRepository
 from app.repository.settings import DEFAULT_PUSH_DEFAULTS
 
 
@@ -113,3 +114,72 @@ async def test_legacy_conversation_endpoints_are_gone(test_db, client):
 
     toggled = await client.post("/api/push/conversations/toggle", json={"key": "contact-aa"})
     assert toggled.status_code == 404
+
+
+# ── POST /push/subscribe and the egress guard ────────────────────────────
+
+_KEYS = {"p256dh": "p256", "auth": "auth"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://192.168.1.10/up", "https://127.0.0.1:8443/push", "http://[fd00::5]/up"],
+)
+async def test_subscribe_private_endpoint_is_400_by_default(test_db, client, endpoint):
+    response = await client.post("/api/push/subscribe", json={"endpoint": endpoint, **_KEYS})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "egress_private_address"
+    assert (await client.get("/api/push/subscriptions")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_subscribe_private_endpoint_allowed_by_the_instance_setting(test_db, client):
+    patch = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
+    assert patch.status_code == 200
+    assert patch.json()["push_allow_private_endpoints"] is True
+    response = await client.post(
+        "/api/push/subscribe", json={"endpoint": "http://192.168.1.10/up", **_KEYS}
+    )
+    assert response.status_code == 200
+    # The metadata service stays refused whatever the setting.
+    response = await client.post(
+        "/api/push/subscribe", json={"endpoint": "http://169.254.169.254/latest", **_KEYS}
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_subscribe_public_endpoint_and_bad_scheme(test_db, client):
+    ok = await client.post(
+        "/api/push/subscribe", json={"endpoint": "https://93.184.215.14/push/abc", **_KEYS}
+    )
+    assert ok.status_code == 200
+    bad = await client.post(
+        "/api/push/subscribe", json={"endpoint": "ftp://93.184.215.14/x", **_KEYS}
+    )
+    assert bad.status_code == 400
+    assert bad.json()["detail"]["code"] == "egress_scheme"
+
+
+@pytest.mark.asyncio
+async def test_push_allow_private_endpoints_defaults_off(test_db, client):
+    assert (await client.get("/api/settings")).json()["push_allow_private_endpoints"] is False
+
+
+@pytest.mark.asyncio
+async def test_grandfathered_notice_is_dismissed_or_cleared_by_a_choice(test_db, client):
+    await AppSettingsRepository.update(
+        push_allow_private_endpoints=True, push_private_endpoints_grandfathered=True
+    )
+    settings = (await client.get("/api/settings")).json()
+    assert settings["push_private_endpoints_grandfathered"] is True
+    dismissed = await client.patch(
+        "/api/settings", json={"push_private_endpoints_grandfathered": False}
+    )
+    assert dismissed.json()["push_private_endpoints_grandfathered"] is False
+    assert dismissed.json()["push_allow_private_endpoints"] is True
+
+    await AppSettingsRepository.update(push_private_endpoints_grandfathered=True)
+    chosen = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
+    assert chosen.json()["push_private_endpoints_grandfathered"] is False

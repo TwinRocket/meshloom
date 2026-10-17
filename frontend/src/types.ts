@@ -1021,6 +1021,10 @@ export interface NotificationEmailDest {
 export interface NotificationWebhookDest {
   url: string;
   hmac_secret: string;
+  /** Egress guard opt-in: a destination on the LAN or localhost. */
+  allow_private_network: boolean;
+  /** Set for a webhook saved before the guard existed: shows a one-time banner. */
+  private_network_grandfathered: boolean;
 }
 
 export interface NotificationDestinations {
@@ -1105,7 +1109,12 @@ export const DEFAULT_NOTIFICATION_DESTINATIONS: NotificationDestinations = {
     from: '',
     to: '',
   },
-  webhook: { url: '', hmac_secret: '' },
+  webhook: {
+    url: '',
+    hmac_secret: '',
+    allow_private_network: false,
+    private_network_grandfathered: false,
+  },
 };
 
 export const DEFAULT_TELEMETRY_ALERT_RULES: TelemetryAlertRules = {
@@ -1288,6 +1297,8 @@ export function resolveNotificationDestinations(
     webhook: {
       url: typeof webhook?.url === 'string' ? webhook.url : '',
       hmac_secret: typeof webhook?.hmac_secret === 'string' ? webhook.hmac_secret : '',
+      allow_private_network: webhook?.allow_private_network === true,
+      private_network_grandfathered: webhook?.private_network_grandfathered === true,
     },
   };
 }
@@ -1326,7 +1337,12 @@ export function buildNotificationDestinationsPatch(
     },
     webhook: {
       url: draft.webhook.url,
+      allow_private_network: draft.webhook.allow_private_network,
       ...(hmacSecret !== undefined ? { hmac_secret: hmacSecret } : {}),
+      ...(draft.webhook.private_network_grandfathered !==
+      current.webhook.private_network_grandfathered
+        ? { private_network_grandfathered: draft.webhook.private_network_grandfathered }
+        : {}),
     },
   };
 }
@@ -1442,6 +1458,10 @@ export interface AppSettings {
   auto_clock_wraparound?: boolean;
   /** CORS allowlist (Settings → Local Configuration → Allowed origins). Empty: same-origin only. */
   auth_allowed_origins?: string[];
+  /** Accept Web Push endpoints on a private network (self-hosted UnifiedPush). */
+  push_allow_private_endpoints?: boolean;
+  /** The upgrade turned push_allow_private_endpoints on: show a one-time notice. */
+  push_private_endpoints_grandfathered?: boolean;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1469,6 +1489,8 @@ export interface AppSettingsUpdate {
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
   auth_allowed_origins?: string[];
+  push_allow_private_endpoints?: boolean;
+  push_private_endpoints_grandfathered?: boolean;
 }
 
 export interface DirectoryHopHit {

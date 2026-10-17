@@ -271,7 +271,8 @@ class AppSettingsRepository:
                    auto_update_window_start, auto_update_window_end,
                    auto_update_weekdays, enable_message_poll_fallback,
                    force_channel_slot_reconfigure, load_with_autoevict,
-                   auto_clock_wraparound, auth_allowed_origins
+                   auto_clock_wraparound, auth_allowed_origins,
+                   push_allow_private_endpoints, push_private_endpoints_grandfathered
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -476,6 +477,8 @@ class AppSettingsRepository:
             load_with_autoevict=_flag("load_with_autoevict"),
             auto_clock_wraparound=_flag("auto_clock_wraparound", default=True),
             auth_allowed_origins=auth_allowed_origins,
+            push_allow_private_endpoints=_flag("push_allow_private_endpoints"),
+            push_private_endpoints_grandfathered=_flag("push_private_endpoints_grandfathered"),
         )
 
     @staticmethod
@@ -514,6 +517,8 @@ class AppSettingsRepository:
         load_with_autoevict: bool | None = None,
         auto_clock_wraparound: bool | None = None,
         auth_allowed_origins: list[str] | None = None,
+        push_allow_private_endpoints: bool | None = None,
+        push_private_endpoints_grandfathered: bool | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -653,6 +658,8 @@ class AppSettingsRepository:
             ("force_channel_slot_reconfigure", force_channel_slot_reconfigure),
             ("load_with_autoevict", load_with_autoevict),
             ("auto_clock_wraparound", auto_clock_wraparound),
+            ("push_allow_private_endpoints", push_allow_private_endpoints),
+            ("push_private_endpoints_grandfathered", push_private_endpoints_grandfathered),
         ):
             if flag is not None:
                 updates.append(f"{column} = ?")
@@ -710,6 +717,8 @@ class AppSettingsRepository:
         load_with_autoevict: bool | None = None,
         auto_clock_wraparound: bool | None = None,
         auth_allowed_origins: list[str] | None = None,
+        push_allow_private_endpoints: bool | None = None,
+        push_private_endpoints_grandfathered: bool | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated."""
         async with db.tx() as conn:
@@ -745,6 +754,8 @@ class AppSettingsRepository:
                 load_with_autoevict=load_with_autoevict,
                 auto_clock_wraparound=auto_clock_wraparound,
                 auth_allowed_origins=auth_allowed_origins,
+                push_allow_private_endpoints=push_allow_private_endpoints,
+                push_private_endpoints_grandfathered=push_private_endpoints_grandfathered,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
