@@ -82,7 +82,12 @@ export function ColorPicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
-  useEffect(() => setHexDraft(value), [value]);
+  // Re-sync the hex draft when the value changes (adjust state during render).
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setHexDraft(value);
+  }
 
   useEffect(() => {
     if (!open) return;

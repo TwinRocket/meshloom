@@ -118,7 +118,14 @@ function StatRow({ label, value, warn }: { label: string; value: string; warn?: 
 
 function RadioDetailsCollapsible({ stats }: { stats: RadioStatsSnapshot }) {
   const { t } = useTranslation();
-  const age = stats.timestamp ? Math.max(0, Math.floor(Date.now() / 1000) - stats.timestamp) : null;
+  // Local clock for the "updated Xs ago" label: read in state, refreshed by a timer
+  // (no Date.now() during render).
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = window.setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const age = stats.timestamp ? Math.max(0, nowSec - stats.timestamp) : null;
   const packets = {
     recv: stats.packets_recv,
     sent: stats.packets_sent,
@@ -744,31 +751,39 @@ export function SettingsRadioSection({
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [connectionBusy, setConnectionBusy] = useState(false);
 
-  useEffect(() => {
-    if (!config) return;
-    setName(config.name);
-    setLat(String(config.lat));
-    setLon(String(config.lon));
-    setTxPower(String(config.tx_power));
-    setFreq(String(config.radio.freq));
-    setBw(String(config.radio.bw));
-    setSf(String(config.radio.sf));
-    setCr(String(config.radio.cr));
-    setPathHashMode(String(config.path_hash_mode));
-    setAdvertLocationSource(config.advert_location_source ?? 'off');
-    setMultiAcksEnabled(config.multi_acks_enabled ?? false);
-    setTelemetryModeBase(config.telemetry_mode_base ?? 0);
-    setTelemetryModeLoc(config.telemetry_mode_loc ?? 0);
-    setTelemetryModeEnv(config.telemetry_mode_env ?? 0);
-  }, [config]);
+  // Re-sync the drafts whenever the radio config or saved settings change (adjust
+  // state during render). The null sentinel seeds them on the first render.
+  const [prevConfig, setPrevConfig] = useState<RadioConfig | null>(null);
+  if (config !== prevConfig) {
+    setPrevConfig(config);
+    if (config) {
+      setName(config.name);
+      setLat(String(config.lat));
+      setLon(String(config.lon));
+      setTxPower(String(config.tx_power));
+      setFreq(String(config.radio.freq));
+      setBw(String(config.radio.bw));
+      setSf(String(config.radio.sf));
+      setCr(String(config.radio.cr));
+      setPathHashMode(String(config.path_hash_mode));
+      setAdvertLocationSource(config.advert_location_source ?? 'off');
+      setMultiAcksEnabled(config.multi_acks_enabled ?? false);
+      setTelemetryModeBase(config.telemetry_mode_base ?? 0);
+      setTelemetryModeLoc(config.telemetry_mode_loc ?? 0);
+      setTelemetryModeEnv(config.telemetry_mode_env ?? 0);
+    }
+  }
 
-  useEffect(() => {
-    if (!appSettings) return;
-    setAdvertIntervalHours(String(Math.round(appSettings.advert_interval / 3600)));
-    setFloodScope(stripRegionScopePrefix(appSettings.flood_scope));
-    setKnownRegions((appSettings.known_regions ?? []).join('\n'));
-    setMaxRadioContacts(String(appSettings.max_radio_contacts));
-  }, [appSettings]);
+  const [prevAppSettings, setPrevAppSettings] = useState<AppSettings | null>(null);
+  if (appSettings !== prevAppSettings) {
+    setPrevAppSettings(appSettings);
+    if (appSettings) {
+      setAdvertIntervalHours(String(Math.round(appSettings.advert_interval / 3600)));
+      setFloodScope(stripRegionScopePrefix(appSettings.flood_scope));
+      setKnownRegions((appSettings.known_regions ?? []).join('\n'));
+      setMaxRadioContacts(String(appSettings.max_radio_contacts));
+    }
+  }
 
   // Dirty state per persistence target. Each group's Save covers exactly the fields
   // compared here, so a disabled Save means "nothing of mine has changed" rather

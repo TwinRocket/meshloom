@@ -3072,17 +3072,18 @@ export function SettingsFanoutSection({
   const [busy, setBusy] = useState(false);
   const { t } = useTranslation();
 
-  const loadConfigs = useCallback(async () => {
-    try {
-      const data = await api.getFanoutConfigs();
-      setConfigs(data);
-    } catch (err) {
-      console.error('Failed to load fanout configs:', err);
-    }
-  }, []);
+  // Promise chain rather than async/await: configs are only set once the request
+  // settles, which lets the mount effect call it without a sync setState.
+  const loadConfigs = useCallback(
+    () =>
+      api.getFanoutConfigs().then(setConfigs, (err: unknown) => {
+        console.error('Failed to load fanout configs:', err);
+      }),
+    []
+  );
 
   useEffect(() => {
-    loadConfigs();
+    void loadConfigs();
   }, [loadConfigs]);
 
   const availableCreateOptions = useMemo(
@@ -3093,20 +3094,16 @@ export function SettingsFanoutSection({
     [health?.bots_disabled]
   );
 
-  useEffect(() => {
-    if (!createDialogOpen) return;
-    if (availableCreateOptions.length === 0) {
-      setSelectedCreateType(null);
-      return;
-    }
-    if (
-      selectedCreateType &&
-      availableCreateOptions.some((option) => option.value === selectedCreateType)
-    ) {
-      return;
-    }
-    setSelectedCreateType(availableCreateOptions[0].value);
-  }, [createDialogOpen, availableCreateOptions, selectedCreateType]);
+  // While the create dialog is open, fall back to the first available type when the
+  // user's pick is missing or no longer offered (derived, not synced in an effect).
+  const effectiveCreateType: DraftType | null = !createDialogOpen
+    ? selectedCreateType
+    : availableCreateOptions.length === 0
+      ? null
+      : selectedCreateType &&
+          availableCreateOptions.some((option) => option.value === selectedCreateType)
+        ? selectedCreateType
+        : availableCreateOptions[0].value;
 
   const handleToggleEnabled = async (cfg: FanoutConfig) => {
     try {
@@ -3428,12 +3425,12 @@ export function SettingsFanoutSection({
       <CreateIntegrationDialog
         open={createDialogOpen}
         options={availableCreateOptions}
-        selectedType={selectedCreateType}
+        selectedType={effectiveCreateType}
         onOpenChange={setCreateDialogOpen}
         onSelect={setSelectedCreateType}
         onCreate={() => {
-          if (selectedCreateType) {
-            handleAddCreate(selectedCreateType);
+          if (effectiveCreateType) {
+            handleAddCreate(effectiveCreateType);
           }
         }}
       />

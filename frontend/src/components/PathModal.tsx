@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy } from 'react';
+import { useEffect, useMemo, useState, lazy } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import type { Contact, RadioConfig, MessagePath } from '../types';
 import { api } from '../api';
@@ -79,11 +79,9 @@ export function PathModal({
 
   const hasSinglePath = paths.length === 1;
 
-  useEffect(() => {
-    if (!open || !directoryEnabled) {
-      setDirectoryHits({});
-      return;
-    }
+  // Hop prefixes the directory should resolve, or null when there is nothing to ask.
+  const directoryPrefixes = useMemo(() => {
+    if (!open || !directoryEnabled) return null;
     const prefixes = new Set<string>();
     for (const p of paths) {
       const resolved = resolvePath(p.path, senderInfo, contacts, config, p.path_len);
@@ -93,12 +91,19 @@ export function PathModal({
         }
       }
     }
-    if (prefixes.size === 0) {
-      setDirectoryHits({});
-      return;
-    }
+    return prefixes.size === 0 ? null : [...prefixes];
+  }, [open, directoryEnabled, paths, senderInfo, contacts, config]);
+  // Nothing to resolve: drop earlier hits (adjust state during render).
+  const [prevDirectoryPrefixes, setPrevDirectoryPrefixes] = useState(directoryPrefixes);
+  if (directoryPrefixes !== prevDirectoryPrefixes) {
+    setPrevDirectoryPrefixes(directoryPrefixes);
+    if (directoryPrefixes === null) setDirectoryHits({});
+  }
+
+  useEffect(() => {
+    if (directoryPrefixes === null) return;
     let cancelled = false;
-    void api.resolveDirectoryHops([...prefixes]).then(
+    void api.resolveDirectoryHops(directoryPrefixes).then(
       (res) => {
         if (!cancelled) setDirectoryHits(res.resolved);
       },
@@ -109,7 +114,7 @@ export function PathModal({
     return () => {
       cancelled = true;
     };
-  }, [open, directoryEnabled, paths, senderInfo, contacts, config]);
+  }, [directoryPrefixes]);
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>

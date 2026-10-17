@@ -106,19 +106,25 @@ export function LocationPickerModal({
   const [origin, setOrigin] = useState<LocationPickerOrigin | null>(null);
   const [picked, setPicked] = useState<LocationPickerPoint | null>(null);
 
+  // Seed the picker on open and whenever the initial coordinates change while open
+  // (adjust state during render); without coordinates, the effect below looks up a
+  // fallback origin.
+  const seedKey = open ? `${initialLat}\n${initialLon}` : null;
+  const [prevSeedKey, setPrevSeedKey] = useState<string | null>(null);
+  if (seedKey !== prevSeedKey) {
+    setPrevSeedKey(seedKey);
+    if (open) {
+      const current = parseLocationPair(initialLat, initialLon);
+      setOrigin(current ? resolveLocationPickerOrigin(current, null) : null);
+      setPicked(current);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
-
-    const current = parseLocationPair(initialLat, initialLon);
-    if (current) {
-      setOrigin(resolveLocationPickerOrigin(current, null));
-      setPicked(current);
-      return;
-    }
+    if (parseLocationPair(initialLat, initialLon)) return;
 
     let cancelled = false;
-    setOrigin(null);
-    setPicked(null);
     void lookupCommunityIataLocation().then((iata) => {
       if (cancelled) return;
       const timezone = resolveBrowserTimezoneLocation();

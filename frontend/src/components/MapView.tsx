@@ -328,22 +328,28 @@ export function MapView({
     return directoryNodes.filter((node) => !localContactKeys.has(node.public_key.toLowerCase()));
   }, [showInternetRelays, directoryNodes, localContactKeys]);
 
-  useEffect(() => {
+  // Reset the internet relay overlay when the directory goes away or the overlay is
+  // switched off (adjust state during render rather than in the fetch effect).
+  const [prevDirectoryEnabled, setPrevDirectoryEnabled] = useState(directoryEnabled);
+  if (directoryEnabled !== prevDirectoryEnabled) {
+    setPrevDirectoryEnabled(directoryEnabled);
     if (!directoryEnabled) {
       setShowInternetRelays(false);
       setDirectoryNodes([]);
       setDirectoryLoadError(false);
     }
-  }, [directoryEnabled]);
+  }
+  const [prevShowInternetRelays, setPrevShowInternetRelays] = useState(showInternetRelays);
+  if (showInternetRelays !== prevShowInternetRelays) {
+    setPrevShowInternetRelays(showInternetRelays);
+    if (!showInternetRelays) {
+      setDirectoryNodes([]);
+      setDirectoryLoadError(false);
+    }
+  }
 
   useEffect(() => {
-    if (!directoryEnabled || !showInternetRelays) {
-      if (!showInternetRelays) {
-        setDirectoryNodes([]);
-        setDirectoryLoadError(false);
-      }
-      return;
-    }
+    if (!directoryEnabled || !showInternetRelays) return;
     let cancelled = false;
     void api.getDirectoryMapNodes().then(
       (res) => {

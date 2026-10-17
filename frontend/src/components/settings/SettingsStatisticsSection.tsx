@@ -273,13 +273,13 @@ function NoiseFloorChart({
 export function SettingsStatisticsSection({ className }: { className?: string }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState<StatisticsResponse | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
+  // Loaded once on mount: start in the loading state so the effect only sets state
+  // when the request settles.
+  const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setStatsLoading(true);
-    setStatsError(false);
     api.getStatistics().then(
       (data) => {
         if (!cancelled) {

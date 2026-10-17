@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -27,7 +27,9 @@ export function SettingsDatabaseSection({
   const [retentionDays, setRetentionDays] = useState('14');
   const [cleaning, setCleaning] = useState(false);
   const [purgingDecryptedRaw, setPurgingDecryptedRaw] = useState(false);
-  const [autoDecryptOnAdvert, setAutoDecryptOnAdvert] = useState(false);
+  const [autoDecryptOnAdvert, setAutoDecryptOnAdvert] = useState(
+    appSettings.auto_decrypt_dm_on_advert
+  );
   const [downloadingDb, setDownloadingDb] = useState(false);
   const [downloadingJson, setDownloadingJson] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -35,9 +37,15 @@ export function SettingsDatabaseSection({
 
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  useEffect(() => {
+  // Re-sync the draft whenever the saved settings change (adjust state during render).
+  const [prevAppSettings, setPrevAppSettings] = useState(appSettings);
+  if (appSettings !== prevAppSettings) {
+    setPrevAppSettings(appSettings);
     setAutoDecryptOnAdvert(appSettings.auto_decrypt_dm_on_advert);
-  }, [appSettings]);
+  }
+  // "Now" for the age of the oldest undecrypted packet; day granularity, so the
+  // time the section opened is precise enough.
+  const [nowSec] = useState(() => Date.now() / 1000);
 
   const handleCleanup = async () => {
     const days = parseInt(retentionDays, 10);
@@ -118,9 +126,7 @@ export function SettingsDatabaseSection({
                 {formatTime(health.oldest_undecrypted_timestamp)}
                 <span className="font-normal text-muted-foreground ml-1">
                   {t('settings.database.daysOld', {
-                    count: Math.floor(
-                      (Date.now() / 1000 - health.oldest_undecrypted_timestamp) / 86400
-                    ),
+                    count: Math.floor((nowSec - health.oldest_undecrypted_timestamp) / 86400),
                   })}
                 </span>
               </span>

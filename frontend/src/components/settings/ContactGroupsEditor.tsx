@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
 import type { Contact, ContactGroup } from '../../types';
@@ -14,16 +14,14 @@ export function ContactGroupsEditor({ contacts }: { contacts: Contact[] }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [addKey, setAddKey] = useState('');
 
-  const reload = useCallback(async () => {
-    const next = await api.getContactGroups();
-    setGroups(next);
-  }, []);
-
   useEffect(() => {
-    void reload().catch(() => {
-      toast.error(t('settings.groupsLoadFailed'));
-    });
-  }, [reload, t]);
+    api
+      .getContactGroups()
+      .then(setGroups)
+      .catch(() => {
+        toast.error(t('settings.groupsLoadFailed'));
+      });
+  }, [t]);
 
   const handleCreate = async () => {
     const name = newName.trim();

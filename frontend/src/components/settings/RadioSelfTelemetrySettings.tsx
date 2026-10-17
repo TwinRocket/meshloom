@@ -16,21 +16,28 @@ export function RadioSelfTelemetrySettings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  // Pure fetch: state is only set once the request settles (promise chain), so the
+  // mount effect can call it; the initial state already says "loading, no error".
+  const fetchTelemetry = useCallback(
+    () =>
+      api
+        .getRadioSelfTelemetry()
+        .then(setData, (err: unknown) => {
+          setError(formatApiError(err, t) || t('settings.radio.selfTelemetry.loadFailed'));
+        })
+        .finally(() => setLoading(false)),
+    [t]
+  );
+
+  const load = () => {
     setLoading(true);
     setError(null);
-    try {
-      setData(await api.getRadioSelfTelemetry());
-    } catch (err) {
-      setError(formatApiError(err, t) || t('settings.radio.selfTelemetry.loadFailed'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+    void fetchTelemetry();
+  };
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchTelemetry();
+  }, [fetchTelemetry]);
 
   const hasStorage =
     data !== null &&

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { versionsMatch } from '../../hooks/useOssUpdates';
 import type { OssUpdateSettingsPatch, OssUpdateStatus } from '../../types';
@@ -90,10 +90,18 @@ export function SettingsUpdatesSection({
   );
   const [windowEnd, setWindowEnd] = useState(() => normalizeTime(updates?.auto_update_window_end));
 
-  useEffect(() => {
-    setWindowStart(normalizeTime(updates?.auto_update_window_start));
-    setWindowEnd(normalizeTime(updates?.auto_update_window_end));
-  }, [updates?.auto_update_window_start, updates?.auto_update_window_end]);
+  // Re-sync the window drafts when the saved values change (adjust state during render).
+  const savedWindowStart = updates?.auto_update_window_start;
+  const savedWindowEnd = updates?.auto_update_window_end;
+  const [prevSavedWindow, setPrevSavedWindow] = useState({
+    start: savedWindowStart,
+    end: savedWindowEnd,
+  });
+  if (prevSavedWindow.start !== savedWindowStart || prevSavedWindow.end !== savedWindowEnd) {
+    setPrevSavedWindow({ start: savedWindowStart, end: savedWindowEnd });
+    setWindowStart(normalizeTime(savedWindowStart));
+    setWindowEnd(normalizeTime(savedWindowEnd));
+  }
 
   const job = updates?.job;
   const jobLabel = job

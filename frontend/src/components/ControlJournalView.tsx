@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MeshCoreDecoder,
@@ -442,12 +442,12 @@ export function ControlJournalView({
     ].filter((section) => section.threads.length > 0);
   }, [t, threads]);
 
-  useEffect(() => {
-    if (selectedThreadId && threads.some((thread) => thread.id === selectedThreadId)) {
-      return;
-    }
-    setSelectedThreadId(threads[0]?.id ?? null);
-  }, [selectedThreadId, threads]);
+  // Fall back to the first thread when nothing valid is selected; the fallback is
+  // stored, so it stays put when newer threads arrive (adjust state during render).
+  if (!selectedThreadId || !threads.some((thread) => thread.id === selectedThreadId)) {
+    const fallbackThreadId = threads[0]?.id ?? null;
+    if (fallbackThreadId !== selectedThreadId) setSelectedThreadId(fallbackThreadId);
+  }
 
   const activeThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
 
