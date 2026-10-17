@@ -41,15 +41,11 @@ Le bouton **Désactiver les bots jusqu’au redémarrage du serveur** de la fen�
 
 ## La clé privée du nœud
 
-Meshloom lit la clé privée de la radio à chaque connexion à la radio, si le firmware de la radio le permet, et la garde dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais sur le disque. Si le firmware refuse, Meshloom fonctionne sans elle, mais ne peut plus déchiffrer les messages directs sur le serveur.
+Meshloom lit la clé privée de la radio à chaque connexion à la radio, si le firmware de la radio le permet, et la garde dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais dans sa base. Si le firmware refuse, Meshloom fonctionne sans elle, mais ne peut plus déchiffrer les messages directs sur le serveur, et une sauvegarde ne contient alors aucune identité.
 
-La relire par l’API est désactivé par défaut :
+La clé peut toujours être relue par quiconque atteint l’interface : `GET /api/radio/private-key` la renvoie en hexadécimal, et la sauvegarde complète de **Réglages > Base de données** la contient (voir [Sauvegarder la radio](/docs/backup/)). Aucun réglage ne permet de le désactiver. Comme le serveur accepte les requêtes de n’importe quelle origine, **une page web ouverte dans un navigateur, sur une machine qui atteint Meshloom, peut lire la clé et télécharger la sauvegarde complète**, mot de passe Wi-Fi compris. Gardez Meshloom sur un réseau de confiance, et traitez le fichier de sauvegarde comme la clé elle-même : chiffrez-le avec une phrase secrète dès que vous le conservez ailleurs que sur ce réseau.
 
-```text
-MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
-```
-
-À `true`, `GET /api/radio/private-key` renvoie la clé en hexadécimal, et l’export de configuration de **Réglages > Radio** peut l’inclure. N’activez cela que sur un réseau de confiance, uniquement pour une sauvegarde ou un déménagement vers une autre machine, puis désactivez-le. L’import d’une clé (**Définir la clé privée**, en écriture seule) reste toujours disponible et n’affiche jamais la clé. Une clé qui ne correspond pas à la radio à laquelle la base est liée est refusée tant que vous n’avez pas confirmé le changement d’identité (voir [Premier lancement](/docs/first-run/)).
+L’import d’une clé (**Définir la clé privée**, en écriture seule) n’affiche jamais la clé. Une clé qui ne correspond pas à la radio à laquelle la base est liée est refusée tant que vous n’avez pas confirmé le changement d’identité (voir [Premier lancement](/docs/first-run/)).
 
 ## Proxy radio
 
@@ -75,7 +71,7 @@ Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/dee
 - Gardez Meshloom sur un réseau dont vous connaissez les utilisateurs.
 - Ne l’exposez jamais directement à Internet. Pour un accès à distance, utilisez un VPN ou un tunnel qui ajoute sa propre authentification.
 - Définissez `MESHCORE_DISABLE_BOTS=true` si vous n’avez pas besoin de bots.
-- Laissez l’export de la clé privée désactivé, sauf pendant une sauvegarde.
+- Chiffrez une sauvegarde complète avec une phrase secrète quand vous la rangez hors de ce réseau.
 - Mettez toujours l’accès Basic derrière HTTPS.
 
 La version courte est dans [Un réseau de confiance](/docs/trust/).

@@ -138,6 +138,6 @@ The MeshCore protocol has no password: only enable the proxy on a network you tr
 
 ## The private key
 
-When it connects, Meshloom asks the radio for its private key and keeps it **in memory only**. It is never written to disk. With it, Meshloom can decrypt direct messages itself, even when the contact is not loaded on the radio, and can read old messages once a key becomes known.
+When it connects, Meshloom asks the radio for its private key and keeps it **in memory only**. It is never written to its database. With it, Meshloom can decrypt direct messages itself, even when the contact is not loaded on the radio, and can read old messages once a key becomes known.
 
-Exporting this key through the API is off by default. See [Security](/en/docs/deep/security/).
+Anyone who reaches the interface can read the key back, through `GET /api/radio/private-key` and in the full backup of **Settings → Database**, which is how you keep the radio's identity across a reflash (see [Back up your radio](/en/docs/backup/)). Firmware built without key export gives no key, and its backups hold no identity. See [Security](/en/docs/deep/security/#the-nodes-private-key).

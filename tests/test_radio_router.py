@@ -473,35 +473,27 @@ class TestUpdateRadioConfigRepeatAndRejections:
 
 
 class TestPrivateKeyExport:
-    @pytest.mark.asyncio
-    async def test_returns_403_when_export_disabled(self):
-        with patch("app.config.settings") as mock_settings:
-            mock_settings.enable_local_private_key_export = False
-            with pytest.raises(HTTPException) as exc:
-                await get_private_key()
-        assert exc.value.status_code == 403
+    """Ungated: MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT is retired."""
 
     @pytest.mark.asyncio
     async def test_returns_404_when_no_key_available(self):
-        with (
-            patch("app.config.settings") as mock_settings,
-            patch("app.keystore.get_private_key", return_value=None),
-        ):
-            mock_settings.enable_local_private_key_export = True
+        with patch("app.keystore.get_private_key", return_value=None):
             with pytest.raises(HTTPException) as exc:
                 await get_private_key()
         assert exc.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_returns_key_hex_when_enabled_and_available(self):
+    async def test_returns_key_hex_without_any_env_var(self, monkeypatch):
+        monkeypatch.delenv("MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT", raising=False)
         key_bytes = bytes.fromhex("ab" * 64)
-        with (
-            patch("app.config.settings") as mock_settings,
-            patch("app.keystore.get_private_key", return_value=key_bytes),
-        ):
-            mock_settings.enable_local_private_key_export = True
+        with patch("app.keystore.get_private_key", return_value=key_bytes):
             result = await get_private_key()
         assert result == {"private_key": "ab" * 64}
+
+    def test_settings_have_no_export_switch(self):
+        from app.config import Settings
+
+        assert "enable_local_private_key_export" not in Settings.model_fields
 
 
 class TestPrivateKeyImport:

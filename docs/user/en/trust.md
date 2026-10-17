@@ -49,7 +49,7 @@ A few rules prevent most problems:
 
 - **Do not expose port `8000` to the Internet.** Do not forward it on your router. For remote access, use a VPN into your home or office network.
 - On a shared network (shared house, office, guest network), set the password and keep bots disabled.
-- Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, and reading it back through the API is disabled unless you turn it on. Still, a compromised machine is a compromised machine.
+- Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, but anyone who reaches the interface can read it back, through the API and in the full backup, and so can a web page opened on a machine that can reach it. A compromised machine is a compromised machine.
 - If you turn on **Settings > Proxy** to share your radio with other apps, know that it has no login at all, and that Basic auth does not cover it.
 - Treat channels for what they are. The key is the only access: giving it to someone lets them read and write there.
 

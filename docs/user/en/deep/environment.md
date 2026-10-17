@@ -66,7 +66,6 @@ See [Meshloom Community](/en/docs/deep/community/).
 | `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
 | `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
-| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | `false` | Allows `GET /api/radio/private-key`, which returns the radio's private key as hexadecimal text, for a backup or a move. Turn it on only on a trusted network, then off again |
 
 The two password variables must be set together. Setting only one stops Meshloom at startup. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
@@ -104,6 +103,10 @@ Meshloom Community no longer reads any variable either:
 | `MESHLOOM_COMMUNITY_API_BASE` | Ignored |
 
 Meshloom writes the same warning at each start while one of them is still set.
+
+| Retired variable | What happens to it |
+|----------|---------|
+| `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignored, with the same warning. The radio's private key can always be read back: through `GET /api/radio/private-key` and in the full backup (**Settings → Database**, see [Back up your radio](/en/docs/backup/)). See [Security](/en/docs/deep/security/#the-nodes-private-key) |
 
 ## Settings stored in the database
 

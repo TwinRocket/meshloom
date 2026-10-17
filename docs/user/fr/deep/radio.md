@@ -138,6 +138,6 @@ Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur u
 
 ## La clé privée
 
-À la connexion, Meshloom demande à la radio sa clé privée et la garde **en mémoire uniquement**. Elle n’est jamais écrite sur le disque. Grâce à elle, Meshloom peut déchiffrer lui-même les messages directs, même quand le contact n’est pas chargé sur la radio, et lire d’anciens messages dès qu’une clé devient connue.
+À la connexion, Meshloom demande à la radio sa clé privée et la garde **en mémoire uniquement**. Elle n’est jamais écrite dans sa base. Grâce à elle, Meshloom peut déchiffrer lui-même les messages directs, même quand le contact n’est pas chargé sur la radio, et lire d’anciens messages dès qu’une clé devient connue.
 
-L’export de cette clé par l’API est désactivé par défaut. Voir [Sécurité](/docs/deep/security/).
+Quiconque atteint l’interface peut relire la clé, par `GET /api/radio/private-key` et dans la sauvegarde complète de **Réglages → Base de données** : c’est ainsi que l’on garde l’identité de la radio d’un flashage à l’autre (voir [Sauvegarder la radio](/docs/backup/)). Un firmware compilé sans export de clé n’en donne aucune, et ses sauvegardes ne contiennent pas d’identité. Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud).

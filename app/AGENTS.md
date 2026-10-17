@@ -349,7 +349,8 @@ answering 403, 404 or 410 deletes the subscription.
 
 ## Route behaviours that are easy to break
 
-- `GET /radio/private-key` works only with `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true`.
+- `GET /radio/private-key` is ungated (404 when the keystore is empty);
+  `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (`RETIRED_ENV`).
 - `POST /radio/factory-reset` sends nothing unless `confirm_name` equals the radio name.
 - `PATCH /radio/config` reads the client repeat flag with a fresh device query
   before it sends new radio parameters (the firmware reads a missing repeat byte

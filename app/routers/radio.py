@@ -584,18 +584,13 @@ async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
 
 @router.get("/private-key")
 async def get_private_key() -> dict:
-    """Return the in-memory private key (exported from radio on startup).
+    """Return the in-memory private key (exported from the radio on connect).
 
-    Gated behind MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true.
+    Always readable by whoever reaches this interface (the full backup in
+    Settings > Database carries it too); see SECURITY.md "Known limits".
+    404 when the firmware did not export it.
     """
-    from app.config import settings
     from app.keystore import get_private_key as ks_get
-
-    if not settings.enable_local_private_key_export:
-        raise HTTPException(
-            status_code=403,
-            detail="Private key export is disabled (set MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=true)",
-        )
 
     key = ks_get()
     if key is None:

@@ -131,6 +131,21 @@ def test_warn_lists_only_the_variables_that_are_set(monkeypatch):
     assert warn_about_retired_env() == ["MESHCORE_VAPID_SUBJECT"]
 
 
+def test_private_key_export_switch_is_retired(monkeypatch, caplog):
+    from app.config import Settings
+
+    monkeypatch.setenv("MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT", "true")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert warn_about_retired_env() == ["MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT"]
+    assert caplog.messages == [
+        "MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT is set but no longer read: this setting "
+        "lives in no setting at all (GET /api/radio/private-key and the full backup in "
+        "Settings → Database always include the key). Remove the variable from your "
+        "environment."
+    ]
+    assert "enable_local_private_key_export" not in Settings.model_fields
+
+
 @pytest.mark.asyncio
 async def test_the_imported_workarounds_reach_the_radio_code(test_db, monkeypatch):
     """Startup imports, then loads the in-memory copy the radio code reads."""

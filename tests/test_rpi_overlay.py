@@ -22,6 +22,8 @@ def test_rpi_overlay_does_not_set_community_env() -> None:
         text = path.read_text(encoding="utf-8")
         # Retired: Community is an opt-in from the UI, no variable sets it.
         assert "MESHLOOM_COMMUNITY" not in text
+        # Retired: the private key is always readable (full backup, API).
+        assert "MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT" not in text
 
 
 def test_apply_update_helper_never_upgrades_the_os() -> None:

@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     database_path: str = "data/meshcore.db"
     disable_bots: bool = False
-    enable_local_private_key_export: bool = False
     # DEV-ONLY debug switch (see app/AGENTS.md "Developer-only variables"): not a user setting.
     skip_post_connect_sync: bool = False
     basic_auth_username: str = ""
