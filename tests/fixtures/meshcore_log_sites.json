@@ -1,0 +1,725 @@
+{
+ "meshcore_version": "2.3.15",
+ "log_sites": [
+  {
+   "module": "ble_cx.py",
+   "level": "debug",
+   "call": "logger.debug( f\"BLE device disconnected: {client.address} (is_connected: {client.is_connected})\" )"
+  },
+  {
+   "module": "ble_cx.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Attempting BLE pairing with PIN\")"
+  },
+  {
+   "module": "ble_cx.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Connecting with client: {self.client}, address: {self.address}, device: {self.device}\")"
+  },
+  {
+   "module": "ble_cx.py",
+   "level": "error",
+   "call": "logger.error(f\"BLE pairing failed: {e}\")"
+  },
+  {
+   "module": "ble_cx.py",
+   "level": "info",
+   "call": "logger.info(f\"Found device: {device}\")"
+  },
+  {
+   "module": "ble_cx.py",
+   "level": "warning",
+   "call": "logger.warning(f\"BLE write failed: {exc}\")"
+  },
+  {
+   "module": "ble_cx.py",
+   "level": "warning",
+   "call": "logger.warning(f\"BLE write timed out after {self.WRITE_TIMEOUT}s\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug( f\"Command timed out waiting for events {expected_events}\" )"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug( f\"Sending raw data: \" f\"{data.hex() if isinstance(data, bytes) else data}\" )"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug( f\"Sending raw data: \" f\"{data.hex() if isinstance(data, bytes) else data}\" )"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Anon Binary request to {dst_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Binary request to {dst_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Command error: {e}\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Command error: {e}\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Command timed out waiting for events {expected_events}\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Waiting for events {expected_events}, timeout={timeout}\")"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "warning",
+   "call": "logger.warning( f\"Reply path of {hops} hops x {hash_size}B exceeds the \" f\"{MAX_REPLY_PATH_BYTES}B the server can hold; truncating to {max_hops}\" )"
+  },
+  {
+   "module": "commands/base.py",
+   "level": "warning",
+   "call": "logger.warning( f\"Unsupported out_path_hash_mode {out_path_hash_mode}; \" \"requesting a zero-hop reply path instead\" )"
+  },
+  {
+   "module": "commands/binary.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending binary neighbours req, count: {count}, offset: {offset} {req.hex()}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Command error: {e}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Exporting contact: {key_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Getting contact by key: {key_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Removing contact: {key_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Resetting path for contact: {key_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting {contact['adv_name']} path to {out_path_hex} with mode {out_path_hash_mode}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sharing contact: {key_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Timeout receiving contacts\")"
+  },
+  {
+   "module": "commands/contact.py",
+   "level": "debug",
+   "call": "logger.debug(f\"getting advert path for: {key} {key_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/control_data.py",
+   "level": "debug",
+   "call": "logger.debug(f\"sending node discover req {data.hex()}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Chunk {chunk_num}/{total_chunks} sent successfully\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Getting channel info for channel {channel_idx}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending advertisement command (flood={flood})\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending chunk {chunk_num}/{total_chunks} ({len(chunk)} bytes)\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending cli command: {cmd}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending raw packet {data.hex()}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending signing data chunk ({len(chunk)} bytes)\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting TX power to: {val}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting channel {channel_idx}: name={channel_name}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting coordinates to: lat={lat}, lon={lon}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting custom var {key} to {value}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting device PIN to: {pin}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting device name to: {name}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting device time to: {val}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting path mode to {mode}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting radio params: freq={freq}, bw={bw}, sf={sf}, cr={cr}, repeat={repeat}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting tuning params: rx_dly={rx_dly}, af={af}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "debug",
+   "call": "logger.debug(f\"sign_finish using timeout={timeout:.1f} seconds (data_size={data_size} bytes)\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "error",
+   "call": "logger.error(f\"Error sending chunk {chunk_num}/{total_chunks}: {evt.payload}\")"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "warning",
+   "call": "logger.warning( \"Factory reset requested. Call confirm_factory_reset('%s') to proceed. \" \"This will ERASE ALL DATA on the device.\", token )"
+  },
+  {
+   "module": "commands/device.py",
+   "level": "warning",
+   "call": "logger.warning( f\"sign_data OK response not received (timeout), but continuing - \" f\"data may have been processed by device\" )"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug (f\"Setting scope to {scope}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug( f\"Sending trace: tag={tag}, auth={auth_code}, flags={flags}, path={path_bytes.hex()}\" )"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Asking telemetry to {dst_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Directly setting scope to {scope}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Getting default flood scope\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Path discovery request for {dst_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Resetting default scope\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Resetting scope\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Resetting scope\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Resetting scope\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending channel message to channel {chan}: {msg}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending command to {dst_bytes.hex()}: {cmd}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending login request to: {dst_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending message to {dst_bytes.hex()}: {msg}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending status request to: {dst_bytes.hex()}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting scope from string {scope}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting scope key to {scope_key.hex()}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Setting scope to {scope_key.hex()}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Couldn't reset path {rp_res} continuing ...\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Failed to send message: {result.payload}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Invalid path format: unknown path_hash_len {path_hash_len}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Invalid path format: {e}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Invalid timestamp format: got bytes of length {len(timestamp)} but expected bytes of length 4\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Invalid timestamp format: got {type(timestamp)} but expected int or 4 bytes\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "error",
+   "call": "logger.error(f\"Unsupported path type: {type(path)}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "info",
+   "call": "logger.info(f\"Retry sending msg: {attempts + 1}\")"
+  },
+  {
+   "module": "connection_manager.py",
+   "level": "debug",
+   "call": "logger.debug( f\"Attempting reconnection ({self._reconnect_attempts}/{self.max_reconnect_attempts})\" )"
+  },
+  {
+   "module": "connection_manager.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Connected successfully: {result}\")"
+  },
+  {
+   "module": "connection_manager.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Connection lost: {reason}\")"
+  },
+  {
+   "module": "connection_manager.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Reconnection attempt failed: {e}\")"
+  },
+  {
+   "module": "connection_manager.py",
+   "level": "warning",
+   "call": "logger.warning( f\"Reconnect callback failed: {cb_err}\" )"
+  },
+  {
+   "module": "events.py",
+   "level": "debug",
+   "call": "logger.debug( f\"Dispatching event: {event.type}, {event.payload}, {event.attributes}\" )"
+  },
+  {
+   "module": "events.py",
+   "level": "error",
+   "call": "logger.error(f\"Error in event handler for {event.type}: {e}\", exc_info=True)"
+  },
+  {
+   "module": "events.py",
+   "level": "error",
+   "call": "logger.error(f\"Error in event handler for {event.type}: {e}\", exc_info=True)"
+  },
+  {
+   "module": "meshcore.py",
+   "level": "error",
+   "call": "logger.error(f\"Error fetching messages: {e}\")"
+  },
+  {
+   "module": "meshcore_parser.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Unknown payload type {payload_type}\")"
+  },
+  {
+   "module": "meshcore_parser.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Unknown route type {route_type}\")"
+  },
+  {
+   "module": "meshcore_parser.py",
+   "level": "debug",
+   "call": "logger.debug(f\"parsePacketPayload: malformed ADVERT payload ({type(e).__name__}: {e}), len={len(pkt_payload)}\")"
+  },
+  {
+   "module": "meshcore_parser.py",
+   "level": "debug",
+   "call": "logger.debug(f\"parsePacketPayload: payload too short ({len(payload)} bytes < 2), returning sentinel log_data\")"
+  },
+  {
+   "module": "parsing.py",
+   "level": "error",
+   "call": "logger.error(f\"Unknown LPP type: {type}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug( \"BATTERY frame too short for level field \" f\"({len(data)} bytes < 3), skipping\" )"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(\"CONTACT_DELETED frame too short (%d bytes, need 33)\", len(data))"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(\"TUNING_PARAMS frame too short (%d bytes, need 9)\", len(data))"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"CHANNEL_DATA_RECV frame too short ({len(data)} bytes < 9), skipping parse\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Cleaning up expired binary request: tag={tag}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"No tracked request found for binary response tag {tag}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Parsed trace data: {res}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Processing binary response for tag {tag}, type {request_type}, pubkey_prefix {pubkey_prefix}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received RF log data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received binary data: {data.hex()}, tag {tag}, data {response_data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received path discovery response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received private key response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received sign start response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received signature: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received telemetry data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Received trace data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Registered binary request: tag={tag}, type={request_type}, expires in {timeout_seconds}s\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"STATUS_RESPONSE push frame too short ({len(data)} bytes < 60), skipping parse\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Status response: {data_hex}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Unhandled data received {data}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Unhandled packet type: {packet_type_value}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"got custom vars : {res}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"parsed stats core: {res}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"parsed stats packets: {res}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"parsed stats radio: {res}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"received autoadd config response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"received channel info response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"received custom vars response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"received stats response: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(f\"stats packets payload len={len(data)} (expected 26 or 30)\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "debug",
+   "call": "logger.debug(res)"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error( \"handle_rx parse error: %s: %s | raw=%s\\n%s\", type(e).__name__, e, data.hex(), traceback.format_exc(), )"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing binary ACL response: {e}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing binary MMA response: {e}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing binary NEIGHBOURS response: {e}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing binary telemetry response: {e}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing stats core binary frame: {e}, data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing stats packets binary frame: {e}, data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Error parsing stats radio binary frame: {e}, data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Invalid private key response length: {len(data)}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Stats core response too short: {len(data)} bytes, expected 11\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Stats packets response too short: {len(data)} bytes, expected 26 or 30\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Stats radio response too short: {len(data)} bytes, expected 14\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Stats response too short: {len(data)} bytes, need at least 2 for header\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "error",
+   "call": "logger.error(f\"Unknown stats type: {stats_type}, data: {data.hex()}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "warning",
+   "call": "logger.warning(f\"Error parsing ALLOWED_REPEAT_FREQ payload: {e}\")"
+  },
+  {
+   "module": "reader.py",
+   "level": "warning",
+   "call": "logger.warning(f\"Received empty packet: {e}\")"
+  },
+  {
+   "module": "serial_cx.py",
+   "level": "debug",
+   "call": "logger.debug(f\"sending pkt : {pkt}\")"
+  },
+  {
+   "module": "serial_cx.py",
+   "level": "warning",
+   "call": "logger.warning(f\"Serial write failed: {exc}\")"
+  },
+  {
+   "module": "tcp_cx.py",
+   "level": "debug",
+   "call": "logger.debug( f\"TCP disconnect detected: sent {self._send_count}, received {self._receive_count}\" )"
+  },
+  {
+   "module": "tcp_cx.py",
+   "level": "debug",
+   "call": "logger.debug(f\"sending pkt : {pkt}\")"
+  },
+  {
+   "module": "tcp_cx.py",
+   "level": "error",
+   "call": "logger.error(f\"Error received: {exc}\")"
+  },
+  {
+   "module": "tcp_cx.py",
+   "level": "warning",
+   "call": "logger.warning(f\"TCP write failed: {exc}\")"
+  }
+ ]
+}
