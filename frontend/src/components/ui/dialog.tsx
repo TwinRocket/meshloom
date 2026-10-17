@@ -54,6 +54,14 @@ interface DialogContentProps extends React.ComponentPropsWithoutRef<
  * leave the bigger one covered.
  */
 
+/*
+ * Centring uses Tailwind 4's `translate` property, which tailwindcss-animate's
+ * `transform` keyframes add to instead of replacing. Tailwind 3's slide from
+ * left 1/2 and top 48% restated the centring offset and so, under Tailwind 4,
+ * started the dialog a whole half-size away.
+ * Only the delta remains: it opens 2% of its height below its final spot, as it
+ * did under Tailwind 3 (src/test/tailwindBuild.test.ts).
+ */
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
@@ -63,7 +71,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg dialog-safe-height overflow-y-auto duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg',
+        'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg dialog-safe-height overflow-y-auto duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-bottom-[2%] data-[state=open]:slide-in-from-bottom-[2%] sm:rounded-lg',
         className
       )}
       {...props}

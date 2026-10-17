@@ -1,4 +1,12 @@
-@import 'tailwindcss';
+/* Scan exactly what Tailwind 3's `content` scanned (index.html and the app
+   sources), minus tests. Automatic detection would also read AGENTS.md, the
+   harness and anything else under frontend/, and the Docker build, which drops
+   *.md and src/test/, would ship different CSS from the release build. */
+@import 'tailwindcss' source(none);
+@source '../index.html';
+@source '.';
+@source not './test';
+@source not './**/*.test.{ts,tsx}';
 
 @plugin 'tailwindcss-animate';
 

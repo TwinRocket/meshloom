@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import postcss, { type AtRule, type Root, type Rule } from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
 
@@ -25,8 +25,10 @@ const read = (name: string) => readFileSync(join(SRC, name), 'utf8');
 let compiled: Root;
 
 beforeAll(async () => {
-  const result = await postcss([tailwindcss({ base: SRC, optimize: false })]).process(
-    read('index.css'),
+  // `vite build` runs @tailwindcss/postcss with its default base, the frontend root.
+  // The app itself never writes `font-sans`; ask for it so its font stack is checked.
+  const result = await postcss([tailwindcss({ base: join(SRC, '..'), optimize: false })]).process(
+    `${read('index.css')}\n@source inline('font-sans font-mono');`,
     { from: join(SRC, 'index.css') }
   );
   compiled = result.root;
@@ -137,5 +139,87 @@ describe('cascade layers', () => {
         });
       });
     }
+  });
+});
+
+function rulesMatching(root: Root, fragment: string): Rule[] {
+  const rules: Rule[] = [];
+  root.walkRules((rule: Rule) => {
+    if (rule.selector.includes(fragment)) rules.push(rule);
+  });
+  return rules;
+}
+
+describe('third-party CSS', () => {
+  it('toast theme classes are important, above Sonner’s unlayered toast rule', () => {
+    // Sonner injects `[data-sonner-toast][data-styled=true] { background; border;
+    // color; box-shadow }` unlayered at runtime. Without `!` the layered utilities
+    // lose and every toast turns into Sonner's own black box.
+    const rules = rulesMatching(compiled, 'group-\\[\\.toaster\\]\\:');
+    const props = new Set<string>();
+    for (const rule of rules) {
+      rule.walkDecls((decl) => {
+        if (decl.prop.startsWith('--')) return;
+        props.add(decl.prop);
+        expect(decl.important, `${rule.selector} { ${decl.prop} }`).toBe(true);
+      });
+    }
+    expect([...props].sort()).toEqual(['background-color', 'border-color', 'box-shadow', 'color']);
+  });
+
+  it('dialog motion only adds the delta to the centring translate', () => {
+    // Tailwind 4 centres with the `translate` property; tailwindcss-animate's
+    // keyframes animate `transform` on top of it. A half-size slide restates the
+    // centring and starts the dialog a whole half-size away.
+    const halfSlide = /slide-(in-from|out-to)-(left|right|top|bottom)-(1\/2|\[(4\d|50)%\])/;
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.tsx?$/.test(entry.name) && halfSlide.test(readFileSync(path, 'utf8')))
+          offenders.push(relative(SRC, path));
+      }
+    };
+    walk(join(SRC, 'components'));
+    expect(offenders).toEqual([]);
+    const enter: string[] = [];
+    for (const rule of rulesMatching(compiled, '\\:slide-in-from-bottom-\\[2\\%\\]')) {
+      rule.walkDecls('--tw-enter-translate-y', (decl) => {
+        enter.push(decl.value);
+      });
+    }
+    expect(enter).toEqual(['2%']);
+  });
+});
+
+describe('content sources', () => {
+  // Stays out of the build: test files are not scanned. Docker drops src/test/
+  // and *.md, the release and packages build from the full checkout, so any
+  // source outside index.html and the app code would make their CSS differ.
+  const TEST_ONLY_CLASS = 'bg-[#123457]';
+
+  it('index.css scans exactly index.html and the app sources', () => {
+    const root = postcss.parse(read('index.css'));
+    const atRules: string[] = [];
+    root.walkAtRules(/^(import|source)$/, (rule) => {
+      atRules.push(`@${rule.name} ${rule.params}`);
+    });
+    expect(atRules).toEqual([
+      "@import 'tailwindcss' source(none)",
+      "@source '../index.html'",
+      "@source '.'",
+      "@source not './test'",
+      "@source not './**/*.test.{ts,tsx}'",
+    ]);
+  });
+
+  it('emits no class that only a test or a doc mentions', () => {
+    expect(rulesMatching(compiled, '.bg-\\[\\#123457\\]')).toEqual([]);
+    expect(TEST_ONLY_CLASS).toBeTruthy();
+    // AGENTS.md cites `text-[13px]` as the size never to use; automatic detection
+    // turned that into a utility.
+    expect(readFileSync(join(SRC, '..', 'AGENTS.md'), 'utf8')).toContain('text-[13px]');
+    expect(rulesMatching(compiled, '.text-\\[13px\\]')).toEqual([]);
   });
 });
