@@ -111,7 +111,7 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 
 | Où | Ce que cela commande |
 |----|----------------------|
-| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure). Onglet **Avancé** : `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict` |
+| **Radio** | La connexion (voir plus haut). Onglet **Messagerie** : `max_radio_contacts`, `flood_scope`, `known_regions`, `auto_resend_channel`. Onglet **Annonces** : `advert_interval` (saisi en heures dans l’interface, stocké en secondes ; `0` le désactive, toute autre valeur vaut au moins une heure). Onglet **Avancé** : `enable_message_poll_fallback`, `force_channel_slot_reconfigure`, `load_with_autoevict`, `auto_clock_wraparound` |
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |

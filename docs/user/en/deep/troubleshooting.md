@@ -89,7 +89,15 @@ If the radio is unreachable for a moment, Meshloom retries its start-up work eve
 
 ## The radio clock is stuck in the future
 
-The radio only accepts a time later than its own. When its clock is ahead, Meshloom reboots it once per Meshloom start, whether this happens at connection, during the periodic sync or after a change in **Settings > Radio**: boards whose clock does not survive a restart then accept the right time at the next connection. While the radio restarts, the status bar says **Radio Rebooting** and Meshloom reconnects by itself, then redoes its start-up work. You do not need to press **Reconnect**: during the reboot it only answers that the radio is rebooting. If the radio has not come back after 90 seconds, Meshloom says so and reports the reconnection errors again. A board that keeps its clock across restarts stays ahead, and the log says so at each connection.
+The radio only accepts a time later than its own. A radio whose clock is ahead (for example in 2082) refuses every time update and dates its messages and adverts with that wrong time. Meshloom fixes it in two steps, only when the clock is more than 30 seconds ahead.
+
+**1. A reboot.** Meshloom reboots the radio once per radio and per Meshloom start, whether this happens at connection, during the periodic sync or after a change in **Settings > Radio**: boards whose clock does not survive a restart then accept the right time at the next connection. While the radio restarts, the status bar says **Radio Rebooting** and Meshloom reconnects by itself, then redoes its start-up work. You do not need to press **Reconnect**: during the reboot it only answers that the radio is rebooting. If the radio has not come back after 90 seconds, Meshloom says so and reports the reconnection errors again.
+
+**2. A clock rollover**, if the clock is still ahead after that reboot (a board that keeps its clock across restarts). At the next connection, Meshloom sets the latest time the radio can hold (year 2106); the radio clock then rolls over to zero, and Meshloom sets the right time and checks it. This happens at most once per connection, only during the connection start-up (never during the periodic sync), and never again for a radio where it failed, until Meshloom restarts. **Fix a radio clock stuck in the future**, in **Settings > Radio > Advanced**, turns it on or off; it is on by default and applies at the next connection.
+
+The log shows each step: `Radio clock at connect` gives the radio clock before Meshloom touches it, `Radio clock still ahead after reboot` announces the rollover, and `Radio clock fixed by wraparound` confirms it. If the log says `Radio did not wrap its clock`, the board did not roll over and its clock may now read 2106: reboot the radio by hand, set its time with another MeshCore app if it has one, and turn the option off for this board. If nothing helps, the radio stays ahead and the log says so at each connection.
+
+Meshloom does neither step while the server's own clock is wrong (before 2026, for example a board started without a network time source): the log then says `System clock looks wrong`. Set the server's time right first.
 
 ## `/docs` is not this documentation
 

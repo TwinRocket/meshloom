@@ -107,6 +107,8 @@ On a radio with a GPS module, the list holds a **GPS** checkbox. When it is on, 
 
 If the list is empty, the radio reports no setting. Very old firmware reports none at all, and Meshloom says so.
 
+The **Workarounds** group of the same tab holds the fixes mentioned on this page and **Fix a radio clock stuck in the future**, the only one on by default (see [Troubleshooting](/en/docs/deep/troubleshooting/#the-radio-clock-is-stuck-in-the-future)).
+
 ## Radio sensors
 
 Below the firmware settings, **Radio sensors** shows what the radio itself reports: its battery voltage, the MCU temperature when the board has a sensor, and the GPS position when the GPS is on. The storage used on the radio is shown too, as used / total KB with a percentage, when the radio reports it. The values are read when you open the tab; **Refresh** reads them again.
