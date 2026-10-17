@@ -232,6 +232,9 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
   column or table until it is listed (one direction: extra entries are fine).
+  The v1 settings are one list, `V1_SETTING_COLUMNS`, used by both the coverage
+  and the restore; the test checks each is an `AppSettings` field and an
+  `AppSettingsRepository.update` argument.
   Excluded on purpose: Community opt-in and state (consent), the radio transport
   (machine-specific), the identity binding, history and caches.
 - **Secrets in the file.** `BackupIdentity.private_key`, `BackupWifi.password`

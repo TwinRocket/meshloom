@@ -35,3 +35,25 @@ def test_secrets_of_other_hosts_and_consent_are_excluded():
     assert BACKUP_COVERAGE["app_settings.radio_bound_public_key"][0] == "excluded"
     assert BACKUP_COVERAGE["messages"][0] == "excluded"
     assert BACKUP_COVERAGE["app_settings.id"] == ("excluded", "internal")
+
+
+def test_every_v1_setting_marked_included_is_written_back():
+    """A column marked included as a v1 setting is exported in ``settings``
+    and must be written back by the restore: an AppSettings field and an
+    ``AppSettingsRepository.update`` argument, in the restored list."""
+    import inspect
+
+    from app.models import AppSettings
+    from app.repository import AppSettingsRepository
+    from app.services.backup import _RESTORED_SETTINGS, _V1
+
+    v1_columns = {
+        name.removeprefix("app_settings.")
+        for name, (decision, reason) in BACKUP_COVERAGE.items()
+        if name.startswith("app_settings.") and decision == "included" and reason == _V1
+    }
+    assert v1_columns == set(_RESTORED_SETTINGS)
+    update_args = set(inspect.signature(AppSettingsRepository.update).parameters)
+    for column in sorted(v1_columns):
+        assert column in AppSettings.model_fields, column
+        assert column in update_args, column

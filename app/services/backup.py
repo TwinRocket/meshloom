@@ -67,39 +67,39 @@ _COMMUNITY = "Community opt-in is consent: never restored silently"
 _TRANSPORT = "machine-specific radio transport"
 _IDENTITY = "handled by the identity step"
 _HISTORY = "history or cache (the database download covers history)"
+# The v1 settings: exported in ``settings`` and written back by ``restore_json``
+# (one list, so a column marked included here is never dropped on restore).
+V1_SETTING_COLUMNS: tuple[str, ...] = (
+    "max_radio_contacts",
+    "auto_decrypt_dm_on_advert",
+    "advert_interval",
+    "flood_scope",
+    "known_regions",
+    "blocked_keys",
+    "blocked_names",
+    "rejected_channels",
+    "discovery_blocked_types",
+    "tracked_telemetry_repeaters",
+    "tracked_telemetry_contacts",
+    "auto_resend_channel",
+    "telemetry_interval_hours",
+    "telemetry_routed_hourly",
+    "stale_contact_days",
+    "raw_packet_retention_days",
+    "telemetry_alert_rules",
+    "notification_destinations",
+    "auto_update",
+    "auto_update_window_start",
+    "auto_update_window_end",
+    "auto_update_weekdays",
+    "enable_message_poll_fallback",
+    "force_channel_slot_reconfigure",
+    "load_with_autoevict",
+    "auto_clock_wraparound",
+    "ui_preferences",
+)
 BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
-    **{
-        f"app_settings.{column}": ("included", _V1)
-        for column in (
-            "max_radio_contacts",
-            "auto_decrypt_dm_on_advert",
-            "advert_interval",
-            "flood_scope",
-            "known_regions",
-            "blocked_keys",
-            "blocked_names",
-            "rejected_channels",
-            "discovery_blocked_types",
-            "tracked_telemetry_repeaters",
-            "tracked_telemetry_contacts",
-            "auto_resend_channel",
-            "telemetry_interval_hours",
-            "telemetry_routed_hourly",
-            "stale_contact_days",
-            "raw_packet_retention_days",
-            "telemetry_alert_rules",
-            "notification_destinations",
-            "auto_update",
-            "auto_update_window_start",
-            "auto_update_window_end",
-            "auto_update_weekdays",
-            "enable_message_poll_fallback",
-            "force_channel_slot_reconfigure",
-            "load_with_autoevict",
-            "auto_clock_wraparound",
-            "ui_preferences",
-        )
-    },
+    **{f"app_settings.{column}": ("included", _V1) for column in V1_SETTING_COLUMNS},
     "app_settings.push_defaults": ("included", "v1 push_defaults"),
     "app_settings.push_conversation_overrides": ("included", "v1 push_conversation_overrides"),
     "app_settings.vapid_subject": ("included", "v1 vapid_subject"),
@@ -352,35 +352,7 @@ async def restore_json(request: BackupRestoreRequest) -> BackupRestoreResult:
 
 # The AppSettings fields a restore writes back (through update(), so the
 # in-memory copy the radio code reads follows).
-_RESTORED_SETTINGS = (
-    "max_radio_contacts",
-    "auto_decrypt_dm_on_advert",
-    "advert_interval",
-    "flood_scope",
-    "known_regions",
-    "blocked_keys",
-    "blocked_names",
-    "rejected_channels",
-    "discovery_blocked_types",
-    "tracked_telemetry_repeaters",
-    "tracked_telemetry_contacts",
-    "auto_resend_channel",
-    "telemetry_interval_hours",
-    "telemetry_routed_hourly",
-    "stale_contact_days",
-    "raw_packet_retention_days",
-    "telemetry_alert_rules",
-    "notification_destinations",
-    "ui_preferences",
-    "auto_update",
-    "auto_update_window_start",
-    "auto_update_window_end",
-    "auto_update_weekdays",
-    "enable_message_poll_fallback",
-    "force_channel_slot_reconfigure",
-    "load_with_autoevict",
-    "auto_clock_wraparound",
-)
+_RESTORED_SETTINGS = V1_SETTING_COLUMNS
 
 
 async def _restore_settings(settings: AppSettings) -> None:
