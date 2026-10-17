@@ -36,6 +36,9 @@ _L = 2**252 + 27742317777372353535851937790883648493
 # In-memory storage for the private key and derived public key
 _private_key: bytes | None = None
 _public_key: bytes | None = None
+# True when the last export attempt was refused by the firmware (built without
+# ENABLE_PRIVATE_KEY_EXPORT): the full backup then says "export_disabled".
+_last_export_disabled: bool = False
 
 
 def ed25519_sign_expanded(message: bytes, scalar: bytes, prefix: bytes, public_key: bytes) -> bytes:
@@ -56,10 +59,11 @@ def ed25519_sign_expanded(message: bytes, scalar: bytes, prefix: bytes, public_k
 
 def clear_keys() -> None:
     """Clear any stored private/public key material from memory."""
-    global _private_key, _public_key
+    global _private_key, _public_key, _last_export_disabled
     had_key = _private_key is not None or _public_key is not None
     _private_key = None
     _public_key = None
+    _last_export_disabled = False
     if had_key:
         logger.info("Cleared in-memory keystore")
 
@@ -96,6 +100,11 @@ def get_public_key() -> bytes | None:
     return _public_key
 
 
+def last_export_disabled() -> bool:
+    """True when the radio refused the last private key export (DISABLED)."""
+    return _last_export_disabled
+
+
 def has_private_key() -> bool:
     """Check if a private key is stored.
 
@@ -116,6 +125,7 @@ async def export_and_store_private_key(mc: "MeshCore") -> bool:
     Returns:
         True if the private key was successfully exported and stored
     """
+    global _last_export_disabled
     logger.info("Exporting private key from radio...")
     try:
         result = await mc.commands.export_private_key()
@@ -123,8 +133,10 @@ async def export_and_store_private_key(mc: "MeshCore") -> bool:
         if result.type == EventType.PRIVATE_KEY:
             private_key_bytes = result.payload["private_key"]
             set_private_key(private_key_bytes)
+            _last_export_disabled = False
             return True
         elif result.type == EventType.DISABLED:
+            _last_export_disabled = True
             logger.warning(
                 "Private key export disabled on radio firmware. "
                 "Server-side DM decryption will not be available. "

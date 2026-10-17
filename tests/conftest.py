@@ -270,3 +270,13 @@ def captured_broadcasts():
         broadcasts.append({"type": event_type, "data": data})
 
     return broadcasts, mock_broadcast
+
+
+@pytest.fixture
+def secret_debug_logs(caplog):
+    """DEBUG everywhere with the redaction and the ring buffer attached; use
+    ``tests.fixtures.log_capture.assert_no_secret_logged`` to check."""
+    from tests.fixtures.log_capture import debug_capture
+
+    with debug_capture(caplog):
+        yield caplog

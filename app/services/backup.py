@@ -1,11 +1,16 @@
-"""JSON backup/restore of contacts, channels, settings, and groups.
+"""Backups: the Meshloom-only JSON (v1), the full backup (v2), the SQLite file.
 
-The SQLite file download lives beside this module so callers can take a
-consistent snapshot without replacing the live database.
+- ``meshloom-backup-v1`` (``export_json`` / ``restore_json``): contacts,
+  channels, settings, groups and push preferences, merged into the live DB.
+- ``meshloom-backup-v2``: the v1 fields plus the radio identity, every radio
+  setting, Wi-Fi credentials stored in the radio and the rest of the Meshloom
+  settings (``BACKUP_COVERAGE`` lists every column and table with a decision).
+- The SQLite file download (``write_sqlite_backup``) never replaces the live DB.
 """
 
 import logging
 import time
+from typing import Literal
 
 import aiosqlite
 
@@ -30,8 +35,140 @@ from app.repository import (
 logger = logging.getLogger(__name__)
 
 BACKUP_FORMAT = "meshloom-backup-v1"  # older files may still say remoteterm-backup-v1
+BACKUP_FORMAT_V2 = "meshloom-backup-v2"
 
-PRIVATE_KEY_WARNING = "The radio private key is stored in memory only and is NOT in this backup."
+PRIVATE_KEY_WARNING = (
+    "The radio private key is NOT in this file (Meshloom keeps it in memory only). "
+    "The full backup in Settings > Database includes it."
+)
+
+CoverageDecision = Literal["included", "excluded"]
+
+# Every app_settings column ("app_settings.<column>") and every table ("<table>")
+# with a decision and its reason. tests/test_backup_coverage.py fails when a
+# column or a table is missing here (extra entries are allowed).
+_V1 = "v1 settings"
+_RUNTIME = "runtime, derived or one-shot migration marker"
+_COMMUNITY = "Community opt-in is consent: never restored silently"
+_TRANSPORT = "machine-specific radio transport"
+_IDENTITY = "handled by the identity step"
+_HISTORY = "history or cache (the database download covers history)"
+BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
+    **{
+        f"app_settings.{column}": ("included", _V1)
+        for column in (
+            "max_radio_contacts",
+            "auto_decrypt_dm_on_advert",
+            "advert_interval",
+            "flood_scope",
+            "known_regions",
+            "blocked_keys",
+            "blocked_names",
+            "rejected_channels",
+            "discovery_blocked_types",
+            "tracked_telemetry_repeaters",
+            "tracked_telemetry_contacts",
+            "auto_resend_channel",
+            "telemetry_interval_hours",
+            "telemetry_routed_hourly",
+            "stale_contact_days",
+            "raw_packet_retention_days",
+            "telemetry_alert_rules",
+            "notification_destinations",
+            "auto_update",
+            "auto_update_window_start",
+            "auto_update_window_end",
+            "auto_update_weekdays",
+            "enable_message_poll_fallback",
+            "force_channel_slot_reconfigure",
+            "load_with_autoevict",
+            "auto_clock_wraparound",
+            "ui_preferences",
+        )
+    },
+    "app_settings.push_defaults": ("included", "v1 push_defaults"),
+    "app_settings.push_conversation_overrides": ("included", "v1 push_conversation_overrides"),
+    "app_settings.vapid_subject": ("included", "v1 vapid_subject"),
+    "app_settings.path_hash_one_byte_opt_in": ("included", "meshloom_extra"),
+    "app_settings.vapid_private_key": ("included", "meshloom_extra.vapid (host without push)"),
+    "app_settings.vapid_public_key": ("included", "meshloom_extra.vapid (host without push)"),
+    **{
+        f"app_settings.radio_proxy_{name}": ("included", "meshloom_extra.radio_proxy")
+        for name in ("enabled", "bind", "port", "max_clients")
+    },
+    **{
+        f"app_settings.{column}": ("excluded", _COMMUNITY)
+        for column in (
+            "community_enabled",
+            "community_iata",
+            "community_broker_host",
+            "community_api_base",
+            "community_status_clear",
+            "community_status_last",
+            "community_waiting_for_position",
+            "community_opt_out_pending",
+        )
+    },
+    **{
+        f"app_settings.{column}": ("excluded", _TRANSPORT)
+        for column in (
+            "radio_transport",
+            "radio_serial_port",
+            "radio_serial_baudrate",
+            "radio_tcp_host",
+            "radio_tcp_port",
+            "radio_ble_address",
+            "radio_ble_pin",
+            "radio_previous_transport",
+        )
+    },
+    **{
+        f"app_settings.{column}": ("excluded", _IDENTITY)
+        for column in (
+            "radio_bound_public_key",
+            "radio_identity_state",
+            "radio_mismatch_previous_public_key",
+            "radio_mismatch_new_public_key",
+            "radio_mismatch_new_name",
+        )
+    },
+    "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
+    **{
+        f"app_settings.{column}": ("excluded", _RUNTIME)
+        for column in (
+            "last_message_times",
+            "last_advert_time",
+            "last_notified_update_version",
+            "push_conversations",
+            "preferences_migrated",
+            "radio_transport_env_imported",
+            "legacy_env_settings_imported",
+            "community_env_imported",
+        )
+    },
+    "app_settings.id": ("excluded", "internal"),
+    "contacts": ("included", "v1 contacts"),
+    "channels": ("included", "v1 channels (secrets and region scope)"),
+    "contact_groups": ("included", "v1 groups"),
+    "contact_group_members": ("included", "v1 groups"),
+    "app_settings": ("included", "per column, above"),
+    "fanout_configs": ("included", "meshloom_extra.fanout_configs (bots restored disabled)"),
+    "push_subscriptions": ("included", "meshloom_extra.push_subscriptions (host without push)"),
+    **dict.fromkeys(
+        (
+            "messages",
+            "raw_packets",
+            "contact_advert_paths",
+            "contact_name_history",
+            "repeater_telemetry_history",
+            "contact_telemetry_history",
+            "telemetry_alert_state",
+            "directory_hop_cache",
+            "repeater_pane_cache",
+        ),
+        ("excluded", _HISTORY),
+    ),
+}
 
 
 async def write_sqlite_backup(database: Database, dest_path: str) -> None:
