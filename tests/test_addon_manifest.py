@@ -58,6 +58,20 @@ def test_the_radio_can_be_reached() -> None:
     assert config["uart"] is True
 
 
+def test_a_bluetooth_radio_can_be_reached() -> None:
+    """BLE goes through the host's BlueZ over D-Bus; without the bus every scan fails.
+
+    The transport is still offered (the adapter shows in sysfs), so the add-on
+    looks fine until the first Scan or connection, which then reports no adapter.
+    Nothing broader than the bus is needed: bleak opens no raw HCI socket.
+    """
+    config = _config()
+    assert config["host_dbus"] is True
+    assert "privileged" not in config
+    assert "full_access" not in config
+    assert "host_network" not in config
+
+
 def test_every_option_is_described_by_the_schema() -> None:
     """An option with no schema entry is silently dropped by the supervisor."""
     config = _config()

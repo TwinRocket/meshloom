@@ -38,6 +38,12 @@ ports_description:
 uart: true
 usb: true
 
+# Bluetooth goes through the host's BlueZ over its D-Bus system bus: bleak opens no
+# HCI socket of its own, so neither host_network nor extra privileges are needed,
+# only the bus (mounted read-only at /run/dbus; talking over it still works).
+# Without this the transport is offered but every scan and connection fails.
+host_dbus: true
+
 # Everything the instance keeps: database, keys, settings.
 map:
   - addon_config:rw

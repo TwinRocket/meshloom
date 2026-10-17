@@ -22,13 +22,25 @@ anywhere else.
 
 ## Getting started
 
-1. Plug the radio into the machine running Home Assistant, or leave it on the
-   network if you reach it over TCP.
+1. Plug the radio into the machine running Home Assistant, leave it on the
+   network if you reach it over TCP, or keep it within Bluetooth range of that
+   machine.
 2. Install and start the add-on, then open it from the sidebar. The first install
    builds one small layer on top of the published Meshloom image, so it takes a
    little longer than starting it again later does.
-3. Go to **Settings → Radio** and choose the transport — the serial device, or the
-   host and port of a radio reachable over the network.
+3. Go to **Settings → Radio** and choose the transport — the serial device, the
+   host and port of a radio reachable over the network, or a Bluetooth radio
+   (**Scan**, then its PIN).
+
+## Bluetooth
+
+The add-on reaches Bluetooth through the host's BlueZ service over D-Bus, so it
+uses the adapter of the machine running Home Assistant, built-in or USB. Nothing
+needs turning on, and Home Assistant's own Bluetooth integration can stay enabled:
+it shares the adapter. Bluetooth proxies (ESPHome, Shelly) are not used: the radio
+has to be within range of the Home Assistant machine itself. If **Settings →
+Radio** says there is no Bluetooth adapter, Home Assistant does not see one either
+(check **Settings → System → Hardware**).
 
 ## Options
 
