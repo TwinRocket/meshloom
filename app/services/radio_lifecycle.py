@@ -164,8 +164,9 @@ async def run_post_connect_setup(radio_manager) -> PostConnectSetupOutcome:
                 radio_manager.firmware_build = None
                 radio_manager.firmware_version = None
                 radio_manager.firmware_ver_code = None
-                # The companion CLI probe cache follows firmware_ver_code.
-                radio_manager.reset_cli_link()
+                # The companion CLI probe cache follows firmware_ver_code; the
+                # tag quarantine stays (same connection, late replies possible).
+                radio_manager.reset_cli_probe()
                 radio_manager.max_channels = 40
                 radio_manager.path_hash_mode = 0
                 radio_manager.path_hash_mode_supported = False

@@ -290,8 +290,10 @@ class TestRunPostConnectSetup:
         assert radio_manager.firmware_version == "1.2.3"
         assert radio_manager.path_hash_mode == 2
         assert radio_manager.path_hash_mode_supported is True
-        # The companion CLI probe cache is dropped with the old device info.
-        radio_manager.reset_cli_link.assert_called_once_with()
+        # The companion CLI probe cache is dropped with the old device info,
+        # but not the tag quarantine (same connection).
+        radio_manager.reset_cli_probe.assert_called_once_with()
+        radio_manager.reset_cli_link.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_identity_gate_does_not_deadlock_on_nested_pause(self, monkeypatch):

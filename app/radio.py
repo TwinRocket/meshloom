@@ -260,8 +260,13 @@ class RadioManager:
         self.cli_link: CliLinkState = new_cli_link_state()
 
     def reset_cli_link(self) -> None:
-        """Start a fresh companion CLI link state (new connection or new setup)."""
+        """Start a fresh companion CLI link state (new connection)."""
         self.cli_link = new_cli_link_state()
+
+    def reset_cli_probe(self) -> None:
+        """Drop the companion CLI probe cache only (new setup on the same
+        connection): tags and quarantine stay."""
+        self.cli_link.reset_probe()
 
     async def _acquire_operation_lock(
         self,

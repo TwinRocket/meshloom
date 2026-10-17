@@ -177,9 +177,10 @@ and the OpenAPI page (`/docs`), not a table here.
 - **Tags are the reply guard.** CLI replies carry no request id. Each command
   starts with a 2-byte `XY|` tag that the firmware echoes; only a reply with our
   tag is accepted. Tags come from `RadioManager.cli_link` (`CliLinkState`: random
-  start, reset with the connection and at each setup); a call that ends without
-  its reply quarantines its tag, and more than 64 quarantined tags declare the
-  link unreliable.
+  start, replaced with the connection; each setup drops only the probe cache and
+  keeps the tags and the quarantine); a call that ends without its reply
+  quarantines its tag, and more than 64 quarantined tags declare the link
+  unreliable.
 - **Secrets.** The helper classifies commands itself: `set`/`get` of a name
   containing `pwd`, `pass`, `key`, `secret` or `pin` (and `SENSITIVE_COMMANDS`)
   is secret or a sensitive read, and so is any call given explicit `secrets`

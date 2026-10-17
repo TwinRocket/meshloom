@@ -228,6 +228,22 @@ def test_link_state_is_reset_with_the_connection():
     assert manager.cli_link.quarantined == set()
 
 
+async def test_setup_drops_the_probe_cache_but_keeps_the_quarantine(radio, fast_probe):
+    loop, firmware, manager = radio
+    firmware.silent.add("get wifi.status")
+    async with held(manager) as cli:
+        await cli.capabilities()
+    link = manager.cli_link
+    quarantined = set(link.quarantined)
+    next_tag = link.next_tag
+    assert quarantined and link.probe_failures == 1
+    manager.reset_cli_probe()
+    assert manager.cli_link is link
+    assert link.capabilities is None and link.probe_failures == 0
+    assert link.probe_retry_after == 0.0
+    assert link.quarantined == quarantined and link.next_tag == next_tag
+
+
 # --------------------------------------------------------------------------
 # Lock ownership
 # --------------------------------------------------------------------------

@@ -178,6 +178,14 @@ class CliLinkState:
     probe_failures: int = 0
     probe_retry_after: float = 0.0
 
+    def reset_probe(self) -> None:
+        """Forget the probe results (the firmware may have changed) and keep the
+        tag counter and the quarantine: a late reply to a quarantined tag can
+        still arrive on the same connection."""
+        self.capabilities = None
+        self.probe_failures = 0
+        self.probe_retry_after = 0.0
+
 
 _randbelow = _secrets.randbelow
 
