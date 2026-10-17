@@ -508,6 +508,29 @@ class TestUpdateRadioConfigRepeatAndRejections:
         assert response.warnings == ["client_repeat_not_allowed"]
 
     @pytest.mark.asyncio
+    async def test_timeout_is_not_retried_without_repeat(self):
+        """meshcore's timeout ERROR is not a refusal: repeat is never dropped for it."""
+        mc = _mock_meshcore_with_info()
+        mc.commands.send_device_query = AsyncMock(
+            return_value=_radio_result(EventType.DEVICE_INFO, {"fw ver": 10, "repeat": True})
+        )
+        mc.commands.set_radio = AsyncMock(
+            side_effect=[_radio_result(EventType.ERROR, {"reason": "timeout"}), _radio_result()]
+        )
+        with (
+            patch("app.routers.radio.radio_manager.require_connected", return_value=mc),
+            patch.object(radio_manager, "_meshcore", mc),
+            patch("app.routers.radio.sync_radio_time", new_callable=AsyncMock),
+            patch("app.routers.radio.get_radio_config", new_callable=AsyncMock),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await update_radio_config(
+                RadioConfigUpdate(radio=RadioSettings(freq=433.0, bw=250.0, sf=11, cr=5))
+            )
+        assert [c.kwargs["repeat"] for c in mc.commands.set_radio.await_args_list] == [1]
+        assert exc.value.detail["code"] == "radio_params_rejected"
+
+    @pytest.mark.asyncio
     async def test_refused_without_repeat_too_answers_422(self):
         mc = _mock_meshcore_with_info()
         mc.commands.send_device_query = AsyncMock(

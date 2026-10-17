@@ -34,6 +34,18 @@ def _rejected(result) -> bool:
     return result is not None and getattr(result, "type", None) == EventType.ERROR
 
 
+def _refused_by_firmware(result) -> bool:
+    """An ERROR frame the radio sent, not meshcore's own timeout or send failure.
+
+    meshcore reports a timeout as ERROR ``{"reason": ...}`` and a send failure as
+    ERROR ``{"error": ...}``; the firmware's ERROR carries ``error_code`` or nothing.
+    """
+    if not _rejected(result):
+        return False
+    payload = getattr(result, "payload", None)
+    return not (isinstance(payload, dict) and ("reason" in payload or "error" in payload))
+
+
 def device_info_client_repeat(result) -> bool | None:
     """The client-repeat flag from a DEVICE_INFO reply (firmware 9+), else None."""
     if result is None or getattr(result, "type", None) != EventType.DEVICE_INFO:
@@ -152,7 +164,10 @@ async def apply_radio_config_update(
         if client_repeat is not None:
             radio_kwargs["repeat"] = 1 if client_repeat else 0
         result = await mc.commands.set_radio(**radio_kwargs)
-        if _rejected(result) and client_repeat:
+        # Only a refusal from the radio means repeat is not allowed here: a
+        # timeout says nothing about it, and resending without repeat would
+        # report the firmware as dropping it.
+        if client_repeat and _refused_by_firmware(result):
             logger.info("The radio refused repeat on these parameters: retrying without it")
             result = await mc.commands.set_radio(**{**radio_kwargs, "repeat": 0})
             if not _rejected(result):
