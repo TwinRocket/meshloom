@@ -184,6 +184,49 @@ class TestRedirects:
         assert post.call_args.kwargs["allow_redirects"] is False
 
 
+class TestSecondaryHosts:
+    """Lookups that would reach a host other than the checked one are off."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            f"matrixs://user:pass@{PUBLIC_IP}/#room",
+            f"matrixs://user:pass@{PUBLIC_IP}/#room?discovery=yes",
+        ],
+    )
+    def test_matrix_server_discovery_is_off(self, url):
+        [item] = parse_apprise_urls([url])
+        assert item.server.discovery is False
+        with patch("requests.get") as get:
+            # The checked host, never a base_url read from .well-known.
+            assert item.server.base_url == f"https://{PUBLIC_IP}"
+        get.assert_not_called()
+
+    def test_matrix_send_reaches_only_the_checked_host(self):
+        from unittest.mock import MagicMock
+
+        [item] = parse_apprise_urls([f"matrixs://user:pass@{PUBLIC_IP}/#room"])
+        response = MagicMock(status_code=500, content=b"{}", text="{}")
+        response.json.return_value = {}
+        with (
+            patch("requests.get", return_value=response) as get,
+            patch("requests.post", return_value=response) as post,
+            patch("requests.put", return_value=response) as put,
+        ):
+            item.server.notify(body="hi")
+        urls = [c.args[0] for m in (get, post, put) for c in m.call_args_list]
+        assert urls, "the plugin sent nothing"
+        assert all(u.startswith(f"https://{PUBLIC_IP}/") for u in urls), urls
+        assert not any(".well-known" in u for u in urls)
+
+    def test_email_wkd_lookup_is_off(self):
+        [item] = parse_apprise_urls(
+            [f"mailto://user:pass@{PUBLIC_IP}?to=someone@example.org&wkd=yes"]
+        )
+        assert item.server.use_wkd is False
+        assert item.server.pgp.wkd is None
+
+
 class TestRedaction:
     @pytest.mark.parametrize(
         ("url", "expected"),

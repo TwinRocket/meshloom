@@ -322,6 +322,29 @@ def _user_host_target(server: Any) -> tuple[str, int, bool] | None:
     return str(host or ""), port, secure
 
 
+def _disable_secondary_hosts(server: Any) -> None:
+    """Turn off the lookups that would reach a host other than the checked one.
+
+    Matrix server discovery (``discovery=yes``, the default for ``matrixs``)
+    reads ``https://<host>/.well-known/matrix/client`` and then sends every
+    request, the access token included, to the ``base_url`` it returns: any
+    address. E-mail ``wkd=yes`` fetches the PGP key from
+    ``openpgpkey.<recipient domain>``, a host nobody checked. Set after
+    parsing, so the URL cannot turn them back on.
+    """
+    from apprise.plugins.email import NotifyEmail
+    from apprise.plugins.matrix import NotifyMatrix
+
+    if isinstance(server, NotifyMatrix):
+        server.discovery = False
+        server.store.clear(server.discovery_base_key, server.discovery_identity_key)
+    if isinstance(server, NotifyEmail):
+        server.use_wkd = False
+        pgp = getattr(server, "pgp", None)
+        if pgp is not None:
+            pgp.wkd = None
+
+
 def parse_apprise_urls(urls: list[str]) -> list[ValidatedUrl]:
     """Allowlist, instantiate, turn redirects off, refuse a Telegram URL with no chat id.
 
@@ -354,6 +377,7 @@ def parse_apprise_urls(urls: list[str]) -> list[ValidatedUrl]:
             raise AppriseUrlRefused("egress_scheme", line=line, scheme=safe_scheme)
         # A URL's ?redirect=yes must not win: set after parsing, on every plugin.
         server.redirects = False
+        _disable_secondary_hosts(server)
         if isinstance(server, NotifyTelegram) and not server.targets:
             # Apprise would call getUpdates and message whoever wrote to the bot last.
             raise AppriseUrlRefused("apprise_chat_id_required", line=line, scheme=safe_scheme)
@@ -389,7 +413,7 @@ async def validate_apprise_urls(
         try:
             dest = await validate_destination(probe, allow_private_network=allow_private_network)
         except EgressBlocked as exc:
-            raise AppriseUrlRefused(exc.code, line=line) from None
+            raise AppriseUrlRefused(exc.code, line=line, scheme=item.scheme) from None
         validated.append(
             ValidatedUrl(
                 url=item.url,
