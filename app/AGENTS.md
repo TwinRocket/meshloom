@@ -88,11 +88,15 @@ and the OpenAPI page (`/docs`), not a table here.
   periodic sync and `PATCH /radio/config` never write `0xFFFFFFFF`), only with
   the `auto_clock_wraparound` setting (on by default), only for a radio more than
   `_CLOCK_WRAP_MIN_AHEAD` (1 year) ahead (a host clock days or months behind must
-  not roll back a correct radio), never for the shared `"unknown"` key (no
+  not roll back a correct radio) and more than `_CLOCK_WRAP_MIN_AHEAD_OF_BUILD`
+  (10 years) past the build date (a stale fake-hwclock can leave the host clock
+  years behind), never for the shared `"unknown"` key (no
   SELF_INFO), at most once per connection (`id(mc)`) and once per radio key per
   process, whether it fixed the clock or not (`_clock_wrap_done`). Neither the reboot
-  nor the wraparound runs while the host clock is below `_HOST_CLOCK_FLOOR`
-  (2026-01-01). Setup logs `Radio clock at connect` before the sync and
+  nor the wraparound runs while the host clock is below `_host_clock_floor()`:
+  the later of `_HOST_CLOCK_FLOOR` (2026-01-01) and `_BUILD_EPOCH`, the mtime of
+  `radio_sync.py` (Docker `COPY` and the deb/rpm packages keep the build
+  checkout's mtime). Setup logs `Radio clock at connect` before the sync and
   `Radio clock after sync` after the device query. Tests:
   `tests/test_radio_clock_wraparound.py` (fake firmware clock).
 - Whoever triggered that reboot (setup, the periodic sync, `PATCH /radio/config`),

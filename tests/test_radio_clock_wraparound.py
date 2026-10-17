@@ -8,6 +8,7 @@ object on the same radio, as after a reconnect.
 """
 
 import logging
+import os
 import types
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +23,8 @@ from app.radio_workarounds import RadioWorkarounds
 UINT32_MAX = 0xFFFFFFFF
 HOST_NOW = 1_790_000_000  # 2026-09-21
 RADIO_2082 = 3_550_000_000  # 2082-06-29
+BUILD_EPOCH = 1_780_000_000  # 2026-05-28: the build date the tests pretend
+YEAR = 365 * 86400
 KEY_A = "aa" * 32
 KEY_B = "bb" * 32
 
@@ -116,6 +119,7 @@ def clock():
         patch.object(radio_sync, "time", fake_time),
         patch.object(radio_sync, "asyncio", fake_asyncio),
         patch.object(radio_sync, "radio_manager", MagicMock()),
+        patch.object(radio_sync, "_BUILD_EPOCH", BUILD_EPOCH),
     ):
         yield clock
     radio_sync.reset_clock_sync_guards()
@@ -378,3 +382,55 @@ async def test_radio_without_public_key_never_gets_the_wraparound(clock, caplog)
         assert await connect_without_self_info() == "rejected"
     assert wrap_writes(radio) == 0
     assert "public key is unknown" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_host_clock_years_behind_never_rolls_back_a_correct_radio(clock, caplog):
+    # Offline Pi image: fake-hwclock restored the build date, first boot over a
+    # year later, no NTP. The radio (battery RTC or GPS) has the right time and
+    # reads more than a year ahead of the host, but not a decade past the build.
+    clock.t = BUILD_EPOCH + 86400
+    radio = FakeClockRadio(clock, BUILD_EPOCH + 86400 + 400 * 86400)
+    assert (await connect(radio))[1] == "rebooted"
+    with caplog.at_level(logging.WARNING, logger="app.radio_sync"):
+        assert (await connect(radio))[1] == "rejected"
+        assert (await connect(radio))[1] == "rejected"
+    assert wrap_writes(radio) == 0
+    assert radio.reboots == 1
+    assert "years after this Meshloom build" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_radio_a_decade_past_the_build_is_wrapped(clock):
+    radio = FakeClockRadio(clock, BUILD_EPOCH + 10 * YEAR + 86400)
+    await connect(radio)  # reboot
+    assert (await connect(radio))[1] == "synced"
+    assert wrap_writes(radio) == 1
+    assert abs(radio.now() - HOST_NOW) <= 5
+
+
+@pytest.mark.asyncio
+async def test_host_clock_before_the_build_neither_reboots_nor_wraps(clock, caplog):
+    clock.t = BUILD_EPOCH - 86400  # after 2026-01-01 but before this build
+    radio = FakeClockRadio(clock, RADIO_2082)
+    with caplog.at_level(logging.WARNING, logger="app.radio_sync"):
+        assert (await connect(radio))[1] == "rejected"
+        assert (await connect(radio))[1] == "rejected"
+    assert radio.reboots == 0
+    assert wrap_writes(radio) == 0
+    assert "System clock looks wrong" in caplog.text
+
+
+def test_build_epoch_is_the_file_mtime_never_before_the_static_floor(tmp_path):
+    with patch.object(radio_sync, "__file__", str(tmp_path / "missing.py")):
+        assert radio_sync._read_build_epoch() == radio_sync._HOST_CLOCK_FLOOR
+    old = tmp_path / "old.py"
+    old.write_text("")
+    os.utime(old, (1_000_000_000, 1_000_000_000))
+    with patch.object(radio_sync, "__file__", str(old)):
+        assert radio_sync._read_build_epoch() == radio_sync._HOST_CLOCK_FLOOR
+    recent = tmp_path / "recent.py"
+    recent.write_text("")
+    os.utime(recent, (BUILD_EPOCH, BUILD_EPOCH))
+    with patch.object(radio_sync, "__file__", str(recent)):
+        assert radio_sync._read_build_epoch() == BUILD_EPOCH

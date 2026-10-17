@@ -15,6 +15,7 @@ import math
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Literal
 
 from meshcore import EventType, MeshCore
@@ -959,6 +960,35 @@ _CLOCK_WRAP_VERIFY_TOLERANCE = 5  # seconds
 _HOST_CLOCK_FLOOR = 1767225600
 
 
+def _read_build_epoch() -> int:
+    """When this code was built: the modification time of this file.
+
+    Docker ``COPY`` and the deb/rpm packages keep the mtime of the build
+    checkout, so the real date can only be later. Falls back to
+    ``_HOST_CLOCK_FLOOR`` when the file cannot be read.
+    """
+    try:
+        return max(_HOST_CLOCK_FLOOR, int(Path(__file__).stat().st_mtime))
+    except OSError:
+        return _HOST_CLOCK_FLOOR
+
+
+# A host clock earlier than the build is wrong too: the effective floor is the
+# later of the two (``_host_clock_floor``).
+_BUILD_EPOCH = _read_build_epoch()
+# The 1-year margin above is relative to the host clock, which a stale
+# fake-hwclock can leave years behind on an offline board. The wraparound also
+# needs the radio this far past the build date: a correct radio can only be that
+# far ahead after a decade without updating Meshloom, while the real failure
+# reads decades ahead (2082).
+_CLOCK_WRAP_MIN_AHEAD_OF_BUILD = 10 * 365 * 86400
+
+
+def _host_clock_floor() -> int:
+    """Below this system time the host clock is wrong (build date or 2026-01-01)."""
+    return max(_HOST_CLOCK_FLOOR, _BUILD_EPOCH)
+
+
 def reset_clock_sync_guards() -> None:
     """Forget the clock reboot and wraparound guards (tests)."""
     global _clock_wrap_attempted_conn  # noqa: PLW0603
@@ -1132,7 +1162,7 @@ async def sync_radio_time_outcome(
 
     Recovery, when the radio is more than ``_CLOCK_SKEW_THRESHOLD`` seconds
     ahead (or its clock cannot be read) and the system clock is sane
-    (``_HOST_CLOCK_FLOOR``):
+    (``_host_clock_floor``: not before 2026-01-01 nor before the build):
 
     1. The first time for a given radio (by public key) in this process, the
        radio is rebooted, so that boards with a volatile clock (most companion
@@ -1143,7 +1173,9 @@ async def sync_radio_time_outcome(
        ``auto_clock_wraparound`` setting are on: the clock wraparound
        (``_attempt_clock_wraparound``). Only for a radio more than
        ``_CLOCK_WRAP_MIN_AHEAD`` ahead (a host clock days or months behind must
-       not roll back a correct radio) with a known public key; at most once per
+       not roll back a correct radio) and more than
+       ``_CLOCK_WRAP_MIN_AHEAD_OF_BUILD`` (10 years) past the build date (nor
+       must a host clock years behind), with a known public key; at most once per
        connection and once per radio per process, whether it fixed the clock
        or not.
     3. Otherwise the skew is only logged.
@@ -1195,13 +1227,14 @@ async def sync_radio_time_outcome(
         if delta is not None and delta <= _CLOCK_SKEW_THRESHOLD:
             return "rejected"
 
-        if now < _HOST_CLOCK_FLOOR:
+        floor = _host_clock_floor()
+        if now < floor:
             log_failure(
                 "System clock looks wrong (%d, utc=%s, before %s): not rebooting the "
                 "radio nor rewriting its clock. Fix the system time (NTP).",
                 now,
                 format_epoch(now),
-                format_epoch(_HOST_CLOCK_FLOOR),
+                format_epoch(floor),
             )
             return "rejected"
 
@@ -1245,6 +1278,16 @@ async def sync_radio_time_outcome(
                     "check NTP).",
                     (radio_time - now) / 86400.0,
                     _CLOCK_WRAP_MIN_AHEAD // 86400,
+                )
+                return "rejected"
+            if radio_time - floor <= _CLOCK_WRAP_MIN_AHEAD_OF_BUILD:
+                log_failure(
+                    "Radio clock still ahead after reboot, but it reads %s, less than "
+                    "%d years after this Meshloom build (%s): no clock wraparound (the "
+                    "system clock may be the wrong one; check NTP).",
+                    format_epoch(radio_time),
+                    _CLOCK_WRAP_MIN_AHEAD_OF_BUILD // (365 * 86400),
+                    format_epoch(floor),
                 )
                 return "rejected"
             _clock_wrap_attempted_conn = id(mc)
