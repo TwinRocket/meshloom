@@ -233,3 +233,18 @@ class TestLegacyCommunityEnv:
         state = await get_community_effective()
         assert state.broker_host == DEFAULT_BROKER_HOST
         assert state.api_base == DEFAULT_API_BASE
+
+
+@pytest.mark.parametrize("value", ["false", "0"])
+def test_clock_wraparound_variable_set_off_gets_an_explicit_warning(monkeypatch, caplog, value):
+    monkeypatch.setenv("__CLOWNTOWN_DO_CLOCK_WRAPAROUND", value)
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert "__CLOWNTOWN_DO_CLOCK_WRAPAROUND" in warn_about_retired_env()
+    assert "used to keep the radio clock wraparound off" in caplog.text
+
+
+def test_clock_wraparound_variable_set_on_gets_no_off_warning(monkeypatch, caplog):
+    monkeypatch.setenv("__CLOWNTOWN_DO_CLOCK_WRAPAROUND", "true")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        warn_about_retired_env()
+    assert "used to keep the radio clock wraparound off" not in caplog.text

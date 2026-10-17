@@ -1510,8 +1510,8 @@ class AppSettings(BaseModel):
         description=(
             "Radio workaround: when the radio clock is still ahead after Meshloom "
             "rebooted the radio, set the maximum time (0xFFFFFFFF) so the clock rolls "
-            "over to zero, then set the current time. At most once per connection, "
-            "during connection setup"
+            "over to zero, then set the current time. Only for a radio more than a year "
+            "ahead, during connection setup, at most once per radio per process"
         ),
     )
     auto_update: bool = Field(

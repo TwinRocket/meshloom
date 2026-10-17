@@ -317,3 +317,64 @@ async def test_log_radio_clock_reports_the_faulty_value(clock, caplog):
 def test_format_epoch_handles_the_whole_uint32_range():
     assert radio_sync.format_epoch(0) == "1970-01-01 00:00:00 UTC"
     assert radio_sync.format_epoch(UINT32_MAX) == "2106-02-07 06:28:15 UTC"
+
+
+@pytest.mark.asyncio
+async def test_host_clock_behind_never_rolls_back_a_correct_radio(clock, caplog):
+    # Offline Pi: fake-hwclock restored a date 46 days old, no NTP yet. The radio
+    # (battery RTC or GPS) has the right time and reads ahead of the host.
+    radio = FakeClockRadio(clock, HOST_NOW + 46 * 86400)
+    assert (await connect(radio))[1] == "rebooted"  # unchanged: one reboot
+    with caplog.at_level(logging.WARNING, logger="app.radio_sync"):
+        assert (await connect(radio))[1] == "rejected"
+        assert (await connect(radio))[1] == "rejected"
+    assert wrap_writes(radio) == 0
+    assert radio.reboots == 1
+    assert "no clock wraparound" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_fixed_radio_is_not_wrapped_again_when_it_goes_back_ahead(clock):
+    radio = FakeClockRadio(clock, RADIO_2082)
+    await connect(radio)  # reboot
+    assert (await connect(radio))[1] == "synced"
+    assert wrap_writes(radio) == 1
+    radio._set(RADIO_2082)  # GPS or RTC puts the radio far ahead again
+    assert (await connect(radio))[1] == "rejected"
+    assert (await connect(radio))[1] == "rejected"
+    assert wrap_writes(radio) == 1
+    assert radio.reboots == 1
+
+
+@pytest.mark.asyncio
+async def test_a_reboot_that_raised_does_not_count_as_tried(clock):
+    radio = FakeClockRadio(clock, RADIO_2082)
+    real_reboot = radio.reboot
+
+    async def reboot_fails() -> None:
+        raise ConnectionError("transport hiccup")
+
+    radio.reboot = reboot_fails  # type: ignore[method-assign]
+    assert (await connect(radio))[1] == "rejected"
+    radio.reboot = real_reboot  # type: ignore[method-assign]
+    # The next setup reboots instead of going straight to the wraparound.
+    assert (await connect(radio))[1] == "rebooted"
+    assert wrap_writes(radio) == 0
+    assert radio.reboots == 1
+
+
+@pytest.mark.asyncio
+async def test_radio_without_public_key_never_gets_the_wraparound(clock, caplog):
+    radio = FakeClockRadio(clock, RADIO_2082)
+
+    async def connect_without_self_info() -> str:
+        mc = FakeConnection(radio)
+        mc.self_info = None  # type: ignore[assignment]
+        _connections.append(mc)
+        return await sync_radio_time_outcome(mc, allow_wraparound=True)  # type: ignore[arg-type]
+
+    assert await connect_without_self_info() == "rebooted"
+    with caplog.at_level(logging.WARNING, logger="app.radio_sync"):
+        assert await connect_without_self_info() == "rejected"
+    assert wrap_writes(radio) == 0
+    assert "public key is unknown" in caplog.text

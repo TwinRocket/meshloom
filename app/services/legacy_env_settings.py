@@ -20,7 +20,8 @@ very first start is copied too.
 The developer-only ``__CLOWNTOWN_DO_CLOCK_WRAPAROUND`` is retired without an
 import: it could only switch the clock wraparound on, and ``auto_clock_wraparound``
 (Settings → Radio → Advanced, migration 094) is now on by default. It only gets the
-startup warning.
+startup warning, plus a second one when it is set to a false value (it kept the fix
+off, the setting now starts on).
 
 The ``MESHLOOM_COMMUNITY*`` variables are retired too (Community is an opt-in in
 the UI, its addresses are fixed): ``import_legacy_community_iata`` copies a
@@ -85,6 +86,14 @@ def warn_about_retired_env() -> list[str]:
             "Remove the variable from your environment.",
             name,
             RETIRED_ENV[name],
+        )
+    if ENV_CLOCK_WRAPAROUND in still_set and not _env_true(ENV_CLOCK_WRAPAROUND):
+        # The variable kept the fix off; the setting that replaces it starts on.
+        logger.warning(
+            "%s=%s used to keep the radio clock wraparound off; it is now on by "
+            "default. Turn it off in Settings → Radio → Advanced if this board needs it off.",
+            ENV_CLOCK_WRAPAROUND,
+            _env(ENV_CLOCK_WRAPAROUND),
         )
     return still_set
 
