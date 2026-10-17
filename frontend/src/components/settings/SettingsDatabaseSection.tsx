@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -7,6 +7,7 @@ import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { api } from '../../api';
 import { formatTime } from '../../utils/messageParser';
+import { takeSettingsAnchor } from '../../utils/urlHash';
 import type { AppSettings, AppSettingsUpdate, HealthStatus } from '../../types';
 import { BackupRestoreFlow } from './BackupRestoreFlow';
 import { FullBackupExport } from './FullBackupExport';
@@ -45,6 +46,13 @@ export function SettingsDatabaseSection({
   // "Now" for the age of the oldest undecrypted packet; day granularity, so the
   // time the section opened is precise enough.
   const [nowSec] = useState(() => Date.now() / 1000);
+
+  // #settings/database/backup: open at the backup group.
+  useEffect(() => {
+    if (takeSettingsAnchor('database') === 'backup') {
+      document.getElementById('settings-backup')?.scrollIntoView?.({ block: 'start' });
+    }
+  }, []);
 
   const handleCleanup = async () => {
     const days = parseInt(retentionDays, 10);

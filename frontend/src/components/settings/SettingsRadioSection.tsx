@@ -1240,18 +1240,13 @@ export function SettingsRadioSection({
     URL.revokeObjectURL(url);
   };
 
-  const handleExportConfig = async () => {
-    const profile = buildConfigProfile();
-    try {
-      const { private_key } = await api.getPrivateKey();
-      downloadJson({ ...profile, private_key }, 'config');
-      toast.success(t('settings.radio.exportWithKey'));
-    } catch {
-      downloadJson(profile, 'config');
-      toast.info(t('settings.radio.exportWithoutKey'), {
-        description: t('settings.radio.exportWithoutKeyHelp'),
-      });
-    }
+  // The radio profile never carries the private key: the full backup in
+  // Settings > Database does. An old profile that contains one still imports.
+  const handleExportConfig = () => {
+    downloadJson(buildConfigProfile(), 'config');
+    toast.success(t('settings.radio.exportWithoutKey'), {
+      description: t('settings.radio.exportHelpNoKey'),
+    });
   };
 
   const validateImportData = (
@@ -2024,7 +2019,7 @@ export function SettingsRadioSection({
                   />
                 </div>
                 <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
-                  {t('settings.radio.exportHelp')}
+                  {t('settings.radio.exportHelp')} {t('settings.radio.exportHelpNoKey')}
                 </p>
               </AdvancedBlock>
 

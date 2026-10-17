@@ -9,6 +9,7 @@ import {
   type HealthStatus,
   type RadioIdentityInfo,
 } from '../types';
+import { BackupRestoreFlow } from './settings/BackupRestoreFlow';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { toast } from './ui/sonner';
@@ -50,9 +51,12 @@ export function RadioIdentityModal({
 }: RadioIdentityModalProps) {
   const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState<'adopt' | 'reject' | null>(null);
+  // Restoring from a backup: the window stays open until the user closes it,
+  // even once the restore has closed the identity gate.
+  const [restoring, setRestoring] = useState(false);
 
   const radioState = health?.radio_state;
-  const open = forceOpen || isRadioIdentityGate(radioState);
+  const open = forceOpen || restoring || isRadioIdentityGate(radioState);
   const identity: RadioIdentityInfo | null = health?.identity ?? null;
   const isLegacy = radioState === 'identity_unbound_legacy';
 
@@ -144,58 +148,88 @@ export function RadioIdentityModal({
           />
         </div>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          {isLegacy ? (
-            <>
+        {restoring ? (
+          <div className="space-y-3">
+            <BackupRestoreFlow
+              onFinished={async (job) => {
+                if (job.state === 'done') await onAdopted();
+              }}
+            />
+            <div className="flex justify-end">
               <Button
                 type="button"
                 variant="outline"
-                className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleAdopt(true);
+                onClick={async () => {
+                  setRestoring(false);
+                  await onResolved?.();
                 }}
               >
-                {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.newRadio')}
+                {t('settings.fullRestore.close')}
               </Button>
-              <Button
-                type="button"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleAdopt(false);
-                }}
-              >
-                {busy === 'adopt'
-                  ? t('radioIdentity.adopting')
-                  : t('radioIdentity.bindWithoutWipe')}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleReject();
-                }}
-              >
-                {busy === 'reject' ? t('radioIdentity.rejecting') : t('radioIdentity.reject')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                disabled={busy !== null}
-                onClick={() => {
-                  void handleAdopt(true);
-                }}
-              >
-                {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.wipeContinue')}
-              </Button>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => setRestoring(true)}
+            >
+              {t('radioIdentity.restoreFromBackup')}
+            </Button>
+            {isLegacy ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleAdopt(true);
+                  }}
+                >
+                  {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.newRadio')}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleAdopt(false);
+                  }}
+                >
+                  {busy === 'adopt'
+                    ? t('radioIdentity.adopting')
+                    : t('radioIdentity.bindWithoutWipe')}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleReject();
+                  }}
+                >
+                  {busy === 'reject' ? t('radioIdentity.rejecting') : t('radioIdentity.reject')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    void handleAdopt(true);
+                  }}
+                >
+                  {busy === 'adopt' ? t('radioIdentity.adopting') : t('radioIdentity.wipeContinue')}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

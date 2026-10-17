@@ -8,7 +8,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   parseHashConversation,
+  parseHashSettingsAnchor,
   parseHashSettingsSection,
+  rememberSettingsAnchor,
+  takeSettingsAnchor,
   getSettingsHash,
   getMapFocusHash,
   getLocateHash,
@@ -270,6 +273,32 @@ describe('settings URL hashes', () => {
 
     expect(parseHashSettingsSection()).toBe('alerts');
     expect(getSettingsHash('alerts')).toBe('#settings/alerts');
+  });
+
+  it('parses the backup deep link: the database section and its anchor', () => {
+    window.location.hash = '#settings/database/backup';
+
+    expect(parseHashSettingsSection()).toBe('database');
+    expect(parseHashSettingsAnchor()).toBe('backup');
+  });
+
+  it('ignores an unknown anchor but keeps the section', () => {
+    window.location.hash = '#settings/database/elsewhere';
+
+    expect(parseHashSettingsSection()).toBe('database');
+    expect(parseHashSettingsAnchor()).toBeNull();
+    window.location.hash = '#settings/radio/backup';
+    expect(parseHashSettingsAnchor()).toBeNull();
+  });
+
+  it('remembers the anchor for its section, once', () => {
+    window.location.hash = '#settings/database/backup';
+    rememberSettingsAnchor();
+    window.location.hash = '#settings/database';
+
+    expect(takeSettingsAnchor('radio')).toBeNull();
+    expect(takeSettingsAnchor('database')).toBe('backup');
+    expect(takeSettingsAnchor('database')).toBeNull();
   });
 });
 

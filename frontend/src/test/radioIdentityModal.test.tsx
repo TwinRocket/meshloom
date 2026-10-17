@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   adoptRadioIdentity: vi.fn(),
   rejectRadioIdentity: vi.fn(),
+  inspectBackup: vi.fn(),
+  getLatestRestoreJob: vi.fn(),
   toast: {
     success: vi.fn(),
     error: vi.fn(),
@@ -12,10 +14,13 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api')>()),
   api: {
     adoptRadioIdentity: mocks.adoptRadioIdentity,
     rejectRadioIdentity: mocks.rejectRadioIdentity,
+    inspectBackup: mocks.inspectBackup,
+    getLatestRestoreJob: mocks.getLatestRestoreJob,
   },
   formatApiError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
@@ -170,4 +175,37 @@ describe('RadioIdentityModal', () => {
       expect(mocks.adoptRadioIdentity).toHaveBeenCalledWith({ confirm_wipe: true });
     });
   });
+
+  it.each(['identity_mismatch', 'identity_unbound_legacy'] as const)(
+    'offers to restore from a backup (%s)',
+    async (state) => {
+      const user = userEvent.setup();
+      const onResolved = vi.fn();
+      const { rerender } = render(
+        <RadioIdentityModal
+          health={{ ...baseHealth, radio_state: state }}
+          onAdopted={vi.fn()}
+          onResolved={onResolved}
+        />
+      );
+      await user.click(
+        screen.getByRole('button', { name: i18n.t('radioIdentity.restoreFromBackup') })
+      );
+      expect(screen.getByLabelText(i18n.t('settings.fullRestore.choose'))).toBeInTheDocument();
+      expect(mocks.adoptRadioIdentity).not.toHaveBeenCalled();
+
+      // The restore closes the gate: the window stays until the user closes it.
+      rerender(
+        <RadioIdentityModal
+          health={{ ...baseHealth, radio_state: 'connected', identity: null }}
+          onAdopted={vi.fn()}
+          onResolved={onResolved}
+        />
+      );
+      expect(screen.getByLabelText(i18n.t('settings.fullRestore.choose'))).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.close') }));
+      await waitFor(() => expect(onResolved).toHaveBeenCalled());
+      expect(screen.queryByLabelText(i18n.t('settings.fullRestore.choose'))).toBeNull();
+    }
+  );
 });

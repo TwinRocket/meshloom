@@ -227,4 +227,8 @@ no in-tab desktop notification.
 1. When an API or WS payload changes, update `types.ts`, `wsEvents.ts` and its
    handlers, and the tests (`src/test/fixtures/websocket_events.json` holds WS samples).
 2. When hash routing changes, update `utils/urlHash.ts` and `urlHash.test.ts`.
+   `#settings/<section>/<anchor>` opens a section at a known anchor
+   (`SETTINGS_ANCHORS`): `#settings/database/backup` scrolls to `#settings-backup`,
+   the target of the public backup docs. The anchor is remembered when the hash is
+   read (the hash is rewritten as settings open) and taken once by the section.
 3. When you add a UI string, add the key to both `en` and `fr`.

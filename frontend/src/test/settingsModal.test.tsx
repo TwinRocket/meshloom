@@ -755,6 +755,27 @@ describe('SettingsModal', () => {
     });
   });
 
+  it('exports the radio profile without asking for the private key', async () => {
+    const getPrivateKey = vi.spyOn(api, 'getPrivateKey');
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    const success = vi.spyOn(toast, 'success');
+    renderModal();
+    openRadioSection();
+    openRadioTab('tabDevice');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.radio.exportConfig'), hidden: true })
+    );
+
+    expect(getPrivateKey).not.toHaveBeenCalled();
+    expect(success).toHaveBeenCalledWith(i18n.t('settings.radio.exportWithoutKey'), {
+      description: i18n.t('settings.radio.exportHelpNoKey'),
+    });
+    getPrivateKey.mockRestore();
+    success.mockRestore();
+  });
+
   it('shows the radio workarounds in the Advanced tab and saves each toggle', async () => {
     const { onSaveAppSettings } = renderModal({
       appSettings: { ...baseSettings, force_channel_slot_reconfigure: true },

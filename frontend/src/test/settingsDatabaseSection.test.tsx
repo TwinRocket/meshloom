@@ -25,6 +25,7 @@ vi.mock('../api', async (importOriginal) => {
 vi.mock('../components/ui/sonner', () => ({ toast: mocks.toast }));
 
 import { filenameFromDisposition } from '../api';
+import { rememberSettingsAnchor } from '../utils/urlHash';
 import { SettingsDatabaseSection } from '../components/settings/SettingsDatabaseSection';
 import i18n from '../i18n';
 import type { AppSettings } from '../types';
@@ -56,6 +57,20 @@ describe('SettingsDatabaseSection backups', () => {
   it('wraps the backup group in a stable anchor', () => {
     const { container } = renderSection();
     expect(container.querySelector('#settings-backup')).not.toBeNull();
+  });
+
+  it('opens at the backup group from the deep link', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    window.location.hash = '#settings/database/backup';
+    rememberSettingsAnchor();
+    try {
+      renderSection();
+    } finally {
+      window.location.hash = '';
+    }
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toHaveProperty('id', 'settings-backup');
   });
 
   it('shows the widened warning and leaves encryption off by default', () => {
