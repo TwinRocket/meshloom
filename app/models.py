@@ -1528,6 +1528,13 @@ class AppSettings(BaseModel):
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",
     )
+    auth_allowed_origins: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Other sites (scheme://host[:port]) whose browser requests may call this "
+            "API with credentials (CORS). Empty: same-origin only"
+        ),
+    )
     auto_update_window_start: str = Field(
         default="00:00",
         description="Local HH:MM when the auto-apply window opens",
