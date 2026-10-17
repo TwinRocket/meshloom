@@ -234,13 +234,21 @@ jobs:
   # an Access service token that the Access application accepts (Service Auth
   # policy); when both are set, every call sends them as CF-Access-Client-* headers.
   # Both environments share that token.
+  # :next is the exception: its stack lives on mininode1, whose Portainer has no
+  # public route. The preversion-5 run therefore executes on a self-hosted runner
+  # of the owner's LAN and calls https://192.168.42.226:9443/... directly (no
+  # Access token needed there). That endpoint serves Portainer's self-signed
+  # certificate, whose names are only localhost and 0.0.0.0, so it cannot be
+  # verified by name: the next path passes --insecure to curl. Nothing but the
+  # redeploy trigger crosses that hop, on a trusted LAN, and the main path keeps
+  # full verification.
   deploy:
     # A static name: GitHub leaves a skipped job's name expression unrendered
     # (pull requests, tags). The step name says which environment ran.
     name: Deploy
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preversion-5'
     needs: merge
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.ref == 'refs/heads/preversion-5' && 'self-hosted' || 'ubuntu-latest' }}
     permissions: {}
     steps:
       - name: Call the ${{ github.ref == 'refs/heads/main' && 'edge' || 'next' }} redeploy webhooks
@@ -256,9 +264,12 @@ jobs:
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             secret=EDGE_DEPLOY_WEBHOOKS
             WEBHOOKS="$EDGE_WEBHOOKS"
+            tls=()
           else
             secret=NEXT_DEPLOY_WEBHOOKS
             WEBHOOKS="$NEXT_WEBHOOKS"
+            # LAN-only Portainer with a self-signed certificate (see the job comment).
+            tls=(--insecure)
           fi
           unset EDGE_WEBHOOKS NEXT_WEBHOOKS
           if [ -z "$WEBHOOKS" ]; then
@@ -268,7 +279,9 @@ jobs:
           # The token goes through a private header file, never through argv.
           access="$(mktemp)"
           trap 'rm -f "$access"' EXIT
-          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::notice::LAN webhook: no Cloudflare Access token, TLS certificate not verified"
+          elif [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
             printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' \
               "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" > "$access"
           else
@@ -282,7 +295,7 @@ jobs:
             headers="$(mktemp)"
             # No -f/-L: a redirect or a challenge page (a proxy in front of
             # Portainer) must show up as a failure, not as a success.
-            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST \
+            code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -X POST "${tls[@]}" \
               -H @"$access" --max-time 60 --retry 2 --retry-all-errors "$url")" || true
             code="${code:-000}"
             # Never print the URL; the status and a few response headers are enough.
