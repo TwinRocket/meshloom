@@ -334,6 +334,9 @@ async def inspect_backup(
     result.wifi_open_network = result.has_wifi_credentials and bool(
         opened.wifi and opened.wifi.open_network
     )
+    from app.services.backup_sections import summarize_sections
+
+    result.sections = summarize_sections(opened.sections)
     if extra is not None:
         result.counts.fanout_configs = len(extra.fanout_configs)
         result.counts.push_subscriptions = len(extra.push_subscriptions)

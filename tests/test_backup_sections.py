@@ -15,6 +15,7 @@ import aiosqlite
 import pytest
 
 import app.keystore as keystore
+import app.main  # noqa: F401  (setup_logging runs at import, never inside a test)
 import app.services.backup_sections as sections_module
 from app.models import (
     BackupExportV2,
@@ -54,6 +55,15 @@ V2_PR156 = json.loads((FIXTURES / "v2_pr156.json").read_text())
 PR156_KEY = bytes(range(1, 65))  # the identity in v2_pr156.json
 SEED_REMOTE = "5eed" * 16
 SEED_SHARE = "a11ce5eed" * 8
+
+
+DESCRIPTION = {"en": "Test data", "fr": "Données de test"}
+
+
+def register(name, export_fn, restore_fn, **options):
+    options.setdefault("description", DESCRIPTION)
+    options.setdefault("sensitive", False)
+    register_backup_section(name, export_fn, restore_fn, **options)
 
 
 @pytest.fixture(autouse=True)
@@ -114,13 +124,13 @@ def _register_store(name: str, store: _Store, *, requires=(), omit_secret=False)
             data={"tokens": store.tokens, "secret": None if omit_secret else store.secret},
         )
 
-    async def restore(section: BackupSection) -> list[str]:
+    async def restore(section: BackupSection, _conn) -> list[str]:
         store.tokens = list(section.data["tokens"])
         if section.data.get("secret") is not None or not section.secrets_omitted:
             store.secret = section.data.get("secret")
         return []
 
-    register_backup_section(name, export, restore, requires=requires)
+    register(name, export, restore, requires=requires)
 
 
 # -- v1 and #156 files still restore -----------------------------------------
@@ -207,6 +217,7 @@ async def test_a_registered_section_is_exported_and_restored(backup_db, setup_st
     exported = json.loads(json.dumps(export_document(await export_backup_v2())))
     assert exported["sections"]["tokens"] == {
         "version": 1,
+        "sensitive": False,
         "secrets_omitted": False,
         "data": {"tokens": ["t1", "t2"], "secret": "s3cr3t"},
     }
@@ -256,14 +267,14 @@ async def test_requires_orders_the_restore_and_skips_without_its_dependency(back
         async def export():
             return BackupSection(data=name)
 
-        async def restore(sec: BackupSection) -> list[str]:
+        async def restore(sec: BackupSection, _conn) -> list[str]:
             order.append(sec.data)
             return []
 
         return export, restore
 
-    register_backup_section("api_tokens", *section("api_tokens"), requires=["users"])
-    register_backup_section("users", *section("users"))
+    register("api_tokens", *section("api_tokens"), requires=["users"])
+    register("users", *section("users"))
     exported = export_document(await export_backup_v2())
     await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
     assert order == ["users", "api_tokens"]
@@ -280,14 +291,14 @@ async def test_a_failing_section_is_a_warning_not_a_failed_restore(backup_db, se
     async def export():
         return BackupSection(data=1)
 
-    async def broken(_section) -> list[str]:
+    async def broken(_section, _conn) -> list[str]:
         raise RuntimeError("boom")
 
     async def broken_export():
         raise RuntimeError("boom")
 
-    register_backup_section("broken", export, broken)
-    register_backup_section("unexportable", broken_export, broken)
+    register("broken", export, broken)
+    register("unexportable", broken_export, broken)
     doc = await export_backup_v2()
     assert "unexportable" not in doc.sections
     assert "section_export_failed:unexportable" in doc.warnings
@@ -300,17 +311,22 @@ def test_registration_refuses_bad_names_duplicates_and_cycles():
     async def export():
         return None
 
-    async def restore(_section) -> list[str]:
+    async def restore(_section, _conn) -> list[str]:
         return []
 
     for bad in ("", "Users", "1st", "a-b", "x" * 49):
         with pytest.raises(ValueError):
-            register_backup_section(bad, export, restore)
-    register_backup_section("a", export, restore, requires=["b"])
+            register(bad, export, restore)
+    for description in ({"en": "Only English"}, {"en": "x", "fr": " "}):
+        with pytest.raises(ValueError):
+            register("c", export, restore, description=description)
     with pytest.raises(ValueError):
-        register_backup_section("a", export, restore)
+        register("c", export, restore, version=0)
+    register("a", export, restore, requires=["b"])
     with pytest.raises(ValueError):
-        register_backup_section("b", export, restore, requires=["a"])
+        register("a", export, restore)
+    with pytest.raises(ValueError):
+        register("b", export, restore, requires=["a"])
     assert sections_module.registered_backup_sections() == ["a"]
 
 
@@ -349,10 +365,10 @@ async def test_a_section_leaking_a_seed_refuses_the_export(seeded):
     async def leak():
         return BackupSection(data={"oops": SEED_REMOTE})
 
-    async def restore(_section) -> list[str]:
+    async def restore(_section, _conn) -> list[str]:
         return []
 
-    register_backup_section("leaky", leak, restore)
+    register("leaky", leak, restore)
     with pytest.raises(BackupError) as caught:
         await export_backup_v2()
     assert caught.value.code == "backup_identity_seed_leak"
@@ -430,3 +446,195 @@ async def test_a_restored_sqlite_snapshot_fires_the_hook_once(test_db, tmp_path,
             "SELECT 1 FROM sqlite_master WHERE name = ?", (SQLITE_SNAPSHOT_MARKER,)
         ) as cursor:
             assert await cursor.fetchone() is None
+
+
+# -- versions, transactions, sensitivity (lead review) -------------------------
+
+
+async def _rows(database) -> list[str]:
+    async with database.readonly() as conn:
+        async with conn.execute("SELECT value FROM section_rows ORDER BY value") as cursor:
+            return [row[0] for row in await cursor.fetchall()]
+
+
+@pytest.fixture
+async def rows_table(backup_db):
+    async with backup_db.tx() as conn:
+        await conn.execute("CREATE TABLE section_rows (value TEXT NOT NULL)")
+    return backup_db
+
+
+def _row_section(name: str, values: list[str], *, fail: bool = False, version: int = 1):
+    async def export():
+        return BackupSection(data=values)
+
+    async def restore(section: BackupSection, conn) -> list[str]:
+        for value in section.data:
+            await conn.execute("INSERT INTO section_rows (value) VALUES (?)", (value,))
+        if fail:
+            raise RuntimeError("boom after writing")
+        return []
+
+    register(name, export, restore, version=version)
+
+
+@pytest.mark.asyncio
+async def test_a_newer_section_version_is_not_restored(rows_table, setup_stub):
+    _row_section("rows", ["a"], version=2)
+    exported = export_document(await export_backup_v2())
+    assert exported["sections"]["rows"]["version"] == 2
+    exported["sections"]["rows"]["version"] = 3
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert job.result is not None and "section_too_new:rows" in job.result.warnings
+    assert await _rows(rows_table) == []
+
+    exported["sections"]["rows"]["version"] = 1  # an older shape: the owner reads it
+    await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert await _rows(rows_table) == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_each_section_restores_in_its_own_transaction(rows_table, setup_stub):
+    _row_section("good", ["kept"])
+    _row_section("bad", ["rolled_back"], fail=True)
+    _row_section("after", ["also_kept"])
+    exported = export_document(await export_backup_v2())
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert job.state == "done"
+    assert job.result is not None and "section_failed:bad" in job.result.warnings
+    assert await _rows(rows_table) == ["also_kept", "kept"]
+
+
+@pytest.mark.asyncio
+async def test_a_section_waiting_on_the_database_lock_times_out(
+    rows_table, setup_stub, monkeypatch
+):
+    monkeypatch.setattr(sections_module, "SECTION_RESTORE_TIMEOUT", 0.2)
+
+    async def export():
+        return BackupSection(data=1)
+
+    async def through_a_repository(_section, _conn) -> list[str]:
+        await AppSettingsRepository.get()  # takes the lock this transaction holds
+        return []
+
+    register("stuck", export, through_a_repository)
+    _row_section("rows", ["a"])
+    job = await run(
+        BackupExportV2.model_validate(export_document(await export_backup_v2())),
+        steps=_meshloom_only(),
+    )
+    assert job.result is not None and "section_failed:stuck" in job.result.warnings
+    assert await _rows(rows_table) == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_sensitive_sections_warn_when_not_encrypted(backup_db):
+    async def export():
+        return BackupSection(data={"hash": "x"})
+
+    async def restore(_section, _conn) -> list[str]:
+        return []
+
+    register("accounts", export, restore, sensitive=True)
+    register("plain", export, restore)
+    doc = await export_backup_v2()
+    assert doc.sections["accounts"].sensitive and not doc.sections["plain"].sensitive
+    assert "section_sensitive_unencrypted:accounts" in doc.warnings
+    assert "section_sensitive_unencrypted:plain" not in doc.warnings
+    assert not any(
+        w.startswith("section_sensitive_unencrypted")
+        for w in (await export_backup_v2(encrypted=True)).warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_inspect_describes_each_section(backup_db, client):
+    async def export():
+        return BackupSection(data=1)
+
+    async def restore(_section, _conn) -> list[str]:
+        return []
+
+    register(
+        "accounts",
+        export,
+        restore,
+        sensitive=True,
+        description={"en": "User accounts", "fr": "Comptes"},
+    )
+    exported = export_document(await export_backup_v2())
+    exported["sections"]["from_the_future"] = {"version": 1, "sensitive": True, "data": 1}
+    response = await client.post("/api/settings/backup/inspect", json={"backup": exported})
+    assert response.status_code == 200, response.text
+    assert response.json()["sections"] == [
+        {
+            "name": "accounts",
+            "known": True,
+            "too_new": False,
+            "sensitive": True,
+            "description": {"en": "User accounts", "fr": "Comptes"},
+        },
+        {
+            "name": "from_the_future",
+            "known": False,
+            "too_new": False,
+            "sensitive": True,
+            "description": None,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_oversized_restore_body_is_a_coded_413(backup_db, client, monkeypatch):
+    import app.services.backup as backup_module
+
+    monkeypatch.setattr(backup_module, "MAX_BACKUP_BODY_BYTES", 1024)
+    big = {"confirm": True, "backup": {**V1_4_18, "pad": "x" * 2048}}
+    for path in ("/api/settings/backup/restore", "/api/settings/backup/inspect"):
+        response = await client.post(path, json=big)
+        assert response.status_code == 413, path
+        assert response.json()["detail"]["code"] == "backup_too_large"
+    response = await client.post(
+        "/api/settings/backup/restore",
+        content=b"[1, 2]",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "backup_invalid"
+
+
+@pytest.mark.asyncio
+async def test_the_v1_download_answers_a_coded_error(backup_db, client, monkeypatch):
+    import app.services.backup as backup_module
+
+    async def leak(_document):
+        raise BackupError("backup_identity_seed_leak", status=500)
+
+    monkeypatch.setattr(backup_module, "refuse_identity_seeds", leak)
+    response = await client.get("/api/settings/backup/json")
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "backup_identity_seed_leak"
+
+
+@pytest.mark.asyncio
+async def test_the_sqlite_snapshot_holds_no_seed_and_no_ble_pin(seeded, tmp_path):
+    from app.repository.radio_transport import RadioTransportRepository
+
+    snapshot = await RadioTransportRepository.get()
+    snapshot.ble_pin = "987654"
+    await RadioTransportRepository.save(snapshot)
+    path = tmp_path / "copy.db"
+    await write_sqlite_backup(seeded, str(path))
+
+    async with aiosqlite.connect(path) as conn:
+        async with conn.execute(
+            "SELECT remote_instance_seed, share_seed, radio_ble_pin, radio_previous_transport"
+            " FROM app_settings WHERE id = 1"
+        ) as cursor:
+            assert tuple(await cursor.fetchone()) == (None, None, None, None)
+    raw = path.read_bytes()
+    for secret in (SEED_REMOTE, SEED_SHARE, "987654"):
+        assert secret.encode() not in raw, secret
+    # The live database keeps them.
+    assert SEED_REMOTE in await AppSettingsRepository.get_identity_seed_values()

@@ -2186,11 +2186,28 @@ class BackupSection(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     version: int = Field(default=1, ge=1, description="The section's own format version")
+    sensitive: bool = Field(
+        default=False, description="The section holds secrets (hashes included)"
+    )
     secrets_omitted: bool = Field(
         default=False,
         description="Secrets were left out on export: a restore never clears a stored one",
     )
     data: Any = None
+
+
+class BackupSectionSummary(BaseModel):
+    """A section of a file, as the restore summary shows it."""
+
+    name: str
+    known: bool = Field(description="This version restores it (else it is ignored)")
+    too_new: bool = Field(
+        default=False, description="Written by a newer version of its owner: not restored"
+    )
+    sensitive: bool = False
+    description: dict[str, str] | None = Field(
+        default=None, description="What it holds, per language (en, fr); None when unknown"
+    )
 
 
 class BackupV1Document(BackupExport):
@@ -2358,6 +2375,9 @@ class BackupInspectResult(BaseModel):
     wifi_off_on_tcp: bool = Field(
         default=False,
         description="Meshloom reaches the radio over TCP and the file turns Wi-Fi off",
+    )
+    sections: list[BackupSectionSummary] = Field(
+        default_factory=list, description="The file's named sections"
     )
     warnings: list[str] = Field(default_factory=list)
 

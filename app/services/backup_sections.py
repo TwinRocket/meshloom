@@ -8,31 +8,38 @@ Files and Access regenerate their instance identities through
 - a section missing from a file leaves its data untouched;
 - a section marked ``secrets_omitted`` never clears a stored secret (its
   restore function keeps the stored value where the file has none);
-- a section the running version does not know is ignored, with a log line;
+- a section the running version does not know, or one written by a newer
+  version of its owner, is not restored;
+- each section is restored in its own transaction: a failure rolls it back;
 - an identity seed (``app_settings.*_seed``) never reaches a file, and every
   restore (JSON, or a SQLite snapshot put back in place) runs the hooks once.
 """
 
+import asyncio
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from graphlib import CycleError, TopologicalSorter
 from typing import Any, Literal
 
 import aiosqlite
 
-from app.models import BackupSection
+from app.models import BackupSection, BackupSectionSummary
 
 logger = logging.getLogger(__name__)
 
 RestoreSource = Literal["json", "sqlite"]
 SectionExport = Callable[[], Awaitable[BackupSection | None]]
-SectionRestore = Callable[[BackupSection], Awaitable[list[str]]]
+SectionRestore = Callable[[BackupSection, aiosqlite.Connection], Awaitable[list[str]]]
 RestoreHook = Callable[[RestoreSource], Awaitable[None]]
 
 SECTION_NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
+DESCRIPTION_LANGUAGES = ("en", "fr")
+# A restore function holds the database lock: one that waits on it (a
+# repository call, which takes db.tx() itself) would hang the restore.
+SECTION_RESTORE_TIMEOUT = 60.0
 # Written into every SQLite snapshot download; found at startup, it means the
 # live database is a snapshot put back in place.
 SQLITE_SNAPSHOT_MARKER = "meshloom_backup_snapshot"
@@ -46,6 +53,9 @@ class _Section:
     export: SectionExport
     restore: SectionRestore
     requires: tuple[str, ...]
+    version: int
+    sensitive: bool
+    description: dict[str, str]
 
 
 _sections: dict[str, _Section] = {}
@@ -65,23 +75,46 @@ def register_backup_section(
     export_fn: SectionExport,
     restore_fn: SectionRestore,
     *,
+    description: Mapping[str, str],
+    sensitive: bool,
+    version: int = 1,
     requires: Iterable[str] = (),
 ) -> None:
     """Add a named section to the full backup.
 
     ``export_fn()`` returns the section, or None to leave it out of the file.
-    ``restore_fn(section)`` writes it back and returns warnings (``code`` or
-    ``code:param``, translated by the restore UI). ``requires`` names sections
-    that must be restored, in the same restore, before this one: when one of
-    them is missing from the file or failed, this one is skipped.
+    ``restore_fn(section, conn)`` writes it back through ``conn`` only, inside
+    one transaction of its own, and returns warnings (``code`` or
+    ``code:param``, translated by the restore UI). ``description`` is what the
+    restore summary shows (``en`` and ``fr``); ``sensitive`` says the section
+    holds secrets (hashes included). ``version`` is the newest ``data`` shape
+    this code reads: a file section with a higher one is not restored.
+    ``requires`` names sections that must be restored, in the same restore,
+    before this one: when one of them is missing from the file or failed,
+    this one is skipped.
     """
     if not SECTION_NAME.match(name):
         raise ValueError(f"invalid backup section name: {name!r}")
     if name in _sections:
         raise ValueError(f"backup section {name!r} is already registered")
+    if version < 1:
+        raise ValueError(f"backup section {name!r}: version starts at 1")
+    texts = {
+        language: str(description.get(language) or "").strip() for language in DESCRIPTION_LANGUAGES
+    }
+    if not all(texts.values()):
+        raise ValueError(f"backup section {name!r} needs an en and a fr description")
     candidate = {
         **_sections,
-        name: _Section(name, export_fn, restore_fn, tuple(dict.fromkeys(requires))),
+        name: _Section(
+            name,
+            export_fn,
+            restore_fn,
+            tuple(dict.fromkeys(requires)),
+            version,
+            bool(sensitive),
+            texts,
+        ),
     }
     try:
         _restore_order(candidate)
@@ -100,7 +133,8 @@ def registered_backup_sections() -> list[str]:
 
 async def export_sections() -> tuple[dict[str, BackupSection], list[str]]:
     """Every registered section that has something to write, and the warnings
-    of the ones that failed (left out of the file)."""
+    of the ones that failed (left out of the file). The registration sets
+    each section's ``version`` and ``sensitive``, whatever the function says."""
     exported: dict[str, BackupSection] = {}
     warnings: list[str] = []
     for spec in list(_sections.values()):
@@ -111,8 +145,43 @@ async def export_sections() -> tuple[dict[str, BackupSection], list[str]]:
             warnings.append(f"section_export_failed:{spec.name}")
             continue
         if section is not None:
-            exported[spec.name] = section
+            exported[spec.name] = section.model_copy(
+                update={"version": spec.version, "sensitive": spec.sensitive}
+            )
     return exported, warnings
+
+
+def sensitive_section_names(sections: Mapping[str, BackupSection]) -> list[str]:
+    return [name for name, section in sections.items() if section.sensitive]
+
+
+def summarize_sections(sections: Mapping[str, BackupSection]) -> list[BackupSectionSummary]:
+    """What the restore summary shows for each section of a file."""
+    summaries: list[BackupSectionSummary] = []
+    for name, section in sections.items():
+        spec = _sections.get(name)
+        summaries.append(
+            BackupSectionSummary(
+                name=name,
+                known=spec is not None,
+                too_new=spec is not None and section.version > spec.version,
+                # The registration is authoritative; an unknown section says it
+                # itself (it is not restored anyway).
+                sensitive=spec.sensitive if spec is not None else section.sensitive,
+                description=dict(spec.description) if spec is not None else None,
+            )
+        )
+    return summaries
+
+
+async def _restore_one(spec: _Section, section: BackupSection) -> list[str]:
+    from app import database
+
+    async with asyncio.timeout(SECTION_RESTORE_TIMEOUT):
+        # db.tx() commits on success and rolls back on any exception (the
+        # timeout included): a failed section leaves nothing half written.
+        async with database.db.tx() as conn:
+            return list(await spec.restore(section, conn))
 
 
 async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
@@ -128,6 +197,15 @@ async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
         if section is None:
             continue  # not in the file: its data stays as it is
         spec = registered[name]
+        if section.version > spec.version:
+            logger.warning(
+                "Backup restore: section %s is version %d, this version reads up to %d: skipped",
+                name,
+                section.version,
+                spec.version,
+            )
+            warnings.append(f"section_too_new:{name}")
+            continue
         missing = [required for required in spec.requires if required not in restored]
         if missing:
             logger.warning(
@@ -136,9 +214,9 @@ async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
             warnings.append(f"section_skipped:{name}")
             continue
         try:
-            warnings.extend(await spec.restore(section))
+            warnings.extend(await _restore_one(spec, section))
         except Exception:
-            logger.exception("Backup restore: section %s failed", name)
+            logger.exception("Backup restore: section %s failed, rolled back", name)
             warnings.append(f"section_failed:{name}")
             continue
         restored.add(name)
@@ -197,14 +275,32 @@ async def run_on_restore_hooks(source: RestoreSource) -> None:
             logger.exception("on_restore hook %s failed (%s restore)", name, source)
 
 
-async def mark_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) -> None:
-    """Mark a snapshot copy (never the live database)."""
+# Secrets the full backup excludes that a database copy would otherwise carry
+# (the BLE PIN, also inside the previous-transport snapshot). Every
+# ``app_settings.*_seed`` column is cleared too, whatever its name.
+SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_transport")
+
+
+async def prepare_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) -> list[str]:
+    """Scrub and mark a snapshot copy (never the live database). Returns the
+    cleared columns."""
+    async with conn.execute("PRAGMA table_info(app_settings)") as cursor:
+        columns = [row[1] for row in await cursor.fetchall()]
+    cleared = [
+        column
+        for column in columns
+        if column.endswith("_seed") or column in SNAPSHOT_SCRUBBED_COLUMNS
+    ]
+    if cleared:
+        assignments = ", ".join(f'"{column}" = NULL' for column in cleared)
+        await conn.execute(f"UPDATE app_settings SET {assignments}")
     await conn.execute(
         f"CREATE TABLE IF NOT EXISTS {SQLITE_SNAPSHOT_MARKER} (exported_at INTEGER NOT NULL)"
     )
     await conn.execute(
         f"INSERT INTO {SQLITE_SNAPSHOT_MARKER} (exported_at) VALUES (?)", (exported_at,)
     )
+    return cleared
 
 
 async def run_sqlite_restore_hooks(database) -> bool:
