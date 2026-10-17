@@ -134,7 +134,7 @@ export function ConversationOverflowMenu({
       <button
         type="button"
         className={cn(
-          'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
           'opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100',
           open && 'opacity-100'
         )}
@@ -152,7 +152,7 @@ export function ConversationOverflowMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-1 min-w-[14.5rem] rounded-md border border-border bg-background py-1 shadow-md"
+          className="absolute right-0 z-50 mt-1 min-w-58 rounded-md border border-border bg-background py-1 shadow-md"
         >
           {panel === 'main' && (
             <>

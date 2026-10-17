@@ -29,7 +29,7 @@ export function SettingsAboutSection({
             <img
               src="./meshloom-mark.svg"
               alt=""
-              className="h-24 w-auto object-contain [filter:drop-shadow(0_0_16px_rgba(34,211,238,0.18))_drop-shadow(0_0_20px_rgba(191,90,242,0.2))]"
+              className="h-24 w-auto object-contain filter-[drop-shadow(0_0_16px_rgba(34,211,238,0.18))_drop-shadow(0_0_20px_rgba(191,90,242,0.2))]"
             />
             <h3
               aria-label="Meshloom"

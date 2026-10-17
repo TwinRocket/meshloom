@@ -1,228 +1,538 @@
-/* Base styles - minimal CSS that Tailwind/shadcn can't handle */
+/* Base styles - minimal CSS that Tailwind/shadcn can't handle.
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+   Layers (rationale at the top of index.css): element-level rules in
+   `@layer base`; component classes no utility competes with in
+   `@layer components`; rules that must beat utilities (they did in
+   Tailwind 3, by coming later) in `@layer utilities`, after Tailwind's own;
+   overrides of Leaflet and MapLibre, whose stylesheets are unlayered,
+   unlayered at the end. Preflight already resets margin, padding and
+   box-sizing: an unlayered `* { margin: 0; padding: 0 }` here would beat
+   every p-, m- and space- utility. */
 
-html {
-  height: 100%;
-
-  /* An installed PWA has no address bar, so a double-tap zoom has nothing to undo
-     it with: the page stays scaled and soft at the edges until the app is killed.
-     In a chat that happens by accident constantly — a tap that appears to do
-     nothing, then a second one. `manipulation` is pan plus pinch-zoom minus
-     double-tap, so the deliberate accessibility gesture still works; only the
-     accidental one goes. Libraries that own their gestures (Leaflet, the
-     visualiser canvas) set their own value on their container. */
-  touch-action: manipulation;
-}
-
-/* Installed, the dynamic viewport is not the screen. Measured on device: the screen is
-   956 CSS px, `100dvh` and `100svh` report 894 — short by exactly the 62px status-bar
-   inset — while `100vh` and `100lvh` report 956. There is no dynamic browser chrome to
-   collapse in a standalone app, so the "largest possible viewport" is simply the
-   screen, and the dynamic one is the value that is wrong here. */
-@media (display-mode: standalone) {
+@layer base {
   html {
+    height: 100%;
+
+    /* An installed PWA has no address bar, so a double-tap zoom has nothing to undo
+       it with: the page stays scaled and soft at the edges until the app is killed.
+       In a chat that happens by accident constantly — a tap that appears to do
+       nothing, then a second one. `manipulation` is pan plus pinch-zoom minus
+       double-tap, so the deliberate accessibility gesture still works; only the
+       accidental one goes. Libraries that own their gestures (Leaflet, the
+       visualiser canvas) set their own value on their container. */
+    touch-action: manipulation;
+  }
+
+  /* Installed, the dynamic viewport is not the screen. Measured on device: the screen is
+     956 CSS px, `100dvh` and `100svh` report 894 — short by exactly the 62px status-bar
+     inset — while `100vh` and `100lvh` report 956. There is no dynamic browser chrome to
+     collapse in a standalone app, so the "largest possible viewport" is simply the
+     screen, and the dynamic one is the value that is wrong here. */
+  @media (display-mode: standalone) {
+    html {
+      height: 100lvh;
+    }
+  }
+
+  /* Same rule, keyed on the attribute utils/appViewport.ts sets. The media query above
+     is not reliable on its own: an installed app can report `navigator.standalone`
+     while `display-mode: standalone` does not match, and then nothing applies. */
+  html[data-standalone] {
     height: 100lvh;
   }
-}
 
-/* Same rule, keyed on the attribute utils/appViewport.ts sets. The media query above
-   is not reliable on its own: an installed app can report `navigator.standalone`
-   while `display-mode: standalone` does not match, and then nothing applies. */
-html[data-standalone] {
-  height: 100lvh;
-}
+  body,
+  #root {
+    height: 100%;
+  }
 
-body,
-#root {
-  height: 100%;
-}
-
-/* iOS PWA safe-area support */
-:root {
-  --safe-area-top: env(safe-area-inset-top, 0px);
-  --safe-area-right: env(safe-area-inset-right, 0px);
-  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-area-left: env(safe-area-inset-left, 0px);
-  --safe-area-bottom-capped: min(var(--safe-area-bottom), 12px);
-  /* What the floating bottom bar occupies: its pill, the home indicator it clears,
-     and the air it leaves under itself. Anything that floats over a view with the
-     bar must sit above this — the capped inset is a scroll reserve, not this. */
-  --bottom-nav-height: calc(4.375rem + var(--safe-area-bottom) + 0.5rem);
-}
-
-@supports (padding: constant(safe-area-inset-top)) {
+  /* iOS PWA safe-area support */
   :root {
-    --safe-area-top: constant(safe-area-inset-top);
-    --safe-area-right: constant(safe-area-inset-right);
-    --safe-area-bottom: constant(safe-area-inset-bottom);
-    --safe-area-left: constant(safe-area-inset-left);
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
     --safe-area-bottom-capped: min(var(--safe-area-bottom), 12px);
+    /* What the floating bottom bar occupies: its pill, the home indicator it clears,
+       and the air it leaves under itself. Anything that floats over a view with the
+       bar must sit above this — the capped inset is a scroll reserve, not this. */
+    --bottom-nav-height: calc(4.375rem + var(--safe-area-bottom) + 0.5rem);
+  }
+
+  @supports (padding: constant(safe-area-inset-top)) {
+    :root {
+      --safe-area-top: constant(safe-area-inset-top);
+      --safe-area-right: constant(safe-area-inset-right);
+      --safe-area-bottom: constant(safe-area-inset-bottom);
+      --safe-area-left: constant(safe-area-inset-left);
+      --safe-area-bottom-capped: min(var(--safe-area-bottom), 12px);
+    }
+  }
+
+  /* An installed PWA reloads the page when you pull down past the top, and every
+     scroll area in the app has a meaningful top: pulling above the oldest loaded
+     message is how you ask for more history, not how you ask to restart the app.
+     The body already refuses to chain, but overscroll chains from the inner container
+     outwards, so the refusal has to be stated where the pull actually starts. `contain`
+     rather than `none`: the bounce inside the area is native feel worth keeping, it
+     just must not escape. */
+  [class*='overflow-y-auto'],
+  [class*='overflow-auto'],
+  [class*='overflow-y-scroll'] {
+    overscroll-behavior-y: contain;
+  }
+
+  body {
+    /* Prevent overscroll/bounce on mobile */
+    overscroll-behavior: none;
+    /* No bottom inset here on purpose. Padding the page bottom leaves a dead band the
+       app cannot draw into, which is what an installed app looks wrong doing: content
+       is supposed to run to the physical edge and pass under the floating bar, which
+       is the whole reason that bar is translucent — there has to be something behind
+       it to show through. The inset moves to whatever actually sits at the bottom: the
+       bar carries its own, and so does the composer. */
+    padding: var(--safe-area-top) var(--safe-area-right) 0 var(--safe-area-left);
+    box-sizing: border-box;
+
+    /* The shell is furniture, not a document: it does not scroll, only the content
+       inside it does. Left as a normal block it was a page slightly taller than the
+       screen, so a drag anywhere moved the whole app — header, composer and all —
+       and parked it wherever the finger let go. Pinned to the viewport it cannot
+       move, which also makes the bottom edge a fixed thing rather than something
+       that depends on where the page happens to be scrolled to.
+       `height` rather than `bottom: 0` so the keyboard can shorten it: --app-height
+       is what visualViewport reports while the keyboard is up (utils/appViewport.ts),
+       and `100%` — the layout viewport — the rest of the time. */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--app-height, 100%);
+    overflow: hidden;
+  }
+
+  #root {
+    height: 100%;
+    box-sizing: border-box;
   }
 }
 
-/* An installed PWA reloads the page when you pull down past the top, and every
-   scroll area in the app has a meaningful top: pulling above the oldest loaded
-   message is how you ask for more history, not how you ask to restart the app.
-   The body already refuses to chain, but overscroll chains from the inner container
-   outwards, so the refusal has to be stated where the pull actually starts. `contain`
-   rather than `none`: the bounce inside the area is native feel worth keeping, it
-   just must not escape. */
-[class*='overflow-y-auto'],
-[class*='overflow-auto'],
-[class*='overflow-y-scroll'] {
-  overscroll-behavior-y: contain;
+@keyframes rolling-count-up {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
 }
 
-/* Translucent surfaces that let the content below show through, blurred.
-   iOS renders installed apps this way at the screen edges — it blurs whatever sits
-   under the status bar whether we ask for it or not — so an opaque bar reads as a
-   foreign object stuck onto a system that is doing something else. Matching it is
-   cheaper than fighting it. backdrop-filter is the whole effect; where it is not
-   supported the fallback is simply a more opaque surface, which still reads. */
-/* The round glass control that leaves a screen — in a conversation, in a tool pane,
-   in a settings section. One class rather than the same utility string written out
-   three times: it is a platform's idea of a back control, and the platform is the
-   thing likeliest to change under it. */
-.glass-back-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 2.5rem;
-  height: 2.5rem;
-  margin-left: -0.125rem;
-  border-radius: 9999px;
-  color: hsl(var(--foreground));
-  transition:
-    background-color 150ms,
-    border-color 150ms,
-    color 150ms;
-}
-
-@media (min-width: 768px) {
-  /* Desktop panes sit beside a rail that already says where you are. */
+@layer components {
+  /* The round glass control that leaves a screen — in a conversation, in a tool pane,
+     in a settings section. One class rather than the same utility string written out
+     three times: it is a platform's idea of a back control, and the platform is the
+     thing likeliest to change under it. */
   .glass-back-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-left: -0.125rem;
+    border-radius: 9999px;
+    color: hsl(var(--foreground));
+    transition:
+      background-color 150ms,
+      border-color 150ms,
+      color 150ms;
+  }
+
+  @media (min-width: 768px) {
+    /* Desktop panes sit beside a rail that already says where you are. */
+    .glass-back-button {
+      display: none;
+    }
+  }
+
+  /* Mobile sidebar override - ensures sidebar fills Sheet container */
+  [data-state] .sidebar {
+    width: 100%;
+    border-right: none;
+  }
+
+  .rolling-count-reel {
+    animation: rolling-count-up 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rolling-count-reel {
+      animation: none;
+    }
+  }
+
+  .mesh-test-mlc-disc {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: #000;
+    border: 2px solid #fff;
+  }
+
+  /* The conversation column is a resizable pane, so favourite columns follow its
+     width — not the viewport. `lg:grid-cols-5` kept five avatars on one row at the
+     256px minimum and crushed them instead of wrapping. */
+  .conversation-list-pane {
+    container-type: inline-size;
+    container-name: conversation-list;
+  }
+
+  .conversation-favorites-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @container conversation-list (min-width: 20rem) {
+    .conversation-favorites-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @container conversation-list (min-width: 24.5rem) {
+    .conversation-favorites-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+  }
+
+  /* Conversation / repeater pane: kebab vs icons follow this column, not the
+     viewport. A foldable with the list open is wide as a window and still too
+     narrow for name + Tout charger + four icons. */
+  .conversation-pane {
+    container-type: inline-size;
+    container-name: conversation-pane;
+  }
+
+  /* Repeater panes stay one column until the content pane itself is wide enough.
+     Viewport `md` painted a second split down the middle of an already-narrow
+     dashboard. */
+  .repeater-dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  @container conversation-pane (min-width: 48rem) {
+    .repeater-dashboard-grid {
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+    }
+  }
+
+  /* The list split is a drag target, not a full-height hairline. A 1cm pill in
+     the middle is what says it moves. */
+  .conversation-split-handle {
+    position: absolute;
+    inset-block: 0;
+    right: -0.375rem;
+    z-index: 10;
+    width: 0.75rem;
+    cursor: col-resize;
+    touch-action: none;
+    background: transparent;
+    border: 0;
+  }
+
+  .conversation-split-handle:focus-visible {
+    outline: none;
+  }
+
+  .conversation-split-grip {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0.3rem;
+    height: 1cm;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: hsl(var(--border));
+  }
+
+  .conversation-split-handle:hover .conversation-split-grip,
+  .conversation-split-handle:focus-visible .conversation-split-grip {
+    width: 0.4rem;
+    background: hsl(var(--primary) / 0.55);
+  }
+
+  /* The colour picker's two sliders sit on a gradient, so the browser's default
+     thumb reads as an unstyled control next to it. A white disc with a dark ring
+     stays visible on every hue, which a single colour cannot. */
+  .color-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: #fff;
+    border: 2px solid rgb(0 0 0 / 0.45);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  }
+
+  .color-slider::-moz-range-thumb {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: #fff;
+    border: 2px solid rgb(0 0 0 / 0.45);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  }
+}
+
+/* Must beat utilities. `.liquid-surface` keeps its shadow over `shadow-lg`,
+   `.message-input-shell` its safe-area padding over `py-2.5`,
+   `.dialog-safe-height` its ceiling over `sm:max-h-*`, and
+   `.conversation-header-more` its container-query `display: none` over the
+   `inline-flex` its buttons carry. */
+@layer utilities {
+  /* Translucent surfaces that let the content below show through, blurred.
+     iOS renders installed apps this way at the screen edges — it blurs whatever sits
+     under the status bar whether we ask for it or not — so an opaque bar reads as a
+     foreign object stuck onto a system that is doing something else. Matching it is
+     cheaper than fighting it. backdrop-filter is the whole effect; where it is not
+     supported the fallback is simply a more opaque surface, which still reads. */
+  .liquid-surface {
+    background: hsl(var(--card) / 0.92);
+    border: 1px solid hsl(var(--border) / 0.55);
+    box-shadow:
+      0 8px 28px -12px hsl(0 0% 0% / 0.55),
+      inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  }
+
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .liquid-surface {
+      /* Thin enough to keep the reader's context — Apple's regular variant "blurs and
+         adjusts the luminosity of background content to maintain legibility" rather
+         than hiding it, and the HIG's own note is that thinner materials "help people
+         retain their context". The blur and the luminosity lift are what carry
+         legibility here, not opacity. Apple publishes no numbers for this; these are
+         matched by eye against the system bars. */
+      background: hsl(var(--card) / 0.5);
+      /* Darkens what is behind rather than lifting it. Apple's regular variant "blurs
+         and adjusts the luminosity of background content to maintain legibility", and
+         in a dark interface legibility means pulling a bright backdrop down: over the
+         map, lifting it turned the bar into a pale slab with unreadable labels. */
+      -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
+      backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
+    }
+  }
+
+  /* Content runs under the floating bar — that is the point, it is what the glass has
+     to show — but the end of a list still has to be reachable. The reserve goes on the
+     scrolling element, not the page, because the page does not scroll; a descendant
+     rule rather than a utility, because the scrolling element is chosen by each view. */
+  .with-bottom-nav .overflow-y-auto {
+    padding-bottom: calc(4.25rem + var(--safe-area-bottom-capped));
+  }
+
+  @media (min-width: 768px) {
+    .with-bottom-nav .overflow-y-auto {
+      padding-bottom: 0;
+    }
+  }
+
+  /* iOS Safari zooms the page in when a focused form control renders text under 16px,
+     and it does not zoom back out: the layout is left scaled and panned, so the next
+     drag pans that zoomed page instead of scrolling the list under the finger, and the
+     edges of the screen are the blurred remains of the unzoomed page. The control is
+     the trigger, so the floor goes on the control. Scoped to coarse pointers, which
+     leaves desktop density exactly as designed; max() keeps anything already larger. */
+  @media (pointer: coarse) {
+    /* [class] carries one point of specificity, enough to win against the single
+       utility class that sets these sizes without reaching for !important. */
+    input[class]:not([type='checkbox']):not([type='radio']):not([type='range']),
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    textarea[class],
+    textarea,
+    select[class],
+    select {
+      font-size: max(16px, 1em);
+    }
+  }
+
+  /* The composer is the bottom-most control when no bar is there to be one, so it
+     keeps itself off the home indicator. */
+  .message-input-shell {
+    padding-bottom: calc(0.625rem + var(--safe-area-bottom-capped));
+  }
+
+  /* No rule above the composer. The separation is carried by the surfaces — the
+     conversation ends, the composer begins — and a grey hairline across the screen
+     only added a line to look at. */
+  .message-input-shell {
+    border-top-color: transparent;
+  }
+
+  /* Android chrome.
+     The floating glass pill, the round back control and the header-button compose
+     action are one platform's conventions. Material draws the same jobs differently:
+     a bar edge to edge, an active indicator behind the icon alone, a bare back
+     arrow, and a floating action button for the thing you came to do. Keyed on the
+     attribute the root element carries, so this is a stylesheet and not a branch in
+     every component that happens to draw a control. */
+  [data-platform='android'] [data-bottom-nav] {
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: var(--safe-area-bottom);
+  }
+
+  [data-platform='android'] [data-bottom-nav] .liquid-surface {
+    max-width: none;
+    border-radius: 0;
+    border: none;
+    border-top: 1px solid hsl(var(--border) / 0.5);
+    background: hsl(var(--card));
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    padding: 0.5rem 0.25rem 0.25rem;
+  }
+
+  /* The indicator sits behind the icon, not behind the whole item, so the label
+     stays outside it the way Material draws it. */
+  [data-platform='android'] [data-bottom-nav] button[aria-current='page'] {
+    background: transparent;
+  }
+
+  [data-platform='android'] [data-bottom-nav] button[aria-current='page'] > span:first-of-type {
+    background: hsl(var(--primary) / 0.22);
+    border-radius: 9999px;
+    padding: 0.125rem 1rem;
+  }
+
+  /* A bare arrow: the circular material is an iOS idiom, and on Android it reads as
+     a button where the platform expects an affordance-free glyph. */
+  [data-platform='android'] .glass-back-button {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    margin-left: -0.5rem;
+  }
+
+  /* Android: the primary action of a list is a floating action button, not a labelled
+     control in the header. Same element, same handler — only where it sits and what
+     it shows changes, so there is nothing to branch on in the component. Placed above
+     the bar using the height the bar actually occupies. */
+  [data-platform='android'] [data-compose-action] {
+    position: absolute;
+    right: 1rem;
+    bottom: calc(var(--bottom-nav-height) + 0.75rem);
+    z-index: 30;
+    height: 3.5rem;
+    width: 3.5rem;
+    padding: 0;
+    justify-content: center;
+    /* Material's large FAB corner, not a circle. */
+    border-radius: 1rem;
+    box-shadow:
+      0 6px 16px -6px hsl(0 0% 0% / 0.6),
+      0 2px 4px hsl(0 0% 0% / 0.3);
+  }
+
+  [data-platform='android'] [data-compose-action] [data-compose-label] {
     display: none;
   }
-}
 
-.liquid-surface {
-  background: hsl(var(--card) / 0.92);
-  border: 1px solid hsl(var(--border) / 0.55);
-  box-shadow:
-    0 8px 28px -12px hsl(0 0% 0% / 0.55),
-    inset 0 1px 0 hsl(0 0% 100% / 0.06);
-}
+  [data-platform='android'] [data-compose-action] [data-compose-icon] {
+    display: block;
+  }
 
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .liquid-surface {
-    /* Thin enough to keep the reader's context — Apple's regular variant "blurs and
-       adjusts the luminosity of background content to maintain legibility" rather
-       than hiding it, and the HIG's own note is that thinner materials "help people
-       retain their context". The blur and the luminosity lift are what carry
-       legibility here, not opacity. Apple publishes no numbers for this; these are
-       matched by eye against the system bars. */
-    background: hsl(var(--card) / 0.5);
-    /* Darkens what is behind rather than lifting it. Apple's regular variant "blurs
-       and adjusts the luminosity of background content to maintain legibility", and
-       in a dark interface legibility means pulling a bright backdrop down: over the
-       map, lifting it turned the bar into a pale slab with unreadable labels. */
-    -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
-    backdrop-filter: blur(28px) saturate(180%) brightness(0.55);
+  @media (min-width: 768px) {
+    /* Desktop has no bottom bar and plenty of header room: the labelled control
+       reads better than a control floating over a list. */
+    [data-platform='android'] [data-compose-action] {
+      position: static;
+      height: 2.25rem;
+      width: auto;
+      padding: 0 0.75rem;
+      border-radius: 9999px;
+      box-shadow: none;
+    }
+
+    [data-platform='android'] [data-compose-action] [data-compose-label] {
+      display: inline;
+    }
+
+    [data-platform='android'] [data-compose-action] [data-compose-icon] {
+      display: none;
+    }
+  }
+
+  /* The send control sits beside the composer rather than inside it on both
+     platforms; Android draws it as a circle. */
+  [data-platform='android'] .message-input-shell button[type='submit'] {
+    border-radius: 9999px;
+  }
+
+  /* How tall a dialog may be.
+     Dialogs are centred, so whatever height they do not use is split equally above
+     and below. A ceiling that only subtracts padding lets a tall one reach into the
+     strip iOS draws its status bar over — the packet analyser's title and its close
+     control ended up there, blurred and out of reach, with no way to leave.
+     Twice the larger inset is subtracted rather than the sum, precisely because the
+     split is equal: taking the sum would clear the smaller inset and still leave the
+     bigger one covered. */
+  .dialog-safe-height {
+    max-height: calc(100dvh - 2 * max(var(--safe-area-top), var(--safe-area-bottom)) - 2rem);
+  }
+
+  .conversation-header-more {
+    display: inline-flex;
+  }
+
+  .conversation-header-actions {
+    display: none;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .conversation-header-actions.is-open {
+    display: flex;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 30;
+    margin-top: 0.25rem;
+    border-radius: 9999px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--popover));
+    padding: 0.25rem 0.375rem;
+    box-shadow: 0 10px 15px -3px hsl(0 0% 0% / 0.2);
+  }
+
+  @container conversation-pane (min-width: 26.25rem) {
+    .conversation-header-more {
+      display: none;
+    }
+
+    .conversation-header-actions,
+    .conversation-header-actions.is-open {
+      display: flex;
+      position: static;
+      margin: 0;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      box-shadow: none;
+    }
   }
 }
 
-/* Content runs under the floating bar — that is the point, it is what the glass has
-   to show — but the end of a list still has to be reachable. The reserve goes on the
-   scrolling element, not the page, because the page does not scroll; a descendant
-   rule rather than a utility, because the scrolling element is chosen by each view. */
-.with-bottom-nav .overflow-y-auto {
-  padding-bottom: calc(4.25rem + var(--safe-area-bottom-capped));
-}
-
-@media (min-width: 768px) {
-  .with-bottom-nav .overflow-y-auto {
-    padding-bottom: 0;
-  }
-}
-
-/* iOS Safari zooms the page in when a focused form control renders text under 16px,
-   and it does not zoom back out: the layout is left scaled and panned, so the next
-   drag pans that zoomed page instead of scrolling the list under the finger, and the
-   edges of the screen are the blurred remains of the unzoomed page. The control is
-   the trigger, so the floor goes on the control. Scoped to coarse pointers, which
-   leaves desktop density exactly as designed; max() keeps anything already larger. */
-@media (pointer: coarse) {
-  /* [class] carries one point of specificity, enough to win against the single
-     utility class that sets these sizes without reaching for !important. */
-  input[class]:not([type='checkbox']):not([type='radio']):not([type='range']),
-  input:not([type='checkbox']):not([type='radio']):not([type='range']),
-  textarea[class],
-  textarea,
-  select[class],
-  select {
-    font-size: max(16px, 1em);
-  }
-}
-
-body {
-  /* Prevent overscroll/bounce on mobile */
-  overscroll-behavior: none;
-  /* No bottom inset here on purpose. Padding the page bottom leaves a dead band the
-     app cannot draw into, which is what an installed app looks wrong doing: content
-     is supposed to run to the physical edge and pass under the floating bar, which
-     is the whole reason that bar is translucent — there has to be something behind
-     it to show through. The inset moves to whatever actually sits at the bottom: the
-     bar carries its own, and so does the composer. */
-  padding: var(--safe-area-top) var(--safe-area-right) 0 var(--safe-area-left);
-  box-sizing: border-box;
-
-  /* The shell is furniture, not a document: it does not scroll, only the content
-     inside it does. Left as a normal block it was a page slightly taller than the
-     screen, so a drag anywhere moved the whole app — header, composer and all —
-     and parked it wherever the finger let go. Pinned to the viewport it cannot
-     move, which also makes the bottom edge a fixed thing rather than something
-     that depends on where the page happens to be scrolled to.
-     `height` rather than `bottom: 0` so the keyboard can shorten it: --app-height
-     is what visualViewport reports while the keyboard is up (utils/appViewport.ts),
-     and `100%` — the layout viewport — the rest of the time. */
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: var(--app-height, 100%);
-  overflow: hidden;
-}
-
-/* The composer is the bottom-most control when no bar is there to be one, so it
-   keeps itself off the home indicator. */
-.message-input-shell {
-  padding-bottom: calc(0.625rem + var(--safe-area-bottom-capped));
-}
-
-/* No rule above the composer. The separation is carried by the surfaces — the
-   conversation ends, the composer begins — and a grey hairline across the screen
-   only added a line to look at. */
-.message-input-shell {
-  border-top-color: transparent;
-}
-
-#root {
-  height: 100%;
-  box-sizing: border-box;
-}
-
-/* Mobile sidebar override - ensures sidebar fills Sheet container */
-[data-state] .sidebar {
-  width: 100%;
-  border-right: none;
-}
-
+/* Unlayered: these override Leaflet's and MapLibre's own stylesheets, which are
+   unlayered and would beat any layer. */
 /* Constrain Leaflet map z-index to stay below modals/sheets */
 .leaflet-container {
   z-index: 0 !important;
@@ -253,25 +563,6 @@ body {
   display: none !important;
 }
 
-.rolling-count-reel {
-  animation: rolling-count-up 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes rolling-count-up {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rolling-count-reel {
-    animation: none;
-  }
-}
-
 /* Dark basemap. Only the tile pane is inverted: markers, paths and popups live in
    sibling panes and must keep the colours they encode meaning with. hue-rotate
    undoes the hue flip invert() causes, so water stays blue rather than orange. */
@@ -292,261 +583,10 @@ body {
   border: none;
 }
 
-.mesh-test-mlc-disc {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: #000;
-  border: 2px solid #fff;
-}
-
 /* `#live` uses the same OSM raster as `#map`. Invert only MapLibre's own
    canvas so deck.gl lasers and role icons keep their encoded colours. */
 .live-map-osm .maplibregl-canvas-container > .maplibregl-canvas {
   filter: invert(1) hue-rotate(180deg) brightness(0.62) contrast(0.85) saturate(0.55);
-}
-
-/* Android chrome.
-   The floating glass pill, the round back control and the header-button compose
-   action are one platform's conventions. Material draws the same jobs differently:
-   a bar edge to edge, an active indicator behind the icon alone, a bare back
-   arrow, and a floating action button for the thing you came to do. Keyed on the
-   attribute the root element carries, so this is a stylesheet and not a branch in
-   every component that happens to draw a control. */
-[data-platform='android'] [data-bottom-nav] {
-  padding-left: 0;
-  padding-right: 0;
-  padding-bottom: var(--safe-area-bottom);
-}
-
-[data-platform='android'] [data-bottom-nav] .liquid-surface {
-  max-width: none;
-  border-radius: 0;
-  border: none;
-  border-top: 1px solid hsl(var(--border) / 0.5);
-  background: hsl(var(--card));
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  padding: 0.5rem 0.25rem 0.25rem;
-}
-
-/* The indicator sits behind the icon, not behind the whole item, so the label
-   stays outside it the way Material draws it. */
-[data-platform='android'] [data-bottom-nav] button[aria-current='page'] {
-  background: transparent;
-}
-
-[data-platform='android'] [data-bottom-nav] button[aria-current='page'] > span:first-of-type {
-  background: hsl(var(--primary) / 0.22);
-  border-radius: 9999px;
-  padding: 0.125rem 1rem;
-}
-
-/* A bare arrow: the circular material is an iOS idiom, and on Android it reads as
-   a button where the platform expects an affordance-free glyph. */
-[data-platform='android'] .glass-back-button {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  margin-left: -0.5rem;
-}
-
-/* Android: the primary action of a list is a floating action button, not a labelled
-   control in the header. Same element, same handler — only where it sits and what
-   it shows changes, so there is nothing to branch on in the component. Placed above
-   the bar using the height the bar actually occupies. */
-[data-platform='android'] [data-compose-action] {
-  position: absolute;
-  right: 1rem;
-  bottom: calc(var(--bottom-nav-height) + 0.75rem);
-  z-index: 30;
-  height: 3.5rem;
-  width: 3.5rem;
-  padding: 0;
-  justify-content: center;
-  /* Material's large FAB corner, not a circle. */
-  border-radius: 1rem;
-  box-shadow:
-    0 6px 16px -6px hsl(0 0% 0% / 0.6),
-    0 2px 4px hsl(0 0% 0% / 0.3);
-}
-
-[data-platform='android'] [data-compose-action] [data-compose-label] {
-  display: none;
-}
-
-[data-platform='android'] [data-compose-action] [data-compose-icon] {
-  display: block;
-}
-
-@media (min-width: 768px) {
-  /* Desktop has no bottom bar and plenty of header room: the labelled control
-     reads better than a control floating over a list. */
-  [data-platform='android'] [data-compose-action] {
-    position: static;
-    height: 2.25rem;
-    width: auto;
-    padding: 0 0.75rem;
-    border-radius: 9999px;
-    box-shadow: none;
-  }
-
-  [data-platform='android'] [data-compose-action] [data-compose-label] {
-    display: inline;
-  }
-
-  [data-platform='android'] [data-compose-action] [data-compose-icon] {
-    display: none;
-  }
-}
-
-/* The send control sits beside the composer rather than inside it on both
-   platforms; Android draws it as a circle. */
-[data-platform='android'] .message-input-shell button[type='submit'] {
-  border-radius: 9999px;
-}
-
-/* How tall a dialog may be.
-   Dialogs are centred, so whatever height they do not use is split equally above
-   and below. A ceiling that only subtracts padding lets a tall one reach into the
-   strip iOS draws its status bar over — the packet analyser's title and its close
-   control ended up there, blurred and out of reach, with no way to leave.
-   Twice the larger inset is subtracted rather than the sum, precisely because the
-   split is equal: taking the sum would clear the smaller inset and still leave the
-   bigger one covered. */
-.dialog-safe-height {
-  max-height: calc(100dvh - 2 * max(var(--safe-area-top), var(--safe-area-bottom)) - 2rem);
-}
-
-/* The conversation column is a resizable pane, so favourite columns follow its
-   width — not the viewport. `lg:grid-cols-5` kept five avatars on one row at the
-   256px minimum and crushed them instead of wrapping. */
-.conversation-list-pane {
-  container-type: inline-size;
-  container-name: conversation-list;
-}
-
-.conversation-favorites-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@container conversation-list (min-width: 20rem) {
-  .conversation-favorites-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@container conversation-list (min-width: 24.5rem) {
-  .conversation-favorites-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-/* Conversation / repeater pane: kebab vs icons follow this column, not the
-   viewport. A foldable with the list open is wide as a window and still too
-   narrow for name + Tout charger + four icons. */
-.conversation-pane {
-  container-type: inline-size;
-  container-name: conversation-pane;
-}
-
-.conversation-header-more {
-  display: inline-flex;
-}
-
-.conversation-header-actions {
-  display: none;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.conversation-header-actions.is-open {
-  display: flex;
-  position: absolute;
-  right: 0;
-  top: 100%;
-  z-index: 30;
-  margin-top: 0.25rem;
-  border-radius: 9999px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--popover));
-  padding: 0.25rem 0.375rem;
-  box-shadow: 0 10px 15px -3px hsl(0 0% 0% / 0.2);
-}
-
-@container conversation-pane (min-width: 26.25rem) {
-  .conversation-header-more {
-    display: none;
-  }
-
-  .conversation-header-actions,
-  .conversation-header-actions.is-open {
-    display: flex;
-    position: static;
-    margin: 0;
-    border: 0;
-    background: transparent;
-    padding: 0;
-    box-shadow: none;
-  }
-}
-
-/* Repeater panes stay one column until the content pane itself is wide enough.
-   Viewport `md` painted a second split down the middle of an already-narrow
-   dashboard. */
-.repeater-dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-}
-
-@container conversation-pane (min-width: 48rem) {
-  .repeater-dashboard-grid {
-    grid-template-columns: 1fr 1fr;
-    align-items: stretch;
-  }
-}
-
-/* The list split is a drag target, not a full-height hairline. A 1cm pill in
-   the middle is what says it moves. */
-.conversation-split-handle {
-  position: absolute;
-  inset-block: 0;
-  right: -0.375rem;
-  z-index: 10;
-  width: 0.75rem;
-  cursor: col-resize;
-  touch-action: none;
-  background: transparent;
-  border: 0;
-}
-
-.conversation-split-handle:focus-visible {
-  outline: none;
-}
-
-.conversation-split-grip {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0.3rem;
-  height: 1cm;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  background: hsl(var(--border));
-}
-
-.conversation-split-handle:hover .conversation-split-grip,
-.conversation-split-handle:focus-visible .conversation-split-grip {
-  width: 0.4rem;
-  background: hsl(var(--primary) / 0.55);
 }
 
 /* Permanent neighbour-map labels sit above every point. Leaflet's default
@@ -559,28 +599,4 @@ body {
   border-radius: 0.5rem;
   white-space: nowrap;
   width: max-content;
-}
-
-/* The colour picker's two sliders sit on a gradient, so the browser's default
-   thumb reads as an unstyled control next to it. A white disc with a dark ring
-   stays visible on every hue, which a single colour cannot. */
-.color-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 9999px;
-  background: #fff;
-  border: 2px solid rgb(0 0 0 / 0.45);
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-}
-
-.color-slider::-moz-range-thumb {
-  width: 1rem;
-  height: 1rem;
-  border-radius: 9999px;
-  background: #fff;
-  border: 2px solid rgb(0 0 0 / 0.45);
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
 }

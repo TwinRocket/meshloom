@@ -43,9 +43,9 @@ export function ToolPaneHeader({ title, onBack, subtitle, actions, className }: 
             type="button"
             onClick={onBack}
             aria-label={t('shell.backToTools')}
-            className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="liquid-surface glass-back-button focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+            <ChevronLeft className="h-5.5 w-5.5" aria-hidden="true" />
           </button>
         )}
         <h2 className="min-w-0 flex-1 truncate text-center text-2xl font-semibold tracking-tight md:text-left md:text-base md:font-semibold md:tracking-normal">

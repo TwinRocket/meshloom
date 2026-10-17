@@ -56,7 +56,7 @@ export function ConversationNotifyMenu({
   return (
     <div ref={rootRef} className="relative">
       <button
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded p-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded p-2 transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => setOpen((value) => !value)}
         title={t('chatHeader.notifications')}
         aria-label={t('chatHeader.notifications')}
@@ -73,7 +73,7 @@ export function ConversationNotifyMenu({
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-1 min-w-[13.5rem] rounded-md border border-border bg-background p-2 shadow-md"
+          className="absolute right-0 z-50 mt-1 min-w-54 rounded-md border border-border bg-background p-2 shadow-md"
         >
           <p className="px-1 pb-2 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
             {t('chatHeader.notifyMenu')}

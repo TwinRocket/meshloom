@@ -101,7 +101,7 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
 const DIRECTORY_ONLY_TOOLS: readonly ToolId[] = ['test'];
 
 const ROW_CLASS =
-  'flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
+  'flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-accent/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
 
 export function ToolsView({
   onSelectConversation,
@@ -125,7 +125,7 @@ export function ToolsView({
           health={health ?? null}
           onOpenStatus={onOpenRadioStatus}
           updateAvailable={updateAvailable}
-          className="ml-auto max-w-[9rem] md:hidden"
+          className="ml-auto max-w-36 md:hidden"
         />
       </div>
 

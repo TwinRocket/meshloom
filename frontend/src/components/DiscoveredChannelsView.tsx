@@ -99,7 +99,7 @@ export function DiscoveredChannelsView({
               <li key={channel.key}>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-accent/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   onClick={() =>
                     onSelectConversation({
                       type: 'channel',

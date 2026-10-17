@@ -168,7 +168,7 @@ export function ChatHeader({
   };
 
   const headerActionClass =
-    'inline-flex h-9 w-9 items-center justify-center rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+    'inline-flex h-9 w-9 items-center justify-center rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring';
   const headerActionDisabledClass = `${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`;
 
   const titleLabel = `${
@@ -191,15 +191,15 @@ export function ChatHeader({
             type="button"
             onClick={onBack}
             aria-label={t('shell.backToConversations')}
-            className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="liquid-surface glass-back-button focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+            <ChevronLeft className="h-5.5 w-5.5" aria-hidden="true" />
           </button>
         )}
         {conversation.type === 'contact' && onOpenContactInfo && (
           <button
             type="button"
-            className="avatar-action-button flex-shrink-0 cursor-pointer rounded-full border-none bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="avatar-action-button shrink-0 cursor-pointer rounded-full border-none bg-transparent p-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onOpenContactInfo(conversation.id)}
             title={t('chatHeader.viewContactInfo')}
             aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
@@ -228,15 +228,12 @@ export function ChatHeader({
           {titleClickable ? (
             <button
               type="button"
-              className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex w-full max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t('chatHeader.viewInfoFor', { name: conversation.name })}
               onClick={handleOpenConversationInfo}
             >
               <span className="truncate">{titleLabel}</span>
-              <Info
-                className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80"
-                aria-hidden="true"
-              />
+              <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" aria-hidden="true" />
             </button>
           ) : (
             <span className="truncate">{titleLabel}</span>
@@ -304,7 +301,7 @@ export function ChatHeader({
               )}
               {!pending && conversation.type === 'channel' && onSetChannelFloodScopeOverride && (
                 <button
-                  className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="inline-flex shrink-0 items-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={handleEditFloodScopeOverride}
                   title={t('chatHeader.regionalOverride')}
                   aria-label={t('chatHeader.regionalOverride')}
@@ -322,7 +319,7 @@ export function ChatHeader({
               )}
               {!pending && showPathHashModeOverride && (
                 <button
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={handleEditPathHashModeOverride}
                   title={t('chatHeader.pathHashOverride')}
                   aria-label={t('chatHeader.pathHashOverride')}
@@ -402,7 +399,7 @@ export function ChatHeader({
           aria-label={t('chatHeader.regionalOverride')}
         >
           <Globe2
-            className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--region-override))]"
+            className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--region-override))]"
             aria-hidden="true"
           />
           <span className="min-w-0 truncate text-[0.6875rem] font-medium text-[hsl(var(--region-override))]">

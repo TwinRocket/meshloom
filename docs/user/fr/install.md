@@ -49,6 +49,8 @@ http://127.0.0.1:8000
 
 Depuis un autre appareil du même réseau, remplacez `127.0.0.1` par l’adresse IP de la machine, en gardant le port `8000`.
 
+L’interface demande un navigateur récent : Chrome ou Edge 111, Safari 16.4 (iPhone et iPad : iOS ou iPadOS 16.4), Firefox 128, ou toute version plus récente. Un navigateur plus ancien affiche la page avec une mise en page cassée et de mauvaises couleurs.
+
 Choisissez ensuite le lien avec la radio dans l’interface : [Premier lancement](/docs/first-run/).
 
 Attention à ne pas confondre deux adresses proches. `http://127.0.0.1:8000/docs` est la documentation technique de l’API, générée par le serveur. Ce n’est pas cette documentation-ci.

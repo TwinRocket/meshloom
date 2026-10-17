@@ -502,7 +502,7 @@ function DisplayCapPill({
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
       </button>
       {open ? (
-        <div className="absolute right-0 z-20 mt-1 min-w-[8rem] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute right-0 z-20 mt-1 min-w-32 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {DISPLAY_CAPS.map((cap) => (
             <button
               key={cap}
@@ -1834,12 +1834,12 @@ export function RawPacketFeedView({
           className={cn(
             'shrink-0 overflow-hidden border-t border-border transition-all duration-300 md:border-l md:border-t-0',
             statsOpen
-              ? 'max-h-[42rem] md:max-h-none md:w-1/2 md:min-w-[30rem]'
+              ? 'max-h-168 md:max-h-none md:w-1/2 md:min-w-120'
               : 'max-h-0 md:w-0 md:min-w-0 border-transparent'
           )}
         >
           {statsOpen ? (
-            <div className="h-full overflow-y-auto bg-background p-4 [contain:layout_paint]">
+            <div className="h-full overflow-y-auto bg-background p-4 contain-[layout_paint]">
               <div className="break-inside-avoid rounded-lg border border-border/70 bg-card/70 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>

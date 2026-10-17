@@ -182,7 +182,41 @@ no in-tab desktop notification.
 - Any new `font-family` that can show a contact or node name must end with
   `'Meshloom Marks'` (a Noto Sans subset for stacked combining marks no Windows
   font covers), as `body`, Tailwind's `font-sans`/`font-mono`, `.leaflet-container`
-  and the visualizer labels do.
+  and the visualizer labels do. The app owns `--font-sans`/`--font-mono` (`:root`,
+  overridden per theme); Tailwind's font tokens extend them through
+  `@theme inline reference` in `index.css`. A plain `@theme` makes them
+  self-references and silently drops the fallback.
+- Tailwind 4, configured in CSS (`src/index.css`; there is no `tailwind.config.js`),
+  built through `@tailwindcss/postcss`. Minimum browsers: Chrome/Edge 111,
+  Safari/iOS 16.4, Firefox 128 (`docs/user/*/install.md`). Class sources are
+  explicit (`source(none)` plus `@source`): `index.html` and `src/`, minus test
+  files, as Tailwind 3's `content` scanned. Automatic detection would also read
+  docs and the harness, and the Docker build (no `*.md`, no `src/test/`) would
+  ship different CSS from the release build.
+- Cascade layers. Tailwind 4 emits native `@layer theme, base, components,
+  utilities`, and an unlayered rule beats every utility whatever its specificity.
+  `index.css`, `themes.css` and `styles.css` place each rule explicitly: palettes and
+  element selectors in `@layer base`; component classes no utility competes with in
+  `@layer components`; rules that must beat utilities (theme restyling of
+  `.bg-card`, `button`…, safe-area and platform overrides) in `@layer utilities`,
+  after Tailwind's own, where specificity and order decide as in Tailwind 3. Only
+  overrides of unlayered third-party CSS (Leaflet, MapLibre, CodeMirror) stay
+  unlayered. Never add a global `*` margin/padding reset: Preflight has one.
+  Sonner injects unlayered CSS at runtime, so the toast theme classes in
+  `components/ui/sonner.tsx` carry `!` to beat it.
+- tailwindcss-animate's keyframes animate `transform`, which Tailwind 4's
+  `translate-*` (the separate `translate` property) adds to. On an element centred
+  with `translate-x/y-[-50%]`, slide only by the delta (`slide-in-from-bottom-[2%]`
+  in `components/ui/dialog.tsx`), never by the centring offset again.
+- Tailwind 3 parity shims in `index.css`: plain `:hover` (`@custom-variant hover`),
+  the Tailwind 3 `space-x/y-*` sibling rule (Tailwind 4's end margin is ignored by
+  inline children such as `<label>`), length line heights for `text-*`, the
+  Tailwind 3 sRGB values of the palette shades in use (add a new shade there),
+  and Preflight's old placeholder colour, button cursor and border colour.
+  `src/test/tailwindBuild.test.ts` compiles the stylesheet and guards the fonts,
+  layers, palette, `space-y` shim, class sources, toast `!` and dialog motion.
+- Tailwind 4's scanner does not split a class glued to a template interpolation:
+  write `bg-black/10 ${x}`, never `bg-black/10${x}`.
 
 ## Editing checklist
 

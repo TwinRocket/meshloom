@@ -6,7 +6,7 @@ function LabeledBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="py-0.5">
       <span className="text-sm text-muted-foreground whitespace-nowrap">{label}</span>
-      <p className="text-sm font-medium mt-0.5 break-words">{value}</p>
+      <p className="text-sm font-medium mt-0.5 wrap-break-word">{value}</p>
     </div>
   );
 }

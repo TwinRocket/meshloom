@@ -38,7 +38,7 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="shrink-0 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
         {label}
       </dt>
-      <dd className="min-w-0 break-words text-right text-sm">{value}</dd>
+      <dd className="min-w-0 wrap-break-word text-right text-sm">{value}</dd>
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function RadioStatusDialog({
               onClose();
               onOpenUpdates?.();
             }}
-            className="w-full rounded-2xl bg-primary/10 px-4 py-3 text-left transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full rounded-2xl bg-primary/10 px-4 py-3 text-left transition-colors hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             <p className="text-sm font-semibold text-foreground">
               {t('radioStatus.updateAvailable')}

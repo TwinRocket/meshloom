@@ -85,49 +85,49 @@ interface GroupTextResolutionCandidate {
 const FIELD_PALETTE: FieldPaletteEntry[] = [
   {
     box: 'border-sky-500/30 bg-sky-500/10',
-    boxActive: 'border-sky-600 bg-sky-500/20 shadow-sm shadow-sky-500/20',
+    boxActive: 'border-sky-600 bg-sky-500/20 shadow-xs shadow-sky-500/20',
     hex: 'bg-sky-500/20 ring-1 ring-inset ring-sky-500/35',
     hexActive: 'bg-sky-500/40 ring-1 ring-inset ring-sky-600/70',
   },
   {
     box: 'border-emerald-500/30 bg-emerald-500/10',
-    boxActive: 'border-emerald-600 bg-emerald-500/20 shadow-sm shadow-emerald-500/20',
+    boxActive: 'border-emerald-600 bg-emerald-500/20 shadow-xs shadow-emerald-500/20',
     hex: 'bg-emerald-500/20 ring-1 ring-inset ring-emerald-500/35',
     hexActive: 'bg-emerald-500/40 ring-1 ring-inset ring-emerald-600/70',
   },
   {
     box: 'border-amber-500/30 bg-amber-500/10',
-    boxActive: 'border-amber-600 bg-amber-500/20 shadow-sm shadow-amber-500/20',
+    boxActive: 'border-amber-600 bg-amber-500/20 shadow-xs shadow-amber-500/20',
     hex: 'bg-amber-500/20 ring-1 ring-inset ring-amber-500/35',
     hexActive: 'bg-amber-500/40 ring-1 ring-inset ring-amber-600/70',
   },
   {
     box: 'border-rose-500/30 bg-rose-500/10',
-    boxActive: 'border-rose-600 bg-rose-500/20 shadow-sm shadow-rose-500/20',
+    boxActive: 'border-rose-600 bg-rose-500/20 shadow-xs shadow-rose-500/20',
     hex: 'bg-rose-500/20 ring-1 ring-inset ring-rose-500/35',
     hexActive: 'bg-rose-500/40 ring-1 ring-inset ring-rose-600/70',
   },
   {
     box: 'border-violet-500/30 bg-violet-500/10',
-    boxActive: 'border-violet-600 bg-violet-500/20 shadow-sm shadow-violet-500/20',
+    boxActive: 'border-violet-600 bg-violet-500/20 shadow-xs shadow-violet-500/20',
     hex: 'bg-violet-500/20 ring-1 ring-inset ring-violet-500/35',
     hexActive: 'bg-violet-500/40 ring-1 ring-inset ring-violet-600/70',
   },
   {
     box: 'border-cyan-500/30 bg-cyan-500/10',
-    boxActive: 'border-cyan-600 bg-cyan-500/20 shadow-sm shadow-cyan-500/20',
+    boxActive: 'border-cyan-600 bg-cyan-500/20 shadow-xs shadow-cyan-500/20',
     hex: 'bg-cyan-500/20 ring-1 ring-inset ring-cyan-500/35',
     hexActive: 'bg-cyan-500/40 ring-1 ring-inset ring-cyan-600/70',
   },
   {
     box: 'border-lime-500/30 bg-lime-500/10',
-    boxActive: 'border-lime-600 bg-lime-500/20 shadow-sm shadow-lime-500/20',
+    boxActive: 'border-lime-600 bg-lime-500/20 shadow-xs shadow-lime-500/20',
     hex: 'bg-lime-500/20 ring-1 ring-inset ring-lime-500/35',
     hexActive: 'bg-lime-500/40 ring-1 ring-inset ring-lime-600/70',
   },
   {
     box: 'border-fuchsia-500/30 bg-fuchsia-500/10',
-    boxActive: 'border-fuchsia-600 bg-fuchsia-500/20 shadow-sm shadow-fuchsia-500/20',
+    boxActive: 'border-fuchsia-600 bg-fuchsia-500/20 shadow-xs shadow-fuchsia-500/20',
     hex: 'bg-fuchsia-500/20 ring-1 ring-inset ring-fuchsia-500/35',
     hexActive: 'bg-fuchsia-500/40 ring-1 ring-inset ring-fuchsia-600/70',
   },
@@ -500,7 +500,7 @@ function FieldBox({
         </div>
         <div
           className={cn(
-            'w-full font-mono text-sm leading-5 text-foreground sm:max-w-[14rem] sm:text-right',
+            'w-full font-mono text-sm leading-5 text-foreground sm:max-w-56 sm:text-right',
             field.name === 'Path Data' ? 'break-normal' : 'break-all'
           )}
         >
@@ -869,7 +869,7 @@ export function RawPacketInspectorDialog({
               value={packetInput}
               onChange={(event) => setPacketInput(event.target.value)}
               placeholder={i18n.t('rawPacket.pastePlaceholder')}
-              className="min-h-14 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-h-14 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-ring"
               spellCheck={false}
             />
             {packetInputError ? (

@@ -132,7 +132,7 @@ export function ContactGroupsEditor({ contacts }: { contacts: Contact[] }) {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 text-xs flex-shrink-0"
+                                className="h-7 text-xs shrink-0"
                                 onClick={() =>
                                   void handleSetMembers(
                                     group,

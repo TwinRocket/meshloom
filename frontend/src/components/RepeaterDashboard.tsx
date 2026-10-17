@@ -152,7 +152,7 @@ export function RepeaterDashboard({
   const isFav = contact?.favorite ?? false;
 
   const headerActionClass =
-    'inline-flex h-9 w-9 items-center justify-center rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+    'inline-flex h-9 w-9 items-center justify-center rounded p-2 text-lg leading-none transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring';
 
   const handleRepeaterLogin = async (nextPassword: string) => {
     await login(nextPassword);
@@ -180,22 +180,22 @@ export function RepeaterDashboard({
               type="button"
               onClick={onBack}
               aria-label={t('shell.backToConversations')}
-              className="liquid-surface glass-back-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="liquid-surface glass-back-button focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <ChevronLeft className="h-[1.375rem] w-[1.375rem]" aria-hidden="true" />
+              <ChevronLeft className="h-5.5 w-5.5" aria-hidden="true" />
             </button>
           )}
           <h2 className="min-w-0 flex-1 font-semibold text-base">
             {onOpenContactInfo ? (
               <button
                 type="button"
-                className="flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('repeater.viewInfo', { name: conversation.name })}
                 onClick={() => onOpenContactInfo(conversation.id)}
               >
                 <span className="truncate">{conversation.name}</span>
                 <Info
-                  className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground/80"
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80"
                   aria-hidden="true"
                 />
               </button>

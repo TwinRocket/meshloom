@@ -450,7 +450,7 @@ export function RawPacketList({
               </button>
               {openCopyKey === observationKey ? (
                 <div
-                  className="absolute left-0 z-20 mt-1 min-w-[12rem] rounded-md border border-border bg-popover p-1.5 text-popover-foreground shadow-md"
+                  className="absolute left-0 z-20 mt-1 min-w-48 rounded-md border border-border bg-popover p-1.5 text-popover-foreground shadow-md"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <button
@@ -520,7 +520,7 @@ export function RawPacketList({
     const className = cn(
       'min-w-0 w-full rounded-md border border-border/50 bg-card px-3 py-2 text-left',
       onPacketClick &&
-        'cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        'cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring'
     );
 
     const repeatBadge =
@@ -579,7 +579,7 @@ export function RawPacketList({
 
   if (packets.length === 0) {
     return (
-      <div className="h-full overflow-y-auto p-5 text-center text-muted-foreground [contain:layout_paint]">
+      <div className="h-full overflow-y-auto p-5 text-center text-muted-foreground contain-[layout_paint]">
         {radioOffline ? (
           <>
             <p>{t('rawPacket.emptyRadioOffline')}</p>
@@ -594,7 +594,7 @@ export function RawPacketList({
 
   return (
     <div
-      className="h-full overflow-y-auto p-4 flex flex-col gap-2 [contain:layout_paint]"
+      className="h-full overflow-y-auto p-4 flex flex-col gap-2 contain-[layout_paint]"
       ref={listRef}
     >
       {virtualize ? (

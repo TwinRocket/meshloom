@@ -495,7 +495,7 @@ export function SettingsLocalSection({
                     setTextReplaceMapJson(DEFAULT_MAP_JSON);
                     setTextReplaceError(null);
                   }}
-                  className="inline-flex h-8 items-center justify-center rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="inline-flex h-8 items-center justify-center rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t('settings.local.textReplaceReset')}
                 </button>
@@ -569,7 +569,7 @@ export function SettingsLocalSection({
             <button
               type="button"
               onClick={() => commitFontScale(DEFAULT_FONT_SCALE)}
-              className="inline-flex h-9 items-center justify-center rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-input px-3 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               disabled={fontScale === DEFAULT_FONT_SCALE}
             >
               {t('settings.local.reset')}
@@ -941,7 +941,9 @@ function PreviewMessage({
     <div className={`flex ${alignRight ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[85%] ${alignRight ? 'items-end' : 'items-start'} flex flex-col`}>
         <span className="mb-1 text-[0.6875rem] text-muted-foreground">{sender}</span>
-        <div className={`rounded-2xl px-3 py-2 text-sm break-words ${bubbleClassName}`}>{text}</div>
+        <div className={`rounded-2xl px-3 py-2 text-sm wrap-break-word ${bubbleClassName}`}>
+          {text}
+        </div>
       </div>
     </div>
   );

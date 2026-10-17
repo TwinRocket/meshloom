@@ -97,7 +97,7 @@ export function ContactStatusInfo({ contact, ourLat, ourLon }: ContactStatusInfo
 
   return (
     <>
-      <span className="font-normal text-sm text-muted-foreground flex-shrink-0">
+      <span className="font-normal text-sm text-muted-foreground shrink-0">
         (
         {parts.map((part, i) => (
           <span key={i}>

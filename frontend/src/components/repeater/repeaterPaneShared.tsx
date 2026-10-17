@@ -182,7 +182,7 @@ export function RepeaterPane({
             onClick={onRefresh}
             disabled={disabled || state.loading}
             className={cn(
-              'p-1 rounded transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'p-1 rounded transition-colors disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
               disabled || state.loading
                 ? 'text-muted-foreground'
                 : 'text-success hover:bg-accent hover:text-success'
@@ -191,10 +191,7 @@ export function RepeaterPane({
             aria-label={t('repeater.refreshTitle', { title })}
           >
             <RefreshIcon
-              className={cn(
-                'w-3.5 h-3.5',
-                state.loading && 'animate-spin [animation-direction:reverse]'
-              )}
+              className={cn('w-3.5 h-3.5', state.loading && 'animate-spin direction-reverse')}
             />
           </button>
         )}

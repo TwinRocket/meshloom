@@ -329,13 +329,7 @@ describe('ConversationPane', () => {
     const list = await screen.findByTestId('message-list');
     const input = screen.getByTestId('message-input');
     const wrapper = list.parentElement;
-    expect(wrapper).toHaveClass(
-      'max-w-none',
-      'lg:max-w-[52rem]',
-      '2xl:max-w-[64rem]',
-      'flex-1',
-      'min-h-0'
-    );
+    expect(wrapper).toHaveClass('max-w-none', 'lg:max-w-208', '2xl:max-w-5xl', 'flex-1', 'min-h-0');
     expect(wrapper).toContainElement(input);
     expect(wrapper).not.toContainElement(screen.getByTestId('chat-header'));
   });

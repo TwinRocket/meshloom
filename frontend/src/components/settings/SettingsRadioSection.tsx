@@ -403,7 +403,7 @@ function RadioTransportPanel({
             id="radio-serial-port"
             value={serialPort}
             onChange={(e) => setSerialPort(e.target.value)}
-            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
           >
             <option value="">{t('settings.radio.serialAutoDetect')}</option>
             {snapshot.serial_ports.map((port) => (
@@ -1444,7 +1444,7 @@ export function SettingsRadioSection({
             the content below. Scrolling keeps one row at any width or language. */}
         <TabsList
           ref={tabListRef}
-          className="flex w-full justify-start gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex w-full justify-start gap-1 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden"
         >
           <TabsTrigger value="connection" className="shrink-0">
             {t('settings.radio.tabConnection')}
@@ -1604,7 +1604,7 @@ export function SettingsRadioSection({
                     id="preset"
                     value={currentPreset}
                     onChange={(e) => handlePresetChange(e.target.value)}
-                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   >
                     <option value="custom">{t('settings.radio.custom')}</option>
                     {RADIO_PRESETS.map((preset) => (
@@ -1686,7 +1686,7 @@ export function SettingsRadioSection({
                       id="path-hash-mode"
                       value={pathHashMode}
                       onChange={(e) => setPathHashMode(e.target.value)}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
                       <option value="0">{t('settings.radio.pathHash1')}</option>
                       <option value="1">{t('settings.radio.pathHash2')}</option>
@@ -1801,7 +1801,7 @@ export function SettingsRadioSection({
                       id="advert-location-source"
                       value={advertLocationSource}
                       onChange={(e) => setAdvertLocationSource(e.target.value as 'off' | 'current')}
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
                       <option value="off">{t('settings.radio.advertOff')}</option>
                       <option value="current">{t('settings.radio.includeLocation')}</option>
@@ -1829,7 +1829,7 @@ export function SettingsRadioSection({
                         id="telemetry-mode-base"
                         value={telemetryModeBase}
                         onChange={(e) => setTelemetryModeBase(Number(e.target.value))}
-                        className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       >
                         <option value={0}>{t('settings.radio.deny')}</option>
                         <option value={1}>{t('settings.radio.perContact')}</option>
@@ -1844,7 +1844,7 @@ export function SettingsRadioSection({
                         id="telemetry-mode-loc"
                         value={telemetryModeLoc}
                         onChange={(e) => setTelemetryModeLoc(Number(e.target.value))}
-                        className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       >
                         <option value={0}>{t('settings.radio.deny')}</option>
                         <option value={1}>{t('settings.radio.perContact')}</option>
@@ -1859,7 +1859,7 @@ export function SettingsRadioSection({
                         id="telemetry-mode-env"
                         value={telemetryModeEnv}
                         onChange={(e) => setTelemetryModeEnv(Number(e.target.value))}
-                        className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       >
                         <option value={0}>{t('settings.radio.deny')}</option>
                         <option value={1}>{t('settings.radio.perContact')}</option>
@@ -2079,7 +2079,7 @@ export function SettingsRadioSection({
                     rows={4}
                     placeholder={'nl-gr\nde-by\nMyRegion'}
                     spellCheck={false}
-                    className="flex w-full max-w-md rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full max-w-md rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
                     {t('settings.radio.knownRegionsHelp')}
@@ -2262,7 +2262,7 @@ export function SettingsRadioSection({
                     max="1000"
                     value={maxRadioContacts}
                     onChange={(e) => setMaxRadioContacts(e.target.value)}
-                    className="max-w-[8rem]"
+                    className="max-w-32"
                   />
                   <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
                     {t('settings.radio.maxContactsHelp')}

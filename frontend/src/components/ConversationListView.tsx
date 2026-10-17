@@ -382,7 +382,7 @@ export function ConversationListView({
               type="button"
               onClick={onCollapseList}
               aria-label={t('conversationList.collapseList')}
-              className="-ml-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+              className="-ml-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
             >
               <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -397,7 +397,7 @@ export function ConversationListView({
             health={health ?? null}
             onOpenStatus={onOpenRadioStatus}
             updateAvailable={updateAvailable}
-            className="ml-auto max-w-[9rem] md:hidden"
+            className="ml-auto max-w-36 md:hidden"
           />
           {/* Both halves are always rendered and the platform stylesheet picks:
               a labelled pill in the header here, a floating action button with the
@@ -408,7 +408,7 @@ export function ConversationListView({
             onClick={onNewMessage}
             data-compose-action=""
             aria-label={t('conversationList.new')}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
           >
             <Plus className="hidden h-5 w-5" aria-hidden="true" data-compose-icon="" />
             <span data-compose-label="">{t('conversationList.new')}</span>
@@ -427,14 +427,14 @@ export function ConversationListView({
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t('conversationList.searchPlaceholder')}
               aria-label={t('conversationList.searchPlaceholder')}
-              className="h-10 w-full rounded-full border border-border bg-muted/40 pl-9 pr-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-10 w-full rounded-full border border-border bg-muted/40 pl-9 pr-9 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery('')}
                 aria-label={t('conversationList.clearSearch')}
-                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -443,7 +443,7 @@ export function ConversationListView({
         </div>
 
         <div
-          className="flex gap-2 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible"
+          className="flex gap-2 overflow-x-auto px-4 pb-2 scrollbar-none [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible"
           role="group"
           aria-label={t('conversationList.filterLabel')}
         >
@@ -457,7 +457,7 @@ export function ConversationListView({
                 aria-pressed={active}
                 className={cn(
                   'shrink-0 rounded-full border px-3 py-1.5 text-sm transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                   active
                     ? 'border-primary/50 bg-primary/15 text-primary'
                     : 'border-border text-muted-foreground'
@@ -478,7 +478,7 @@ export function ConversationListView({
               type="button"
               onClick={onMarkAllRead}
               aria-label={t('sidebar.markAllRead')}
-              className="block w-full rounded-full border border-border px-3 py-1.5 text-center text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="block w-full rounded-full border border-border px-3 py-1.5 text-center text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t('conversationList.markAllRead')}
             </button>
@@ -491,7 +491,7 @@ export function ConversationListView({
           <div className={cn('border-b border-border/25 pt-1', !favoritesCollapsed && 'pb-3')}>
             <button
               type="button"
-              className="flex w-full items-center gap-2 px-4 pb-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="flex w-full items-center gap-2 px-4 pb-2 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               aria-expanded={!favoritesCollapsed}
               aria-label={
                 favoritesCollapsed
@@ -528,13 +528,13 @@ export function ConversationListView({
                     <button
                       type="button"
                       onClick={() => onSelectConversation(row.conversation)}
-                      className="flex w-full flex-col items-center gap-1 rounded-lg p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex w-full flex-col items-center gap-1 rounded-lg p-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="relative">
                         <ConversationAvatar row={row} size={48} />
                         {row.unread > 0 && (
                           <span
-                            className="absolute -right-1 -top-1 min-w-[1.125rem] rounded-full bg-primary px-1 py-px text-center text-[0.625rem] font-semibold text-primary-foreground"
+                            className="absolute -right-1 -top-1 min-w-4.5 rounded-full bg-primary px-1 py-px text-center text-[0.625rem] font-semibold text-primary-foreground"
                             aria-hidden="true"
                           >
                             {row.unread > 99 ? '99+' : row.unread}
@@ -574,7 +574,7 @@ export function ConversationListView({
                       type="button"
                       onClick={() => onSelectConversation(row.conversation)}
                       aria-current={isOpen(row) ? 'page' : undefined}
-                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
                       <ConversationAvatar row={row} size={44} showFavoriteMark />
 

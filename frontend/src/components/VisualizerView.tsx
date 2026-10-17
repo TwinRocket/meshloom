@@ -94,7 +94,7 @@ export function VisualizerView({
         onBack={onBackToTools}
         actions={
           <button
-            className="hidden md:inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="hidden md:inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onClick={toggleFullScreen}
             title={paneFullScreen ? t('visualizer.exitFullscreen') : t('visualizer.fullscreen')}
             aria-label={
@@ -146,7 +146,7 @@ export function VisualizerView({
           <div
             className={cn(
               'flex flex-col overflow-hidden transition-all duration-200',
-              'w-full lg:w-2/5 lg:min-w-[22rem] lg:max-w-[38rem]',
+              'w-full lg:w-2/5 lg:min-w-88 lg:max-w-152',
               mobileTab !== 'packets' && 'hidden',
               fullScreen ? 'lg:hidden' : 'lg:flex'
             )}
