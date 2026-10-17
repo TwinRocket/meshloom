@@ -254,8 +254,10 @@ order in `app/AGENTS.md`, "## Backups"):
 
 - An SQLite file snapshot via the SQLite backup API (`write_sqlite_backup`,
   `GET /settings/backup/database`), never restored from the UI. The private key
-  is not in the database, so not in the snapshot. The copy (never the live
-  database) gets a one-row `meshloom_backup_snapshot` marker table: a database
+  is not in the database, so not in the snapshot. In the copy (never the live
+  database) every `app_settings.*_seed` column, the BLE PIN and the
+  previous-transport snapshot are set to NULL, and a one-row
+  `meshloom_backup_snapshot` marker table is added: a database
   that starts with it is a restored snapshot, so startup runs the restore hooks
   and drops it (`docs/dev/backup.md`). A fresh database never has it.
 - `meshloom-backup-v1` (`export_json` / `restore_json`, `GET
