@@ -5,7 +5,7 @@ name: All Quality
 # not a trigger here: the release and the image run it themselves, once each.
 # Every branch and every pull request, whatever its base: main and the 5.0.0
 # integration branch preversion-5 are both covered without being named. A
-# forward-merge into preversion-5 (forward-merge.yml) is pushed with GITHUB_TOKEN
+# forward-merge into preversion-5 (forward-merge.yml) is merged with GITHUB_TOKEN
 # and starts nothing; the docker.yml run it dispatches calls this workflow.
 on:
   push:

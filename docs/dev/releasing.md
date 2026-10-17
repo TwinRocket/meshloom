@@ -21,43 +21,46 @@ rotation steps are in `pkg/keys/README.md`.
   target it, under the same rules as `main` (PR, the three required checks,
   merge commit only). It publishes the `:next` image. At the 5.0.0 cut it
   merges into `main` and is deleted; no release is ever cut from it.
-- `forward-merge.yml` keeps `preversion-5` up to date: every push to `main` is
-  merged into it through the REST merge API (a merge commit, never a rebase or
-  a force push). It does nothing while `preversion-5` does not exist. On a
-  conflict, or any refusal, it opens a PR `main → preversion-5` (or comments on
-  the open one) and fails. Resolve it on a branch of your own (`git switch -c
-  fm/main origin/main && git merge origin/preversion-5`, then a PR into
-  `preversion-5`), never with the web conflict editor, which would commit to
-  `main`.
-- A push made with `GITHUB_TOKEN` starts no workflow, so after a merge the job
-  dispatches `docker.yml` (quality, `:next`, deploy) and `codeql.yml` on
-  `preversion-5`. The repository has no GitHub App token that would avoid it.
-- What an admin configures, outside the repository files:
-  - the `preversion-5` ruleset (the same rules and checks as `main`), with
-    **GitHub Actions** (app id 15368, actor type Integration) as a bypass
-    actor: without it the ruleset's PR rule refuses the forward-merge. The
-    bypass covers every workflow run with `contents: write`; today those run
-    only on tags or by hand (`release.yml`, `sign-manifest.yml`,
-    `nfpm-armhf.yml`, `rpi-image.yml`).
-  - "Allow GitHub Actions to create and approve pull requests" (Settings >
-    Actions > General), for the conflict PR. Without it the job still fails,
-    with a compare link in the run summary.
-  - the `NEXT_DEPLOY_WEBHOOKS` secret (below).
-- Some `main` commits are expected to come back as a conflict PR and a red
-  forward-merge run, not as a bug:
-  - a release commit (`publish.sh`: the version files, `uv.lock`,
-    `CHANGELOG.md`, `LICENSES.md`), whenever `preversion-5` has changed the
-    same lines (its own `CHANGELOG.md` entries, a dependency bump);
-  - a commit touching `.github/workflows/`: GitHub refuses a `GITHUB_TOKEN`
-    push that changes a workflow file, whatever its content.
-
-  Resolve them the same way: `git switch -c fm/main origin/main && git merge
-  origin/preversion-5`, keep `preversion-5`'s side for 5.0.0 content and
-  `main`'s for the 4.18.x release lines (the 5.0.0 version is set at the cut),
-  push, and open a PR into `preversion-5` (merge commit). Your push is a human
-  one, so its checks run; a PR opened with `GITHUB_TOKEN` runs none until
-  someone pushes to it. A failed lookup of `preversion-5` (anything but a 404)
-  or a failed dispatch after a merge also turns the run red.
+- `forward-merge.yml` keeps `preversion-5` up to date: every push to `main`
+  that `preversion-5` does not already contain (compare API) reaches it through
+  a PR `main → preversion-5`. The job opens it with `GITHUB_TOKEN`, or reuses
+  the open one from `TwinRocket:main`, and enables auto-merge with the merge
+  method (a merge commit, never a rebase or a force push). It does nothing
+  while `preversion-5` does not exist (a 404); any other lookup error is a red
+  run.
+- Why a PR: the `preversion-5` ruleset (25317546, the same rules and checks as
+  `main`, admin bypass only) requires one, and GitHub refuses GitHub Actions as
+  a bypass actor on a repository ruleset (organisation rulesets need GitHub
+  Team). The required checks are read on the PR head, which is `main`'s
+  commit: the push run on `main` reports `all-quality` and the two `analyze`
+  checks there. A PR opened with `GITHUB_TOKEN` starts no `pull_request`
+  workflow, and needs none.
+- A merge made with `GITHUB_TOKEN` (auto-merge included, since the job enabled
+  it) starts no push workflow on `preversion-5`. So the job waits for the merge
+  (polling, at most 60 minutes), then dispatches `docker.yml` (quality,
+  `:next`, deploy) and `codeql.yml` on `preversion-5`. A failed dispatch is a
+  red run.
+- The run goes red, with a comment on the PR, when the PR has conflicts, when
+  auto-merge cannot be enabled or GitHub switches it off (a failed merge), when
+  the PR is closed, or when it is not merged within the wait (a required check
+  red on `main`). If the PR merges later, after the wait, dispatch `docker.yml`
+  and `codeql.yml` on `preversion-5` by hand (`gh workflow run docker.yml
+  --ref preversion-5`).
+- Resolve a conflict on a branch of your own: `git switch -c fm/main
+  origin/main && git merge origin/preversion-5`, keep `preversion-5`'s side
+  for 5.0.0 content and `main`'s for the 4.18.x lines, push, open a PR into
+  `preversion-5` (merge commit). Never use the web conflict editor on the
+  `main → preversion-5` PR: it would commit the resolution to `main`. Once your
+  PR is merged, the `main → preversion-5` PR has nothing left and GitHub marks
+  it merged. Expect conflicts from release commits (`publish.sh`: the version
+  files, `uv.lock`, `CHANGELOG.md`, `LICENSES.md`) whenever `preversion-5` has
+  changed the same lines. A `main` commit touching `.github/workflows/` may
+  also be refused at merge time (GitHub limits what `GITHUB_TOKEN` may change
+  there): auto-merge is switched off, the run goes red, and an admin merges
+  the PR by hand.
+- What an admin configures, outside the repository files: the `preversion-5`
+  ruleset; "Allow GitHub Actions to create and approve pull requests" and
+  "Allow auto-merge" (Settings); the `NEXT_DEPLOY_WEBHOOKS` secret (below).
 
 ## Chain
 
