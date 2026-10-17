@@ -17,6 +17,7 @@ app at load time, so the repository and ``app.models`` can both import it.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
@@ -25,6 +26,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 if TYPE_CHECKING:
     from app.models import AppSettings
+
+logger = logging.getLogger(__name__)
 
 MAX_ALLOWED_ORIGINS = 32
 MAX_ORIGIN_LENGTH = 255
@@ -90,10 +93,34 @@ def current() -> tuple[str, ...]:
     return _current
 
 
+def _valid_stored_origins(stored: list[str]) -> tuple[str, ...]:
+    """Keep the entries that pass the PATCH validation, drop and log the rest.
+
+    The column can be written outside the API (manual SQL, a restore): a ``*``
+    reaching Starlette together with credentials would reflect every Origin.
+    """
+    origins: list[str] = []
+    for raw in stored:
+        try:
+            origin = normalize_origin(raw)
+        except ValueError as exc:
+            logger.warning("Ignoring invalid allowed origin %r: %s", raw, exc)
+            continue
+        if origin in origins:
+            continue
+        if len(origins) >= MAX_ALLOWED_ORIGINS:
+            logger.warning(
+                "Ignoring allowed origin %r: over the %d limit", raw, MAX_ALLOWED_ORIGINS
+            )
+            continue
+        origins.append(origin)
+    return tuple(origins)
+
+
 def apply(app_settings: AppSettings) -> tuple[str, ...]:
-    """Replace the in-memory list with ``app_settings.auth_allowed_origins``."""
+    """Replace the in-memory list with the valid ``auth_allowed_origins``."""
     global _current
-    _current = tuple(app_settings.auth_allowed_origins)
+    _current = _valid_stored_origins(app_settings.auth_allowed_origins)
     return _current
 
 

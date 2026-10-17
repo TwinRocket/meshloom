@@ -44,6 +44,12 @@ deliberate. These are documented and are not treated as vulnerabilities:
   It can still send requests that need no preflight (a `POST` with no body)
   without reading the answer. Nothing checks `Host` for the HTTP API either
   (DNS rebinding).
+  The WebSocket `Origin` rule (MSHL-7) does not use the allowed-origins list
+  yet, so a listed site gets the HTTP API but its `/api/ws` connection is
+  refused; a shared `app/origin_policy.py` for both rules is the follow-up.
+  The stored list is re-validated when read: an entry written outside the API
+  (SQL, a restore) that is a wildcard, `null`, or not a plain `http(s)` origin is
+  ignored and logged.
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can
   make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
   turns them off; the Linux package does so by default.

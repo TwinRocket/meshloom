@@ -1,5 +1,7 @@
 """CORS: same-origin by default, plus the origins listed in Settings (MSHL-5)."""
 
+import json
+
 import pytest
 
 from app import cors
@@ -174,3 +176,56 @@ class TestValidation:
         assert response.status_code == 422
         assert response.json()["detail"][0]["loc"] == ["body", "auth_allowed_origins"]
         assert (await AppSettingsRepository.get()).auth_allowed_origins == [LISTED]
+
+
+class TestStoredListIsRevalidated:
+    """A value written outside the API never re-enables credentialed reflection."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "bad",
+        ["*", "null", "https://*.example.org", "https://a.org/path", "ftp://a.org", "file:///x"],
+    )
+    async def test_load_drops_invalid_entries(self, test_db, bad, caplog):
+        raw = json.dumps([bad, LISTED])
+        await test_db.conn.execute("UPDATE app_settings SET auth_allowed_origins = ?", (raw,))
+        await test_db.conn.commit()
+        cors.reset()
+
+        with caplog.at_level("WARNING", logger="app.cors"):
+            assert await cors.load() == (LISTED,)
+
+        assert "Ignoring invalid allowed origin" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_raw_wildcard_does_not_reflect_origins(self, test_db, client):
+        await test_db.conn.execute(
+            "UPDATE app_settings SET auth_allowed_origins = ?", (json.dumps(["*"]),)
+        )
+        await test_db.conn.commit()
+        await cors.load()
+
+        async with client:
+            response = await client.get("/api/settings", headers={"Origin": UNLISTED})
+
+        assert cors.current() == ()
+        assert "access-control-allow-origin" not in response.headers
+        assert "access-control-allow-credentials" not in response.headers
+
+    @pytest.mark.asyncio
+    async def test_reload_after_update_drops_a_wildcard(self, test_db):
+        await AppSettingsRepository.update(auth_allowed_origins=["*", LISTED.upper()])
+
+        assert cors.current() == (LISTED,)
+
+    @pytest.mark.asyncio
+    async def test_backup_restore_carrying_a_wildcard_changes_nothing(self, test_db):
+        from app.models import AppSettings
+        from app.services.backup import _restore_settings
+
+        await AppSettingsRepository.update(auth_allowed_origins=[LISTED])
+
+        await _restore_settings(AppSettings(auth_allowed_origins=["*"]))
+
+        assert cors.current() == (LISTED,)
+        assert "*" not in (await AppSettingsRepository.get()).auth_allowed_origins

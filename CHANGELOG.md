@@ -4,6 +4,7 @@ The server now enforces the radio's message size limit for every way of sending.
 
 ### Added
 
+- **The allowed-origins list is checked again when it is read.** An entry stored outside the settings page (manual SQL, a restore) that is `*`, `null`, has a path or is not `http(s)` is ignored and logged, so it can never let every site in.
 - **Oversized messages are refused by the server.** Until now only the web composer checked the size, so bots and API clients could send messages the radio cannot carry. The server now applies the same limit to direct messages (156 bytes) and channel messages (156 bytes minus your node name and the `: ` separator), counted in bytes, on every path including resends. An oversized message is refused with a clear error and nothing is sent or stored. Known limit: after renaming your node to a longer name, an old message that fitted may be refused on resend.
 - **The full backup can carry parts added by other features.** Features such as accounts or plugins can now add their own part to the full backup. Before you restore, the summary lists these parts and marks the ones holding secrets; a backup holding such parts asks to be encrypted. A part your Meshloom does not know, or one made by a newer version, is left aside and the rest is restored; a part that fails is left as it was. Backups from 4.18 and earlier still restore. Restore a full backup on 5.0 or later only: 4.18 restores just its contacts, channels, settings and groups, without saying so.
 
