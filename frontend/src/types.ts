@@ -591,6 +591,8 @@ export interface Message {
   packet_hash?: string | null;
   /** True for CHAN and PRIV flood; persisted so the badge survives raw-packet purge. */
   observer_reach_eligible?: boolean | null;
+  /** WS `message` events only: true when produced by historical decryption. Absent otherwise. */
+  historical?: boolean;
 }
 
 export interface MessagesAroundResponse {

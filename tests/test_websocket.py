@@ -546,3 +546,69 @@ class TestTypedEventSerialization:
             "type": "message_acked",
             "data": {"ack_count": 2},
         }
+
+
+class TestHistoricalMessageFlag:
+    """`historical` is set only on realtime=False message broadcasts, absent everywhere else."""
+
+    @staticmethod
+    def _message():
+        from app.models import Message
+
+        return Message(
+            id=1,
+            type="CHAN",
+            conversation_key="AA" * 16,
+            text="Alice: hi",
+            sender_timestamp=100,
+            received_at=101,
+        )
+
+    @staticmethod
+    def _capture(**kwargs):
+        from app.services.messages import broadcast_message
+
+        calls = []
+
+        def fn(event_type, data, **kw):
+            calls.append((event_type, data, kw))
+
+        broadcast_message(message=TestHistoricalMessageFlag._message(), broadcast_fn=fn, **kwargs)
+        return calls[0]
+
+    def test_realtime_false_sets_historical(self):
+        from app.events import dump_ws_event
+
+        _, data, kw = self._capture(realtime=False)
+        assert kw == {"realtime": False}
+        assert data["historical"] is True
+        assert json.loads(dump_ws_event("message", data))["data"]["historical"] is True
+
+    @pytest.mark.parametrize("kwargs", [{"realtime": True}, {}])
+    def test_live_payload_has_no_historical_key(self, kwargs):
+        from app.events import dump_ws_event
+
+        _, data, _ = self._capture(**kwargs)
+        assert "historical" not in data
+        assert "historical" not in json.loads(dump_ws_event("message", data))["data"]
+
+    def test_model_dump_and_json_omit_historical_when_unset(self):
+        message = self._message()
+        assert "historical" not in message.model_dump()
+        assert "historical" not in message.model_dump(mode="json")
+        assert "historical" not in json.loads(message.model_dump_json())
+
+    @pytest.mark.asyncio
+    async def test_fanout_receives_no_historical_key_for_live_message(self):
+        from app.websocket import broadcast_event
+
+        _, data, kw = self._capture(realtime=True)
+        with (
+            patch("app.websocket.ws_manager"),
+            patch("app.fanout.manager.fanout_manager") as mock_fm,
+        ):
+            mock_fm.broadcast_message = AsyncMock()
+            broadcast_event("message", data, **kw)
+            await asyncio.sleep(0)
+        mock_fm.broadcast_message.assert_called_once()
+        assert "historical" not in mock_fm.broadcast_message.call_args.args[0]

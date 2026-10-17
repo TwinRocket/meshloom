@@ -480,7 +480,12 @@ floor, never the percentage alone, and do not remove the floor.
   socket: use `ws_manager.send_raw`.
 - When `realtime=True`, `broadcast_event()` also notifies the radio proxy and
   dispatches to fanout and Web Push; `realtime=False` (historical decryption)
-  skips all three.
+  skips all three. `broadcast_message()` (`services/messages.py`) adds
+  `historical: true` to the WS `message` payload in that case; the field is
+  `exclude_if` None on `Message`, so live frames, REST rows and the dict handed
+  to fanout never carry the key. The single-room historical toasts use
+  `code="historical_decrypt_complete"` (`name` param); the bulk run uses
+  `historical_decrypt_complete_rooms` (`count` param, i18n plural).
 - When a change touches an API or WS payload, update `frontend/src/types.ts`
   and the frontend tests in the same PR.
 

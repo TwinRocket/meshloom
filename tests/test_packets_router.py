@@ -913,3 +913,74 @@ class TestMaintenanceEndpoint:
         )
 
         assert response.status_code == 422
+
+
+class TestHistoricalDecryptionFlagsMessages:
+    """The WS `message` frames of historical decryption carry `historical: true`."""
+
+    @staticmethod
+    def _result(n: int):
+        return type(
+            "DecryptResult",
+            (),
+            {"sender": f"User{n}", "message": f"Hello {n}", "timestamp": 1700000000 + n},
+        )()
+
+    @pytest.mark.asyncio
+    async def test_single_channel_path_flags_message(self, test_db):
+        from app.routers.packets import _run_historical_channel_decryption
+
+        await _insert_raw_packets(1)
+        key_hex = "AABBCCDDAABBCCDDAABBCCDDAABBCCDD"
+        events: list[tuple[str, dict, dict]] = []
+
+        with (
+            patch(
+                "app.routers.packets.try_decrypt_packet_with_channel_key",
+                return_value=self._result(1),
+            ),
+            patch("app.routers.packets.parse_packet", return_value=None),
+            patch("app.routers.packets.broadcast_success"),
+            patch(
+                "app.packet_processor.broadcast_event",
+                side_effect=lambda t, d, **kw: events.append((t, d, kw)),
+            ),
+        ):
+            await _run_historical_channel_decryption(bytes.fromhex(key_hex), key_hex, "#test")
+
+        messages = [(d, kw) for t, d, kw in events if t == "message"]
+        assert len(messages) == 1
+        data, kw = messages[0]
+        assert kw == {"realtime": False}
+        assert data["historical"] is True
+
+    @pytest.mark.asyncio
+    async def test_bulk_channel_path_flags_message_and_toast_code(self, test_db):
+        from app.routers.channels import _run_historical_channel_decryption_for_channels
+
+        await _insert_raw_packets(1)
+        key_hex = "AABBCCDDAABBCCDDAABBCCDDAABBCCDD"
+        events: list[tuple[str, dict, dict]] = []
+
+        with (
+            patch(
+                "app.routers.channels.try_decrypt_packet_with_channel_key",
+                return_value=self._result(1),
+            ),
+            patch("app.routers.channels.parse_packet", return_value=None),
+            patch("app.routers.channels.broadcast_success") as mock_success,
+            patch(
+                "app.packet_processor.broadcast_event",
+                side_effect=lambda t, d, **kw: events.append((t, d, kw)),
+            ),
+        ):
+            await _run_historical_channel_decryption_for_channels(
+                [(bytes.fromhex(key_hex), key_hex, "#test")]
+            )
+
+        messages = [(d, kw) for t, d, kw in events if t == "message"]
+        assert len(messages) == 1
+        assert messages[0][1] == {"realtime": False}
+        assert messages[0][0]["historical"] is True
+        assert mock_success.call_args.kwargs["code"] == "historical_decrypt_complete_rooms"
+        assert mock_success.call_args.kwargs["params"] == {"count": 1}
