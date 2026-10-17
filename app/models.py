@@ -488,6 +488,14 @@ class Message(BaseModel):
             "Persisted so eligibility survives raw-packet purge. Sticky true."
         ),
     )
+    historical: bool | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description=(
+            "True only on a WebSocket `message` event produced by historical decryption "
+            "(an old message stored late). Absent everywhere else: live frames, REST rows, fanout."
+        ),
+    )
 
 
 class MessagesAroundResponse(BaseModel):

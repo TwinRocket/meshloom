@@ -224,6 +224,13 @@ async def _run_historical_channel_decryption_for_channels(
                 f"across {len(matched_channel_names)} room"
                 f"{'s' if len(matched_channel_names) != 1 else ''}"
             ),
+            code="historical_decrypt_complete",
+            params={
+                "name": (
+                    f"{len(matched_channel_names)} "
+                    f"room{'s' if len(matched_channel_names) != 1 else ''}"
+                )
+            },
         )
 
 

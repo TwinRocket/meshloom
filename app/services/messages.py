@@ -109,6 +109,9 @@ def broadcast_message(
 ) -> None:
     """Broadcast a message payload, preserving the caller's broadcast signature."""
     payload = message.model_dump()
+    if realtime is False:
+        # Historical decryption: lets the client tell an old message stored late from a live one.
+        payload["historical"] = True
     if packet_hash is not None:
         payload["packet_hash"] = packet_hash
     if realtime is None:
