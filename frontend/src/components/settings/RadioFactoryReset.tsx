@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../../api';
+import { useRadioWifiState } from '../../stores/radioWifiStore';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -15,8 +16,9 @@ import { Label } from '../ui/label';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 
 /**
- * Danger zone: erases the radio (identity, contacts, channels, radio settings).
- * The radio name must be typed exactly; the backend checks it again.
+ * Danger zone: erases the radio (identity, contacts, channels, radio settings, and
+ * the Wi-Fi credentials stored in it: the firmware formats its file system). The
+ * radio name must be typed exactly; the backend checks it again.
  */
 export function RadioFactoryReset({ radioName }: { radioName: string }) {
   const { t } = useTranslation();
@@ -25,6 +27,26 @@ export function RadioFactoryReset({ radioName }: { radioName: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [overTcp, setOverTcp] = useState(false);
+  const wifi = useRadioWifiState();
+  const wifiStored = wifi?.credentials_stored === true;
+
+  // Only a radio with stored Wi-Fi credentials needs to know how Meshloom reaches it.
+  useEffect(() => {
+    if (!open || !wifiStored) return;
+    let cancelled = false;
+    api
+      .getRadioTransport()
+      .then((next) => {
+        if (!cancelled) setOverTcp(next.transport === 'tcp');
+      })
+      .catch(() => {
+        // The stronger warning is a hint only.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, wifiStored]);
 
   const handleOpenChange = (next: boolean) => {
     if (busy) return;
@@ -113,6 +135,16 @@ export function RadioFactoryReset({ radioName }: { radioName: string }) {
                 ))}
               </ul>
             </div>
+            {wifiStored && (
+              <p className="text-warning" role="note">
+                {t('settings.radio.factoryReset.wifiStoredWarning')}
+              </p>
+            )}
+            {wifiStored && overTcp && (
+              <p className="font-semibold text-destructive" role="note">
+                {t('settings.radio.factoryReset.wifiTcpWarning')}
+              </p>
+            )}
             <p className="text-muted-foreground">{t('settings.radio.factoryReset.after')}</p>
             <div className="space-y-2">
               <Label htmlFor="radio-factory-reset-confirm">

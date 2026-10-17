@@ -3,6 +3,7 @@ testing, and post-connect setup ordering.
 """
 
 import asyncio
+import logging
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -379,6 +380,16 @@ class TestExpectedReboot:
         assert rm.expected_reboot == "clock_sync"
         assert rm.is_setup_complete is False
 
+    def test_wifi_config_is_a_known_reason(self):
+        from app.radio import RadioManager
+        from app.services.radio_lifecycle import expected_reboot_reason
+
+        rm = RadioManager()
+        rm.note_expected_reboot("wifi_config")
+        assert expected_reboot_reason(rm) == "wifi_config"
+        rm._expected_reboot_reason = "something_else"  # type: ignore[assignment]
+        assert expected_reboot_reason(rm) is None
+
     def test_no_longer_expected_past_the_grace_period(self):
         from app.radio import RadioManager
 
@@ -520,9 +531,11 @@ class TestConnectionMonitorAfterClockReboot:
         assert rm.is_setup_complete is True
 
     @pytest.mark.asyncio
-    async def test_reboot_outside_setup_with_surviving_transport_reruns_setup(self):
-        """Periodic sync or a config update rebooted the radio behind a serial
-        bridge that kept the port open: the monitor reconnects and reruns setup."""
+    @pytest.mark.parametrize("reason", ["clock_sync", "wifi_config"])
+    async def test_reboot_outside_setup_with_surviving_transport_reruns_setup(self, reason, caplog):
+        """Periodic sync, a config update or a Wi-Fi change rebooted the radio
+        behind a serial bridge that kept the port open: the monitor reconnects
+        and reruns setup (and with it the Wi-Fi check)."""
         from app.radio import RadioManager
 
         rm = RadioManager()
@@ -531,7 +544,8 @@ class TestConnectionMonitorAfterClockReboot:
         rm._meshcore = old_mc
         rm._last_connected = True
         rm._setup_complete = True
-        rm.note_expected_reboot("clock_sync")
+        rm.note_expected_reboot(reason)
+        caplog.set_level(logging.INFO, logger="app.services.radio_lifecycle")
 
         async def _setup():
             rm._setup_complete = True
@@ -550,6 +564,11 @@ class TestConnectionMonitorAfterClockReboot:
         assert [c.args[0] for c in mock_health.call_args_list] == [False, True]
         assert _error_codes(mock_error) == []
         assert rm.expected_reboot is None
+        purpose = "Wi-Fi settings" if reason == "wifi_config" else "reset its clock"
+        assert any(
+            "reconnecting to run setup again" in r.getMessage() and purpose in r.getMessage()
+            for r in caplog.records
+        )
 
     @pytest.mark.asyncio
     async def test_bound_passing_during_a_long_setup_is_not_reported(self):
@@ -572,12 +591,13 @@ class TestConnectionMonitorAfterClockReboot:
         assert rm.expected_reboot is None
 
     @pytest.mark.asyncio
-    async def test_radio_that_never_comes_back_surfaces_errors_past_the_bound(self):
+    @pytest.mark.parametrize("reason", ["clock_sync", "wifi_config"])
+    async def test_radio_that_never_comes_back_surfaces_errors_past_the_bound(self, reason):
         from app.radio import RadioManager
 
         rm = RadioManager()
         rm._connection_info = "Serial: /dev/ttyACM0"
-        rm.note_expected_reboot("clock_sync")
+        rm.note_expected_reboot(reason)
         rm._expected_reboot_deadline = 0.0  # grace period over
         rm.connect = AsyncMock(side_effect=RuntimeError("Failed to open serial connection"))
         rm.post_connect_setup = AsyncMock()
@@ -586,6 +606,8 @@ class TestConnectionMonitorAfterClockReboot:
 
         # One message on the pass where the bound runs out; no reconnect on it.
         assert _error_codes(mock_error) == ["radio_reboot_timeout"]
+        assert mock_error.call_args.kwargs["params"] == {"reason": reason}
+        assert ("Wi-Fi" in mock_error.call_args.args[0]) is (reason == "wifi_config")
         rm.connect.assert_not_awaited()
         rm.post_connect_setup.assert_not_awaited()
 

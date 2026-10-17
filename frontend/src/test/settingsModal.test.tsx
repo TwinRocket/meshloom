@@ -636,6 +636,51 @@ describe('SettingsModal', () => {
     ).toBeInTheDocument();
   });
 
+  it('says the radio is rebooting to apply Wi-Fi settings when that is the reason', () => {
+    renderModal({
+      health: {
+        ...baseHealth,
+        radio_connected: false,
+        radio_state: 'rebooting',
+        reboot_reason: 'wifi_config',
+      },
+    });
+    openRadioSection();
+    openRadioTab('tabConnection');
+
+    expect(
+      screen.getByText(
+        i18n.t('settings.radio.rebootingWifiConfig', { info: 'Serial: /dev/ttyUSB0' })
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('names the Wi-Fi reason when a reconnect hits a Wi-Fi reboot', async () => {
+    const info = vi.spyOn(toast, 'info');
+    const onReconnect = vi.fn(async (): Promise<RadioReconnectResponse> => ({
+      status: 'pending',
+      code: 'radio_rebooting',
+      message: 'The radio is rebooting to apply its Wi-Fi settings',
+      params: { reason: 'wifi_config' },
+      connected: false,
+    }));
+    renderModal({
+      health: { ...baseHealth, radio_connected: false, radio_state: 'paused' },
+      onReconnect,
+    });
+    openRadioSection();
+    openRadioTab('tabConnection');
+
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.radio.reconnect') }));
+
+    await waitFor(() => {
+      expect(info).toHaveBeenCalledWith(
+        i18n.t('settings.radio.rebootingReconnectRequestedWifiConfig')
+      );
+    });
+    info.mockRestore();
+  });
+
   it('tells a reconnect that hit the clock-fix reboot that the radio comes back by itself', async () => {
     const info = vi.spyOn(toast, 'info');
     const success = vi.spyOn(toast, 'success');

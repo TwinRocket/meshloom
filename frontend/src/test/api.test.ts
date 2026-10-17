@@ -459,6 +459,36 @@ describe('fetchJson (via api methods)', () => {
       expect(JSON.parse(options.body)).toEqual({ name: 'NewName' });
     });
 
+    it('calls the radio Wi-Fi endpoints', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ check: 'done' }),
+      });
+
+      await api.getRadioWifi();
+      await api.getRadioWifi(true);
+      await api.setRadioWifiCredentials({ ssid: ' Net ', password: 'pw', open_network: false });
+      await api.setRadioWifiEnabled({ enabled: false, reboot: true });
+      await api.dismissRadioWifiPrompt({ radio_public_key: 'ab'.repeat(32) });
+      await api.rebootRadioForWifi();
+
+      expect(mockFetch.mock.calls.map(([url, options]) => [url, options.method])).toEqual([
+        ['./api/radio/wifi', undefined],
+        ['./api/radio/wifi?refresh=true', undefined],
+        ['./api/radio/wifi/credentials', 'PUT'],
+        ['./api/radio/wifi/enabled', 'PUT'],
+        ['./api/radio/wifi/prompt/dismiss', 'POST'],
+        ['./api/radio/wifi/reboot', 'POST'],
+      ]);
+      expect(JSON.parse(mockFetch.mock.calls[2][1].body)).toEqual({
+        ssid: ' Net ',
+        password: 'pw',
+        open_network: false,
+      });
+      expect(JSON.parse(mockFetch.mock.calls[3][1].body)).toEqual({ enabled: false, reboot: true });
+    });
+
     it('calls radio transport and identity endpoints', async () => {
       installMockFetch();
       mockFetch.mockResolvedValue({
@@ -468,6 +498,7 @@ describe('fetchJson (via api methods)', () => {
 
       await api.getRadioTransport();
       await api.updateRadioTransport({ transport: 'tcp', tcp_host: '10.0.0.1', tcp_port: 5000 });
+      await api.revertRadioTransport();
       await api.getRadioProxy();
       await api.updateRadioProxy({ enabled: true, port: 5001 });
       await api.scanRadioBle();
@@ -480,6 +511,7 @@ describe('fetchJson (via api methods)', () => {
       expect(mockFetch.mock.calls.map(([url, options]) => [url, options.method])).toEqual([
         ['./api/radio/transport', undefined],
         ['./api/radio/transport', 'PUT'],
+        ['./api/radio/transport/revert', 'POST'],
         ['./api/radio/proxy', undefined],
         ['./api/radio/proxy', 'PATCH'],
         ['./api/radio/transport/ble-scan', 'POST'],
@@ -494,11 +526,11 @@ describe('fetchJson (via api methods)', () => {
         tcp_host: '10.0.0.1',
         tcp_port: 5000,
       });
-      expect(JSON.parse(mockFetch.mock.calls[3][1].body)).toEqual({
+      expect(JSON.parse(mockFetch.mock.calls[4][1].body)).toEqual({
         enabled: true,
         port: 5001,
       });
-      expect(JSON.parse(mockFetch.mock.calls[8][1].body)).toEqual({ confirm_wipe: false });
+      expect(JSON.parse(mockFetch.mock.calls[9][1].body)).toEqual({ confirm_wipe: false });
     });
 
     it('sends PUT with JSON body for setPrivateKey', async () => {

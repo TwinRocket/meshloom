@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from typing import Literal
 
 from app.models import RadioTransportSnapshot
 from app.repository.radio_transport import RadioTransportRepository
@@ -211,6 +212,20 @@ async def scan_ble_devices() -> list[tuple[str, str | None]]:
     return found
 
 
+def _previous_transport_kind(
+    snapshot: RadioTransportSnapshot,
+) -> Literal["serial", "tcp", "ble"] | None:
+    previous = snapshot.previous_transport
+    kind = previous.get("transport") if isinstance(previous, dict) else None
+    if kind == "serial":
+        return "serial"
+    if kind == "tcp":
+        return "tcp"
+    if kind == "ble":
+        return "ble"
+    return None
+
+
 async def build_transport_response():
     from app.models import (
         RadioSerialPortInfo,
@@ -231,6 +246,7 @@ async def build_transport_response():
         ble_address=snapshot.ble_address,
         ble_pin_configured=bool(snapshot.ble_pin),
         bound_public_key=snapshot.bound_public_key,
+        previous_transport_kind=_previous_transport_kind(snapshot),
         capabilities=RadioTransportCapabilities(
             tcp=True,
             serial=True,

@@ -68,5 +68,50 @@
     "raw_packet_hex": "1500E69C7A89DD0AF6A2D69F5823B88F9720731E4B887C56932BF889255D8D926D99195927144323A42DD8A158F878B518B8304DF55E80501C7D02A9FFD578D3518283156BBA257BF8413E80A237393B2E4149BBBC864371140A9BBC4E23EB9BF203EF0D029214B3E3AAC3C0295690ACDB89A28619E7E5F22C83E16073AD679D25FA904D07E5ACF1DB5A7C77D7E1719FB9AE5BF55541EE0D7F59ED890E12CF0FEED6700818",
     "channel_name": "#six77",
     "expected_behavior": "First packet creates message and broadcasts, second packet is deduplicated (no broadcast)"
+  },
+  "health_rebooting_wifi_config": {
+    "description": "The radio reboots to apply Wi-Fi settings Meshloom stored (reboot_reason)",
+    "expected_ws_event": {
+      "type": "health",
+      "data": {
+        "status": "degraded",
+        "radio_connected": false,
+        "radio_initializing": false,
+        "radio_state": "rebooting",
+        "reboot_reason": "wifi_config",
+        "connection_info": "Serial: /dev/ttyUSB0",
+        "transport_configured": true,
+        "database_size_mb": 1.5,
+        "oldest_undecrypted_timestamp": null,
+        "fanout_statuses": {},
+        "bots_disabled": false
+      }
+    }
+  },
+  "radio_wifi_state": {
+    "description": "Wi-Fi state of the connected radio after the post-connect check (companion CLI)",
+    "expected_ws_event": {
+      "type": "radio_wifi",
+      "data": {
+        "check": "done",
+        "check_error": null,
+        "next_retry_at": null,
+        "supported": true,
+        "unsupported_reason": null,
+        "ssid": "FlasherNet",
+        "enabled": true,
+        "connected": true,
+        "ip": "192.168.1.50",
+        "tcp_port": 5000,
+        "credentials_stored": false,
+        "open_network": false,
+        "prompt_needed": true,
+        "reboot_pending": false,
+        "store_incomplete": false,
+        "store_target_ssid": null,
+        "radio_public_key": "abababababababababababababababababababababababababababababababab",
+        "checked_at": 1760000000
+      }
+    }
   }
 }

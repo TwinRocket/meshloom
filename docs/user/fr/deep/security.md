@@ -55,6 +55,10 @@ MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT=false
 
 **Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et l’accès Basic ne le couvre pas. Ne l’activez que sur un réseau de confiance.
 
+## Mot de passe Wi-Fi
+
+Meshloom n’enregistre jamais le mot de passe Wi-Fi de la radio, ni dans sa base de données ni dans ses journaux, à aucun niveau de journalisation. Pour savoir si des identifiants sont enregistrés, il relit le mot de passe dans la radio par le lien compagnon, puis l’oublie : après chaque connexion, à chaque nouvelle tentative de cette vérification, et lors d’un **Réessayer** manuel tant qu’aucune vérification n’a abouti. Enregistrer des identifiants envoie le mot de passe à la radio et le relit deux fois (une fois avant, une fois pour vérifier). En transport TCP, le lien compagnon n’est pas chiffré : le mot de passe traverse votre réseau local en clair chaque fois que Meshloom le relit ou l’enregistre, et quiconque peut observer ce réseau peut le lire. En USB ou en Bluetooth, il ne traverse pas votre réseau. Voir [Radio, contacts et canaux](/docs/deep/radio/#wi-fi).
+
 ## Instantané de support
 
 **Réglages > À propos > Ouvrir l’instantané de support de débogage** (`/api/debug`) est fait pour être collé dans un rapport de bug. Hors des logs, il contient versions, réglages et compteurs, jamais la clé privée ; les clés des contacts et des canaux n’apparaissent que sous forme d’empreintes à sens unique. Les logs ne contiennent jamais la clé privée ni un mot de passe Wi-Fi, à aucun niveau de log, `DEBUG` compris. Les logs peuvent contenir des noms et des clés de canal à tous les niveaux ; en `DEBUG`, ils peuvent aussi contenir les mots de passe de connexion aux répéteurs et aux salons, et le code PIN Bluetooth. Arrêtez la copie à la ligne `STOP COPYING HERE` pour laisser les logs de côté.

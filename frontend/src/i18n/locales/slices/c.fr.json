@@ -273,7 +273,7 @@
         "erasedSettings": "Ses réglages radio (fréquence, bande passante, SF, CR, puissance d’émission) : ils reviennent aux valeurs par défaut du firmware et doivent être saisis de nouveau dans l’onglet Radio.",
         "keptTitle": "Conservé",
         "keptDatabase": "La base de données de Meshloom : vos messages et vos contacts.",
-        "keptWifi": "Les identifiants Wi-Fi, intégrés au firmware : une radio Wi-Fi reste joignable.",
+        "keptWifi": "Les identifiants Wi-Fi intégrés au firmware, s’il y en a. Les identifiants enregistrés dans la radio sont effacés.",
         "after": "La radio redémarre et Meshloom se reconnecte tout seul, puis vous demande s’il faut adopter la nouvelle identité.",
         "confirmLabel": "Saisissez le nom de la radio pour confirmer : {{name}}",
         "confirm": "Effacer la radio",

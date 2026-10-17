@@ -100,18 +100,24 @@ and the OpenAPI page (`/docs`), not a table here.
   `Radio clock after sync` after the device query. Tests:
   `tests/test_radio_clock_wraparound.py` (fake firmware clock).
 - Whoever triggered that reboot (setup, the periodic sync, `PATCH /radio/config`),
-  `RadioManager.note_expected_reboot()` records it for
-  `EXPECTED_REBOOT_GRACE_SECONDS` (90 s): health says `radio_state: "rebooting"`,
-  reconnect failures are not broadcast, `POST /radio/reconnect` (and
-  `POST /radio/reboot` while disconnected) answers 200 `pending` with
-  `code: "radio_rebooting"` instead of racing the monitor,
+  `RadioManager.note_expected_reboot(reason)` records it for
+  `EXPECTED_REBOOT_GRACE_SECONDS` (90 s). Reasons (`ExpectedRebootReason`,
+  `services/radio_lifecycle.py`): `clock_sync` (the clock fix) and `wifi_config`
+  (a reboot that applies Wi-Fi settings, sent only by the Wi-Fi routes, see
+  "Wi-Fi"). The user-initiated `POST /radio/reboot` records none. While it runs,
+  health says `radio_state: "rebooting"` with `reboot_reason` (the frontend picks
+  its copy from it), reconnect failures are not broadcast, `POST /radio/reconnect`
+  (and `POST /radio/reboot` while disconnected) answers 200 `pending` with
+  `code: "radio_rebooting"` and `params.reason` instead of racing the monitor,
   `POST /radio/identity/adopt` returns `radio_state: "rebooting"` instead of
   `"paused"`, and the monitor drops a transport that survived the reboot (a
   serial bridge keeps the port open) so setup runs again on a new session. The
   first completed setup clears it (`prepare_connected_radio` reports healthy only
   when the transport is up and setup completed, never after a setup that found
   no transport); past the bound the monitor broadcasts only
-  `radio_reboot_timeout` on that pass, then reconnect errors surface again.
+  `radio_reboot_timeout` (`params.reason`) on that pass, then reconnect errors
+  surface again. Monitor logs name the reason; the debug snapshot shows it
+  (`runtime.expected_reboot_reason`).
 - A broadcast `error` with a `code` is translated by the frontend from
   `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
   else the backend's `details` are shown as sent.
@@ -121,6 +127,60 @@ and the OpenAPI page (`/docs`), not a table here.
   finishes, so a failed sync stays throttled (no retry storm).
 - The `meshcore` reader can raise `IndexError` on a truncated advert `LOG_DATA`
   frame: a library parsing gap. That packet's task fails; later packets still process.
+
+## Wi-Fi (companion CLI)
+
+- `services/radio_wifi.py` owns the Wi-Fi feature and its CLI sessions (routers
+  in `routers/radio_wifi.py` only validate, check 423 and map coded errors). It
+  uses lot A's helpers (`store_wifi_credentials()` and friends); never send
+  `wifi.*` commands any other way.
+- **Never a password in the DB or a log.** The stored password is read only to
+  learn whether credentials are stored: by the full check (after each connect,
+  its retries, or `GET /radio/wifi?refresh=true` when no check completed) and
+  inside `store_wifi_credentials()` (one read before, one read-back). A refresh
+  after a completed check never reads it. No route returns it; there is no
+  `set wifi.clear` route.
+- **Prompt state** (`app_settings.wifi_prompt_state`, migration 095, not in
+  `AppSettings`): JSON keyed by the lowercase radio public key with independent
+  fields: `dismissed_at` ("don't ask again", never erased), `open_network_ssid`
+  (an open network reads like "nothing stored"), and the **store-in-progress
+  marker** `store_started_at`/`store_target_ssid`, written before the first `set`
+  and cleared once the store is verified or rolled back, or when it failed
+  before its first `set` (any non-`CliError`, such as a dropped link, comes from
+  there); kept on `wifi_store_partial` or a cancellation, it makes the state report `store_incomplete` (and
+  `credentials_stored` false) after a reconnect until a verified store. Every
+  repository helper is one `json_set`/`json_remove` UPDATE.
+- **After each connect** setup calls `start_post_connect_check()`: it clears the
+  cache and spawns (through `spawn()`) one task, bound to that connection when it
+  is spawned, that runs the full check, retries a failed one at 30 s and 120 s
+  (`check: "failed"`, `next_retry_at`; a retry is skipped once a manual retry
+  completed a check), then re-checks status/IP only (non-blocking sessions) at
+  10, 30 and 60 s while Wi-Fi is enabled but not joined. It stops without writing
+  once its connection is gone (generation + `cli_link` identity), and never
+  stores credentials.
+- **Cache writes are ordered**: a state is written and broadcast inside the
+  session that computed it, only for its connection and only if no newer write
+  landed (version); re-checks merge `connected`/`ip` only. A dismissal (no radio
+  lock) patches `prompt_needed` without bumping the version, and every later
+  write of this connection applies it, so a store in flight is not lost. The
+  cache is cleared
+  in `RadioManager._reset_connected_runtime_state()`.
+- **Reboots**: whether a change needs one is decided after the store
+  (`wifi_reboot_required()`, with the flasher shortcut: nothing stored, same SSID,
+  joined now, a password). A reboot is sent only when the request says
+  `reboot: true` or through `POST /radio/wifi/reboot`, both followed by
+  `note_expected_reboot("wifi_config")`. Never use the generic `POST
+  /radio/reboot` for a Wi-Fi change: it records no planned reboot, so a serial
+  bridge survives, setup and the Wi-Fi check do not run again and reconnect
+  errors are broadcast. Never reboot after `wifi_store_unverified` or
+  `wifi_store_partial`.
+- `radio_wifi` WS event (`RadioWifiState`), broadcast with `realtime=False`
+  (WS clients only, never the proxy, fanout or Web Push).
+- `POST /radio/transport/revert` restores `previous_transport` on the server (BLE
+  PIN included; the browser never holds it) and is what the Wi-Fi panel's "Go
+  back" calls after a switch to TCP.
+- Tests: `tests/test_radio_wifi_service.py`, `tests/test_radio_wifi_router.py`
+  (including a WAL file scan for the password), `tests/test_radio_wifi_no_egress.py`.
 
 ## Sending
 

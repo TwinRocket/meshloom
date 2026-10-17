@@ -357,6 +357,7 @@ class TestDebugEndpoint:
         assert "environment" in payload
         assert payload["environment"]["connection_type"] in ("serial", "tcp", "ble")
         assert payload["runtime"]["channels_with_incoming_messages"] == 0
+        assert payload["runtime"]["expected_reboot_reason"] is None
         assert payload["database"]["total_dms"] == 0
         assert payload["database"]["total_channel_messages"] == 0
         assert payload["database"]["total_outgoing"] == 0
