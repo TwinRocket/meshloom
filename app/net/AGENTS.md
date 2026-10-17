@@ -15,11 +15,19 @@ chose (SSRF). Like every agent doc here, check it against the code.
 - Refused unless `allow_private_network`: loopback, `0.0.0.0/8`, private
   (10/8, 172.16/12, 192.168/16, fc00::/7, fec0::/10), CGNAT 100.64/10,
   link-local (169.254/16, fe80::/10), multicast, reserved 240/4, unspecified,
+  IETF protocol assignments 192.0.0.0/24, benchmarking 198.18/15 (also the
+  fake-IP pool of local DNS proxies such as Clash),
   NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), 6to4 `2002::/16`, Teredo
   `2001::/32`, IPv4-compatible `::/96`, and IPv4-mapped IPv6 of those. The
   opt-in **covers loopback** (Gotify or Home Assistant on the same host).
 - Refused whatever the flag: `169.254.169.254`, `fd00:ec2::254`,
-  `100.100.100.200` (also mapped or behind NAT64) and `metadata.google.internal`.
+  `100.100.100.200` and `metadata.google.internal`, and the documentation
+  ranges (192.0.2/24, 198.51.100/24, 203.0.113/24, 2001:db8::/32). Both also
+  inside an IPv6 transition form: IPv4-mapped, NAT64 (`64:ff9b::/96`,
+  `64:ff9b:1::/48`), IPv4-compatible `::/96`, 6to4 `2002::/16`, Teredo.
+- The host is the IDNA2008 A-label httpx puts in `Host`; DNS and SNI use it
+  too (`getaddrinfo` on the Unicode name would apply IDNA 2003: `faß.de` →
+  `fass.de`).
 - One forbidden address among the answers refuses the host.
 - Ranges are tested one by one. Never use `ipaddress.is_private` / `is_global`:
   they changed between Python 3.11 and 3.13 (mapped IPv6, 100.64/10).

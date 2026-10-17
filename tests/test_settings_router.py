@@ -756,7 +756,7 @@ class TestTelemetryAlertRulesPatchMerge:
         await update_settings(
             AppSettingsUpdate(
                 notification_destinations=NotificationDestinationsUpdate(
-                    webhook=NotificationWebhookDestUpdate(url="https://198.51.100.7/hook")
+                    webhook=NotificationWebhookDestUpdate(url="https://93.184.215.14/hook")
                 )
             )
         )

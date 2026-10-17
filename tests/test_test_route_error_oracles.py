@@ -203,7 +203,7 @@ class TestPushTestRoute:
     @pytest.mark.asyncio
     async def test_stale_subscription_is_coded_and_removed(self, test_db, client):
         await ensure_vapid_keys()
-        sub_id = await _subscription("https://198.51.100.7/push")
+        sub_id = await _subscription("https://93.184.215.14/push")
         exc = WebPushException("Push failed: 410 Gone marker", response=MagicMock(status_code=410))
         with patch("app.routers.push.send_push", new=AsyncMock(side_effect=exc)):
             response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
@@ -213,7 +213,7 @@ class TestPushTestRoute:
     @pytest.mark.asyncio
     async def test_timeout_is_a_422_like_every_delivery_failure(self, test_db, client):
         await ensure_vapid_keys()
-        sub_id = await _subscription("https://198.51.100.7/push")
+        sub_id = await _subscription("https://93.184.215.14/push")
         with patch("app.routers.push.send_push", new=AsyncMock(side_effect=TimeoutError)):
             response = await client.post(f"/api/push/subscriptions/{sub_id}/test")
         _assert_coded(response, 422, "push_timeout")

@@ -44,7 +44,9 @@ _PRIVATE_V4 = tuple(
         "127.0.0.0/8",
         "169.254.0.0/16",
         "172.16.0.0/12",
+        "192.0.0.0/24",  # IETF protocol assignments
         "192.168.0.0/16",
+        "198.18.0.0/15",  # benchmarking; also the fake-IP pool of local DNS proxies
         "224.0.0.0/4",  # multicast
         "240.0.0.0/4",  # reserved, broadcast included
     )
@@ -65,8 +67,24 @@ _PRIVATE_V6 = tuple(
         "::/96",  # deprecated IPv4-compatible
     )
 )
+# Refused whatever the flag: documentation ranges never belong to a real host.
+_DOCUMENTATION_V4 = tuple(
+    ipaddress.IPv4Network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
+)
+_DOCUMENTATION_V6 = (ipaddress.IPv6Network("2001:db8::/32"),)
+
 _IPV4_MAPPED = ipaddress.IPv6Network("::ffff:0:0/96")
-_NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
+# IPv6 forms that carry an IPv4 address in their low 32 bits.
+_EMBEDS_V4_LOW = tuple(
+    ipaddress.IPv6Network(n)
+    for n in (
+        "64:ff9b::/96",  # NAT64
+        "64:ff9b:1::/48",  # local-use NAT64 (the /96 layout)
+        "::/96",  # deprecated IPv4-compatible
+    )
+)
+_6TO4 = ipaddress.IPv6Network("2002::/16")
+_TEREDO = ipaddress.IPv6Network("2001::/32")
 
 # Refused whatever the flag: cloud instance metadata services.
 _METADATA_IPS = frozenset(
@@ -119,13 +137,37 @@ def _unmapped(ip: IPAddress) -> IPAddress:
     return ip
 
 
-def is_metadata_address(ip: IPAddress) -> bool:
+def _embedded_v4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """The IPv4 an IPv6 transition form routes to: NAT64, IPv4-compatible, 6to4, Teredo."""
+    if any(ip in net for net in _EMBEDS_V4_LOW):
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    if ip in _6TO4:
+        return ipaddress.IPv4Address((int(ip) >> 80) & 0xFFFFFFFF)
+    if ip in _TEREDO:
+        # The client address is stored inverted (RFC 4380).
+        return ipaddress.IPv4Address(~int(ip) & 0xFFFFFFFF)
+    return None
+
+
+def _forms(ip: IPAddress) -> tuple[IPAddress, ...]:
+    """The address itself and, for an IPv6 transition form, the IPv4 inside it."""
     ip = _unmapped(ip)
-    if ip in _METADATA_IPS:
-        return True
-    # The metadata IPv4 behind the well-known NAT64 prefix.
-    if isinstance(ip, ipaddress.IPv6Address) and ip in _NAT64:
-        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF) in _METADATA_IPS
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = _embedded_v4(ip)
+        if embedded is not None:
+            return (ip, embedded)
+    return (ip,)
+
+
+def is_metadata_address(ip: IPAddress) -> bool:
+    return any(form in _METADATA_IPS for form in _forms(ip))
+
+
+def is_documentation_address(ip: IPAddress) -> bool:
+    for form in _forms(ip):
+        nets = _DOCUMENTATION_V4 if isinstance(form, ipaddress.IPv4Address) else _DOCUMENTATION_V6
+        if any(form in net for net in nets):
+            return True
     return False
 
 
@@ -140,7 +182,7 @@ def is_private_address(ip: IPAddress) -> bool:
 def check_addresses(ips: Iterable[IPAddress], *, allow_private_network: bool) -> None:
     """Refuse when any address is refused: one private answer taints the host."""
     for ip in ips:
-        if is_metadata_address(ip):
+        if is_metadata_address(ip) or is_documentation_address(ip):
             raise EgressBlocked("egress_private_address")
         if not allow_private_network and is_private_address(ip):
             raise EgressBlocked("egress_private_address")
@@ -150,7 +192,9 @@ def _split(url: str, schemes: frozenset[str]) -> tuple[str, str, int]:
     try:
         parsed = httpx.URL(url.strip())
         scheme = parsed.scheme.lower()
-        host = parsed.host.lower().rstrip(".")
+        # The IDNA2008 A-label httpx also sends in Host, so DNS, SNI and Host
+        # name the same host (getaddrinfo would apply IDNA 2003: faß -> fass).
+        host = parsed.raw_host.decode("ascii").lower().rstrip(".")
         port = parsed.port
     except Exception:
         raise EgressBlocked("egress_scheme") from None

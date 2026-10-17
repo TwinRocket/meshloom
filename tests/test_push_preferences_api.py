@@ -151,11 +151,11 @@ async def test_subscribe_private_endpoint_allowed_by_the_instance_setting(test_d
 @pytest.mark.asyncio
 async def test_subscribe_public_endpoint_and_bad_scheme(test_db, client):
     ok = await client.post(
-        "/api/push/subscribe", json={"endpoint": "https://198.51.100.7/push/abc", **_KEYS}
+        "/api/push/subscribe", json={"endpoint": "https://93.184.215.14/push/abc", **_KEYS}
     )
     assert ok.status_code == 200
     bad = await client.post(
-        "/api/push/subscribe", json={"endpoint": "ftp://198.51.100.7/x", **_KEYS}
+        "/api/push/subscribe", json={"endpoint": "ftp://93.184.215.14/x", **_KEYS}
     )
     assert bad.status_code == 400
     assert bad.json()["detail"]["code"] == "egress_scheme"

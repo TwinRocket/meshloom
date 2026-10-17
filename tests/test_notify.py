@@ -100,18 +100,18 @@ def webhook_requests(monkeypatch) -> list[httpx.Request]:
 @pytest.mark.asyncio
 async def test_webhook_event_header_follows_payload(webhook_requests):
     dest = NotificationDestinations(
-        webhook=NotificationWebhookDest(url="https://198.51.100.7/hook")
+        webhook=NotificationWebhookDest(url="https://93.184.215.14/hook")
     )
     await send_webhook_alert(dest, {"event": "new_dm", "text": "hi"})
     (request,) = webhook_requests
     assert request.headers["X-Webhook-Event"] == "new_dm"
-    assert str(request.url) == "https://198.51.100.7/hook"
+    assert str(request.url) == "https://93.184.215.14/hook"
 
 
 @pytest.mark.asyncio
 async def test_webhook_telemetry_includes_node_and_metric(webhook_requests):
     dest = NotificationDestinations(
-        webhook=NotificationWebhookDest(url="https://198.51.100.7/hook")
+        webhook=NotificationWebhookDest(url="https://93.184.215.14/hook")
     )
     await send_webhook_alert(
         dest,
@@ -265,7 +265,7 @@ async def test_grandfathering_banner_dismissed_and_new_url_drops_it(test_db, cli
     await _store_raw_destinations(test_db, {"webhook": {"url": LAN_HOOK}})
     response = await client.patch(
         "/api/settings",
-        json={"notification_destinations": {"webhook": {"url": "https://198.51.100.7/x"}}},
+        json={"notification_destinations": {"webhook": {"url": "https://93.184.215.14/x"}}},
     )
     assert (
         response.json()["notification_destinations"]["webhook"]["private_network_grandfathered"]

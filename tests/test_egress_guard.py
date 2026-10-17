@@ -34,6 +34,10 @@ PRIVATE = [
     "172.16.0.1",
     "172.31.255.254",
     "192.168.1.10",
+    # IETF protocol assignments, benchmarking (fake-IP pool of local DNS proxies)
+    "192.0.0.170",
+    "198.18.0.1",
+    "198.19.255.254",
     "224.0.0.251",
     "239.255.255.250",
     "255.255.255.255",
@@ -52,8 +56,8 @@ PRIVATE = [
     # NAT64, 6to4 and Teredo are refused as whole classes
     "64:ff9b::808:808",
     "64:ff9b:1::a00:1",
-    "2002:c000:204::1",
-    "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+    "2002:c0a8:10a::1",
+    "2001:0:4136:e378:8000:63bf:f7f7:f7f7",
     # deprecated IPv4-compatible
     "::7f00:1",
 ]
@@ -64,7 +68,10 @@ PUBLIC = [
     "100.128.0.1",
     "172.32.0.1",
     "192.169.0.1",
-    "198.51.100.7",
+    "192.0.1.1",
+    "198.17.255.254",
+    "198.20.0.1",
+    "203.0.114.1",
     "2606:4700:4700::1111",
     "2a00:1450:4007:80b::200e",
     "::ffff:8.8.8.8",
@@ -74,7 +81,21 @@ METADATA = [
     "fd00:ec2::254",
     "::ffff:169.254.169.254",
     "64:ff9b::a9fe:a9fe",
+    "64:ff9b:1::a9fe:a9fe",
+    "2002:a9fe:a9fe::1",  # 6to4
+    "::a9fe:a9fe",  # IPv4-compatible
+    "2001:0:4136:e378:8000:63bf:5601:5601",  # Teredo (client address inverted)
     "100.100.100.200",
+    "::ffff:100.100.100.200",
+]
+DOCUMENTATION = [
+    "192.0.2.1",
+    "198.51.100.7",
+    "203.0.113.9",
+    "2001:db8::1",
+    "::ffff:203.0.113.9",
+    "2002:c000:204::1",  # 6to4 of 192.0.2.4
+    "64:ff9b::cb00:7109",
 ]
 
 
@@ -130,6 +151,13 @@ class TestAddressClasses:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("ip", METADATA)
     async def test_metadata_refused_even_with_the_flag(self, ip):
+        with pytest.raises(EgressBlocked) as caught:
+            await validate_destination(_url(ip), allow_private_network=True)
+        assert caught.value.code == "egress_private_address"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ip", DOCUMENTATION)
+    async def test_documentation_ranges_refused_even_with_the_flag(self, ip):
         with pytest.raises(EgressBlocked) as caught:
             await validate_destination(_url(ip), allow_private_network=True)
         assert caught.value.code == "egress_private_address"
@@ -295,6 +323,36 @@ class TestPinnedClient:
         assert request.headers["authorization"].startswith("Basic ")
         assert request.extensions["sni_hostname"] == HOST
         assert dns.lookups == [HOST]
+
+    @pytest.mark.asyncio
+    async def test_idn_host_resolved_and_sent_as_the_same_idna2008_label(self, monkeypatch):
+        """DNS, SNI and Host all use the IDNA2008 A-label: getaddrinfo on the
+        Unicode name would apply IDNA 2003 and resolve fass.de instead."""
+        lookups: list[str] = []
+
+        def fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            lookups.append(host)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", port))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+        captured: list[httpx.Request] = []
+        real = httpx.AsyncClient
+
+        class Recording(real):
+            def __init__(self, **kwargs):
+                kwargs["transport"] = httpx.MockTransport(
+                    lambda request: captured.append(request) or httpx.Response(204)
+                )
+                super().__init__(**kwargs)
+
+        dest = await validate_destination("https://Faß.de/hook")
+        assert dest.host == "xn--fa-hia.de"
+        assert lookups == ["xn--fa-hia.de"]
+        monkeypatch.setattr(httpx, "AsyncClient", Recording)
+        async with pinned_async_client(dest, timeout=5) as client:
+            await client.post(content=b"{}")
+        assert captured[0].headers["host"] == "xn--fa-hia.de"
+        assert captured[0].extensions["sni_hostname"] == "xn--fa-hia.de"
 
     @pytest.mark.asyncio
     async def test_next_validated_ip_after_a_connect_failure(self, monkeypatch):
