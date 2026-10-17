@@ -617,6 +617,22 @@ webhook's host and HTTP status), never its text: an `httpx.HTTPStatusError`
 carries the full webhook URL and its token, a `WebPushException` the push
 service's body (`tests/test_test_route_error_oracles.py`).
 
+## Messages listing (`GET /messages`)
+
+- Without `conversation_key` it is the global timeline, ordered `received_at DESC, id DESC`
+  (`before`/`before_id`, `after`/`after_id` cursors). `outgoing=true|false` filters sent or
+  received messages and combines with `type`, `q` and the cursors; absent means both.
+- `since_id=N` (integer in 1..2**63-1; 400 otherwise) returns `id > N` ordered by `id ASC`, up to
+  `limit`, with the same blocked-list, `type` and `outgoing` predicates. It is the
+  reconnect reconciliation cursor: historical decryption inserts old `received_at` with new
+  ids, which `after`/`after_id` on `(received_at, id)` never returns. It answers 400 when
+  combined with `before`, `after` (or their ids) or a non-zero `offset`. `get_around` takes none of these.
+- The app never runs `ANALYZE`, so SQLite plans without statistics: each filter form needs an
+  index that starts with its equality columns and ends in `received_at` (`id` is the rowid,
+  implicit). `idx_messages_feed_*` (migration 98) cover no filter, `type`, `outgoing` and
+  `type`+`outgoing`; `tests/test_messages_feed_filters.py` asserts no temp B-tree sort. With `since_id`, `type`/`outgoing` are written `+col` so the planner walks the rowid range instead of sorting.
+  A conversation prefix in `conversation_key` is LIKE-escaped.
+
 ## Route behaviours that are easy to break
 
 - `GET /radio/private-key` is ungated (404 when the keystore is empty);

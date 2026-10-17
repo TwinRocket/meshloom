@@ -232,6 +232,10 @@ CREATE INDEX IF NOT EXISTS idx_repeater_telemetry_pk_ts
     ON repeater_telemetry_history(public_key, timestamp);
 CREATE INDEX IF NOT EXISTS idx_contact_group_members_key
     ON contact_group_members(public_key);
+CREATE INDEX IF NOT EXISTS idx_messages_feed_type ON messages(type, received_at);
+CREATE INDEX IF NOT EXISTS idx_messages_feed_outgoing ON messages(outgoing, received_at);
+CREATE INDEX IF NOT EXISTS idx_messages_feed_type_outgoing
+    ON messages(type, outgoing, received_at);
 CREATE INDEX IF NOT EXISTS idx_messages_chan_unattributed_sender
     ON messages(sender_name) WHERE type = 'CHAN' AND sender_key IS NULL;
 """
