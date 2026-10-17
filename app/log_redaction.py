@@ -4,7 +4,8 @@ The pinned ``meshcore`` library logs whole frames at DEBUG: the outgoing
 command bytes (``Sending raw data``, ``sending pkt``), the incoming ones
 (``Received data``), the dispatched event payloads and, on a parse failure, the
 raw frame at ERROR. A companion CLI frame can carry a Wi-Fi password (``set
-wifi.pwd`` out, the ``get wifi.pwd`` reply in), so those records are redacted
+wifi.pwd`` out, the ``get wifi.pwd`` reply in) and the private key travels in
+the export (on every connect) and import frames, so those records are redacted
 here before any handler sees them.
 
 Three layers, all always on:
@@ -50,15 +51,17 @@ SECRET_MIN_LITERAL_BYTES = 4
 SECRET_OUT: frozenset[int] = frozenset(
     {
         0x42,  # CMD_RUN_CLI_COMMAND ("set wifi.pwd ...")
+        0x18,  # CMD_IMPORT_PRIVATE_KEY
     }
 )
 SECRET_IN: frozenset[int] = frozenset(
     {
         0x1D,  # RESP_CODE_CLI_REPLY ("get wifi.pwd" answer)
+        0x0E,  # RESP_CODE_PRIVATE_KEY (export, on every connect)
     }
 )
 
-_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY",)
+_SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY")
 
 # --------------------------------------------------------------------------
 # Literal secrets (secret_scope)
@@ -250,6 +253,10 @@ def _rule_received_hex(rest: str) -> str | None:
     return None
 
 
+def _rule_received_private_key(rest: str) -> str | None:
+    return REDACTED
+
+
 def _rule_unhandled(rest: str) -> str | None:
     frame = _parse_frame(rest)
     if frame is None or not frame or frame[0] in SECRET_IN:
@@ -271,6 +278,7 @@ _LINE_RULES = (
     ("Sending raw data: ", _rule_raw_data),
     ("sending pkt : ", _rule_sending_pkt),
     ("Received data: ", _rule_received_hex),
+    ("Received private key response: ", _rule_received_private_key),
     ("Unhandled data received ", _rule_unhandled),
     ("Dispatching event: ", _rule_dispatch),
 )

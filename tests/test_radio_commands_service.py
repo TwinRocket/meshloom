@@ -220,3 +220,29 @@ class TestImportPrivateKeyAndRefreshKeystore:
             )
 
         assert export_fn.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_key_is_a_registered_secret_during_the_exchange(self):
+        from app.log_redaction import REDACTED, redact_text
+
+        key = bytes(range(64))
+        seen: list[str] = []
+
+        async def import_key(key_bytes):
+            seen.append(redact_text(f"frame {key_bytes.hex()} {key_bytes!r}"))
+            return _radio_result()
+
+        async def export_fn(_mc):
+            seen.append(redact_text(f"export {key.hex().upper()}"))
+            return True
+
+        mc = _mock_meshcore_with_info()
+        mc.commands.import_private_key = import_key
+
+        await import_private_key_and_refresh_keystore(
+            mc, key, export_and_store_private_key_fn=export_fn
+        )
+
+        assert seen == [f"frame {REDACTED} b'{REDACTED}'", f"export {REDACTED}"]
+        # Released after the call.
+        assert key.hex() in redact_text(key.hex())

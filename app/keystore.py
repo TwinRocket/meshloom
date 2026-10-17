@@ -5,7 +5,8 @@ radio's own key.
 
 The private key is stored in memory only and is never persisted to disk.
 It's exported from the radio on startup and reconnect, then used for
-server-side decryption of direct messages.
+server-side decryption of direct messages. The export (0x0E) and import (0x18)
+frames that carry it are redacted from every log line by ``app.log_redaction``.
 """
 
 import hashlib

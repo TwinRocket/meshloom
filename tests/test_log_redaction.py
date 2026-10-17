@@ -36,6 +36,9 @@ from app.log_redaction import (
 from tests.fixtures.meshcore_loopback import cli_reply, make_loopback
 
 SECRET = "S3cr3t-Pw!"
+# A private key with a quote byte, so repr() switches quote styles.
+PRIVATE_KEY = bytes(range(0x20, 0x60))
+assert len(PRIVATE_KEY) == 64 and b"'" in PRIVATE_KEY
 
 
 def secret_forms(secret: str | bytes) -> list[str]:
@@ -291,6 +294,97 @@ def test_exc_text_is_written_back_for_unwrapped_handlers(debug_logs):
 
 
 # --------------------------------------------------------------------------
+# Private key export and import
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["tcp", "serial"])
+async def test_private_key_export_is_redacted(debug_logs, kind):
+    def respond(payload: bytes):
+        if payload[:1] == b"\x17":
+            return [b"\x0e" + PRIVATE_KEY]
+        return []
+
+    loop = await make_loopback(kind, respond)
+    try:
+        result = await loop.mc.commands.export_private_key()
+        await loop.settle()
+    finally:
+        await loop.close()
+    assert result.type == EventType.PRIVATE_KEY
+    assert result.payload["private_key"] == PRIVATE_KEY
+    assert find(debug_logs, "Received data: ") == [f"Received data: {REDACTED}"]
+    assert find(debug_logs, "Received private key response: ") == [
+        f"Received private key response: {REDACTED}"
+    ]
+    assert find(debug_logs, "Dispatching event: EventType.PRIVATE_KEY") == [
+        f"Dispatching event: EventType.PRIVATE_KEY, {REDACTED}"
+    ]
+    assert_no_secret(debug_logs, PRIVATE_KEY)
+
+
+@pytest.mark.parametrize("kind", ["tcp", "serial"])
+async def test_private_key_import_is_redacted(debug_logs, kind):
+    def respond(payload: bytes):
+        if payload[:1] == b"\x18":
+            return [b"\x00"]
+        return []
+
+    loop = await make_loopback(kind, respond)
+    try:
+        result = await loop.mc.commands.import_private_key(PRIVATE_KEY)
+        # A bytearray-built frame logs its repr instead of hex.
+        await loop.mc.commands.send(bytearray(b"\x18" + PRIVATE_KEY))
+        await loop.settle()
+    finally:
+        await loop.close()
+    assert result.type == EventType.OK
+    assert find(debug_logs, "Sending raw data: ") == [f"Sending raw data: 18...{REDACTED}"] * 2
+    assert find(debug_logs, "sending pkt : ") == ["sending pkt : [redacted frame 18]"] * 2
+    assert_no_secret(debug_logs, PRIVATE_KEY)
+
+
+async def test_import_service_scrubs_the_key_from_app_records(debug_logs):
+    from app.services.radio_commands import import_private_key_and_refresh_keystore
+
+    loop = await make_loopback(responder=lambda payload: [b"\x00"])
+
+    async def export_fn(_mc):
+        logging.getLogger("app.example").info("refreshed key %s", PRIVATE_KEY.hex())
+        return True
+
+    try:
+        await import_private_key_and_refresh_keystore(
+            loop.mc, PRIVATE_KEY, export_and_store_private_key_fn=export_fn
+        )
+        await loop.settle()
+    finally:
+        await loop.close()
+    lines = [line for line in get_recent_log_lines() if "refreshed key" in line]
+    assert lines and lines[0].endswith(f"refreshed key {REDACTED}")
+    assert all(PRIVATE_KEY.hex() not in line for line in get_recent_log_lines())
+
+
+def test_private_key_update_model_never_echoes_the_key(debug_logs):
+    from pydantic import ValidationError
+
+    from app.routers.radio import PrivateKeyUpdate
+
+    secret = PRIVATE_KEY.hex()
+    model = PrivateKeyUpdate(private_key=secret)
+    assert secret not in repr(model) and secret not in str(model)
+    try:
+        PrivateKeyUpdate(private_key=[secret])  # type: ignore[arg-type]
+    except ValidationError as exc:
+        assert secret not in str(exc)
+        # A service-side ValidationError is a 500, logged with its traceback.
+        logging.getLogger("app.example").exception("Unhandled exception on PUT /x")
+    else:  # pragma: no cover
+        pytest.fail("expected a ValidationError")
+    assert_no_secret(debug_logs, secret)
+
+
+# --------------------------------------------------------------------------
 # redact_text unit cases
 # --------------------------------------------------------------------------
 
@@ -340,6 +434,25 @@ def test_received_and_unhandled_rules():
     assert (
         redact_text("Unhandled data received bytearray(b'\\x7f\\x01')")
         == "Unhandled data received bytearray(b'\\x7f\\x01')"
+    )
+
+
+def test_private_key_rules():
+    frame = b"\x18" + PRIVATE_KEY
+    assert redact_text(f"Sending raw data: {frame.hex()}") == f"Sending raw data: 18...{REDACTED}"
+    packet = b"\x3c" + len(frame).to_bytes(2, "little") + frame
+    assert redact_text(f"sending pkt : {packet!r}") == "sending pkt : [redacted frame 18]"
+    export = b"\x0e" + PRIVATE_KEY
+    assert redact_text(f"Received data: {export.hex()}") == f"Received data: {REDACTED}"
+    assert (
+        redact_text(f"Received private key response: {export.hex()}")
+        == f"Received private key response: {REDACTED}"
+    )
+    assert (
+        redact_text(
+            f"Dispatching event: EventType.PRIVATE_KEY, {{'private_key': {PRIVATE_KEY!r}}}, {{}}"
+        )
+        == f"Dispatching event: EventType.PRIVATE_KEY, {REDACTED}"
     )
 
 
