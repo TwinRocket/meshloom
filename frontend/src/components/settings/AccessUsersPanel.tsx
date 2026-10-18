@@ -19,6 +19,7 @@ import {
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
+import { AccessConfirmDialog } from './AccessConfirmDialog';
 import { ACCESS_ROLES, SELECT_CLASS } from './accessShared';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 
@@ -134,6 +135,17 @@ function CreateUserDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The dialog stays mounted: close it through here so nothing typed lingers in state.
+  const close = () => {
+    setUsername('');
+    setDisplayName('');
+    setRole('member');
+    setPassword('');
+    setMustChange(true);
+    setError(null);
+    onOpenChange(false);
+  };
+
   const needsPassword = role !== 'kiosk';
   const ready = username.trim().length > 0 && (!needsPassword || passwordOk(password));
 
@@ -150,10 +162,7 @@ function CreateUserDialog({
         ...(needsPassword ? { password, must_change_password: mustChange } : {}),
       });
       toast.success(t('settings.access.users.created'));
-      setUsername('');
-      setDisplayName('');
-      setPassword('');
-      onOpenChange(false);
+      close();
       onCreated();
     } catch (err) {
       setError(formatAccessError(err, t));
@@ -163,7 +172,7 @@ function CreateUserDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent>
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
@@ -210,7 +219,7 @@ function CreateUserDialog({
             </p>
           )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={close}>
               {t('settings.access.cancel')}
             </Button>
             <Button type="submit" disabled={!ready || busy}>
@@ -238,6 +247,13 @@ function ResetPasswordDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const close = () => {
+    setPassword('');
+    setMustChange(true);
+    setError(null);
+    onClose();
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!user || !passwordOk(password) || busy) return;
@@ -246,8 +262,7 @@ function ResetPasswordDialog({
     try {
       await api.setAuthUserPassword(user.id, password, mustChange);
       toast.success(t('settings.access.users.passwordReset'));
-      setPassword('');
-      onClose();
+      close();
       onDone();
     } catch (err) {
       setError(formatAccessError(err, t));
@@ -257,7 +272,7 @@ function ResetPasswordDialog({
   };
 
   return (
-    <Dialog open={user !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={user !== null} onOpenChange={(open) => !open && close()}>
       <DialogContent>
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
@@ -279,7 +294,7 @@ function ResetPasswordDialog({
             </p>
           )}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={close}>
               {t('settings.access.cancel')}
             </Button>
             <Button type="submit" disabled={!passwordOk(password) || busy}>
@@ -339,22 +354,39 @@ function UserRow({
           variant="outline"
           size="sm"
           disabled={busy || isSelf}
+          aria-label={t(
+            user.disabled ? 'settings.access.users.enableOf' : 'settings.access.users.disableOf',
+            { username: user.username }
+          )}
           onClick={() => onPatch(user, { disabled: !user.disabled })}
         >
           {user.disabled ? t('settings.access.users.enable') : t('settings.access.users.disable')}
         </Button>
         {takesPassword(user) && (
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => onReset(user)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            aria-label={t('settings.access.users.resetOf', { username: user.username })}
+            onClick={() => onReset(user)}
+          >
             {t('settings.access.users.reset')}
           </Button>
         )}
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => onRevoke(user)}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          aria-label={t('settings.access.users.revokeSessionsOf', { username: user.username })}
+          onClick={() => onRevoke(user)}
+        >
           {t('settings.access.users.revokeSessions')}
         </Button>
         <Button
           variant="outline"
           size="sm"
           disabled={busy || isSelf}
+          aria-label={t('settings.access.users.deleteOf', { username: user.username })}
           onClick={() => onDelete(user)}
         >
           {t('settings.access.users.delete')}
@@ -373,7 +405,10 @@ export function AccessUsersPanel() {
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<AuthUserRow | null>(null);
-  const [deleting, setDeleting] = useState<AuthUserRow | null>(null);
+  const [confirm, setConfirm] = useState<{
+    kind: 'disable' | 'revoke' | 'delete';
+    user: AuthUserRow;
+  } | null>(null);
 
   const [version, setVersion] = useState(0);
   const reload = () => setVersion((value) => value + 1);
@@ -397,11 +432,15 @@ export function AccessUsersPanel() {
 
   const run = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true);
+    setError(null);
     try {
       await action();
       toast.success(success);
     } catch (err) {
-      toast.error(formatAccessError(err, t));
+      // Inline too (role="alert"): a toast alone is easy to miss.
+      const message = formatAccessError(err, t);
+      setError(message);
+      toast.error(message);
     } finally {
       reload();
       setBusy(false);
@@ -434,52 +473,49 @@ export function AccessUsersPanel() {
             user={user}
             isSelf={me?.id === user.id}
             busy={busy}
-            onPatch={(target, change) => void patch(target, change)}
-            onReset={setResetting}
-            onRevoke={(target) =>
-              void run(
-                () => api.revokeAuthUserSessions(target.id),
-                t('settings.access.users.sessionsRevoked', { username: target.username })
-              )
+            onPatch={(target, change) =>
+              change.disabled === true
+                ? setConfirm({ kind: 'disable', user: target })
+                : void patch(target, change)
             }
-            onDelete={setDeleting}
+            onReset={setResetting}
+            onRevoke={(target) => setConfirm({ kind: 'revoke', user: target })}
+            onDelete={(target) => setConfirm({ kind: 'delete', user: target })}
           />
         ))}
       </ul>
       <Button onClick={() => setCreating(true)}>{t('settings.access.users.add')}</Button>
       <CreateUserDialog open={creating} onOpenChange={setCreating} onCreated={reload} />
       <ResetPasswordDialog user={resetting} onClose={() => setResetting(null)} onDone={reload} />
-      <Dialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {t('settings.access.users.deleteTitle', { username: deleting?.username ?? '' })}
-            </DialogTitle>
-            <DialogDescription>{t('settings.access.users.deleteHelp')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleting(null)}>
-              {t('settings.access.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => {
-                const target = deleting;
-                setDeleting(null);
-                if (target) {
-                  void run(
-                    () => api.deleteAuthUser(target.id),
-                    t('settings.access.users.deleted', { username: target.username })
-                  );
-                }
-              }}
-            >
-              {t('settings.access.users.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AccessConfirmDialog
+        open={confirm !== null}
+        title={t(`settings.access.users.${confirm?.kind ?? 'delete'}Title`, {
+          username: confirm?.user.username ?? '',
+        })}
+        help={t(`settings.access.users.${confirm?.kind ?? 'delete'}Help`)}
+        confirmLabel={t(`settings.access.users.${confirm?.kind ?? 'delete'}Confirm`)}
+        destructive
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          const target = confirm;
+          setConfirm(null);
+          if (!target) return;
+          const { id, username } = target.user;
+          if (target.kind === 'disable') {
+            void patch(target.user, { disabled: true });
+          } else if (target.kind === 'revoke') {
+            void run(
+              () => api.revokeAuthUserSessions(id),
+              t('settings.access.users.sessionsRevoked', { username })
+            );
+          } else {
+            void run(
+              () => api.deleteAuthUser(id),
+              t('settings.access.users.deleted', { username })
+            );
+          }
+        }}
+      />
     </SettingsGroup>
   );
 }

@@ -6,6 +6,7 @@ import { formatAccessError } from '../../auth/accessErrors';
 import type { AuthSessionRow } from '../../auth/types';
 import { Button } from '../ui/button';
 import { toast } from '../ui/sonner';
+import { AccessConfirmDialog } from './AccessConfirmDialog';
 import { deviceLabel, formatEpoch } from './accessShared';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 
@@ -15,6 +16,7 @@ export function AccessSessionsPanel() {
   const [rows, setRows] = useState<AuthSessionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingOthers, setConfirmingOthers] = useState(false);
 
   const [version, setVersion] = useState(0);
   const reload = () => setVersion((value) => value + 1);
@@ -38,11 +40,14 @@ export function AccessSessionsPanel() {
 
   const run = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true);
+    setError(null);
     try {
       await action();
       toast.success(success);
     } catch (err) {
-      toast.error(formatAccessError(err, t));
+      const message = formatAccessError(err, t);
+      setError(message);
+      toast.error(message);
     } finally {
       reload();
       setBusy(false);
@@ -108,19 +113,24 @@ export function AccessSessionsPanel() {
         ))}
       </ul>
       {rows && others > 0 && (
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={() =>
-            void run(
-              () => api.revokeOtherAuthSessions(),
-              t('settings.access.sessions.othersRevoked')
-            )
-          }
-        >
+        <Button variant="outline" disabled={busy} onClick={() => setConfirmingOthers(true)}>
           {t('settings.access.sessions.signOutOthers')}
         </Button>
       )}
+      <AccessConfirmDialog
+        open={confirmingOthers}
+        title={t('settings.access.sessions.signOutOthersTitle')}
+        help={t('settings.access.sessions.signOutOthersHelp')}
+        confirmLabel={t('settings.access.sessions.signOutOthers')}
+        onCancel={() => setConfirmingOthers(false)}
+        onConfirm={() => {
+          setConfirmingOthers(false);
+          void run(
+            () => api.revokeOtherAuthSessions(),
+            t('settings.access.sessions.othersRevoked')
+          );
+        }}
+      />
     </SettingsGroup>
   );
 }

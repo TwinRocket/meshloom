@@ -49,7 +49,9 @@
         "revoke": "Revoke",
         "revoked": "Session revoked.",
         "signOutOthers": "Sign out everywhere else",
-        "othersRevoked": "Signed out of your other sessions."
+        "othersRevoked": "Signed out of your other sessions.",
+        "signOutOthersTitle": "Sign out your other sessions?",
+        "signOutOthersHelp": "Every other device signed in to your account is signed out. This device stays signed in."
       },
       "users": {
         "title": "Users",
@@ -84,7 +86,19 @@
         "delete": "Delete",
         "deleteTitle": "Delete {{username}}?",
         "deleteHelp": "The account and its sessions are removed. This cannot be undone.",
-        "deleted": "{{username}} deleted."
+        "deleted": "{{username}} deleted.",
+        "disableTitle": "Disable {{username}}?",
+        "disableHelp": "The user is signed out everywhere and cannot sign in until you enable the account again.",
+        "disableConfirm": "Disable",
+        "revokeTitle": "Sign {{username}} out everywhere?",
+        "revokeHelp": "Every session of this user ends now. They can sign in again.",
+        "revokeConfirm": "Sign out everywhere",
+        "deleteConfirm": "Delete",
+        "disableOf": "Disable {{username}}",
+        "enableOf": "Enable {{username}}",
+        "resetOf": "Reset the password of {{username}}",
+        "revokeSessionsOf": "Sign {{username}} out everywhere",
+        "deleteOf": "Delete {{username}}"
       },
       "ingress": {
         "title": "Home Assistant sign-in",

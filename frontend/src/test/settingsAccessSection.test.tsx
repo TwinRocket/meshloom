@@ -196,7 +196,20 @@ describe('SettingsAccessSection', () => {
     const bob = await screen.findByTestId('access-user-bob');
     await ui.selectOptions(within(bob).getByRole('combobox'), 'viewer');
     await waitFor(() => expect(patch).toHaveBeenCalledWith(2, { role: 'viewer' }));
-    await ui.click(within(bob).getByRole('button', { name: t('settings.access.users.disable') }));
+    await ui.click(
+      within(bob).getByRole('button', {
+        name: t('settings.access.users.disableOf', { username: 'bob' }),
+      })
+    );
+    // Disabling asks first: cancelling changes nothing.
+    await ui.click(screen.getByRole('button', { name: t('settings.access.cancel') }));
+    expect(patch).not.toHaveBeenCalledWith(2, { disabled: true });
+    await ui.click(
+      within(bob).getByRole('button', {
+        name: t('settings.access.users.disableOf', { username: 'bob' }),
+      })
+    );
+    await ui.click(screen.getByRole('button', { name: t('settings.access.users.disableConfirm') }));
     await waitFor(() => expect(patch).toHaveBeenCalledWith(2, { disabled: true }));
   });
 
@@ -206,7 +219,11 @@ describe('SettingsAccessSection', () => {
     await renderAs('admin');
     const ui = userEvent.setup();
     const bob = await screen.findByTestId('access-user-bob');
-    await ui.click(within(bob).getByRole('button', { name: t('settings.access.users.reset') }));
+    await ui.click(
+      within(bob).getByRole('button', {
+        name: t('settings.access.users.resetOf', { username: 'bob' }),
+      })
+    );
     await ui.type(
       screen.getByLabelText(t('settings.access.users.password')),
       'another long passphrase'
@@ -214,9 +231,38 @@ describe('SettingsAccessSection', () => {
     await ui.click(screen.getByRole('button', { name: t('settings.access.users.resetSubmit') }));
     await waitFor(() => expect(reset).toHaveBeenCalledWith(2, 'another long passphrase', true));
     await ui.click(
-      within(bob).getByRole('button', { name: t('settings.access.users.revokeSessions') })
+      within(bob).getByRole('button', {
+        name: t('settings.access.users.revokeSessionsOf', { username: 'bob' }),
+      })
     );
+    expect(revoke).not.toHaveBeenCalled();
+    await ui.click(screen.getByRole('button', { name: t('settings.access.users.revokeConfirm') }));
     await waitFor(() => expect(revoke).toHaveBeenCalledWith(2));
+  });
+
+  it('shows a refused action inline, as an alert', async () => {
+    vi.spyOn(api, 'patchAuthUser').mockRejectedValue(
+      new ApiError('x', 409, { code: 'auth_last_admin' })
+    );
+    await renderAs('admin');
+    const bob = await screen.findByTestId('access-user-bob');
+    fireEvent.change(within(bob).getByRole('combobox'), { target: { value: 'viewer' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.auth_last_admin'));
+  });
+
+  it('forgets a typed password when the reset dialog is cancelled', async () => {
+    await renderAs('admin');
+    const ui = userEvent.setup();
+    const resetOf = (name: string) =>
+      within(screen.getByTestId(`access-user-${name}`)).getByRole('button', {
+        name: t('settings.access.users.resetOf', { username: name }),
+      });
+    await ui.click(await screen.findByTestId('access-user-bob').then(() => resetOf('bob')));
+    await ui.type(screen.getByLabelText(t('settings.access.users.password')), 'secret passphrase');
+    await ui.click(screen.getByRole('button', { name: t('settings.access.cancel') }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await ui.click(resetOf('bob'));
+    expect(screen.getByLabelText(t('settings.access.users.password'))).toHaveValue('');
   });
 
   it('shows the coded last-administrator error in the dialog language', async () => {
@@ -266,11 +312,22 @@ describe('SettingsAccessSection', () => {
   it('signs out everywhere else', async () => {
     const others = vi.spyOn(api, 'revokeOtherAuthSessions').mockResolvedValue({ revoked: 1 });
     await renderAs('viewer');
-    await userEvent
-      .setup()
-      .click(
-        await screen.findByRole('button', { name: t('settings.access.sessions.signOutOthers') })
-      );
+    const ui = userEvent.setup();
+    await ui.click(
+      await screen.findByRole('button', { name: t('settings.access.sessions.signOutOthers') })
+    );
+    expect(others).not.toHaveBeenCalled();
+    await ui.click(screen.getByRole('button', { name: t('settings.access.cancel') }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(others).not.toHaveBeenCalled();
+    await ui.click(
+      screen.getByRole('button', { name: t('settings.access.sessions.signOutOthers') })
+    );
+    await ui.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: t('settings.access.sessions.signOutOthers'),
+      })
+    );
     await waitFor(() => expect(others).toHaveBeenCalled());
   });
 

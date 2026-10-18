@@ -49,7 +49,9 @@
         "revoke": "Révoquer",
         "revoked": "Session révoquée.",
         "signOutOthers": "Déconnecter partout ailleurs",
-        "othersRevoked": "Vos autres sessions sont déconnectées."
+        "othersRevoked": "Vos autres sessions sont déconnectées.",
+        "signOutOthersTitle": "Déconnecter vos autres sessions ?",
+        "signOutOthersHelp": "Tous les autres appareils connectés à votre compte sont déconnectés. Cet appareil reste connecté."
       },
       "users": {
         "title": "Utilisateurs",
@@ -84,7 +86,19 @@
         "delete": "Supprimer",
         "deleteTitle": "Supprimer {{username}} ?",
         "deleteHelp": "Le compte et ses sessions sont supprimés. Cette action est irréversible.",
-        "deleted": "{{username}} supprimé."
+        "deleted": "{{username}} supprimé.",
+        "disableTitle": "Désactiver {{username}} ?",
+        "disableHelp": "L'utilisateur est déconnecté partout et ne peut plus se connecter tant que vous ne réactivez pas le compte.",
+        "disableConfirm": "Désactiver",
+        "revokeTitle": "Déconnecter {{username}} partout ?",
+        "revokeHelp": "Toutes les sessions de cet utilisateur se terminent maintenant. Il peut se reconnecter.",
+        "revokeConfirm": "Déconnecter partout",
+        "deleteConfirm": "Supprimer",
+        "disableOf": "Désactiver {{username}}",
+        "enableOf": "Activer {{username}}",
+        "resetOf": "Réinitialiser le mot de passe de {{username}}",
+        "revokeSessionsOf": "Déconnecter {{username}} partout",
+        "deleteOf": "Supprimer {{username}}"
       },
       "ingress": {
         "title": "Connexion Home Assistant",
