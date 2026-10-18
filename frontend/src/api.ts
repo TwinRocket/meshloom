@@ -6,6 +6,7 @@ import {
   reportPasswordChangeRequired,
 } from './auth/authEvents';
 import type {
+  AuthAuditPage,
   AuthLoginRequest,
   AuthMe,
   AuthSessionRow,
@@ -327,6 +328,12 @@ export const api = {
     }),
   revokeAuthUserSessions: (id: number) =>
     fetchJson<{ revoked: number }>(`/auth/users/${id}/sessions`, { method: 'DELETE' }),
+  /** `GET /auth/audit` (admin): one page of the audit log, newest first; `cursor` is the previous `next_cursor`. */
+  getAuthAudit: (cursor?: string | null, limit = 100) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return fetchJson<AuthAuditPage>(`/auth/audit?${params}`, { cache: 'no-store' });
+  },
   getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
   patchAuthSettings: (patch: Partial<AuthSettings>) =>
     fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),

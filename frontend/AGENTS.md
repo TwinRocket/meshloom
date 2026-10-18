@@ -282,10 +282,14 @@ purpose.
   (Users & Access: `components/settings/SettingsAccessSection.tsx`, lazy-loaded from
   `SettingsModal`) is in `ACCOUNT_SETTINGS_SECTIONS` because its profile and sessions
   panels use `own_account` routes; its users and Home Assistant default role panels render
-  for `isAdmin` only. Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
+  for `isAdmin` only, as does the audit log (`AccessAuditPanel`: cursor pages of
+  `GET /auth/audit`, filters applied client-side to the loaded rows, labels from
+  `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
+  scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
   `errors.auth_*`, the policy detail, and a generic line for an uncoded 429/503). Strings:
-  slice `az` (`settings.access.*`, `settingsNav.access`). Tests:
-  `src/test/settingsAccessSection.test.tsx`. Add a settings section
+  slice `az` (`settings.access.*`, `settingsNav.access`), audit strings in slice `ba`
+  (`settings.access.audit.*`). Tests: `src/test/settingsAccessSection.test.tsx`,
+  `src/test/accessAuditPanel.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
   loads at startup must not call an admin-only route for another role (members, viewers and

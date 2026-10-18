@@ -69,6 +69,7 @@ function mockApi() {
   vi.spyOn(api, 'listAuthSessions').mockImplementation(async () => sessions);
   vi.spyOn(api, 'listAuthUsers').mockImplementation(async () => users);
   vi.spyOn(api, 'getAuthSettings').mockImplementation(async () => settings);
+  vi.spyOn(api, 'getAuthAudit').mockResolvedValue({ entries: [], next_cursor: null });
 }
 
 async function renderAs(role: AuthRole) {
@@ -131,7 +132,9 @@ describe('SettingsAccessSection', () => {
     expect(screen.queryByText(t('settings.access.users.title'))).toBeNull();
     expect(screen.queryByText(t('settings.access.ingress.title'))).toBeNull();
     expect(api.listAuthUsers).not.toHaveBeenCalled();
+    expect(screen.queryByText(t('settings.access.audit.title'))).toBeNull();
     expect(api.getAuthSettings).not.toHaveBeenCalled();
+    expect(api.getAuthAudit).not.toHaveBeenCalled();
   });
 
   it('lists users with provider badges and locks the admin out of changing themselves', async () => {

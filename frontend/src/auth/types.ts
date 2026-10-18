@@ -130,3 +130,23 @@ export interface AuthUserPatch {
   disabled?: boolean;
   must_change_password?: boolean;
 }
+
+/** One row of `GET /auth/audit` (admin; `ts` in epoch seconds). `details` is already secret-filtered server-side. */
+export interface AuthAuditEntry {
+  id: number;
+  ts: number;
+  actor_user_id: number | null;
+  actor_token_id: string | null;
+  action: string;
+  target: string | null;
+  ip: string | null;
+  via: string | null;
+  outcome: string;
+  details: Record<string, unknown>;
+}
+
+/** `GET /auth/audit`: newest first; `next_cursor` is opaque, null on the last page. */
+export interface AuthAuditPage {
+  entries: AuthAuditEntry[];
+  next_cursor: string | null;
+}
