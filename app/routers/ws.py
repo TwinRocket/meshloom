@@ -43,6 +43,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             # We don't expect messages from client, but need to keep connection open
             # and handle pings/pongs
             data = await websocket.receive_text()
+            # Keeps the session alive for a page that makes no REST call.
+            await ws_manager.note_activity(websocket)
             # Client can send "ping" to keep alive
             if data == "ping":
                 # Through the client's writer queue: a direct send_text here

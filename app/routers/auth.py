@@ -364,7 +364,7 @@ async def logout(request: Request, response: Response) -> OkResponse:
     """End the current session and clear the cookie. Public (idempotent)."""
     principal = get_principal(request)
     if principal is not None and principal.session_id is not None:
-        await AuthSessionRepository.revoke(principal.session_id)
+        await sessions.revoke_session(principal.session_id)
         await _audit("logout", "success", request, actor_user_id=principal.user_id)
     if _via(request) != "ingress":
         response.headers.append("set-cookie", sessions.clear_cookie_header(secure=_secure(request)))
@@ -390,7 +390,7 @@ async def list_sessions(request: Request) -> list[SessionInfo]:
 async def revoke_other_sessions(request: Request) -> RevokedCount:
     """Sign out everywhere except here."""
     principal = _require(request)
-    count = await AuthSessionRepository.revoke_all_for_user(
+    count = await sessions.revoke_user_sessions(
         principal.user_id, except_session_id=principal.session_id
     )
     await _audit(
@@ -412,7 +412,7 @@ async def revoke_session(session_id: str, request: Request) -> OkResponse:
     own = await AuthSessionRepository.list_for_user(principal.user_id)
     if not any(row.id == session_id for row in own):
         raise _error(404, "auth_session_not_found")
-    await AuthSessionRepository.revoke(session_id)
+    await sessions.revoke_session(session_id)
     await _audit(
         "session_revoke",
         "success",
@@ -458,9 +458,7 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
             raise _policy_error(reason)
         await UserRepository.set_password_hash(user.id, await hash_password_async(new_password))
         invalidate_basic_cache(user.id)
-        await AuthSessionRepository.revoke_all_for_user(
-            user.id, except_session_id=principal.session_id
-        )
+        await sessions.revoke_user_sessions(user.id, except_session_id=principal.session_id)
         await _audit("password_change", "success", request, actor_user_id=user.id)
     if body.display_name is not None:
         await UserRepository.update(user.id, display_name=body.display_name)

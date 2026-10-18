@@ -30,7 +30,7 @@ carries ``Set-Cookie``: any is dropped on the way out.
 
 The Basic challenge (``WWW-Authenticate``) is sent on 401 only while the
 instance came from 4.x Basic (``auth_settings.basic_imported``), so browsers
-that used the native dialog keep working.
+that used the native dialog keep working; never under ingress.
 """
 
 from __future__ import annotations

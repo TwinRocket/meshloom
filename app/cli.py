@@ -179,7 +179,7 @@ async def _reset_password(args: argparse.Namespace) -> int:
     await UserRepository.set_password_hash(
         user.id, hash_password(password), must_change_password=args.must_change
     )
-    revoked = await AuthSessionRepository.revoke_all_for_user(user.id)
+    revoked = len(await AuthSessionRepository.revoke_all_for_user(user.id))
     await _audit("cli.reset_password", user.username, sessions_revoked=revoked)
     print(f"Password of {user.username} reset; {revoked} session(s) signed out.")
     if user.disabled:
@@ -273,7 +273,7 @@ async def _disable_user(args: argparse.Namespace) -> int:
             "out (use --force if you mean it, create-admin first otherwise)"
         )
     await UserRepository.update(user.id, disabled=True)
-    revoked = await AuthSessionRepository.revoke_all_for_user(user.id)
+    revoked = len(await AuthSessionRepository.revoke_all_for_user(user.id))
     await _audit("cli.disable_user", user.username, sessions_revoked=revoked)
     print(f"{user.username} disabled; {revoked} session(s) signed out.")
     return 0
@@ -297,7 +297,7 @@ async def _revoke_sessions(args: argparse.Namespace) -> int:
         targets = [await _find_user(args.username)]
     revoked = 0
     for user in targets:
-        revoked += await AuthSessionRepository.revoke_all_for_user(user.id)
+        revoked += len(await AuthSessionRepository.revoke_all_for_user(user.id))
     scope = "every user" if args.all else targets[0].username
     await _audit("cli.revoke_sessions", None if args.all else scope, sessions_revoked=revoked)
     print(f"{revoked} session(s) signed out ({scope}).")
