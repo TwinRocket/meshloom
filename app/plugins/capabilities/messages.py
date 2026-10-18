@@ -253,26 +253,26 @@ async def _check_quota(instance_id: str, limits: Any) -> None:
         ) from None
 
 
-def _reply_context(call: Call) -> tuple[str | None, int | None]:
-    """`(sender, received_at)` of the message this send answers, `(None, None)` when
-    it answers none (a timer, an outgoing message): the loop guards of the sender only
-    apply to a reply. A channel message has no sender key, its name stands in."""
+def _reply_context(call: Call, target: Target) -> tuple[str | None, int | None]:
+    """`(sender, received_at)` of the message this send answers. The loop guards must not
+    depend on the plugin tying its send to an event: with the message event being handled
+    that is its sender, otherwise (several events in flight, after the handler returned,
+    no or a non-message `event_id`, a timer) the send counts as a reply to the most recent
+    message the instance was handed from that destination, none if it was handed none."""
     event = call.event
-    if event is None or event.hook != "message" or event.params.get("is_outgoing"):
-        return None, None
-    params = event.params
-    if params.get("sender_key"):
-        sender: str | None = "key:" + str(params["sender_key"]).lower()
-    elif params.get("sender_name"):
-        sender = "name:" + str(params["sender_name"]).lower()
-    else:
-        sender = None
-    received = params.get("received_at")
-    return sender, received if type(received) is int else None
+    if event is not None and event.hook == "message" and not event.params.get("is_outgoing"):
+        received = event.params.get("received_at")
+        return send_guard.sender_of(event.params), received if type(received) is int else None
+    last = send_guard.last_inbound(call.instance.instance_id, is_dm=target.is_dm, key=target.key)
+    return (last[0], last[1]) if last is not None else (None, None)
+
+
+def _unavailable() -> CapabilityError:
+    return CapabilityError("quota_unavailable", "the send guards could not be checked")
 
 
 async def _check_guards(call: Call, target: Target) -> None:
-    sender, received_at = _reply_context(call)
+    sender, received_at = _reply_context(call, target)
     try:
         await send_guard.check(
             call.instance.instance_id,
@@ -284,6 +284,26 @@ async def _check_guards(call: Call, target: Target) -> None:
     except GuardRefused as exc:
         send_guard.note_refusal(call.instance.instance_id, call.instance.label, exc)
         raise CapabilityError("quota_exceeded", str(exc), exc.params) from None
+    except Exception:
+        logger.exception("Plugin %s: send guards unavailable", call.instance.instance_id)
+        raise _unavailable() from None
+
+
+async def _count_guards(call: Call, target: Target) -> None:
+    """Count the send before it goes out: if the counters cannot be written nothing is
+    sent (fail closed). A send that then fails stays counted (conservative)."""
+    try:
+        await send_guard.record(
+            call.instance.instance_id,
+            is_dm=target.is_dm,
+            key=target.key,
+            sender=_reply_context(call, target)[0],
+        )
+    except Exception:
+        logger.exception(
+            "Plugin %s: could not count a send in the guards", call.instance.instance_id
+        )
+        raise _unavailable() from None
 
 
 async def _transmit(target: Target, text: str, region: str | None) -> Any:
@@ -322,6 +342,7 @@ async def send(call: Call) -> dict[str, Any]:
     async with send_spacer.slot() as slot:
         await _check_quota(instance_id, limits)
         await _check_guards(call, target)
+        await _count_guards(call, target)
         token = SENDING_INSTANCE.set(instance_id)
         try:
             message = await _transmit(target, params.text, region)
@@ -347,13 +368,4 @@ async def send(call: Call) -> dict[str, Any]:
             await send_quota.record(instance_id)
         except Exception:
             logger.exception("Plugin %s: could not count a send", instance_id)
-        try:
-            await send_guard.record(
-                instance_id,
-                is_dm=target.is_dm,
-                key=target.key,
-                sender=_reply_context(call)[0],
-            )
-        except Exception:
-            logger.exception("Plugin %s: could not count a send in the guards", instance_id)
     return {"sent": True, "message_id": getattr(message, "id", None)}

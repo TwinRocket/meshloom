@@ -278,7 +278,9 @@ class Host:
         self.refused: list[str] = []
 
 
-async def simulate(hours: float = 2.0) -> tuple[list[tuple[int, str]], dict[str, Host]]:
+async def simulate(
+    hours: float = 2.0, *, tied: bool = True
+) -> tuple[list[tuple[int, str]], dict[str, Host]]:
     """Two hosts on one fake channel. A person posts at t=0; each echo plugin answers
     what the other hears. Returns the channel log `(time, author)` and the hosts."""
     clock = Clock(T0)
@@ -296,18 +298,25 @@ async def simulate(hours: float = 2.0) -> tuple[list[tuple[int, str]], dict[str,
         host = hosts[name]
         if author == host.name:
             continue  # a plugin never answers its own message
+        instance = f"echo-{name}"
+        heard_params = {"channel_key": CHANNEL, "sender_name": author, "received_at": int(at)}
+        host.guard.note_inbound(instance, heard_params)
+        sender: str | None = f"name:{author}"
+        received: int | None = int(at)
+        if not tied:
+            # The bypass shapes: the send names no event (several in flight, after the
+            # handler returned, no event_id), so the host falls back to the last inbound.
+            last = host.guard.last_inbound(instance, is_dm=False, key=CHANNEL)
+            assert last is not None
+            sender, received = last
         try:
             await host.guard.check(
-                f"echo-{name}",
-                is_dm=False,
-                key=CHANNEL,
-                sender=f"name:{author}",
-                received_at=int(at),
+                instance, is_dm=False, key=CHANNEL, sender=sender, received_at=received
             )
         except GuardRefused as exc:
             host.refused.append(exc.scope)
             continue
-        await host.guard.record(f"echo-{name}", is_dm=False, key=CHANNEL, sender=f"name:{author}")
+        await host.guard.record(instance, is_dm=False, key=CHANNEL, sender=sender)
         host.sent += 1
         channel.append((int(at), name))
         for other in hosts:
@@ -322,6 +331,52 @@ async def test_two_echo_plugins_on_two_hosts_stop_with_the_default_guards():
     reasons = hosts["A"].refused + hosts["B"].refused
     assert reasons  # the exchange was cut, with a reason, not by running dry
     assert set(reasons) <= {"sender_cooldown", "quiet_window"}
+
+
+async def test_untied_sends_are_cut_like_replies():
+    """A plugin that names no event (or whose event cannot be found) gets no way round
+    the loop guards: the exchange stops as fast as with tied sends."""
+    channel, hosts = await simulate(tied=False)
+    assert len(channel) <= 6
+    reasons = hosts["A"].refused + hosts["B"].refused
+    assert reasons
+    assert set(reasons) <= {"sender_cooldown", "quiet_window"}
+
+
+def test_an_untied_send_is_a_reply_to_the_last_inbound_of_its_destination():
+    from types import SimpleNamespace
+
+    from app.plugins.capabilities import messages
+
+    guard = SendGuard(Clock())
+    call = SimpleNamespace(instance=SimpleNamespace(instance_id="i1"), event=None)
+    target = messages.Target(False, CHANNEL)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(messages, "send_guard", guard)
+        assert messages._reply_context(call, target) == (None, None)  # nothing heard yet
+        guard.note_inbound("i1", {"channel_key": CHANNEL, "sender_name": "Bob", "received_at": 7})
+        guard.note_inbound("i1", {"channel_key": CHANNEL, "is_outgoing": True, "sender_name": "Me"})
+        assert messages._reply_context(call, target) == ("name:bob", 7)
+        other = messages.Target(False, "EF" * 16)
+        assert messages._reply_context(call, other) == (None, None)
+        timer = SimpleNamespace(hook="timer", params={})
+        call.event = timer
+        assert messages._reply_context(call, target) == ("name:bob", 7)
+
+
+async def test_removing_an_instance_forgets_its_refusals(test_db):
+    from app.plugins.quotas import send_guard
+
+    row = await PluginRepository.create(
+        plugin_id="p", label="P", kind="local", version="1.0.0", manifest={}
+    )
+    instance_id = row["instance_id"]
+    send_guard.note_refusal(instance_id, "P", GuardRefused("instance", "x"))
+    send_guard.note_inbound(instance_id, {"channel_key": CHANNEL, "sender_name": "Bob"})
+    assert send_guard.hits(instance_id)
+    await PluginRepository.delete(instance_id)
+    assert send_guard.hits(instance_id) == {}
+    assert send_guard.last_inbound(instance_id, is_dm=False, key=CHANNEL) is None
 
 
 async def test_without_the_loop_cuts_the_destination_quota_still_bounds_the_exchange(monkeypatch):

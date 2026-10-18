@@ -32,6 +32,7 @@ REFUSAL_CODES = (
     "region_unknown",
     "message_too_long",
     "send_failed",
+    "quota_unavailable",
     "invalid_params",
 )
 

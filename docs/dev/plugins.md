@@ -896,6 +896,15 @@ counted only for a send that went out. A refusal is `quota_exceeded` with `param
   (a channel message has no key); the quiet window compares the message's `received_at`
   (Unix seconds) with the last send, and uses the current time when the event has none.
   Several sends answering one event therefore need one message: the second is refused.
+  The guards do not depend on the plugin tying a send to an event: a send with no usable
+  event (several events in flight and no `event_id`, after the handler returned, a
+  non-message `event_id`, a timer) counts as a reply to the most recent message the
+  instance was handed from that destination (`SendGuard.note_inbound()`, called by the
+  host when it enqueues a message event; memory only, a restart forgets it); with none,
+  no reply guard applies.
+- **Fail closed**: the guards are counted before the send leaves, under the spacing lock;
+  if they cannot be checked or counted nothing is sent and the child gets
+  `quota_unavailable`. A send that then fails stays counted.
 - **Persistence**: `plugin_send_guard` (hourly windows, last-reply and last-send stamps) and
   `plugin_send_limits` (migration 106; `PluginSendGuardRepository`), so a restart resets
   nothing. `SendGuard.clock` and `.store` are injectable.
@@ -918,8 +927,8 @@ counted only for a send that went out. A refusal is `quota_exceeded` with `param
 A refusal is a JSON-RPC error whose `data.code` is stable and whose `data.params`
 carries the values above: `-32602` for `invalid_params`, `-32010` (`REFUSED`) for
 `permission_denied` (`params.permission`), `quota_exceeded`,
-`target_not_allowed`, `target_unknown`, `region_unknown`, `message_too_long` and
-`send_failed`. An unknown method is `-32601`; a test event's capture past its
+`target_not_allowed`, `target_unknown`, `region_unknown`, `message_too_long`,
+`send_failed` and `quota_unavailable`. An unknown method is `-32601`; a test event's capture past its
 bound is `-32001` (`test_sends_truncated`). The SDK's `error_code(exc)` returns
 `data.code`. The user-facing wording of the permissions and of these codes is
 the i18n slice `al` (`plugins.permissions.*`, `plugins.capabilityErrors.*`, FR and

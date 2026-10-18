@@ -254,6 +254,9 @@ class SendGuard:
         # same four methods: the two-host simulation gives each host its own.
         self._store = store
         self._hits: dict[str, dict[str, Any]] = {}
+        # (instance, destination subject) -> (sender, received_at) of the last message
+        # the instance was handed from that destination (memory only).
+        self._inbound: dict[tuple[str, str], tuple[str | None, int]] = {}
         self._last_logged: dict[tuple[str, str], float] = {}
 
     @property
@@ -366,6 +369,41 @@ class SendGuard:
             keep_quiet_after=now - QUIET_WINDOW_SECONDS,
         )
 
+    # The last inbound message per (instance, destination): the loop guards must not
+    # depend on a plugin tying its send to an event, so a send that cannot be tied is
+    # treated as a reply to the most recent message of its destination.
+
+    @staticmethod
+    def sender_of(params: Mapping[str, Any]) -> str | None:
+        """Who sent a message event: `key:<sender_key>` (direct message) or
+        `name:<sender_name>` (a channel message has no key)."""
+        if params.get("sender_key"):
+            return "key:" + str(params["sender_key"]).lower()
+        if params.get("sender_name"):
+            return "name:" + str(params["sender_name"]).lower()
+        return None
+
+    def note_inbound(self, instance_id: str, params: Mapping[str, Any]) -> None:
+        """Remember a message handed to `instance_id` (outgoing ones are not replied to)."""
+        if params.get("is_outgoing"):
+            return
+        key = params.get("channel_key") if not params.get("is_dm") else params.get("sender_key")
+        key = key or params.get("conversation_key")
+        if not key:
+            return
+        received = params.get("received_at")
+        self._inbound[
+            (instance_id, destination_subject(is_dm=bool(params.get("is_dm")), key=str(key)))
+        ] = (
+            self.sender_of(params),
+            received if type(received) is int else int(self.clock()),
+        )
+
+    def last_inbound(
+        self, instance_id: str, *, is_dm: bool, key: str
+    ) -> tuple[str | None, int] | None:
+        return self._inbound.get((instance_id, destination_subject(is_dm=is_dm, key=key)))
+
     # Visibility.
 
     def note_refusal(self, instance_id: str, label: str, refusal: GuardRefused) -> None:
@@ -398,6 +436,8 @@ class SendGuard:
 
     def forget(self, instance_id: str) -> None:
         self._hits.pop(instance_id, None)
+        for key in [k for k in self._inbound if k[0] == instance_id]:
+            del self._inbound[key]
         for key in [k for k in self._last_logged if k[0] == instance_id]:
             del self._last_logged[key]
 

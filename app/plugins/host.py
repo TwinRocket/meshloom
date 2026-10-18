@@ -1391,6 +1391,7 @@ class PluginManager:
             if not message_visible(instance.permissions, instance.scope, params):
                 continue
             own = params["is_outgoing"] and origin == instance.instance_id
+            send_guard.note_inbound(instance.instance_id, params)
             instance.enqueue(_Event("message", {**params, "own_send": True} if own else params))
 
     def accepts(self, instance: PluginInstance, hook: str, data: dict[str, Any]) -> bool:

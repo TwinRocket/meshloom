@@ -55,6 +55,7 @@
       "region_unknown": "L'extension a demandé une région que Meshloom ne connaît pas.",
       "message_too_long": "Le message de l'extension était trop long pour la radio.",
       "send_failed": "La radio n'a pas envoyé le message de l'extension.",
+      "quota_unavailable": "Meshloom n'a pas pu vérifier les limites d'envoi : le message de l'extension n'a pas été envoyé.",
       "invalid_params": "L'extension a fait une demande invalide."
     }
   }

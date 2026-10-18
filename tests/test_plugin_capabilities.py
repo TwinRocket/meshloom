@@ -387,6 +387,24 @@ async def test_the_loop_guards_answer_quota_exceeded_with_their_scope(
     assert manager.statuses()[instance.instance_id]["send_guard"]["total"] == 1
 
 
+async def test_a_guard_that_cannot_count_fails_closed(manager, tmp_path, sent, monkeypatch):
+    async def broken(*args, **kwargs):
+        raise OSError("disk")
+
+    monkeypatch.setattr(quotas.send_guard, "record", broken)
+    instance = await probe(
+        manager,
+        tmp_path,
+        "closed",
+        {"messages.read": READ_ALL, "messages.send": {"targets": "reply"}},
+    )
+    manager.dispatch("message", fanout_dm(calls(("messages.send", {"to": "reply", "text": "x"}))))
+    await wait_until(lambda: lines(instance, "result"), what="the result")
+    (result,) = lines(instance, "result")
+    assert result[0]["error"] == "quota_unavailable"
+    assert sent == []
+
+
 async def test_quota_counters_survive_a_restart_and_follow_the_window(test_db):
     now = [7200.0 * 100 + 10]
     quota = SendQuota(clock=lambda: now[0])

@@ -380,6 +380,9 @@ class PluginRepository:
             if not keep_data:
                 await conn.execute("DELETE FROM plugin_kv WHERE instance_id = ?", (instance_id,))
         _instances_cache.pop(instance_id, None)
+        from app.plugins.quotas import send_guard
+
+        send_guard.forget(instance_id)
 
     @staticmethod
     async def config_for_init(instance_id: str) -> dict[str, Any] | None:
