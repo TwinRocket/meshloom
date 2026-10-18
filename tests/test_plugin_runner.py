@@ -585,7 +585,8 @@ def test_malformed_line_gets_a_parse_error_and_the_child_keeps_serving(hostile: 
 
 
 def test_oversized_line_ends_the_child(hostile: Runner) -> None:
-    hostile.write(b"x" * (rpc.MAX_MESSAGE_BYTES + 10))
+    # Over the cap and not one of the long `http.fetch` lines (`rpc.LargeLines`).
+    hostile.write(b"x" * (rpc.MAX_MESSAGE_BYTES + 10) + b"\n")
     assert hostile.proc.wait(timeout=10) == 2
     assert "message over" in hostile.stderr()
 
@@ -824,7 +825,7 @@ def test_deeply_nested_line_gets_a_parse_error(hostile: Runner) -> None:
 
 
 def test_line_decoder_caps_a_line_without_newline() -> None:
-    decoder = rpc.LineDecoder(max_bytes=10)
+    decoder = rpc.LineDecoder(max_bytes=10, large=None)
     assert decoder.feed(b"abc\nde") == [b"abc"]
     assert decoder.feed(b"f\n") == [b"def"]
     with pytest.raises(rpc.FramingError):
