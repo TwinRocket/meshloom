@@ -27,7 +27,7 @@ this is a hypothesis: the code wins.
 | Installation code, first run | `app/auth/setup_code.py` |
 | CSRF rule, https detection (the one reader of proxy headers) | `app/origin_policy.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -133,14 +133,18 @@ and `websocket` scope:
    session or token id, scopes) and stores it in `scope["state"]["principal"]`;
    routes read it with `get_principal(request)`. Credentials are tried in
    this order, and the first one present decides:
-   - `Authorization: Bearer`: device and API tokens (a later ticket). No token
-     is valid yet, so a bearer request is anonymous, with
-     `auth_invalid_credentials` on a protected route.
+   - `Authorization: Bearer`: device and API tokens (a later ticket,
+     `resolve_bearer_token()` is the seam). No token is valid yet, so a bearer
+     request is anonymous, with `auth_invalid_credentials` on a protected
+     route.
    - `Authorization: Basic`: the compatibility credential (below).
    - The session cookie, under the name for the request's scheme (below).
      Never read under ingress.
-2. **CSRF.** Every `POST`, `PUT`, `PATCH` and `DELETE` that does not carry
-   `Authorization: Bearer` must pass `origin_policy.unsafe_request_allowed()`,
+
+   A Basic or login check that finds the argon2id queue full answers 503
+   `auth_busy` with `Retry-After: 1` at once (below).
+2. **CSRF.** Every `POST`, `PUT`, `PATCH` and `DELETE` not authenticated by a
+   bearer token that resolved must pass `origin_policy.unsafe_request_allowed()`,
    else 403 `auth_origin_rejected`. The rule is Go's
    `net/http.CrossOriginProtection` plus the allowlist:
    `Sec-Fetch-Site: same-origin` or `none` passes; a request with neither
@@ -149,9 +153,10 @@ and `websocket` scope:
    request); otherwise `Origin` must be same-origin (`Host` or the first
    `X-Forwarded-Host`, as for the WebSocket) or listed in Allowed origins
    (`auth_allowed_origins`). `Origin: null` is refused. It applies to anonymous
-   requests too (login CSRF), and GET is never blocked. Bearer is exempt: a
-   browser page cannot add an `Authorization` header across origins without a
-   CORS preflight, which only listed origins pass.
+   requests too (login CSRF), and GET is never blocked. A resolved bearer token
+   is exempt (a browser page cannot add an `Authorization` header across
+   origins without a CORS preflight, which only listed origins pass); a bearer
+   header that does not resolve gets no exemption.
 3. **Default deny.** Any path under `/api` that is not in `PUBLIC_ROUTES`
    needs a principal of any role (the per-route permission registry is a later
    ticket). Without one: 401 `auth_setup_required` while no account exists,
@@ -183,8 +188,13 @@ How the request reached the instance. `ingress` when `MESHLOOM_INSTALL_KIND`
 is `addon` and the peer is the Supervisor (`172.30.32.2`); `lan` otherwise.
 `trusted` and `relay` come with later tickets. Under ingress **no cookie is
 ever set or read**: the Home Assistant origin is shared by every add-on. Until
-the ingress identity provider lands, a login through ingress succeeds but
-opens no session, so the add-on cannot stay signed in through the sidebar.
+the ingress identity provider lands (MSHL-51, a release gate for 5.0.0), a
+setup or a login through ingress checks out but opens no session: it answers
+`authenticated: false` with `session_reason: "auth_ingress_unsupported"`, never
+`authenticated: true`. **Known limitation of `preversion-5`:** the add-on
+cannot be used through the Home Assistant sidebar, only through its published
+port (8000). `preversion-5` never reaches 4.18.x users and the `:next` test
+instance is Docker.
 
 ### Proxy headers
 
@@ -229,10 +239,22 @@ Upgrade path (cadrage P3, `app/security.py`):
 - A successful check is cached in memory for 5 minutes under
   a low-cost scrypt of the password (n=1024, r=8: 1 MiB, about a millisecond;
   salt = a random per-process secret + `username_key`; at most 256 entries): 100 requests, one
-  argon2id verification. The account is read again on every request and the
-  cache entry is used only while `users.updated_at` is unchanged, so a
-  disabled account or a password reset applies at once, even from another
-  process. A password change through `PATCH /api/auth/me` drops the entries.
+  argon2id verification. The scrypt runs in a worker thread. The account is
+  read again on every request and the cache entry is used only while its
+  stored password hash is the one it was verified against, so a disabled
+  account or a password reset applies at once, even from another process and
+  in the same second. A password change through `PATCH /api/auth/me` drops the
+  entries.
+- **Failures.** After a failed check, Basic attempts from that client IP that
+  are not already cached fail at once for 3 seconds, without argon2id (at most
+  1024 IPs tracked). A script sharing the IP of a failing client (Docker
+  gateway) waits those seconds too.
+- **Load cap** (`app/auth/providers/password.py`). At most 2 argon2id checks
+  run and 8 wait; one more answers 503 `auth_busy` at once, on any route and
+  on `POST /api/auth/login`, instead of queueing behind a flood. The real
+  login limiter is a later ticket.
+- A user name longer than 64 characters (the account limit) cannot be
+  imported: the error is logged and the first run continues without it.
 
 ## First run and the installation code
 
@@ -249,6 +271,13 @@ no account exists:
 3. On a database created by this start nothing is asked: whoever installed it
    is in front of it. A restart before the setup makes the database existing,
    and the code is then asked.
+
+**Fail closed.** `POST /api/auth/setup` answers 503 `auth_setup_unavailable`
+until `prepare_first_run()` has succeeded in this process: when it raised at
+startup (a locked database), the setup route runs it again and keeps refusing
+while it fails. Setup is also refused when the database existed before this
+start and no code hash is stored, whatever code is sent. `GET
+/api/auth/session` then says `setup_code_required: true`.
 
 Once an account exists the hash is cleared. `POST /api/auth/setup` checks the
 code with digits only (`1234 5678` and `1234-5678` match); wrong codes are
@@ -278,8 +307,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | Route | Access | Behaviour |
 |---|---|---|
 | `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}}`, **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
-| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`. Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session` |
-| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session` |
+| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`; under ingress no session: `authenticated: false`, `session_reason: "auth_ingress_unsupported"` |
+| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session` (with `session_reason` under ingress) |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
 | `GET /auth/sessions` | signed in | The user's active sessions, newest first, `current` marks this one |
 | `DELETE /auth/sessions` | signed in | Revokes all the user's sessions except this one: `{revoked}` |

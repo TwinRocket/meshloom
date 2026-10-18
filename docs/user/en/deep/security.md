@@ -35,7 +35,7 @@ MESHCORE_BASIC_AUTH_PASSWORD=...
 
 Set both, or neither: the server refuses to start with only one. Basic auth protects the pages, the API and the live connection (WebSocket). It is a single shared login with no roles. Without HTTPS the password travels in clear text, so pair it with [HTTPS](/en/docs/deep/https/).
 
-From Meshloom 5.0, signing in is mandatory and uses accounts. On the first start of 5.0, these two variables become the administrator account (same name, same password), then Meshloom no longer reads them and logs a warning while they are still set: remove them. Scripts and Home Assistant sensors that send this user name and password with Basic auth keep working until 5.2. A browser page from another site can no longer change anything with your login: Meshloom refuses changes that come from another site.
+From Meshloom 5.0, signing in is mandatory and uses accounts. On the first start of 5.0, these two variables become the administrator account (same name, same password), then Meshloom no longer reads them and logs a warning while they are still set: remove them. Scripts and Home Assistant sensors that send this user name and password with Basic auth keep working until 5.2. Known limitation of the 5.0 pre-release: the Home Assistant add-on cannot keep you signed in through the sidebar yet; open it on its own port (8000) until the Home Assistant sign-in arrives, which 5.0.0 requires. A browser page from another site can no longer change anything with your login: Meshloom refuses changes that come from another site.
 
 ## Disable bots
 
