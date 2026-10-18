@@ -580,9 +580,10 @@ async def test_put_source_is_local_only_and_bounded(api, manager):
     response = await api.put(f"/api/plugins/{bundled['instance_id']}/source", json={"source": ""})
     assert response.status_code == 409 and code_of(response) == "not_local"
     local = (await api.post("/api/plugins", json={"label": "Big"})).json()
-    huge = await api.put(
-        f"/api/plugins/{local['instance_id']}/source", json={"source": "x = 1\n" * 200_000}
-    )
+    url = f"/api/plugins/{local['instance_id']}/source"
+    # Over 1 MiB of characters is cut by the body model; multibyte text by the byte check.
+    assert (await api.put(url, json={"source": "x = 1\n" * 200_000})).status_code == 422
+    huge = await api.put(url, json={"source": "# " + "é" * 600_000})
     assert huge.status_code == 400 and code_of(huge) == "source_too_large"
 
 
@@ -639,7 +640,8 @@ async def test_test_validation_and_state_errors(api, manager, senders):
     iid = created["instance_id"]
     url = f"/api/plugins/{iid}/test"
     assert (await api.post(url, json={"text": ""})).status_code == 422
-    big = await api.post(url, json={"text": "x" * 2000})
+    assert (await api.post(url, json={"text": "x" * 2000})).status_code == 422
+    big = await api.post(url, json={"text": "é" * 600})
     assert big.status_code == 400 and code_of(big) == "test_text_too_long"
     both = await api.post(url, json={"text": "x", "channel": "AA" * 16, "contact": "bb" * 32})
     assert both.status_code == 400 and code_of(both) == "test_target_ambiguous"
@@ -825,3 +827,100 @@ async def test_plugin_status_events_follow_status_changes_and_validate(api, mana
         assert {"instance_id", "status", "last_error", "attention"} <= set(payload)
         # The payload is a valid `plugin_status` frame (the model every emit goes through).
         json.loads(dump_ws_event(WsEvent.PLUGIN_STATUS, payload))
+
+
+# --- review round 1 (PR 255) -----------------------------------------------------
+
+
+async def _greeter(api, manager) -> str:
+    created = await install(api, manager, "meshloom.greeter", config={"greeting": "hi"})
+    return created["instance_id"]
+
+
+async def test_clearing_a_required_field_on_a_stopped_instance_blocks_the_enable(api, manager):
+    iid = await _greeter(api, manager)
+    await api.patch(f"/api/plugins/{iid}", json={"enabled": False})
+    cleared = await api.patch(f"/api/plugins/{iid}", json={"config": {}})
+    assert cleared.status_code == 200
+    assert cleared.json()["attention"] == {"type": "config_required", "fields": ["greeting"]}
+    assert cleared.json()["status"] == "needs_attention"
+    enable = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert enable.status_code == 409 and code_of(enable) == "config_required"
+    assert manager.get(iid) is None
+
+    # The flag is not trusted either: a row with the field gone and no attention.
+    await PluginRepository.update(iid, attention=None, status="disabled", config={})
+    again = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert again.status_code == 409 and code_of(again) == "config_required"
+    await PluginRepository.update(iid, enabled=True)
+    restart = await api.post(f"/api/plugins/{iid}/restart")
+    assert restart.status_code == 409 and code_of(restart) == "config_required"
+
+
+@pytest.mark.parametrize("status", ["revoked", "incompatible"])
+async def test_revoked_and_incompatible_never_start(api, manager, status):
+    iid = await _greeter(api, manager)
+    await api.patch(f"/api/plugins/{iid}", json={"enabled": False})
+    await PluginRepository.update(iid, status=status)
+    refused = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert refused.status_code == 409 and code_of(refused) == f"plugin_{status}"
+    assert manager.get(iid) is None
+    await PluginRepository.update(iid, enabled=True)
+    restart = await api.post(f"/api/plugins/{iid}/restart")
+    assert restart.status_code == 409 and code_of(restart) == f"plugin_{status}"
+    assert manager.get(iid) is None
+
+
+async def test_other_attention_needs_an_acknowledgement(api, manager):
+    iid = await _greeter(api, manager)
+    await api.patch(f"/api/plugins/{iid}", json={"enabled": False})
+    await PluginRepository.update(
+        iid, status="needs_attention", attention={"type": "review_permissions"}
+    )
+    refused = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert refused.status_code == 409 and code_of(refused) == "attention_required"
+    assert refused.json()["detail"]["params"]["type"] == "review_permissions"
+    assert manager.get(iid) is None
+    granted = (await api.get("/api/plugins")).json()[0]["granted_permissions"]
+    ok = await api.patch(
+        f"/api/plugins/{iid}", json={"enabled": True, "granted_permissions": granted}
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["attention"] is None
+    instance = manager.get(iid)
+    assert instance is not None
+    await wait_until(lambda: instance.status == "running", what="running")
+
+
+async def test_last_error_and_summary_are_scrubbed_of_secrets(api, manager):
+    created = await install(
+        api, manager, "meshloom.greeter", config={"greeting": "hi", "token": SECRET}
+    )
+    iid = created["instance_id"]
+    instance = manager.get(iid)
+    assert instance is not None
+    await instance._set_error(f"handler_error: boom {SECRET}")
+    await instance.set_summary(f"token {SECRET}")
+    # A value stored before the secret was known to the supervisor still reads clean.
+    instance.last_error = f"handler_error: {SECRET}"
+    instance.summary = f"s {SECRET}"
+    for response in (
+        await api.get("/api/plugins"),
+        await api.patch(f"/api/plugins/{iid}", json={"sort_order": 3}),
+    ):
+        assert SECRET not in response.text
+
+
+async def test_local_plugin_permissions_are_editable_through_the_manifest(api, manager):
+    created = (await api.post("/api/plugins", json={"label": "Perms"})).json()
+    iid = created["instance_id"]
+    assert created["granted_permissions"] == {}
+    response = await api.patch(f"/api/plugins/{iid}", json={"granted_permissions": ECHO_GRANT})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["granted_permissions"] == ECHO_GRANT
+    assert body["manifest"]["permissions"] == ECHO_GRANT
+    bad = await api.patch(
+        f"/api/plugins/{iid}", json={"granted_permissions": {"notifications.send": {}}}
+    )
+    assert bad.status_code == 400 and code_of(bad) == "manifest_invalid"

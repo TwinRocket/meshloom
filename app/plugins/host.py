@@ -867,6 +867,7 @@ class PluginInstance:
 
     async def set_summary(self, summary: str | None) -> None:
         self._summary_at = time.monotonic()
+        summary = self._scrub(summary)
         if summary != self.summary:
             self.summary = summary
             await self._manager._status_changed(self)

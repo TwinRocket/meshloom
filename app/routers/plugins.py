@@ -184,7 +184,7 @@ class PatchRequest(_Body):
 
 
 class SourceRequest(_Body):
-    source: str
+    source: str = Field(max_length=MAX_SOURCE_BYTES)
 
 
 class SourceResult(BaseModel):
@@ -193,7 +193,7 @@ class SourceResult(BaseModel):
 
 
 class TestRequest(_Body):
-    text: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=MAX_TEST_TEXT_BYTES)
     channel: str | None = Field(default=None, description="A channel key; default: a test channel.")
     contact: str | None = Field(
         default=None, description="A contact public key (a direct message)."
@@ -249,9 +249,12 @@ def _live(instance_id: str) -> dict[str, Any]:
     return plugin_manager.statuses().get(instance_id) or {}
 
 
-def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
+async def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
     live = _live(row["instance_id"])
     status = live.get("status") or row["status"]
+    secrets = await _clear_secrets(row["instance_id"]) if row["secret_fields"] else []
+    last_error = (live.get("last_error") if live else row["last_error"]) if admin else None
+    summary = live.get("summary")
     return PluginInstanceView(
         instance_id=row["instance_id"],
         plugin_id=row["plugin_id"],
@@ -271,10 +274,10 @@ def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
         installed_at=row["installed_at"],
         updated_at=row["updated_at"],
         status=status,
-        last_error=(live.get("last_error") if live else row["last_error"]) if admin else None,
+        last_error=_clean_line(last_error, secrets) if last_error else None,
         attention=row["attention"] if admin else None,
         sort_order=row["sort_order"],
-        summary=live.get("summary"),
+        summary=_clean_line(summary, secrets) if summary else None,
         restarts=live.get("restarts", 0),
         dropped_events=live.get("dropped_events", 0),
     )
@@ -400,9 +403,40 @@ def _capacity_error(exc: PluginCapacityError) -> HTTPException:
     return _error(409, exc.code, "Too many plugin instances are running", cap=exc.cap)
 
 
+def _status_block(row: dict[str, Any], *, acknowledged: bool = False) -> HTTPException | None:
+    """Why a start is refused by the row's status (cadrage 4.2): ``revoked`` and
+    ``incompatible`` never run; ``needs_attention`` for a reason other than
+    ``config_required`` (``review_permissions``, ``consent_required``, ...) needs the
+    admin to acknowledge it by sending ``granted_permissions`` again."""
+    status = row["status"]
+    if status in ("revoked", "incompatible"):
+        return _error(409, f"plugin_{status}", f"The instance is {status} and cannot start")
+    attention = row["attention"] or {}
+    kind = attention.get("type")
+    if status == "needs_attention" and kind not in (None, "config_required") and not acknowledged:
+        return _error(
+            409, "attention_required", "The instance needs a review before it starts", type=kind
+        )
+    return None
+
+
+def _stored_missing(row: dict[str, Any]) -> list[str]:
+    """The required config fields the stored config lacks (checked at every start)."""
+    return _check_config(row["config_schema"], row["config"], frozenset(row["secret_fields"]))[1]
+
+
 async def _apply_runtime(instance_id: str, row: dict[str, Any], *, restart: bool) -> None:
     """Make the process match the row: stop when disabled, (re)start when enabled and
     asked to. Raises ``HTTPException`` on a refusal of the host."""
+    if row["enabled"]:
+        blocked = _status_block(row)
+        if blocked is not None:
+            raise blocked
+        missing = _stored_missing(row)
+        if missing:
+            raise _error(
+                409, "config_required", "Required config fields are missing", fields=missing
+            )
     try:
         if not row["enabled"]:
             await plugin_manager.stop(instance_id)
@@ -420,7 +454,7 @@ async def _apply_runtime(instance_id: str, row: dict[str, Any], *, restart: bool
 @router.get("", response_model=list[PluginInstanceView], dependencies=[Reader])
 async def list_plugins(request: Request) -> list[PluginInstanceView]:
     admin = _is_admin(request)
-    return [_view(row, admin) for row in await PluginRepository.get_all()]
+    return [await _view(row, admin) for row in await PluginRepository.get_all()]
 
 
 @router.get("/bundled", response_model=list[BundledPluginView], dependencies=[Reader])
@@ -513,7 +547,7 @@ async def install_plugin(body: InstallRequest) -> PluginInstanceView:
             await PluginRepository.delete(instance_id)
             raise _error(409, exc.code, "The plugin host refused to start the instance") from None
     plugin_manager.announce(instance_id)
-    return _view(await _row(instance_id), True)
+    return await _view(await _row(instance_id), True)
 
 
 @router.post("", status_code=201, response_model=PluginInstanceView, dependencies=[Admin, Writable])
@@ -539,7 +573,7 @@ async def create_local_plugin(body: CreateLocalRequest) -> PluginInstanceView:
         source=installer.local_template_source(body.template),
     )
     plugin_manager.announce(row["instance_id"])
-    return _view(row, True)
+    return await _view(row, True)
 
 
 # --- change ----------------------------------------------------------------------
@@ -557,22 +591,39 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
     schema = row["config_schema"]
     attention = row["attention"]
     awaiting_config = bool(attention and attention.get("type") == "config_required")
-    missing: list[str] = list((attention or {}).get("fields", [])) if awaiting_config else []
+    # Re-evaluated from the stored config on every call, never trusted from the flag.
+    missing = _stored_missing(row)
     if "config" in fields and body.config is not None:
         invalid, missing = _check_config(schema, body.config, stored_secrets)
         if invalid:
             raise _config_invalid(invalid)
         changes["config"] = body.config
     if "granted_permissions" in fields and body.granted_permissions is not None:
-        problems = installer.grant_problems(row["manifest"], body.granted_permissions)
-        if problems:
+        if row["kind"] == "local":
+            # A local plugin declares and grants together: editing its permissions
+            # rewrites its manifest, revalidated (consent is the admin's request).
+            draft = {**row["manifest"], "permissions": body.granted_permissions}
+            try:
+                parsed = parse_manifest(draft, origin="local")
+            except PluginValidationError as exc:
+                raise _error(
+                    400,
+                    "manifest_invalid",
+                    "The permissions are invalid",
+                    issues=_issues(exc.issues),
+                ) from None
+            declared = parsed.permissions.declared()
+            changes["manifest"] = {**row["manifest"], "permissions": declared}
+            changes["granted_permissions"] = declared
+        elif problems := installer.grant_problems(row["manifest"], body.granted_permissions):
             raise _error(
                 400,
                 "permission_exceeds_manifest",
                 "A grant must be a subset of the manifest's permissions",
                 fields=problems,
             )
-        changes["granted_permissions"] = body.granted_permissions
+        else:
+            changes["granted_permissions"] = body.granted_permissions
     if "scope" in fields and body.scope is not None:
         if not _check_scope(body.scope):
             raise _error(400, "scope_invalid", "The scope is not valid")
@@ -587,14 +638,32 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
             changes[name] = getattr(body, name)
     enabling = body.enabled is True and not row["enabled"]
     will_run = row["enabled"] if body.enabled is None else body.enabled
-    if will_run and missing:
-        raise _error(409, "config_required", "Required config fields are missing", fields=missing)
+    acknowledged = "granted_permissions" in fields
+    if will_run:
+        blocked = _status_block(row, acknowledged=acknowledged)
+        if blocked is not None:
+            raise blocked
+        if missing:
+            raise _error(
+                409, "config_required", "Required config fields are missing", fields=missing
+            )
     if body.enabled is not None:
         changes["enabled"] = body.enabled
-    if awaiting_config and not missing:
+    if (
+        awaiting_config
+        and not missing
+        or will_run
+        and acknowledged
+        and row["status"] == "needs_attention"
+    ):
         changes.update(attention=None, status="installed")
+    elif not will_run and missing and "config" in changes and row["status"] != "needs_attention":
+        # Cleared a required field on a stopped instance: it waits for its config.
+        changes.update(
+            attention={"type": "config_required", "fields": missing}, status="needs_attention"
+        )
     if not changes:
-        return _view(row, True)
+        return await _view(row, True)
     try:
         updated = await PluginRepository.update(instance_id, **changes)
     except PluginStoreError as exc:
@@ -613,7 +682,7 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
             plugin_manager.announce(instance_id)
             raise
     plugin_manager.announce(instance_id)
-    return _view(await _row(instance_id), True)
+    return await _view(await _row(instance_id), True)
 
 
 @router.put("/{instance_id}/source", response_model=SourceResult, dependencies=[Admin, Writable])
@@ -642,7 +711,7 @@ async def put_source(instance_id: str, body: SourceRequest) -> SourceResult:
         {"code": r.code, "line": r.line, "detail": r.detail, "informative": r.informative}
         for r in report.reasons
     ]
-    return SourceResult(instance=_view(await _row(instance_id), True), scan=scan)
+    return SourceResult(instance=await _view(await _row(instance_id), True), scan=scan)
 
 
 # --- actions ---------------------------------------------------------------------
@@ -656,11 +725,9 @@ async def restart_plugin(instance_id: str) -> PluginInstanceView:
     row = await _row(instance_id)
     if not row["enabled"]:
         raise _error(409, "plugin_disabled", "The instance is disabled")
-    if (row["attention"] or {}).get("type") == "config_required":
-        raise _error(409, "config_required", "Required config fields are missing")
     await _apply_runtime(instance_id, row, restart=True)
     plugin_manager.announce(instance_id)
-    return _view(await _row(instance_id), True)
+    return await _view(await _row(instance_id), True)
 
 
 @router.post("/{instance_id}/check", response_model=CheckResult, dependencies=[Admin, Writable])
