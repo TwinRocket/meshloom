@@ -919,7 +919,11 @@ is written outside `app/main.py`'s header middleware.
 `enforce` records the refused names too (before the 421 or the 1008), so the screen
 lists what was refused; the names are client-supplied, hence the risk text and the
 confirmation step of "Allow". Recovery without the UI: `meshloom-admin
-host-guard-observe` (audited as `settings.changed`, `via = "cli"`). Public URL hosts
+host-guard-observe` (audited as `settings.changed`, `via = "cli"`; like the other
+commands it needs a shell and the database file, no extra privilege). The running
+server sees it without a restart: a request about to be refused re-reads the settings
+row first, at most every 2 s (`REFRESH_MIN_INTERVAL_S`), and keeps its in-memory
+settings if the read fails. Public URL hosts
 are converted to punycode (IDNA), checked label by label (1 to 63 LDH characters, no
 leading or trailing hyphen), the port is 1 to 65535, and the path prefix is limited to
 `[A-Za-z0-9._~-]` segments and `%XX` escapes (no dot segment, even encoded).

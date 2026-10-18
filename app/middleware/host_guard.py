@@ -21,8 +21,8 @@ Two users, two strictnesses:
   default, so an upgrade behind any reverse proxy name keeps working) lets the
   request through, logs each new name once and records it in the bounded
   ``rejected_hosts()`` list. ``enforce`` answers 421 ``auth_host_rejected``
-  (HTTP) or closes the WebSocket with 1008; both modes record the name. The default becomes ``enforce`` in
-  5.1.
+  (HTTP) or closes the WebSocket with 1008; both modes record the name. The
+  default becomes ``enforce`` in 5.1.
 
 Exempt from the middleware: Home Assistant ingress (the Supervisor's proxy,
 ``ingress.is_ingress_request``, independent of any setting) and requests the
@@ -47,7 +47,10 @@ answered, which the route refuses before saving.
 
 The mode and the public URLs are kept in memory like the trusted proxies:
 ``AuthSettingsRepository.update()`` calls ``apply()`` after every write and the
-middleware loads them from the database on first use.
+middleware loads them from the database on first use. A write from another process
+(``meshloom-admin host-guard-observe``) is seen without a restart because a request
+about to be refused first re-reads the row (at most once per ``REFRESH_MIN_INTERVAL_S``);
+if the read fails, the settings in memory stay and the request is refused as before.
 """
 
 from __future__ import annotations
@@ -91,6 +94,8 @@ _SEGMENT = re.compile(r"(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+")
 # New-name warnings: at most this many per window, the rest counted in one line.
 WARNING_BURST = 5
 WARNING_WINDOW_S = 60
+# A request about to be refused re-reads the settings row at most this often.
+REFRESH_MIN_INTERVAL_S = 2.0
 
 
 class RejectedHost(BaseModel):
@@ -105,6 +110,7 @@ class RejectedHost(BaseModel):
 _mode: str = "observe"
 _public_urls: tuple[str, ...] = ()
 _loaded = False
+_last_refresh = 0.0
 _remote_hostnames: frozenset[str] = frozenset()
 _rejected: OrderedDict[str, RejectedHost] = OrderedDict()
 _warn_window_start = 0.0
@@ -285,9 +291,26 @@ async def _ensure_loaded() -> None:
             logger.debug("Host guard settings unavailable", exc_info=True)
 
 
+async def _refresh_before_refusing() -> None:
+    """Re-read the row before a refusal: another process (the CLI) may have changed it."""
+    global _last_refresh
+    now = time.monotonic()
+    if now - _last_refresh < REFRESH_MIN_INTERVAL_S:
+        return
+    _last_refresh = now
+    from app.repository.auth import AuthSettingsRepository
+
+    try:
+        apply(await AuthSettingsRepository.get())
+    except Exception:
+        # Fail safe: keep what is in memory (the refusal stands).
+        logger.debug("Host guard settings refresh failed", exc_info=True)
+
+
 def reset() -> None:
     """Forget settings, Remote hostname and observed names (tests, a fresh process)."""
-    global _mode, _public_urls, _loaded, _remote_hostnames
+    global _mode, _public_urls, _loaded, _remote_hostnames, _last_refresh
+    _last_refresh = 0.0
     _mode, _public_urls, _loaded = "observe", (), False
     _remote_hostnames = frozenset()
     _rejected.clear()
@@ -424,6 +447,11 @@ class HostGuardMiddleware:
         if host_allowed(raw, _public_urls):
             await self.app(scope, receive, send)
             return
+        if _mode == "enforce":
+            await _refresh_before_refusing()
+            if _mode != "enforce" or host_allowed(raw, _public_urls):
+                await self.app(scope, receive, send)
+                return
         host = request_host(raw or "")
         # Recorded in both modes: in enforce mode the list is how an administrator
         # sees what was refused (the names are client-supplied: see the screen's warning).

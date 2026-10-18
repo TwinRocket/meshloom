@@ -390,3 +390,33 @@ def test_would_lock_out_exempts_relay_and_judges_the_rest(state):
     assert host_guard.would_lock_out(scope, "enforce", []) is (state is None)
     assert host_guard.would_lock_out(scope, "observe", []) is False
     assert host_guard.would_lock_out(scope, "enforce", ["https://evil.example"]) is False
+
+
+async def test_a_change_written_by_another_process_is_seen_before_refusing(test_db):
+    from app.repository.auth import AuthSettingsRepository
+
+    await AuthSettingsRepository.update(host_guard_mode="enforce")
+    async with _client("evil.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
+        # What `meshloom-admin host-guard-observe` does: a write the server did not make.
+        async with test_db.tx() as conn:
+            await conn.execute("UPDATE auth_settings SET host_guard_mode = 'observe' WHERE id = 1")
+        assert host_guard.mode() == "enforce"
+        # Throttled: inside the interval the refusal stands.
+        assert (await client.get("/api/x")).status_code == 421
+        host_guard._last_refresh = 0.0
+        assert (await client.get("/api/x")).status_code == 200
+    assert host_guard.mode() == "observe"
+
+
+async def test_a_failed_refresh_keeps_the_refusal(monkeypatch, test_db):
+    from app.repository.auth import AuthSettingsRepository
+
+    _settings("enforce")
+
+    async def boom():
+        raise RuntimeError("db closed")
+
+    monkeypatch.setattr(AuthSettingsRepository, "get", boom)
+    async with _client("evil.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
