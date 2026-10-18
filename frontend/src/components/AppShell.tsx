@@ -13,6 +13,7 @@ import { DesktopRail } from './DesktopRail';
 import { RadioStatusDialog } from './RadioStatusDialog';
 import { UpdateAvailableDialog } from './UpdateAvailableDialog';
 import { useOssUpdates } from '../hooks/useOssUpdates';
+import { useCapabilities } from '../auth/SessionProvider';
 import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
 import { DesktopListSplit } from './DesktopListSplit';
@@ -201,9 +202,11 @@ export function AppShell({
   // it, and every surface below reads it, so an opt-out shows everywhere at once.
   const { status: communityStatus, enabled: communityEnabled } = useCommunityState();
 
+  const { isAdmin: canAdminister } = useCapabilities();
+  // `GET /api/community` and `GET /api/updates` answer administrators only.
   useEffect(() => {
-    void refreshCommunityStatus();
-  }, []);
+    if (canAdminister) void refreshCommunityStatus();
+  }, [canAdminister]);
 
   const [crackerMounted, setCrackerMounted] = useState(false);
   if (showCracker && !crackerMounted) {
@@ -220,6 +223,7 @@ export function AppShell({
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const ossUpdates = useOssUpdates({
     onSeeUpdate: () => handleOpenSettings('updates'),
+    enabled: canAdminister,
   });
   const updateAvailable = ossUpdates.status?.update_available === true;
   const activeType = conversationPaneProps.activeConversation?.type;

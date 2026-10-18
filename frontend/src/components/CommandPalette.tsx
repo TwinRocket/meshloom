@@ -1,3 +1,6 @@
+import { useCapabilities } from '../auth/SessionProvider';
+import { visibleSettingsSections } from '../auth/capabilities';
+import { toolAllowed } from './navDestinations';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -157,30 +160,33 @@ export function CommandPalette({
   directoryEnabled = false,
 }: CommandPaletteProps) {
   const { t, i18n } = useTranslation();
+  const capabilities = useCapabilities();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const toolItems = useMemo<ToolItem[]>(
     () =>
-      TOOL_DEFS.filter((tool) => directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(tool.id)).map(
-        (tool) => {
-          const nameKey = TOOL_NAME_KEYS[tool.id];
-          const name = t(nameKey);
-          const extra = TOOL_SEARCH_EXTRA[tool.id] ?? '';
-          return {
-            ...tool,
-            name,
-            searchText:
-              `${name} ${i18n.t(nameKey, { lng: 'en' })} ${i18n.t(nameKey, { lng: 'fr' })} ${extra}`.toLowerCase(),
-          };
-        }
-      ),
-    [t, i18n, directoryEnabled]
+      TOOL_DEFS.filter(
+        (tool) =>
+          (directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(tool.id)) &&
+          toolAllowed(tool.id, capabilities)
+      ).map((tool) => {
+        const nameKey = TOOL_NAME_KEYS[tool.id];
+        const name = t(nameKey);
+        const extra = TOOL_SEARCH_EXTRA[tool.id] ?? '';
+        return {
+          ...tool,
+          name,
+          searchText:
+            `${name} ${i18n.t(nameKey, { lng: 'en' })} ${i18n.t(nameKey, { lng: 'fr' })} ${extra}`.toLowerCase(),
+        };
+      }),
+    [t, i18n, directoryEnabled, capabilities]
   );
 
   const settingItems = useMemo<SettingItem[]>(
     () =>
-      SETTINGS_SECTION_ORDER.map((section) => {
+      visibleSettingsSections(capabilities, SETTINGS_SECTION_ORDER).map((section) => {
         const labelKey = SETTINGS_SECTION_LABELS[section];
         const label = t(labelKey);
         return {
@@ -191,7 +197,7 @@ export function CommandPalette({
             `settings ${label} ${i18n.t(labelKey, { lng: 'en' })} ${i18n.t(labelKey, { lng: 'fr' })}`.toLowerCase(),
         };
       }),
-    [t, i18n]
+    [t, i18n, capabilities]
   );
 
   useEffect(() => {
@@ -224,7 +230,7 @@ export function CommandPalette({
     const rc: SearchableContact[] = [];
     const rp: SearchableContact[] = [];
     const rm: SearchableContact[] = [];
-    for (const c of contacts) {
+    for (const c of capabilities.canReadPrivate ? contacts : []) {
       const displayName = getContactDisplayName(c.name, c.public_key, c.last_advert);
       const entry: SearchableContact = {
         contact: c,
@@ -259,7 +265,7 @@ export function CommandPalette({
       favChannels: fch,
       regularChannels: rch,
     };
-  }, [contacts, channels]);
+  }, [contacts, channels, capabilities.canReadPrivate]);
 
   const lq = query.toLowerCase();
   const fTools = filterList(toolItems, lq);

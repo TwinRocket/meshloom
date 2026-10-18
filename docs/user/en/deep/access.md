@@ -20,6 +20,19 @@ Each account has one of four roles. The server checks the role on every request,
 | `viewer` | Read channels and direct messages, mark them read, manage its own profile and sessions. |
 | `kiosk` | Read only, for a screen on the wall: channel messages (muted and pending channels included), contacts, channels, packets, statistics and the map. Never a direct message, no settings, no profile. |
 
+What each role sees in the interface follows the table: the screens a role cannot use are hidden or greyed out instead of failing when clicked.
+
+| | `admin` | `member` | `viewer` | `kiosk` |
+|---|---|---|---|---|
+| Channels and packets | yes | yes | yes | yes (channels only, no direct message) |
+| Direct messages | yes | yes | yes | no |
+| Composer, new conversation, pin, favourite, mute, delete | yes | yes | no | no |
+| Repeater and room panes, mesh test | yes | no | no | no |
+| Settings | all sections | Local configuration | Local configuration | none |
+| Language and theme of this browser | yes | yes | yes | yes, from the account button |
+
+An action the server refuses anyway (for example from a page left open before a role change) shows one message, “This account is not allowed to do that.”
+
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
 
 ## Managing accounts
@@ -39,6 +52,10 @@ Administrators manage the accounts through the API for now; the **Settings** scr
 - **Changes apply at once.** A new role, a disable, a deletion or a password set by an administrator signs the account out everywhere, open pages included, and forgets the browsers it was remembered on. Moving an account to `kiosk` removes its password.
 - **A password chosen by an administrator is temporary.** Until the person picks their own, Meshloom lets them do nothing else than change it (or sign out); the request is `PATCH /api/auth/me` with `{"current_password", "new_password"}`. Changing your own password signs your other browsers out. A wrong current password counts like a wrong sign-in, with the same delays (below).
 - **Home Assistant users** (see the add-on below) take any role, `kiosk` included, and can be disabled, but never get a password: Home Assistant signs them in. The role given to the next new ones is `ingress_default_role` (`member` by default), set with `PATCH /api/auth/settings`. A deleted Home Assistant user comes back with that role on their next visit, even the one who was made administrator first (only the very first Home Assistant user ever becomes administrator): disable them instead to keep them out.
+
+### When an administrator sets your password
+
+If an administrator sets your password (or `meshloom-admin reset-password --must-change` does), Meshloom shows **Change your password** instead of the app: type the current password, then a new one (at least 12 characters, with the rules shown if it is refused). Nothing else works until it is changed, then the app opens where you were. Other devices of that account are signed out. A kiosk display has no password and never gets this page; if it ever shows, ask an administrator.
 
 ## Sign-in delays
 

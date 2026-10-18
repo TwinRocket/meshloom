@@ -11,7 +11,15 @@ import { useTranslation } from 'react-i18next';
 
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
-import { onAuthRequired } from './authEvents';
+import { toast } from '../components/ui/sonner';
+import {
+  forbiddenIsToasted,
+  onAuthRequired,
+  onForbidden,
+  onPasswordChangeRequired,
+} from './authEvents';
+import { ChangePasswordPage } from './ChangePasswordPage';
+import { capabilitiesFor, UNRESTRICTED, type Capabilities } from './capabilities';
 import { IngressSignInPage } from './IngressSignInPage';
 import { LoginPage } from './LoginPage';
 import { ReloginDialog } from './ReloginDialog';
@@ -30,6 +38,8 @@ interface SessionValue {
   via: AuthVia | null;
   /** The last `GET /auth/session` answer (the gate renders children only when signed in). */
   session: AuthSessionInfo | null;
+  /** What the role may do; unrestricted outside a provider (the server enforces anyway). */
+  capabilities: Capabilities;
   /** Ends the session on the server and goes back to the login page. */
   signOut: () => Promise<boolean>;
 }
@@ -39,6 +49,7 @@ const EMPTY: SessionValue = {
   role: null,
   via: null,
   session: null,
+  capabilities: UNRESTRICTED,
   signOut: async () => false,
 };
 
@@ -47,6 +58,11 @@ const SessionContext = createContext<SessionValue>(EMPTY);
 /** Who is signed in. Outside a provider (tests, previews) it reports nobody. */
 export function useSession(): SessionValue {
   return useContext(SessionContext);
+}
+
+/** What the signed-in role may do (docs: `auth/capabilities.ts`). Hides, never protects. */
+export function useCapabilities(): Capabilities {
+  return useContext(SessionContext).capabilities;
 }
 
 type GateState =
@@ -65,6 +81,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const [state, setState] = useState<GateState>({ status: 'loading' });
   const [expired, setExpired] = useState(false);
+  // Set by a 403 `auth_password_change_required` from any call, before the session says so.
+  const [passwordChangeForced, setPasswordChangeForced] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -111,6 +129,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
   }, [authenticated, viaIngress, load]);
 
+  useEffect(() => {
+    if (!authenticated) return;
+    return onPasswordChangeRequired(() => setPasswordChangeForced(true));
+  }, [authenticated]);
+
+  // A refused action is told once, in the reader's language, whatever the server's text.
+  // The same toast id folds a burst of refusals into one.
+  useEffect(() => {
+    if (!authenticated) return;
+    return onForbidden((event) => {
+      if (forbiddenIsToasted(event))
+        toast.error(t('errors.auth_forbidden'), { id: 'auth_forbidden' });
+    });
+  }, [authenticated, t]);
+
   // A reopened PWA is usually long past its session: ask on the way back instead of
   // letting the first thing the reader does be the thing that fails.
   useEffect(() => {
@@ -153,6 +186,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       role: state.session.user.role,
       via: state.session.via ?? null,
       session: state.session,
+      capabilities: capabilitiesFor(state.session.user.role),
       signOut,
     };
   }, [state, signOut]);
@@ -216,9 +250,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  const changePage = session.user && (
+    <ChangePasswordPage
+      username={session.user.username}
+      role={session.user.role}
+      onChanged={() => {
+        // No loading screen: a page raised mid-session sits over the mounted app, which
+        // keeps its state once the session is re-read.
+        void load().then(() => setPasswordChangeForced(false));
+      }}
+      onSignOut={() => void signOut()}
+    />
+  );
+  // The session itself says so (a fresh load): nothing of the app is worth mounting.
+  if (session.user?.must_change_password) return changePage;
+
   return (
     <SessionContext.Provider value={value}>
       {children}
+      {passwordChangeForced && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-background">{changePage}</div>
+      )}
       {expired && (
         <ReloginDialog
           username={session.user?.username ?? ''}

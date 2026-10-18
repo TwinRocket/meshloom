@@ -6,6 +6,7 @@ import i18n from '../i18n';
 import { initLastMessageTimes } from '../utils/conversationState';
 import { applyTheme, cacheTheme, getSavedTheme, serverChoseTheme } from '../utils/theme';
 import type { AppSettings, AppSettingsUpdate } from '../types';
+import { useCapabilities } from '../auth/SessionProvider';
 import { RAIL_DISCOVERED_BACKFILL_KEY, backfillRailToolsOnce } from '../components/navDestinations';
 
 function railToolAlreadyBackfilled(): boolean {
@@ -48,12 +49,15 @@ function adoptStoredTheme(stored: string | undefined): void {
 }
 
 export function useAppSettings() {
+  // `GET /api/settings` is administrator-only: the other roles run on the defaults.
+  const { isAdmin } = useCapabilities();
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
   // One-time migration guard
   const hasMigratedRef = useRef(false);
 
   const fetchAppSettings = useCallback(async () => {
+    if (!isAdmin) return;
     try {
       const data = await takePrefetchOrFetch('settings', api.getSettings);
       const alreadyBackfilled = railToolAlreadyBackfilled();
@@ -83,7 +87,7 @@ export function useAppSettings() {
     } catch (err) {
       console.error('Failed to fetch app settings:', err);
     }
-  }, []);
+  }, [isAdmin]);
 
   const handleSaveAppSettings = useCallback(
     async (update: AppSettingsUpdate) => {

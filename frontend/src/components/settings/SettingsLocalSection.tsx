@@ -81,6 +81,7 @@ export function SettingsLocalSection({
   onPersistTheme,
   allowedOrigins,
   onSaveAllowedOrigins,
+  instanceReadOnly = false,
   className,
 }: {
   serverLabel?: ServerLabel;
@@ -91,6 +92,8 @@ export function SettingsLocalSection({
   /** CORS allowlist of the instance (Allowed origins). Hidden without a saver. */
   allowedOrigins?: string[];
   onSaveAllowedOrigins?: (origins: string[]) => Promise<void>;
+  /** The caller may not change instance-wide settings: the server label block is hidden. */
+  instanceReadOnly?: boolean;
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -180,96 +183,100 @@ export function SettingsLocalSection({
 
       <Separator />
 
-      <div className="space-y-3">
-        <SettingsGroupHeader title={t('settings.local.localLabel')} storedOn="server" instant />
-        <Input
-          value={label.text}
-          onChange={(e) => editLabel({ text: e.target.value })}
-          placeholder={t('settings.local.localLabelPlaceholder')}
-          aria-label={t('settings.local.localLabelText')}
-          maxLength={60}
-        />
-
-        {label.text.trim() && (
+      {!instanceReadOnly && (
+        <>
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={label.size_px}
-                onChange={(e) => editLabel({ size_px: Number(e.target.value) })}
-                aria-label={t('settings.local.labelSize')}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-              >
-                {LABEL_SIZES.map((size) => (
-                  <option key={size} value={size}>
-                    {size === DEFAULT_SIZE
-                      ? t('settings.local.labelSizeDefault', { size })
-                      : t('settings.local.labelSizeValue', { size })}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={label.font}
-                onChange={(e) => editLabel({ font: e.target.value as ServerLabel['font'] })}
-                aria-label={t('settings.local.labelFont')}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-              >
-                <option value="system">{t('settings.local.labelFontSystem')}</option>
-                <option value="serif">{t('settings.local.labelFontSerif')}</option>
-                <option value="mono">{t('settings.local.labelFontMono')}</option>
-              </select>
-              <ColorPicker
-                value={label.color}
-                onChange={(color) => editLabel({ color })}
-                presets={LABEL_COLORS}
-                label={t('settings.local.localLabelColor')}
-                presetsLabel={t('settings.local.labelColorPresets')}
-                customLabel={t('settings.local.labelColorCustom')}
-                hueLabel={t('settings.local.labelColorHue')}
-                lightnessLabel={t('settings.local.labelColorLightness')}
-                hexLabel={t('settings.local.labelColorHex')}
-              />
-              <Button
-                type="button"
-                variant={label.bold ? 'default' : 'outline'}
-                size="sm"
-                aria-pressed={label.bold}
-                onClick={() => editLabel({ bold: !label.bold })}
-                className="font-bold"
-              >
-                {t('settings.local.labelBold')}
-              </Button>
-              <Button
-                type="button"
-                variant={label.italic ? 'default' : 'outline'}
-                size="sm"
-                aria-pressed={label.italic}
-                onClick={() => editLabel({ italic: !label.italic })}
-                className="italic"
-              >
-                {t('settings.local.labelItalic')}
-              </Button>
-            </div>
+            <SettingsGroupHeader title={t('settings.local.localLabel')} storedOn="server" instant />
+            <Input
+              value={label.text}
+              onChange={(e) => editLabel({ text: e.target.value })}
+              placeholder={t('settings.local.localLabelPlaceholder')}
+              aria-label={t('settings.local.localLabelText')}
+              maxLength={60}
+            />
 
-            <div
-              data-testid="server-label-preview"
-              style={{
-                ...serverLabelStyle(label),
-                backgroundColor: label.color,
-                color: getContrastTextColor(label.color),
-              }}
-              className="truncate rounded-md text-center leading-tight"
-            >
-              {label.text}
-            </div>
+            {label.text.trim() && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={label.size_px}
+                    onChange={(e) => editLabel({ size_px: Number(e.target.value) })}
+                    aria-label={t('settings.local.labelSize')}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    {LABEL_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size === DEFAULT_SIZE
+                          ? t('settings.local.labelSizeDefault', { size })
+                          : t('settings.local.labelSizeValue', { size })}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={label.font}
+                    onChange={(e) => editLabel({ font: e.target.value as ServerLabel['font'] })}
+                    aria-label={t('settings.local.labelFont')}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    <option value="system">{t('settings.local.labelFontSystem')}</option>
+                    <option value="serif">{t('settings.local.labelFontSerif')}</option>
+                    <option value="mono">{t('settings.local.labelFontMono')}</option>
+                  </select>
+                  <ColorPicker
+                    value={label.color}
+                    onChange={(color) => editLabel({ color })}
+                    presets={LABEL_COLORS}
+                    label={t('settings.local.localLabelColor')}
+                    presetsLabel={t('settings.local.labelColorPresets')}
+                    customLabel={t('settings.local.labelColorCustom')}
+                    hueLabel={t('settings.local.labelColorHue')}
+                    lightnessLabel={t('settings.local.labelColorLightness')}
+                    hexLabel={t('settings.local.labelColorHex')}
+                  />
+                  <Button
+                    type="button"
+                    variant={label.bold ? 'default' : 'outline'}
+                    size="sm"
+                    aria-pressed={label.bold}
+                    onClick={() => editLabel({ bold: !label.bold })}
+                    className="font-bold"
+                  >
+                    {t('settings.local.labelBold')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={label.italic ? 'default' : 'outline'}
+                    size="sm"
+                    aria-pressed={label.italic}
+                    onClick={() => editLabel({ italic: !label.italic })}
+                    className="italic"
+                  >
+                    {t('settings.local.labelItalic')}
+                  </Button>
+                </div>
+
+                <div
+                  data-testid="server-label-preview"
+                  style={{
+                    ...serverLabelStyle(label),
+                    backgroundColor: label.color,
+                    color: getContrastTextColor(label.color),
+                  }}
+                  className="truncate rounded-md text-center leading-tight"
+                >
+                  {label.text}
+                </div>
+              </div>
+            )}
+
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.local.localLabelHelp')}
+            </p>
           </div>
-        )}
 
-        <p className="text-[0.8125rem] text-muted-foreground">
-          {t('settings.local.localLabelHelp')}
-        </p>
-      </div>
-
-      <Separator />
+          <Separator />
+        </>
+      )}
 
       <div className="space-y-3">
         <Label htmlFor="distance-units">{t('settings.local.distanceUnits')}</Label>

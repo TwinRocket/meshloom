@@ -20,6 +20,19 @@ Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque
 | `viewer` | Lire les canaux et les messages directs, les marquer comme lus, gérer son propre profil et ses sessions. |
 | `kiosk` | Lecture seule, pour un écran au mur : messages des canaux (canaux en sourdine et en attente compris), contacts, canaux, paquets, statistiques et carte. Jamais un message direct, aucun réglage, aucun profil. |
 
+Ce que chaque rôle voit dans l’interface suit ce tableau : les écrans qu’un rôle ne peut pas utiliser sont masqués ou grisés au lieu d’échouer au clic.
+
+| | `admin` | `member` | `viewer` | `kiosk` |
+|---|---|---|---|---|
+| Canaux et paquets | oui | oui | oui | oui (canaux seulement, aucun message direct) |
+| Messages directs | oui | oui | oui | non |
+| Zone de saisie, nouvelle conversation, épingle, favori, sourdine, suppression | oui | oui | non | non |
+| Volets répéteurs et salons, test du maillage | oui | non | non | non |
+| Réglages | toutes les sections | Configuration locale | Configuration locale | aucun |
+| Langue et thème de ce navigateur | oui | oui | oui | oui, depuis le bouton de compte |
+
+Une action que le serveur refuse malgré tout (par exemple depuis une page restée ouverte avant un changement de rôle) affiche un seul message : « Ce compte n’a pas le droit de faire cela. »
+
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
 ## Gérer les comptes
@@ -39,6 +52,10 @@ Pour l’instant, les administrateurs gèrent les comptes par l’API ; l’écr
 - **Les changements s’appliquent aussitôt.** Un nouveau rôle, une désactivation, une suppression ou un mot de passe fixé par un administrateur déconnecte le compte partout, pages ouvertes comprises, et oublie les navigateurs où il était mémorisé. Passer un compte en `kiosk` lui retire son mot de passe.
 - **Un mot de passe choisi par un administrateur est provisoire.** Tant que la personne n’a pas choisi le sien, Meshloom ne la laisse rien faire d’autre que le changer (ou se déconnecter) ; la requête est `PATCH /api/auth/me` avec `{"current_password", "new_password"}`. Changer son propre mot de passe déconnecte ses autres navigateurs. Un mot de passe actuel erroné compte comme une connexion ratée, avec les mêmes délais (plus bas).
 - **Les utilisateurs Home Assistant** (voir l’add-on plus bas) prennent n’importe quel rôle, `kiosk` compris, et peuvent être désactivés, mais n’ont jamais de mot de passe : c’est Home Assistant qui les connecte. Le rôle donné aux prochains nouveaux est `ingress_default_role` (`member` par défaut), réglé avec `PATCH /api/auth/settings`. Un utilisateur Home Assistant supprimé revient avec ce rôle à sa visite suivante, même celui qui était devenu administrateur en premier (seul le tout premier utilisateur Home Assistant devient administrateur) : désactivez-le plutôt pour le tenir à l’écart.
+
+### Quand un administrateur définit votre mot de passe
+
+Si un administrateur définit votre mot de passe (ou `meshloom-admin reset-password --must-change`), Meshloom affiche **Changez votre mot de passe** à la place de l’application : saisissez le mot de passe actuel, puis un nouveau (12 caractères minimum, avec les règles rappelées en cas de refus). Rien d’autre ne fonctionne avant le changement, puis l’application s’ouvre là où vous étiez. Les autres appareils de ce compte sont déconnectés. Un écran kiosque n’a pas de mot de passe et n’a jamais cette page ; si elle s’affichait, demandez à un administrateur.
 
 ## Les délais de connexion
 

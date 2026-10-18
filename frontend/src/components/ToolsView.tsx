@@ -1,3 +1,5 @@
+import { useCapabilities } from '../auth/SessionProvider';
+import { toolAllowed } from './navDestinations';
 import { useTranslation } from 'react-i18next';
 import {
   Radio,
@@ -114,7 +116,11 @@ export function ToolsView({
   directoryEnabled = false,
 }: Props) {
   const { t } = useTranslation();
-  const tools = TOOLS.filter(({ id }) => directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(id));
+  const capabilities = useCapabilities();
+  const tools = TOOLS.filter(
+    ({ id }) =>
+      (directoryEnabled || !DIRECTORY_ONLY_TOOLS.includes(id)) && toolAllowed(id, capabilities)
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">

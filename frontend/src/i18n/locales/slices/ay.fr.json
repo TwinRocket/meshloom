@@ -1,0 +1,20 @@
+{
+  "capabilities": {
+    "repeaterAdminOnly": "L’administration des répéteurs est réservée aux administrateurs.",
+    "kioskMenu": {
+      "title": "Affichage",
+      "description": "Cet affichage est en lecture seule. Seuls la langue et le thème peuvent être changés."
+    }
+  },
+  "auth": {
+    "changePassword": {
+      "title": "Changez votre mot de passe",
+      "description": "Un administrateur a défini le mot de passe de {{username}}. Choisissez le vôtre avant de continuer.",
+      "current": "Mot de passe actuel",
+      "new": "Nouveau mot de passe",
+      "submit": "Changer le mot de passe",
+      "kioskTitle": "Changement de mot de passe requis",
+      "kioskMessage": "Ce compte d’affichage ne peut pas changer de mot de passe lui-même. Demandez à un administrateur de corriger le compte."
+    }
+  }
+}

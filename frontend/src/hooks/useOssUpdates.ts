@@ -101,6 +101,8 @@ function clearUpdateTarget(): void {
 
 export interface UseOssUpdatesOptions {
   onSeeUpdate?: () => void;
+  /** False for a role that may not read the update status (administrators only). */
+  enabled?: boolean;
 }
 
 export interface UseOssUpdatesResult {
@@ -485,7 +487,9 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
     }
   }, [applyError, applying]);
 
+  const enabled = options?.enabled ?? true;
   useEffect(() => {
+    if (!enabled) return;
     cancelledRef.current = false;
     void loadStatus();
     const timer = window.setInterval(() => {
@@ -497,9 +501,9 @@ export function useOssUpdates(options?: UseOssUpdatesOptions): UseOssUpdatesResu
       window.clearInterval(timer);
       stopJobPolling();
     };
-    // Mount-only: polling helpers close over refs so they stay current.
+    // Polling helpers close over refs so they stay current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
   return {
     status,

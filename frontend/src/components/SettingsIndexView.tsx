@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { UserMenu } from '../auth/UserMenu';
+import { useCapabilities } from '../auth/SessionProvider';
 import { ChevronRight, PanelLeftClose } from 'lucide-react';
 import {
   SETTINGS_SECTION_ICONS,
@@ -55,6 +56,7 @@ export function SettingsIndexView({
   onCollapseList,
 }: Props) {
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -82,60 +84,69 @@ export function SettingsIndexView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        {GROUPS.map(({ titleKey, sections }) => (
-          <section key={titleKey} className="mb-6">
-            <h2 className="px-1 pb-2 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
-              {t(titleKey)}
-            </h2>
-            {/* One card per group, rows inside it: the card is the boundary, so the
+        {GROUPS.map(({ titleKey, sections: all }) => ({
+          titleKey,
+          sections: all.filter((section) => capabilities.canOpenSettingsSection(section)),
+        }))
+          .filter(({ sections }) => sections.length > 0)
+          .map(({ titleKey, sections }) => (
+            <section key={titleKey} className="mb-6">
+              <h2 className="px-1 pb-2 text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">
+                {t(titleKey)}
+              </h2>
+              {/* One card per group, rows inside it: the card is the boundary, so the
                 rows only need a hairline between them, inset to the text. */}
-            <ul className="overflow-hidden rounded-2xl bg-muted/40">
-              {sections.map((section, index) => {
-                const Icon = SETTINGS_SECTION_ICONS[section];
-                const disabled = disabledSections.includes(section);
-                const current = activeSection === section;
-                return (
-                  <li key={section}>
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      aria-current={current ? 'page' : undefined}
-                      onClick={() => onSelectSection(section)}
-                      className={cn(
-                        'flex w-full items-center gap-3 px-4 py-3.5 text-left',
-                        'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                        disabled
-                          ? 'cursor-not-allowed opacity-50'
-                          : current
-                            ? 'bg-accent/60'
-                            : 'active:bg-accent/40 md:hover:bg-accent/30'
-                      )}
-                    >
-                      <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                      <span
+              <ul className="overflow-hidden rounded-2xl bg-muted/40">
+                {sections.map((section, index) => {
+                  const Icon = SETTINGS_SECTION_ICONS[section];
+                  const disabled = disabledSections.includes(section);
+                  const current = activeSection === section;
+                  return (
+                    <li key={section}>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        aria-current={current ? 'page' : undefined}
+                        onClick={() => onSelectSection(section)}
                         className={cn(
-                          'flex min-w-0 flex-1 items-center gap-2 pr-1',
-                          index < sections.length - 1 && 'border-b border-border/25 pb-3.5 -mb-3.5'
+                          'flex w-full items-center gap-3 px-4 py-3.5 text-left',
+                          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                          disabled
+                            ? 'cursor-not-allowed opacity-50'
+                            : current
+                              ? 'bg-accent/60'
+                              : 'active:bg-accent/40 md:hover:bg-accent/30'
                         )}
                       >
-                        <span className="truncate">{t(SETTINGS_SECTION_LABELS[section])}</span>
-                        {section === 'updates' && updateAvailable && (
-                          <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary">
-                            {t('updates.badgeLabel')}
-                          </span>
-                        )}
-                        <ChevronRight
-                          className="ml-auto h-4 w-4 shrink-0 text-muted-foreground"
+                        <Icon
+                          className="h-5 w-5 shrink-0 text-muted-foreground"
                           aria-hidden="true"
                         />
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
+                        <span
+                          className={cn(
+                            'flex min-w-0 flex-1 items-center gap-2 pr-1',
+                            index < sections.length - 1 &&
+                              'border-b border-border/25 pb-3.5 -mb-3.5'
+                          )}
+                        >
+                          <span className="truncate">{t(SETTINGS_SECTION_LABELS[section])}</span>
+                          {section === 'updates' && updateAvailable && (
+                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary">
+                              {t('updates.badgeLabel')}
+                            </span>
+                          )}
+                          <ChevronRight
+                            className="ml-auto h-4 w-4 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                          />
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
       </div>
     </div>
   );
