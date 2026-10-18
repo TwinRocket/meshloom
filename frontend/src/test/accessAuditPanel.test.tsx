@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -122,6 +122,54 @@ describe('AccessAuditPanel', () => {
     render(<AccessAuditPanel />);
     await screen.findByTestId('audit-row');
     expect(screen.queryByText(/visible-secret-marker/)).toBeNull();
+  });
+
+  it('renders a bounded number of rows for a long history', async () => {
+    const many = Array.from({ length: 500 }, (_, i) =>
+      entry({ id: 1000 - i, ts: 1_700_000_000 - i })
+    );
+    vi.spyOn(api, 'getAuthAudit').mockResolvedValue({ entries: many, next_cursor: '501' });
+    render(<AccessAuditPanel />);
+    await screen.findAllByTestId('audit-row');
+    const rendered = screen.getAllByTestId('audit-row').length;
+    expect(rendered).toBeGreaterThan(0);
+    expect(rendered).toBeLessThan(60);
+    expect(screen.getByText(/500/)).toBeVisible();
+  });
+
+  it('keeps the loaded pages on a language switch and never duplicates a late page', async () => {
+    let release!: (page: { entries: AuthAuditEntry[]; next_cursor: string | null }) => void;
+    const spy = vi
+      .spyOn(api, 'getAuthAudit')
+      .mockResolvedValueOnce({ entries: [entry({ id: 5 })], next_cursor: '5' })
+      .mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    render(<AccessAuditPanel />);
+    await screen.findAllByTestId('audit-row');
+    await userEvent.click(
+      screen.getByRole('button', { name: t('settings.access.audit.loadMore') })
+    );
+    const lng = i18n.language;
+    await act(() => i18n.changeLanguage(lng === 'en' ? 'fr' : 'en'));
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByTestId('audit-row')).toHaveLength(1);
+    // The late page overlaps the first one: the shared row must not appear twice.
+    await act(async () =>
+      release({ entries: [entry({ id: 5 }), entry({ id: 4 })], next_cursor: null })
+    );
+    expect(screen.getAllByTestId('audit-row')).toHaveLength(2);
+    await act(() => i18n.changeLanguage(lng));
+  });
+
+  it('ignores a response that lands after unmount', async () => {
+    let release!: (page: { entries: AuthAuditEntry[]; next_cursor: string | null }) => void;
+    vi.spyOn(api, 'getAuthAudit').mockImplementation(
+      () => new Promise((resolve) => (release = resolve))
+    );
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { unmount } = render(<AccessAuditPanel />);
+    unmount();
+    await act(async () => release({ entries: [entry({})], next_cursor: null }));
+    expect(errors).not.toHaveBeenCalled();
   });
 
   it('has a label for every action family member, outcome and via in both languages', () => {

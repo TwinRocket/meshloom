@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 
 import { api } from '../../api';
 import { formatAccessError } from '../../auth/accessErrors';
-import type { AuthAuditEntry, AuthUserRow } from '../../auth/types';
+import type { AuthAuditEntry, AuthAuditPage, AuthUserRow } from '../../auth/types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -24,6 +25,8 @@ import {
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 
 const PAGE_SIZE = 100;
+const ESTIMATED_ROW_HEIGHT = 64;
+const FALLBACK_VIEWPORT_HEIGHT = 480;
 
 /**
  * Settings → Users & Access → Audit log (administrators; `GET /auth/audit` refuses anyone
@@ -37,50 +40,60 @@ export function AccessAuditPanel() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Kept raw and formatted at render, so a language switch retranslates it without a refetch.
+  const [error, setError] = useState<unknown>(null);
   const [users, setUsers] = useState<AuthUserRow[]>([]);
   const [filters, setFilters] = useState<AuditFilters>(EMPTY_AUDIT_FILTERS);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Bumped on unmount: a response that lands afterwards is ignored.
+  const generation = useRef(0);
 
-  const loadPage = useCallback(
-    async (from: string) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const page = await api.getAuthAudit(from, PAGE_SIZE);
-        setEntries((prev) => [...prev, ...page.entries]);
-        setCursor(page.next_cursor);
-      } catch (err) {
-        setError(formatAccessError(err, t));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [t]
-  );
+  const appendPage = (page: AuthAuditPage) => {
+    setEntries((prev) => {
+      const seen = new Set(prev.map((e) => e.id));
+      return [...prev, ...page.entries.filter((e) => !seen.has(e.id))];
+    });
+    setCursor(page.next_cursor);
+  };
 
+  const loadMore = async () => {
+    if (!cursor || loading) return;
+    const mine = generation.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await api.getAuthAudit(cursor, PAGE_SIZE);
+      if (mine === generation.current) appendPage(page);
+    } catch (err) {
+      if (mine === generation.current) setError(err);
+    } finally {
+      if (mine === generation.current) setLoading(false);
+    }
+  };
+
+  // Once per mount: `t` is not a dependency, so a language switch keeps the pages.
   useEffect(() => {
-    let cancelled = false;
+    const mine = generation.current;
     api
       .getAuthAudit(null, PAGE_SIZE)
       .then((page) => {
-        if (cancelled) return;
-        setEntries(page.entries);
-        setCursor(page.next_cursor);
+        if (mine !== generation.current) return;
+        appendPage(page);
         setLoaded(true);
       })
       .catch((err) => {
-        if (!cancelled) setError(formatAccessError(err, t));
+        if (mine === generation.current) setError(err);
       });
     api
       .listAuthUsers()
       .then((list) => {
-        if (!cancelled) setUsers(list);
+        if (mine === generation.current) setUsers(list);
       })
       .catch(() => {});
     return () => {
-      cancelled = true;
+      generation.current += 1;
     };
-  }, [t]);
+  }, []);
 
   const userName = useCallback(
     (id: number) => {
@@ -120,6 +133,26 @@ export function AccessAuditPanel() {
     () => entries.filter((e) => matchesAuditFilters(e, filters)),
     [entries, filters]
   );
+  const virtualizer = useVirtualizer({
+    count: visible.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    getItemKey: (index) => visible[index]?.id ?? index,
+    overscan: 6,
+    measureElement: (element) => element.getBoundingClientRect().height || ESTIMATED_ROW_HEIGHT,
+    observeElementRect: (instance, cb) => {
+      const element = instance.scrollElement;
+      if (!element) return;
+      const report = () => {
+        const rect = element.getBoundingClientRect();
+        cb({ width: rect.width, height: rect.height || FALLBACK_VIEWPORT_HEIGHT });
+      };
+      report();
+      const observer = new ResizeObserver(report);
+      observer.observe(element);
+      return () => observer.disconnect();
+    },
+  });
   const actionChoices: readonly string[] = filters.family
     ? AUDIT_FAMILIES[filters.family]
     : AUDIT_FAMILY_IDS.flatMap((f) => AUDIT_FAMILIES[f]);
@@ -225,9 +258,9 @@ export function AccessAuditPanel() {
         </Button>
       )}
 
-      {error && (
+      {error != null && (
         <p role="alert" className="text-sm text-destructive">
-          {error}
+          {formatAccessError(error, t)}
         </p>
       )}
       {loaded && entries.length === 0 && (
@@ -238,44 +271,63 @@ export function AccessAuditPanel() {
       )}
 
       {visible.length > 0 && (
-        <ul className="divide-y divide-border" aria-label={t('settings.access.audit.title')}>
-          {visible.map((entry) => (
-            <li key={entry.id} className="space-y-1 py-2" data-testid="audit-row">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="text-sm font-medium">{actionText(entry.action)}</span>
-                <OutcomeBadge outcome={entry.outcome} />
-                {entry.via && (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
-                    {isKnownAuditVia(entry.via)
-                      ? t(`settings.access.audit.via.${entry.via}`)
-                      : entry.via}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[0.8125rem] text-muted-foreground">
-                <span>{formatEpoch(entry.ts, i18n.language)}</span>
-                <span>
-                  {t('settings.access.audit.colActor')}: {actorLabel(entry)}
-                </span>
-                {entry.target && (
-                  <span>
-                    {t('settings.access.audit.colTarget')}: {targetLabel(entry.target)}
-                  </span>
-                )}
-                {entry.ip && (
-                  <span>
-                    {t('settings.access.audit.colIp')}: {entry.ip}
-                  </span>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div
+          ref={scrollRef}
+          className="h-[28rem] overflow-y-auto overscroll-contain rounded-md border border-border"
+        >
+          <ul
+            aria-label={t('settings.access.audit.title')}
+            className="relative w-full"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const entry = visible[item.index];
+              return (
+                <li
+                  key={entry.id}
+                  ref={virtualizer.measureElement}
+                  data-index={item.index}
+                  data-testid="audit-row"
+                  className="absolute left-0 top-0 w-full space-y-1 border-b border-border px-3 py-2"
+                  style={{ transform: `translateY(${item.start}px)` }}
+                >
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-sm font-medium">{actionText(entry.action)}</span>
+                    <OutcomeBadge outcome={entry.outcome} />
+                    {entry.via && (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
+                        {isKnownAuditVia(entry.via)
+                          ? t(`settings.access.audit.via.${entry.via}`)
+                          : entry.via}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[0.8125rem] text-muted-foreground">
+                    <span>{formatEpoch(entry.ts, i18n.language)}</span>
+                    <span>
+                      {t('settings.access.audit.colActor')}: {actorLabel(entry)}
+                    </span>
+                    {entry.target && (
+                      <span>
+                        {t('settings.access.audit.colTarget')}: {targetLabel(entry.target)}
+                      </span>
+                    )}
+                    {entry.ip && (
+                      <span>
+                        {t('settings.access.audit.colIp')}: {entry.ip}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-3">
         {cursor && (
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => loadPage(cursor)}>
+          <Button variant="outline" size="sm" disabled={loading} onClick={loadMore}>
             {loading ? t('settings.access.audit.loading') : t('settings.access.audit.loadMore')}
           </Button>
         )}
