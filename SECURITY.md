@@ -69,6 +69,13 @@ deliberate. These are documented and are not treated as vulnerabilities:
   re-validated when read: an entry written outside the API (SQL, a restore)
   that is a wildcard, `null`, or not a plain `http(s)` origin is ignored and
   logged.
+- **Share writes refuse requests marked cross-site.** On the 5.0 integration
+  branch, `POST /api/share/links` (and every later write under `/api/share`)
+  answers 403 `share_cross_site` when the browser sends `Sec-Fetch-Site:
+  cross-site`, so a page open on the LAN cannot publish under the instance
+  identity. A request without the header (curl, bots) passes; the route's
+  permission (`send`) still applies. It is defence in depth on top of the auth
+  gate and does not touch CORS.
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can
   make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
   turns them off; the Linux package does so by default.

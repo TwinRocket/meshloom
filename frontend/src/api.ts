@@ -109,6 +109,9 @@ import type {
   OssUpdateStatus,
   TraceResponse,
   UnreadCounts,
+  ShareLink,
+  ShareMeta,
+  ShareStatus,
 } from './types';
 
 const API_BASE = './api';
@@ -1034,6 +1037,10 @@ export const api = {
     fetchJson<{ deleted: boolean }>(`/push/subscriptions/${id}`, { method: 'DELETE' }),
   testPushSubscription: (id: string) =>
     fetchJson<{ status: string }>(`/push/subscriptions/${id}/test`, { method: 'POST' }),
+  getShareStatus: () => fetchJson<ShareStatus>('/share/status'),
+  shortenLink: (url: string) =>
+    fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
+  getShareMeta: (id: string) => fetchJson<ShareMeta>(`/share/${encodeURIComponent(id)}/meta`),
   getPushPreferences: () => fetchJson<PushPreferences>('/push/preferences'),
   patchPushPreferences: (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) =>
     fetchJson<PushPreferences>('/push/preferences', {

@@ -139,6 +139,9 @@ def test_classification_of_representative_routes():
         ("GET", "/api/packets/history"): "read",
         ("GET", "/api/auth/me"): "account",
         ("GET", "/api/health"): "public",
+        ("POST", "/api/share/links"): "send",
+        ("GET", "/api/share/status"): "read",
+        ("GET", "/api/share/{share_id}/meta"): "read",
         ("WS", "/api/ws"): "read",
     }
     found: dict[tuple[str, str], str] = {}
