@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from app.message_limits import DM_HARD_LIMIT
+from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
 from app.plugins import launch
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
@@ -165,6 +165,20 @@ def isolation_level() -> str:
 
 def _spawn_argv() -> list[str]:
     return launch.runner_command()
+
+
+def message_bytes_limit() -> int:
+    """The smallest text allowance a plugin may meet: a channel message's, after
+    the `"<radio name>: "` prefix (10-byte fallback when the name is unknown)."""
+    name = ""
+    try:
+        from app.services.radio_runtime import radio_runtime
+
+        mc = radio_runtime.meshcore
+        name = (mc.self_info or {}).get("name", "") if mc is not None else ""
+    except Exception:
+        name = ""
+    return min(DM_HARD_LIMIT, channel_text_allowance(name or None))
 
 
 def read_proc_cpu_seconds(pid: int) -> float | None:
@@ -698,7 +712,7 @@ class PluginInstance:
             },
             "config": config,
             "granted": sorted(row.get("granted_permissions") or {}),
-            "limits": {"message_bytes": DM_HARD_LIMIT},
+            "limits": {"message_bytes": message_bytes_limit()},
             "scope": row.get("scope") or {},
             "quotas": row.get("quotas") or {},
             "isolation": isolation_level(),

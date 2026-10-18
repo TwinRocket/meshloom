@@ -302,6 +302,20 @@ async def test_a_child_killed_from_outside_restarts_with_backoff(manager, tmp_pa
     assert pid_gone(pid)
 
 
+def test_message_bytes_is_the_channel_allowance(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services.radio_runtime import radio_runtime
+
+    monkeypatch.setattr(type(radio_runtime), "meshcore", property(lambda self: None), raising=False)
+    assert host_module.message_bytes_limit() == 144
+    radio = SimpleNamespace(self_info={"name": "Node"})
+    monkeypatch.setattr(
+        type(radio_runtime), "meshcore", property(lambda self: radio), raising=False
+    )
+    assert host_module.message_bytes_limit() == 156 - 4 - 2
+
+
 def test_backoff_doubles_up_to_the_cap():
     budgets = Budgets()
     assert [budgets.backoff(n) for n in range(1, 9)] == [1, 2, 4, 8, 16, 32, 60, 60]
@@ -533,6 +547,39 @@ async def test_test_event_sends_without_event_id_are_captured(manager, tmp_path)
     await running(manager, row["instance_id"])
     outcome = await manager.dispatch_test(row["instance_id"], "message", {})
     assert outcome["sends"] == [{"to": "reply", "text": "hi"}]
+
+
+async def test_sdk_replies_of_a_test_event_are_captured_beside_a_busy_event(manager, tmp_path):
+    root = tmp_path / "plugins"
+    write_plugin(root, "test.sdk-reply", "echo")
+    (root / "test.sdk-reply" / "manifest.json").write_text(
+        '{"entry": "plugin.py:Bot"}', encoding="utf-8"
+    )
+    (root / "test.sdk-reply" / "plugin.py").write_text(
+        "import asyncio\n"
+        "from meshloom_plugin import Message, Plugin\n\n"
+        "class Bot(Plugin):\n"
+        "    async def on_message(self, msg: Message) -> None:\n"
+        "        if msg.text == 'wait':\n"
+        "            await asyncio.sleep(30)\n"
+        "        await self.reply(msg, 'pong')\n",
+        encoding="utf-8",
+    )
+    row = await PluginRepository.create(
+        plugin_id="test.sdk-reply",
+        label="sdk reply",
+        kind="store",
+        version="1.0.0",
+        manifest={"entry": "plugin.py:Bot", "hooks": ["message"]},
+        enabled=True,
+    )
+    instance = await running(manager, row["instance_id"])
+    manager.dispatch("message", msg("wait"))  # a real event stays in flight
+    await wait_until(lambda: len(instance._in_flight) == 1)
+    outcome = await manager.dispatch_test(
+        row["instance_id"], "message", {"message_text": "ping", "is_dm": True, "sender_key": "ab"}
+    )
+    assert outcome["sends"] == [{"to": {"contact_key": "ab"}, "text": "pong"}]
 
 
 async def test_unknown_host_method_is_refused_to_the_child(manager, tmp_path):
