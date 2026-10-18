@@ -766,10 +766,11 @@ instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
 `plugins_disabled_source` and `plugin_statuses`.
 
-Who sees errors: `plugin_status` needs the `send` permission (members and
-admins). `health` (REST and WebSocket) keeps the statuses for every signed-in
-principal, but a principal without `send` (kiosk, viewer) gets each `last_error`
-as `null` (`lifecycle.without_plugin_errors()`, `PLUGIN_ERROR_PERMISSION`).
+Who sees errors: `plugin_status` is admin-only. `health` (REST and WebSocket)
+keeps the statuses for every signed-in principal, but a principal below `admin`
+gets each `last_error` as `null` and `send_guard` empty
+(`lifecycle.without_plugin_errors()`, `PLUGIN_ERROR_PERMISSION`, applied by
+`without_admin_details()` in `app/routers/health.py`).
 
 ### Shutdown
 
