@@ -9,7 +9,8 @@ interface FeedRowMenuProps {
   onOpenConversation: () => void;
   onCopy: () => void;
   onOpenContact: () => void;
-  onClose: () => void;
+  /** `restoreFocus` is true for keyboard closes, so focus returns to the trigger. */
+  onClose: (restoreFocus: boolean) => void;
 }
 
 function MenuItem({
@@ -54,7 +55,7 @@ export function FeedRowMenu({
     ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (target && !ref.current?.contains(target)) onClose();
+      if (target && !ref.current?.contains(target)) onClose(false);
     };
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
@@ -63,7 +64,7 @@ export function FeedRowMenu({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.stopPropagation();
-      onClose();
+      onClose(true);
       return;
     }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;

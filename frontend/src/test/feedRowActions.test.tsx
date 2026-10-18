@@ -193,6 +193,7 @@ describe('FeedView row actions', () => {
     expect(second).toHaveFocus();
     fireEvent.keyDown(second, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
+    expect(within(item).getByTestId('feed-row-menu-button')).toHaveFocus();
   });
 
   it('a read-only view (no callbacks) has no menu and no buttons', async () => {

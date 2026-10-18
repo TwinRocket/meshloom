@@ -55,7 +55,12 @@ export const FeedMessageRow = memo(function FeedMessageRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressedRef = useRef(false);
-  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const closeMenu = useCallback((restoreFocus: boolean) => {
+    setMenuOpen(false);
+    // The menu unmounts with focus inside it: without this focus falls to the page.
+    if (restoreFocus) triggerRef.current?.focus();
+  }, []);
 
   const contactKey = feedContactKey(row);
   const clearLongPress = useCallback(() => {
@@ -69,7 +74,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
     if (contactKey) actions?.onOpenContact(contactKey, row.type === 'CHAN');
   };
   const copy = () => {
-    setMenuOpen(false);
+    closeMenu(true);
     // A paste of the body without the "Sender: " prefix, as the conversation view copies.
     void navigator.clipboard.writeText(labels.content).then(
       () => toast.success(t('feed.row.copied')),
@@ -109,6 +114,8 @@ export const FeedMessageRow = memo(function FeedMessageRow({
         event.preventDefault();
         setMenuOpen(true);
       }}
+      // Also armed by a press on the name buttons; harmless, the click is only swallowed
+      // after a real long press.
       onTouchStart={() => {
         clearLongPress();
         longPressRef.current = setTimeout(() => {
@@ -168,6 +175,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
         {actions && (
           <>
             <button
+              ref={triggerRef}
               type="button"
               className="absolute right-0 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t('feed.row.actions')}
@@ -183,12 +191,12 @@ export const FeedMessageRow = memo(function FeedMessageRow({
                 canCopy={canCopyToClipboard()}
                 canOpenContact={contactKey !== null}
                 onOpenConversation={() => {
-                  setMenuOpen(false);
+                  closeMenu(true);
                   openMessage();
                 }}
                 onCopy={copy}
                 onOpenContact={() => {
-                  setMenuOpen(false);
+                  closeMenu(true);
                   openContact();
                 }}
                 onClose={closeMenu}
