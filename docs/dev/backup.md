@@ -146,15 +146,18 @@ These hold for every section; a restore function must keep them:
      previous-transport snapshot that holds it) and the local accounts
      secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
      `users.totp_secret`, `auth_settings.setup_code_hash`; the `sessions`
-     table is emptied, `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
+     table and the plugin config secrets in `plugin_secrets` are emptied,
+     `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
      so the old values do not stay in the file's free space. The live database
      keeps them.
 
-   The sharing consent (`app_settings.share_enabled`) is not a seed but follows the
-   same rule: it is left out of the JSON export (`BackupExport` serializes
-   `settings` without it), never restored, and set to 0 in the SQLite snapshot
+   The sharing consent (`app_settings.share_enabled`) and the Store consent
+   (`app_settings.store_online`, not in `AppSettings` yet) are not seeds but follow the
+   same rule: they are left out of the JSON export (`BackupExport` serializes
+   `settings` without `share_enabled`; `store_online` is not in `AppSettings`),
+   never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
-   sharing egress.
+   sharing or Store egress.
 
    The seeds are regenerated after a restore, through the hook below.
 5. **Secrets in `data` are plain JSON.** Unlike `identity`, `wifi` and

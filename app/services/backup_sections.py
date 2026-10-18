@@ -281,17 +281,19 @@ async def run_on_restore_hooks(source: RestoreSource) -> None:
 SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_transport")
 
 # Consent flags a database copy resets to 0 (the full backup excludes them too).
-SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = ("share_enabled",)
+SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = ("share_enabled", "store_online")
 
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets and
-# the setup code hash are set to NULL, and the sessions are deleted. A restored
+# the setup code hash are set to NULL, and the sessions are deleted. The plugin
+# config secrets (docs/dev/plugins.md) are deleted too: a restored instance asks
+# for them again. A restored
 # snapshot keeps the accounts but none can log in with a password: recovery
 # goes through the admin reset (Access tickets).
 SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
     "users": ("password_hash", "totp_secret"),
     "auth_settings": ("setup_code_hash",),
 }
-SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = ("sessions",)
+SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = ("sessions", "plugin_secrets")
 
 
 async def prepare_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) -> list[str]:
