@@ -1,4 +1,5 @@
 import { useCapabilities } from '../../auth/SessionProvider';
+import { AccessAuditPanel } from './AccessAuditPanel';
 import { AccessIngressPanel } from './AccessIngressPanel';
 import { AccessProfilePanel } from './AccessProfilePanel';
 import { AccessSessionsPanel } from './AccessSessionsPanel';
@@ -17,6 +18,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {hasProfile && <AccessSessionsPanel />}
       {isAdmin && <AccessUsersPanel />}
       {isAdmin && <AccessIngressPanel />}
+      {isAdmin && <AccessAuditPanel />}
     </div>
   );
 }

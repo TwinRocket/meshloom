@@ -89,7 +89,7 @@ Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or a bot's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
-Administrators read it through `GET /api/auth/audit`, newest first, by pages; a viewer in Settings comes in a later version. Entries are kept **366 days**, then deleted by an hourly clean-up; an administrator changes that with `PATCH /api/auth/settings` and `{"audit_retention_days": <1 to 36500>}`. The log is not in the JSON backups; the database download (**Settings → Database**) keeps it.
+Administrators read it in **Settings → Users & Access → Audit log** (hidden from everyone else), or through `GET /api/auth/audit`: newest first, by pages, with a button to load older entries. The filters (action family, action, outcome, account, dates) narrow the entries already loaded; load older ones to look further back. Entries are kept **366 days**, then deleted by an hourly clean-up; an administrator changes that with `PATCH /api/auth/settings` and `{"audit_retention_days": <1 to 36500>}`. The log is not in the JSON backups; the database download (**Settings → Database**) keeps it.
 
 ## Commands
 
