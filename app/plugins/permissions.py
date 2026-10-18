@@ -12,6 +12,12 @@ from typing import Annotated, Any, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticCustomError
 
+from app.net.egress_guard import (
+    is_documentation_address,
+    is_metadata_address,
+    is_private_address,
+)
+
 MESSAGES_SEND_MAX_PER_HOUR = 60
 MESSAGES_SEND_MAX_PER_DAY = 500
 HTTP_MAX_HOSTS = 20
@@ -25,6 +31,7 @@ _HOST_LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
 _HOSTNAME_RE = re.compile(rf"{_HOST_LABEL}(\.{_HOST_LABEL})*")
 # The last label of a hostname starts with a letter: numeric and hex forms such as
 # `127.1`, `2130706433` or `0x7f.1` are IP spellings that resolvers accept.
+_LOCAL_SUFFIXES = (".localhost", ".local", ".lan", ".home.arpa", ".internal")
 _TLD_RE = re.compile(r"[a-z][a-z0-9-]*")
 
 
@@ -50,7 +57,12 @@ def check_host(value: str) -> str:
                 "host_invalid", "write the IP literal in its canonical lowercase form, no scope id"
             )
         # Fail closed until a LAN host can be declared and consented to (MSHL-282).
-        if not ip.is_global or (ip.version == 6 and ip.ipv4_mapped is not None):
+        if (
+            is_private_address(ip)
+            or is_metadata_address(ip)
+            or is_documentation_address(ip)
+            or (ip.version == 6 and ip.ipv4_mapped is not None)
+        ):
             raise PydanticCustomError(
                 "host_private_ip",
                 "private, loopback, link-local and reserved IP literals are not allowed",
@@ -60,6 +72,9 @@ def check_host(value: str) -> str:
         raise PydanticCustomError(
             "host_invalid", "host must be a lowercase hostname or an IP literal without port"
         )
+    if "." not in value or value == "localhost" or value.endswith(_LOCAL_SUFFIXES):
+        # Single-label and local-network names: fail closed until MSHL-282.
+        raise PydanticCustomError("host_private_name", "local-network host names are not allowed")
     return value
 
 

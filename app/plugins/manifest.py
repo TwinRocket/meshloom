@@ -102,27 +102,61 @@ def _https_url(value: str) -> str:
     return value
 
 
+# Invisible or direction-changing characters that no real script needs. ZWNJ/ZWJ
+# (U+200C/200D, Persian and Indic scripts, emoji sequences), variation selectors and
+# emoji tag sequences are allowed. Unassigned code points are NOT refused: validity
+# must not depend on the Unicode tables of the running Python.
+_FORBIDDEN_CHARS = frozenset(
+    {0x061C, 0x180E, 0x200B, 0x200E, 0x200F, 0x2060, 0xFEFF, 0xE0001}
+    | set(range(0x202A, 0x202F))  # bidi embeddings and overrides
+    | set(range(0x2061, 0x2065))  # invisible operators
+    | set(range(0x2066, 0x206A))  # bidi isolates
+    | set(range(0x206A, 0x2070))  # deprecated format controls
+    | set(range(0xFFF9, 0xFFFC))  # interlinear annotation
+)
+
+
+def is_forbidden_char(char: str) -> bool:
+    return ord(char) in _FORBIDDEN_CHARS or unicodedata.category(char) in ("Cc", "Cs", "Co")
+
+
 def _text(value: str) -> str:
-    if (
-        _CONTROL_RE.search(value)
-        or value != value.strip()
-        or any(unicodedata.category(c) in ("Cc", "Cf", "Cs", "Co", "Cn") for c in value)
-    ):
+    if _CONTROL_RE.search(value) or value != value.strip() or any(map(is_forbidden_char, value)):
         raise PydanticCustomError(
-            "text_invalid", "no control, invisible (bidi, zero-width) or unassigned characters"
+            "text_invalid", "no control, bidi, zero-width or private-use characters"
         )
     return value
 
 
+_SCRIPT_GROUPS = {
+    "HIRAGANA": "CJK",
+    "KATAKANA": "CJK",
+    "HANGUL": "CJK",
+    "BOPOMOFO": "CJK",
+    "CJK": "CJK",
+}
+# Letters whose Unicode name does not start with a script name.
+_NO_SCRIPT = frozenset({"MODIFIER", "FEMININE", "MASCULINE", "MICRO"})
+
+
+def _word_scripts(word: str) -> set[str]:
+    scripts: set[str] = set()
+    for char in word:
+        first = unicodedata.name(char, "?").split(" ", 1)[0]
+        if first not in _NO_SCRIPT and first != "?":
+            scripts.add(_SCRIPT_GROUPS.get(first, first))
+    return scripts
+
+
 def _identity_text(value: str) -> str:
-    """Names shown as identities: also refuse a word that mixes Latin letters with
-    Cyrillic or Greek ones (the homoglyph spelling of 'meshloom' and friends)."""
+    """Names shown as identities: also refuse a word mixing letters of two scripts
+    (`Meshloom` with a Cyrillic, Greek, Armenian or Cherokee look-alike). Compatibility
+    forms (fullwidth, mathematical) fold to plain letters first."""
     _text(value)
-    for word in re.findall(r"[^\W\d_]+", value):
-        scripts = {unicodedata.name(c, "?").split(" ", 1)[0] for c in word}
-        if "LATIN" in scripts and scripts & {"CYRILLIC", "GREEK"}:
+    for word in re.findall(r"[^\W\d_]+", unicodedata.normalize("NFKC", value)):
+        if len(_word_scripts(word)) > 1:
             raise PydanticCustomError(
-                "name_homoglyph", "a word mixes Latin letters with Cyrillic or Greek ones"
+                "name_homoglyph", "a word mixes letters from different scripts"
             )
     return value
 

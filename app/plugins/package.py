@@ -19,7 +19,13 @@ from typing import BinaryIO
 
 from app.plugins.config_schema import check_config_schema
 from app.plugins.errors import PluginIssue, PluginValidationError
-from app.plugins.manifest import MANIFEST_MAX_BYTES, Manifest, Origin, load_manifest_json
+from app.plugins.manifest import (
+    MANIFEST_MAX_BYTES,
+    Manifest,
+    Origin,
+    is_forbidden_char,
+    load_manifest_json,
+)
 
 MAX_COMPRESSED_BYTES = 5 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
@@ -62,7 +68,7 @@ def _check_name(info: zipfile.ZipInfo) -> str:
     shown = name[:80]
     if not name or len(name) > MAX_NAME_LENGTH:
         raise _fail("package_unsafe_path", shown, "entry name is empty or too long")
-    if "\\" in name or any(unicodedata.category(c) in ("Cc", "Cf") for c in name):
+    if "\\" in name or any(map(is_forbidden_char, name)):
         raise _fail(
             "package_unsafe_path",
             shown,
@@ -95,10 +101,15 @@ def _check_entry_kind(info: zipfile.ZipInfo, name: str) -> bool:
     return is_dir
 
 
-def _native_magic(head: bytes) -> bool:
-    """ELF, Mach-O and anything starting with 'MZ' (PE/DOS): refused outright, since a
-    PE header can point anywhere and a text file starting with 'MZ' is not worth a parser."""
-    return head[:4] == b"\x7fELF" or head[:4] in _MACHO_MAGICS or head[:2] == b"MZ"
+def _native_magic(data: bytes) -> bool:
+    """ELF, Mach-O, or a real PE: 'MZ', an e_lfanew inside the file and 'PE\\0\\0' there."""
+    head = data[:4]
+    if head == b"\x7fELF" or head in _MACHO_MAGICS:
+        return True
+    if data[:2] == b"MZ" and len(data) >= 0x40:
+        off = int.from_bytes(data[0x3C:0x40], "little")
+        return off + 4 <= len(data) and data[off : off + 4] == b"PE\x00\x00"
+    return False
 
 
 def _foreign_archive(head: bytes) -> bool:
@@ -154,7 +165,7 @@ def _scan_content(
     with zf.open(info) as fh:
         data = fh.read()  # bounded: declared sizes were added to the 20 MiB budget
     head = data[:512]
-    if _native_magic(head):
+    if _native_magic(data):
         raise _fail("package_native_extension", name, "native binaries are refused anywhere")
     if _foreign_archive(head):
         raise _fail("package_nested_archive", name, "tar, gzip, bzip2 and xz are refused")
@@ -340,6 +351,9 @@ def extract_package(
     if root.exists() and any(root.iterdir()):
         raise _fail("package_destination_not_empty", str(dest), "destination must be empty")
     existed = root.exists()
+    created_top = root
+    while not created_top.parent.exists():
+        created_top = created_top.parent
     root.mkdir(parents=True, exist_ok=True)
     try:
         with zf:
@@ -367,7 +381,7 @@ def extract_package(
             for child in root.iterdir():
                 shutil.rmtree(child) if child.is_dir() else child.unlink()
         else:
-            shutil.rmtree(root, ignore_errors=True)
+            shutil.rmtree(created_top, ignore_errors=True)
         if isinstance(exc, _ZIP_ERRORS + (OSError,)):
             raise _fail("package_extract_failed", "", "the archive could not be extracted") from exc
         raise

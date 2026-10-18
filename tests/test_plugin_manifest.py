@@ -262,3 +262,67 @@ def test_model_is_stricter_than_the_schema_on_integral_floats():
     bad = copy.deepcopy(SAMPLE)
     bad["runtime"] = {"type": "python", "api": 1.0, "python": ">=3.11"}
     assert not _model_valid(bad)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "\u067e\u06cc\u0634\u200c\u0628\u06cc\u0646\u06cc",  # Persian, ZWNJ
+        "\u0915\u094d\u200d\u0937",  # Hindi conjunct, ZWJ
+        "Family \U0001f468\u200d\U0001f469\u200d\U0001f467",  # emoji ZWJ sequence
+        "Goose \U0001fabf Face \U0001fae9",  # recent emoji, whatever the Python version
+        "Flag \U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f",  # tags
+        "Heart \u2764\ufe0f",  # variation selector
+        "\u5929\u6c17\u30dc\u30c3\u30c8 \u3066\u3059\u3068",  # Han + kana
+        "\u041f\u043e\u0433\u043e\u0434\u0430 GPS-\u0442\u0440\u0435\u043a\u0435\u0440",
+        "Unassigned \U0003fffd",  # validity never depends on the Unicode tables in use
+    ],
+)
+def test_real_scripts_and_emoji_are_accepted(text):
+    ok = copy.deepcopy(SAMPLE)
+    ok["name"] = {"en": "Weather", "fa": text}
+    ok["summary"] = {"en": "Forecast", "hi": text}
+    ok["authors"] = [{"name": text}]
+    parse_manifest(ok)
+
+
+@pytest.mark.parametrize(
+    "char",
+    [
+        "\u061c", "\u200b", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d",
+        "\u202e", "\u2060", "\u2061", "\u2066", "\u2067", "\u2068", "\u2069", "\u206a",
+        "\ufeff", "\ufff9", "\U000e0001", "\x00", "\x07", "\x1b", "\x7f", "\x85",
+        "\u2028", "\ue000", "\ud800",
+    ],
+)  # fmt: skip
+def test_each_refused_character(char):
+    bad = copy.deepcopy(SAMPLE)
+    bad["name"] = {"en": f"Wea{char}ther"}
+    assert ("text_invalid", "name") in _issues(bad)
+
+
+def test_ip_literals_use_the_guard_ranges():
+    from app.plugins.permissions import check_host
+
+    for host in (
+        "64:ff9b::7f00:1",
+        "224.0.0.1",
+        "192.0.0.9",
+        "ff02::1",
+        "100.64.0.1",
+        "2001:db8::1",
+    ):
+        with pytest.raises(Exception, match="host_private_ip|not allowed"):
+            check_host(host)
+    for host in (
+        "localhost",
+        "a.localhost",
+        "router.lan",
+        "x.local",
+        "nas.home.arpa",
+        "m.internal",
+        "intranet",
+    ):
+        with pytest.raises(Exception, match="local-network"):
+            check_host(host)
+    assert check_host("1.1.1.1") == "1.1.1.1"

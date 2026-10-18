@@ -347,6 +347,16 @@ for _label, _host, _code in [
     ("numeric-hex", "0x7f.1", "host_invalid"),
     ("ipv6-scope-id", "fe80::1%eth0", "host_invalid"),
     ("ipv6-uppercase", "2A00:1450:4001:81B::200E", "host_invalid"),
+    ("nat64-loopback", "64:ff9b::7f00:1", "host_private_ip"),
+    ("multicast", "224.0.0.1", "host_private_ip"),
+    ("ietf-protocol-range", "192.0.0.9", "host_private_ip"),
+    ("localhost", "localhost", "host_private_name"),
+    ("localhost-subdomain", "api.localhost", "host_private_name"),
+    ("lan-name", "router.lan", "host_private_name"),
+    ("mdns-name", "printer.local", "host_private_name"),
+    ("home-arpa-name", "nas.home.arpa", "host_private_name"),
+    ("internal-name", "metadata.google.internal", "host_private_name"),
+    ("single-label", "intranet", "host_private_name"),
     ("loopback", "127.0.0.1", "host_private_ip"),
     ("ipv6-loopback", "::1", "host_private_ip"),
     ("private-range", "192.168.1.10", "host_private_ip"),
@@ -391,6 +401,13 @@ def _bundled() -> dict[str, Any]:
     return m
 
 
+def _with_text(text: str) -> dict[str, Any]:
+    m = copy.deepcopy(SAMPLE)
+    m["name"] = {"en": "Weather", "fa": text}
+    m["summary"] = {"en": "Forecast", "hi": text}
+    return m
+
+
 def build_vectors() -> dict[str, Any]:
     minimal = {
         k: SAMPLE[k]
@@ -421,6 +438,30 @@ def build_vectors() -> dict[str, Any]:
         _vector("minimal", "third_party", minimal, None),
         _vector("bundled-meshloom-namespace", "bundled", _bundled(), None),
         _vector("local-namespace", "local", local, None),
+        _vector(
+            "text-persian-zwnj",
+            "third_party",
+            _with_text("\u067e\u06cc\u0634\u200c\u0628\u06cc\u0646\u06cc"),
+            None,
+        ),
+        _vector(
+            "text-hindi-zwj",
+            "third_party",
+            _with_text("\u0915\u094d\u200d\u0937 \u092a\u094d\u0930\u0915\u094d\u200d\u0937"),
+            None,
+        ),
+        _vector(
+            "text-emoji-zwj-and-new-emoji",
+            "third_party",
+            _with_text("Family \U0001f468\u200d\U0001f469\u200d\U0001f467 \U0001fabf"),
+            None,
+        ),
+        _vector(
+            "text-japanese-mixed-scripts",
+            "third_party",
+            _with_text("\u5929\u6c17\u30dc\u30c3\u30c8 \u3066\u3059\u3068"),
+            None,
+        ),
     ]
     for name, origin, mutate, expected in FAILING:
         manifest = copy.deepcopy(SAMPLE)

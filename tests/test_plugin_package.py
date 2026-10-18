@@ -136,9 +136,7 @@ def test_native_binary_under_a_harmless_name():
     pe = bytearray(b"MZ" + b"\x00" * 62) + b"PE\x00\x00"
     pe[0x3C:0x40] = (64).to_bytes(4, "little")
     assert refused(build(with_extra(**{"x.txt": bytes(pe)}))) == ["package_native_extension"]
-    assert refused(build(with_extra(**{"note.txt": b"MZ is a text file"}))) == [
-        "package_native_extension"
-    ]
+    assert validate_package(build(with_extra(**{"note.txt": b"MZ is a postal code"})))
 
 
 def test_nested_zip_with_native_extension_is_refused():
@@ -426,3 +424,22 @@ def test_extracted_directories_are_0755(tmp_path):
         __import__("os").umask(old)
     assert stat.S_IMODE((dest / "i18n").stat().st_mode) == 0o755
     assert stat.S_IMODE(dest.stat().st_mode) == 0o755
+
+
+def test_entry_names_allow_zwnj_but_not_bidi():
+    assert validate_package(build(with_extra(**{"vendor/\u067e\u200c\u06cc.txt": b"x"})))
+    assert refused(build(with_extra(**{"vendor/a\u200eb.txt": b"x"}))) == ["package_unsafe_path"]
+
+
+def test_failed_extraction_removes_the_parents_it_created(tmp_path, monkeypatch):
+    real = zipfile.ZipFile.open
+
+    def flaky(self, name, *a, **k):
+        if name == "plugin.py":
+            raise zipfile.BadZipFile("boom")
+        return real(self, name, *a, **k)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", flaky)
+    with pytest.raises(PluginValidationError):
+        extract_package(build(), tmp_path / "a" / "b" / "out")
+    assert list(tmp_path.iterdir()) == []

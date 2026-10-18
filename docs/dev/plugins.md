@@ -44,9 +44,15 @@ the golden vectors.
   (`<publisher>.<name>`). `meshloom.*` and `local.*` are reserved: the caller says
   who submits through `origin` (`third_party` by default, `bundled`, `local`), and
   an origin must use its own namespace.
-- Texts (`name`, `summary`, author names) refuse control, invisible (bidi, zero-width) and
-  unassigned characters; `name` and author names also refuse a word that mixes Latin letters
-  with Cyrillic or Greek ones (`Meѕhloom`). The misleading-word check runs on the NFKC-folded name.
+- Texts (`name`, `summary`, author names) refuse C0/C1 controls, private-use and surrogate
+  code points, and an explicit list of invisible or direction-changing characters (bidi
+  U+061C, U+200E/F, U+202A-202E, U+2066-2069, zero-width space U+200B, U+2060, U+FEFF, the
+  invisible operators and deprecated format controls). ZWNJ/ZWJ, variation selectors and emoji
+  ZWJ/tag sequences are allowed, and unassigned code points are not refused, so validity never
+  depends on the Python version. `name` and author names also refuse a word that mixes
+  letters of two scripts (Han, Hiragana, Katakana and Hangul count as one), after NFKC
+  folding, so `Meshl\u0585om` (Armenian) or `\u03bcController` fail; the misleading-word check
+  runs on the NFKC-folded name.
 - `name` and `summary` are language maps (`en` required, codes like `fr` or `pt-BR`).
   Outside `meshloom.*` a name in any language must not contain `meshloom`,
   `official` or `officiel` (case-insensitive).
@@ -71,7 +77,7 @@ the golden vectors.
 | `messages.read` | `channels` `public` (default) or `all`; `direct`, `outgoing` (booleans, default false) |
 | `messages.send` | `targets` `reply` (default), `scope`, `any`; `per_hour` 1 to 60; `per_day` 1 to 500 |
 | `raw_packets.read`, `contacts.read`, `channels.read`, `telemetry.read`, `storage`, `timer` | none (`{}`) |
-| `http` | `hosts`: 1 to 20 exact lowercase hostnames or **public** IP literals; never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and private, loopback, link-local, unspecified and other non-global addresses are refused (`host_private_ip`, e.g. `169.254.169.254`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*` |
+| `http` | `hosts`: 1 to 20 exact lowercase hostnames or **public** IP literals (classified with the egress guard's range tables in `app/net/egress_guard.py`, never `ipaddress.is_global`); never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and every range the guard refuses is refused (`host_private_ip`: private, loopback, link-local, multicast, NAT64 or 6to4 around a private IPv4, `169.254.169.254`, documentation ranges). Names `localhost`, `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and single-label hosts are refused too (`host_private_name`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*` |
 
 Reserved and refused with `permission_reserved`: `notifications.send`, `feed.post`,
 `ui.panel`, `channels.manage`, `contacts.manage`. Any other name is `extra_forbidden`.
@@ -103,7 +109,7 @@ Checked from the central directory and bounded reads, before any extraction:
   deflated entries.
 - No native code anywhere, including `vendor/*.dist-info` and nested zips: names
   ending `.so` (also `.so.N`), `.pyd`, `.dll`, `.dylib`, and files starting with the
-  ELF or Mach-O magic or with `MZ` (any DOS/PE header, refused outright). Every file is
+  ELF or Mach-O magic or with a real PE header (`MZ`, an `e_lfanew` inside the file and `PE\0\0` there; a text file starting with `MZ` is fine). Every file is
   read once (its CRC is checked, a corrupt archive is `package_bad_zip`). A file is opened
   as a nested zip when it starts with a zip header **or** carries an end-of-central-directory
   record near its tail (zipfile opens archives with junk prepended); nested zips (up to 3
