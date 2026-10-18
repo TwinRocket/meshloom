@@ -4,6 +4,7 @@ import { useCapabilities } from '../../auth/SessionProvider';
 import type { AccessSecurityNotice } from '../../auth/types';
 import { AccessAuditPanel } from './AccessAuditPanel';
 import { AccessIngressPanel } from './AccessIngressPanel';
+import { AccessPairingPanel } from './AccessPairingPanel';
 import { AccessPasskeysPanel } from './AccessPasskeysPanel';
 import { AccessProfilePanel } from './AccessProfilePanel';
 import { AccessPublicAddressesPanel } from './AccessPublicAddressesPanel';
@@ -33,6 +34,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {hasProfile && <AccessPasskeysPanel />}
       {hasProfile && <AccessSessionsPanel />}
       {hasProfile && <AccessTokensPanel />}
+      {isAdmin && <AccessPairingPanel />}
       {isAdmin && <AccessUsersPanel />}
       {isAdmin && <AccessTrustedNetworksPanel onNotices={setNotices} />}
       {isAdmin && <AccessPublicAddressesPanel />}
