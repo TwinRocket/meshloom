@@ -282,6 +282,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start fanout modules")
 
+    # One supervised child per enabled plugin instance (staggered, in the background).
+    from app.plugins import lifecycle as plugin_lifecycle
+
+    await plugin_lifecycle.start()
+
     from app.radio_proxy.manager import radio_proxy_manager
 
     try:
@@ -344,6 +349,7 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
 
 async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> None:
     from app.background_tasks import drain_background_tasks
+    from app.plugins import lifecycle as plugin_lifecycle
     from app.services.community_live import shutdown_community_live
     from app.services.community_status_clear import stop_status_clear_worker
 
@@ -353,6 +359,7 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
         ("startup radio task", lambda: _cancel_task(startup_radio_task)),
         ("community live", shutdown_community_live),
         ("community status clear", stop_status_clear_worker),
+        ("plugins", plugin_lifecycle.stop),  # bounded: never over 10 s
         ("fanout modules", fanout_manager.stop_all),
         ("radio proxy", radio_proxy_manager.stop),
         ("connection monitor", radio_manager.stop_connection_monitor),

@@ -279,7 +279,9 @@ body validation, so a refused caller never gets a 422.
 principal of each socket and delivers an event only to the clients holding its
 permission. A `message` that is not `CHAN` is not sent to a client without
 `read_private`, and a `raw_packet` decrypted from a DM reaches it without its
-decryption. `radio_wifi` is `admin`; the other types are `read`. Finer
+decryption. `radio_wifi` is `admin`; the other types are `read` (`plugin_status`
+has the audience of `health`, which carries `plugin_statuses`; the plugin
+permissions, Store T34, may narrow both). Finer
 per-event filtering (contact activity fields, toasts) is Access T26.
 
 **4.x upgrade.** The account imported from Basic and the first administrator

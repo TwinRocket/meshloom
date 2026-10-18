@@ -307,6 +307,17 @@ export interface RadioRegionDiscoveryResponse {
 
 export type RadioAdvertMode = 'flood' | 'zero_hop';
 
+/** One plugin instance as the plugin host sees it (health and the `plugin_status` event). */
+export interface PluginStatusEntry {
+  instance_id: string;
+  plugin_id: string | null;
+  label: string | null;
+  status: string | null;
+  last_error: string | null;
+  dropped_events: number;
+  restarts: number;
+}
+
 export interface FanoutStatusEntry {
   name: string;
   type: string;
@@ -373,6 +384,10 @@ export interface HealthStatus {
   notification_statuses?: Record<string, { last_error: NotificationLastError | null }>;
   bots_disabled: boolean;
   bots_disabled_source?: 'env' | 'until_restart' | null;
+  /** Plugin host: isolation level, why it is off (null when on), and each instance. */
+  plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
+  plugins_disabled_source?: 'env' | 'platform' | null;
+  plugin_statuses?: Record<string, PluginStatusEntry>;
   basic_auth_enabled?: boolean;
   radio_proxy?: RadioProxyStatus | null;
 }

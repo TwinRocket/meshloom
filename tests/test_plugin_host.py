@@ -691,3 +691,23 @@ def test_log_ring_keeps_the_runner_error():
     ring = LogRing(1024, 2048)
     ring.feed(b'{"runner_error": "entry_invalid", "message": "nope"}\n')
     assert ring.runner_error == {"code": "entry_invalid", "message": "nope"}
+
+
+async def test_health_carries_the_plugin_fields(test_db):
+    from app.routers.health import HealthResponse, build_health_data
+
+    data = await build_health_data(False, None)
+    health = HealthResponse(**data)
+    assert health.plugins_isolation == "none"
+    assert health.plugins_disabled_source is None
+    assert health.plugin_statuses == {}
+
+
+def test_the_lifespan_stops_plugins_before_the_fanout_modules():
+    import inspect
+
+    from app import main
+
+    source = inspect.getsource(main._shutdown)
+    assert source.index('("plugins", plugin_lifecycle.stop)') < source.index('("fanout modules"')
+    assert "await plugin_lifecycle.start()" in inspect.getsource(main.lifespan)

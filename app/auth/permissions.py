@@ -189,6 +189,9 @@ WS_EVENT_PERMISSIONS: Mapping[str, Permission] = {
     "message_acked": "read",
     "message_deleted": "read",
     "radio_wifi": "admin",
+    # Same audience as the `plugin_statuses` of `health` for now; the plugin
+    # permissions (Store T34) may narrow both.
+    "plugin_status": "read",
     "error": "read",
     "success": "read",
 }
