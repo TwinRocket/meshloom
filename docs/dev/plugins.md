@@ -1,9 +1,10 @@
 # Plugins
 
-Status: **format, validators, data model and the child runtime** (MSHL-175,
-MSHL-184, MSHL-176). The runner that executes a plugin in its own process exists;
-nothing in the server starts it yet (the supervisor is MSHL-179, the OS isolation
-MSHL-180, the SDK MSHL-177), and there is no API or UI. Like every doc here, this
+Status: **format, validators, data model, the child runtime and its supervisor**
+(MSHL-175, MSHL-184, MSHL-176, MSHL-179). The server starts one supervised child
+per enabled instance; the OS isolation (MSHL-180), the SDK (MSHL-177), the host
+capabilities (`messages.send`, `storage.*`, `http.fetch`...) and the API and UI
+are later tickets, and nothing installs a plugin yet. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
@@ -411,7 +412,8 @@ request with an integer id and returns its `result`, or raises
 `meshloom_plugin.errors.HostError` carrying the `error` object;
 `host().notify(method, params)` sends a notification. The methods themselves
 (`messages.send`, `storage.*`, `http.fetch`...) and their checks are the
-supervisor's (MSHL-179 and later). The SDK (MSHL-177) wraps `host()`.
+supervisor's (see "Supervisor"; the capabilities are MSHL-181 and later). The SDK
+(MSHL-177) wraps `host()`.
 
 Tests: `tests/test_plugin_runner.py` (real subprocesses; standard library and
 pytest only, so it also runs with `uv run --no-project --python 3.13 --with
@@ -419,3 +421,108 @@ pytest pytest --noconftest tests/test_plugin_runner.py`), the seed corpus in
 `tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`;
 MSHL-191 consolidates it and runs it under each isolation level) and
 `tests/test_plugin_packaging.py`.
+
+## Supervisor
+
+`app/plugins/host.py`: `PluginManager` (the `plugin_manager` singleton) owns one
+`PluginInstance` per running instance, and each instance runs one
+`PluginProcess` at a time. `app/plugins/lifecycle.py` is all the app sees:
+`start()` after the database opens and the fanout modules load, `stop()` as a
+shutdown step (never over 10 s), `health_fields()` for `/api/health`. Every
+bound below is a field of `Budgets`, so tests run real children with shorter
+ones.
+
+### Gates
+
+- **Host lock.** `MESHCORE_DISABLE_PLUGINS=true` (`Settings.disable_plugins`):
+  nothing starts, `start()` raises `PluginHostError("plugins_disabled")`, health
+  says `plugins_disabled_source: "env"`. It is not an alias of
+  `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
+- **Platform.** No `resource` module (Windows): the system is off,
+  `plugins_disabled_source: "platform"`.
+- **Cap.** At most one running instance per 128 MB of `MemTotal` (sysconf
+  elsewhere), clamped to 3..20 (`instance_cap()`); one more is
+  `PluginCapacityError` (`code` `instance_cap_reached`, `cap`).
+- **Start-up.** `load_from_db()` starts the enabled instances 500 ms apart, in a
+  task the manager keeps (cancelled by `stop_all()`), and skips the ones whose
+  stored status is `crash_loop`, `needs_attention`, `incompatible` or `revoked`
+  until someone acts on them.
+
+### One child
+
+Spawned with `asyncio.create_subprocess_exec(launch.runner_command(),
+**launch.popen_kwargs(work_dir))`: its own session, `close_fds`, the scrubbed
+environment, a fresh `mkdtemp` work directory as cwd (removed when the child
+ends), the parameters line on stdin. The code directory is
+`<data>/plugins/<plugin_id>/` (shared by the instances of a plugin; `<data>` is
+the database's directory); a local plugin's `source` and manifest are written to
+`<data>/plugins/local/<instance_id>/` at each start. stderr goes to a ring of
+1 MiB per instance, each line cut at 2 KiB (`[truncated]`), never to the server
+log; the runner's typed start error is kept for `last_error`. The isolation level
+is `none` (hooks only) until MSHL-180: `isolation_level()` and `_spawn_argv()`
+are its seam.
+
+`plugin.init` carries `api`, `instance_id`, `plugin_id`, `label`, `config`
+(secrets in clear, from `config_for_init()`), `scope`, `permissions`, `quotas`
+and `isolation`, and must answer within 20 s. Then the status is `running`.
+
+### Events
+
+- `FanoutManager.broadcast_*` call `plugin_manager.dispatch(hook, data)`
+  (`message` after the pending-channel check, `raw_packet`, `contact`,
+  `telemetry`, `health`). Only running instances whose manifest lists the hook
+  get it, after `accepts()`, the permission and scope filter (a seam that lets
+  everything through until MSHL-181). `event.message` keeps the bots' 2 s settle.
+- Each instance has an inbox of 100 events; a full inbox drops its oldest event,
+  counts it (`dropped_events`) and logs a warning at most every 10 s with the
+  total. At most `policy.MAX_CONCURRENT_HANDLERS` (8) events are in flight, so the
+  queue builds on the host side and every in-flight event is running.
+- Every event carries `event_id` (its JSON-RPC id) in its params; a test event
+  also carries `test: true`. `dispatch_test()` returns `{"result", "sends"}`:
+  a child request `messages.send` naming the `event_id` of a test event is
+  captured there (answer `{"captured": true}`) and never sent.
+- An event gets 30 s; then the host sends `event.cancel {"id"}`. A handler that
+  stops within 5 s answers `-32800`: the instance keeps running and `last_error`
+  says it timed out. Otherwise the process group is killed (`SIGKILL`).
+- A handler error (`-32000`) sets `last_error` and the instance keeps running.
+- Child requests go to `PluginManager.host_methods` (name to coroutine, filled
+  by the capability tickets); an unknown method is `-32601`.
+
+### Failures and restarts
+
+A child that exits, is killed from outside, breaks the framing, misses the init
+budget or is killed by a budget is a failure: everything pending (in flight or
+queued) is dropped and counted, never replayed; the status is `error` with the
+reason in `last_error` (scrubbed of the instance's secret values); the child is
+restarted after 1, 2, 4 ... 60 s. A run that handled an event or lived 60 s resets
+the consecutive count. Five consecutive failures: `crash_loop`, stored, no more
+restarts. `restart()` builds a new supervisor, so its count starts at zero.
+
+CPU: on Linux the host samples `utime + stime` from `/proc/<pid>/stat` every
+5 s and kills a child that used more than 20 CPU-seconds in the last 60 s. The
+runner's hard `RLIMIT_CPU` (3600 s, `policy.DEFAULT_LIMITS`) is the portable
+backstop: the kernel ends the child (`SIGXCPU`, `last_error` "CPU time limit
+reached") and the restart starts a new process, so the count starts again.
+
+### Statuses
+
+`installed`, `disabled`, `starting`, `running`, `error`, `crash_loop`,
+`needs_attention`, `incompatible`, `revoked`. Each change of status or
+`last_error` is stored in `plugins.status`/`last_error`, sent to the WebSocket
+clients as `plugin_status` (`instance_id`, `plugin_id`, `label`, `status`,
+`last_error`, `dropped_events`, `restarts`; `realtime=False`, so not to the
+proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
+instance of the repository cache (stored status, `disabled` when not enabled),
+with live values for the running ones. Health carries `plugins_isolation`,
+`plugins_disabled_source` and `plugin_statuses`.
+
+### Shutdown
+
+`stop_all(timeout)`: `plugin.shutdown` to every child at once, a bounded wait
+(`min(5 s, timeout / 2)`), `SIGKILL` of the survivors' groups, and every child
+reaped, all within `timeout` (10 s from the lifespan). A stopped instance's
+pending events are dropped.
+
+Tests: `tests/test_plugin_host.py` (real children; fixture plugins echo, sleep,
+ignore-cancel, crash, cpu-burn, ignore-shutdown, sender; the `/proc` CPU test
+runs on Linux only).

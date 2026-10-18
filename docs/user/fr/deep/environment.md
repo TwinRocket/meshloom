@@ -64,6 +64,7 @@ Voir [Meshloom Community](/docs/deep/community/).
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne démarre, quels que soient les réglages. Indépendant de `MESHCORE_DISABLE_BOTS` |
 | `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
 

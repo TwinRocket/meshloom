@@ -50,8 +50,15 @@ and the OpenAPI page (`/docs`), not a table here.
   clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
-  `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`). Nothing
-  starts it yet (supervisor: MSHL-179). Every artefact that copies `app/` copies
+  `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
+  `plugins/host.py` supervises the children (one per enabled instance: budgets,
+  bounded inbox, restarts, `crash_loop`, statuses); the app reaches it only
+  through `plugins/lifecycle.py` (lifespan `start()`, the bounded `stop()`
+  shutdown step, `health_fields()`) and `plugin_manager.dispatch()` from the
+  fanout bus. Its long-lived tasks (one per instance and per child) are kept in
+  attributes and cancelled at stop, per the background-work rule. Host lock:
+  `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
+  Every artefact that copies `app/` copies
   `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
   `scripts/build/build_nfpm_packages.sh`, `Dockerfile.nfpm-armhf` and the armhf
   tag overlay, the upgrade-matrix image); `tests/test_plugin_packaging.py` checks them.
