@@ -152,6 +152,10 @@ automation:
             {{ trigger.to_state.attributes.text }}
 ```
 
+## Display mode inside the add-on
+
+The Feed's **Display mode** button asks the browser for full screen. Inside Home Assistant the Meshloom page lives in a frame, and a browser only allows full screen from a frame that carries `allowfullscreen` (Home Assistant's own page does not give it to add-on panels). If the screen does not go full screen, the mode still works, only the Home Assistant bars stay; open Meshloom's own address (`http://<ip-address>:8000`) in a browser or on the kiosk for a true full screen. See [Raspberry Pi image](/en/docs/rpi/#display-mode).
+
 ## When it does not work
 
 If no device appears, check that the MQTT integration of Home Assistant is connected, that Meshloom shows the integration as connected, and that both use the same broker. Watch what Meshloom announces:

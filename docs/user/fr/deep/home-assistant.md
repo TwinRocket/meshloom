@@ -152,6 +152,10 @@ automation:
             {{ trigger.to_state.attributes.text }}
 ```
 
+## Mode affichage dans l’add-on
+
+Le bouton **Mode affichage** du Fil demande le plein écran au navigateur. Dans Home Assistant, la page de Meshloom est dans un cadre, et un navigateur n’autorise le plein écran que depuis un cadre qui porte `allowfullscreen` (la page de Home Assistant ne le donne pas aux panneaux d’add-on). Si l’écran ne passe pas en plein écran, le mode fonctionne quand même, seules les barres de Home Assistant restent ; ouvrez l’adresse propre de Meshloom (`http://<adresse-ip>:8000`) dans un navigateur ou sur le kiosque pour un vrai plein écran. Voir [Image Raspberry Pi](/docs/rpi/#mode-affichage).
+
 ## Quand cela ne marche pas
 
 Si aucun appareil n’apparaît, vérifiez que l’intégration MQTT de Home Assistant est connectée, que Meshloom affiche l’intégration comme connectée, et que les deux utilisent le même broker. Regardez ce que Meshloom annonce :

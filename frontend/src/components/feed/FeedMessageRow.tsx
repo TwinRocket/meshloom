@@ -16,6 +16,10 @@ interface FeedMessageRowProps {
   time: { short: string; full: string };
   radioName?: string;
   actions?: FeedRowActions;
+  /** False keeps a GIF as its text (display mode); a pending channel never loads it either. */
+  remoteMedia?: boolean;
+  /** Display mode: nothing to focus or click, the row is text on a screen. */
+  readOnly?: boolean;
   /** The virtualizer's measuring ref, the item's index and its translateY offset. */
   measureRef?: Ref<HTMLDivElement>;
   index: number;
@@ -47,6 +51,8 @@ export const FeedMessageRow = memo(function FeedMessageRow({
   time,
   radioName,
   actions,
+  remoteMedia = true,
+  readOnly = false,
   measureRef,
   index,
   offset,
@@ -87,7 +93,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
       ref={measureRef}
       data-index={index}
       role="listitem"
-      tabIndex={0}
+      tabIndex={readOnly ? undefined : 0}
       className="absolute left-0 top-0 w-full cursor-pointer border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       style={{ transform: `translateY(${offset}px)` }}
       onClick={(event) => {
@@ -208,7 +214,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
       <MessageBody
         content={labels.content}
         radioName={radioName}
-        remoteMedia={!labels.pendingChannel}
+        remoteMedia={remoteMedia && !labels.pendingChannel}
       />
     </div>
   );

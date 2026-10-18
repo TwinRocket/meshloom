@@ -213,7 +213,7 @@ export function countHiddenRows(
 export interface FeedHashState {
   /** Only the filters the query named, laid over the stored ones (URL > localStorage > defaults). */
   filters: Partial<FeedFilters>;
-  /** Parsed and carried; the kiosk display mode acts on it. */
+  /** Display mode (`FeedView`, `components/feed/feedDisplay.ts`): a layer over the filters. */
   display: boolean;
 }
 
