@@ -114,6 +114,9 @@ def _read_params() -> tuple[dict[str, Any], bytes]:
         raise RunnerStartError("params_invalid", "instance_id must be a string")
     if params.get("isolation") not in policy.ISOLATION_LEVELS:
         raise RunnerStartError("params_invalid", "isolation is not a known level")
+    if params["isolation"] == "setuid" and hasattr(os, "geteuid") and os.geteuid() == 0:
+        # The supervisor announced the dedicated uid but the drop did not happen.
+        raise RunnerStartError("params_invalid", "isolation setuid but the child runs as root")
     params["work_dir"] = _check_work_dir(params.get("work_dir"), plugin_dir)
     limits = params.get("limits", {})
     if not isinstance(limits, dict) or not all(
