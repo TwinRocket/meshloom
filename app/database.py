@@ -348,6 +348,23 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
     used_at INTEGER,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- Passkeys (migration 110, docs/dev/auth.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    credential_id BLOB NOT NULL UNIQUE,
+    public_key BLOB NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    transports TEXT NOT NULL DEFAULT '[]',
+    aaguid TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    backup_eligible INTEGER NOT NULL DEFAULT 0,
+    backed_up INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
@@ -393,6 +410,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON recovery_codes(user_id);
+CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
 CREATE INDEX IF NOT EXISTS idx_plugins_plugin_id ON plugins(plugin_id);
 """
 

@@ -1,4 +1,5 @@
-"""Repository for the local accounts tables: users, sessions, api_tokens, auth_audit, auth_settings.
+"""Repository for the local accounts tables: users, sessions, api_tokens, auth_audit, auth_settings,
+recovery_codes, webauthn_credentials.
 
 Schema and rules: ``docs/dev/auth.md``. Hashes go in and out of this module but
 are never logged; the general models (``app/auth/models.py``) carry none.
@@ -629,6 +630,176 @@ async def _replace_codes(
         "INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, ?)",
         [(user_id, code_hash, ts) for code_hash in code_hashes],
     )
+
+
+MAX_PASSKEYS_PER_USER = 20
+_PASSKEY_COLUMNS = (
+    "id, user_id, credential_id, public_key, sign_count, transports, aaguid, name,"
+    " backup_eligible, backed_up, created_at, last_used_at"
+)
+
+
+class StoredPasskey(BaseModel):
+    """One WebAuthn credential (migration 110). A public key and a counter:
+    nothing here signs anyone in on its own."""
+
+    id: int
+    user_id: int
+    credential_id: bytes
+    public_key: bytes
+    sign_count: int
+    transports: list[str]
+    aaguid: str
+    name: str
+    backup_eligible: bool
+    backed_up: bool
+    created_at: int
+    last_used_at: int | None = None
+
+
+def _row_to_passkey(row: Any) -> StoredPasskey:
+    return StoredPasskey(
+        id=int(row[0]),
+        user_id=int(row[1]),
+        credential_id=bytes(row[2]),
+        public_key=bytes(row[3]),
+        sign_count=int(row[4]),
+        transports=[str(item) for item in _json_list(row[5])],
+        aaguid=str(row[6]),
+        name=str(row[7]),
+        backup_eligible=bool(row[8]),
+        backed_up=bool(row[9]),
+        created_at=int(row[10]),
+        last_used_at=row[11],
+    )
+
+
+class PasskeyLimitError(ValueError):
+    """The account already has ``MAX_PASSKEYS_PER_USER`` passkeys."""
+
+
+class PasskeyRepository:
+    """``webauthn_credentials`` (migration 110). Rules: ``app/auth/webauthn.py``,
+    ``docs/dev/auth.md``, "Passkeys". A passkey never changes how the password
+    signs in, so no write here moves ``users.updated_at``."""
+
+    @staticmethod
+    async def list_for_user(user_id: int) -> list[StoredPasskey]:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"SELECT {_PASSKEY_COLUMNS} FROM webauthn_credentials"
+                " WHERE user_id = ? ORDER BY id",
+                (user_id,),
+            ) as cursor:
+                return [_row_to_passkey(row) for row in await cursor.fetchall()]
+
+    @staticmethod
+    async def get_by_credential_id(credential_id: bytes) -> StoredPasskey | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"SELECT {_PASSKEY_COLUMNS} FROM webauthn_credentials WHERE credential_id = ?",
+                (credential_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return _row_to_passkey(row) if row else None
+
+    @staticmethod
+    async def count_for_user(user_id: int) -> int:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    @staticmethod
+    async def add(
+        user_id: int,
+        *,
+        credential_id: bytes,
+        public_key: bytes,
+        sign_count: int,
+        transports: list[str],
+        aaguid: str,
+        name: str,
+        backup_eligible: bool,
+        backed_up: bool,
+        now: int | None = None,
+    ) -> StoredPasskey | None:
+        """Store a verified credential. None when its id is already stored (for
+        any account); ``PasskeyLimitError`` past ``MAX_PASSKEYS_PER_USER``."""
+        ts = _now(now)
+        async with db.tx() as conn:
+            async with conn.execute(
+                "SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row and int(row[0]) >= MAX_PASSKEYS_PER_USER:
+                raise PasskeyLimitError(user_id)
+            try:
+                async with conn.execute(
+                    "INSERT INTO webauthn_credentials (user_id, credential_id, public_key,"
+                    " sign_count, transports, aaguid, name, backup_eligible, backed_up,"
+                    " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        user_id,
+                        credential_id,
+                        public_key,
+                        sign_count,
+                        json.dumps(transports),
+                        aaguid,
+                        name,
+                        int(backup_eligible),
+                        int(backed_up),
+                        ts,
+                    ),
+                ) as cursor:
+                    passkey_id = cursor.lastrowid
+            except sqlite3.IntegrityError:
+                return None
+            async with conn.execute(
+                f"SELECT {_PASSKEY_COLUMNS} FROM webauthn_credentials WHERE id = ?",
+                (passkey_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return _row_to_passkey(row) if row else None
+
+    @staticmethod
+    async def record_use(
+        passkey_id: int,
+        previous_sign_count: int,
+        sign_count: int,
+        backed_up: bool,
+        *,
+        now: int | None = None,
+    ) -> bool:
+        """Store the counter of a verified assertion. False when the stored
+        counter is no longer ``previous_sign_count`` (a concurrent use of the
+        same credential) or the row is gone: the caller refuses the sign-in."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE webauthn_credentials SET sign_count = ?, backed_up = ?, last_used_at = ?"
+                " WHERE id = ? AND sign_count = ?",
+                (sign_count, int(backed_up), _now(now), passkey_id, previous_sign_count),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def delete(user_id: int, passkey_id: int) -> bool:
+        async with db.tx() as conn:
+            async with conn.execute(
+                "DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?",
+                (passkey_id, user_id),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def delete_all_for_user(user_id: int) -> int:
+        async with db.tx() as conn:
+            async with conn.execute(
+                "DELETE FROM webauthn_credentials WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                return cursor.rowcount
 
 
 class AuthSessionRepository:

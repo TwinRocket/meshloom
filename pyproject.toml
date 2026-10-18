@@ -35,6 +35,8 @@ dependencies = [
     "jsonschema>=4.26,<5",
     # TOTP second factor, RFC 6238 (app/auth/totp.py).
     "pyotp>=2.9,<3",
+    # Passkeys, WebAuthn ceremonies (py_webauthn; app/auth/webauthn.py).
+    "webauthn>=3.0.1,<4",
 ]
 
 [tool.pytest.ini_options]
