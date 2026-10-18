@@ -9,7 +9,7 @@ Web Push peut prévenir votre navigateur d’un message entrant alors que l’on
 
 Il n’y a pas de fenêtres contextuelles venant de l’onglet ouvert lui-même. Web Push est la seule manière dont Meshloom notifie un navigateur.
 
-Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**. Le push est activé par défaut. L’e-mail et le webhook sont désactivés par défaut, et ne fonctionnent qu’une fois une destination configurée. Voir « Choisir ce qui notifie » plus bas.
+Les mêmes règles peuvent aussi envoyer un **e-mail**, appeler un **webhook** ou notifier par **Apprise** (ntfy, Telegram, Discord, Home Assistant et bien d’autres). Le push est activé par défaut. L’e-mail, le webhook et Apprise sont désactivés par défaut, et ne fonctionnent qu’une fois une destination configurée. Voir « Choisir ce qui notifie » plus bas.
 
 ## Ce qu’il vous faut
 
@@ -39,7 +39,7 @@ L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les 
 
 ### Les événements
 
-**Réglages → Notifications → Notifications par défaut** a une ligne par événement, avec trois colonnes : **Push**, **E-mail** et **Webhook**. Le push est activé pour chaque événement au départ.
+**Réglages → Notifications → Notifications par défaut** a une ligne par événement, avec quatre colonnes : **Push**, **E-mail**, **Webhook** et **Apprise**. Le push est activé pour chaque événement au départ.
 
 | Événement | Quand il se déclenche |
 |-----------|-----------------------|
@@ -70,11 +70,13 @@ Pour les messages de salon, sans exception :
 - les salons publics et les salons `#` (hashtag) notifient par push ;
 - les salons à clé privée ne notifient pas.
 
-Les messages directs suivent la ligne **Messages directs**. Les notifications par e-mail ou webhook pour un salon n’existent que si vous les activez pour ce salon.
+Les messages directs suivent la ligne **Messages directs**. Les notifications par e-mail, webhook ou Apprise pour un salon n’existent que si vous les activez pour ce salon (la cloche, ci-dessous).
+
+Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourdine, ne partent jamais vers Apprise.
 
 ### La cloche, pour une conversation
 
-Dans l’en-tête d’une conversation, la cloche ouvre un menu avec trois cases : **Push**, **E-mail** et **Webhook**. En cocher une crée une **exception** aux valeurs par défaut, pour cette conversation seulement. Si votre navigateur n’est pas encore abonné, cocher **Push** l’abonne. **E-mail** et **Webhook** sont grisés tant qu’aucune destination n’existe ; un lien mène aux réglages.
+Dans l’en-tête d’une conversation, la cloche ouvre un menu avec quatre cases : **Push**, **E-mail**, **Webhook** et **Apprise**. En cocher une crée une **exception** aux valeurs par défaut, pour cette conversation seulement. Si votre navigateur n’est pas encore abonné, cocher **Push** l’abonne. **E-mail**, **Webhook** et **Apprise** sont grisés tant qu’aucune destination n’existe ; un lien mène aux réglages.
 
 Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, où on peut les retirer.
 
@@ -89,6 +91,31 @@ Dans **Réglages → Notifications → Destinations de livraison**, saisissez un
 Meshloom refuse un webhook sur un réseau privé (votre réseau local, cette machine, `localhost`, le NAT d’opérateur, les adresses lien-local) sauf si vous cochez **Autoriser une destination sur un réseau privé (réseau local, localhost)** sous l’adresse : Home Assistant, Node-RED ou un script sur votre réseau en ont besoin. La vérification a lieu à l’enregistrement de l’adresse puis avant chaque envoi, et Meshloom se connecte ensuite uniquement à l’adresse vérifiée : une réponse DNS qui change entre-temps ne peut pas détourner l’appel. Les adresses de métadonnées cloud (`169.254.169.254` et ses équivalents) sont toujours refusées. Si le nom d’hôte est introuvable, saisissez plutôt l’adresse IP. Un webhook enregistré avant cette vérification continue de fonctionner : la case est cochée pour lui, et un avis unique le signale.
 
 L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage dans le message (image intégrée) : ouvrir l’e-mail ne charge rien depuis Internet, et il ne contient aucun lien.
+
+### Destination Apprise
+
+La destination **Apprise**, au même endroit, prend une [URL Apprise](https://github.com/caronc/apprise/wiki) par ligne. Quelques exemples :
+
+| Service | URL |
+|---------|-----|
+| ntfy | `ntfys://ntfy.sh/mon-sujet-meshloom` (ou `ntfys://ntfy.example.org/sujet` pour votre propre serveur) |
+| Telegram | `tgram://bot_token/chat_id` (l’identifiant de discussion est obligatoire) |
+| Discord | `discord://webhook_id/webhook_token` |
+| Home Assistant | `hassios://homeassistant.local:8123/jeton_longue_duree` |
+
+Les URL contiennent des jetons : ce sont des secrets. Après l’enregistrement elles s’affichent `********` et ne sont plus jamais montrées ; le téléchargement de la sauvegarde JSON les laisse de côté. Pour les changer, saisissez-en de nouvelles ; videz le champ pour les supprimer. Seuls les services que Meshloom a examinés sont acceptés (la même liste que pour le [fanout Apprise](/docs/deep/fanout/)) ; une URL refusée est désignée par sa ligne à l’enregistrement. Cette destination transporte les notifications système choisies dans le tableau ci-dessus ; ce n’est pas le fanout Apprise, qui transfère tous les messages des salons choisis.
+
+- **Texte des messages.** *Canaux publics et # seulement* (par défaut) envoie le texte des messages du canal Public et des canaux `#`, et seulement un titre pour les messages directs et les salons privés (« Message de Léa »). *Toujours* envoie tous les textes ; *Jamais* n’envoie que des titres.
+- **Format.** Texte brut, ou Markdown. En Markdown le texte des messages est échappé (un message ne peut pas injecter de lien ni de titre), et dans les deux formats les mentions `@everyone`, `@here` et `<@…>` sont neutralisées.
+- **Autoriser une destination sur un réseau privé (LAN, localhost).** Désactivé par défaut, comme pour le webhook : cochez-le pour un serveur ntfy, Gotify ou Home Assistant sur votre réseau ou sur cette machine. La vérification a lieu à l’enregistrement puis avant chaque envoi.
+
+Chaque URL est envoyée séparément : un service en panne n’empêche pas les autres. Un envoi raté est retenté après 5 s puis 30 s quand le service est injoignable, répond une erreur serveur ou demande de ralentir (son `Retry-After` est respecté), jamais quand il refuse la requête (un jeton faux, par exemple). Pour protéger vos comptes, Meshloom envoie au plus une notification Apprise toutes les 2 secondes, en garde 20 en attente et remplace le reste par un seul « +N évènements » ; les nouveaux contacts et annonces notifient au plus 10 fois par heure, puis un seul « +N nouveaux contacts ». Le dernier échec (son code, la ligne de l’URL, son schéma et son hôte seulement) figure dans `/api/health` sous `notification_statuses.apprise`.
+
+Le bouton de test envoie une notification de test à chaque URL ; un échec indique la ligne de l’URL et le type d’échec, jamais le jeton.
+
+### Preuve de modification
+
+Toute modification d’une destination (e-mail, webhook ou Apprise) envoie à chaque navigateur abonné une notification push **Destination de notification modifiée**, qui dit ce qui a changé. Elle ne peut pas être désactivée : si ce n’est pas vous, quelqu’un d’autre l’a fait.
 
 ## En coulisses
 

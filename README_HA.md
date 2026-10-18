@@ -155,7 +155,7 @@ automation:
 
 ### Radio offline alert
 
-Meshloom also sends **Radio offline**, **Radio back online** and **Meshloom started** notifications itself (Settings → Notifications; push by default, e-mail and webhook optional), after a delay of 60 s by default. They cannot reach you while Meshloom itself is down (power cut, host reboot): this automation, which runs in Home Assistant, still can. The example below stays valid.
+Meshloom also sends **Radio offline**, **Radio back online** and **Meshloom started** notifications itself (Settings → Notifications; push by default, e-mail, webhook and Apprise optional), after a delay of 60 s by default. They cannot reach you while Meshloom itself is down (power cut, host reboot): this automation, which runs in Home Assistant, still can. The example below stays valid.
 
 Notify if the radio has been disconnected for more than 5 minutes.
 
@@ -176,6 +176,16 @@ automation:
           title: "MeshCore Radio Offline"
           message: "Radio has been disconnected for 5 minutes"
 ```
+
+### Meshloom notifications in the Home Assistant app
+
+Meshloom can send its own notifications (direct messages, radio offline, new contacts, alerts) to the Home Assistant companion app through the **Apprise** destination in Settings → Notifications. Create a long-lived access token in your Home Assistant profile, then enter one URL:
+
+```
+hassios://homeassistant.local:8123/YOUR_LONG_LIVED_TOKEN
+```
+
+Use `hassio://` without TLS, and the host and port of your instance. Home Assistant is on your network, so tick **Allow a destination on a private network (LAN, localhost)** under the URLs; from the add-on, `hassio://homeassistant:8123/YOUR_LONG_LIVED_TOKEN` also works. Tick **Apprise** in the notification table for the events you want, then press **Test Apprise**.
 
 ### Alert on any message from a specific room
 

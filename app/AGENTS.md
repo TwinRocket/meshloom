@@ -625,15 +625,43 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
-- Secrets (SMTP password, webhook secret in `notification_destinations`,
+- Four media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
+  `app/repository/settings.py`; the push router models, `pushPolicy.ts` and
+  the frontend matrix list them too). A missing key reads as off
+  (`coerce_notification_media`), so adding one needs no migration. A channel
+  reaches a medium other than push only through its bell override.
+- Secrets (SMTP password, webhook secret, Apprise `urls` in `notification_destinations`,
   `NOTIFICATION_SECRET_KEYS` in `app/secret_fields.py`) are returned as
   `********`; a PATCH that sends `********` back keeps the stored value. A
   kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
   email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
   `secret_required`, and a v1 restore drops it with the warning
   `secret_dropped_destination_changed:email.password` (or
-  `webhook.hmac_secret`). The fanout configs follow the same rules
-  (`app/fanout/AGENTS.md`, "Secrets").
+  `webhook.hmac_secret`). Apprise `urls` are the secret and the destination
+  at once: `********` keeps them, `""` clears them. The fanout configs follow
+  the same rules (`app/fanout/AGENTS.md`, "Secrets").
+- Any change of `notification_destinations` (`AppSettingsRepository.update`,
+  so a restore too) pushes `notify.destination_changed` to every subscription
+  (`notify_destination_changed`): the proof of modification, not configurable.
+- **Apprise medium** (`app/notifications/apprise_medium.py`, `send_apprise_alert`
+  in `app/notify.py`). URLs checked at save (`_check_webhook_destination` in
+  the settings router, coded 400) and again before each send; one Apprise
+  object per URL, one result per URL. Retries (tenacity, `RETRY_WAITS` 0/5/30 s)
+  on a network error, a 5xx or a 429 (`Retry-After`, capped at 120 s), never
+  another 4xx; the HTTP status comes from a `requests.Session.send` wrapper
+  that records only inside `_send_sync` (a context variable, carried into
+  Apprise 2's own pool by `submit_with_context`). Blocking sends run in
+  `app/notifications/executor.py` (4 threads, shared later by the engine).
+  `dispatch_system_event` never sends directly: it submits to `AppriseQueue`
+  (aiolimiter: one send at a time, 2 s apart, 20 pending, then one
+  `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
+  rest one `first_seen_grouped`). The text policy (`include_message_text`:
+  `public_only` default, `always`, `never`) and the format apply once, in
+  `event_notification_text` (`app/push/manager.py`); mentions are always
+  neutralised, Markdown escapes the text. Blocked senders and muted channels
+  never reach it (`app/services/message_filters.py`, shared with the Apprise
+  fanout). `apprise_last_error()` (code, time, line, `redact_apprise_url`)
+  is in the health payload as `notification_statuses.apprise`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
   fixed-host callers (Store client, plugin `http` capability: host allowlist,
   redirects re-validated hop by hop, streaming size caps).
@@ -643,7 +671,7 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   webhook stored before the guard reads as allowed and grandfathered (one-time
   banner, cleared by a PATCH or a URL change). A dispatch failure is logged at
   WARNING (code, type, host, HTTP status) and kept in memory as
-  `webhook_last_error()` for the health payload.
+  `webhook_last_error()` for the health payload (`notification_statuses.webhook`).
 - The email transport builds an Apprise `mailto` URL on the fly from the SMTP
   settings; the URL is never stored. The HTML email references no remote content
   (inline `cid:` logo, no remote image, no link).

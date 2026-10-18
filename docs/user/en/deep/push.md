@@ -9,7 +9,7 @@ Web Push can tell your browser about an incoming message while Meshloom's tab is
 
 There are no pop-ups from the open tab itself. Web Push is the only way Meshloom notifies a browser.
 
-The same rules can also send an **e-mail** or call a **webhook**. Push is on by default. E-mail and webhook are off by default, and only work once you have set up a destination. See "Choosing what notifies" below.
+The same rules can also send an **e-mail**, call a **webhook** or notify through **Apprise** (ntfy, Telegram, Discord, Home Assistant and many more). Push is on by default. E-mail, webhook and Apprise are off by default, and only work once you have set up a destination. See "Choosing what notifies" below.
 
 ## What you need
 
@@ -39,7 +39,7 @@ A browser's subscription only decides whether that browser receives notification
 
 ### Events
 
-**Settings → Notifications → Default notifications** has one row per event, with three columns: **Push**, **Email** and **Webhook**. Push is on for every event at the start.
+**Settings → Notifications → Default notifications** has one row per event, with four columns: **Push**, **Email**, **Webhook** and **Apprise**. Push is on for every event at the start.
 
 | Event | When it fires |
 |-------|---------------|
@@ -70,11 +70,13 @@ For channel messages, without an exception:
 - public channels and `#` (hashtag) channels notify by push;
 - channels with a private key do not.
 
-Direct messages follow the **Direct messages** row. E-mail and webhook notifications for a channel only exist if you switch them on for that channel.
+Direct messages follow the **Direct messages** row. E-mail, webhook and Apprise notifications for a channel only exist if you switch them on for that channel (the bell, below).
+
+Messages from a blocked contact or name, and messages on a muted channel, never go to Apprise.
 
 ### The bell, for one conversation
 
-In the header of a conversation, the bell opens a menu with three tick boxes: **Push**, **Email** and **Webhook**. Ticking one makes an **exception** to the defaults for that conversation only. If your browser is not subscribed yet, ticking **Push** subscribes it. **Email** and **Webhook** are greyed out until a destination exists; a link takes you to the settings.
+In the header of a conversation, the bell opens a menu with four tick boxes: **Push**, **Email**, **Webhook** and **Apprise**. Ticking one makes an **exception** to the defaults for that conversation only. If your browser is not subscribed yet, ticking **Push** subscribes it. **Email**, **Webhook** and **Apprise** are greyed out until a destination exists; a link takes you to the settings.
 
 Exceptions are listed in **Settings → Notifications → Conversation exceptions**, where you can remove them.
 
@@ -89,6 +91,31 @@ In **Settings → Notifications → Delivery destinations**, enter an SMTP serve
 Meshloom refuses a webhook on a private network (your LAN, this machine, `localhost`, carrier-grade NAT, link-local addresses) unless you tick **Allow a destination on a private network (LAN, localhost)** under the address: Home Assistant, Node-RED or a script on your network need it. The check runs when you save the address and again before each send, and Meshloom then connects only to the address it checked, so a DNS answer that changes in between cannot redirect the call. Cloud metadata addresses (`169.254.169.254` and its equivalents) are always refused. If the host name cannot be found, type the IP address instead. A webhook saved before this check existed keeps working: the box starts ticked for it, and a one-time notice says so.
 
 The e-mail is HTML, with a plain-text copy. The Meshloom logo travels inside the message (an inline image), so opening the e-mail loads nothing from the Internet and contains no link.
+
+### Apprise destination
+
+The **Apprise** destination, in the same place, takes one [Apprise URL](https://github.com/caronc/apprise/wiki) per line. A few examples:
+
+| Service | URL |
+|---------|-----|
+| ntfy | `ntfys://ntfy.sh/my-meshloom-topic` (or `ntfys://ntfy.example.org/topic` for your own server) |
+| Telegram | `tgram://bot_token/chat_id` (the chat id is required) |
+| Discord | `discord://webhook_id/webhook_token` |
+| Home Assistant | `hassios://homeassistant.local:8123/long_lived_token` |
+
+The URLs hold tokens, so they are a secret: after saving they read `********` and are never shown again; the JSON backup download leaves them out. Change them by typing new ones; empty the field to remove them. Apprise only accepts the services Meshloom has reviewed (the same list as the [Apprise fanout](/en/docs/deep/fanout/)); a URL it refuses is named by its line when you save. This destination carries the system notifications chosen in the table above; it is not the Apprise fanout, which forwards every message of the channels you pick.
+
+- **Message text.** *Public and # channels only* (the default) sends the text of messages on the Public channel and `#` channels, and only a title for direct messages and private channels ("Message from Léa"). *Always* sends every text; *Never* sends titles only.
+- **Format.** Plain text, or Markdown. In Markdown the message text is escaped (a message cannot inject a link or a heading), and in both formats `@everyone`, `@here` and `<@…>` mentions are neutralised.
+- **Allow a destination on a private network (LAN, localhost).** Off by default, as for the webhook: tick it for an ntfy, Gotify or Home Assistant server on your network or on this machine. The check runs at save and again before each send.
+
+Each URL is sent on its own: one failing service does not stop the others. A failed send is retried after 5 s and 30 s when the service is unreachable, answers a server error or asks to slow down (its `Retry-After` is honoured), never when it refuses the request (a wrong token, for instance). To protect your accounts, Meshloom sends at most one Apprise notification every 2 seconds, keeps 20 waiting and replaces the rest with a single "+N events"; new contacts and advertisements notify at most 10 times an hour, then one "+N new contacts". The last failure (its code, the URL line, its scheme and host only) is in `/api/health` under `notification_statuses.apprise`.
+
+The test button sends a test notification to every URL; a failure names the URL line and the kind of failure, never the token.
+
+### Proof of change
+
+Any change of a delivery destination (e-mail, webhook or Apprise) sends a push notification **Notification destination changed** to every subscribed browser, naming what changed. It cannot be turned off: if you did not make the change, someone else did.
 
 ## Behind the scenes
 
