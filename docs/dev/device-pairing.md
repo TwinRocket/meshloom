@@ -12,9 +12,26 @@ header), `app/routers/auth_pairing.py` (routes), `PairingCodeRepository`
 that this page names every route, error code and limit below. Like every doc
 here, the code wins; a change to this contract is a `CONTRACTS:` commit.
 
+## Contract version
+
+**Contract version 1** (MSHL-71), payload version `v: 1`. A client pins the
+contract version it implements.
+
+- A change a version-1 client keeps working with (a new optional field in an
+  answer, a new error code it can treat as a generic failure, an added
+  address in `urls`) keeps the version and is listed below.
+- A change that breaks a version-1 client (a field removed or retyped, a new
+  required request field, a new payload layout) raises the contract version;
+  a new payload layout also raises `v`, and the instance keeps accepting
+  version-1 redemptions for at least one minor Meshloom release.
+
+| Version | Change |
+|---|---|
+| 1 | First version (MSHL-71). Pairing codes are created by an `admin`; the LAN address in `urls` is only a private, link-local or ULA address or a local-only name; the redemption delays are per client. |
+
 ## Flow
 
-1. Someone signed in to Meshloom (a `member` or an `admin`) creates a pairing
+1. An administrator signed in to Meshloom creates a pairing
    code: a label, the scopes the device will get, a lifetime of at most 10
    minutes. The instance answers the code once, with the text of the QR.
 2. The device scans the QR, decodes the payload, and posts the code to
@@ -47,7 +64,7 @@ meshloom://pair?d=eyJ2IjoxLCJ1cmxzIjpbImh0dHBzOi8vbWVzaC5leGFtcGxlLm9yZyIsImh0dH
 | Field | Meaning |
 |---|---|
 | `v` | Payload version, `1`. A client refuses a version it does not know. |
-| `urls` | Base addresses of the instance, best first, at most 8: the declared public addresses (`auth_settings.public_urls`, Settings → Local Configuration, `https` only, possibly with a path prefix), the Meshloom Remote hostname as `https://<host>` when the instance is linked, then the address the creator's browser used when it is a LAN one (a direct request, not Home Assistant ingress or the relay, whose `Host` names this instance and is not loopback). Fixed when the code is created. May be empty (created from `localhost` with no public address): the client then asks the user for the address. |
+| `urls` | Base addresses of the instance, best first, at most 8: the declared public addresses (`auth_settings.public_urls`, Settings → Local Configuration, `https` only, possibly with a path prefix), the Meshloom Remote hostname as `https://<host>` when the instance is linked, then the address the creator's browser used when it is a LAN one: a direct request (not Home Assistant ingress or the relay) whose `Host` names this instance and is a private IPv4 address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), IPv4 link-local (`169.254.0.0/16`), IPv6 ULA (`fc00::/7`) or link-local (`fe80::/10`), or a name ending in `.local`, `.lan` or `.home.arpa`, and not a declared public host or the Remote hostname. Anything else (a public IP, loopback, a public name) is dropped, never offered over plain `http`; a public host is reached only through its `https` entry above. Fixed when the code is created. May be empty (created from `localhost` with no public address): the client then asks the user for the address. |
 | `code` | The pairing code: `mlp_` + 128 random bits in base64url (26 characters in all). |
 
 A client tries the addresses in order and posts the code to the first that
@@ -62,33 +79,32 @@ hint; clients switch on `code`.
 
 ### `POST /api/auth/pairings`
 
-Signed-in account (`own_account()`: a session, never a token), role `member`
-or `admin`. Body:
+Signed-in account (`own_account()`: a session, never a token), role `admin`
+only. Body:
 
 | Field | Type | Rule |
 |---|---|---|
 | `label` | string | 1 to 64 characters, trimmed. Shown in the list of pending codes. |
-| `scopes` | list | 1 to 5 of `read`, `read_private`, `send`, `repeater_admin`, `admin`, each granted by the creator's role. |
+| `scopes` | list | 1 to 5 of `read`, `read_private`, `send`, `repeater_admin`, `admin`, each granted by the creator's role (an admin's grants all five). |
 | `ttl` | integer | Seconds, 30 to 600; default 300. |
 
 201: `{id, label, scopes, urls, created_at, expires_at, created_by, username,
 code, qr_payload}` (Unix seconds). `code` and `qr_payload` are only in this
 answer. Errors: 401 `auth_required` (not signed in), 400 `auth_token_scope` (`params.scope`, a scope the role does
-not grant), 403 `auth_forbidden` (a `viewer`, a `kiosk`, or a token), 409
+not grant), 403 `auth_forbidden` (any role but `admin`, or a token), 409
 `auth_pairing_limit` (`params.max`: 10 pending codes per account), 422 for a
 malformed body.
 
 ### `GET /api/auth/pairings`
 
-Same access. The pending codes (not used, revoked or expired), newest first:
-the caller's own; every account's for an admin. Same fields as the creation
+Same access. Every pending code (not used, revoked or expired), newest first,
+whichever admin created it. Same fields as the creation
 answer without `code` and `qr_payload`.
 
 ### `DELETE /api/auth/pairings/{id}`
 
 Same access. 204: the code stops working at once. 404
-`auth_pairing_not_found` for an unknown id, a code that is no longer pending,
-or another account's code when the caller is not an admin.
+`auth_pairing_not_found` for an unknown id or a code that is no longer pending.
 
 ### `POST /api/auth/pair`
 
@@ -122,8 +138,8 @@ Errors, checked in this order:
 |---|---|---|
 | 422 | (validation) | Malformed body. The code is not spent. |
 | 403 | `auth_pairing_ingress` | The request came through the Home Assistant Supervisor (ingress). The code is not spent: pair on the instance's own address. |
-| 429 | `auth_rate_limited` | A login delay runs for this address (`params.retry_after`, `Retry-After`). The code is not spent. |
-| 410 | `auth_pairing_expired` | Every other bad code: unknown, malformed, already used, revoked, expired, or its creator can no longer hold such a token (disabled, deleted, demoted below a scope, role without tokens). One answer for all, so it tells nothing about which. |
+| 429 | `auth_rate_limited` | A login delay runs for this client: its address made too many bad attempts (`params.retry_after`, `Retry-After`). Other clients are not delayed. The code is not spent. |
+| 410 | `auth_pairing_expired` | Every other bad code: unknown, malformed, already used, revoked, expired, or its creator can no longer hand it out (disabled, deleted, no longer an `admin`). One answer for all, so it tells nothing about which. |
 | 409 | `auth_token_limit` | The creator already holds the maximum of live tokens (`params.max`, 100). The code is spent. |
 
 On 410 the client tells the user to show a new code; it never retries the
@@ -139,14 +155,16 @@ same code.
   the token appears in a log or an audit row.
 - **Expiry and revocation are immediate**: the expiry is compared at the
   redemption, a revocation is one `UPDATE`.
-- **Never more than the creator.** The scopes are checked against the
-  creator's role at creation and again at the redemption, and at each use the
-  token never exceeds its owner's current role (`permissions_of()`).
+- **Never more than the creator.** The creator must be an `admin` at creation
+  and still be one at the redemption, and at each use the token never exceeds
+  its owner's current role (`permissions_of()`).
 - **Rate limited** by the login delays (`app/auth/ratelimit.py`,
   `docs/dev/auth.md`, "Login delays"): each bad code counts as a failed login
-  for the key `\x00pairing` (no username can be it), so the progressive delay
-  per address, the global slow-down and the per-address budget shared with
-  `POST /api/auth/login` all apply.
+  for the key `\x00pairing` (no username can be it), per client only: the
+  progressive delay per address and the per-address budget shared with
+  `POST /api/auth/login` apply, the per-username slow-down does not, so one
+  client cannot delay every device. Where clients share one address (Docker
+  without a trusted proxy) no delay applies: a 128-bit code cannot be guessed.
 - **Never through ingress.** The Supervisor serves one shared origin and signs
   its users in itself; a device token is refused there anyway.
 - **Audit.** `pairing.created`, `pairing.revoked`, `pairing.used` rows
