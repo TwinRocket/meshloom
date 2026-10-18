@@ -220,13 +220,16 @@ async def revoke_token(token_id: str, request: Request) -> None:
 
 
 async def _reprovision_kiosk(owner_id: int) -> None:
-    """Revoking the kiosk's device token rotates it: the host file gets a new
-    one at once (``app/services/kiosk.py``). Disable the ``kiosk`` account to
-    keep the screen signed out."""
+    """Revoking the kiosk's device token rotates it: the account's sessions,
+    sockets and pending codes go at once, and the host file gets a new token
+    (``app/services/kiosk.py``). Disable the ``kiosk`` account to keep the
+    screen signed out."""
     from app.services import kiosk
 
     try:
         if kiosk.is_kiosk_account(await UserRepository.get(owner_id)):
+            # First, so nothing obtained with the old token survives a later failure.
+            await kiosk.sign_out_kiosk(owner_id)
             await kiosk.ensure_kiosk_token()
     except Exception:
         # The revocation stands; the next start writes the new token.

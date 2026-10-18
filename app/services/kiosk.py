@@ -22,18 +22,23 @@ server keeps one live ``read`` token of the ``kiosk`` account (origin
 ``pkg/nfpm/postinstall.sh`` on kiosk hosts: ``meshloom:meshloom-kiosk``, mode
 ``2750`` (setgid, so the file gets the group), and the session user is in
 ``meshloom-kiosk``. The file is ``0640``; nobody else can read it. The server
-refuses a directory it does not own or that others may enter (fail closed: the
-screen shows the sign-in page). ``ensure_kiosk_token()`` runs at each start
-and after an admin revokes the kiosk's token (``app/routers/auth_tokens.py``):
-when the file does not hold the one live token, every live token of the account
-is revoked and a new one written (rotation). The secret is never logged.
+refuses a directory it does not own, not of that group, without the setgid bit
+or that others may enter (fail closed: the screen shows the sign-in page).
+``ensure_kiosk_token()`` runs at each start and after an admin revokes the
+kiosk's token (``app/routers/auth_tokens.py``): when the file does not hold the
+one live token, every live token of the account is revoked, its sessions and
+sockets signed out, its pending codes voided, and a new token written
+(rotation). The token works only on the bootstrap route
+(``app/auth/providers/token.py`` refuses it elsewhere, reason ``kiosk_route``).
+The secret is never logged.
 
 **Bootstrap.** The launcher sends the token in ``Authorization`` to ``POST
 /api/auth/kiosk-bootstrap`` (``app/routers/auth_kiosk.py``) and gets a one-time
 path, ``/api/auth/kiosk-session?code=…``, which Chromium opens: the code (256
 bits, ``BOOTSTRAP_CODE_TTL_S``, single use, in memory, at most
 ``MAX_PENDING_CODES``) is exchanged for a session cookie of the ``kiosk``
-account. Both routes answer only a direct loopback request
+account. Both are rate limited (``BOOTSTRAP_RATE`` codes a minute,
+``EXCHANGE_FAILURE_RATE`` failed exchanges a minute). Both routes answer only a direct loopback request
 (``direct_loopback_request``) on a kiosk host. The token never appears in a URL
 or on a command line; the code does, briefly, on Chromium's.
 """
@@ -41,6 +46,7 @@ or on a command line; the code does, briefly, on Chromium's.
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 import os
 import stat
@@ -66,12 +72,23 @@ KIOSK_TOKEN_DIR = Path("/var/lib/meshloom-kiosk")
 KIOSK_TOKEN_FILENAME = "kiosk.token"
 KIOSK_TOKEN_NAME = "Kiosk screen"
 KIOSK_TOKEN_SCOPES = ("read",)
+# The group the desktop session user is in (``pkg/nfpm/postinstall.sh``).
+KIOSK_GROUP = "meshloom-kiosk"
 
 BOOTSTRAP_CODE_TTL_S = 60.0
 MAX_PENDING_CODES = 8
 # hash of a bootstrap code -> (kiosk user id, monotonic deadline)
 _pending_codes: dict[str, tuple[int, float]] = {}
 _provision_lock = asyncio.Lock()
+
+# Rate limits (sliding window, in memory). The launcher asks one code per
+# Chromium start; at most ``BOOTSTRAP_RATE`` a minute, below
+# ``MAX_PENDING_CODES``, so a token holder cannot push the screen's code out.
+RATE_WINDOW_S = 60.0
+BOOTSTRAP_RATE = 6
+EXCHANGE_FAILURE_RATE = 10
+_bootstrap_hits: collections.deque[float] = collections.deque()
+_exchange_failures: collections.deque[float] = collections.deque()
 
 # The plaintext of the code issued at this start, for the kiosk screen only.
 _displayed_code: str | None = None
@@ -182,8 +199,22 @@ async def kiosk_account() -> User | None:
     return user if is_kiosk_account(user) else None
 
 
+def kiosk_group_gid() -> int | None:
+    """The gid of ``KIOSK_GROUP``, or None when the group does not exist."""
+    try:
+        import grp
+    except ImportError:  # not POSIX
+        return None
+    try:
+        return grp.getgrnam(KIOSK_GROUP).gr_gid
+    except KeyError:
+        return None
+
+
 def _token_dir_problem(directory: Path) -> str | None:
-    """Why the token directory cannot hold the secret, or None."""
+    """Why the token directory cannot hold the secret, or None: it must be a
+    real directory owned by this account, of group ``KIOSK_GROUP`` with the
+    setgid bit (so the file gets that group), closed to others."""
     try:
         info = os.lstat(directory)
     except FileNotFoundError:
@@ -194,6 +225,13 @@ def _token_dir_problem(directory: Path) -> str | None:
         return "not a directory"
     if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
         return "not owned by this account"
+    gid = kiosk_group_gid()
+    if gid is None:
+        return f"without its group ({KIOSK_GROUP} does not exist)"
+    if info.st_gid != gid:
+        return f"not of group {KIOSK_GROUP}"
+    if not info.st_mode & stat.S_ISGID:
+        return "missing its setgid bit"
     if info.st_mode & 0o007:
         return "open to other users"
     return None
@@ -293,7 +331,9 @@ async def _ensure_kiosk_token_locked() -> bool:
     if current is not None and [row.id for row in live] == [current]:
         return True
 
-    # Rotation: no other token of the account may stay live.
+    # Rotation: no other token of the account may stay live, and nothing
+    # obtained before it either (sessions, sockets, pending codes).
+    await sign_out_kiosk(user.id)
     for row in live:
         if row.id == current:
             continue
@@ -330,6 +370,53 @@ async def _ensure_kiosk_token_locked() -> bool:
     )
     logger.info("Kiosk host: wrote a new device token for the %r account", KIOSK_USERNAME)
     return True
+
+
+async def sign_out_kiosk(user_id: int) -> int:
+    """Void every pending code and sign the account out everywhere (sessions
+    and sockets). Returns the sessions revoked."""
+    from app.auth.sessions import sign_out_user
+
+    reset_bootstrap_codes()
+    revoked = await sign_out_user(user_id)
+    if revoked:
+        logger.info("Kiosk host: token rotated, %d kiosk session(s) signed out", revoked)
+    return revoked
+
+
+# --- Rate limits ------------------------------------------------------------------
+
+
+def _allow(hits: collections.deque[float], limit: int, now: float, *, record: bool) -> bool:
+    while hits and hits[0] <= now - RATE_WINDOW_S:
+        hits.popleft()
+    if len(hits) >= limit:
+        return False
+    if record:
+        hits.append(now)
+    return True
+
+
+def bootstrap_allowed(*, now: float | None = None) -> bool:
+    """Count one bootstrap; False past ``BOOTSTRAP_RATE`` a minute."""
+    ts = time.monotonic() if now is None else now
+    return _allow(_bootstrap_hits, BOOTSTRAP_RATE, ts, record=True)
+
+
+def exchange_allowed(*, now: float | None = None) -> bool:
+    """False while ``EXCHANGE_FAILURE_RATE`` failed exchanges fell in the last minute."""
+    ts = time.monotonic() if now is None else now
+    return _allow(_exchange_failures, EXCHANGE_FAILURE_RATE, ts, record=False)
+
+
+def note_exchange_failure(*, now: float | None = None) -> None:
+    _exchange_failures.append(time.monotonic() if now is None else now)
+
+
+def reset_rate_limits() -> None:
+    """Forget the rate limit windows (tests)."""
+    _bootstrap_hits.clear()
+    _exchange_failures.clear()
 
 
 # --- One-time bootstrap codes ---------------------------------------------------

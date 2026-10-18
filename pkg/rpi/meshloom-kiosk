@@ -52,6 +52,12 @@ bootstrap_url() {
     printf '%s%s\n' "$base" "$path"
 }
 
+# A fingerprint of the token file (CRC on stdin: nothing in argv), empty when
+# unreadable. A change means a rotation: the server signed the old sessions out.
+token_stamp() {
+    cksum <"$TOKEN_FILE" 2>/dev/null || true
+}
+
 # --- main: everything above is functions (tests/test_kiosk_token.py sources them).
 
 if [ -z "$CHROMIUM" ]; then
@@ -110,7 +116,9 @@ wait_ready
 # Official Pi kiosk flags, plus --password-store=basic so the keyring
 # dialog does not block the first launch. Each start asks a fresh one-time URL:
 # a code is good once. Without one, the plain URL (setup or sign-in page); the
-# session cookie of an earlier start may still sign it in.
+# session cookie of an earlier start may still sign it in. When the token
+# file changes (an administrator revoked the token), Chromium is restarted so
+# the screen signs in again with the new one.
 while true; do
     target=""
     i=0
@@ -127,6 +135,16 @@ while true; do
         --password-store=basic \
         --enable-features=OverlayScrollbar \
         --start-maximized \
-        "${target:-$URL}" || true
+        "${target:-$URL}" &
+    browser=$!
+    stamp=$(token_stamp)
+    while kill -0 "$browser" 2>/dev/null; do
+        sleep 10
+        if [ "$(token_stamp)" != "$stamp" ]; then
+            kill "$browser" 2>/dev/null || true
+            break
+        fi
+    done
+    wait "$browser" || true
     sleep 2
 done

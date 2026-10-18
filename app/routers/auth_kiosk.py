@@ -16,6 +16,11 @@ Included by ``app/routers/auth.py``. Rules in ``app/services/kiosk.py`` and
   setup page), so a refused code shows nothing but that page; only a success
   sets a cookie.
 
+Rate limits (``app/services/kiosk.py``): past ``BOOTSTRAP_RATE`` codes a minute
+the bootstrap answers 429 ``auth_rate_limited`` (``params.retry_after``,
+``Retry-After``); past ``EXCHANGE_FAILURE_RATE`` failed exchanges a minute the
+exchange refuses every code (reason ``rate_limited``).
+
 Each outcome writes an audit row (``token.used`` for a refused bootstrap,
 ``login`` for the exchange, ``details.method = "kiosk_token"``). Nothing here
 logs the token or a code.
@@ -75,6 +80,24 @@ async def kiosk_bootstrap(request: Request) -> KioskBootstrapResponse:
     """Trade the kiosk's device token for a one-time session path (loopback only)."""
     principal = get_principal(request)
     reason = await _bootstrap_refusal(request, principal)
+    if reason is None and not kiosk.bootstrap_allowed():
+        await audit.record_request(
+            request,
+            "token.used",
+            "delayed",
+            target=f"token:{principal.token_id}" if principal and principal.token_id else None,
+            details={"reason": "rate_limited", "route": "kiosk_bootstrap"},
+        )
+        retry = int(kiosk.RATE_WINDOW_S)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "auth_rate_limited",
+                "message": "Too many attempts: retry later",
+                "params": {"retry_after": retry},
+            },
+            headers={"Retry-After": str(retry)},
+        )
     if reason is not None:
         await audit.record_request(
             request,
@@ -110,6 +133,8 @@ async def kiosk_session(
         reason = "not_kiosk_host"
     elif not await kiosk.direct_loopback_request(request.scope, request.headers):
         reason = "not_loopback"
+    elif not kiosk.exchange_allowed():
+        reason = "rate_limited"
     else:
         # Spent here whatever follows: a code is good for one try.
         user_id = kiosk.redeem_bootstrap_code(code)
@@ -120,6 +145,8 @@ async def kiosk_session(
             if user is None or user.disabled or not kiosk.is_kiosk_account(user):
                 reason = "account_unavailable"
     if reason is not None or user is None:
+        if reason != "rate_limited":
+            kiosk.note_exchange_failure()
         await audit.record_request(
             request,
             "login",

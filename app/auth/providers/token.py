@@ -24,7 +24,8 @@ Rules (``docs/dev/auth.md``, "API and device tokens"; cadrage §4.2, §4.4):
   directly or through the relay). Each refusal of a token that exists writes a
   ``token.used`` row with outcome ``failure`` and ``details.reason``
   (``revoked``, ``expired``, ``owner_disabled``, ``ingress``,
-  ``scopes_invalid``), at most once a minute per token. An unknown value
+  ``scopes_invalid``, ``kiosk_route``: the system ``kiosk`` account's device
+  token anywhere but ``POST /api/auth/kiosk-bootstrap``), at most once a minute per token. An unknown value
   writes nothing (no row to attribute it to).
 - **Last use.** ``last_used_at`` is written at most once a minute
   (``ApiTokenRepository.touch``).
@@ -151,9 +152,16 @@ async def _audit_failure(token: ApiToken, reason: str, via: Via, ip: str | None)
 
 
 async def resolve_token(
-    presented: str, via: Via, ip: str | None, *, now: int | None = None
+    presented: str,
+    via: Via,
+    ip: str | None,
+    *,
+    now: int | None = None,
+    kiosk_bootstrap: bool = False,
 ) -> Principal | None:
-    """The principal of a bearer token, or None (refused)."""
+    """The principal of a bearer token, or None (refused). ``kiosk_bootstrap``
+    is True only for ``POST /api/auth/kiosk-bootstrap``: the device token of
+    the system ``kiosk`` account is refused everywhere else."""
     if not looks_like_token(presented):
         return None
     token = await ApiTokenRepository.get_by_hash(hash_token(presented))
@@ -175,6 +183,13 @@ async def resolve_token(
         user = await UserRepository.get(token.user_id)
         if user is None or user.disabled:
             reason = "owner_disabled"
+        elif not kiosk_bootstrap:
+            from app.services.kiosk import is_kiosk_account
+
+            if is_kiosk_account(user):
+                # The screen's token only buys a one-time code on loopback
+                # (``app/services/kiosk.py``): a leaked copy reads nothing.
+                reason = "kiosk_route"
     if reason is not None or user is None:
         await _audit_failure(token, reason or "owner_disabled", via, ip)
         return None

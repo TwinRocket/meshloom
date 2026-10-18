@@ -26,13 +26,18 @@ def kiosk_host(tmp_path, monkeypatch):
     marker.touch()
     token_dir = tmp_path / "meshloom-kiosk"
     token_dir.mkdir(mode=0o750)
-    token_dir.chmod(0o750)
+    token_dir.chmod(0o2750)
+    # The directory's own group stands for meshloom-kiosk.
+    gid = token_dir.stat().st_gid
+    monkeypatch.setattr(kiosk, "kiosk_group_gid", lambda: gid)
     monkeypatch.setattr(kiosk, "KIOSK_MARKER", marker)
     monkeypatch.setattr(kiosk, "KIOSK_TOKEN_DIR", token_dir)
     kiosk.reset_bootstrap_codes()
+    kiosk.reset_rate_limits()
     kiosk.remember_displayed_code(None)
     yield token_dir / kiosk.KIOSK_TOKEN_FILENAME
     kiosk.reset_bootstrap_codes()
+    kiosk.reset_rate_limits()
     kiosk.remember_displayed_code(None)
 
 
@@ -114,7 +119,9 @@ async def test_no_marker_no_token(kiosk_host, tmp_path, monkeypatch):
 
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
-@pytest.mark.parametrize("problem", ["missing", "open", "symlink"])
+@pytest.mark.parametrize(
+    "problem", ["missing", "open", "symlink", "group", "no_setgid", "no_group"]
+)
 async def test_an_unsafe_directory_gets_no_token(kiosk_host, tmp_path, monkeypatch, problem):
     token_dir = kiosk_host.parent
     real = tmp_path / "elsewhere"
@@ -122,7 +129,14 @@ async def test_an_unsafe_directory_gets_no_token(kiosk_host, tmp_path, monkeypat
     if problem == "missing":
         token_dir.rmdir()
     elif problem == "open":
-        token_dir.chmod(0o755)
+        token_dir.chmod(0o2755)
+    elif problem == "group":
+        other = token_dir.stat().st_gid + 1
+        monkeypatch.setattr(kiosk, "kiosk_group_gid", lambda: other)
+    elif problem == "no_setgid":
+        token_dir.chmod(0o750)
+    elif problem == "no_group":
+        monkeypatch.setattr(kiosk, "kiosk_group_gid", lambda: None)
     else:
         token_dir.rmdir()
         token_dir.symlink_to(real)
@@ -166,6 +180,94 @@ async def test_admin_revocation_writes_a_new_token(kiosk_host):
     async with make_client(base_url=LOOP) as client:
         assert (await _bootstrap(client, old)).status_code == 401
         assert (await _bootstrap(client, new)).status_code == 200
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_revocation_signs_the_kiosk_out_and_voids_pending_codes(kiosk_host):
+    await _start()
+    await create_user()
+    user = await _kiosk_user()
+    [row] = await ApiTokenRepository.list_live(user.id)
+    async with make_client(base_url=LOOP) as screen:
+        path = (await _bootstrap(screen, _secret(kiosk_host))).json()["path"]
+        assert "set-cookie" in (await screen.get(path)).headers
+        assert (await screen.get("/api/auth/session")).json()["authenticated"] is True
+        pending = (await _bootstrap(screen, _secret(kiosk_host))).json()["path"]
+        async with make_client(base_url=LOOP) as admin:
+            await login(admin)
+            revoked = await admin.delete(f"/api/auth/tokens/{row.id}", headers={"Origin": LOOP})
+            assert revoked.status_code == 204
+        # The screen's session is gone, and the code issued before is void.
+        assert (await screen.get("/api/auth/session")).json()["authenticated"] is False
+    async with make_client(base_url=LOOP) as other:
+        assert "set-cookie" not in (await other.get(pending)).headers
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_a_rotation_at_start_signs_the_kiosk_out(kiosk_host):
+    await _start()
+    await create_user()
+    async with make_client(base_url=LOOP) as screen:
+        path = (await _bootstrap(screen, _secret(kiosk_host))).json()["path"]
+        await screen.get(path)
+        kiosk_host.unlink()
+        await _start()
+        assert (await screen.get("/api/auth/session")).json()["authenticated"] is False
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_the_kiosk_token_works_only_on_the_bootstrap_route(kiosk_host):
+    await _start()
+    await create_user()
+    token = {"Authorization": f"Bearer {_secret(kiosk_host)}"}
+    async with make_client(base_url=LOOP) as loop:
+        assert (await loop.get("/api/channels", headers=token)).status_code == 401
+        assert (await loop.get("/api/auth/session", headers=token)).json()["authenticated"] is False
+    async with make_client(base_url=LOOP, client=("192.168.1.20", 50000)) as lan:
+        assert (await lan.get("/api/channels", headers=token)).status_code == 401
+    async with make_client(base_url=LOOP) as loop:
+        assert (await loop.post("/api/auth/kiosk-bootstrap", headers=token)).status_code == 200
+    rows = await AuthAuditRepository.list_recent(limit=20)
+    assert any(r.action == "token.used" and r.details.get("reason") == "kiosk_route" for r in rows)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_bootstrap_is_rate_limited(kiosk_host):
+    await _start()
+    await create_user()
+    async with make_client(base_url=LOOP) as client:
+        for _ in range(kiosk.BOOTSTRAP_RATE):
+            assert (await _bootstrap(client, _secret(kiosk_host))).status_code == 200
+        limited = await _bootstrap(client, _secret(kiosk_host))
+        assert limited.status_code == 429
+        assert limited.json()["detail"]["code"] == "auth_rate_limited"
+        assert limited.headers["retry-after"] == "60"
+    assert kiosk.BOOTSTRAP_RATE < kiosk.MAX_PENDING_CODES
+    # The window slides.
+    kiosk.reset_rate_limits()
+    assert kiosk.bootstrap_allowed(now=0.0)
+    for _ in range(kiosk.BOOTSTRAP_RATE - 1):
+        kiosk.bootstrap_allowed(now=1.0)
+    assert not kiosk.bootstrap_allowed(now=2.0)
+    assert kiosk.bootstrap_allowed(now=61.0)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_failed_exchanges_are_rate_limited(kiosk_host):
+    await _start()
+    await create_user()
+    async with make_client(base_url=LOOP) as client:
+        for _ in range(kiosk.EXCHANGE_FAILURE_RATE):
+            await client.get("/api/auth/kiosk-session?code=" + "z" * 43)
+        path = (await _bootstrap(client, _secret(kiosk_host))).json()["path"]
+        assert "set-cookie" not in (await client.get(path)).headers
+    rows = await AuthAuditRepository.list_recent(limit=40)
+    assert any(r.action == "login" and r.details.get("reason") == "rate_limited" for r in rows)
 
 
 # --- Bootstrap and exchange -----------------------------------------------------
@@ -395,6 +497,8 @@ def test_launcher_never_puts_the_token_on_a_command_line():
             continue
         assert not re.search(r"(curl|wget|chromium)[^|]*\$token", stripped), line
     assert "TODO(T60)" not in launcher
+    # A rotation restarts Chromium: the file's CRC is read on stdin, never argv.
+    assert 'cksum <"$TOKEN_FILE"' in launcher
 
 
 def _fake_tools(bin_dir: Path, answer: str, log: Path) -> None:
