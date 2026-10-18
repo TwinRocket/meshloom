@@ -335,11 +335,8 @@ async def test_a_loopback_caller_forging_x_forwarded_for_is_not_the_supervisor(p
 
 
 def _behind_proxy_headers(peer: tuple[str, int]) -> httpx.AsyncClient:
-    from app.main import app
-    from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
-
-    transport = httpx.ASGITransport(app=TrustedProxyHeadersMiddleware(app), client=peer)
-    return httpx.AsyncClient(transport=transport, base_url="http://test")
+    """The app as app.main builds it, trusted-proxy middleware included."""
+    return make_client(client=peer)
 
 
 async def test_ingress_reads_the_tcp_peer_even_when_the_supervisor_is_a_trusted_proxy():

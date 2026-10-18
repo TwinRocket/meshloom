@@ -19,7 +19,8 @@ From any other peer both headers are ignored. The work is uvicorn's own
 fed from the database instead of uvicorn's ``--forwarded-allow-ips``: every
 launcher starts uvicorn with ``--no-proxy-headers``
 (``tests/test_proxy_headers.py`` checks them), so nothing rewrites the scope
-before this middleware, which is the outermost one. Everything after it
+before this middleware, which runs outside the auth gate and CORS
+(``app/main.py``). Everything after it
 (``client_ip()`` and the CSRF/cookie rules of ``app/auth/middleware.py``, the
 login delays, audit, sessions) reads the rewritten scope and never a header.
 ``X-Forwarded-Host`` is not a client claim of this kind: only the origin
@@ -165,7 +166,8 @@ class TrustedProxyHeadersMiddleware:
         client = scope.get("client")
         state = scope.setdefault("state", {})
         if isinstance(state, dict):
-            state[PEER_STATE_KEY] = client[0] if client else None
+            # setdefault: a second instance must not record a rewritten client.
+            state.setdefault(PEER_STATE_KEY, client[0] if client else None)
         if not current():
             await self.app(scope, receive, send)
             return

@@ -281,8 +281,8 @@ MSHL-279).** Not run yet; record the result here.
 
 `app/middleware/proxy_headers.py` is the only interpreter of `X-Forwarded-For`
 and `X-Forwarded-Proto`. It is uvicorn's own `ProxyHeadersMiddleware` (and
-`_TrustedHosts`: CIDRs, walk from the right), registered by the app as its
-outermost middleware and rebuilt whenever `auth_settings.trusted_proxies`
+`_TrustedHosts`: CIDRs, walk from the right), registered by `app/main.py` outside the auth
+gate and CORS and rebuilt whenever `auth_settings.trusted_proxies`
 changes (`AuthSettingsRepository.update()` calls `proxy_headers.apply()`;
 `load()` at startup). The list is addresses or CIDRs in canonical network form,
 empty by default; loopback is not trusted implicitly and a `/0` is refused

@@ -196,14 +196,43 @@ class TestSetting:
 
 
 def _client(app, base_url: str, peer: tuple[str, int]) -> httpx.AsyncClient:
-    transport = httpx.ASGITransport(app=TrustedProxyHeadersMiddleware(app), client=peer)
+    transport = httpx.ASGITransport(app=app, client=peer)
     return httpx.AsyncClient(transport=transport, base_url=base_url)
+
+
+def test_registered_outside_the_gate_and_cors():
+    from app.auth.middleware import AuthMiddleware
+    from app.cors import AllowedOriginsCORSMiddleware
+    from app.main import app
+
+    classes = [m.cls for m in app.user_middleware]  # outermost first
+    position = classes.index(TrustedProxyHeadersMiddleware)
+    assert position < classes.index(AllowedOriginsCORSMiddleware)
+    assert position < classes.index(AuthMiddleware)
+
+
+async def test_a_second_instance_keeps_the_first_peer():
+    trust("127.0.0.1")
+    seen: dict = {}
+
+    async def app(scope, receive, send):
+        seen.update(scope)
+
+    scope = {
+        "type": "http",
+        "scheme": "http",
+        "headers": [(b"x-forwarded-for", b"203.0.113.7")],
+        "client": ("127.0.0.1", 1),
+    }
+    await TrustedProxyHeadersMiddleware(TrustedProxyHeadersMiddleware(app))(scope, None, None)  # type: ignore[arg-type]
+    assert seen["client"][0] == "203.0.113.7"
+    assert peer_address(seen) == "127.0.0.1"
 
 
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
 class TestThroughTheApp:
-    """The real app behind the middleware (its registration in app.main is checked too)."""
+    """The real app, with the middleware app.main registers."""
 
     @pytest.mark.parametrize(
         ("trusted", "secure"), [((), False), (("10.0.0.0/8",), False), (("127.0.0.1",), True)]

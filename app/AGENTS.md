@@ -44,8 +44,8 @@ and the OpenAPI page (`/docs`), not a table here.
   it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
   messages, conversations or DM activity must also honour `read_private`
   (`can_read_private(request)`): the `kiosk` role never gets a direct message.
-- `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, the outermost
-  middleware) is the only interpreter of `X-Forwarded-For` and
+- `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
+  gate and CORS) is the only interpreter of `X-Forwarded-For` and
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
   `auth_settings.trusted_proxies` (Settings → Local Configuration → Trusted
   proxies, `GET/PATCH /api/auth/settings`, admin; empty by default, loopback not
