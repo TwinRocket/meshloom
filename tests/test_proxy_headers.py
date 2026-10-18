@@ -301,15 +301,18 @@ class TestSettingsRoute:
     """``GET/PATCH /api/auth/settings`` (admin; conftest signs tests in as one)."""
 
     async def test_read_and_write(self, client):
-        assert (await client.get("/api/auth/settings")).json() == {"trusted_proxies": []}
+        assert (await client.get("/api/auth/settings")).json() == {
+            "trusted_proxies": [],
+            "audit_retention_days": 366,
+        }
         response = await client.patch(
             "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}
         )
         assert response.status_code == 200
-        assert response.json() == {"trusted_proxies": ["10.0.0.1/32", "fd00:1::/64"]}
+        assert response.json()["trusted_proxies"] == ["10.0.0.1/32", "fd00:1::/64"]
         assert proxy_headers.current() == ("10.0.0.1/32", "fd00:1::/64")
         rows = await AuthAuditRepository.list_recent(limit=1)
-        assert rows[0].action == "settings_change"
+        assert rows[0].action == "settings.changed"
         assert rows[0].target == "auth_settings.trusted_proxies"
 
     @pytest.mark.parametrize("value", [["0.0.0.0/0"], ["proxy.lan"], ["10.0.0.0/33"]])

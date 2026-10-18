@@ -91,6 +91,7 @@ from app.routers import (
     repeaters,
     rooms,
     settings,
+    share,
     statistics,
     tools,
     updates,
@@ -501,6 +502,7 @@ app.include_router(messages.router, prefix="/api")
 app.include_router(packets.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(share.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
 app.include_router(updates.router, prefix="/api")

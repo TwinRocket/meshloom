@@ -4,6 +4,7 @@ Schema and rules: ``docs/dev/auth.md``. Hashes go in and out of this module but
 are never logged; the general models (``app/auth/models.py``) carry none.
 """
 
+import asyncio
 import hmac
 import json
 import re
@@ -115,6 +116,9 @@ _AUDIT_TEXT_LIMITS = {
     "actor_token_id": 64,
 }
 MAX_USER_AGENT_LENGTH = 512
+
+# Audit rows deleted per transaction by ``purge_older_than()``.
+AUDIT_PURGE_BATCH = 1000
 
 
 class UsernameTakenError(ValueError):
@@ -661,11 +665,26 @@ class AuthAuditRepository:
         return entries
 
     @staticmethod
-    async def purge_older_than(cutoff_ts: int) -> int:
-        """Delete rows with ``ts`` before ``cutoff_ts``. Returns how many."""
-        async with db.tx() as conn:
-            async with conn.execute("DELETE FROM auth_audit WHERE ts < ?", (cutoff_ts,)) as cur:
-                return cur.rowcount
+    async def purge_older_than(cutoff_ts: int, *, batch_size: int = AUDIT_PURGE_BATCH) -> int:
+        """Delete rows with ``ts`` before ``cutoff_ts``, ``batch_size`` rows per
+        transaction, so a large retention drop never holds the write lock for
+        long (a Raspberry Pi SD card). Returns how many."""
+        total = 0
+        while True:
+            async with db.tx() as conn:
+                async with conn.execute(
+                    """
+                    DELETE FROM auth_audit WHERE id IN (
+                        SELECT id FROM auth_audit WHERE ts < ? LIMIT ?
+                    )
+                    """,
+                    (cutoff_ts, batch_size),
+                ) as cur:
+                    deleted = cur.rowcount
+            total += deleted
+            if deleted < batch_size:
+                return total
+            await asyncio.sleep(0)
 
 
 def _json_list(raw: str | None) -> list[Any]:

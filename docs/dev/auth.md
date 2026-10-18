@@ -26,6 +26,7 @@ works on the same tables.
 | The gate (ASGI middleware, HTTP + WebSocket) | `app/auth/middleware.py` |
 | Permissions (roles, `require()`, default deny, WebSocket event classes) | `app/auth/permissions.py` |
 | Sessions and the cookie | `app/auth/sessions.py` |
+| Audit log (events, retention purge) | `app/auth/audit.py`, `tests/test_auth_audit.py` |
 | Username + password provider | `app/auth/providers/password.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
@@ -34,7 +35,7 @@ works on the same tables.
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -105,10 +106,8 @@ and `auth_settings`.
   logins are written without authentication, so every field is bounded:
   `action` 64, `outcome` 32, `target` 256, `ip` 64, `via` 32 characters
   (truncated), and `details` larger than 2 KiB serialised are stored as
-  `{"bytes": <size>, "truncated": true}`. Retention is `audit_retention_days`, **366 days** by
-  default (owner decision Q-A14); `purge_older_than()` is the helper, no loop
-  calls it yet (the audit log ticket is to add it to the hourly housekeeping
-  loop that already purges sessions).
+  `{"bytes": <size>, "truncated": true}`. Server code never calls the repository
+  directly: it writes through `app/auth/audit.py` (see "Audit log" below).
 - **Settings** live in their own single-row table `auth_settings`, not in
   `app_settings`, so the setup code hash never reaches `AppSettings`, the v1
   backup settings or the settings API. `AuthSettings` exposes `setup_code_set`
@@ -123,6 +122,66 @@ and `auth_settings`.
   (`app/log_redaction.py`) because its DEBUG output prints every statement's
   parameters. `UserCredentials`, the one model that carries a hash, holds it as
   `SecretStr` with `hide_input_in_errors`.
+
+## Audit log
+
+`app/auth/audit.py` is the one way server code writes `auth_audit` (the CLI
+too): `record(action, outcome, *, actor, target, details)`, `record_request()`
+(the actor of a FastAPI request) and the `audited(actor, action)` context
+manager (`success` when the block ends; on an `HTTPException` `refused` for a
+403, `error` for a 5xx, `failure` otherwise, with `details.status`; `error` on
+any other exception; always re-raised; a cancelled block writes nothing; the
+block can set the target and add details through the yielded `AuditScope`). Routes take the actor as a dependency,
+`actor: audit.RequestActor = audit.SYSTEM_ACTOR`, so a direct call in a test
+needs no request. Writing never fails the action: a database error is logged
+(action and outcome) and swallowed; a `details` key the secret filter refuses is
+logged at ERROR and the row is not written (a bug at the call site).
+
+- **Row.** `actor_user_id` (None for an anonymous caller, the CLI and the
+  server), `actor_token_id` (bearer tokens, later), `ip` (`client_ip()`), `via`
+  (`lan`, `ingress`, `trusted`, `relay`, plus `cli` for `meshloom-admin` and
+  `system` for the server on its own), `outcome` (`success`, `failure`,
+  `refused` for a 403 or a CLI precondition, `delayed` for the login delays ticket,
+  `error`), `target` (`user:<id>` for a known account, `username:unknown` for a
+  typed name that matches no account (`typed_username_target()`: the typed text
+  is never stored, so a password typed into the username field never reaches
+  the log), `session:<id>`, `bot:<id>`,
+  `restore_job:<id>`, `auth_settings.<field>`).
+- **Actions** (`AuditAction`, a `Literal`, so pyright refuses a typo):
+
+  | Action | Written by |
+  |---|---|
+  | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
+  | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout` |
+  | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `meshloom-admin revoke-sessions` |
+  | `user.created` | ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
+  | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename |
+  | `user.disabled`, `user.enabled`, `users.listed`, `setup_code.issued` | `meshloom-admin` |
+  | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password), `meshloom-admin reset-password` |
+  | `settings.changed` | `PATCH /auth/settings`, one row per field changed |
+  | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
+  | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
+  | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
+  | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
+
+  Reserved for the tickets that add their feature: `user.deleted` (user
+  management), `token.created`, `token.revoked`, `pairing.used`,
+  `totp.enrolled`, `totp.disabled`, `passkey.added`, `passkey.removed`,
+  `plugin.created`, `plugin.changed`, `plugin.disabled`, `plugin.installed`,
+  `plugin.updated`, `plugin.removed` (Store), `remote.linked`,
+  `remote.enabled`, `remote.disabled` (Remote). A new sensitive action adds its
+  name there and writes its row through this module.
+- **Reads** (`GET /auth/audit`) are not audited (cadrage §4.5 asks only for an
+  admin-only, cursor-paged API).
+- **Retention.** `purge_audit()` runs in the hourly housekeeping loop
+  (`app/services/stale_contacts.py`) and deletes rows older than
+  `auth_settings.audit_retention_days`, **366 days** by default (owner decision
+  Q-A14), changed through `PATCH /auth/settings`. It deletes 1000 rows per
+  transaction (`AUDIT_PURGE_BATCH`), so a large retention drop never holds the
+  write lock for long.
+- Tests: `tests/test_auth_audit.py` (one row per event, the API, the purge, and a
+  sweep that no row holds a password, the installation code, a session cookie or
+  a private key typed in the flows).
 
 ## Backups
 
@@ -230,7 +289,9 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
   false without revisiting this rule. A lock makes the
   check and the insert one step. When it is the first account, the
   installation code is cleared, so a 4.18.x add-on lands signed in with no
-  setup step. Audit row `ingress_user_created` (`details.role`).
+  setup step. Audit row `user.created` (`via = ingress`, `details.role`); a
+  display name Home Assistant changed writes `user.changed`
+  (`details.source = home_assistant`).
 - The username is HA's `X-Remote-User-Name` when free, else `<name>-ha`,
   `<name>-ha-<id8>`, then `ha-<id>`. The display name follows HA's on every
   request. Header values are re-decoded from latin-1 to UTF-8 (the Supervisor
@@ -291,7 +352,7 @@ also matches its `::ffff:` form, for a dual-stack listener)
 (`normalize_proxy`; stored entries that fail it are dropped on read). It is
 read and written through `GET/PATCH /api/auth/settings` (`admin`; a refused
 entry is 400 `auth_trusted_proxies_invalid`; a change is audited as
-`settings_change`). From a listed peer only, `scope["client"]` becomes the
+`settings.changed`). From a listed peer only, `scope["client"]` becomes the
 rightmost `X-Forwarded-For` address that is not itself trusted (all trusted:
 the leftmost), and `scope["scheme"]` becomes `X-Forwarded-Proto` when it is
 `http`, `https`, `ws` or `wss`. Everything after it reads the scope:
@@ -531,11 +592,11 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
 | `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
 | `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`), which revokes the user's other sessions |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies}` (canonical CIDRs) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, audit_retention_days}` (canonical CIDRs; days, 366 by default) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise) |
+| `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
-Login, setup, logout, password changes and session revocations write an
-`auth_audit` row (IP, `via`, no secret).
+Every route above that changes something writes one audit row ("Audit log").
 
 `GET /api/health` is public: anonymous callers get exactly `{"ok": true}`
 (probes, the kiosk launcher), a signed-in caller the full payload.

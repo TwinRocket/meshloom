@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from meshcore import EventType
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.auth import audit
 from app.auth.permissions import require
 from app.models import (
     CONTACT_TYPE_REPEATER,
@@ -580,8 +581,15 @@ async def get_radio_self_telemetry() -> RadioSelfTelemetryResponse:
 
 
 @router.post("/factory-reset", dependencies=[Depends(require("admin"))])
-async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
+async def factory_reset_radio(
+    request: RadioFactoryResetRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Erase the radio (identity, contacts, channels, settings) after name confirmation."""
+    async with audit.audited(actor, "factory_reset") as scope:
+        return await _factory_reset_radio(request, scope.details)
+
+
+async def _factory_reset_radio(request: RadioFactoryResetRequest, details: dict) -> dict:
     mc = radio_manager.require_connected()
     self_info = getattr(mc, "self_info", None)
     name = self_info.get("name") if isinstance(self_info, dict) else None
@@ -589,6 +597,7 @@ async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
         raise HTTPException(status_code=400, detail="Confirmation does not match the radio name")
 
     public_key = str((self_info or {}).get("public_key") or "")
+    details["identity"] = public_key[:12]
     async with radio_manager.radio_operation("factory_reset_radio") as mc:
         logger.warning("Sending factory reset to radio %s", public_key[:12])
         try:
@@ -628,8 +637,15 @@ async def get_private_key() -> dict:
 
 
 @router.put("/private-key", dependencies=[Depends(require("admin"))])
-async def set_private_key(update: PrivateKeyUpdate) -> dict:
+async def set_private_key(
+    update: PrivateKeyUpdate, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Set the radio's private key. This is write-only."""
+    async with audit.audited(actor, "private_key.imported") as scope:
+        return await _set_private_key(update, scope.details)
+
+
+async def _set_private_key(update: PrivateKeyUpdate, details: dict) -> dict:
     radio_manager.require_connected()
 
     try:
@@ -648,6 +664,8 @@ async def set_private_key(update: PrivateKeyUpdate) -> dict:
         derived = derive_public_key(key_bytes).hex().lower()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid private key") from exc
+    # The public half only: it names the identity, never the key.
+    details["identity"] = derived[:12]
 
     current_pub = get_public_key()
     current_hex = current_pub.hex().lower() if current_pub else None

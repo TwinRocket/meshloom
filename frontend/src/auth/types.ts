@@ -28,6 +28,8 @@ export interface AuthSessionInfo {
 export interface AuthSettings {
   /** Reverse proxies whose forwarded headers are believed, canonical CIDRs. Empty trusts none. */
   trusted_proxies: string[];
+  /** Audit rows older than this many days are purged (366 by default). */
+  audit_retention_days: number;
 }
 
 export interface AuthSetupRequest {

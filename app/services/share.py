@@ -29,7 +29,8 @@ the Community guard.
 - **Read protections.** Two ``aiolimiter`` buckets (``meta`` 60 and ``bytes`` 20
   per minute) that refuse rather than wait (429 ``share_rate_limited``,
   ``params.scope = "local"``); a negative cache of the service's JSON 404 and
-  410 answers for ``NEGATIVE_CACHE_S``; and a circuit breaker
+  410 answers for ``NEGATIVE_CACHE_S`` (and ``get_meta`` replays a good answer
+  for ``META_CACHE_S``); and a circuit breaker
   (``app/net/breaker.py``): ``BREAKER_FAILURE_THRESHOLD`` consecutive failures
   (network, timeout, guard refusal, 5xx, non-JSON) stop every call for
   ``BREAKER_OPEN_SECONDS`` and answer ``share_unavailable`` locally.
@@ -93,6 +94,9 @@ BREAKER_OPEN_SECONDS = 300.0
 BANNED_HOLD_S = 12 * 3600.0
 NEGATIVE_CACHE_S = 600.0
 NEGATIVE_CACHE_SIZE = 1024
+# A successful meta answer is replayed for as long (a link does not change).
+META_CACHE_S = 600.0
+META_CACHE_SIZE = 256
 # Reads per minute and per instance, refused (never queued) past the bucket.
 READ_LIMITS: dict[str, int] = {"meta": 60, "bytes": 20}
 READ_LIMIT_PERIOD_S = 60.0
@@ -112,6 +116,7 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_gone": (410, "This shared object expired or was removed"),
     "share_target_blocked": (422, "This link target is refused"),
     "share_invalid_url": (400, "This URL cannot be shortened"),
+    "share_cross_site": (403, "Sharing requests from another site are refused"),
 }
 
 # Service error code (contract) -> local code. Every other code (the token_*
@@ -194,6 +199,7 @@ class _State:
         self.negative: TtlLruCache[str, tuple[str, dict[str, Any]]] = TtlLruCache(
             NEGATIVE_CACHE_SIZE
         )
+        self.meta: TtlLruCache[str, ShareMeta] = TtlLruCache(META_CACHE_SIZE)
         self.banned_until: float | None = None
         # Bumped when sharing is turned off: a request that passed the opt-in
         # check before must not leave, and its answer must not be used.
@@ -259,6 +265,7 @@ def note_share_settings_changed(*, enabled: bool) -> None:
     """
     _state.banned_until = None
     if not enabled:
+        _state.meta.clear()
         _state.generation += 1
         for task in list(_state.inflight):
             task.cancel()
@@ -452,7 +459,15 @@ async def create_link(url: str) -> ShareLink:
 async def get_meta(share_id: str) -> ShareMeta:
     """``GET /v1/meta/{id}``: what a link or file is, without following it."""
     path = f"/v1/meta/{_checked_id(share_id)}"
-    return _parse(ShareMeta, await share_request("GET", path, binding=None, read="meta"))
+    if await share_egress_state() is None:
+        raise ShareError("share_disabled")
+    cached = _state.meta.get(share_id, _state.clock())
+    if cached is not None:
+        return cached
+    meta: ShareMeta = _parse(ShareMeta, await share_request("GET", path, binding=None, read="meta"))
+    now = _state.clock()
+    _state.meta.set(share_id, meta, now + META_CACHE_S, now)
+    return meta
 
 
 async def fetch_object(share_id: str) -> ShareObject:
