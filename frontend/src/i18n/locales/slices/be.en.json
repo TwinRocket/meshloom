@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "fullBackup": {
+      "includeAccounts": "Include accounts",
+      "accountsWarning": "Contains password hashes (and two-factor secrets): anyone holding the file can try to guess the passwords offline. Encrypt it, or uncheck this box before sending it to someone else. Login sessions are never included.",
+      "accountsLeftOut": "Accounts left out: restoring this file keeps the accounts of the Meshloom it is restored on."
+    },
+    "fullRestore": {
+      "warnings": {
+        "accounts_restored": "The accounts were replaced by the ones in the backup and every session was signed out: sign in again with an account from the backup.",
+        "accounts_no_admin": "The accounts in the backup were not restored: none is an enabled administrator. The current accounts were kept.",
+        "trusted_network_dropped": "The trusted network {{value}} was removed: its account is not the same person in the restored accounts."
+      }
+    }
+  }
+}

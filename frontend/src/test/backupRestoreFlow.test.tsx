@@ -749,6 +749,9 @@ describe('BackupRestoreFlow', () => {
       'section_failed:plugins',
       'section_skipped:api_tokens',
       'section_too_new:plugins',
+      'accounts_restored',
+      'accounts_no_admin',
+      'trusted_network_dropped:192.168.1.0/24',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);
