@@ -1324,6 +1324,50 @@ describe('SettingsModal', () => {
     });
   });
 
+  it('keeps a write-only webhook URL and clears it with its secret', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: {
+        ...baseSettings,
+        notification_destinations: {
+          ...DEFAULT_NOTIFICATION_DESTINATIONS,
+          webhook: {
+            ...DEFAULT_NOTIFICATION_DESTINATIONS.webhook,
+            url: SECRET_REDACTED,
+            hmac_secret: SECRET_REDACTED,
+            url_redacted: 'https://hooks.example.org/****',
+          } as typeof DEFAULT_NOTIFICATION_DESTINATIONS.webhook,
+        },
+      },
+    });
+
+    const url = (await screen.findByLabelText(
+      i18n.t('settings.notifications.webhookUrl')
+    )) as HTMLInputElement;
+    expect(url.value).toBe('');
+    expect(url.placeholder).toBe(
+      i18n.t('settings.notifications.webhookUrlKept', { url: 'https://hooks.example.org/****' })
+    );
+    // Typed then emptied: back to the kept URL, nothing saved.
+    fireEvent.change(url, { target: { value: 'https://typo' } });
+    fireEvent.change(url, { target: { value: '' } });
+    fireEvent.blur(url);
+    expect(onSaveAppSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.notifications.webhookUrlClear') })
+    );
+    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
+    expect(onSaveAppSettings).toHaveBeenLastCalledWith({
+      notification_destinations: expect.objectContaining({
+        webhook: expect.objectContaining({ url: '', hmac_secret: '' }),
+      }),
+    });
+  });
+
   it('shows the grandfathered webhook banner and saves the private-network flags', async () => {
     const onSaveAppSettings = vi.fn(async () => {});
     renderModal({

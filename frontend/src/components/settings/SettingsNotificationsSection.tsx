@@ -168,6 +168,9 @@ function isValidVapidSubject(value: string): boolean {
   return false;
 }
 
+// TODO(MSHL-275): move url_redacted into NotificationWebhookDest (types.ts) once it is free.
+type WebhookDestWithRedactedUrl = NotificationDestinations['webhook'] & { url_redacted?: string };
+
 export function SettingsNotificationsSection({
   appSettings = null,
   onSaveAppSettings,
@@ -327,6 +330,20 @@ export function SettingsNotificationsSection({
     }
     const previous = destDraft;
     const next = { ...destDraft, webhook: { ...destDraft.webhook, [field]: value } };
+    setDestDraft(next);
+    persistDestinations(next, () => setDestDraft(previous));
+  };
+
+  // The stored URL is write-only (SECRET_REDACTED); the API adds its scheme and host.
+  const webhookUrlKept = destDraft.webhook.url === SECRET_REDACTED;
+  const webhookUrlRedacted =
+    (appSettings?.notification_destinations?.webhook as WebhookDestWithRedactedUrl | undefined)
+      ?.url_redacted ?? '';
+
+  /** Clears the URL and its HMAC secret at once: a kept secret never follows a new URL. */
+  const clearWebhookUrl = () => {
+    const previous = destDraft;
+    const next = { ...destDraft, webhook: { ...destDraft.webhook, url: '', hmac_secret: '' } };
     setDestDraft(next);
     persistDestinations(next, () => setDestDraft(previous));
   };
@@ -547,18 +564,45 @@ export function SettingsNotificationsSection({
           <div className="grid gap-3 lg:grid-cols-2">
             <div className="space-y-1.5 lg:col-span-2">
               <Label htmlFor="notify-webhook-url">{t('settings.notifications.webhookUrl')}</Label>
-              <Input
-                id="notify-webhook-url"
-                value={destDraft.webhook.url}
-                autoComplete="off"
-                onChange={(event) =>
-                  setDestDraft((prev) => ({
-                    ...prev,
-                    webhook: { ...prev.webhook, url: event.target.value },
-                  }))
-                }
-                onBlur={() => commitWebhookField('url', destDraft.webhook.url.trim())}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="notify-webhook-url"
+                  type="url"
+                  value={webhookUrlKept ? '' : destDraft.webhook.url}
+                  autoComplete="off"
+                  placeholder={
+                    webhookUrlKept
+                      ? t('settings.notifications.webhookUrlKept', { url: webhookUrlRedacted })
+                      : undefined
+                  }
+                  onChange={(event) =>
+                    setDestDraft((prev) => ({
+                      ...prev,
+                      webhook: {
+                        ...prev.webhook,
+                        // Emptied while a URL is stored: back to "unchanged".
+                        url:
+                          event.target.value === '' &&
+                          destRef.current.webhook.url === SECRET_REDACTED
+                            ? SECRET_REDACTED
+                            : event.target.value,
+                      },
+                    }))
+                  }
+                  onBlur={() => commitWebhookField('url', destDraft.webhook.url.trim())}
+                />
+                {webhookUrlKept && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    title={t('settings.notifications.webhookUrlClearHelp')}
+                    onClick={clearWebhookUrl}
+                  >
+                    {t('settings.notifications.webhookUrlClear')}
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="space-y-1.5 lg:col-span-2">
               <Label htmlFor="notify-webhook-hmac">{t('settings.notifications.webhookHmac')}</Label>
