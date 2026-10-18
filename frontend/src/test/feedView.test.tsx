@@ -14,7 +14,13 @@ import { FeedView } from '../components/feed/FeedView';
 import { FEED_DOM_MAX, FEED_PAGE_SIZE } from '../components/feed/feedConversation';
 import { countArrivedSince } from '../components/feed/feedFollow';
 import i18n from '../i18n';
-import { getFeedSnapshot, recordFeedMessage, resetFeedStore } from '../stores/feedStore';
+import { FEED_LAST_SEEN_STORAGE_KEY } from '../components/feed/feedLastSeen';
+import {
+  getFeedSnapshot,
+  recordFeedMessage,
+  resetFeedForRefetch,
+  resetFeedStore,
+} from '../stores/feedStore';
 import { FEED_FILTERS_STORAGE_KEY } from '../utils/feedFilters';
 import type { Channel, Message } from '../types';
 
@@ -579,5 +585,185 @@ describe('FeedView message rows', () => {
     expect(within(adopted).queryByTestId('message-gif')).not.toBeNull();
     expect(within(held).queryByTestId('message-gif')).toBeNull();
     expect(held).toHaveTextContent('g:abc123');
+  });
+});
+
+describe('FeedView live merge', () => {
+  const separator = () =>
+    screen.queryByRole('separator', { name: i18n.t('feed.newSinceLastVisit') });
+
+  beforeEach(() => {
+    i18n.addResourceBundle(
+      'en',
+      'translation',
+      { feed: { newSinceLastVisit: 'New since your last visit' } },
+      true,
+      true
+    );
+  });
+
+  it('puts the separator before the first row after the mark, and nowhere without one', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 5)));
+    localStorage.setItem(
+      FEED_LAST_SEEN_STORAGE_KEY,
+      JSON.stringify({ at: msg(3).received_at, id: 3 })
+    );
+    const first = renderFeed();
+    await screen.findByRole('list');
+    await waitFor(() => expect(separator()).toBeInTheDocument());
+    const items = screen.getAllByRole('listitem').map((el) => el.textContent ?? '');
+    const before = items.findIndex((text) => text.includes('hello 3'));
+    const after = items.findIndex((text) => text.includes('hello 4'));
+    const sep = separator() as HTMLElement;
+    const order = Array.from(sep.parentElement?.children ?? []);
+    expect(order.indexOf(sep)).toBeGreaterThan(
+      order.findIndex((el) => el.textContent?.includes('hello 3'))
+    );
+    expect(order.indexOf(sep)).toBeLessThan(
+      order.findIndex((el) => el.textContent?.includes('hello 4'))
+    );
+    expect(before).toBeGreaterThanOrEqual(0);
+    expect(after).toBeGreaterThan(before);
+    first.unmount();
+
+    localStorage.clear();
+    resetFeedStore();
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 5)));
+    renderFeed();
+    await screen.findByRole('list');
+    expect(separator()).toBeNull();
+  });
+
+  it('hides the separator when nothing is newer than the mark', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    localStorage.setItem(
+      FEED_LAST_SEEN_STORAGE_KEY,
+      JSON.stringify({ at: msg(3).received_at, id: 3 })
+    );
+    renderFeed();
+    await screen.findByRole('list');
+    expect(separator()).toBeNull();
+  });
+
+  it('does not move the separator for live rows, and writes the mark on unmount and on hide', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    const view = renderFeed();
+    await screen.findByRole('list');
+    await act(async () => {
+      recordFeedMessage(msg(4));
+      await Promise.resolve();
+    });
+    expect(separator()).toBeNull();
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    expect(JSON.parse(localStorage.getItem(FEED_LAST_SEEN_STORAGE_KEY) ?? 'null')).toEqual({
+      at: msg(4).received_at,
+      id: 4,
+    });
+
+    await act(async () => {
+      recordFeedMessage(msg(5));
+      await Promise.resolve();
+    });
+    view.unmount();
+    expect(JSON.parse(localStorage.getItem(FEED_LAST_SEEN_STORAGE_KEY) ?? 'null')).toEqual({
+      at: msg(5).received_at,
+      id: 5,
+    });
+  });
+
+  it('does not mark rows the reader never scrolled to', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    const view = renderFeed();
+    const scroller = await findScroller();
+    mockGeometry(scroller, { scrollHeight: 1000, clientHeight: 100 });
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    await screen.findByRole('button', { name: i18n.t('feed.follow') });
+    await act(async () => {
+      recordFeedMessage(msg(4));
+      recordFeedMessage(msg(5));
+      await Promise.resolve();
+    });
+    view.unmount();
+    const mark = JSON.parse(localStorage.getItem(FEED_LAST_SEEN_STORAGE_KEY) ?? 'null');
+    expect(mark.id).toBeLessThan(4);
+  });
+
+  it('keeps working when localStorage throws', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const view = renderFeed();
+    await screen.findByRole('list');
+    expect(separator()).toBeNull();
+    expect(() => view.unmount()).not.toThrow();
+    get.mockRestore();
+    set.mockRestore();
+  });
+
+  it('inserts a historical row in the middle silently: no follow count', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage([1, 2, 4]));
+    renderFeed();
+    const scroller = await findScroller();
+    mockGeometry(scroller, { scrollHeight: 1000, clientHeight: 400 });
+    scroller.scrollTop = 100;
+    fireEvent.scroll(scroller);
+    await screen.findByRole('button', { name: i18n.t('feed.follow') });
+
+    await act(async () => {
+      recordFeedMessage(msg(9, { received_at: msg(3).received_at, historical: true }));
+      await Promise.resolve();
+    });
+    const texts = screen.getAllByRole('listitem').map((el) => el.textContent ?? '');
+    expect(texts.findIndex((t) => t.includes('hello 9'))).toBe(
+      texts.findIndex((t) => t.includes('hello 2')) + 1
+    );
+    expect(screen.getByRole('button', { name: i18n.t('feed.follow') })).toBeInTheDocument();
+    expect(scroller.scrollTop).toBe(100);
+  });
+
+  it('re-pins when the reader sends a message, but not for a historical outgoing one', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    renderFeed();
+    const scroller = await findScroller();
+    mockGeometry(scroller, { scrollHeight: 1000, clientHeight: 400 });
+    scroller.scrollTop = 100;
+    fireEvent.scroll(scroller);
+    await screen.findByRole('button', { name: i18n.t('feed.follow') });
+
+    await act(async () => {
+      recordFeedMessage(msg(8, { outgoing: true, historical: true }));
+      await Promise.resolve();
+    });
+    expect(scroller.scrollTop).toBe(100);
+
+    await act(async () => {
+      recordFeedMessage(msg(10, { outgoing: true }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(scroller.scrollTop).toBe(1000));
+    expect(
+      screen.queryByRole('button', { name: new RegExp(`^${i18n.t('feed.follow')}`) })
+    ).toBeNull();
+  });
+
+  it('fetches the newest page again after a reconciliation reset', async () => {
+    mocks.getMessages.mockResolvedValueOnce(serverPage(range(1, 3)));
+    renderFeed();
+    await screen.findByRole('list');
+    mocks.getMessages.mockResolvedValueOnce(serverPage(range(50, 52)));
+    await act(async () => {
+      resetFeedForRefetch();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(getFeedSnapshot().rows.map((m) => m.id)).toEqual([50, 51, 52]));
+    expect(mocks.getMessages).toHaveBeenCalledTimes(2);
   });
 });

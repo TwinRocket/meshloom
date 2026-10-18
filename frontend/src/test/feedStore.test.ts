@@ -7,9 +7,11 @@ import {
   getFeedSnapshot,
   maxKnownId,
   mergeHistoryPage,
+  mergeReconciledRows,
   recordFeedMessage,
   removeFeedMessage,
   renameFeedConversation,
+  resetFeedForRefetch,
   resetFeedStore,
   subscribeFeedStore,
 } from '../stores/feedStore';
@@ -107,6 +109,7 @@ describe('feedStore', () => {
   });
 
   it('removes a message', async () => {
+    mergeHistoryPage([], { hasOlder: false });
     recordFeedMessage(msg(1, 100));
     recordFeedMessage(msg(2, 200));
     removeFeedMessage(1);
@@ -134,8 +137,8 @@ describe('feedStore', () => {
     expect(snap.rows[0].id).toBe(6);
     expect(snap.rows[snap.rows.length - 1].id).toBe(FEED_MAX_ROWS + 5);
     expect(snap.hasOlder).toBe(true);
-    // A dropped id can come back.
-    expect(recordFeedMessage(msg(1, 1)).added).toBe(true);
+    // Older than the window with older rows on the server: left to pagination.
+    expect(recordFeedMessage(msg(1, 1)).added).toBe(false);
   });
 
   it('merges a history page and tracks maxKnownId', async () => {
@@ -146,6 +149,45 @@ describe('feedStore', () => {
     expect(ids()).toEqual([2, 3, 10]);
     expect(getFeedSnapshot().hasOlder).toBe(false);
     expect(maxKnownId()).toBe(10);
+  });
+
+  it('inserts a live row in the middle, in (received_at, id) order', async () => {
+    mergeHistoryPage([msg(1, 100), msg(3, 300)], { hasOlder: false });
+    recordFeedMessage(msg(9, 200, { historical: true }));
+    await flush();
+    expect(ids()).toEqual([1, 9, 3]);
+    expect(getFeedSnapshot().rows[1].historical).toBe(true);
+  });
+
+  it('keeps a row older than the window out of the array while older rows exist', async () => {
+    mergeHistoryPage([msg(5, 500), msg(6, 600)], { hasOlder: true });
+    expect(recordFeedMessage(msg(9, 100, { historical: true }))).toEqual({
+      added: false,
+      historical: true,
+    });
+    await flush();
+    // The `before` cursor still starts at the oldest held row, so the gap is not skipped.
+    expect(ids()).toEqual([5, 6]);
+    // Reconciliation must not ask for it again.
+    expect(maxKnownId()).toBe(9);
+    // The page that covers its position returns it.
+    mergeHistoryPage([msg(9, 100), msg(4, 400)], { hasOlder: false });
+    await flush();
+    expect(ids()).toEqual([9, 4, 5, 6]);
+  });
+
+  it('merges reconciled rows without touching hasOlder, and refetches after a reset', async () => {
+    mergeHistoryPage([msg(5, 500)], { hasOlder: false });
+    mergeReconciledRows([msg(8, 100, { historical: true }), msg(9, 900)]);
+    await flush();
+    expect(ids()).toEqual([8, 5, 9]);
+    expect(getFeedSnapshot().hasOlder).toBe(false);
+    const epoch = getFeedSnapshot().epoch;
+    resetFeedForRefetch();
+    await flush();
+    expect(ids()).toEqual([]);
+    expect(maxKnownId()).toBe(0);
+    expect(getFeedSnapshot().epoch).toBe(epoch + 1);
   });
 
   it('records nothing while inactive', async () => {
