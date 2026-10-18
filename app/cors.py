@@ -8,137 +8,37 @@ user's credentials is a cross-origin request: it gets no
 ``app_settings.auth_allowed_origins`` (Settings → Local Configuration → Allowed
 origins, ``PATCH /api/settings``), empty by default.
 
-The CORS logic itself is Starlette's ``CORSMiddleware``; this module only keeps
-the list in memory and rebuilds that middleware when the list changes.
-``load()`` fills it at startup and ``AppSettingsRepository.update()`` refreshes
-it after every write, like ``app/radio_workarounds.py``. Nothing here imports the
-app at load time, so the repository and ``app.models`` can both import it.
+The CORS logic itself is Starlette's ``CORSMiddleware``; the list, its
+normalisation and the match of a request's ``Origin`` are the shared origin
+policy (``app/origin_policy.py``), which the WebSocket upgrade uses too. This
+module only rebuilds the middleware when the list changes.
 """
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING
-
-from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-if TYPE_CHECKING:
-    from app.models import AppSettings
+from app import origin_policy
 
-logger = logging.getLogger(__name__)
-
-MAX_ALLOWED_ORIGINS = 32
-MAX_ORIGIN_LENGTH = 255
+# Re-exported for the settings router, which validates the PATCH with it.
+from app.origin_policy import normalize_origins as normalize_origins
 
 # Every method a router uses. OPTIONS is answered by the middleware itself.
 ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 # Content-Type for JSON bodies, Authorization for the optional Basic auth.
 ALLOWED_HEADERS = ("Authorization", "Content-Type")
 
-_DEFAULT_PORTS = {"http": 80, "https": 443}
-_url_adapter = TypeAdapter(AnyHttpUrl)
 
+class _PolicyCORSMiddleware(CORSMiddleware):
+    """Starlette's middleware, matching ``Origin`` with the shared policy."""
 
-def normalize_origin(raw: str) -> str:
-    """Return ``raw`` in the form a browser sends in ``Origin``, or raise ``ValueError``.
-
-    ``scheme://host[:port]``: http or https, lowercase, punycode host, no default
-    port, no path, query, fragment or credentials. ``*`` is refused: with
-    credentials it would let every site in again.
-    """
-    text = raw.strip().rstrip("/")
-    if not text:
-        raise ValueError("empty origin")
-    if len(text) > MAX_ORIGIN_LENGTH:
-        raise ValueError("origin too long")
-    if "*" in text:
-        raise ValueError("wildcards are not allowed")
-    try:
-        url = _url_adapter.validate_python(text)
-    except ValidationError as exc:
-        raise ValueError("not an http(s) origin") from exc
-    if url.username or url.password:
-        raise ValueError("an origin has no credentials")
-    if url.path not in (None, "", "/") or url.query is not None or url.fragment is not None:
-        raise ValueError("an origin has no path, query or fragment")
-    if not url.host:
-        raise ValueError("an origin needs a host")
-    origin = f"{url.scheme}://{url.host}"
-    if url.port is not None and url.port != _DEFAULT_PORTS.get(url.scheme):
-        origin += f":{url.port}"
-    return origin
-
-
-def normalize_origins(raw_origins: list[str]) -> list[str]:
-    """Normalize every origin, drop blanks and duplicates, keep the order."""
-    origins: list[str] = []
-    for raw in raw_origins:
-        if not raw.strip():
-            continue
-        origin = normalize_origin(raw)
-        if origin not in origins:
-            origins.append(origin)
-    if len(origins) > MAX_ALLOWED_ORIGINS:
-        raise ValueError(f"at most {MAX_ALLOWED_ORIGINS} allowed origins")
-    return origins
-
-
-_current: tuple[str, ...] = ()
-
-
-def current() -> tuple[str, ...]:
-    """The allowed origins as last read from the database."""
-    return _current
-
-
-def _valid_stored_origins(stored: list[str]) -> tuple[str, ...]:
-    """Keep the entries that pass the PATCH validation, drop and log the rest.
-
-    The column can be written outside the API (manual SQL, a restore): a ``*``
-    reaching Starlette together with credentials would reflect every Origin.
-    """
-    origins: list[str] = []
-    for raw in stored:
-        try:
-            origin = normalize_origin(raw)
-        except ValueError as exc:
-            logger.warning("Ignoring invalid allowed origin %r: %s", raw, exc)
-            continue
-        if origin in origins:
-            continue
-        if len(origins) >= MAX_ALLOWED_ORIGINS:
-            logger.warning(
-                "Ignoring allowed origin %r: over the %d limit", raw, MAX_ALLOWED_ORIGINS
-            )
-            continue
-        origins.append(origin)
-    return tuple(origins)
-
-
-def apply(app_settings: AppSettings) -> tuple[str, ...]:
-    """Replace the in-memory list with the valid ``auth_allowed_origins``."""
-    global _current
-    _current = _valid_stored_origins(app_settings.auth_allowed_origins)
-    return _current
-
-
-async def load() -> tuple[str, ...]:
-    """Read the allowed origins from the database. Call at startup."""
-    from app.repository.settings import AppSettingsRepository
-
-    return apply(await AppSettingsRepository.get())
-
-
-def reset() -> None:
-    """Back to same-origin only (tests, and a fresh process)."""
-    global _current
-    _current = ()
+    def is_allowed_origin(self, origin: str) -> bool:
+        return origin_policy.origin_listed(origin)
 
 
 class AllowedOriginsCORSMiddleware:
-    """Starlette's ``CORSMiddleware`` for the origins in ``current()``.
+    """Starlette's ``CORSMiddleware`` for the origins in ``origin_policy.current()``.
 
     A listed origin gets ``Access-Control-Allow-Origin`` and
     ``Access-Control-Allow-Credentials``; any other origin gets no CORS header on
@@ -151,9 +51,9 @@ class AllowedOriginsCORSMiddleware:
         self._cors: CORSMiddleware | None = None
 
     def _middleware(self) -> CORSMiddleware:
-        origins = current()
+        origins = origin_policy.current()
         if self._cors is None or origins != self._origins:
-            self._cors = CORSMiddleware(
+            self._cors = _PolicyCORSMiddleware(
                 self.app,
                 allow_origins=origins,
                 # Starlette sends this header on every response once set; without

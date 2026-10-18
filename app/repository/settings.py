@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 import aiosqlite
 from pydantic import ValidationError
 
-from app import cors, radio_workarounds
+from app import origin_policy, radio_workarounds
 from app.database import db
 from app.models import (
     AppSettings,
@@ -790,7 +790,7 @@ class AppSettingsRepository:
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
-        cors.apply(result)
+        origin_policy.apply(result)
         if destinations_before is not None:
             from app.notify import notify_destination_changed
 

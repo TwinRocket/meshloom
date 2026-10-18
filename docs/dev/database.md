@@ -75,7 +75,7 @@ destinations, telemetry alert rules, auto-update window and the one-shot
 defaults and overrides, `ui_preferences`, `notification_destinations`,
 `telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`,
 `auth_allowed_origins`: the cross-origin sites CORS lets in, kept in memory by
-`app/cors.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
+`app/origin_policy.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
 password, outside `AppSettings`; `radio_outage_started_at`: Unix time of the radio outage
 that was notified, NULL when none, written by `notifications/radio_watch.py`, outside
 `AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`).
