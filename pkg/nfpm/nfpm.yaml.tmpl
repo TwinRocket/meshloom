@@ -83,12 +83,19 @@ deb:
     type: origin
 # SIGN-END
 overrides:
+  # bubblewrap isolates the plugin children (app/plugins/isolation/bwrap.py).
+  # Recommended, not required: without it plugins run "hooks only", logged and
+  # shown in /api/health.
   deb:
     depends:
       - libc6
+    recommends:
+      - bubblewrap
   rpm:
     depends:
       - glibc
+    recommends:
+      - bubblewrap
 rpm:
   scripts:
     posttrans: __PKGDIR__/posttrans.sh

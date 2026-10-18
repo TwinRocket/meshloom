@@ -58,8 +58,58 @@ jobs:
       - name: Backend typecheck
         run: uv run pyright app/ meshloom_plugin/
 
+      # The bwrap isolation level of the plugin child (app/plugins/isolation/bwrap.py):
+      # its integration tests and the hostile corpus run under it here. Ubuntu
+      # 24.04 restricts unprivileged user namespaces through AppArmor; the runner
+      # lifts that so the tests exercise bwrap itself. The check makes a broken
+      # sandbox fail the job instead of skipping those tests.
+      - name: Install bubblewrap for the plugin isolation tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          PYTHONPATH=. uv run python -c "from app.plugins.isolation.bwrap import self_test; e = self_test(); assert e is None, e"
+
       - name: Backend tests
         run: PYTHONPATH=. uv run pytest tests/ -v
+
+  # The dedicated-uid isolation level (app/plugins/isolation/setuid.py) needs a
+  # root server and the meshloom-plugin account, as in the Docker image: a root
+  # container. Only the stdlib-only plugin tests run here (`--noconftest`), on the
+  # oldest supported Python (3.11 has no thread-start audit event: the corpus
+  # checks RLIMIT_NPROC instead) and on the image's 3.14.
+  plugin-isolation-root:
+    name: Plugin isolation as root (Python ${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: "3.11"
+            digest: python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
+          - image: "3.14"
+            digest: python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+    container:
+      image: ${{ matrix.digest }}
+    permissions:
+      contents: read
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Create the plugin account and open the checkout to it
+        run: |
+          groupadd --system --gid 10002 meshloom-plugin
+          useradd --system --uid 10002 --gid meshloom-plugin --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin meshloom-plugin
+          chmod -R a+rX "$GITHUB_WORKSPACE"
+          d="$GITHUB_WORKSPACE"; while [ "$d" != / ]; do chmod a+x "$d"; d=$(dirname "$d"); done
+          pip install --no-cache-dir -q pytest
+          PYTHONPATH=. python -c "from tests.plugin_isolation_support import available_backends as a; assert 'setuid' in a(), a()"
+
+      - name: Plugin isolation and runner tests
+        run: PYTHONPATH=. python -m pytest --noconftest -p no:cacheprovider -o addopts= -v tests/test_plugin_isolation.py tests/test_plugin_runner.py
 
   frontend-checks:
     name: Frontend
@@ -109,7 +159,7 @@ jobs:
   all-quality:
     name: all-quality
     if: ${{ always() }}
-    needs: [backend-checks, frontend-checks]
+    needs: [backend-checks, plugin-isolation-root, frontend-checks]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import textwrap
 import time
@@ -21,7 +22,7 @@ from typing import Any
 import pytest
 
 from app.plugins import host as host_module
-from app.plugins import lifecycle
+from app.plugins import isolation, lifecycle
 from app.plugins.host import (
     Budgets,
     LogRing,
@@ -413,6 +414,34 @@ def test_proc_reader_reads_this_process():
     assert read_proc_cpu_seconds(2**22 + 12345) is None
 
 
+@pytest.mark.skipif(not LINUX, reason="/proc is Linux only")
+def test_tree_reader_counts_the_descendants():
+    # Under bwrap the supervised pid is bwrap; the runner burns CPU two levels down.
+    burn = "import time\nt = time.process_time()\nwhile time.process_time() - t < 0.5: pass\ntime.sleep(30)"
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys; subprocess.run([sys.executable, '-c', {burn!r}])",
+        ],
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        total = 0.0
+        while time.monotonic() < deadline:
+            total = host_module.read_proc_tree_cpu_seconds(child.pid) or 0.0
+            if total >= 0.4:
+                break
+            time.sleep(0.1)
+        assert total >= 0.4
+        assert (read_proc_cpu_seconds(child.pid) or 0.0) < 0.4
+    finally:
+        os.killpg(child.pid, signal.SIGKILL)
+        child.wait()
+    assert host_module.read_proc_tree_cpu_seconds(2**22 + 12345) is None
+
+
 async def test_rlimit_cpu_is_set_in_the_child(test_db, tmp_path, statuses):
     mgr = PluginManager(
         replace(FAST, event_timeout=60.0, runner_limits={"cpu_seconds": 1}),
@@ -516,6 +545,31 @@ async def test_host_lock_and_platform_gate(manager, tmp_path, monkeypatch):
     fields = lifecycle.health_fields()
     assert fields["plugins_disabled_source"] == "platform"
     assert fields["plugins_isolation"] is None
+
+
+async def test_isolation_setup_failure_fails_closed(monkeypatch):
+    # A selected backend whose file model could not be applied must start nothing.
+    manager = lifecycle.plugin_manager
+    monkeypatch.setattr(manager, "_isolation_failed", False)
+    loaded: list[bool] = []
+
+    async def load_from_db() -> None:
+        loaded.append(True)
+
+    def startup(_data_dir):
+        raise PermissionError("scandir refused")
+
+    monkeypatch.setattr(manager, "load_from_db", load_from_db)
+    monkeypatch.setattr(lifecycle.isolation, "startup", startup)
+    await lifecycle.start()
+    assert loaded == []
+    assert manager.disabled_source() == "isolation"
+    fields = lifecycle.health_fields()
+    assert fields["plugins_disabled_source"] == "isolation"
+    assert fields["plugins_isolation"] is None
+    with pytest.raises(PluginHostError) as exc:
+        await manager.start("any-instance")
+    assert exc.value.code == "plugins_disabled"
 
 
 async def test_events_reach_only_subscribed_hooks(manager, tmp_path):
@@ -730,7 +784,7 @@ async def test_status_changes_are_broadcast_stored_and_scrubbed(
     assert all(secret not in r.getMessage() for r in caplog.records)
 
     fields = lifecycle.health_fields()
-    assert fields["plugins_isolation"] == "none"
+    assert fields["plugins_isolation"] == isolation.current().level
     assert fields["plugins_disabled_source"] is None
 
 
@@ -824,7 +878,7 @@ async def test_health_carries_the_plugin_fields(test_db, monkeypatch):
     monkeypatch.setattr(plugins_repo, "_instances_cache", {})
     data = await build_health_data(False, None)
     health = HealthResponse(**data)
-    assert health.plugins_isolation == "none"
+    assert health.plugins_isolation == isolation.current().level
     assert health.plugins_disabled_source is None
     assert health.plugin_statuses == {}
 

@@ -121,3 +121,39 @@ def test_runner_package_uses_only_the_standard_library() -> None:
         ):
             top = (match.group(1) or match.group(2)).split(".")[0]
             assert top in allowed, f"{path.name} imports {top}"
+
+
+# --- OS isolation (MSHL-180) -------------------------------------------------------
+
+
+def test_image_creates_the_plugin_account() -> None:
+    from app.plugins.isolation.setuid import ACCOUNT, ACCOUNT_UID
+
+    stage = " ".join(_final_stage((ROOT / "Dockerfile").read_text())).replace("\\ ", "")
+    match = re.search(rf"useradd ([^;]*?) {ACCOUNT};", stage)
+    assert match, "the image must create the dedicated plugin account"
+    options = match.group(1)
+    assert "--system" in options and "/usr/sbin/nologin" in options
+    assert "--create-home" not in options.replace("--no-create-home", "")
+    # Pinned uid/gid, and an existing account is kept (no failing useradd).
+    assert f"ARG PLUGIN_UID={ACCOUNT_UID}" in stage
+    assert '--uid "${PLUGIN_UID}"' in options
+    assert f"getent passwd {ACCOUNT}" in stage
+    assert f'groupadd --system --gid "${{PLUGIN_UID}}" {ACCOUNT}' in stage
+
+
+def test_packages_recommend_bubblewrap() -> None:
+    template = (ROOT / "pkg/nfpm/nfpm.yaml.tmpl").read_text()
+    overrides = template[template.index("\noverrides:") :]
+    for target in ("deb", "rpm"):
+        block = overrides[overrides.index(f"  {target}:") :]
+        recommends = block[block.index("recommends:") :].splitlines()[1]
+        assert recommends.strip() == "- bubblewrap", target
+
+
+@pytest.mark.parametrize("script", ["build_rpi_image.sh", "build_rpi_kiosk_image.sh"])
+def test_rpi_images_install_bubblewrap(script: str) -> None:
+    # dpkg -i does not pull Recommends: the image installs it next to the .deb.
+    text = (ROOT / "scripts/build" / script).read_text()
+    installs = [line for line in text.splitlines() if line.startswith("apt-get install")]
+    assert any("bubblewrap" in line.split() for line in installs), script

@@ -388,7 +388,7 @@ export interface HealthStatus {
   bots_disabled_source?: 'env' | 'until_restart' | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
-  plugins_disabled_source?: 'env' | 'platform' | null;
+  plugins_disabled_source?: 'env' | 'platform' | 'isolation' | null;
   plugin_statuses?: Record<string, PluginStatusEntry>;
   basic_auth_enabled?: boolean;
   radio_proxy?: RadioProxyStatus | null;

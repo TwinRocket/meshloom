@@ -20,6 +20,7 @@ import pytest
 from app.channel_constants import PUBLIC_CHANNEL_KEY
 from app.data.meshcore_channels import hashtag_key_from_name
 from app.plugins import host as host_module
+from app.plugins import isolation
 from app.plugins.capabilities import REGISTRY, messages
 from app.plugins.capabilities.grants import (
     effective_permissions,
@@ -809,7 +810,11 @@ async def test_init_carries_language_isolation_and_effective_grants(manager, tmp
         config={"language": "fr"},
     )
     await wait_until(lambda: lines(instance, "init"))
-    assert lines(instance, "init")[0] == {"lang": "fr", "isolation": "none", "granted": ["storage"]}
+    assert lines(instance, "init")[0] == {
+        "lang": "fr",
+        "isolation": isolation.current().level,
+        "granted": ["storage"],
+    }
 
     other = await probe(manager, tmp_path, "init2", {}, config={"language": "de"})
     await wait_until(lambda: lines(other, "init"))
