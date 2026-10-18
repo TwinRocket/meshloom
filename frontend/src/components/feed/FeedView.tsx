@@ -115,6 +115,9 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   const filtersRef = useRef(filters);
   const channelsRef = useRef(channels);
   const firstQueryRef = useRef(true);
+  // True from a change of `type` / `outgoing` until the debounced reload empties the store:
+  // the rows held still belong to the old query, so they are no cursor for the new one.
+  const reloadPendingRef = useRef(false);
   const firstClientFilterRef = useRef(true);
   hasOlderRef.current = hasOlder;
   rowsRef.current = rows;
@@ -186,6 +189,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   // debounce, empties the store (its cursor belongs to the old query) and reloads.
   useEffect(() => {
     activateFeedStore();
+    reloadPendingRef.current = false;
     if (queryKey === 'none') {
       setStatus('ready');
       return;
@@ -196,7 +200,9 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
       void loadNewest(query, controller.signal);
       return () => controller.abort();
     }
+    reloadPendingRef.current = true;
     const timer = setTimeout(() => {
+      reloadPendingRef.current = false;
       clearFeedRows();
       void loadNewest(query, controller.signal);
     }, RELOAD_DEBOUNCE_MS);
@@ -209,7 +215,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   }, [queryKey, loadNewest]);
 
   const loadOlder = useCallback(async () => {
-    if (loadingOlderRef.current || !hasOlderRef.current) return;
+    if (loadingOlderRef.current || !hasOlderRef.current || reloadPendingRef.current) return;
     const oldest = rowsRef.current[0];
     if (!oldest) return;
     loadingOlderRef.current = true;

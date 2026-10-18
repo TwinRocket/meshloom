@@ -67,7 +67,7 @@ is untouched until the Control preset folds it in.
   A prepended page keeps the reader's position by the growth of `scrollHeight`.
 - **Filters: one evaluator.** `utils/feedFilters.ts` holds `FeedFilters`, the defaults
   (muted and pending hidden, DMs shown) and `rowPassesFilters(row, filters, channels,
-nowSec)`, the only place that decides whether a row shows: REST rows and WebSocket rows
+  nowSec)`, the only place that decides whether a row shows: REST rows and WebSocket rows
   alike, so add a filter there and nowhere else. `isChannelMuted` mirrors the backend's
   `effective_channel_muted` (`muted && (muted_until == null || muted_until > now)`); the
   view re-reads the clock once a minute (an expired timed mute reappears) and the
@@ -130,7 +130,6 @@ live packets (`received_at_ms` minus `timestamp`, read with
 `getServerClockOffsetSec()` from `stores/rawPacketStore.ts`, 0 when nothing is
 buffered) and sends no `until`. The modal recomputes the bounds on every open.
 Other server timestamps compared with `Date.now()`:
-
 - A message's `received_at` (server clock) drives the observer reach windows
   (`useVisibleObserverReach`: live ticks only while young, 2 s/60 s polling). Ages
   go through `messageAgeMs(msg, now, getServerClockOffsetSec())`.
@@ -269,7 +268,7 @@ purpose.
   is also computed during render, in the same pass, from the pre-clear count. Moving
   either one into an effect loses the divider (`src/test/useChannelUnreadMarker.test.ts`).
 - State keys come from `getStateKey()` (`channel-{key}`, `contact-{full public
-key}`); they are not `Message.conversation_key`.
+  key}`); they are not `Message.conversation_key`.
 
 ### Message rendering
 
@@ -355,7 +354,7 @@ no in-tab desktop notification.
   docs and the harness, and the Docker build (no `*.md`, no `src/test/`) would
   ship different CSS from the release build.
 - Cascade layers. Tailwind 4 emits native `@layer theme, base, components,
-utilities`, and an unlayered rule beats every utility whatever its specificity.
+  utilities`, and an unlayered rule beats every utility whatever its specificity.
   `index.css`, `themes.css` and `styles.css` place each rule explicitly: palettes and
   element selectors in `@layer base`; component classes no utility competes with in
   `@layer components`; rules that must beat utilities (theme restyling of

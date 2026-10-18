@@ -406,6 +406,24 @@ describe('FeedView filter chips', () => {
     await waitFor(() => expect(getFeedSnapshot().rows.map((r) => r.id)).toEqual([1]));
   });
 
+  it('does not page with the new query from an old cursor while the reload is pending', async () => {
+    mocks.getMessages.mockResolvedValueOnce(serverPage(range(801, 1000)));
+    renderFeed();
+    const scroller = await findScroller();
+
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    fireEvent.click(chip(chipLabel('direct')));
+    // Inside the debounce the store still holds rows of the old query.
+    fireEvent.scroll(scroller);
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    expect(mocks.getMessages).toHaveBeenLastCalledWith(
+      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      expect.anything()
+    );
+  });
+
   it('sends no request and shows the empty state when both chips of a pair are off', async () => {
     mocks.getMessages.mockResolvedValue(mixedRows());
     renderFeed(mixedChannels);
