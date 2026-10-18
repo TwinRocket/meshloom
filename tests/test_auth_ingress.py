@@ -308,8 +308,8 @@ LAUNCHERS = [
 
 @pytest.mark.parametrize("launcher", LAUNCHERS)
 def test_every_launcher_disables_uvicorn_proxy_headers(launcher):
-    """``app/origin_policy.py`` is the one proxy-header interpreter: uvicorn must not
-    rewrite ``scope["client"]`` from ``X-Forwarded-For`` (docs/dev/auth.md)."""
+    """``app/middleware/proxy_headers.py`` is the one interpreter of forwarded headers:
+    uvicorn must not rewrite ``scope["client"]`` from ``X-Forwarded-For`` (docs/dev/auth.md)."""
     params = uvicorn_main.make_context("uvicorn", ["app.main:app", *_uvicorn_args(launcher)]).params
     assert params["proxy_headers"] is False, launcher
 
@@ -332,3 +332,43 @@ async def test_a_loopback_caller_forging_x_forwarded_for_is_not_the_supervisor(p
     assert session.json()["authenticated"] is proxy_headers
     created = await UserRepository.get_by_external_id("ingress", ALICE_ID)
     assert (created is not None) is proxy_headers
+
+
+def _behind_proxy_headers(peer: tuple[str, int]) -> httpx.AsyncClient:
+    """The app as app.main builds it, trusted-proxy middleware included."""
+    return make_client(client=peer)
+
+
+async def test_ingress_reads_the_tcp_peer_even_when_the_supervisor_is_a_trusted_proxy():
+    """The Supervisor forwards the browser's address; listing it as a trusted
+    proxy must not hide that the request came through ingress."""
+    from app.middleware import proxy_headers
+
+    await create_user()
+    await AuthSettingsRepository.update(trusted_proxies=["172.30.32.0/23"])
+    try:
+        async with _behind_proxy_headers(SUPERVISOR) as client:
+            session = await client.get(
+                "/api/auth/session", headers={**ha_headers(), "X-Forwarded-For": "192.168.1.20"}
+            )
+        assert session.json()["authenticated"] is True
+        assert session.json()["via"] == "ingress"
+    finally:
+        proxy_headers.reset()
+
+
+async def test_a_trusted_proxy_cannot_forward_the_supervisor_address():
+    from app.middleware import proxy_headers
+
+    await create_user()
+    await AuthSettingsRepository.update(trusted_proxies=["127.0.0.1"])
+    try:
+        async with _behind_proxy_headers(("127.0.0.1", 50000)) as client:
+            session = await client.get(
+                "/api/auth/session",
+                headers={**ha_headers(), "X-Forwarded-For": ingress.SUPERVISOR_IP},
+            )
+        assert session.json()["authenticated"] is False
+        assert await UserRepository.get_by_external_id("ingress", ALICE_ID) is None
+    finally:
+        proxy_headers.reset()

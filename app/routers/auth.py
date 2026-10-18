@@ -1,6 +1,7 @@
 """``/api/auth/*``: first-run setup, login, logout, sessions and the own profile.
 
-Contract and rules: ``docs/dev/auth.md``. ``GET /auth/session``,
+``GET/PATCH /auth/settings`` holds the access settings an admin tunes (the
+trusted proxies today). Contract and rules: ``docs/dev/auth.md``. ``GET /auth/session``,
 ``POST /auth/setup``, ``POST /auth/login`` and ``POST /auth/logout`` are public
 (``PUBLIC_ROUTES``, ``app/auth/middleware.py``); the others need a principal.
 Errors are coded (``{"detail": {"code", "message", "params"?}}``), translated
@@ -26,7 +27,7 @@ from app.auth.passwords import (
     password_policy_violation,
     verify_password_async,
 )
-from app.auth.permissions import own_account, public
+from app.auth.permissions import own_account, public, require
 from app.auth.principal import Principal, Via, get_principal
 from app.auth.providers.password import VerificationBusy, authenticate
 from app.auth.setup_code import (
@@ -35,9 +36,11 @@ from app.auth.setup_code import (
     clear_setup_code,
     setup_code_required,
 )
+from app.middleware.proxy_headers import MAX_TRUSTED_PROXIES, normalize_proxies
 from app.repository.auth import (
     AuthAuditRepository,
     AuthSessionRepository,
+    AuthSettingsRepository,
     InvalidUsernameError,
     UsernameTakenError,
     UserRepository,
@@ -64,6 +67,9 @@ _MESSAGES = {
     "auth_setup_unavailable": "Setup is not available yet: check the server log and retry",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
     "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from its sidebar",
+    "auth_trusted_proxies_invalid": (
+        "Not an address or network, a network wider than /8 or /16, or too many trusted proxies"
+    ),
 }
 
 
@@ -139,6 +145,11 @@ class AuthSessionResponse(BaseModel):
     setup_code_required: bool
     methods: AuthMethods
     auth_compat: AuthCompat
+    # Whether the server saw this request as https (``scope["scheme"]``, from a
+    # trusted proxy's X-Forwarded-Proto behind one): the session cookie is the
+    # ``__Host-`` Secure one only then. A browser on https that reads false sits
+    # behind a proxy Meshloom does not trust.
+    secure: bool = False
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
@@ -213,7 +224,9 @@ def _instance_name() -> str | None:
         return None
 
 
-async def _session_payload(principal: Principal | None, via: Via) -> AuthSessionResponse:
+async def _session_payload(
+    principal: Principal | None, via: Via, request: Request
+) -> AuthSessionResponse:
     """The session state. Under ingress the only sign-in method is Home
     Assistant's: no password form (no cookie could keep its session)."""
     setup_required = not await UserRepository.any_exist()
@@ -224,6 +237,7 @@ async def _session_payload(principal: Principal | None, via: Via) -> AuthSession
         setup_code_required=setup_required and await setup_code_required(),
         methods=AuthMethods(password=not under_ingress, ingress=under_ingress),
         auth_compat=AuthCompat(basic=await basic_compat_active()),
+        secure=_secure(request),
     )
     if principal is not None:
         from app.version_info import get_app_build_info
@@ -286,7 +300,7 @@ def _me(user: User) -> MeResponse:
 )
 async def get_session(request: Request) -> AuthSessionResponse:
     """Who is signed in, and what the login page needs. Public."""
-    return await _session_payload(get_principal(request), _via(request))
+    return await _session_payload(get_principal(request), _via(request), request)
 
 
 @router.post(
@@ -330,7 +344,7 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
     await _audit("setup", "success", request, actor_user_id=user.id, target=f"user:{user.id}")
     logger.info("Administrator account %r created", user.username)
     principal = await _start_session(request, response, user)
-    return await _session_payload(principal, _via(request))
+    return await _session_payload(principal, _via(request), request)
 
 
 @router.post(
@@ -356,7 +370,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
         raise _error(401, "auth_invalid_credentials")
     principal = await _start_session(request, response, user)
     await _audit("login", "success", request, actor_user_id=user.id)
-    return await _session_payload(principal, _via(request))
+    return await _session_payload(principal, _via(request), request)
 
 
 @router.post("/logout", response_model=OkResponse, dependencies=[Depends(public())])
@@ -466,3 +480,51 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
     if updated is None:
         raise _error(401, "auth_required")
     return _me(updated)
+
+
+class AuthSettingsView(BaseModel):
+    """The access settings an admin reads and changes (``auth_settings``)."""
+
+    trusted_proxies: list[str] = Field(
+        description=(
+            "Reverse proxies whose X-Forwarded-For and X-Forwarded-Proto are believed: "
+            "addresses or CIDRs, canonical network form. Empty trusts no peer."
+        )
+    )
+
+
+class AuthSettingsPatch(BaseModel):
+    trusted_proxies: list[str] | None = Field(default=None, max_length=MAX_TRUSTED_PROXIES * 4)
+
+
+@router.get("/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))])
+async def get_auth_settings() -> AuthSettingsView:
+    """The access settings."""
+    settings = await AuthSettingsRepository.get()
+    return AuthSettingsView(trusted_proxies=settings.trusted_proxies)
+
+
+@router.patch(
+    "/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))]
+)
+async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> AuthSettingsView:
+    """Change the access settings. The trusted proxies apply to the next request."""
+    principal = _require(request)
+    trusted_proxies: list[str] | None = None
+    if body.trusted_proxies is not None:
+        try:
+            trusted_proxies = normalize_proxies(body.trusted_proxies)
+        except ValueError:
+            raise _error(400, "auth_trusted_proxies_invalid") from None
+    settings = await AuthSettingsRepository.update(trusted_proxies=trusted_proxies)
+    if trusted_proxies is not None:
+        logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
+        await _audit(
+            "settings_change",
+            "success",
+            request,
+            actor_user_id=principal.user_id,
+            target="auth_settings.trusted_proxies",
+            details={"trusted_proxies": trusted_proxies},
+        )
+    return AuthSettingsView(trusted_proxies=settings.trusted_proxies)

@@ -11,6 +11,8 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.middleware.proxy_headers import normalize_proxies
+
 Role = Literal["admin", "member", "viewer", "kiosk"]
 Provider = Literal["local", "ingress", "system"]
 HostGuardMode = Literal["observe", "enforce"]
@@ -96,4 +98,4 @@ class AuthSettings(BaseModel):
     @field_validator("trusted_proxies")
     @classmethod
     def _canonical_proxies(cls, value: list[str]) -> list[str]:
-        return [str(ipaddress.ip_network(item.strip(), strict=False)) for item in value]
+        return normalize_proxies(value)

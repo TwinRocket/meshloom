@@ -61,6 +61,8 @@ from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
 )
+from app.middleware import proxy_headers
+from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
 from app.radio import RadioDisconnectedError
 from app.radio_sync import (
     stop_background_contact_reconciliation,
@@ -224,6 +226,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         # Same-origin only (the default) rather than block startup.
         logger.exception("Failed to load the allowed origins from app_settings")
+    try:
+        await proxy_headers.load()
+    except Exception:
+        # No trusted proxy (the default): forwarded headers stay ignored.
+        logger.exception("Failed to load the trusted proxies from auth_settings")
 
     # Accounts: import the retired Basic credentials, or issue the installation
     # code on an existing database with no account yet (app/auth/setup_code.py).
@@ -407,6 +414,9 @@ app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # Same-origin by default; Settings lists the other sites allowed (app/cors.py).
 app.add_middleware(AllowedOriginsCORSMiddleware)
+# Outside the gate and CORS: the one interpreter of X-Forwarded-For/-Proto, from
+# the trusted proxies setting (app/middleware/proxy_headers.py).
+app.add_middleware(TrustedProxyHeadersMiddleware)
 
 
 @app.exception_handler(RadioDisconnectedError)

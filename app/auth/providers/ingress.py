@@ -8,9 +8,10 @@ by the browser). Those headers are trusted only when all of these hold:
 
 - the install is the add-on (``MESHLOOM_INSTALL_KIND=addon``, declared, never
   inferred: ``app/services/install_kind.py``);
-- the ASGI peer is ``SUPERVISOR_IP`` (no proxy header is read for it: the
-  port the add-on may publish on the host arrives from the Docker gateway, a
-  different address, and a LAN client cannot spoof the TCP peer);
+- the TCP peer is ``SUPERVISOR_IP`` (``peer_address``, before any trusted
+  proxy rewrite of ``scope["client"]``: the port the add-on may publish on the
+  host arrives from the Docker gateway, a different address, and a LAN client
+  cannot spoof the TCP peer);
 - the request did not come through the relay (``scope["state"]["via"]``).
 
 The HA user is mapped to a local account ``provider = "ingress"``,
@@ -23,7 +24,8 @@ panel), the next ones with
 has no password; its display name follows HA's. No session cookie is ever set
 or read under ingress (the HA origin is shared by every add-on): the identity
 is read again from the headers on every request. These are the only
-``X-Remote-User-*`` readers; proxy headers stay ``app/origin_policy.py``'s.
+``X-Remote-User-*`` readers; forwarded headers are
+``app/middleware/proxy_headers.py``'s.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.auth.models import USERNAME_MAX_LENGTH, User
+from app.middleware.proxy_headers import peer_address
 from app.repository.auth import (
     AuthAuditRepository,
     AuthSettingsRepository,
@@ -70,8 +73,7 @@ def ingress_enabled() -> bool:
 
 def is_ingress_request(scope: Mapping[str, Any]) -> bool:
     """Whether the request is the Supervisor's ingress proxy (add-on, peer, not relayed)."""
-    client = scope.get("client")
-    if not client or client[0] != SUPERVISOR_IP:
+    if peer_address(scope) != SUPERVISOR_IP:
         return False
     state = scope.get("state")
     if isinstance(state, Mapping) and state.get("via") == "relay":

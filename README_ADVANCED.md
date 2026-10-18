@@ -68,11 +68,15 @@ If the radio's contact table is already full (from contacts added by advertiseme
 
 ## Sub-Path Reverse Proxy
 
-Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed.
+Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed for the paths (see below for the client address and HTTPS).
 
 The proxy must ensure the sub-path URL has a **trailing slash**. If a user visits `/meshcore` (no slash), relative paths break. For Nginx, a `location /meshcore/ { ... }` block (note the trailing slash) does the right thing.
 
-CORS currently allows every origin with credentials (`allow_origins=["*"]`, `allow_credentials=True`). Do not expose the interface beyond a trusted network on the strength of Basic auth alone.
+Browser calls from other sites are refused unless listed in **Allowed origins** (same-origin by default).
+
+## Reverse proxy and trusted proxies
+
+Meshloom believes `X-Forwarded-For` and `X-Forwarded-Proto` only from the addresses in **Settings → Local Configuration → Trusted proxies** (empty by default; uvicorn always runs with `--no-proxy-headers`). List the proxy's own address only: `127.0.0.1` for a proxy on the same host, or a fixed `ipv4_address` you give the proxy container on a dedicated network. Never list a Docker network or its gateway (`172.17.0.1`): with port 8000 also published, clients can reach Meshloom through the gateway and would then forge their address. Examples for Caddy, nginx and Traefik: [`docs/user/en/deep/https.md`](docs/user/en/deep/https.md#trusted-proxies).
 
 ## HTTPS
 
@@ -84,7 +88,7 @@ Generate a local cert and start the backend with TLS:
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
 For Docker Compose, generate the cert, mount it into the container, and override the launch command:
@@ -96,7 +100,7 @@ services:
       - ./data:/app/data
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
 ```
 
 Accept the browser warning, or use [mkcert](https://github.com/FiloSottile/mkcert) for locally-trusted certs.
@@ -138,7 +142,7 @@ A package install is different: the unit is `meshloom.service`, runs as the `mes
 If you're experiencing issues or opening a bug report, please start the backend with debug logging enabled. Debug mode provides a much more detailed breakdown of radio communication, packet processing, and other internal operations, which makes it significantly easier to diagnose problems.
 
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 On a package install, add `MESHCORE_LOG_LEVEL=DEBUG` to `/etc/meshloom/meshloom.env`, restart the service and read the logs with `journalctl -u meshloom`. With Docker, add it to `environment:` and use `docker compose logs meshloom`. The add-on has a `log_level` option.

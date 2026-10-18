@@ -44,8 +44,22 @@ and the OpenAPI page (`/docs`), not a table here.
   it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
   messages, conversations or DM activity must also honour `read_private`
   (`can_read_private(request)`): the `kiosk` role never gets a direct message.
-- `origin_policy.py` is also the only reader of proxy headers
-  (`X-Forwarded-Host`, `X-Forwarded-Proto`); do not parse them anywhere else.
+- `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
+  gate and CORS) is the only interpreter of `X-Forwarded-For` and
+  `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
+  `auth_settings.trusted_proxies` (Settings → Local Configuration → Trusted
+  proxies, `GET/PATCH /api/auth/settings`, admin; empty by default, loopback not
+  implied, wider than `/8`/`/16` refused; recommend the proxy's own address,
+  never a Docker network or gateway). It rewrites `scope["client"]` (rightmost untrusted
+  `X-Forwarded-For` entry) and `scope["scheme"]` for a listed peer only;
+  everything else (`client_ip()`, `request_is_secure()`, audit, sessions) reads
+  the scope. `peer_address(scope)` keeps the TCP peer (the ingress check uses it).
+  **Launchers rule:** every uvicorn command line (the four launchers, the
+  snake-oil compose, every documented command) carries `--no-proxy-headers`, so
+  uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the
+  launchers, `tests/test_proxy_headers.py` greps the repository). `origin_policy.py`
+  still reads `X-Forwarded-Host`, for same-origin only. Do not parse any of these
+  headers anywhere else.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
   repeater and room routers.
 - `push/` is Web Push, separate from the fanout bus (`fanout/`, see `fanout/AGENTS.md`).
@@ -725,8 +739,8 @@ floor, never the percentage alone, and do not remove the floor.
   HTTP 403 (no frame). No `Origin` is accepted (scripts, meshenger);
   `Origin: null` is refused. Trusting `X-Forwarded-Host` is safe against
   CSWSH because a browser page cannot set it; DNS rebinding is the `Host`
-  guard's job, not this one. The scheme is not compared and
-  `X-Forwarded-Proto` is not read (a TLS terminator). Keep a new WebSocket
+  guard's job, not this one. The scheme is not compared (a TLS
+  terminator). Keep a new WebSocket
   route behind the same call. `tests/test_origin_policy.py` runs one table of
   origins through CORS and the WebSocket.
 - **Revocation closes sockets.** `ws_manager` indexes clients by session id
