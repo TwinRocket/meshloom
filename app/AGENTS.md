@@ -1061,8 +1061,19 @@ Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting
-`push_allow_private_endpoints`. A send refused by the guard keeps the subscription and does not count toward
-`MAX_CONSECUTIVE_FAILURES` (`_SendResult.refused`): it is a configuration state. The
+`push_allow_private_endpoints`. The send connects to the validated IPs only
+(`PinnedHTTPAdapter`; SNI, `Host` and certificate check keep the host name;
+no redirect; connect 3 s, then 10 s on the IPv4 retry, read 10 s), resolving
+once: `tests/test_push_send_egress.py` drives a fake resolver and a local TLS
+push server. A send refused by the guard for good (`EgressBlocked.permanent`:
+bad URL or scheme, a metadata or documentation address) deletes the
+subscription lazily (`_SendResult.invalid`, one WARNING with the id and code).
+Any other refusal (private address while the setting is off,
+`egress_unresolvable`) keeps the subscription, is logged at WARNING once per
+subscription and code, and does not count toward `MAX_CONSECUTIVE_FAILURES`
+(`_SendResult.refused`): it is a configuration state. A send error is logged
+with its type only (a requests error names the endpoint URL, whose path is a
+secret). The
 migration that adds it turns it on, with `push_private_endpoints_grandfathered`
 (one-time notice, cleared by a PATCH of either field), when a stored
 subscription is not a browser push service (FCM, Mozilla, WNS, Apple). Migration
