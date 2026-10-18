@@ -39,27 +39,46 @@ MAX_SESSIONS_PER_USER = 50
 # ``touch()`` writes ``last_seen_at`` at most this often per session.
 LAST_SEEN_WRITE_INTERVAL_S = 60
 
-# Audit ``details`` are free-form JSON: a key with one of these words
-# (split on ``_``, ``-``, ``.`` and camelCase) is refused rather than stored.
-_SECRET_WORDS = frozenset(
-    {
-        "authorization",
-        "cookie",
-        "credential",
-        "credentials",
-        "hash",
-        "otp",
-        "passphrase",
-        "passwd",
-        "password",
-        "pin",
-        "pwd",
-        "secret",
-        "token",
-        "totp",
-    }
+# Audit ``details`` are free-form JSON. A key is normalised (lowercase, every
+# character that is not a letter or a digit removed: ``new_Password-2`` ->
+# ``newpassword2``) and refused when it contains one of these fragments or
+# equals one of the exact names. Over-refusing a harmless key is acceptable.
+_SECRET_FRAGMENTS = (
+    "apikey",
+    "authorization",
+    "backupcode",
+    "cookie",
+    "credential",
+    "hash",
+    "key",
+    "otp",
+    "pairingcode",
+    "passphrase",
+    "passwd",
+    "password",
+    "pwd",
+    "recoverycode",
+    "secret",
+    "seed",
+    "setupcode",
+    "token",
 )
-_KEY_WORDS = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
+_SECRET_EXACT = frozenset({"code", "codes", "pin", "pins"})
+_NON_ALNUM = re.compile(r"[^0-9a-z]+")
+
+# Failed logins are written without authentication and kept for a year:
+# every field is bounded. Text is truncated; ``details`` larger than this
+# once serialised are replaced by a fixed marker.
+MAX_AUDIT_DETAILS_BYTES = 2048
+_AUDIT_TEXT_LIMITS = {
+    "action": 64,
+    "outcome": 32,
+    "target": 256,
+    "ip": 64,
+    "via": 32,
+    "actor_token_id": 64,
+}
+MAX_USER_AGENT_LENGTH = 512
 
 
 class UsernameTakenError(ValueError):
@@ -68,6 +87,13 @@ class UsernameTakenError(ValueError):
 
 class InvalidUsernameError(ValueError):
     """Empty, too long, or containing control characters."""
+
+
+class AuthSettingsMissingError(RuntimeError):
+    """The ``auth_settings`` row is gone: refuse to act on defaults (fail closed).
+
+    Migration 101 and ``SCHEMA_TABLES`` insert it; only a hand-edited database
+    lacks it, and a restart puts it back."""
 
 
 def _now(now: int | None) -> int:
@@ -85,8 +111,10 @@ def normalize_username(username: str) -> str:
 
 
 def username_key(username: str) -> str:
-    """The uniqueness key: NFKC then Unicode case folding (``Élise`` = ``éLISE``)."""
-    return unicodedata.normalize("NFKC", normalize_username(username)).casefold()
+    """The uniqueness key: NFKC, Unicode case folding, NFKC again (case folding
+    can leave a string that is not normalised): ``Élise`` = ``éLISE``."""
+    folded = unicodedata.normalize("NFKC", normalize_username(username)).casefold()
+    return unicodedata.normalize("NFKC", folded)
 
 
 def _row_to_user(row: Any) -> User:
@@ -320,6 +348,8 @@ class AuthSessionRepository:
         """
         ts = _now(now)
         session_id = uuid.uuid4().hex
+        if user_agent is not None:
+            user_agent = user_agent[:MAX_USER_AGENT_LENGTH]
         async with db.tx() as conn:
             await conn.execute(
                 """
@@ -334,12 +364,14 @@ class AuthSessionRepository:
                 UPDATE sessions SET revoked_at = ?
                 WHERE id IN (
                     SELECT id FROM sessions
-                    WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
+                    WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? AND id != ?
                     ORDER BY created_at DESC, rowid DESC
                     LIMIT -1 OFFSET ?
                 )
                 """,
-                (ts, user_id, ts, MAX_SESSIONS_PER_USER),
+                # The new session never evicts itself (a clock that went back
+                # would otherwise sort it last); it counts as one of the cap.
+                (ts, user_id, ts, session_id, MAX_SESSIONS_PER_USER - 1),
             )
             async with conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)) as cur:
                 row = await cur.fetchone()
@@ -365,14 +397,16 @@ class AuthSessionRepository:
     ) -> bool:
         """Record activity, at most once per ``LAST_SEEN_WRITE_INTERVAL_S``.
 
-        ``expires_at`` slides the expiry in the same write. True when written.
+        ``expires_at`` slides the expiry in the same write. A revoked or already
+        expired session is never written, so it can never come back. True when
+        written.
         """
         ts = _now(now)
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE sessions SET last_seen_at = ?, expires_at = COALESCE(?, expires_at)"
-                " WHERE id = ? AND revoked_at IS NULL AND last_seen_at <= ?",
-                (ts, expires_at, session_id, ts - LAST_SEEN_WRITE_INTERVAL_S),
+                " WHERE id = ? AND revoked_at IS NULL AND expires_at > ? AND last_seen_at <= ?",
+                (ts, expires_at, session_id, ts, ts - LAST_SEEN_WRITE_INTERVAL_S),
             ) as cursor:
                 return cursor.rowcount > 0
 
@@ -420,12 +454,23 @@ class AuthSessionRepository:
                 return cursor.rowcount
 
 
+def _is_secret_key(key: str) -> bool:
+    normalised = _NON_ALNUM.sub("", key.lower())
+    if normalised in _SECRET_EXACT:
+        return True
+    return any(fragment in normalised for fragment in _SECRET_FRAGMENTS)
+
+
+def _bounded(field: str, value: str | None) -> str | None:
+    return None if value is None else value[: _AUDIT_TEXT_LIMITS[field]]
+
+
 def _check_details(value: Any, path: str = "details") -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError(f"{path}: keys must be strings")
-            if {word.lower() for word in _KEY_WORDS.findall(key)} & _SECRET_WORDS:
+            if _is_secret_key(key):
                 raise ValueError(f"{path}.{key}: looks like a secret, not stored")
             _check_details(item, f"{path}.{key}")
     elif isinstance(value, list | tuple):
@@ -448,9 +493,17 @@ class AuthAuditRepository:
         ts: int | None = None,
     ) -> int:
         """Append an audit row. ``details`` must hold no secret: a key such as
-        ``password`` or ``token`` raises ``ValueError``."""
+        ``password``, ``apiKey`` or ``setup_code`` raises ``ValueError``.
+
+        Text fields are truncated to ``_AUDIT_TEXT_LIMITS``; ``details`` over
+        ``MAX_AUDIT_DETAILS_BYTES`` serialised are stored as
+        ``{"truncated": true, "bytes": <size>}``."""
         payload = dict(details or {})
         _check_details(payload)
+        serialised = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        size = len(serialised.encode("utf-8"))
+        if size > MAX_AUDIT_DETAILS_BYTES:
+            serialised = json.dumps({"bytes": size, "truncated": True}, separators=(",", ":"))
         async with db.tx() as conn:
             async with conn.execute(
                 """
@@ -461,13 +514,13 @@ class AuthAuditRepository:
                 (
                     _now(ts),
                     actor_user_id,
-                    actor_token_id,
-                    action,
-                    target,
-                    ip,
-                    via,
-                    outcome,
-                    json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                    _bounded("actor_token_id", actor_token_id),
+                    _bounded("action", action),
+                    _bounded("target", target),
+                    _bounded("ip", ip),
+                    _bounded("via", via),
+                    _bounded("outcome", outcome),
+                    serialised,
                 ),
             ) as cursor:
                 return int(cursor.lastrowid or 0)
@@ -526,7 +579,7 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
     async with conn.execute("SELECT * FROM auth_settings WHERE id = 1") as cursor:
         row = await cursor.fetchone()
     if row is None:
-        return AuthSettings()
+        raise AuthSettingsMissingError("auth_settings row missing")
     rules = []
     for item in _json_list(row["trusted_networks"]):
         try:
@@ -598,9 +651,11 @@ class AuthSettingsRepository:
                     columns[key] = value
             if columns:
                 assignments = ", ".join(f"{column} = ?" for column in columns)
-                await conn.execute(
+                async with conn.execute(
                     f"UPDATE auth_settings SET {assignments} WHERE id = 1", list(columns.values())
-                )
+                ) as cursor:
+                    if cursor.rowcount != 1:
+                        raise AuthSettingsMissingError("auth_settings row missing")
             return await _fetch_settings(conn)
 
     @staticmethod
@@ -608,12 +663,16 @@ class AuthSettingsRepository:
         async with db.readonly() as conn:
             async with conn.execute("SELECT setup_code_hash FROM auth_settings WHERE id = 1") as c:
                 row = await c.fetchone()
-        return row[0] if row else None
+        if row is None:
+            raise AuthSettingsMissingError("auth_settings row missing")
+        return row[0]
 
     @staticmethod
     async def set_setup_code_hash(code_hash: str | None) -> None:
         """Store the hash of the installation code (``app/auth/tokens.py``), or clear it."""
         async with db.tx() as conn:
-            await conn.execute(
+            async with conn.execute(
                 "UPDATE auth_settings SET setup_code_hash = ? WHERE id = 1", (code_hash,)
-            )
+            ) as cursor:
+                if cursor.rowcount != 1:
+                    raise AuthSettingsMissingError("auth_settings row missing")

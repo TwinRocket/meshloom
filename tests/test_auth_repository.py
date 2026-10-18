@@ -236,3 +236,108 @@ async def test_nothing_secret_is_logged(test_db, caplog):
     assert HASH not in str(excinfo.value)
     for secret in (HASH, token, hash_token(token), hash_token("code")):
         assert secret not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_touch_never_revives_an_expired_or_revoked_session(test_db):
+    user = await UserRepository.create("ivy", "member")
+    expired = await AuthSessionRepository.create(user.id, hash_token("e"), lifetime_s=10, now=0)
+    assert not await AuthSessionRepository.touch(expired.id, now=100, expires_at=10_000)
+    assert await AuthSessionRepository.get_active(hash_token("e"), now=101) is None
+
+    revoked = await AuthSessionRepository.create(user.id, hash_token("r"), lifetime_s=10_000, now=0)
+    await AuthSessionRepository.revoke(revoked.id, now=1)
+    assert not await AuthSessionRepository.touch(revoked.id, now=100, expires_at=20_000)
+    assert await AuthSessionRepository.get_active(hash_token("r"), now=101) is None
+
+
+@pytest.mark.asyncio
+async def test_a_new_session_is_never_its_own_eviction_victim(test_db):
+    user = await UserRepository.create("jo", "member")
+    for i in range(MAX_SESSIONS_PER_USER):
+        await AuthSessionRepository.create(user.id, hash_token(f"s{i}"), lifetime_s=10**6, now=1000)
+    # Clock went backwards: the newest session sorts as the oldest.
+    newest = await AuthSessionRepository.create(
+        user.id, hash_token("new"), lifetime_s=10**6, now=500
+    )
+    assert newest.revoked_at is None
+    active = await AuthSessionRepository.list_for_user(user.id, now=1001)
+    assert len(active) == MAX_SESSIONS_PER_USER and newest.id in {s.id for s in active}
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "password",
+        "password2",
+        "newPassword1",
+        "oldpassword",
+        "PASS_WORD".replace("_", ""),
+        "new-Password",
+        "apiKey",
+        "api_key",
+        "privateKey",
+        "setup_code",
+        "setupCode",
+        "recovery_codes",
+        "seed",
+        "instance_seed",
+        "otp",
+        "TOTP",
+        "totp_code",
+        "client_secret",
+        "sessionToken",
+        "token_hash",
+        "Authorization",
+        "cookie",
+        "code",
+        "pin",
+    ],
+)
+@pytest.mark.asyncio
+async def test_audit_refuses_secret_like_keys(test_db, key):
+    with pytest.raises(ValueError):
+        await AuthAuditRepository.add("login", "failure", details={key: "x"})
+    with pytest.raises(ValueError):
+        await AuthAuditRepository.add("login", "failure", details={"outer": [{key: "x"}]})
+
+
+@pytest.mark.asyncio
+async def test_audit_keeps_harmless_keys_and_bounds_sizes(test_db):
+    await AuthAuditRepository.add(
+        "login", "failure", details={"reason": "bad_password", "attempt": 3, "role": "admin"}
+    )
+    big = {"reason": "x" * 5000}
+    await AuthAuditRepository.add(
+        "a" * 500, "o" * 500, target="t" * 5000, ip="i" * 500, via="v" * 500, details=big
+    )
+    newest, first = await AuthAuditRepository.list_recent()
+    assert first.details == {"attempt": 3, "reason": "bad_password", "role": "admin"}
+    assert newest.details == {"bytes": len('{"reason":""}') + 5000, "truncated": True}
+    assert len(newest.action) == 64 and len(newest.outcome) == 32
+    assert len(newest.target or "") == 256 and len(newest.ip or "") == 64
+    assert len(newest.via or "") == 32
+
+
+@pytest.mark.asyncio
+async def test_settings_writes_fail_loudly_without_the_row(test_db):
+    from app.migrations import run_migrations, set_version
+    from app.repository.auth import AuthSettingsMissingError
+
+    async with test_db.tx() as conn:
+        await conn.execute("DELETE FROM auth_settings")
+    with pytest.raises(AuthSettingsMissingError):
+        await AuthSettingsRepository.set_setup_code_hash(hash_token("c"))
+    with pytest.raises(AuthSettingsMissingError):
+        await AuthSettingsRepository.update(basic_imported=True)
+    with pytest.raises(AuthSettingsMissingError):
+        await AuthSettingsRepository.get()
+    with pytest.raises(AuthSettingsMissingError):
+        await AuthSettingsRepository.get_setup_code_hash()
+
+    # The migration (and SCHEMA_TABLES at every start) puts the row back.
+    async with test_db.tx() as conn:
+        await set_version(conn, 100)
+        await run_migrations(conn)
+    await AuthSettingsRepository.set_setup_code_hash(hash_token("c"))
+    assert await AuthSettingsRepository.get_setup_code_hash() == hash_token("c")
