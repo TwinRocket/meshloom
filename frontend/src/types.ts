@@ -396,7 +396,6 @@ export interface HealthStatus {
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
   plugins_disabled_source?: 'env' | 'platform' | 'isolation' | null;
   plugin_statuses?: Record<string, PluginStatusEntry>;
-  basic_auth_enabled?: boolean;
   radio_proxy?: RadioProxyStatus | null;
 }
 

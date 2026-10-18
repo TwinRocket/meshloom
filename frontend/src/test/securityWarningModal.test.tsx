@@ -38,7 +38,6 @@ const baseHealth: HealthStatus = {
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
   bots_disabled: false,
-  basic_auth_enabled: false,
 };
 
 describe('SecurityWarningModal', () => {
@@ -66,29 +65,6 @@ describe('SecurityWarningModal', () => {
     expect(screen.queryByText(i18n.t('security.title'))).not.toBeInTheDocument();
   });
 
-  it('ignores the legacy Basic auth setting', () => {
-    render(<SecurityWarningModal health={{ ...baseHealth, basic_auth_enabled: true }} />);
-
-    expect(screen.getByText(i18n.t('security.title'))).toBeInTheDocument();
-  });
-
-  it.each([['lan'], ['ingress'], ['relay']])(
-    'does not show for a signed-in account (via %s)',
-    (via) => {
-      mocks.session.current = {
-        authenticated: true,
-        setup_required: false,
-        setup_code_required: false,
-        methods: { password: true, ingress: via === 'ingress' },
-        auth_compat: { basic: false },
-        via,
-      };
-      render(<SecurityWarningModal health={baseHealth} />);
-
-      expect(screen.queryByText(i18n.t('security.title'))).not.toBeInTheDocument();
-    }
-  );
-
   it('still shows when the session is not authenticated', () => {
     mocks.session.current = {
       authenticated: false,
@@ -110,7 +86,7 @@ describe('SecurityWarningModal', () => {
       methods: { password: true, ingress: false },
       auth_compat: { basic: false },
     };
-    render(<SecurityWarningModal health={{ ...baseHealth, basic_auth_enabled: false }} />);
+    render(<SecurityWarningModal health={baseHealth} />);
 
     expect(screen.queryByText(i18n.t('security.title'))).not.toBeInTheDocument();
   });

@@ -116,7 +116,6 @@ class HealthResponse(BaseModel):
     plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
     plugins_disabled_source: Literal["env", "platform", "isolation"] | None = None
     plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
-    basic_auth_enabled: bool = False
     radio_proxy: RadioProxyStatus | None = None
 
 
@@ -268,7 +267,6 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "notification_statuses": notification_statuses(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
-        "basic_auth_enabled": _read_optional_bool_setting("basic_auth_enabled"),
         "transport_configured": transport_configured,
         "identity": identity,
         "radio_proxy": _radio_proxy_status(),

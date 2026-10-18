@@ -4,7 +4,7 @@ from collections import deque
 from threading import Lock
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.log_redaction import (
@@ -62,24 +62,6 @@ class Settings(BaseSettings):
             "container port. Without ``managed_ports`` the port is edited in the UI."
         ),
     )
-
-    @model_validator(mode="after")
-    def validate_basic_auth_pairing(self) -> "Settings":
-        if self.basic_auth_partially_configured:
-            raise ValueError(
-                "MESHCORE_BASIC_AUTH_USERNAME and MESHCORE_BASIC_AUTH_PASSWORD "
-                "must be set together."
-            )
-        return self
-
-    @property
-    def basic_auth_enabled(self) -> bool:
-        return bool(self.basic_auth_username and self.basic_auth_password)
-
-    @property
-    def basic_auth_partially_configured(self) -> bool:
-        any_credentials_set = bool(self.basic_auth_username or self.basic_auth_password)
-        return any_credentials_set and not self.basic_auth_enabled
 
 
 settings = Settings()

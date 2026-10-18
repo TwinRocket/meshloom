@@ -25,7 +25,6 @@ export interface HealthStatus {
   connection_info: string | null;
   bots_disabled?: boolean;
   bots_disabled_source?: 'env' | 'until_restart' | null;
-  basic_auth_enabled?: boolean;
 }
 
 export function getHealth(): Promise<HealthStatus> {

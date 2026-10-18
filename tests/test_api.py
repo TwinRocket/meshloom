@@ -299,7 +299,6 @@ class TestDebugEndpoint:
                     },
                 },
                 "bots_disabled_source": None,
-                "basic_auth_enabled": False,
             },
             radio_state="connected",
         )

@@ -23,6 +23,11 @@ import: it could only switch the clock wraparound on, and ``auto_clock_wraparoun
 startup warning, plus a second one when it is set to a false value (it kept the fix
 off, the setting now starts on).
 
+``MESHCORE_BASIC_AUTH_USERNAME`` / ``_PASSWORD`` are retired too, but their one-time
+import is not here: ``app/security.py`` turns them into the administrator account
+(``app/auth/setup_code.py`` runs it first). They only get the startup warning, plus a
+second one when only one of the two is set.
+
 The ``MESHLOOM_COMMUNITY*`` variables are retired too (Community is an opt-in in
 the UI, its addresses are fixed): ``import_legacy_community_iata`` copies a
 leftover ``MESHLOOM_COMMUNITY_IATA`` into an existing database only, once
@@ -51,6 +56,13 @@ RADIO_WORKAROUND_ENV: dict[str, str] = {
 
 ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
 # Never imported: the setting that replaces it is on by default.
+ENV_BASIC_USERNAME = "MESHCORE_BASIC_AUTH_USERNAME"
+ENV_BASIC_PASSWORD = "MESHCORE_BASIC_AUTH_PASSWORD"
+_BASIC_UI = (
+    "Settings → Users & Access (at the first start with no account they became the "
+    "administrator account, see app/security.py; Authorization: Basic is still accepted "
+    "until 5.2)"
+)
 ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
 _COMMUNITY_UI = "Settings → Meshloom Community"
 _COMMUNITY_FIXED = "no setting at all (the Meshloom Community addresses are fixed)"
@@ -68,6 +80,8 @@ RETIRED_ENV: dict[str, str] = {
     "MESHLOOM_COMMUNITY_BROKER_HOST": _COMMUNITY_FIXED,
     "MESHLOOM_COMMUNITY_API_BASE": _COMMUNITY_FIXED,
     ENV_CLOCK_WRAPAROUND: "Settings → Radio → Advanced (on by default)",
+    ENV_BASIC_USERNAME: _BASIC_UI,
+    ENV_BASIC_PASSWORD: _BASIC_UI,
     "MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT": _PRIVATE_KEY_ALWAYS,
 }
 
@@ -91,6 +105,13 @@ def warn_about_retired_env() -> list[str]:
             "Remove the variable from your environment.",
             name,
             RETIRED_ENV[name],
+        )
+    if len({ENV_BASIC_USERNAME, ENV_BASIC_PASSWORD} & set(still_set)) == 1:
+        # Never an error since 5.0 (it used to stop the start): half a pair imports nothing.
+        logger.warning(
+            "Only one of %s and %s is set: nothing was imported as an account.",
+            ENV_BASIC_USERNAME,
+            ENV_BASIC_PASSWORD,
         )
     if ENV_CLOCK_WRAPAROUND in still_set and not _env_true(ENV_CLOCK_WRAPAROUND):
         # The variable kept the fix off; the setting that replaces it starts on.

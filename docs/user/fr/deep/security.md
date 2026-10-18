@@ -33,7 +33,7 @@ MESHCORE_BASIC_AUTH_USERNAME=...
 MESHCORE_BASIC_AUTH_PASSWORD=...
 ```
 
-Définissez les deux ou aucune : le serveur refuse de démarrer avec une seule. L’accès Basic protège les pages, l’API et la connexion en direct (WebSocket). C’est un identifiant partagé unique, sans rôles. Sans HTTPS, le mot de passe circule en clair : associez-le à [HTTPS](/docs/deep/https/).
+Jusqu’à la 4.18, on définissait les deux ou aucune. L’accès Basic protégeait les pages, l’API et la connexion en direct (WebSocket). C’est un identifiant partagé unique, sans rôles. Sans HTTPS, le mot de passe circule en clair : associez-le à [HTTPS](/docs/deep/https/).
 
 À partir de Meshloom 5.0, la connexion est obligatoire et passe par des comptes. Au premier démarrage de la 5.0, ces deux variables deviennent le compte administrateur (même nom, même mot de passe), puis Meshloom ne les lit plus et journalise un avertissement tant qu’elles restent définies : retirez-les. Les scripts et capteurs Home Assistant qui envoient ce nom et ce mot de passe en Basic continuent de fonctionner jusqu’à la 5.2. Sur l’add-on Home Assistant, c’est Home Assistant qui vous connecte par la barre latérale. Son port 8000 n’est pas publié par défaut : pour joindre Meshloom hors de Home Assistant, et y créer ou utiliser un compte Meshloom, donnez d’abord un port d’hôte à `8000/tcp` dans le panneau **Réseau** de l’add-on. Les mauvais mots de passe ralentissent les tentatives de connexion suivantes sans jamais verrouiller un compte (voir [Récupérer l’accès](/docs/deep/access/#les-délais-de-connexion)). Une page d’un autre site ne peut plus rien modifier avec votre connexion : Meshloom refuse les modifications qui viennent d’un autre site.
 
