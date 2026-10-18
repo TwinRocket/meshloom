@@ -28,7 +28,7 @@ What each role sees in the interface follows the table: the screens a role canno
 | Direct messages | yes | yes | yes | no |
 | Composer, new conversation, pin, favourite, mute, delete | yes | yes | no | no |
 | Repeater and room panes, mesh test | yes | no | no | no |
-| Settings | all sections | Local configuration | Local configuration | none |
+| Settings | all sections | Local configuration, Users & Access (own account) | Local configuration, Users & Access (own account) | none |
 | Language and theme of this browser | yes | yes | yes | yes, from the account button |
 
 An action the server refuses anyway (for example from a page left open before a role change) shows one message, “This account is not allowed to do that.”
@@ -37,7 +37,9 @@ The first administrator, and the account Meshloom creates from the Basic auth lo
 
 ## Managing accounts
 
-Administrators manage the accounts through the API for now; the **Settings** screen comes in a later version.
+Administrators manage the accounts in **Settings → Users & Access**, or through the API. The page lists every account with its role and where it signs in (local or Home Assistant), and offers, per account: change the role, disable or enable, reset the password (the user is asked for a new one at the next sign-in unless you untick it), sign out everywhere, and delete. You cannot change, disable or delete your own account there, which keeps at least one administrator in place. A kiosk has no password. At the bottom, the role given to a Home Assistant user seen for the first time is set there too; the trusted proxies stay in **Local Configuration**.
+
+Every user (the kiosk excepted) sees **My account** and **My sessions** on the same page: change the display name and password, see the devices signed in (browser, system, address, last seen), revoke one, or sign out everywhere else.
 
 | Request | What it does |
 |---|---|

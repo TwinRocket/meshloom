@@ -7,6 +7,11 @@ import {
 } from './auth/authEvents';
 import type {
   AuthLoginRequest,
+  AuthMe,
+  AuthSessionRow,
+  AuthUserCreate,
+  AuthUserPatch,
+  AuthUserRow,
   AuthSessionInfo,
   AuthSettings,
   AuthSetupRequest,
@@ -297,6 +302,30 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ current_password, new_password }),
     }),
+  getAuthMe: () => fetchJson<AuthMe>('/auth/me', { cache: 'no-store' }),
+  patchAuthMe: (patch: { display_name: string }) =>
+    fetchJson<AuthMe>('/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
+  listAuthSessions: () => fetchJson<AuthSessionRow[]>('/auth/sessions', { cache: 'no-store' }),
+  revokeAuthSession: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Every session but the current one. */
+  revokeOtherAuthSessions: () =>
+    fetchJson<{ revoked: number }>('/auth/sessions', { method: 'DELETE' }),
+  // Users (admin)
+  listAuthUsers: () => fetchJson<AuthUserRow[]>('/auth/users', { cache: 'no-store' }),
+  createAuthUser: (body: AuthUserCreate) =>
+    fetchJson<AuthUserRow>('/auth/users', { method: 'POST', body: JSON.stringify(body) }),
+  patchAuthUser: (id: number, patch: AuthUserPatch) =>
+    fetchJson<AuthUserRow>(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteAuthUser: (id: number) =>
+    fetchJson<{ ok: boolean }>(`/auth/users/${id}`, { method: 'DELETE' }),
+  setAuthUserPassword: (id: number, password: string, must_change_password: boolean) =>
+    fetchJson<AuthUserRow>(`/auth/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password, must_change_password }),
+    }),
+  revokeAuthUserSessions: (id: number) =>
+    fetchJson<{ revoked: number }>(`/auth/users/${id}/sessions`, { method: 'DELETE' }),
   getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
   patchAuthSettings: (patch: Partial<AuthSettings>) =>
     fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),

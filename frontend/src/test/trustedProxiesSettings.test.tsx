@@ -90,10 +90,15 @@ describe('TrustedProxiesSettings', () => {
   });
 
   it('says an empty list trusts no proxy, then saves the canonical list', async () => {
-    const load = vi.fn(async () => ({ trusted_proxies: [], audit_retention_days: 366 }));
+    const load = vi.fn(async () => ({
+      trusted_proxies: [],
+      audit_retention_days: 366,
+      ingress_default_role: 'member' as const,
+    }));
     const save = vi.fn(async () => ({
       trusted_proxies: ['127.0.0.1/32'],
       audit_retention_days: 366,
+      ingress_default_role: 'member' as const,
     }));
     render(<TrustedProxiesSettings load={load} save={save} />);
 
@@ -111,10 +116,18 @@ describe('TrustedProxiesSettings', () => {
   });
 
   it('refuses an invalid entry before sending anything', async () => {
-    const save = vi.fn(async () => ({ trusted_proxies: [], audit_retention_days: 366 }));
+    const save = vi.fn(async () => ({
+      trusted_proxies: [],
+      audit_retention_days: 366,
+      ingress_default_role: 'member' as const,
+    }));
     render(
       <TrustedProxiesSettings
-        load={async () => ({ trusted_proxies: ['10.0.0.0/8'], audit_retention_days: 366 })}
+        load={async () => ({
+          trusted_proxies: ['10.0.0.0/8'],
+          audit_retention_days: 366,
+          ingress_default_role: 'member' as const,
+        })}
         save={save}
       />
     );
@@ -129,7 +142,11 @@ describe('TrustedProxiesSettings', () => {
   it('warns about a network or a Docker gateway without blocking the save', async () => {
     render(
       <TrustedProxiesSettings
-        load={async () => ({ trusted_proxies: [], audit_retention_days: 366 })}
+        load={async () => ({
+          trusted_proxies: [],
+          audit_retention_days: 366,
+          ingress_default_role: 'member' as const,
+        })}
       />
     );
     const textarea = await screen.findByRole('textbox');
@@ -148,7 +165,11 @@ describe('TrustedProxiesSettings', () => {
     });
     render(
       <TrustedProxiesSettings
-        load={async () => ({ trusted_proxies: [], audit_retention_days: 366 })}
+        load={async () => ({
+          trusted_proxies: [],
+          audit_retention_days: 366,
+          ingress_default_role: 'member' as const,
+        })}
         save={save}
       />
     );
@@ -188,7 +209,11 @@ describe('TrustedProxiesSettings behind an untrusted https proxy', () => {
     render(
       <SessionProvider>
         <TrustedProxiesSettings
-          load={async () => ({ trusted_proxies: [], audit_retention_days: 366 })}
+          load={async () => ({
+            trusted_proxies: [],
+            audit_retention_days: 366,
+            ingress_default_role: 'member' as const,
+          })}
         />
       </SessionProvider>
     );

@@ -32,6 +32,8 @@ export interface AuthSettings {
   trusted_proxies: string[];
   /** Audit rows older than this many days are purged (366 by default). */
   audit_retention_days: number;
+  /** Role of a Home Assistant user seen for the first time (the very first is always admin). */
+  ingress_default_role: AuthRole;
 }
 
 export interface AuthSetupRequest {
@@ -73,3 +75,58 @@ export function behindUntrustedHttpsProxy(
 
 /** The shortest password the backend accepts (`password_policy_violation`). */
 export const PASSWORD_MIN_LENGTH = 12;
+
+/** `GET /auth/me`: the caller's own account. */
+export interface AuthMe {
+  id: number;
+  username: string;
+  display_name: string;
+  role: AuthRole;
+  provider: string;
+  has_password: boolean;
+  must_change_password: boolean;
+  created_at: number;
+}
+
+/** One row of `GET /auth/sessions` (the caller's own; times in epoch seconds). */
+export interface AuthSessionRow {
+  id: string;
+  created_at: number;
+  last_seen_at: number;
+  expires_at: number;
+  ip: string | null;
+  user_agent: string | null;
+  via: string | null;
+  current: boolean;
+}
+
+/** One row of `GET /auth/users` (admin). `provider` is `local` or `ingress`. */
+export interface AuthUserRow {
+  id: number;
+  username: string;
+  display_name: string;
+  role: AuthRole;
+  provider: string;
+  disabled: boolean;
+  must_change_password: boolean;
+  has_password: boolean;
+  totp_enabled: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AuthUserCreate {
+  username: string;
+  role: AuthRole;
+  display_name?: string;
+  /** Required for every role but `kiosk`. */
+  password?: string;
+  must_change_password?: boolean;
+}
+
+export interface AuthUserPatch {
+  display_name?: string;
+  role?: AuthRole;
+  disabled?: boolean;
+  must_change_password?: boolean;
+}

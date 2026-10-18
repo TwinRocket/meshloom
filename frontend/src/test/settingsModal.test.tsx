@@ -1252,7 +1252,7 @@ describe('SettingsModal', () => {
     expect(screen.getByText(i18n.t('settings.proxy.warning'))).toBeInTheDocument();
   });
 
-  it('lists notifications after local in the accordion nav', () => {
+  it('lists Users & Access, then notifications, after local in the accordion nav', () => {
     renderModal({ mobile: true });
     const sectionToggles = screen
       .getAllByRole('button')
@@ -1264,7 +1264,8 @@ describe('SettingsModal', () => {
     );
 
     expect(localIdx).toBeGreaterThanOrEqual(0);
-    expect(notificationsIdx).toBe(localIdx + 1);
+    expect(labels[localIdx + 1]).toContain(i18n.t('settingsNav.access'));
+    expect(notificationsIdx).toBe(localIdx + 2);
 
     fireEvent.click(sectionToggles[notificationsIdx]);
     expect(screen.getByText(i18n.t('settings.notifications.thisDevice'))).toBeInTheDocument();

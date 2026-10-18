@@ -278,7 +278,14 @@ purpose.
   hidden (a whole screen, a tool, a button) or disabled (a control inside a shared pane);
   it is never left to fail. **This protects nothing**: the server refuses each request and
   stays the authority, so never skip a server check because the UI hides the control, and a
-  new admin-only route needs its UI gated here in the same change. Add a settings section
+  new admin-only route needs its UI gated here in the same change. The `access` section
+  (Users & Access: `components/settings/SettingsAccessSection.tsx`, lazy-loaded from
+  `SettingsModal`) is in `ACCOUNT_SETTINGS_SECTIONS` because its profile and sessions
+  panels use `own_account` routes; its users and Home Assistant default role panels render
+  for `isAdmin` only. Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
+  `errors.auth_*`, the policy detail, and a generic line for an uncoded 429/503). Strings:
+  slice `az` (`settings.access.*`, `settingsNav.access`). Tests:
+  `src/test/settingsAccessSection.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
   loads at startup must not call an admin-only route for another role (members, viewers and
