@@ -313,6 +313,36 @@ describe('feed control rows', () => {
 });
 
 describe('feed Nodes facet', () => {
+  const phone = (matches: boolean) =>
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockReturnValue({
+        matches,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+    );
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('opens the Nodes sheet with the Control preset on a phone only', async () => {
+    feedControl(packet(90));
+    phone(true);
+    renderFeed({ preset: 'control' });
+    await screen.findAllByTestId('feed-nodes-open');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    cleanup();
+
+    renderFeed();
+    await rowsOf();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    cleanup();
+
+    phone(false);
+    renderFeed({ preset: 'control' });
+    await screen.findAllByTestId('feed-nodes-open');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('filters control rows to the selected node and clears with "All nodes"', async () => {
     feedControl(packet(80), packet(81, { data: requestHex('aa', 'dd') }), groupDataPacket(82));
     renderFeed();

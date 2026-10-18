@@ -1,6 +1,6 @@
 ---
 title: Autour des messages
-description: La carte, le visualiseur, le flux de paquets — ce qu’on regarde sans rien envoyer.
+description: La carte, le visualiseur, le flux de paquets, le fil — ce qu’on regarde sans rien envoyer.
 level: start
 order: 5
 ---
@@ -71,9 +71,19 @@ Meshloom Community peut mettre son flux public en pause pendant un moment. Une p
 
 Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/fr/docs/deep/community/#si-votre-radio-est-bannie).
 
-## Le journal de contrôle
+## Le fil
 
-Le **journal de contrôle** rassemble le trafic qui n’est pas une conversation : requêtes, réponses, requêtes anonymes (comme les connexions) et données de groupe. Les paquets sont regroupés par nœud concerné. Quand le contenu reste chiffré, on voit l’enveloppe, pas le contenu.
+Le **Fil** réunit tout dans une seule chronologie, le plus récent en bas : les messages de tous vos canaux et messages directs, et le trafic de contrôle (requêtes, réponses, requêtes anonymes comme les connexions, et données de groupe) entre eux, dans l’ordre du temps. Quand le contenu d’un paquet de contrôle reste chiffré, on voit l’enveloppe, pas le contenu ; cliquez sur une ligne pour ouvrir l’inspecteur de paquet.
+
+- **Puces.** *Messages*, *Contrôle* et *Événements* (pas encore disponible) choisissent les sources. Sous *Messages*, *Canaux*, *Messages directs*, *Reçus* et *Envoyés* restreignent l’affichage, et *Canaux en sourdine* et *Canaux en attente* font revenir ceux qui sont masqués par défaut. La puce **Messages directs** n’est qu’un choix d’affichage : les masquer ne les protège pas, puisque quiconque peut ouvrir Meshloom peut les lire (voir [Un réseau de confiance](/fr/docs/trust/)). Votre choix est mémorisé dans ce navigateur.
+- **Nœuds.** Avec *Contrôle* activé, une facette **Nœuds** liste les répéteurs et salons, les canaux, les paquets qui vous sont adressés et les non résolus. En choisir un restreint les lignes de contrôle à celui-ci.
+- **Mode suivi.** Le fil reste sur la ligne la plus récente tant que vous êtes en bas. Remontez, et un bouton **Suivre** compte ce qui est arrivé depuis et vous ramène en bas. Remonter charge aussi les messages plus anciens.
+- **Depuis votre dernière visite.** Une ligne **Nouveau depuis votre dernière visite** marque le premier message arrivé après la dernière fois que vous aviez le fil ouvert, dans ce navigateur.
+- **Lire ne marque rien comme lu.** Les compteurs de non lus restent inchangés tant que vous n’ouvrez pas la conversation elle-même.
+
+### Le préréglage Contrôle
+
+**Contrôle** ouvre le même fil avec seulement la source *Contrôle* activée, avec la liste des Nœuds à côté sur ordinateur ou déjà ouverte sur téléphone (dès que des nœuds sont connus) : l’ancien journal de contrôle. C’est un préréglage, pas une page à part : l’adresse `#control` et les signets qui y mènent continuent de fonctionner, et la barre d’adresse affiche toujours `#control`. Vos changements de puces n’y sont pas mémorisés, de sorte que le fil habituel garde les filtres que vous lui avez choisis. **Contrôle** n’est plus dans la barre d’icônes par défaut ; ajoutez-le dans **Réglages > Navigation**, ou trouvez-le dans la palette de recherche (Ctrl/Cmd+K).
 
 ## La localisation RF
 

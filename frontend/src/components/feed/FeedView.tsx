@@ -23,6 +23,7 @@ import { buildJournalEntries, type JournalEntry } from '../../utils/controlJourn
 import { formatNumber } from '../../utils/formatNumber';
 import {
   countHiddenRows,
+  controlPreset,
   filtersToQuery,
   hasEmptySelection,
   hasNoMessages,
@@ -66,6 +67,8 @@ import { FeedMessageRow } from './FeedMessageRow';
 import { createFeedNameResolver } from './feedNames';
 
 interface FeedViewProps {
+  /** Opens with the Control preset's filters, which are not persisted. */
+  preset?: 'control';
   contacts: Contact[];
   channels: Channel[];
   radioName?: string;
@@ -124,6 +127,7 @@ function useTimeFormatter(language: string) {
  * rows are not fetched; changing them empties the store and reloads the first page.
  */
 export function FeedView({
+  preset,
   contacts,
   channels,
   radioName,
@@ -138,7 +142,9 @@ export function FeedView({
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
-  const [filters, setFilters] = useState<FeedFilters>(loadFeedFilters);
+  const [filters, setFilters] = useState<FeedFilters>(() =>
+    preset === 'control' ? controlPreset : loadFeedFilters()
+  );
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -186,7 +192,10 @@ export function FeedView({
   channelsRef.current = channels;
 
   // Preferences are per browser (`localStorage`); a second tab only sees them on reload.
-  useEffect(() => saveFeedFilters(filters), [filters]);
+  // A preset's filters are not the reader's feed filters: they are never written back.
+  useEffect(() => {
+    if (!preset) saveFeedFilters(filters);
+  }, [filters, preset]);
 
   // Rows are re-evaluated once a minute so an expired timed mute reappears. A `channel`
   // frame reaches this view as a new `channels` prop, which the memo below depends on.
@@ -587,6 +596,7 @@ export function FeedView({
       <FeedNodesFacet
         sections={nodeSections}
         selected={activeNode}
+        defaultOpen={preset === 'control'}
         onSelect={(node) => setFilters((prev) => ({ ...prev, node }))}
       />
     ) : null;

@@ -5,7 +5,7 @@
  * for deep linking to conversations.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { makeFeedConversation } from '../components/feed/feedConversation';
 import {
   parseHashConversation,
@@ -75,12 +75,12 @@ describe('parseHashConversation', () => {
     expect(parseHashConversation()).toEqual({ type: 'feed', name: 'feed' });
   });
 
-  it('parses #control as control type', () => {
+  it('parses #control as the feed with the Control preset', () => {
     window.location.hash = '#control';
 
     const result = parseHashConversation();
 
-    expect(result).toEqual({ type: 'control', name: 'control' });
+    expect(result).toEqual({ type: 'feed', name: 'feed', feedPreset: 'control' });
   });
 
   it('parses #map as map type', () => {
@@ -461,14 +461,16 @@ describe('getLocateHash', () => {
 describe('getConversationHash', () => {
   it('encodes live conversations', () => {
     expect(getConversationHash(makeFeedConversation('Feed'))).toBe('#feed');
-    expect(getConversationHash(makeFeedConversation('Control', 'control'))).toBe('#feed');
+    expect(getConversationHash(makeFeedConversation('Control', 'control'))).toBe('#control');
     expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
   });
 
-  it('encodes control conversations', () => {
-    expect(getConversationHash({ type: 'control', id: 'control', name: 'Control journal' })).toBe(
-      '#control'
-    );
+  it('does not rewrite #control into #feed', () => {
+    window.location.hash = '#control';
+    const replace = vi.spyOn(window.history, 'replaceState');
+    updateUrlHash(makeFeedConversation('Feed', 'control'));
+    expect(replace).not.toHaveBeenCalled();
+    replace.mockRestore();
   });
 
   it('encodes discovered conversations', () => {
