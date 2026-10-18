@@ -102,6 +102,11 @@ FOREIGN_ORIGIN_CLOSE_CODE = 1008
 # gets the 401 that sends it to the login page.
 REVOKED_CLOSE_CODE = 1008
 
+# A socket keeps the principal it opened with, role included: a change of role
+# must revoke the user's sessions (``app.auth.sessions.revoke_user_sessions``)
+# so its sockets close and reconnect with the new role; the recheck below
+# checks liveness only.
+#
 # How often the sessions of the open sockets are checked against the database
 # (one query for all of them). A revocation in this process closes its sockets
 # at once (``close_sessions``); this catches the rest: ``meshloom-admin``, which
@@ -163,6 +168,7 @@ class _Client:
         "principal",
         "session_id",
         "token_id",
+        "last_slide",
         "queue",
         "writer",
         "unreported",
@@ -177,6 +183,9 @@ class _Client:
         # The credential that opened it, for ``close_sessions``/``close_tokens``.
         self.session_id = principal.session_id if principal is not None else None
         self.token_id = principal.token_id if principal is not None else None
+        # Wall-clock second of the last session slide from this socket's
+        # frames (``note_activity``); the upgrade request itself just slid it.
+        self.last_slide = time.time()
         self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAX)
         self.writer: asyncio.Task[None] | None = None
         # Dropped frames per event type not yet logged.
@@ -263,6 +272,28 @@ class WebSocketManager:
         for client in clients:
             self._evict(client, reason, code=REVOKED_CLOSE_CODE)
         return len(clients)
+
+    async def note_activity(self, websocket: WebSocket) -> None:
+        """A frame from the client: slide its session like an HTTP request
+        would, so a page that only keeps a WebSocket open (a kiosk display)
+        is not signed out at expiry. At most one attempt per
+        ``LAST_SEEN_WRITE_INTERVAL_S`` per socket, then ``touch()``'s own
+        once-a-minute rule."""
+        from app.repository.auth import LAST_SEEN_WRITE_INTERVAL_S
+
+        client = self.active_connections.get(websocket)
+        if client is None or client.session_id is None:
+            return
+        now = time.time()
+        if now - client.last_slide < LAST_SEEN_WRITE_INTERVAL_S:
+            return
+        client.last_slide = now
+        from app.auth.sessions import slide_session
+
+        try:
+            await slide_session(client.session_id, now=int(now))
+        except Exception:
+            logger.debug("Could not slide the session of a WebSocket", exc_info=True)
 
     async def _recheck_sessions(self) -> None:
         """Close the sockets whose session is no longer live, every

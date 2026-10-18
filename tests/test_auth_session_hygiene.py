@@ -105,23 +105,58 @@ async def test_password_change_closes_the_other_sessions_sockets_and_logout_its_
         assert await mine.wait_closed() == REVOKED_CLOSE_CODE
 
 
-async def test_login_never_promotes_a_planted_session_id():
+async def test_sign_out_everywhere_else_closes_the_other_sockets_and_keeps_the_callers(managed):
+    user = await create_user()
+    async with make_client() as here, make_client() as second, make_client() as third:
+        for client in (here, second, third):
+            await login(client)
+        listed = (await here.get("/api/auth/sessions")).json()
+        current = next(s["id"] for s in listed if s["current"])
+        others = [s["id"] for s in listed if not s["current"]]
+        mine = await managed(user, current)
+        theirs = [await managed(user, session_id) for session_id in others]
+
+        response = await here.delete("/api/auth/sessions")
+        assert response.json() == {"revoked": 2}
+        for socket in theirs:
+            assert await socket.wait_closed() == REVOKED_CLOSE_CODE
+        assert not mine.closed.is_set()
+        assert mine.ws in ws_manager.active_connections
+
+
+@pytest.mark.parametrize("planted", ["attacker-chosen-session-id", None])
+async def test_login_never_promotes_a_planted_session_id(planted):
     await create_user()
     async with make_client() as victim:
-        await login(victim)
-        planted = victim.cookies.get("meshloom_session")
+        if planted is None:
+            # A real, live session of the same browser, planted before the login.
+            await login(victim)
+            planted = victim.cookies.get("meshloom_session")
+        else:
+            victim.cookies.set("meshloom_session", planted)
         response = await login(victim)
-        issued = victim.cookies.get("meshloom_session")
+        issued = response.cookies.get("meshloom_session")
         assert issued and issued != planted
-        assert len(await AuthSessionRepository.list_for_user(1)) == 2
         assert response.json()["authenticated"] is True
+        victim.cookies.clear()
+        victim.cookies.set("meshloom_session", issued)
+        assert (await victim.get("/api/auth/me")).status_code == 200
+        [current] = [s for s in (await victim.get("/api/auth/sessions")).json() if s["current"]]
+        assert current["id"] != planted
 
 
 async def test_the_51st_login_revokes_the_oldest_session_and_closes_its_socket(managed):
     user = await create_user()
+    bystander_user = await create_user("member1", role="member")
+    bystander_session = await sessions.issue_session(
+        bystander_user, ip=None, user_agent=None, via="lan"
+    )
+    bystander = await managed(bystander_user, bystander_session.session.id)
     first = await sessions.issue_session(user, ip=None, user_agent=None, via="lan")
     oldest = await managed(user, first.session.id)
-    for _ in range(MAX_SESSIONS_PER_USER - 1):
+    second = await sessions.issue_session(user, ip=None, user_agent=None, via="lan")
+    kept = await managed(user, second.session.id)
+    for _ in range(MAX_SESSIONS_PER_USER - 2):
         await sessions.issue_session(user, ip=None, user_agent=None, via="lan")
     assert len(await AuthSessionRepository.list_for_user(user.id)) == MAX_SESSIONS_PER_USER
     assert not oldest.closed.is_set()
@@ -132,6 +167,60 @@ async def test_the_51st_login_revokes_the_oldest_session_and_closes_its_socket(m
     assert len(active) == MAX_SESSIONS_PER_USER
     assert first.session.id not in {s.id for s in active}
     assert await oldest.wait_closed() == REVOKED_CLOSE_CODE
+    # Only the evicted session's socket closes: the user's next session and
+    # another user's socket stay open.
+    await asyncio.sleep(0.05)
+    assert not kept.closed.is_set() and not bystander.closed.is_set()
+    assert {kept.ws, bystander.ws} <= set(ws_manager.active_connections)
+
+
+async def test_websocket_frames_slide_the_session_once_a_minute(managed, monkeypatch):
+    user = await create_user("kiosk1", role="kiosk")
+    issued = await sessions.issue_session(user, ip=None, user_agent=None, via="lan")
+    clock = [float(issued.session.created_at)]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    socket = await managed(user, issued.session.id)
+
+    writes = 0
+    real_touch = AuthSessionRepository.touch
+
+    async def counting_touch(*args, **kwargs):
+        nonlocal writes
+        written = await real_touch(*args, **kwargs)
+        writes += int(written)
+        return written
+
+    monkeypatch.setattr(AuthSessionRepository, "touch", counting_touch)
+    for _ in range(20):  # the frontend pings every 30 s: ten minutes
+        clock[0] += 30
+        await ws_manager.note_activity(socket.ws)
+    assert writes == 10
+    [after] = await AuthSessionRepository.list_for_user(user.id, now=int(clock[0]))
+    assert after.last_seen_at == int(clock[0])
+    assert after.expires_at == int(clock[0]) + issued.max_age
+
+
+async def test_a_websocket_only_kiosk_outlives_the_session_lifetime(managed, monkeypatch):
+    """A display that only keeps its socket open is not signed out at expiry."""
+    from app.repository.auth import AuthSettingsRepository
+
+    await AuthSettingsRepository.update(session_lifetime_days=1)
+    user = await create_user("kiosk1", role="kiosk")
+    pinging = await sessions.issue_session(user, ip=None, user_agent=None, via="lan")
+    idle = await sessions.issue_session(user, ip=None, user_agent=None, via="lan")
+    clock = [float(pinging.session.created_at)]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    socket = await managed(user, pinging.session.id)
+    await managed(user, idle.session.id)
+
+    for _ in range(6):  # three days, in half-day steps
+        clock[0] += 12 * 3600
+        await ws_manager.note_activity(socket.ws)
+
+    live = await AuthSessionRepository.filter_live(
+        [pinging.session.id, idle.session.id], now=int(clock[0])
+    )
+    assert live == {pinging.session.id}
 
 
 async def test_the_housekeeping_loop_purges_expired_and_revoked_sessions(test_db, monkeypatch):

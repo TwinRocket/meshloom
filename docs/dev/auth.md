@@ -311,7 +311,13 @@ are `admin`: a single-admin installation sees no change.
 - **Throttled last-seen.** The middleware calls `touch()` only when the
   session it read was last seen a minute ago or more, and `touch()` itself
   writes only under the same condition, so a burst of requests costs one write
-  a minute per session, not one per request.
+  a minute per session, not one per request. WebSocket frames (the frontend's
+  30 s `ping`) slide the session too (`ws_manager.note_activity()` →
+  `sessions.slide_session()`, at most one attempt a minute per socket), so a
+  page that only keeps its socket open, such as a kiosk display, is not signed
+  out at expiry; no cookie goes out on that path, the next HTTP request sends
+  it again. There is no absolute lifetime: only the sliding
+  `session_lifetime_days`.
 - **Revocation closes the WebSockets.** `ws_manager` (`app/websocket.py`)
   indexes every socket by the session id and token id of its principal.
   `sessions.revoke_session()` (logout, `DELETE /auth/sessions/{id}`),
@@ -324,7 +330,10 @@ are `admin`: a single-admin installation sees no change.
   of its sessions are still live (`filter_live()`, one query) and closes the
   others: that catches `meshloom-admin` (another process, writing the database),
   expiries and disabled accounts. Basic-auth sockets carry no session and are
-  not rechecked.
+  not rechecked. A socket keeps the role it opened with (the recheck checks
+  liveness, not the role): a future role-change path must revoke the user's
+  sessions through `revoke_user_sessions()` so the sockets reconnect with the
+  new role.
 - **Purge.** `sessions.purge_sessions()` runs in the hourly housekeeping loop
   (`app/services/stale_contacts.py`) and deletes expired and revoked rows.
 

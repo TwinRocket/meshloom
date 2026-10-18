@@ -172,3 +172,15 @@ async def resolve_session(token: str, *, now: int | None = None) -> ResolvedSess
         if await AuthSessionRepository.touch(session.id, now=ts, expires_at=ts + lifetime):
             refreshed = lifetime
     return ResolvedSession(session=session, user=user, refreshed_max_age=refreshed)
+
+
+async def slide_session(session_id: str, *, now: int | None = None) -> bool:
+    """Slide a session from activity that is not an HTTP request (WebSocket
+    frames), with the same once-a-minute ``touch()``. True when written.
+
+    No cookie goes out: the browser's cookie keeps its old ``Max-Age``, and the
+    next HTTP request (which slides too) sends it again. There is no absolute
+    lifetime (cadrage §4.4 defines only ``session_lifetime_days``, sliding)."""
+    ts = int(time.time()) if now is None else now
+    lifetime = await lifetime_seconds()
+    return await AuthSessionRepository.touch(session_id, now=ts, expires_at=ts + lifetime)
