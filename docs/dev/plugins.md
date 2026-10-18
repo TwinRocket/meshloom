@@ -900,8 +900,12 @@ counted only for a send that went out. A refusal is `quota_exceeded` with `param
   event (several events in flight and no `event_id`, after the handler returned, a
   non-message `event_id`, a timer) counts as a reply to the most recent message the
   instance was handed from that destination (`SendGuard.note_inbound()`, called by the
-  host when it enqueues a message event; memory only, a restart forgets it); with none,
-  no reply guard applies.
+  host when it enqueues a message event; memory only, a restart forgets it), but only
+  while that message is under `UNTIED_REPLY_HORIZON_SECONDS` (30) old: an older one, or
+  none, makes the send unsolicited (a timer, a daily reminder), subject only to the
+  budgets and quotas. A timer firing more often than every 30 s into a destination with
+  inbound traffic is therefore held to one send per 30 s (each counts as a reply; the
+  destination quota bounds it anyway).
 - **Fail closed**: the guards are counted before the send leaves, under the spacing lock;
   if they cannot be checked or counted nothing is sent and the child gets
   `quota_unavailable`. A send that then fails stays counted.

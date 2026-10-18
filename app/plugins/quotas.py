@@ -196,6 +196,9 @@ send_quota = SendQuota()
 
 SENDER_COOLDOWN_SECONDS = 30
 QUIET_WINDOW_SECONDS = 5
+# A send tied to no event is a reply to the last message of its destination only while
+# that message is this recent; an older one (a timer, a daily reminder) is unsolicited.
+UNTIED_REPLY_HORIZON_SECONDS = 30
 
 GuardScope = Literal["instance", "destination", "sender_cooldown", "quiet_window"]
 GuardLimitName = Literal["instance_per_hour", "channel_per_hour", "contact_per_hour"]
@@ -402,7 +405,12 @@ class SendGuard:
     def last_inbound(
         self, instance_id: str, *, is_dm: bool, key: str
     ) -> tuple[str | None, int] | None:
-        return self._inbound.get((instance_id, destination_subject(is_dm=is_dm, key=key)))
+        """The last message handed to the instance from this destination, None when there
+        is none or it is `UNTIED_REPLY_HORIZON_SECONDS` old or more."""
+        last = self._inbound.get((instance_id, destination_subject(is_dm=is_dm, key=key)))
+        if last is None or int(self.clock()) - last[1] >= UNTIED_REPLY_HORIZON_SECONDS:
+            return None
+        return last
 
     # Visibility.
 

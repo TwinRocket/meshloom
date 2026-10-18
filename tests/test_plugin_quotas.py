@@ -354,14 +354,67 @@ def test_an_untied_send_is_a_reply_to_the_last_inbound_of_its_destination():
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(messages, "send_guard", guard)
         assert messages._reply_context(call, target) == (None, None)  # nothing heard yet
-        guard.note_inbound("i1", {"channel_key": CHANNEL, "sender_name": "Bob", "received_at": 7})
+        now = int(guard.clock())
+        guard.note_inbound("i1", {"channel_key": CHANNEL, "sender_name": "Bob", "received_at": now})
         guard.note_inbound("i1", {"channel_key": CHANNEL, "is_outgoing": True, "sender_name": "Me"})
-        assert messages._reply_context(call, target) == ("name:bob", 7)
+        assert messages._reply_context(call, target) == ("name:bob", now)
         other = messages.Target(False, "EF" * 16)
         assert messages._reply_context(call, other) == (None, None)
         timer = SimpleNamespace(hook="timer", params={})
         call.event = timer
-        assert messages._reply_context(call, target) == ("name:bob", 7)
+        assert messages._reply_context(call, target) == ("name:bob", now)
+
+
+async def _untied_after_a_busy_exchange(guard: SendGuard, clock: Clock) -> None:
+    """The reviewer's reproduction: a send, an answer 2 s later, then untied sends."""
+    from types import SimpleNamespace
+
+    from app.plugins.capabilities import messages
+
+    call = SimpleNamespace(instance=SimpleNamespace(instance_id="i1"), event=None)
+    target = messages.Target(False, CHANNEL)
+
+    async def untied() -> None:
+        sender, received = messages._reply_context(call, target)
+        await send(guard, sender=sender, at=received if received is not None else None)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(messages, "send_guard", guard)
+        await send(guard)  # the plugin sends at T
+        clock.now += 2
+        guard.note_inbound(
+            "i1", {"channel_key": CHANNEL, "sender_name": "Bob", "received_at": int(clock.now)}
+        )
+        clock.now += 1  # T+3: a fast untied send is a reply to a message right after a send
+        with pytest.raises(GuardRefused) as quiet:
+            await untied()
+        assert quiet.value.scope == "quiet_window"
+        clock.now += HOUR  # T+1 h: a timer, unsolicited
+        await untied()
+        clock.now += 24 * HOUR  # and the next day's reminder
+        await untied()
+
+
+async def test_a_late_untied_send_is_never_stuck_in_the_quiet_window(test_db):
+    clock = Clock()
+    await _untied_after_a_busy_exchange(SendGuard(clock), clock)
+
+
+async def test_a_late_untied_send_is_never_stuck_with_the_stand_in_store():
+    clock = Clock()
+    await _untied_after_a_busy_exchange(SendGuard(clock, MemoryStore()), clock)
+
+
+def test_the_last_inbound_is_only_remembered_while_recent():
+    clock = Clock()
+    guard = SendGuard(clock)
+    guard.note_inbound(
+        "i1", {"channel_key": CHANNEL, "sender_name": "Bob", "received_at": int(clock.now)}
+    )
+    clock.now += quotas.UNTIED_REPLY_HORIZON_SECONDS - 1
+    assert guard.last_inbound("i1", is_dm=False, key=CHANNEL) is not None
+    clock.now += 1
+    assert guard.last_inbound("i1", is_dm=False, key=CHANNEL) is None
 
 
 async def test_removing_an_instance_forgets_its_refusals(test_db):
