@@ -523,8 +523,9 @@ a scoped principal (a scope only narrows, and none grants the account). A route 
 nothing answers 403 to everyone but an admin. `tests/test_auth_route_coverage.py`
 walks `app.routes` (through FastAPI's lazy includes, plus the frontend routes a
 build registers) and fails on a route without exactly one declaration, a
-non-API path missing from `NON_API_ACCESS`, or a WebSocket event type missing
-from `WS_EVENT_PERMISSIONS`.
+non-API path missing from `NON_API_ACCESS`, or an emit call
+(`broadcast_event`, the injected `broadcast_fn`, `ws_manager.broadcast*`,
+`send_personal`) in `app/` that passes anything but a `WsEvent` member.
 
 **Refusal.** 403 `{"detail": {"code": "auth_forbidden", "message", "params":
 {"permission"}}}` (`permission` is `account` for `own_account()`), translated
@@ -551,16 +552,21 @@ body validation, so a refused caller never gets a 422.
 - The JSON and full backups, the debug snapshot and the database download are
   `admin` routes.
 
-**WebSocket events.** `WS_EVENT_PERMISSIONS` classifies every `WsEventType`
-(`app/events.py`); an unknown type goes to admins only. `ws_manager` keeps the
+**WebSocket events.** `WsEvent` (`app/auth/ws_events.py`) is the one
+enumeration of event types: each member declares the permission needed to
+receive it, `app/events.py` has one payload model per member, and
+`frontend/src/wsEventTypes.ts` is generated from it
+(`scripts/build/export_ws_events.py`, checked by `tests/test_ws_event_export.py`;
+`wsEvents.ts` fails `tsc` when its union drifts). A type that is not a member
+reaches no client, admins included (fail closed, logged once). `ws_manager` keeps the
 principal of each socket and delivers an event only to the clients holding its
 permission. A `message` that is not `CHAN` is not sent to a client without
 `read_private`, and a `raw_packet` decrypted from a DM reaches it without its
 decryption. `radio_wifi` is `admin` and `plugin_status` is `send`; the other
 types are `read`. `health` goes to every `read` client, but one without `send`
 gets the plugins' `last_error` as `null` (also on the REST route;
-`app/plugins/lifecycle.py`). Finer
-per-event filtering (contact activity fields, toasts) is Access T26.
+`app/plugins/lifecycle.py`). Toasts (`error`, `success`) and contact frames
+go to every `read` client unfiltered.
 
 **4.x upgrade.** The account imported from Basic and the first administrator
 are `admin`: a single-admin installation sees no change.
