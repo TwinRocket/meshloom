@@ -94,14 +94,30 @@ def test_recovery_codes_are_random_hashed_and_typed_loosely():
 def test_pending_logins_expire_and_are_void_after_the_attempt_budget():
     now = {"t": 0.0}
     pending = totp.PendingLogins(clock=lambda: now["t"])
-    token = pending.issue(1, 10)
+    token = pending.issue(1, 10, "client")
     assert pending.get(token) is not None and pending.get("other") is None
     for _ in range(totp.PENDING_MAX_ATTEMPTS):
-        pending.note_failure(token)
+        entry = pending.take(token)
+        assert entry is not None
+        # Taken: a concurrent request finds nothing until it is put back.
+        assert pending.take(token) is None
+        pending.put_back(token, entry, failed=True)
     assert pending.get(token) is None
-    token = pending.issue(1, 10)
+    token = pending.issue(1, 10, "client")
+    entry = pending.take(token)
+    assert entry is not None
+    pending.put_back(token, entry, failed=False)  # a 429: not counted
+    assert pending.get(token).attempts == 0
     now["t"] = totp.PENDING_TTL_S + 1
     assert pending.get(token) is None
+
+
+def test_the_client_binding_covers_address_and_user_agent():
+    base = totp.client_binding("10.0.0.1", "Firefox")
+    assert base == totp.client_binding("10.0.0.1", "Firefox")
+    assert base != totp.client_binding("10.0.0.2", "Firefox")
+    assert base != totp.client_binding("10.0.0.1", "Chrome")
+    assert "10.0.0.1" not in base
 
 
 # --- Enrolment and login ----------------------------------------------------------
@@ -419,3 +435,73 @@ async def test_an_unreadable_setting_confines_the_admin(monkeypatch):
         monkeypatch.setattr(middleware.AuthSettingsRepository, "require_2fa_for_admins", broken)
         response = await admin.get("/api/auth/users")
         assert response.json()["detail"]["code"] == "auth_2fa_enrolment_required"
+
+
+# --- Review round 1 (PR #240) -------------------------------------------------------
+
+
+async def test_the_pending_login_is_bound_to_the_first_step_client(clock):
+    await create_user()
+    async with make_client() as owner:
+        await login(owner)
+        secret, _ = await _enrol(owner)
+    code = _code(secret, clock["t"], 1)
+
+    # Another address: refused, and the token is gone for everyone.
+    async with make_client() as first, make_client(client=("10.9.9.9", 4242)) as thief:
+        token = await _password_step(first)
+        stolen = await thief.post(
+            "/api/auth/login/2fa", json={"pending_token": token, "code": code}
+        )
+        assert stolen.json()["detail"]["code"] == "auth_2fa_pending_invalid"
+        after = await first.post("/api/auth/login/2fa", json={"pending_token": token, "code": code})
+        assert after.json()["detail"]["code"] == "auth_2fa_pending_invalid"
+
+    # Same address, another browser (User-Agent): refused too.
+    async with make_client() as first:
+        token = await _password_step(first)
+        other = await first.post(
+            "/api/auth/login/2fa",
+            json={"pending_token": token, "code": code},
+            headers={"user-agent": "another browser"},
+        )
+        assert other.json()["detail"]["code"] == "auth_2fa_pending_invalid"
+    assert "pending_client_mismatch" in await _audit_text()
+
+
+async def test_one_pending_token_opens_one_session_under_concurrency(clock):
+    import asyncio
+
+    await create_user()
+    async with make_client() as owner:
+        await login(owner)
+        _, codes = await _enrol(owner)
+    async with make_client() as client:
+        token = await _password_step(client)
+        answers = await asyncio.gather(
+            *(
+                client.post("/api/auth/login/2fa", json={"pending_token": token, "code": code})
+                for code in codes[:2]
+            )
+        )
+    assert sorted(answer.status_code for answer in answers) == [200, 401]
+    assert len(await TotpRepository.unused_codes(1)) == totp.RECOVERY_CODE_COUNT - 1
+
+
+@pytest.mark.parametrize("route", ["/api/auth/2fa/disable", "/api/auth/2fa/recovery"])
+async def test_a_right_password_does_not_clear_the_penalty_of_wrong_codes(clock, route):
+    await create_user()
+    async with make_client() as owner:
+        await login(owner)
+        await _enrol(owner)
+        statuses = []
+        for _ in range(8):
+            response = await owner.post(route, json={"password": PASSWORD, "code": "000000"})
+            statuses.append(response.status_code)
+        # The first wrong codes are free; then the delay holds even with the right password.
+        assert statuses[:5] == [403] * 5
+        assert 429 in statuses[5:]
+    # The (address, name) pair kept every wrong code: the right password did not reset it.
+    from app.auth.ratelimit import login_limiter
+
+    assert max(counter.failures for counter in login_limiter._pairs.values()) >= 5

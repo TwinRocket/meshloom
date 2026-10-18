@@ -23,8 +23,12 @@ Rules (``docs/dev/auth.md``, "Second factor"):
   no session: ``POST /auth/login`` answers a pending-login token
   (``PendingLogins``, in memory, ``PENDING_TTL_S``, ``PENDING_MAX_ATTEMPTS``
   wrong codes), and ``POST /auth/login/2fa`` exchanges it with a code for the
-  session. Any change to the account (``updated_at``) voids the token. A restart
-  forgets them all (sign in again).
+  session. The token is bound to the first step's client (``client_binding``:
+  the address the trusted-proxy interpreter resolved, and the User-Agent), is
+  taken out of the table while a code is checked (two concurrent requests
+  cannot both use it) and put back only after a wrong code. Any change to the
+  account (``updated_at``) voids the token. A restart forgets them all (sign in
+  again).
 - **Never log** a secret, a code, a recovery code or a pending token.
 """
 
@@ -32,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import hashlib
 import hmac
 import re
 import secrets
@@ -184,8 +189,17 @@ class PendingLogin:
     user_id: int
     # ``users.updated_at`` when the password checked: any later account change voids it.
     generation: int
+    # ``client_binding()`` of the first step: another client cannot use the token.
+    client: str
     expires_at: float
     attempts: int = 0
+
+
+def client_binding(ip: str | None, user_agent: str | None) -> str:
+    """The client a pending login is bound to: its address (``client_ip()``, as
+    the trusted-proxy interpreter resolved it) and its User-Agent, hashed."""
+    material = f"{ip or ''}\n{(user_agent or '')[:512]}"
+    return hashlib.sha256(material.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 class PendingLogins:
@@ -196,7 +210,7 @@ class PendingLogins:
         self._clock = clock
         self._entries: dict[str, PendingLogin] = {}
 
-    def issue(self, user_id: int, generation: int) -> str:
+    def issue(self, user_id: int, generation: int, client: str) -> str:
         now = self._clock()
         self._sweep(now)
         while len(self._entries) >= PENDING_MAX_ENTRIES:
@@ -205,6 +219,7 @@ class PendingLogins:
         self._entries[hash_token(token)] = PendingLogin(
             user_id=user_id,
             generation=generation,
+            client=client,
             expires_at=now + PENDING_TTL_S,
         )
         return token
@@ -219,15 +234,23 @@ class PendingLogins:
             return None
         return entry
 
-    def note_failure(self, token: str) -> None:
-        """One wrong code; the token is void after ``PENDING_MAX_ATTEMPTS``."""
-        key = hash_token(token)
-        entry = self._entries.get(key)
-        if entry is None:
+    def take(self, token: str) -> PendingLogin | None:
+        """Remove and return a live entry, so a concurrent request with the same
+        token finds nothing while this one checks its code."""
+        entry = self.get(token)
+        if entry is not None:
+            self._entries.pop(hash_token(token), None)
+        return entry
+
+    def put_back(self, token: str, entry: PendingLogin, *, failed: bool) -> None:
+        """Return a taken entry after a check that opened no session; a wrong
+        code (``failed``) counts, and the token is void after
+        ``PENDING_MAX_ATTEMPTS``."""
+        if failed:
+            entry.attempts += 1
+        if entry.attempts >= PENDING_MAX_ATTEMPTS or entry.expires_at <= self._clock():
             return
-        entry.attempts += 1
-        if entry.attempts >= PENDING_MAX_ATTEMPTS:
-            self._entries.pop(key, None)
+        self._entries[hash_token(token)] = entry
 
     def discard(self, token: str) -> None:
         self._entries.pop(hash_token(token), None)

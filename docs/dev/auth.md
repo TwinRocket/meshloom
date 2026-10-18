@@ -879,7 +879,10 @@ Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
   are random, so the hash only makes a stolen table useless, and a check tries
   up to ten. Each works once (`used_at`, conditional `UPDATE`). `POST
   /auth/2fa/recovery` (password and a TOTP code) replaces them; disabling the
-  factor deletes them.
+  factor deletes them. Disable and recovery check the password with
+  `record_success=False`: the login delays are cleared only once the password
+  **and** the code checked, so wrong codes keep building the (address, name)
+  delay even with the right password.
 - **Login.** A correct password for an account with the factor on opens no
   session and does not count as a limiter success: `POST /auth/login` answers a
   pending-login token (256 bits, only its SHA-256 kept, in memory, 5 minutes,
@@ -887,9 +890,16 @@ Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
   /auth/login/2fa` checks the code (TOTP or recovery) under the login delays,
   keyed on the client's address and the account's name like a password: a
   wrong code is `record_failure` (so password and code failures share one
-  budget), a right one `record_success`. Five wrong codes void the token; a
-  change to the account (`updated_at`), a disable or a removed factor void it
-  too; a restart forgets every token (sign in again). The session and the
+  budget), a right one `record_success`. The token is bound to the first
+  step's client (`client_binding`: SHA-256 of `client_ip()`, as the trusted-proxy
+  interpreter resolved it, and the User-Agent): another address or browser gets
+  401 `auth_2fa_pending_invalid`, the token is discarded and a `login` row
+  `refused` (`details.reason = pending_client_mismatch`) is written. While a
+  code is checked the entry is taken out of the table (`PendingLogins.take`), so
+  two concurrent requests cannot both use one token; it is put back only after a
+  check that opened no session (a wrong code counts). Five wrong codes void the
+  token; a change to the account (`updated_at`), a disable or a removed factor
+  void it too; a restart forgets every token (sign in again). The session and the
   known-device cookie are issued only after the second factor.
 - **No other way around it.** `Authorization: Basic` never signs in an
   account whose factor is on (no code in the header: 401). A trusted network

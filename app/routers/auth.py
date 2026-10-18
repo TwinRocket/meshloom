@@ -403,12 +403,16 @@ async def _check_current_password(
     user: User,
     current_password: SecretStr | None,
     action: audit.AuditAction = "password.changed",
+    *,
+    record_success: bool = True,
 ) -> None:
     """The current password of a self-service change, checked like a login:
     the login delays first (keyed on the client's address and the account's
     name, ``app/auth/ratelimit.py``), then the bounded argon2id queue (503
     ``auth_busy``). A stolen session cannot guess it faster than the login page.
-    Refusals are audited under ``action``."""
+    Refusals are audited under ``action``. With ``record_success=False`` (a code
+    check follows) a right password does not clear the login delays: the caller
+    records the success once the whole check passed."""
     current = current_password.get_secret_value() if current_password else ""
     target = audit.user_target(user.id)
     if not current:
@@ -453,7 +457,8 @@ async def _check_current_password(
             details={"reason": "current_password_invalid"},
         )
         raise _error(403, "auth_invalid_credentials")
-    limiter.record_success(address, user.username)
+    if record_success:
+        limiter.record_success(address, user.username)
 
 
 # --- Routes -------------------------------------------------------------------
@@ -599,7 +604,11 @@ async def _second_factor_challenge(request: Request, user: User) -> AuthSessionR
     current = await UserRepository.get(user.id)
     if current is None:
         raise _error(401, "auth_invalid_credentials")
-    token = totp.pending_logins.issue(current.id, current.updated_at)
+    token = totp.pending_logins.issue(
+        current.id,
+        current.updated_at,
+        totp.client_binding(client_ip(request.scope), request.headers.get("user-agent")),
+    )
     await audit.record_request(
         request, "login", "pending", target=audit.user_target(user.id), details={"factor": "totp"}
     )

@@ -15,11 +15,13 @@ password, a code, a secret or a pending token.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+import hmac
+
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.auth import audit, device_cookie, ratelimit, sessions, totp
-from app.auth.middleware import second_factor_enrolment_required
+from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH
 from app.auth.permissions import own_account, public
@@ -231,7 +233,9 @@ async def disable_totp(body: TotpProofRequest, request: Request) -> OkResponse:
     _applicable(user)
     if user.totp_enabled_at is None:
         raise _error(409, "auth_2fa_not_enabled")
-    await _check_current_password(request, user, body.password, "totp.disabled")
+    await _check_current_password(
+        request, user, body.password, "totp.disabled", record_success=False
+    )
     await _check_code(request, user, body.code, "totp.disabled", allow_recovery=True)
     await TotpRepository.disable(user.id)
     await audit.record_request(
@@ -249,7 +253,9 @@ async def regenerate_recovery_codes(body: TotpProofRequest, request: Request) ->
     _applicable(user)
     if user.totp_enabled_at is None:
         raise _error(409, "auth_2fa_not_enabled")
-    await _check_current_password(request, user, body.password, "totp.recovery_regenerated")
+    await _check_current_password(
+        request, user, body.password, "totp.recovery_regenerated", record_success=False
+    )
     await _check_code(request, user, body.code, "totp.recovery_regenerated", allow_recovery=False)
     codes = totp.new_recovery_codes()
     if not await TotpRepository.replace_codes(user.id, await totp.hash_recovery_codes(codes)):
@@ -273,14 +279,17 @@ async def login_second_factor(
     /auth/login`` and a TOTP or recovery code open the session. Public.
 
     401 ``auth_2fa_pending_invalid`` when the token is unknown, expired, used up
-    (``PENDING_MAX_ATTEMPTS`` wrong codes) or the account changed since: enter
-    the password again. 401 ``auth_2fa_invalid`` for a wrong or replayed code.
-    429 ``auth_rate_limited`` while a login delay runs (the attempt is not
-    counted against the token).
+    (``PENDING_MAX_ATTEMPTS`` wrong codes), in use by a concurrent request, sent
+    by another client than the password step (address or User-Agent: the token
+    is then discarded), or the account changed since: enter the password again.
+    401 ``auth_2fa_invalid`` for a wrong or replayed code. 429
+    ``auth_rate_limited`` while a login delay runs (the attempt is not counted
+    against the token).
     """
     _refuse_under_ingress(request)
     token = body.pending_token.get_secret_value()
-    entry = totp.pending_logins.get(token)
+    # Taken out of the table while the code is checked: single use under concurrency.
+    entry = totp.pending_logins.take(token)
     user = await UserRepository.get(entry.user_id) if entry is not None else None
     if (
         entry is None
@@ -289,7 +298,16 @@ async def login_second_factor(
         or user.updated_at != entry.generation
         or user.totp_enabled_at is None
     ):
-        totp.pending_logins.discard(token)
+        raise _error(401, "auth_2fa_pending_invalid")
+    client = totp.client_binding(client_ip(request.scope), request.headers.get("user-agent"))
+    if not hmac.compare_digest(client, entry.client):
+        await audit.record_request(
+            request,
+            "login",
+            "refused",
+            target=audit.user_target(user.id),
+            details={"reason": "pending_client_mismatch"},
+        )
         raise _error(401, "auth_2fa_pending_invalid")
     secure = _secure(request)
     presented = device_cookie.read(request.headers.get("cookie"), secure=secure)
@@ -298,11 +316,9 @@ async def login_second_factor(
         kind = await _check_code(
             request, user, body.code, "login", allow_recovery=True, status=401, device=device
         )
-    except HTTPException as exc:
-        if exc.status_code == 401:
-            totp.pending_logins.note_failure(token)
+    except BaseException as exc:
+        totp.pending_logins.put_back(token, entry, failed=getattr(exc, "status_code", None) == 401)
         raise
-    totp.pending_logins.discard(token)
     principal = await _start_session(request, response, user)
     await _remember_device(
         response, user, device or (presented.device_id if presented else None), secure
