@@ -160,7 +160,12 @@ async def test_unknown_or_reserved_fanout_id_is_404(test_db, client):
     ("config_type", "config", "key", "new_value"),
     [
         ("apprise", {"urls": TGRAM}, "urls", "tgram://999:NEW/1"),
-        ("webhook", {"url": "https://example.org/h", "hmac_secret": "s3cret"}, "hmac_secret", "n3w"),
+        (
+            "webhook",
+            {"url": "https://example.org/h", "hmac_secret": "s3cret"},
+            "hmac_secret",
+            "n3w",
+        ),
         (
             "mqtt_private",
             {"broker_host": "mqtt.example.org", "broker_port": 1883, "password": "pw0"},
@@ -233,9 +238,7 @@ async def test_json_backup_has_no_notification_secret_and_restore_keeps_them(tes
     }
     assert document["settings"]["notification_destinations"]["email"]["password"] == REDACTED
 
-    restored = await client.post(
-        "/api/settings/backup/restore", json={**document, "confirm": True}
-    )
+    restored = await client.post("/api/settings/backup/restore", json={**document, "confirm": True})
     assert restored.status_code == 200, restored.text
     after = (await AppSettingsRepository.get()).notification_destinations
     assert after.email.password == "smtp-pass-1"

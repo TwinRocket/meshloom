@@ -534,7 +534,9 @@ async def list_fanout_configs() -> list[dict]:
 @router.get("/{config_id}")
 async def get_fanout_config(config_id: str) -> dict:
     """One fanout config."""
-    existing = None if is_reserved_fanout_id(config_id) else await FanoutConfigRepository.get(config_id)
+    existing = (
+        None if is_reserved_fanout_id(config_id) else await FanoutConfigRepository.get(config_id)
+    )
     if existing is None:
         raise HTTPException(status_code=404, detail="Fanout config not found")
     return present_fanout_config(existing)
