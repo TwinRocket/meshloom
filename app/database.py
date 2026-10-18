@@ -303,6 +303,14 @@ CREATE TABLE IF NOT EXISTS plugin_secrets (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (instance_id, field)
 );
+
+CREATE TABLE IF NOT EXISTS plugin_send_quota (
+    instance_id TEXT NOT NULL,
+    period TEXT NOT NULL CHECK (period IN ('hour', 'day')),
+    period_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (instance_id, period)
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
