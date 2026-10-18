@@ -495,10 +495,13 @@ archive validator under each isolation level this machine offers), the RPC fuzz
 ```python
 from meshloom_plugin import Message, Plugin
 
+
 class Weather(Plugin):
     async def on_message(self, msg: Message) -> None:
         if msg.text.startswith("!weather"):
-            data = await self.http.get_json(f"https://api.open-meteo.com/v1/forecast?{self.config['query']}")
+            data = await self.http.get_json(
+                f"https://api.open-meteo.com/v1/forecast?{self.config['query']}"
+            )
             await self.reply(msg, self.fit(f"{data['current']['temperature_2m']} °C"))
 ```
 
@@ -591,7 +594,8 @@ the entry point of a migrated bot:
 
 ```python
 from meshloom_plugin.compat import legacy_bot
-Bot = legacy_bot(open("bot.py", encoding="utf-8").read())   # manifest entry "plugin.py:Bot"
+
+Bot = legacy_bot(open("bot.py", encoding="utf-8").read())  # manifest entry "plugin.py:Bot"
 ```
 
 The call plans (`BotCallPlan`, `analyze_bot_signature`, `call_bot`) and the return

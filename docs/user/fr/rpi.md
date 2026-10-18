@@ -60,7 +60,7 @@ Les bots, qui exécutent du code sur la machine, sont désactivés sur cette ima
 
 L’image kiosque affiche Meshloom en plein écran sur un écran branché au Pi, avec un compte `kiosk` en lecture seule et sans mot de passe : il lit les messages des canaux, jamais les messages directs, et n’a aucun réglage.
 
-Sur une image kiosque neuve, ou gravée avant la 5.0 une fois mise à jour, l’écran affiche d’abord **Compte administrateur pas encore créé** avec un code d’installation. Depuis un téléphone ou un ordinateur du même réseau, ouvrez `http://meshloom.local:8000`, saisissez ce code et créez le compte administrateur. L’écran du mur affiche ensuite la page de connexion : le compte kiosque n’a pas de mot de passe, il y reste donc tant qu’un administrateur n’a pas ajouté une règle de réseau de confiance pour lui (**Réglages → Utilisateurs et accès → Réseaux de confiance**). Le code n’apparaît que sur l’écran du Pi ; pour en obtenir un nouveau, lancez `meshloom-admin setup-code` sur le Pi.
+Sur une image kiosque neuve, ou gravée avant la 5.0 une fois mise à jour, l’écran affiche d’abord **Compte administrateur pas encore créé** avec un code d’installation. Depuis un téléphone ou un ordinateur du même réseau, ouvrez `http://meshloom.local:8000`, saisissez ce code et créez le compte administrateur. L’écran du mur affiche ensuite la page de connexion : le compte kiosque n’a pas de mot de passe, l’écran reste donc sur cette page pour le moment. La connexion automatique de l’écran viendra plus tard dans la 5.0, avec les jetons d’appareil. Le code n’apparaît que sur l’écran du Pi ; pour en obtenir un nouveau, lancez `meshloom-admin setup-code` sur le Pi.
 
 ## Mettre à jour
 

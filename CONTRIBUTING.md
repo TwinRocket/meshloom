@@ -162,8 +162,9 @@ Setup:
 2. Run a Meshloom instance on the second radio
 3. Configure a bot on the second radio that monitors the echo channel and replies when it sees the trigger. Example bot code:
    ```python
-   def bot(sender_name, sender_key, message_text, is_dm,
-           channel_key, channel_name, sender_timestamp, path):
+   def bot(
+       sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path
+   ):
        if "!echo" in message_text.lower():
            return f"[ECHO] {message_text}"
        return None

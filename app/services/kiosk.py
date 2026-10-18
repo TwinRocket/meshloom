@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from app.auth.providers.trusted_network import carries_proxy_headers
+from app.auth.providers.trusted_network import rule_blocker
 from app.middleware import proxy_headers
 
 logger = logging.getLogger(__name__)
@@ -55,22 +55,40 @@ def remember_displayed_code(code: str | None) -> None:
 
 
 async def displayed_setup_code(scope: Mapping[str, Any], headers: Mapping[str, str]) -> str | None:
-    """The installation code for the kiosk screen, or None.
+    """The installation code for the kiosk screen, or None (fail closed).
 
     Only on a kiosk host, only while the code issued at this start is still the
     stored one (``meshloom-admin setup-code`` replaces it from another process),
-    and only to a direct loopback peer: a proxy or tunnel on the machine adds a
-    header, so the Internet never sees it.
+    and only to the request the kiosk browser makes: a direct loopback peer that
+    is no trusted proxy, carries no proxy header, did not come through the relay
+    or ingress, and passes the strict ``Host`` guard. Those are the checks of the
+    trusted-network provider (``rule_blocker``, whose loopback refusal is lifted
+    here because loopback is exactly the kiosk browser).
     """
     if _displayed_code is None or not kiosk_host():
         return None
-    peer = proxy_headers.peer_address(scope)
-    if peer not in ("127.0.0.1", "::1") or carries_proxy_headers(headers):
-        return None
-    from app.auth.tokens import hash_token
-    from app.repository.auth import AuthSettingsRepository
+    try:
+        from app.auth.middleware import request_via
+        from app.auth.tokens import hash_token
+        from app.repository.auth import AuthSettingsRepository
 
-    stored = await AuthSettingsRepository.get_setup_code_hash()
+        peer = proxy_headers.peer_address(scope)
+        if peer not in ("127.0.0.1", "::1"):
+            return None
+        auth_settings = await AuthSettingsRepository.get()
+        if rule_blocker(
+            scope,
+            headers,
+            request_via(scope),
+            trusted_proxies=proxy_headers.current(),
+            public_urls=auth_settings.public_urls,
+            install_kind="addon",  # only to let loopback through the check
+        ):
+            return None
+        stored = await AuthSettingsRepository.get_setup_code_hash()
+    except Exception:
+        logger.exception("Kiosk setup code check failed; not shown")
+        return None
     if stored is None or stored != hash_token(_displayed_code):
         return None
     return _displayed_code

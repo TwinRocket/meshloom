@@ -831,3 +831,12 @@ ingress first-user rule) ignores `kiosk` accounts. On a kiosk host an
 installation code is issued even on a fresh database; `/auth/session` returns it
 as `kiosk_setup_code` only to a direct loopback peer carrying no proxy header
 while setup is open.
+
+The account is created when absent by username, at every start: a disabled
+`kiosk` account stays disabled, but one an administrator deleted comes back at
+the next restart of a kiosk host (harmless: no password, read-only). Remove the
+marker to stop that. The code is shown only after the trusted-network request
+checks (`rule_blocker`: not relayed or ingress, no trusted proxy, no proxy
+header, strict `Host`) with loopback allowed, and any error hides it.
+`meshloom-admin setup-code` works on a kiosk host (it tests `any_exist()`); the
+screen then stops showing the old code.

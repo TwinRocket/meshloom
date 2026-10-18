@@ -229,7 +229,9 @@ async def _create_admin(args: argparse.Namespace) -> int:
 async def _setup_code(args: argparse.Namespace) -> int:
     # Only the SHA-256 of the code is stored, so a code cannot be read back:
     # each run issues a new one and the previous one stops working.
-    if await UserRepository.list_all():
+    # A kiosk account (kiosk hosts create it before any administrator) does not
+    # count: setup is still open (UserRepository.any_exist).
+    if await UserRepository.any_exist():
         raise CliError(
             "the installation code only matters while no account exists, and one does: "
             "use create-admin or reset-password instead"

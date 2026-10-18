@@ -60,7 +60,7 @@ def extract_prebuilt(zip_path: Path, dest: Path) -> int:
         dest.mkdir(parents=True)
 
         for member in members:
-            rel = member[len(PREBUILT_PREFIX):]
+            rel = member[len(PREBUILT_PREFIX) :]
             if not rel:
                 continue
             target = dest / rel
