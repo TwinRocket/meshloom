@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app import cors
+from app import cors, origin_policy
 from app.main import app
 from app.repository import AppSettingsRepository
 
@@ -96,7 +96,7 @@ class TestListedOrigin:
             await client.patch("/api/settings", json={"auth_allowed_origins": []})
             response = await client.get("/api/settings", headers={"Origin": LISTED})
 
-        assert cors.current() == ()
+        assert origin_policy.current() == ()
         assert "access-control-allow-origin" not in response.headers
 
     @pytest.mark.asyncio
@@ -111,9 +111,9 @@ class TestListedOrigin:
     @pytest.mark.asyncio
     async def test_load_reads_the_stored_list(self, test_db):
         await AppSettingsRepository.update(auth_allowed_origins=[LISTED])
-        cors.reset()
+        origin_policy.reset()
 
-        assert await cors.load() == (LISTED,)
+        assert await origin_policy.load() == (LISTED,)
 
     @pytest.mark.asyncio
     async def test_default_is_empty(self, test_db):
@@ -135,7 +135,7 @@ class TestValidation:
         ],
     )
     def test_normalizes_to_the_browser_origin_form(self, raw, expected):
-        assert cors.normalize_origin(raw) == expected
+        assert origin_policy.normalize_origin(raw) == expected
 
     @pytest.mark.parametrize(
         "raw",
@@ -154,18 +154,18 @@ class TestValidation:
     )
     def test_refuses_what_is_not_an_origin(self, raw):
         with pytest.raises(ValueError):
-            cors.normalize_origin(raw)
+            origin_policy.normalize_origin(raw)
 
     def test_drops_blanks_and_duplicates(self):
-        assert cors.normalize_origins(["", " ", LISTED, LISTED + "/", "http://a.lan"]) == [
+        assert origin_policy.normalize_origins(["", " ", LISTED, LISTED + "/", "http://a.lan"]) == [
             LISTED,
             "http://a.lan",
         ]
 
     def test_caps_the_list(self):
-        many = [f"http://host{i}.lan" for i in range(cors.MAX_ALLOWED_ORIGINS + 1)]
+        many = [f"http://host{i}.lan" for i in range(origin_policy.MAX_ALLOWED_ORIGINS + 1)]
         with pytest.raises(ValueError):
-            cors.normalize_origins(many)
+            origin_policy.normalize_origins(many)
 
     @pytest.mark.asyncio
     async def test_patch_refuses_a_wildcard_and_keeps_the_list(self, test_db, client):
@@ -190,10 +190,10 @@ class TestStoredListIsRevalidated:
         raw = json.dumps([bad, LISTED])
         await test_db.conn.execute("UPDATE app_settings SET auth_allowed_origins = ?", (raw,))
         await test_db.conn.commit()
-        cors.reset()
+        origin_policy.reset()
 
-        with caplog.at_level("WARNING", logger="app.cors"):
-            assert await cors.load() == (LISTED,)
+        with caplog.at_level("WARNING", logger="app.origin_policy"):
+            assert await origin_policy.load() == (LISTED,)
 
         assert "Ignoring invalid allowed origin" in caplog.text
 
@@ -203,12 +203,12 @@ class TestStoredListIsRevalidated:
             "UPDATE app_settings SET auth_allowed_origins = ?", (json.dumps(["*"]),)
         )
         await test_db.conn.commit()
-        await cors.load()
+        await origin_policy.load()
 
         async with client:
             response = await client.get("/api/settings", headers={"Origin": UNLISTED})
 
-        assert cors.current() == ()
+        assert origin_policy.current() == ()
         assert "access-control-allow-origin" not in response.headers
         assert "access-control-allow-credentials" not in response.headers
 
@@ -216,7 +216,7 @@ class TestStoredListIsRevalidated:
     async def test_reload_after_update_drops_a_wildcard(self, test_db):
         await AppSettingsRepository.update(auth_allowed_origins=["*", LISTED.upper()])
 
-        assert cors.current() == (LISTED,)
+        assert origin_policy.current() == (LISTED,)
 
     @pytest.mark.asyncio
     async def test_backup_restore_carrying_a_wildcard_changes_nothing(self, test_db):
@@ -227,5 +227,5 @@ class TestStoredListIsRevalidated:
 
         await _restore_settings(AppSettings(auth_allowed_origins=["*"]), [])
 
-        assert cors.current() == (LISTED,)
+        assert origin_policy.current() == (LISTED,)
         assert "*" not in (await AppSettingsRepository.get()).auth_allowed_origins

@@ -151,11 +151,11 @@ def _reset_radio_workarounds():
 @pytest.fixture(autouse=True)
 def _reset_cors_allowed_origins():
     """An origin allowed by one test must not leak into the next one."""
-    from app import cors
+    from app import origin_policy
 
-    cors.reset()
+    origin_policy.reset()
     yield
-    cors.reset()
+    origin_policy.reset()
 
 
 @pytest.fixture(autouse=True)
