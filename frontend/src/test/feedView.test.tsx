@@ -1040,10 +1040,11 @@ describe('FeedView under a session without read_private (kiosk role)', () => {
       expect.anything()
     );
     expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual(stored);
-    // Changing another chip saves, but `priv` keeps the value storage held.
+    // Changing another chip saves, but `chan` and `priv` keep the values storage held.
     fireEvent.click(screen.getByRole('button', { name: i18n.t('feed.filters.sent') }));
     await waitFor(() =>
       expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toMatchObject({
+        chan: false,
         priv: true,
         outgoing: false,
       })

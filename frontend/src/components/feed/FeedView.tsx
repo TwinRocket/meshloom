@@ -164,15 +164,22 @@ export function FeedView({
   const { canReadPrivate } = useCapabilities();
   const canReadPrivateRef = useRef(canReadPrivate);
   canReadPrivateRef.current = canReadPrivate;
-  setFeedAcceptsPrivate(canReadPrivate);
-  // What storage held for `priv`: a session without the capability overrides it in memory but
-  // never writes the override back, so the same browser keeps its choice for a fuller session.
-  const storedPrivRef = useRef<boolean | null>(null);
+  // An effect, declared before the one that attaches the store. It is not reset on unmount: the
+  // store stays attached and keeps receiving frames, which must still obey this session.
+  useEffect(() => {
+    setFeedAcceptsPrivate(canReadPrivate);
+  }, [canReadPrivate]);
+  // What storage held for `chan` and `priv`: a session without the capability overrides them in
+  // memory but never writes the override back, so the same browser keeps its choice for a fuller
+  // session.
+  const storedTypesRef = useRef<Pick<FeedFilters, 'chan' | 'priv'> | null>(null);
   // URL > localStorage > defaults, decided before the first request so one fetch is made.
   const startFilters = useCallback(
     (query: string | undefined): FeedFilters => {
       const base = preset === 'control' ? controlPreset : loadFeedFilters();
-      if (storedPrivRef.current === null) storedPrivRef.current = base.priv;
+      if (storedTypesRef.current === null) {
+        storedTypesRef.current = { chan: base.chan, priv: base.priv };
+      }
       const pinned = applyFeedQuery(base, query);
       return canReadPrivateRef.current ? pinned : withoutPrivate(pinned);
     },
@@ -262,9 +269,7 @@ export function FeedView({
       return;
     }
     if (preset) return;
-    saveFeedFilters(
-      canReadPrivate ? filters : { ...filters, priv: storedPrivRef.current ?? filters.priv }
-    );
+    saveFeedFilters(canReadPrivate ? filters : { ...filters, ...storedTypesRef.current });
   }, [filters, preset, canReadPrivate]);
 
   // The URL follows the filters (no history entry), so any state is bookmarkable. The first
