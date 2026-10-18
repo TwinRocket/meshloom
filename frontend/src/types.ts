@@ -628,7 +628,8 @@ type ConversationType =
   | 'trace'
   | 'locate'
   | 'discovered'
-  | 'test';
+  | 'test'
+  | 'feed';
 
 export interface Conversation {
   type: ConversationType;
@@ -639,6 +640,8 @@ export interface Conversation {
   mapFocusKey?: string;
   /** For locate view: key, prefix, or search token */
   locateKey?: string;
+  /** For the feed view: preset folded into it (`#control`) */
+  feedPreset?: 'control';
 }
 
 export type LocateSource = 'local' | 'corescope' | 'mixte';

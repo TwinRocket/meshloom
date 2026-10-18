@@ -38,7 +38,6 @@ import {
   isUnknownFullKeyContact,
 } from '../utils/pubkey';
 import { LazyBoundary } from './LazyBoundary';
-import { isFeedConversation } from './feed/feedConversation';
 
 const RepeaterDashboard = lazy(() =>
   import('./RepeaterDashboard').then((m) => ({ default: m.RepeaterDashboard }))
@@ -439,7 +438,7 @@ export function ConversationPane({
     );
   }
 
-  if (isFeedConversation(activeConversation)) {
+  if (activeConversation.type === 'feed') {
     return (
       <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingFeed')} />}>
         <FeedView
