@@ -192,10 +192,11 @@ REVOKED_CLOSE_CODE = 1008
 # so its sockets close and reconnect with the new role; the recheck below
 # checks liveness only.
 #
-# How often the sessions of the open sockets are checked against the database
-# (one query for all of them). A revocation in this process closes its sockets
-# at once (``close_sessions``); this catches the rest: ``meshloom-admin``, which
-# writes the database from another process, an expiry, a disabled account.
+# How often the sessions and tokens of the open sockets are checked against the
+# database (one query for each). A revocation in this process closes its sockets
+# at once (``close_sessions``, ``close_tokens``); this catches the rest:
+# ``meshloom-admin``, which writes the database from another process, an expiry,
+# a disabled account.
 SESSION_RECHECK_INTERVAL_SECONDS = 30.0
 
 
@@ -254,6 +255,7 @@ class _Client:
         "session_id",
         "token_id",
         "last_slide",
+        "expiry_timer",
         "queue",
         "writer",
         "unreported",
@@ -271,6 +273,8 @@ class _Client:
         # Wall-clock second of the last session slide from this socket's
         # frames (``note_activity``); the upgrade request itself just slid it.
         self.last_slide = time.time()
+        # Closes a token socket at the token's expiry (``connect``).
+        self.expiry_timer: asyncio.TimerHandle | None = None
         self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAX)
         self.writer: asyncio.Task[None] | None = None
         # Dropped frames per event type not yet logged.
@@ -299,10 +303,15 @@ class WebSocketManager:
         async with self._lock:
             self.active_connections[websocket] = client
             self._index(client)
-        client.writer = asyncio.get_running_loop().create_task(
-            self._writer(client), name="ws-writer"
-        )
-        if client.session_id is not None and (
+        loop = asyncio.get_running_loop()
+        client.writer = loop.create_task(self._writer(client), name="ws-writer")
+        expires_at = principal.token_expires_at if principal is not None else None
+        if expires_at is not None:
+            client.expiry_timer = loop.call_later(
+                max(0.0, expires_at - time.time()),
+                lambda: self._evict(client, "token expired", code=REVOKED_CLOSE_CODE),
+            )
+        if (client.session_id is not None or client.token_id is not None) and (
             self._recheck_task is None or self._recheck_task.done()
         ):
             self._recheck_task = spawn(self._recheck_sessions(), name="ws-session-recheck")
@@ -313,6 +322,8 @@ class WebSocketManager:
             client = self.active_connections.pop(websocket, None)
             empty = not self.active_connections
         if client is not None:
+            if client.expiry_timer is not None:
+                client.expiry_timer.cancel()
             self._unindex(client)
             self._stop_writer(client)
             self._log_drops(client, final=True)
@@ -397,17 +408,19 @@ class WebSocketManager:
             logger.debug("Could not slide the session of a WebSocket", exc_info=True)
 
     async def _recheck_sessions(self) -> None:
-        """Close the sockets whose session is no longer live, every
-        ``SESSION_RECHECK_INTERVAL_SECONDS``, while a session socket is open."""
-        from app.repository.auth import AuthSessionRepository
+        """Close the sockets whose session or token is no longer live, every
+        ``SESSION_RECHECK_INTERVAL_SECONDS``, while such a socket is open."""
+        from app.repository.auth import ApiTokenRepository, AuthSessionRepository
 
-        while self._by_session:
+        while self._by_session or self._by_token:
             await asyncio.sleep(SESSION_RECHECK_INTERVAL_SECONDS)
             open_ids = list(self._by_session)
-            if not open_ids:
+            open_tokens = list(self._by_token)
+            if not open_ids and not open_tokens:
                 break
             try:
                 live = await AuthSessionRepository.filter_live(open_ids)
+                live_tokens = await ApiTokenRepository.filter_live(open_tokens)
             except Exception:
                 # Fail closed would sign everyone out on a database hiccup;
                 # the gate still refuses the next upgrade and request.
@@ -415,6 +428,8 @@ class WebSocketManager:
                 continue
             if closed := self.close_sessions(set(open_ids) - live):
                 logger.info("Closed %d WebSocket(s) whose session ended", closed)
+            if closed := self.close_tokens(set(open_tokens) - live_tokens):
+                logger.info("Closed %d WebSocket(s) whose token ended", closed)
 
     @staticmethod
     def _stop_writer(client: _Client) -> None:
@@ -445,6 +460,8 @@ class WebSocketManager:
         if self.active_connections.get(client.websocket) is not client:
             return
         del self.active_connections[client.websocket]
+        if client.expiry_timer is not None:
+            client.expiry_timer.cancel()
         self._unindex(client)
         logger.info(
             "Evicting WebSocket client (%s); %d remaining", reason, len(self.active_connections)

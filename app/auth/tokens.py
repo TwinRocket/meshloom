@@ -1,4 +1,4 @@
-"""Opaque secrets (session cookies, setup codes, later API and device tokens).
+"""Opaque secrets (session cookies, setup codes, API and device tokens).
 
 A secret is 256 random bits from ``secrets``, shown to its holder once; the
 database keeps only its SHA-256 (hex). Lookups go by that hash, and a stored

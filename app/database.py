@@ -324,6 +324,20 @@ CREATE TABLE IF NOT EXISTS plugin_send_limits (
     name TEXT PRIMARY KEY CHECK (name IN ('instance_per_hour', 'channel_per_hour', 'contact_per_hour')),
     value INTEGER NOT NULL CHECK (value >= 1)
 );
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    scopes TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    expires_at INTEGER,
+    revoked_at INTEGER,
+    origin TEXT NOT NULL DEFAULT 'ui' CHECK (origin IN ('ui', 'pairing')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
@@ -366,6 +380,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_chan_unattributed_sender
     ON messages(sender_name) WHERE type = 'CHAN' AND sender_key IS NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_plugins_plugin_id ON plugins(plugin_id);
 """

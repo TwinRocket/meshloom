@@ -29,7 +29,8 @@ and the OpenAPI page (`/docs`), not a table here.
   the add-on; the Basic compatibility credential; then the session cookie,
   never under ingress; last a trusted network rule, `auth/providers/trusted_network.py`,
   never through any proxy, the relay, ingress or (outside the add-on) loopback,
-  with a strict `Host` guard; bearer tokens later), applies the CSRF
+  with a strict `Host` guard; `Authorization: Bearer` API and device tokens,
+  `auth/providers/token.py`, header only, refused under ingress), applies the CSRF
   rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
   every `/api` route outside `PUBLIC_ROUTES` without a principal (401 coded;
   a WebSocket is closed 1008 before `accept()`). A new public route goes in
@@ -338,6 +339,11 @@ run as root).
   Assistant identity was made admin, never cleared; backfilled from existing ingress
   identities; `docs/dev/auth.md`, "Ingress"). Like every later column, fresh databases
   get it from the migration, not from `SCHEMA_TABLES`.
+- Migration 108 adds `api_tokens` (API and device tokens: SHA-256 of the secret, scopes,
+  expiry, last use, revocation, origin; DDL and `idx_api_tokens_user` also in
+  `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_108.py`).
+  Rules: `docs/dev/auth.md`, "API and device tokens". It travels in the `api_tokens`
+  backup section with the accounts.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -645,11 +651,14 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Sections and restore hooks** (`services/backup_sections.py`, contract in
   `docs/dev/backup.md`). Other features add a named entry to the v2 file's
   optional `sections` with `register_backup_section(name, export_fn,
-  restore_fn, *, description=..., sensitive=..., version=..., requires=...)`,
+  restore_fn, *, description=..., sensitive=..., version=..., requires=..., restore_with=...)`,
   never a new top-level field or a second v2 format; the job restores them in
   its `meshloom` step after `meshloom_extra`, each in its own `db.tx()`
   (`restore_fn(section, conn)` writes through `conn` only; a failure rolls that
-  section back and the others go on), skips a section newer than its owner
+  section back and the others go on; a restore that keeps the current data on
+  purpose raises `SectionKept`, so what requires it is skipped; a
+  `restore_with` section, such as `api_tokens` with `users`, runs in its
+  owner's transaction only when the owner was written), skips a section newer than its owner
   (`section_too_new`) and ignores unknown ones with a log line. Inspect lists
   them (`sections[]`: description, sensitive, known, too_new); a sensitive
   section exported without a passphrase adds
@@ -665,7 +674,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
   `sessions` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. The accounts travel in the JSON full
-  backup's `users` section (`services/backup_accounts.py`, `docs/dev/backup.md`,
+  backup's `users` section, the API tokens in its `api_tokens` section
+  (`services/backup_accounts.py`, `docs/dev/backup.md`,
   "Accounts"; the export's `include_accounts`, true by default, leaves
   `ACCOUNT_SECTIONS` out): its restore replaces the accounts, deletes every
   session, keeps only trusted network rules whose account is unchanged, and
@@ -833,8 +843,9 @@ floor, never the percentage alone, and do not remove the floor.
   route behind the same call. `tests/test_origin_policy.py` runs one table of
   origins through CORS and the WebSocket.
 - **Revocation closes sockets.** `ws_manager` indexes clients by session id
-  and token id; revoking through `app/auth/sessions.py` closes them at once
-  (1008), and a 30 s recheck catches revocations from `meshloom-admin`,
+  and token id; revoking through `app/auth/sessions.py` or
+  `app/auth/providers/token.py` closes them at once (1008), and a 30 s recheck
+  of sessions and tokens catches revocations from `meshloom-admin`,
   expiries and disabled accounts (`docs/dev/auth.md`, "Sessions and the cookie").
   Client frames slide the session once a minute (`note_activity`), so a
   socket-only kiosk stays signed in. A socket keeps its opening role: a change of

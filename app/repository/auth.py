@@ -1,4 +1,4 @@
-"""Repository for the local accounts tables: users, sessions, auth_audit, auth_settings.
+"""Repository for the local accounts tables: users, sessions, api_tokens, auth_audit, auth_settings.
 
 Schema and rules: ``docs/dev/auth.md``. Hashes go in and out of this module but
 are never logged; the general models (``app/auth/models.py``) carry none.
@@ -22,12 +22,14 @@ from app.auth.models import (
     PROVIDERS,
     ROLES,
     USERNAME_MAX_LENGTH,
+    ApiToken,
     AuthAuditEntry,
     AuthSession,
     AuthSettings,
     HostGuardMode,
     Provider,
     Role,
+    TokenOrigin,
     TrustedNetworkRule,
     User,
     UserCredentials,
@@ -36,6 +38,8 @@ from app.database import db
 from app.middleware import proxy_headers
 from app.middleware.proxy_headers import valid_stored_proxies
 
+# Live API tokens per user; creating one more is refused (``TokenLimitError``).
+MAX_TOKENS_PER_USER = 100
 # Active sessions kept per user; creating one more revokes the oldest.
 MAX_SESSIONS_PER_USER = 50
 
@@ -138,6 +142,10 @@ class MustChangeNotApplicableError(ValueError):
     no password, a ``kiosk``, or a Home Assistant or system identity."""
 
 
+class TokenLimitError(ValueError):
+    """The user already holds ``MAX_TOKENS_PER_USER`` live tokens."""
+
+
 class AuthSettingsMissingError(RuntimeError):
     """The ``auth_settings`` row is gone: refuse to act on defaults (fail closed).
 
@@ -194,6 +202,24 @@ def _row_to_session(row: Any) -> AuthSession:
         user_agent=row["user_agent"],
         via=row["via"],
         revoked_at=row["revoked_at"],
+    )
+
+
+def _row_to_token(row: Any) -> ApiToken:
+    try:
+        scopes = json.loads(row["scopes"] or "[]")
+    except ValueError:
+        scopes = []
+    return ApiToken(
+        id=row["id"],
+        user_id=row["user_id"],
+        name=row["name"],
+        scopes=[s for s in scopes if isinstance(s, str)] if isinstance(scopes, list) else [],
+        created_at=row["created_at"],
+        last_used_at=row["last_used_at"],
+        expires_at=row["expires_at"],
+        revoked_at=row["revoked_at"],
+        origin=row["origin"],
     )
 
 
@@ -617,6 +643,122 @@ class AuthSessionRepository:
                 (_now(now),),
             ) as cursor:
                 return cursor.rowcount
+
+
+_LIVE_TOKEN = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)"
+
+
+class ApiTokenRepository:
+    """``api_tokens``: rows keyed by the SHA-256 of their secret (``app/auth/tokens.py``)."""
+
+    @staticmethod
+    async def create(
+        user_id: int,
+        name: str,
+        token_hash: str,
+        scopes: list[str],
+        *,
+        expires_at: int | None = None,
+        origin: TokenOrigin = "ui",
+        now: int | None = None,
+    ) -> ApiToken:
+        """Store a token. Raises ``TokenLimitError`` past ``MAX_TOKENS_PER_USER``."""
+        ts = _now(now)
+        token_id = uuid.uuid4().hex
+        async with db.tx() as conn:
+            async with conn.execute(
+                f"SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND {_LIVE_TOKEN}",
+                (user_id, ts),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is not None and int(row[0]) >= MAX_TOKENS_PER_USER:
+                raise TokenLimitError(str(MAX_TOKENS_PER_USER))
+            await conn.execute(
+                """
+                INSERT INTO api_tokens (id, user_id, name, token_hash, scopes, created_at,
+                    expires_at, origin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (token_id, user_id, name, token_hash, json.dumps(scopes), ts, expires_at, origin),
+            )
+            async with conn.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)) as cur:
+                created = await cur.fetchone()
+        return _row_to_token(created)
+
+    @staticmethod
+    async def get_by_hash(token_hash: str) -> ApiToken | None:
+        """The row stored under ``token_hash``, live or not: the caller decides
+        (a revoked or expired token is audited, never accepted)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT * FROM api_tokens WHERE token_hash = ?", (token_hash,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None or not hmac.compare_digest(row["token_hash"], token_hash):
+            return None
+        return _row_to_token(row)
+
+    @staticmethod
+    async def get(token_id: str) -> ApiToken | None:
+        async with db.readonly() as conn:
+            async with conn.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)) as cur:
+                row = await cur.fetchone()
+        return _row_to_token(row) if row is not None else None
+
+    @staticmethod
+    async def list_live(user_id: int | None = None, *, now: int | None = None) -> list[ApiToken]:
+        """Live tokens (not revoked, not expired), newest first: one user's, or
+        everyone's when ``user_id`` is None."""
+        query = f"SELECT * FROM api_tokens WHERE {_LIVE_TOKEN}"
+        params: list[Any] = [_now(now)]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        async with db.readonly() as conn:
+            async with conn.execute(
+                query + " ORDER BY created_at DESC, rowid DESC", params
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [_row_to_token(row) for row in rows]
+
+    @staticmethod
+    async def touch(token_id: str, *, now: int | None = None) -> bool:
+        """Record a use, at most once per ``LAST_SEEN_WRITE_INTERVAL_S``. A
+        revoked token is never written. True when written."""
+        ts = _now(now)
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE api_tokens SET last_used_at = ? WHERE id = ? AND revoked_at IS NULL"
+                " AND (last_used_at IS NULL OR last_used_at <= ?)",
+                (ts, token_id, ts - LAST_SEEN_WRITE_INTERVAL_S),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def revoke(token_id: str, *, now: int | None = None) -> bool:
+        """Revoke a token. True when it was not revoked yet."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+                (_now(now), token_id),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def filter_live(token_ids: list[str], *, now: int | None = None) -> set[str]:
+        """Those of ``token_ids`` still usable: live, and their owner exists and
+        is enabled (the rule of the bearer provider)."""
+        if not token_ids:
+            return set()
+        placeholders = ", ".join("?" for _ in token_ids)
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"SELECT t.id FROM api_tokens t JOIN users u ON u.id = t.user_id"
+                f" WHERE t.id IN ({placeholders}) AND t.revoked_at IS NULL"
+                f" AND (t.expires_at IS NULL OR t.expires_at > ?) AND u.disabled = 0",
+                (*token_ids, _now(now)),
+            ) as cursor:
+                return {row["id"] for row in await cursor.fetchall()}
 
 
 def _is_secret_key(key: str) -> bool:

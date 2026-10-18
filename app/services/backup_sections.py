@@ -11,6 +11,12 @@ Files and Access regenerate their instance identities through
 - a section the running version does not know, or one written by a newer
   version of its owner, is not restored;
 - each section is restored in its own transaction: a failure rolls it back;
+  a restore function that keeps the current data on purpose raises
+  ``SectionKept`` (its warnings are kept, nothing is written);
+- a section registered with ``restore_with=<owner>`` (tokens of the accounts)
+  runs in its owner's transaction, right after it, and only when the owner was
+  written: never against data the owner kept, failed or skipped, and a
+  failure of either rolls both back;
 - an identity seed (``app_settings.*_seed``) never reaches a file, and every
   restore (JSON, or a SQLite snapshot put back in place) runs the hooks once;
 - a name in ``NEVER_EXPORTED_SECTIONS`` (login sessions, pairing codes, the
@@ -53,12 +59,24 @@ _MIN_SEED_LENGTH = 16
 NEVER_EXPORTED_SECTIONS = frozenset({"sessions", "pairing_codes", "auth_audit", "remote_identity"})
 
 
+class SectionKept(Exception):
+    """Raised by a restore function that keeps the current data on purpose
+    (the accounts restore without a usable administrator). Nothing it wrote
+    is committed, its ``warnings`` reach the result, and the sections that
+    require it or restore with it are skipped."""
+
+    def __init__(self, warnings: Iterable[str] = ()) -> None:
+        super().__init__("section kept the current data")
+        self.warnings = list(warnings)
+
+
 @dataclass(frozen=True)
 class _Section:
     name: str
     export: SectionExport
     restore: SectionRestore
     requires: tuple[str, ...]
+    restore_with: str | None
     version: int
     sensitive: bool
     description: dict[str, str]
@@ -85,6 +103,7 @@ def register_backup_section(
     sensitive: bool,
     version: int = 1,
     requires: Iterable[str] = (),
+    restore_with: str | None = None,
 ) -> None:
     """Add a named section to the full backup.
 
@@ -97,7 +116,11 @@ def register_backup_section(
     this code reads: a file section with a higher one is not restored.
     ``requires`` names sections that must be restored, in the same restore,
     before this one: when one of them is missing from the file or failed,
-    this one is skipped.
+    this one is skipped. ``restore_with`` names the section whose rows this
+    one belongs to (implies ``requires``): its restore runs in that section's
+    transaction, right after it, and only when it was written (not kept with
+    ``SectionKept``, failed, skipped or missing); a failure of either rolls
+    both back.
     """
     if not SECTION_NAME.match(name):
         raise ValueError(f"invalid backup section name: {name!r}")
@@ -107,6 +130,8 @@ def register_backup_section(
         raise ValueError(f"backup section {name!r} is already registered")
     if version < 1:
         raise ValueError(f"backup section {name!r}: version starts at 1")
+    wanted: list[str] = [*requires, *([restore_with] if restore_with else [])]
+    required: tuple[str, ...] = tuple(dict.fromkeys(wanted))
     texts = {
         language: str(description.get(language) or "").strip() for language in DESCRIPTION_LANGUAGES
     }
@@ -118,7 +143,8 @@ def register_backup_section(
             name,
             export_fn,
             restore_fn,
-            tuple(dict.fromkeys(requires)),
+            required,
+            restore_with,
             version,
             bool(sensitive),
             texts,
@@ -188,14 +214,32 @@ def summarize_sections(sections: Mapping[str, BackupSection]) -> list[BackupSect
     return summaries
 
 
-async def _restore_one(spec: _Section, section: BackupSection) -> list[str]:
+def _too_new(name: str, spec: _Section, section: BackupSection) -> bool:
+    if section.version <= spec.version:
+        return False
+    logger.warning(
+        "Backup restore: section %s is version %d, this version reads up to %d: skipped",
+        name,
+        section.version,
+        spec.version,
+    )
+    return True
+
+
+async def _restore_one(
+    spec: _Section, section: BackupSection, riders: list[tuple[_Section, BackupSection]]
+) -> list[str]:
+    """Restore ``spec`` and the sections that restore with it, in one transaction."""
     from app import database
 
     async with asyncio.timeout(SECTION_RESTORE_TIMEOUT):
         # db.tx() commits on success and rolls back on any exception (the
-        # timeout included): a failed section leaves nothing half written.
+        # timeout and ``SectionKept`` included): nothing is left half written.
         async with database.db.tx() as conn:
-            return list(await spec.restore(section, conn))
+            warnings = list(await spec.restore(section, conn))
+            for rider, rider_section in riders:
+                warnings.extend(await rider.restore(rider_section, conn))
+            return warnings
 
 
 async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
@@ -208,18 +252,24 @@ async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
     registered = dict(_sections)
     warnings: list[str] = []
     restored: set[str] = set()
+    # Sections that restore with an owner and were decided in its turn.
+    handled: set[str] = set()
     for name in _restore_order(registered):
         section = sections.get(name)
         if section is None:
             continue  # not in the file: its data stays as it is
         spec = registered[name]
-        if section.version > spec.version:
-            logger.warning(
-                "Backup restore: section %s is version %d, this version reads up to %d: skipped",
-                name,
-                section.version,
-                spec.version,
-            )
+        if spec.restore_with is not None:
+            if name not in handled:
+                # Restored with its owner, which was not written.
+                logger.warning(
+                    "Backup restore: section %s skipped, %s was not restored",
+                    name,
+                    spec.restore_with,
+                )
+                warnings.append(f"section_skipped:{name}")
+            continue
+        if _too_new(name, spec, section):
             warnings.append(f"section_too_new:{name}")
             continue
         missing = [required for required in spec.requires if required not in restored]
@@ -229,13 +279,32 @@ async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
             )
             warnings.append(f"section_skipped:{name}")
             continue
+        riders: list[tuple[_Section, BackupSection]] = []
+        for rider in registered.values():
+            rider_section = sections.get(rider.name)
+            if rider.restore_with != name or rider_section is None:
+                continue
+            handled.add(rider.name)
+            if _too_new(rider.name, rider, rider_section):
+                warnings.append(f"section_too_new:{rider.name}")
+            elif any(r not in restored and r != name for r in rider.requires):
+                warnings.append(f"section_skipped:{rider.name}")
+            else:
+                riders.append((rider, rider_section))
         try:
-            warnings.extend(await _restore_one(spec, section))
+            warnings.extend(await _restore_one(spec, section, riders))
+        except SectionKept as kept:
+            logger.info("Backup restore: section %s kept the current data", name)
+            warnings.extend(kept.warnings)
+            warnings.extend(f"section_skipped:{rider.name}" for rider, _ in riders)
+            continue
         except Exception:
             logger.exception("Backup restore: section %s failed, rolled back", name)
             warnings.append(f"section_failed:{name}")
+            warnings.extend(f"section_failed:{rider.name}" for rider, _ in riders)
             continue
         restored.add(name)
+        restored.update(rider.name for rider, _ in riders)
     return warnings
 
 

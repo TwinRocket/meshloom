@@ -8,8 +8,8 @@ setup with its installation code, the `/api/auth/*` routes and the permission
 registry (which role may call which route, and receive which WebSocket event).
 The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
 "Session gate"). Home Assistant ingress identities are in "Ingress" below,
-trusted networks in "Trusted networks". Device tokens and 2FA come with later
-Access tickets. Like every doc here
+trusted networks in "Trusted networks", API and device tokens in "API and
+device tokens". Pairing and 2FA come with later Access tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 
@@ -21,7 +21,8 @@ works on the same tables.
 | Tables (fresh databases) | `SCHEMA_TABLES` / `SCHEMA_INDEXES` in `app/database.py`, textually identical |
 | Typed models | `app/auth/models.py` |
 | Password hashing (argon2id) | `app/auth/passwords.py` |
-| Opaque secrets (sessions, setup code) | `app/auth/tokens.py` |
+| Opaque secrets (sessions, setup code, API tokens) | `app/auth/tokens.py` |
+| API and device tokens (Bearer) | `app/auth/providers/token.py`, `app/routers/auth_tokens.py`, `app/migrations/_108_api_tokens.py` |
 | Repository | `app/repository/auth.py` |
 | Principal (who is calling) | `app/auth/principal.py` |
 | The gate (ASGI middleware, HTTP + WebSocket) | `app/auth/middleware.py` |
@@ -152,14 +153,14 @@ needs no request. Writing never fails the action: a database error is logged
 logged at ERROR and the row is not written (a bug at the call site).
 
 - **Row.** `actor_user_id` (None for an anonymous caller, the CLI and the
-  server), `actor_token_id` (bearer tokens, later), `ip` (`client_ip()`), `via`
+  server), `actor_token_id` (the API or device token that acted), `ip` (`client_ip()`), `via`
   (`lan`, `ingress`, `trusted`, `relay`, plus `cli` for `meshloom-admin` and
   `system` for the server on its own), `outcome` (`success`, `failure`,
   `refused` for a 403, a CLI precondition or a login refused per IP, `delayed`
   for a login refused while a delay runs ("Login delays"), `error`), `target` (`user:<id>` for a known account, `username:unknown` for a
   typed name that matches no account (`typed_username_target()`: the typed text
   is never stored, so a password typed into the username field never reaches
-  the log), `session:<id>`, `bot:<id>`,
+  the log), `session:<id>`, `token:<id>`, `bot:<id>`,
   `restore_job:<id>`, `auth_settings.<field>`).
 - **Actions** (`AuditAction`, a `Literal`, so pyright refuses a typo):
 
@@ -167,6 +168,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   |---|---|
   | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
   | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout` |
+  | `token.created`, `token.revoked` | `POST /auth/tokens` (`details.scopes`, `expires_at`, `origin`), `DELETE /auth/tokens/{id}` (`details.owner` when an admin revokes someone else's); refusals too, outcome `failure` (`refused` for a 403) with `details = {reason, status}` (`token_scope`, `token_expiry_invalid`, `token_limit`, `token_not_found`, `forbidden`) |
+  | `token.used` | A refused use of a token that exists (outcome `failure`, `details.reason` `revoked`, `expired`, `owner_disabled`, `ingress`, `scopes_invalid`), at most once a minute per token; successful uses only move `last_used_at` |
   | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `DELETE /auth/users/{id}/sessions` (`details.scope = all`), `meshloom-admin revoke-sessions` |
   | `user.created` | `POST /auth/users` (`details.role`, `must_change`), ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
   | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename, `PATCH /auth/users/{id}` (`details.fields`; `role` and `previous_role` for a role change; `password_removed` when the role became `kiosk`; `sessions_revoked`) |
@@ -192,7 +195,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   routes declare `_admin(action)`, `require("admin")` plus that row). Never the
   typed name or password. A 422 (body validation) writes no row.
 
-  Reserved for the tickets that add their feature: `token.created`, `token.revoked`, `pairing.used`,
+  Reserved for the tickets that add their feature: `pairing.used`,
   `totp.enrolled`, `totp.disabled`, `passkey.added`, `passkey.removed`,
   `plugin.created`, `plugin.changed`, `plugin.disabled`, `plugin.installed`,
   `plugin.updated`, `plugin.removed` (Store), `remote.linked`,
@@ -216,8 +219,11 @@ The accounts travel in the `users` section of the full backup
 (`app/services/backup_accounts.py`, `docs/dev/backup.md`, "Accounts"): hashes
 and TOTP material included, behind the export's **Include accounts** box
 (checked by default); a restore never leaves the instance without an enabled
-admin. `auth_settings` is not in any JSON backup (machine-specific). The
-`api_tokens` section comes with T27. `sessions` and
+admin. The API tokens travel in their own `api_tokens` section (hashes,
+scopes, expiry; never a secret, the database holds none), behind the same box
+and only with `users`, in the same transaction (`restore_with`): accounts kept
+by `accounts_no_admin` keep their tokens and the file's are not restored. `auth_settings` is not in any JSON backup
+(machine-specific). `sessions` and
 the setup code are never exported; `auth_audit` is not in the JSON backup but
 stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but
@@ -236,10 +242,10 @@ and `websocket` scope:
    session or token id, scopes) and stores it in `scope["state"]["principal"]`;
    routes read it with `get_principal(request)`. Credentials are tried in
    this order, and the first one present decides:
-   - `Authorization: Bearer`: device and API tokens (a later ticket,
-     `resolve_bearer_token()` is the seam). No token is valid yet, so a bearer
-     request is anonymous, with `auth_invalid_credentials` on a protected
-     route.
+   - `Authorization: Bearer`: API and device tokens ("API and device
+     tokens" below). A token that does not resolve leaves the request
+     anonymous, with `auth_invalid_credentials` on a protected route and no
+     Basic challenge. Never read from a query string or a cookie.
    - `Authorization: Basic`: the compatibility credential (below).
    - The session cookie, under the name for the request's scheme (below).
      Never read under ingress.
@@ -638,10 +644,11 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
   change) and the cap in `sessions.issue_session()` revoke the rows, then call
   `ws_manager.close_sessions()`: the sockets close at once with code 1008
   (`REVOKED_CLOSE_CODE`). `ws_manager.close_tokens()` does the same for API and
-  device tokens (for the token ticket). While a session socket is open, the
-  manager also rechecks every `SESSION_RECHECK_INTERVAL_SECONDS` (30 s) which
-  of its sessions are still live (`filter_live()`, one query) and closes the
-  others: that catches `meshloom-admin` (another process, writing the database),
+  device tokens (`providers/token.revoke_token()`). While a session or token
+  socket is open, the manager also rechecks every
+  `SESSION_RECHECK_INTERVAL_SECONDS` (30 s) which of its sessions and tokens are
+  still live (`AuthSessionRepository.filter_live()`,
+  `ApiTokenRepository.filter_live()`, one query each) and closes the others: that catches `meshloom-admin` (another process, writing the database),
   expiries and disabled accounts. Basic-auth sockets carry no session and are
   not rechecked. A socket keeps the role it opened with (the recheck checks
   liveness, not the role), so a change of the account itself (role, disable,
@@ -652,6 +659,74 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
   session kept.
 - **Purge.** `sessions.purge_sessions()` runs in the hourly housekeeping loop
   (`app/services/stale_contacts.py`) and deletes expired and revoked rows.
+
+## API and device tokens
+
+One token per device or script (meshenger, a Home Assistant sensor, the
+kiosk later), revocable alone, attached to a local account (cadrage O4, ADR
+001 E1). Code: `app/auth/providers/token.py` (rules in its header),
+`app/routers/auth_tokens.py` (routes above), `ApiTokenRepository`
+(`app/repository/auth.py`), table `api_tokens` (migration 108,
+`docs/dev/database.md`).
+
+- **Secret.** `mlt_` + 256 random bits (`secrets.token_urlsafe(32)`), shown
+  once in the `POST /auth/tokens` answer (a `JSONResponse`; the models hold it
+  as `SecretStr`). Only its SHA-256 is stored; the lookup goes by that hash and
+  the stored one is compared with `hmac.compare_digest`. A value without the
+  prefix or over 128 characters is refused before any query. No JWT: a
+  revocation needs a table anyway.
+- **Header only.** `Authorization: Bearer <token>` on HTTP and on the
+  `/api/ws` upgrade (the gate reads the upgrade's headers before `accept()`).
+  A token in a query string (`?token=`, `?access_token=`) or a cookie is never
+  read: the request stays anonymous. A resolved bearer token is exempt from the
+  CSRF rule (above).
+- **Scopes.** A token holds one to five of the permissions (`read`,
+  `read_private`, `send`, `repeater_admin`, `admin`). At creation every scope
+  must be granted by the caller's role (`scope_violation()`; a member asking for
+  `repeater_admin` gets 400 `auth_token_scope`). At each use the principal
+  carries the owner's **current** role and the scopes, and `permissions_of()`
+  intersects them: a token never exceeds its owner's role, even after a
+  demotion, and `admin` in both still implies every permission. A stored scope
+  list with nothing valid left refuses the token (an empty list would mean the
+  full role). `own_account()` refuses any scoped principal, so a token cannot
+  reach the profile, the sessions or the token routes themselves.
+- **WebSocket events.** A token socket gets the events its permissions allow,
+  like any other principal (`WsEvent`, "Permissions"): a `read` token gets no
+  direct message and no `admin` frame.
+- **Who holds tokens.** `member` and `admin` (`TOKEN_ROLES`, cadrage §4.2);
+  `viewer` and `kiosk` get 403 `auth_forbidden` on the routes. The kiosk's
+  token is written by the host (T60), not through the API.
+- **Refusals.** Unknown, revoked, expired, an owner disabled or deleted (its
+  rows cascade), a request through Home Assistant ingress (the Supervisor
+  serves one shared origin and signs the user in itself; a device talks to the
+  instance directly or through the relay): anonymous, 401
+  `auth_invalid_credentials`, or a WebSocket closed 1008 before `accept()`. A
+  refusal of a row that exists writes `token.used` (`failure`), at most once a
+  minute per token; an unknown value writes nothing.
+- **Expiry and last use.** `expires_at` is optional (null: never) and fixed at
+  creation. `last_used_at` is written at most once a minute per token, never
+  for a revoked one.
+- **Revocation.** `DELETE /auth/tokens/{id}` (`revoke_token()`) revokes the row
+  and closes its sockets at once (`ws_manager.close_tokens()`, 1008); the next
+  request with it is a 401. A token socket also closes at the token's
+  `expires_at` (a timer armed at connect, `Principal.token_expires_at`). The
+  periodic recheck ("Sessions and the cookie") closes the sockets of a token
+  revoked from another process or whose owner was disabled. A role change, a disable or a deletion of the
+  owner goes through `sign_out_user()`, which closes its token sockets too.
+  Revoked and expired rows are kept (a later use is audited); at most 100 live
+  tokens per user.
+- **OpenAPI.** `/openapi.json` declares `bearerToken` (HTTP bearer) and
+  `sessionCookie` as security schemes, required everywhere but `PUBLIC_ROUTES`
+  (`app/api_docs.py`).
+- Tests: `tests/test_auth_tokens.py` (HTTP and WebSocket handshakes with the
+  header, scopes, revocation, expiry, ingress, query strings, audit),
+  `tests/test_backup_accounts.py` (the `api_tokens` section).
+
+```bash
+curl -b jar -H 'Content-Type: application/json' \
+  -d '{"name":"ha-sensor","scopes":["read"]}' http://HOST:8000/api/auth/tokens
+curl -H "Authorization: Bearer mlt_..." http://HOST:8000/api/channels
+```
 
 ## `Authorization: Basic` and the 4.x Basic auth
 
@@ -835,6 +910,9 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/users/{id}` | `admin` | Deletes the account and its sessions, closes its sockets. 409 `auth_last_admin`, 404 |
 | `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices, drops its Basic cache entries |
 | `DELETE /auth/users/{id}/sessions` | `admin` | Signs the user out everywhere (sessions and sockets; the admin's own session stays): `{revoked}` |
+| `GET /auth/tokens` | own account, `member` or `admin` (403 `auth_forbidden` otherwise; never a token) | Live tokens, newest first: `{id, name, scopes, created_at, last_used_at, expires_at, origin, user_id, username}`, the caller's own, every user's for an admin. Never the secret or the hash |
+| `POST /auth/tokens` | same | 201. `{name (1-64), scopes (1-5 of read, read_private, send, repeater_admin, admin), expires_at?}` (Unix seconds, null never). Answers the row plus `token` (`mlt_…`), the only time it is shown. 400 `auth_token_scope` (`params.scope`) for a scope the caller's role does not grant, 400 `auth_token_expiry_invalid` for an expiry not in the future, 409 `auth_token_limit` (`params.max`, 100 live tokens per user) |
+| `DELETE /auth/tokens/{id}` | same | 204. Revokes the token (the caller's own; any for an admin) and closes its sockets at once. 404 `auth_token_not_found` for an unknown, revoked or someone else's token |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
 | `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |

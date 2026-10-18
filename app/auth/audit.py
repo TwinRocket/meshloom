@@ -50,9 +50,10 @@ AuditAction = Literal[
     "password.changed",
     "setup_code.issued",
     "settings.changed",
-    # Devices and second factors (later)
+    # Devices (API and device tokens) and second factors (later)
     "token.created",
     "token.revoked",
+    "token.used",
     "pairing.used",
     "totp.enrolled",
     "totp.disabled",

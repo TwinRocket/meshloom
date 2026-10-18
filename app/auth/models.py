@@ -63,6 +63,23 @@ class AuthSession(BaseModel):
     revoked_at: int | None = None
 
 
+TokenOrigin = Literal["ui", "pairing"]
+
+
+class ApiToken(BaseModel):
+    """An API or device token, without its hash (``app/auth/providers/token.py``)."""
+
+    id: str
+    user_id: int
+    name: str
+    scopes: list[str]
+    created_at: int
+    last_used_at: int | None = None
+    expires_at: int | None = None
+    revoked_at: int | None = None
+    origin: TokenOrigin = "ui"
+
+
 class AuthAuditEntry(BaseModel):
     id: int
     ts: int

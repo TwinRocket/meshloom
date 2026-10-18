@@ -5,8 +5,9 @@ scope it:
 
 1. resolves the principal (``Principal``, ``app/auth/principal.py``) from, in
    order, the Home Assistant identity on an ingress request
-   (``app/auth/providers/ingress.py``), ``Authorization: Bearer`` (device
-   tokens, a later Access ticket: no token is valid yet),
+   (``app/auth/providers/ingress.py``), ``Authorization: Bearer`` (API and
+   device tokens, ``app/auth/providers/token.py``: from the header only, never
+   a query string; refused under ingress),
    ``Authorization: Basic`` (the compatibility credential,
    ``app/security.py``), then the session cookie (``app/auth/sessions.py``,
    never under ingress), and last, for a request that sent no credential or
@@ -54,6 +55,7 @@ from app import origin_policy
 from app.auth import sessions
 from app.auth.principal import Principal, Via, set_principal
 from app.auth.providers import ingress, trusted_network
+from app.auth.providers import token as token_provider
 from app.auth.providers.password import VerificationBusy
 from app.security import (
     BASIC_CHALLENGE,
@@ -171,10 +173,9 @@ class _Resolution:
         self.refreshed_cookie: str | None = None
 
 
-async def resolve_bearer_token(token: str, via: Via) -> Principal | None:
-    """The principal of a device or API token. None until tokens exist (a later
-    Access ticket): no bearer token is valid yet."""
-    return None
+async def resolve_bearer_token(token: str, via: Via, ip: str | None) -> Principal | None:
+    """The principal of an API or device token (``app/auth/providers/token.py``)."""
+    return await token_provider.resolve_token(token, via, ip)
 
 
 async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Resolution:
@@ -195,7 +196,7 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
         if scheme == "bearer":
             result.bearer_sent = True
             token = authorization.split(" ", 1)[1].strip() if " " in authorization else ""
-            principal = await resolve_bearer_token(token, via) if token else None
+            principal = await resolve_bearer_token(token, via, client_ip(scope)) if token else None
             if principal is None:
                 result.credential_failed = True
             result.principal = principal

@@ -11,7 +11,12 @@ import pytest
 from app.auth.models import TrustedNetworkRule
 from app.auth.providers import trusted_network
 from app.models import BackupExportV2, BackupRestoreSteps
-from app.repository.auth import AuthSessionRepository, AuthSettingsRepository, UserRepository
+from app.repository.auth import (
+    ApiTokenRepository,
+    AuthSessionRepository,
+    AuthSettingsRepository,
+    UserRepository,
+)
 from app.services.backup import export_backup_v2, export_document
 from app.services.backup_accounts import USERS_SECTION
 from app.services.backup_sections import NEVER_EXPORTED_SECTIONS, register_backup_section
@@ -391,3 +396,142 @@ async def test_a_restore_closes_the_sockets_of_every_account_at_once(
     job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
     assert "accounts_no_admin" in job.result.warnings
     assert closed == []  # a refused file leaves every socket open
+
+
+async def _tokens(test_db) -> list[tuple]:
+    async with test_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT id, user_id, name, token_hash, scopes, expires_at, origin FROM api_tokens"
+            " ORDER BY id"
+        ) as cursor:
+            return [tuple(row) for row in await cursor.fetchall()]
+
+
+@pytest.mark.asyncio
+async def test_api_tokens_round_trip_with_their_hashes_never_their_secrets(
+    backup_db, setup_stub, caplog
+):
+    from app.auth.providers import token as token_provider
+    from app.services.backup_accounts import API_TOKENS_SECTION
+
+    await _seed_accounts(backup_db)
+    bob = await UserRepository.get_by_username("bob")
+    alice = await UserRepository.get_by_username("Alice")
+    assert bob is not None and alice is not None
+    _, secret = await token_provider.issue_token(bob, "phone", ["read", "send"])
+    revoked, _ = await token_provider.issue_token(alice, "old", ["admin"])
+    await token_provider.revoke_token(revoked.id)
+    live = [row for row in await _tokens(backup_db) if row[0] != revoked.id]
+
+    exported = await _export()
+    section = exported["sections"][API_TOKENS_SECTION]
+    assert section["sensitive"] is True
+    assert [t["name"] for t in section["data"]["tokens"]] == ["phone"]
+    assert secret not in json.dumps(exported)
+
+    # Without accounts, no token leaves either.
+    assert API_TOKENS_SECTION not in (await _export(include_accounts=False))["sections"]
+
+    async with backup_db.tx() as conn:
+        await conn.execute("DELETE FROM users")
+    await UserRepository.create("mallory", "admin", password_hash="$argon2id$other")
+    caplog.set_level(logging.DEBUG)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _tokens(backup_db) == live
+    assert await token_provider.resolve_token(secret, "lan", None) is not None
+    assert live[0][3] not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_restored_token_beyond_its_owners_role_or_without_owner_is_dropped(
+    backup_db, setup_stub
+):
+    from app.auth.providers import token as token_provider
+    from app.services.backup_accounts import API_TOKENS_SECTION
+
+    await _seed_accounts(backup_db)
+    bob = await UserRepository.get_by_username("bob")
+    assert bob is not None
+    kept, _ = await token_provider.issue_token(bob, "phone", ["read"])
+    exported = await _export()
+    tokens = exported["sections"][API_TOKENS_SECTION]["data"]["tokens"]
+    tokens.append({**tokens[0], "id": "a" * 32, "token_hash": "b" * 64, "scopes": ["admin"]})
+    tokens.append({**tokens[0], "id": "c" * 32, "token_hash": "d" * 64, "user_id": 999})
+
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert f"api_token_dropped:{'a' * 32}" in job.result.warnings
+    assert f"api_token_dropped:{'c' * 32}" in job.result.warnings
+    assert [row[0] for row in await _tokens(backup_db)] == [kept.id]
+
+
+@pytest.mark.asyncio
+async def test_a_users_restore_without_the_tokens_section_leaves_no_token(backup_db, setup_stub):
+    from app.auth.providers import token as token_provider
+    from app.services.backup_accounts import API_TOKENS_SECTION
+
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    assert API_TOKENS_SECTION not in exported["sections"]
+    bob = await UserRepository.get_by_username("bob")
+    assert bob is not None
+    await token_provider.issue_token(bob, "made-after-the-backup", ["read"])
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _tokens(backup_db) == []
+
+
+@pytest.mark.asyncio
+async def test_a_refused_accounts_section_never_restores_the_files_tokens(backup_db, setup_stub):
+    """Review of #238: the file's tokens must never sign in as a current account
+    that only shares an id with their owner."""
+    from app.auth.providers import token as token_provider
+    from app.services.backup_accounts import API_TOKENS_SECTION
+
+    await _seed_accounts(backup_db)
+    bob = await UserRepository.get_by_username("bob")
+    assert bob is not None
+    _, file_secret = await token_provider.issue_token(bob, "phone", ["read", "send"])
+    exported = await _export()
+    for user in exported["sections"][USERS_SECTION]["data"]["users"]:
+        if user["role"] == "admin":
+            user["disabled"] = True
+
+    # This instance: id 2 is now carol, with a token of her own.
+    # The file's token was revoked here since the backup.
+    (here,) = await ApiTokenRepository.list_live()
+    await token_provider.revoke_token(here.id)
+    async with backup_db.tx() as conn:
+        await conn.execute(
+            "UPDATE users SET username = 'carol', username_key = 'carol' WHERE id = ?", (bob.id,)
+        )
+    carol = await UserRepository.get(bob.id)
+    assert carol is not None
+    current, current_secret = await token_provider.issue_token(carol, "laptop", ["read"])
+
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "accounts_no_admin" in job.result.warnings
+    assert f"section_skipped:{API_TOKENS_SECTION}" in job.result.warnings
+    assert await token_provider.resolve_token(file_secret, "lan", None) is None
+    principal = await token_provider.resolve_token(current_secret, "lan", None)
+    assert principal is not None and principal.token_id == current.id
+
+
+@pytest.mark.asyncio
+async def test_a_failed_token_section_rolls_the_accounts_back(backup_db, setup_stub):
+    from app.auth.providers import token as token_provider
+    from app.services.backup_accounts import API_TOKENS_SECTION
+
+    await _seed_accounts(backup_db)
+    bob = await UserRepository.get_by_username("bob")
+    assert bob is not None
+    await token_provider.issue_token(bob, "phone", ["read"])
+    exported = await _export()
+    exported["sections"][API_TOKENS_SECTION]["data"]["tokens"][0]["token_hash"] = "not-hex"
+    async with backup_db.tx() as conn:
+        await conn.execute("UPDATE users SET display_name = 'changed' WHERE id = ?", (bob.id,))
+    before = await _accounts(backup_db)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert f"section_failed:{USERS_SECTION}" in job.result.warnings
+    assert f"section_failed:{API_TOKENS_SECTION}" in job.result.warnings
+    assert await _accounts(backup_db) == before

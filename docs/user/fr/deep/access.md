@@ -16,7 +16,7 @@ Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque
 | Rôle | Peut |
 |---|---|
 | `admin` | Tout : réglages, radio, répéteurs et salons, intégrations et bots, sauvegarde et restauration, clé privée, mises à jour, Community, notifications, rapport de débogage. |
-| `member` | Tout ce que peut un `viewer`, plus envoyer des messages, ajouter et modifier contacts, canaux et groupes de contacts, favoris, épingles et canaux en sourdine, et abonner son propre navigateur aux notifications push. |
+| `member` | Tout ce que peut un `viewer`, plus envoyer des messages, ajouter et modifier contacts, canaux et groupes de contacts, favoris, épingles et canaux en sourdine, abonner son propre navigateur aux notifications push, et créer des jetons d’API pour ses propres appareils et scripts. |
 | `viewer` | Lire les canaux et les messages directs, les marquer comme lus, gérer son propre profil et ses sessions. |
 | `kiosk` | Lecture seule, pour un écran au mur : messages des canaux (canaux en sourdine et en attente compris), contacts, canaux, paquets, statistiques et carte. Jamais un message direct, aucun réglage, aucun profil. |
 
@@ -98,9 +98,23 @@ Une règle est **coupée dès qu’un proxy est dans la boucle**, car derrière 
 
 Meshloom refuse d’enregistrer une règle qui recoupe un proxy de confiance, une règle qui couvre le loopback hors de l’add-on et, tant qu’une adresse publique est configurée, une règle qui couvre la passerelle Docker. Les réglages avertissent en rouge quand une règle connecte un **administrateur** : toute personne sur ce réseau peut alors changer chaque réglage, compte et plugin. L’**avertissement de sécurité de l’accès**, en haut d’**Utilisateurs et accès**, signale une règle qui connecte un administrateur alors que les plugins tournent avec une isolation réduite, ou qui couvre le loopback ou la passerelle Docker alors qu’une adresse publique est configurée.
 
+## Les jetons d’API et d’appareil
+
+Un script, un capteur Home Assistant ou une application mobile parle à Meshloom avec un **jeton** au lieu d’un mot de passe : un par appareil, pour pouvoir en révoquer un sans toucher aux autres. Les membres et les administrateurs créent les leurs ; un lecteur ou un kiosque ne le peut pas. Il n’y a pas encore de page pour eux : passez par l’API en étant connecté.
+
+| Requête | Ce qu’elle fait |
+|---|---|
+| `POST /api/auth/tokens` | Crée un jeton : `{"name": "capteur-ha", "scopes": ["read"]}`, avec en option `"expires_at"` (une heure Unix). La réponse contient le jeton (`mlt_…`) **une seule fois** : copiez-le à ce moment-là, Meshloom n’en garde qu’une empreinte et ne peut plus l’afficher. |
+| `GET /api/auth/tokens` | Liste vos jetons (un administrateur voit ceux de tout le monde) : nom, portées, création, dernière utilisation, expiration. Jamais le jeton lui-même. |
+| `DELETE /api/auth/tokens/<id>` | Révoque un jeton. Il cesse de fonctionner aussitôt, et une connexion ouverte avec lui est fermée. |
+
+L’appareil envoie le jeton dans un en-tête, `Authorization: Bearer mlt_…`, à chaque requête et à l’ouverture de la connexion en direct (`/api/ws`). Un jeton placé dans l’adresse (`?token=`) est ignoré. Il ne fonctionne pas à travers l’ingress de Home Assistant : faites pointer l’appareil vers l’adresse propre de Meshloom.
+
+Les **portées** disent ce qu’un jeton peut faire : `read` (canaux, contacts, paquets, carte), `read_private` (messages directs), `send` (envoyer, modifier contacts et canaux), `repeater_admin` (répéteurs et rooms) et `admin` (tout). Un jeton n’obtient jamais plus que le rôle de son compte : un membre ne peut pas demander `repeater_admin` ni `admin` (`auth_token_scope`), et si un compte perd un rôle plus tard, ses jetons le perdent aussi. Un compte désactivé ou supprimé emporte ses jetons. Donnez à chaque jeton le moins de portées possible : un tableau de bord n’a besoin que de `read`.
+
 ## Le journal d’audit
 
-Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, création du premier administrateur, changements des réglages d’accès, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
+Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, création du premier administrateur, changements des réglages d’accès, jetons créés et révoqués et utilisations d’un jeton révoqué ou expiré, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
 
 Chaque entrée garde l’heure, le compte qui a agi (aucun pour une connexion ratée ou la ligne de commande), l’adresse d’où il venait, la voie d’accès (réseau local, Home Assistant, ligne de commande, ou Meshloom lui-même pour une mise à jour automatique), ce qui a été visé et l’issue. Elle ne contient jamais de mot de passe, de code d’installation, de session, de clé ni le code d’un robot. Une connexion ratée ne nomme le compte que si le nom saisi correspond à un compte ; tout autre nom saisi est noté comme inconnu, si bien qu’un mot de passe tapé dans le champ du nom n’est pas gardé.
 
@@ -108,7 +122,7 @@ Les administrateurs le lisent dans **Réglages → Utilisateurs et accès → Jo
 
 ## Sauvegarde et restauration
 
-La sauvegarde complète (**Réglages → Base de données**) contient les comptes quand **Inclure les comptes** est coché, ce qui est le cas par défaut : leurs rôles, hachés de mots de passe et secrets de double authentification, jamais les sessions ni le journal d’audit. La restaurer sur une nouvelle machine rend les mêmes comptes et mots de passe. Une restauration remplace les comptes et déconnecte tout le monde ; elle ne laisse jamais Meshloom sans administrateur actif qui peut se connecter ici (un compte avec mot de passe, ou un utilisateur Home Assistant sur l’add-on) : un fichier qui n’en a pas, ou sans comptes du tout, conserve les comptes actuels. Détails sur la [page de sauvegarde](/docs/backup/#contenu-de-la-sauvegarde). Le téléchargement de la base garde les comptes mais pas leurs mots de passe : après l’avoir remis en place, réinitialisez un mot de passe avec `meshloom-admin` (ci-dessous).
+La sauvegarde complète (**Réglages → Base de données**) contient les comptes quand **Inclure les comptes** est coché, ce qui est le cas par défaut : leurs rôles, hachés de mots de passe et secrets de double authentification, et les jetons d’API (seulement leurs empreintes, si bien que les appareils continuent de fonctionner après une restauration), jamais les sessions ni le journal d’audit. La restaurer sur une nouvelle machine rend les mêmes comptes et mots de passe. Une restauration remplace les comptes et déconnecte tout le monde ; elle ne laisse jamais Meshloom sans administrateur actif qui peut se connecter ici (un compte avec mot de passe, ou un utilisateur Home Assistant sur l’add-on) : un fichier qui n’en a pas, ou sans comptes du tout, conserve les comptes actuels. Détails sur la [page de sauvegarde](/docs/backup/#contenu-de-la-sauvegarde). Le téléchargement de la base garde les comptes mais pas leurs mots de passe : après l’avoir remis en place, réinitialisez un mot de passe avec `meshloom-admin` (ci-dessous).
 
 ## Les commandes
 

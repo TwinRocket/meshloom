@@ -238,7 +238,7 @@ async def test_only_a_resolved_bearer_token_is_exempt_from_the_origin_rule(monke
         assert _code(anonymous) == "auth_invalid_credentials"
         assert "www-authenticate" not in anonymous.headers
 
-        async def resolve_token(token, via):
+        async def resolve_token(token, via, ip):
             if token == "good":
                 return Principal(user=user, via=via, credential="token", token_id="t1")
             return None
