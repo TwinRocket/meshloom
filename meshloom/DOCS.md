@@ -129,6 +129,9 @@ provide one:
    **Cloudflared** add-on does this without opening a port on your router.
 3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
 
+Tunnels, VPNs and reverse proxies are covered step by step in
+*Remote access on your own* (published on meshloom.app, in the Go deeper section).
+
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
 address and a port. Meshloom looks at the name in the browser's address (DNS
 rebinding): in 5.0.0 an unknown name is only logged, and from 5.1 it is refused

@@ -13,7 +13,7 @@ The same rules can also send an **e-mail**, call a **webhook** or notify through
 
 ## What you need
 
-**HTTPS.** Browsers only allow the background component that receives notifications (the service worker) on a secure page. A certificate you made yourself can work; see [HTTPS](/en/docs/deep/https/).
+**HTTPS.** Browsers only allow the background component that receives notifications (the service worker) on a secure page. A certificate you made yourself can work; see [HTTPS](/en/docs/deep/https/). To reach Meshloom from outside your home with a name and a certificate you control, see [Remote access on your own](/en/docs/deep/remote-self-hosted/).
 
 **Internet access from the server.** Notifications go through services run by browser makers: Google (FCM), Mozilla, or Apple (APNs).
 
