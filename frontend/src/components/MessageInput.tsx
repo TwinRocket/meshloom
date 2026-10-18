@@ -11,11 +11,11 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
-import { Send, Smile, X } from 'lucide-react';
+import { Link2, Send, Smile, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { toast } from './ui/sonner';
-import { formatApiError } from '../api';
+import { api, formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
 import {
@@ -26,6 +26,8 @@ import {
 import { loadConversationDraft, saveConversationDraft } from '../utils/conversationDrafts';
 import { getDesktopEnterSends, subscribeDesktopEnterSends } from '../utils/composerEnterKey';
 import { formatGif, formatLocation } from '../utils/meshcoreOpenPayloads';
+import { findLongUrls, isShareLink, rewriteUrls } from '../utils/share';
+import { refreshShareStatus, useShareStatus } from '../stores/shareStatusStore';
 
 // MeshCore message size limits (empirically determined from LoRa packet constraints)
 // Direct delivery allows ~156 bytes; multi-hop requires buffer for path growth.
@@ -98,6 +100,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   const [text, setText] = useState('');
   const [replyQuote, setReplyQuote] = useState<{ sender: string; quote: string } | null>(null);
   const [sending, setSending] = useState(false);
+  const [shortening, setShortening] = useState(false);
   const [composerPanel, setComposerPanel] = useState<ComposerAttachTab | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -227,12 +230,115 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
 
   const remaining = limits ? limits.hardLimit - textByteLen : 0;
 
+  // Link shortening needs sharing on; `/api/share/status` is local (no egress).
+  const shareStatus = useShareStatus();
+  useEffect(() => {
+    if (!shareStatus) void refreshShareStatus();
+  }, [shareStatus]);
+  const shareHosts = shareStatus?.hosts;
+  const shortenMode = shareStatus?.enabled ? shareStatus.shorten_mode : 'never';
+  const longUrls = useMemo(
+    () => (shortenMode === 'never' ? [] : findLongUrls(text, shareHosts)),
+    [shortenMode, text, shareHosts]
+  );
+  // `auto`: a button next to the counter, only once the text is over the limit.
+  const showShortenButton = shortenMode === 'auto' && limitState === 'error' && longUrls.length > 0;
+  // `always`: Send shortens first; the size guard then judges the shortened text.
+  const shortenOnSend = shortenMode === 'always' && longUrls.length > 0;
+
+  /**
+   * Shorten every long URL of `source` through the backend, one after the other.
+   * All or nothing: on any failure a coded toast is shown and null returned, so
+   * the caller keeps the original text.
+   */
+  const shortenText = useCallback(
+    async (source: string): Promise<string | null> => {
+      const mapping = new Map<string, string>();
+      try {
+        for (const url of findLongUrls(source, shareHosts)) {
+          const link = await api.shortenLink(url);
+          // Only ever write a link of the share service into the message.
+          if (!isShareLink(link.url, shareHosts)) throw new Error('unexpected short link');
+          mapping.set(url, link.url);
+        }
+      } catch (err) {
+        console.error('Failed to shorten link:', err);
+        toast.error(t('chat.shortenFailed'), {
+          description: err instanceof Error ? formatApiError(err, t) : undefined,
+        });
+        return null;
+      }
+      return rewriteUrls(source, mapping);
+    },
+    [shareHosts, t]
+  );
+
+  /** Put a rewritten text in the textarea, saving the draft; Undo restores `original`. */
+  const applyShortened = useCallback(
+    (original: string, shortened: string, withUndo: boolean) => {
+      setText(shortened);
+      textRef.current = shortened;
+      if (draftIdentity) saveConversationDraft(draftIdentity.type, draftIdentity.id, shortened);
+      toast.success(
+        t('chat.linkShortened', { before: byteLen(original), after: byteLen(shortened) }),
+        withUndo
+          ? {
+              action: {
+                label: t('chat.shortenUndo'),
+                onClick: () => {
+                  // An edit made since would be lost: undo only the untouched rewrite.
+                  if (textRef.current !== shortened) return;
+                  setText(original);
+                  textRef.current = original;
+                  if (draftIdentity) {
+                    saveConversationDraft(draftIdentity.type, draftIdentity.id, original);
+                  }
+                  textareaRef.current?.focus();
+                },
+              },
+            }
+          : undefined
+      );
+    },
+    [draftIdentity, t]
+  );
+
+  const handleShorten = useCallback(async () => {
+    if (shortening || sending || disabled) return;
+    const original = text;
+    setShortening(true);
+    try {
+      const shortened = await shortenText(original);
+      if (shortened === null || shortened === original) return;
+      // Typed meanwhile: keep what the user wrote rather than overwrite it.
+      if (textRef.current !== original) return;
+      applyShortened(original, shortened, true);
+    } finally {
+      setShortening(false);
+    }
+  }, [shortening, sending, disabled, text, shortenText, applyShortened]);
+
   const submitMessage = useCallback(async () => {
-    const trimmed = text.trim();
-    if (!trimmed || sending || disabled || limitState === 'error') return;
+    let trimmed = text.trim();
+    if (!trimmed || sending || shortening || disabled) return;
+    // The size guard stays: in `always` mode it judges the shortened text instead.
+    if (limitState === 'error' && !shortenOnSend) return;
 
     setSending(true);
     try {
+      if (shortenOnSend) {
+        const shortened = await shortenText(trimmed);
+        if (shortened === null) return;
+        // Edited while waiting: do not send or overwrite, let the user re-read.
+        if (textRef.current.trim() !== trimmed) return;
+        const rewritten = shortened.trim();
+        const stillTooLong = limits !== null && byteLen(rewritten) >= limits.hardLimit;
+        // Nothing sent when the shortened text still fails the guard: the user
+        // sees it in the textarea and can undo.
+        applyShortened(trimmed, rewritten, stillTooLong);
+        if (stillTooLong) return;
+        trimmed = rewritten;
+      }
       await onSend(trimmed);
       setText('');
       setReplyQuote(null);
@@ -255,7 +361,20 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     textareaRef.current?.focus();
     requestAnimationFrame(() => textareaRef.current?.focus());
     window.setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [text, sending, disabled, limitState, onSend, draftIdentity, t]);
+  }, [
+    text,
+    sending,
+    shortening,
+    disabled,
+    limitState,
+    limits,
+    shortenOnSend,
+    shortenText,
+    applyShortened,
+    onSend,
+    draftIdentity,
+    t,
+  ]);
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {
@@ -394,12 +513,29 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     };
   }, [composerPanel]);
 
-  const canSubmit = text.trim().length > 0 && limitState !== 'error';
+  const canSubmit = text.trim().length > 0 && (limitState !== 'error' || shortenOnSend);
 
   // Show counter for messages (not raw).
   // Desktop: always visible. Mobile: only after the UTF-8 warning threshold.
   const showCharCounter = limits !== null;
   const showMobileCounterValue = limits !== null && textByteLen >= limits.warningAt;
+
+  const shortenButton = showShortenButton ? (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-6 gap-1 px-2 text-xs"
+      data-testid="composer-shorten"
+      aria-busy={shortening}
+      disabled={disabled || sending || shortening}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => void handleShorten()}
+    >
+      <Link2 className="h-3 w-3" aria-hidden="true" />
+      {shortening ? t('chat.shortening') : t('chat.shorten')}
+    </Button>
+  ) : null;
 
   return (
     <form
@@ -486,7 +622,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         />
         <Button
           type="submit"
-          disabled={disabled || sending || !canSubmit}
+          disabled={disabled || sending || shortening || !canSubmit}
           className={cn(
             'h-10 w-10 shrink-0 px-0 sm:w-auto sm:px-4',
             !canSubmit && 'hidden md:inline-flex'
@@ -519,6 +655,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
                 — {warningMessage}
               </span>
             )}
+            {shortenButton}
           </div>
 
           {(showMobileCounterValue || warningMessage) && (
@@ -543,6 +680,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
                   — {warningMessage}
                 </span>
               )}
+              {shortenButton}
             </div>
           )}
         </>
