@@ -295,11 +295,12 @@ hooks block and what they cannot: `docs/dev/plugins-security.md`.
 
 | Module | Role |
 |---|---|
-| `app/plugins/launch.py` | server side of the launch contract: `runner_command()`, `runner_env()`, `runner_params()`, `bootstrap_source()` |
+| `app/plugins/launch.py` | server side of the launch contract: `runner_command()`, `prepare_work_dir()`, `popen_kwargs()`, `runner_env()`, `runner_params()`, `bootstrap_source()` |
 | `meshloom_plugin/runner.py` | the child: start-up stages, audit hook, import guard, JSON-RPC loop |
 | `meshloom_plugin/rpc.py` | NDJSON framing and JSON-RPC 2.0 helpers, used by both ends |
 | `meshloom_plugin/policy.py` | import allowlist and denylist, kept environment keys, default limits, handler concurrency |
 | `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server, for the SDK |
+| `meshloom_plugin/errors.py` | exceptions plugin code may catch (`HostError`); never in `runner.py`, which runs as `__main__`, so a plugin importing `meshloom_plugin.runner` would get a second copy whose classes never match |
 
 ### Launch contract
 
@@ -314,14 +315,21 @@ the cwd, the script directory and `PYTHONPATH` from `sys.path`, so
 `runpy.run_module("meshloom_plugin.runner", run_name="__main__")`. `-S` (not in the
 cadrage's first draft) skips `site` too: no site-packages on the path and no
 `.pth` file executed before the runner freezes the process. `<python>` is
-`sys.executable`. The supervisor must pass `env=runner_env()` (`LANG=C.UTF-8`,
-`PYTHONHASHSEED=random`), `cwd` a private temporary directory (the only writable
-place), `close_fds=True` and `start_new_session=True`; stdin and stdout carry
-the RPC stream, stderr is the plugin's log.
+`sys.executable`. The supervisor creates the instance's private work directory
+with `prepare_work_dir()` (0700, owned by the server user, not a symlink) and
+spawns with `subprocess.Popen(runner_command(), stderr=..., **popen_kwargs(work_dir))`:
+`cwd=work_dir` (the only writable place), `env=runner_env()` (`LANG=C.UTF-8`,
+`PYTHONHASHSEED=random`), stdin and stdout as pipes (the RPC stream),
+`close_fds=True` with no `pass_fds`, `start_new_session=True` (a process group
+to kill). stderr is the plugin's log.
 
-The first stdin line is one JSON object: `plugin_dir` (absolute), `instance_id`,
-`isolation` (`none`, `setuid` or `bwrap`) and `limits` (keys of
-`policy.DEFAULT_LIMITS`, positive integers). The runner reads `entry` from
+The first stdin line is one JSON object: `plugin_dir` (absolute), `work_dir`
+(absolute), `instance_id`, `isolation` (one of `policy.ISOLATION_LEVELS`: `none`,
+`setuid`, `bwrap`) and `limits` (keys of `policy.DEFAULT_LIMITS`, positive
+integers). The runner refuses to start (`params_invalid`) when its cwd is not
+`work_dir`, when `work_dir` is `/`, or when `work_dir` and `plugin_dir` nest
+either way: a supervisor that forgot `cwd=` would otherwise make its own cwd,
+possibly the data directory, writable through the hook. The runner reads `entry` from
 `plugin_dir/manifest.json` (already validated at install). What follows that
 line on stdin is the RPC stream.
 
@@ -375,9 +383,12 @@ raises `PermissionError`, not `ImportError`: a vendored library that does
 ### Protocol (child side)
 
 JSON-RPC 2.0, one object per line (`\n`), UTF-8, at most
-`rpc.MAX_MESSAGE_BYTES` (100 KiB) per line; no batches. A line over the cap ends
-the child (exit 2); a line that is not JSON or not a JSON-RPC 2.0 object gets an
-error with `id: null` (`-32700`, `-32600`) and the child keeps serving.
+`rpc.MAX_MESSAGE_BYTES` (100 KiB) per line, arrays and objects nested at most
+`rpc.MAX_NESTING_DEPTH` (64) deep (checked before parsing); no batches. A line
+over the cap ends the child (exit 2); a line that is not JSON, nested too deep or
+not a JSON-RPC 2.0 object gets an error with `id: null` (`-32700`, `-32600`) and
+the child keeps serving. The server decodes child output with the same
+`rpc.decode`.
 
 | Server → child | Plugin attribute called with `params` |
 |---|---|
@@ -397,7 +408,7 @@ Errors: `-32601` unknown method, `-32000` the handler raised (`data:
 
 Child → server: `await meshloom_plugin.host().call(method, params)` sends a
 request with an integer id and returns its `result`, or raises
-`meshloom_plugin.runner.HostError` carrying the `error` object;
+`meshloom_plugin.errors.HostError` carrying the `error` object;
 `host().notify(method, params)` sends a notification. The methods themselves
 (`messages.send`, `storage.*`, `http.fetch`...) and their checks are the
 supervisor's (MSHL-179 and later). The SDK (MSHL-177) wraps `host()`.

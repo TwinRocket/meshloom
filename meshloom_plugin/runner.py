@@ -4,7 +4,8 @@ Launched by `app/plugins/launch.py` as `python -I -S -B -X utf8 -c <bootstrap>`;
 the bootstrap sets `sys.path = [app_root] + stdlib` and runs this module as
 `__main__`. Stages, in order (docs/dev/plugins.md, "Runner"):
 
-1. Read the parameters line from stdin, close inherited descriptors >= 3.
+1. Close inherited descriptors >= 3, read the parameters line from stdin and
+   check the cwd is the `work_dir` it names (the only write root).
 2. Keep private duplicates of the RPC descriptors; fd 0 becomes /dev/null and
    fd 1 (and `sys.stdout`) becomes stderr, so a `print()` never reaches the RPC
    stream.
@@ -38,6 +39,7 @@ from typing import Any  # noqa: E402
 
 import meshloom_plugin  # noqa: E402
 from meshloom_plugin import policy, rpc  # noqa: E402
+from meshloom_plugin.errors import HostError  # noqa: E402
 
 # Loaded at interpreter start-up (or by runpy) but not for plugins: purged too.
 # `importlib._bootstrap*` are aliases of the frozen import machinery and stay.
@@ -75,7 +77,7 @@ def _close_inherited_fds() -> None:
         limit = os.sysconf("SC_OPEN_MAX")
     except (ValueError, OSError):
         limit = 1024
-    os.closerange(3, min(max(limit, 256), 1 << 20))
+    os.closerange(3, max(limit, 256))
 
 
 def _read_params() -> tuple[dict[str, Any], bytes]:
@@ -100,15 +102,41 @@ def _read_params() -> tuple[dict[str, Any], bytes]:
         raise RunnerStartError("params_invalid", "plugin_dir must be an absolute path")
     if not os.path.isdir(plugin_dir):
         raise RunnerStartError("params_invalid", "plugin_dir does not exist")
-    for key in ("instance_id", "isolation"):
-        if not isinstance(params.get(key), str):
-            raise RunnerStartError("params_invalid", f"{key} must be a string")
+    if not isinstance(params.get("instance_id"), str):
+        raise RunnerStartError("params_invalid", "instance_id must be a string")
+    if params.get("isolation") not in policy.ISOLATION_LEVELS:
+        raise RunnerStartError("params_invalid", "isolation is not a known level")
+    params["work_dir"] = _check_work_dir(params.get("work_dir"), plugin_dir)
     limits = params.get("limits", {})
     if not isinstance(limits, dict) or not all(
         k in policy.DEFAULT_LIMITS and type(v) is int and v > 0 for k, v in limits.items()
     ):
         raise RunnerStartError("params_invalid", "limits must map known names to positive ints")
     return params, rest
+
+
+def _inside(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _check_work_dir(work_dir: Any, plugin_dir: str) -> str:
+    """The cwd is the only write root: it must be the private dir the supervisor named.
+
+    Refused: a cwd other than `work_dir` (a supervisor that forgot to set it would
+    make its own cwd, possibly the data directory, writable), `/`, and any nesting
+    with `plugin_dir` (the plugin's code must stay read-only).
+    """
+    if not isinstance(work_dir, str) or not os.path.isabs(work_dir):
+        raise RunnerStartError("params_invalid", "work_dir must be an absolute path")
+    real = os.path.realpath(work_dir)
+    if real != os.path.realpath(os.getcwd()):
+        raise RunnerStartError("params_invalid", "the working directory is not work_dir")
+    if real == "/":
+        raise RunnerStartError("params_invalid", "work_dir must not be /")
+    real_plugin = os.path.realpath(plugin_dir)
+    if _inside(real, real_plugin) or _inside(real_plugin, real):
+        raise RunnerStartError("params_invalid", "work_dir and plugin_dir must not nest")
+    return real
 
 
 def _take_rpc_fds() -> tuple[int, int]:
@@ -165,9 +193,12 @@ def _apply_limits(params: dict[str, Any]) -> None:
     _thread.stack_size(THREAD_STACK_SIZE)
 
     if sys.platform.startswith("linux"):
-        import ctypes
+        try:
+            import ctypes
 
-        libc = ctypes.CDLL(None, use_errno=True)
+            libc = ctypes.CDLL(None, use_errno=True)
+        except (ImportError, OSError) as exc:
+            raise RunnerStartError("limits_failed", f"ctypes unavailable: {exc}") from None
         if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             raise RunnerStartError(
                 "limits_failed", f"PR_SET_NO_NEW_PRIVS: errno {ctypes.get_errno()}"
@@ -646,15 +677,6 @@ class Channel:
 _NO_REPLY = object()
 
 
-class HostError(Exception):
-    """The server answered a child request with a JSON-RPC error."""
-
-    def __init__(self, error: Any):
-        message = error.get("message") if isinstance(error, dict) else None
-        super().__init__(message or "host error")
-        self.error = error
-
-
 def _handler_name(method: str) -> str | None:
     if method == "plugin.init":
         return "on_init"
@@ -716,7 +738,7 @@ def main() -> int:
         import asyncio  # noqa: F401 - loaded before the hook, purged of its sockets after
 
         plugin_dir = os.path.realpath(params["plugin_dir"])
-        tmp_dir = os.getcwd()
+        tmp_dir = params["work_dir"]
         stdlib = [p for p in sys.path[1:] if p]
         package_dir = os.path.dirname(os.path.abspath(meshloom_plugin.__file__ or ""))
         _install_audit_hook(

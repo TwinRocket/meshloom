@@ -120,6 +120,9 @@ DEFAULT_LIMITS = {
 
 MAX_CONCURRENT_HANDLERS = 8
 
+# Isolation levels the supervisor may announce (MSHL-180); the child refuses others.
+ISOLATION_LEVELS = ("none", "setuid", "bwrap")
+
 
 def _matches(name: str, names: frozenset[str]) -> bool:
     parts = name.split(".")

@@ -39,32 +39,33 @@ class Runner:
         *,
         env: dict[str, str] | None = None,
         pass_fds: tuple[int, ...] = (),
-        close_fds: bool = True,
         isolation: str = "none",
         limits: dict[str, int] | None = None,
         params_line: bytes | None = None,
+        cwd: Path | None = None,
     ):
-        self.cwd = Path(tempfile.mkdtemp(dir=work, prefix="cwd-"))
+        # The supervisor's way: launch.prepare_work_dir() and launch.popen_kwargs().
+        # Tests override env, pass_fds or cwd only to play a parent that gets it wrong.
+        self.cwd = launch.prepare_work_dir(Path(tempfile.mkdtemp(dir=work, prefix="cwd-")))
         self.stderr_path = work / f"stderr-{self.cwd.name}.log"
         self._stderr = self.stderr_path.open("wb")
-        self.proc = subprocess.Popen(
-            launch.runner_command(),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=self._stderr,
-            env=launch.runner_env() if env is None else env,
-            cwd=self.cwd,
-            close_fds=close_fds,
-            pass_fds=pass_fds,
-            start_new_session=True,
-        )
+        kwargs = launch.popen_kwargs(self.cwd)
+        if env is not None:
+            kwargs["env"] = env
+        if pass_fds:
+            kwargs["pass_fds"] = pass_fds
+        if cwd is not None:
+            kwargs["cwd"] = str(cwd)
+        self.proc = subprocess.Popen(launch.runner_command(), stderr=self._stderr, **kwargs)
         assert self.proc.stdin is not None and self.proc.stdout is not None
         self._stdin = self.proc.stdin
         self._stdout_fd = self.proc.stdout.fileno()
         self._buf = b""
         self._next_id = 0
         if params_line is None:
-            params_line = launch.runner_params(plugin_dir, "test-instance", isolation, limits)
+            params_line = launch.runner_params(
+                plugin_dir, self.cwd, "test-instance", isolation, limits
+            )
         self.write(params_line)
 
     def write(self, data: bytes) -> None:
@@ -222,6 +223,7 @@ HOSTILE = """
             n for n in ("socket", "ssl", "subprocess", "_posixsubprocess") if n in sys.modules
         ),
         "write_fd1": lambda p: os.write(1, b"garbage on fd 1\\n"),
+        "write_plugin_dir": lambda p: open(os.path.join(os.path.dirname(__file__), "x.py"), "w"),
         "unserializable": lambda p: object(),
         "oversized": lambda p: "x" * (200 * 1024),
     }
@@ -249,6 +251,14 @@ HOSTILE = """
             return "connected"
         if case == "host_call":
             return await meshloom_plugin.host().call("storage.get", {"key": "k"})
+        if case == "host_call_caught":
+            from meshloom_plugin.errors import HostError
+
+            try:
+                await meshloom_plugin.host().call("storage.get", {"key": "k"})
+            except HostError as exc:
+                return {"caught": exc.error}
+            return "not raised"
         if case == "sleep":
             await asyncio.sleep(params.get("seconds", 30))
             return "slept"
@@ -287,6 +297,7 @@ def test_starts_under_isolated_mode_in_an_empty_cwd(hostile: Runner) -> None:
     "case",
     [
         "etc_passwd",
+        "write_plugin_dir",
         "relative_path",
         "list_outside",
         "symlink",
@@ -426,18 +437,40 @@ def test_corpus_case(case_dir: Path, work: Path) -> None:
         try:
             for event in case["events"]:
                 response = runner.event(event["params"])
-                expect = event["expect"]
-                if "error_type" in expect:
-                    assert _error_type(response) == expect["error_type"], response
-                elif "result" in expect:
-                    assert response.get("result") == expect["result"], response
-                else:
-                    _CHECKS[expect["check"]](response, marker_stat)
+                try:
+                    _check_expectation(event["expect"], response, marker_stat)
+                except AssertionError:
+                    if not _open_path_applies(event.get("open_path")):
+                        raise
+                    # A documented open path: the case is pinned so the ticket
+                    # that closes it (MSHL-180/MSHL-191) turns it into a pass.
+                    pytest.xfail(f"open path: {event['open_path']['note']}: {response}")
                 assert runner.request("event.health", {"ok": True})["result"] is None
         finally:
             runner.close()
     finally:
         os.close(marker_fd)
+
+
+def _check_expectation(
+    expect: dict[str, Any], response: dict[str, Any], marker: os.stat_result
+) -> None:
+    if "error_type" in expect:
+        assert _error_type(response) == expect["error_type"], response
+    elif "result" in expect:
+        assert response.get("result") == expect["result"], response
+    else:
+        _CHECKS[expect["check"]](response, marker)
+
+
+def _open_path_applies(open_path: dict[str, Any] | None) -> bool:
+    if open_path is None:
+        return False
+    below = open_path.get("python_below")
+    if below is None:
+        return True
+    major, minor = (int(part) for part in below.split("."))
+    return sys.version_info[:2] < (major, minor)
 
 
 def _check_hook_frame(response: dict[str, Any], _marker: os.stat_result) -> None:
@@ -506,6 +539,16 @@ def test_host_error_reaches_the_handler(hostile: Runner) -> None:
     assert "permission_denied" in response["error"]["message"]
 
 
+def test_plugin_catches_host_error_from_its_module(hostile: Runner) -> None:
+    # HostError lives in meshloom_plugin.errors, not in the runner (which runs as
+    # __main__, so a plugin importing meshloom_plugin.runner would get a copy).
+    def refuse(message: dict[str, Any]) -> dict[str, Any]:
+        return rpc.error(message["id"], -32010, "permission_denied")
+
+    response = hostile.event({"case": "host_call_caught"}, on_request=refuse)
+    assert response["result"] == {"caught": {"code": -32010, "message": "permission_denied"}}
+
+
 def test_event_cancel(hostile: Runner) -> None:
     slow = hostile.start("event.message", {"case": "sleep"})
     cancel = hostile.request("event.cancel", {"id": slow})
@@ -560,9 +603,9 @@ def test_shutdown_answers_then_exits(hostile: Runner) -> None:
 
 def test_params_line_after_the_first_request_is_kept(work: Path) -> None:
     plugin_dir = make_plugin(work, "def on_init(params):\n    return params\n")
-    params = launch.runner_params(plugin_dir, "i", "none")
     first = rpc.encode(rpc.request(1, "plugin.init", {"api": 1}))
-    runner = Runner(plugin_dir, work, params_line=params + first)
+    runner = Runner(plugin_dir, work, params_line=b"", cwd=None)
+    runner.write(launch.runner_params(plugin_dir, runner.cwd, "i", "none") + first)
     try:
         assert runner.read_message() == rpc.result(1, {"api": 1})
     finally:
@@ -611,12 +654,83 @@ def test_bad_parameters_are_a_typed_start_error(work: Path, params: bytes) -> No
     assert _start_error(runner)["runner_error"] == "params_invalid"
 
 
+def _start_with(work: Path, plugin_dir: Path, cwd: Path | None = None, **changes: Any) -> dict:
+    runner = Runner(plugin_dir, work, params_line=b"", cwd=cwd)
+    params = {
+        "plugin_dir": str(plugin_dir),
+        "work_dir": str(runner.cwd),
+        "instance_id": "i",
+        "isolation": "none",
+        **changes,
+    }
+    runner.write(json.dumps(params).encode() + b"\n")
+    return _start_error(runner)
+
+
 def test_unknown_limit_is_refused(work: Path) -> None:
-    line = json.dumps(
-        {"plugin_dir": str(work), "instance_id": "i", "isolation": "none", "limits": {"x": 1}}
-    )
-    runner = Runner(work, work, params_line=line.encode() + b"\n")
-    assert _start_error(runner)["runner_error"] == "params_invalid"
+    plugin_dir = make_plugin(work, "")
+    assert _start_with(work, plugin_dir, limits={"x": 1})["runner_error"] == "params_invalid"
+
+
+def test_unknown_isolation_level_is_refused(work: Path) -> None:
+    plugin_dir = make_plugin(work, "")
+    error = _start_with(work, plugin_dir, isolation="chroot")
+    assert error["runner_error"] == "params_invalid"
+    assert "isolation" in error["message"]
+
+
+def test_cwd_other_than_work_dir_is_refused(work: Path) -> None:
+    # A supervisor that forgot cwd= would make its own cwd (the data dir) writable.
+    data_dir = work / "data"
+    data_dir.mkdir()
+    (data_dir / "meshcore.db").write_bytes(b"db")
+    plugin_dir = make_plugin(work, "")
+    error = _start_with(work, plugin_dir, cwd=data_dir)
+    assert error["runner_error"] == "params_invalid"
+    assert "work_dir" in error["message"]
+
+
+@pytest.mark.parametrize("where", ["root", "plugin_dir", "inside_plugin_dir", "around_plugin"])
+def test_work_dir_must_not_be_root_or_nest_with_the_plugin(work: Path, where: str) -> None:
+    plugin_dir = make_plugin(work, "")
+    target = {
+        "root": Path("/"),
+        "plugin_dir": plugin_dir,
+        "inside_plugin_dir": plugin_dir / "tmp",
+        "around_plugin": work,
+    }[where]
+    target.mkdir(exist_ok=True)
+    error = _start_with(work, plugin_dir, cwd=target, work_dir=str(target))
+    assert error["runner_error"] == "params_invalid"
+
+
+def test_missing_work_dir_is_refused(work: Path) -> None:
+    plugin_dir = make_plugin(work, "")
+    assert _start_with(work, plugin_dir, work_dir=None)["runner_error"] == "params_invalid"
+
+
+def test_popen_kwargs_fix_cwd_fds_session_and_env(work: Path) -> None:
+    work_dir = launch.prepare_work_dir(work / "instance" / "tmp")
+    kwargs = launch.popen_kwargs(work_dir)
+    assert kwargs["cwd"] == str(work_dir)
+    assert kwargs["close_fds"] is True
+    assert kwargs["pass_fds"] == ()
+    assert kwargs["start_new_session"] is True
+    assert kwargs["stdin"] == kwargs["stdout"] == subprocess.PIPE
+    assert kwargs["env"] == launch.runner_env()
+    assert (work_dir.stat().st_mode & 0o777) == 0o700
+
+
+def test_prepare_work_dir_refuses_a_symlink(work: Path) -> None:
+    (work / "real").mkdir()
+    (work / "link").symlink_to(work / "real")
+    with pytest.raises(ValueError):
+        launch.prepare_work_dir(work / "link")
+
+
+def test_runner_params_refuse_an_unknown_isolation_level(work: Path) -> None:
+    with pytest.raises(ValueError):
+        launch.runner_params(work, work / "tmp", "i", "chroot")
 
 
 def test_entry_failure_is_a_typed_start_error(work: Path) -> None:
@@ -688,6 +802,25 @@ def test_hook_source_compiles_to_a_function_without_globals() -> None:
 def test_decode_refuses_malformed_messages(line: bytes) -> None:
     with pytest.raises(rpc.ProtocolError):
         rpc.decode(line)
+
+
+def test_decode_caps_the_nesting_depth() -> None:
+    deep = rpc.MAX_NESTING_DEPTH - 1  # plus the envelope object
+    ok = b'{"jsonrpc": "2.0", "id": 1, "result": ' + b"[" * deep + b"]" * deep + b"}"
+    assert rpc.decode(ok)["id"] == 1
+    too_deep = ok.replace(b"[", b"[[", 1).replace(b"]", b"]]", 1)
+    with pytest.raises(rpc.ProtocolError, match="nested deeper"):
+        rpc.decode(too_deep)
+    # Brackets inside strings do not count.
+    text = b'{"jsonrpc": "2.0", "id": 1, "result": "' + b"[" * 500 + b'\\"]"}'
+    assert rpc.decode(text)["result"].startswith("[[")
+
+
+def test_deeply_nested_line_gets_a_parse_error(hostile: Runner) -> None:
+    hostile.write(b'{"jsonrpc": "2.0", "id": 9, "method": "event.message", "params": ')
+    hostile.write(b"[" * 1000 + b"]" * 1000 + b"}\n")
+    assert hostile.read_message()["error"]["code"] == rpc.PARSE_ERROR
+    assert hostile.event({"case": "ping"})["result"] == "pong"
 
 
 def test_line_decoder_caps_a_line_without_newline() -> None:

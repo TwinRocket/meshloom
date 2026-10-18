@@ -6,9 +6,17 @@ this before its import surface is frozen, the server imports it as is.
 """
 
 import json
+import re
 from typing import Any
 
 MAX_MESSAGE_BYTES = 100 * 1024
+# Arrays and objects nested deeper than this are refused before parsing, so a
+# hostile peer never relies on the parser's recursion limit (both ends decode
+# with this function).
+MAX_NESTING_DEPTH = 64
+
+_JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+_JSON_BRACKET = re.compile(r"[\[\]{}]")
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -61,10 +69,27 @@ def _refuse_constant(name: str) -> Any:
     raise ValueError(f"{name} is not JSON")
 
 
+def _nesting_depth(text: str) -> int:
+    depth = deepest = 0
+    for bracket in _JSON_BRACKET.findall(_JSON_STRING.sub("", text)):
+        if bracket in "[{":
+            depth += 1
+            deepest = max(deepest, depth)
+        else:
+            depth -= 1
+    return deepest
+
+
 def decode(line: bytes) -> dict[str, Any]:
     """Parse one line into a JSON-RPC message object (request, notification or response)."""
     try:
-        obj = json.loads(line.decode("utf-8"), parse_constant=_refuse_constant)
+        text = line.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ProtocolError(PARSE_ERROR, "parse error: not UTF-8") from None
+    if _nesting_depth(text) > MAX_NESTING_DEPTH:
+        raise ProtocolError(PARSE_ERROR, f"parse error: nested deeper than {MAX_NESTING_DEPTH}")
+    try:
+        obj = json.loads(text, parse_constant=_refuse_constant)
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise ProtocolError(PARSE_ERROR, f"parse error: {type(exc).__name__}") from None
     if not isinstance(obj, dict) or obj.get("jsonrpc") != "2.0":

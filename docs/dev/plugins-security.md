@@ -17,12 +17,14 @@ wrong: the code wins.
 | Measure | What it gives |
 |---|---|
 | Descriptors from 3 up closed at start; the RPC descriptors duplicated, fd 0 = `/dev/null`, fd 1 = stderr | nothing inherited from the server; `print()` cannot corrupt the RPC stream |
+| The cwd must be the `work_dir` the supervisor named (`launch.prepare_work_dir()`, 0700), not `/`, not nested with the plugin directory; otherwise no start | the only writable place is a private directory, never the server's cwd or the plugin's code |
 | `os.environ` cleared but `LANG` and `PYTHONHASHSEED` (and the supervisor passes only those) | no server secret in the environment |
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` under the dedicated uid only; small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
 | Event loop self-pipe on `os.pipe()` | the child holds no socket object at all |
+| RPC lines capped at 100 KiB and 64 levels of nesting, checked before parsing | a hostile peer cannot exhaust the parser (both ends use `rpc.decode`) |
 
 The audit hook raises `PermissionError` on:
 
@@ -105,5 +107,9 @@ frame.
 
 `tests/test_plugin_runner.py` runs a hostile plugin through a real child and
 checks each refusal leaves the child serving; `tests/plugin_corpus/` holds the
-seed cases above plus the `print()` flood, `os.environ` and inherited
-descriptors. MSHL-191 runs the corpus under every isolation level.
+seed cases above plus the `print()` flood, `os.environ`, inherited descriptors
+and thread start. The open paths are pinned as corpus cases with an
+`open_path` entry (`posixsubprocess_spec_rebuild`, `thread_start` below 3.12):
+they report `xfail` while the path stays open and pass once a later ticket
+(MSHL-180, MSHL-191) closes it. MSHL-191 runs the corpus under every isolation
+level.
