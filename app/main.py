@@ -63,6 +63,7 @@ from app.frontend_static import (
 )
 from app.middleware import proxy_headers
 from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.radio import RadioDisconnectedError
 from app.radio_sync import (
     stop_background_contact_reconciliation,
@@ -415,6 +416,8 @@ app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # Same-origin by default; Settings lists the other sites allowed (app/cors.py).
 app.add_middleware(AllowedOriginsCORSMiddleware)
+# HSTS (https only, never ingress), no-store on auth routes, Permissions-Policy.
+app.add_middleware(SecurityHeadersMiddleware)
 # Outside the gate and CORS: the one interpreter of X-Forwarded-For/-Proto, from
 # the trusted proxies setting (app/middleware/proxy_headers.py).
 app.add_middleware(TrustedProxyHeadersMiddleware)
