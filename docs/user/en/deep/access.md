@@ -16,7 +16,7 @@ Each account has one of four roles. The server checks the role on every request,
 | Role | Can |
 |---|---|
 | `admin` | Everything: settings, radio, repeaters and rooms, integrations and bots, backup and restore, the private key, updates, Community, notifications, the debug report. |
-| `member` | Everything a `viewer` can, plus send messages, add and edit contacts, channels and contact groups, favourites, pins and muted channels, and subscribe its own browser to push notifications. |
+| `member` | Everything a `viewer` can, plus send messages, add and edit contacts, channels and contact groups, favourites, pins and muted channels, subscribe its own browser to push notifications, and create API tokens for its own devices and scripts. |
 | `viewer` | Read channels and direct messages, mark them read, manage its own profile and sessions. |
 | `kiosk` | Read only, for a screen on the wall: channel messages (muted and pending channels included), contacts, channels, packets, statistics and the map. Never a direct message, no settings, no profile. |
 
@@ -98,9 +98,23 @@ A rule is **off as soon as a proxy is in the loop**, because behind a proxy or a
 
 Meshloom refuses to save a rule that overlaps a trusted proxy, one that covers loopback outside the add-on, and, while a public address is configured, one that covers the Docker gateway. Settings warns in red when a rule signs in an **administrator**: anyone on that network can then change every setting, account and plugin. The **Access security notice** at the top of **Users & Access** says when a rule signs in an administrator while plugins run with reduced isolation, or covers loopback or the Docker gateway while a public address is configured.
 
+## API and device tokens
+
+A script, a Home Assistant sensor or a phone app talks to Meshloom with a **token** instead of a password: one per device, so you can revoke one without touching the others. Members and administrators create their own; a viewer or a kiosk cannot. There is no page for them yet: use the API while signed in.
+
+| Request | What it does |
+|---|---|
+| `POST /api/auth/tokens` | Creates a token: `{"name": "ha-sensor", "scopes": ["read"]}`, optionally `"expires_at"` (a Unix time). The answer holds the token (`mlt_…`) **once**: copy it then, Meshloom keeps only a fingerprint of it and cannot show it again. |
+| `GET /api/auth/tokens` | Lists your tokens (an administrator sees everyone's): name, scopes, creation, last use, expiry. Never the token itself. |
+| `DELETE /api/auth/tokens/<id>` | Revokes a token. It stops working at once, and a connection open with it is closed. |
+
+The device sends the token in a header, `Authorization: Bearer mlt_…`, on every request and when it opens the live connection (`/api/ws`). A token put in the address (`?token=`) is ignored. It does not work through Home Assistant's ingress: point the device at Meshloom's own address.
+
+**Scopes** say what a token may do: `read` (channels, contacts, packets, map), `read_private` (direct messages), `send` (send and edit contacts and channels), `repeater_admin` (repeaters and rooms) and `admin` (everything). A token never gets more than its account's role: a member cannot ask for `repeater_admin` or `admin` (`auth_token_scope`), and if an account loses a role later, its tokens lose it too. A disabled or deleted account takes its tokens with it. Give each token the fewest scopes it needs: a dashboard needs only `read`.
+
 ## Audit log
 
-Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, the first administrator setup, changes to the access settings, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or a bot's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
@@ -108,7 +122,7 @@ Administrators read it in **Settings → Users & Access → Audit log** (hidden 
 
 ## Backup and restore
 
-The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes and two-factor secrets, never the sessions or the audit log. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
+The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes and two-factor secrets, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
 
 ## Commands
 
