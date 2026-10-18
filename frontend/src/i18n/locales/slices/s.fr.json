@@ -1,0 +1,24 @@
+{
+  "feed": {
+    "sent": "envoyé",
+    "emptyFiltered": "Aucun message ne correspond aux filtres. Modifiez les puces ci-dessus pour en voir davantage.",
+    "hiddenMuted_one": "{{formatted}} masqué",
+    "hiddenMuted_other": "{{formatted}} masqués",
+    "hiddenPending_one": "{{formatted}} masqué",
+    "hiddenPending_other": "{{formatted}} masqués",
+    "filters": {
+      "sources": "Sources",
+      "show": "Afficher",
+      "messages": "Messages",
+      "control": "Contrôle",
+      "events": "Événements",
+      "soon": "Pas encore disponible",
+      "channels": "Canaux",
+      "direct": "Messages directs",
+      "received": "Reçus",
+      "sent": "Envoyés",
+      "muted": "Canaux en sourdine",
+      "pending": "Canaux en attente"
+    }
+  }
+}

@@ -1,6 +1,8 @@
 """Feed filters on the messages listing: outgoing, since_id, query plans, timing."""
 
+import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -191,3 +193,58 @@ async def test_sparse_outgoing_first_page_is_fast(test_db):
         print(f"sparse outgoing first page {kw}: {elapsed * 1000:.1f} ms")
         assert len(rows) == 50
         assert elapsed < 0.5
+
+
+_FEED_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "frontend"
+    / "src"
+    / "test"
+    / "fixtures"
+    / "feedFilters.json"
+)
+
+
+@pytest.mark.asyncio
+async def test_server_side_pair_matches_the_frontend_filter_fixture(test_db, client):
+    """`type` and `outgoing` are evaluated by the server and by `rowPassesFilters`.
+
+    The vitest suite asserts every case of the fixture on the client. Here the cases the
+    server evaluates (no mute or pending involved) are replayed against the route with
+    the query the client would send: the row is returned exactly when the case expects it.
+    """
+    fixture = json.loads(_FEED_FIXTURE.read_text())
+    cases = [c for c in fixture["cases"] if c["server"]]
+    assert cases, "the fixture must hold server-evaluated cases"
+
+    ids = {}
+    for index, case in enumerate(cases):
+        row = case["row"]
+        key = fixture["dmKey"]
+        if row["type"] == "CHAN":
+            key = (
+                fixture["channels"]
+                .get(row.get("channel", "public"), {})
+                .get("key", fixture["deletedChannelKey"])
+            )
+        ids[case["name"]] = await MessageRepository.create(
+            msg_type=row["type"],
+            text=f"case {index}",
+            conversation_key=key,
+            sender_timestamp=1000 + index,
+            received_at=1000 + index,
+            outgoing=row["outgoing"],
+        )
+
+    for case in cases:
+        if case["query"] is None:
+            # An empty selection sends no request: nothing is shown.
+            assert case["expected"] is False, case["name"]
+            continue
+        params = {
+            k: (str(v).lower() if isinstance(v, bool) else v) for k, v in case["query"].items()
+        }
+        resp = await client.get("/api/messages", params={"limit": 1000, **params})
+        assert resp.status_code == 200
+        returned = {m["id"] for m in resp.json()}
+        assert (ids[case["name"]] in returned) is case["expected"], case["name"]
