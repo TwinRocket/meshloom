@@ -48,6 +48,7 @@ markers = [
     "radio: opt-in bench against a live instance and its radio (docs/dev/radio-bench.md)",
     "slow: large-fixture timing tests, outside the quality gate (run with -m slow)",
     "real_auth: keep the real auth gate (tests/conftest.py signs app requests in as an admin otherwise)",
+    "async_notifications: keep the dispatcher asynchronous (tests/conftest.py waits for its queues after each emit otherwise)",
 ]
 
 [tool.ruff]

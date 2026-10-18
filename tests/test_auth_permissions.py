@@ -539,7 +539,11 @@ class TestWebSocketDelivery:
                 }
             },
             "notification_statuses": {
-                "webhook": {"last_error": {"code": "timeout", "at": 1, "url": "https://hook.lan"}}
+                "legacy:webhook": {
+                    "status": "error",
+                    "last_error": "timeout (hook.lan)",
+                    "last_ok_at": 1,
+                }
             },
             "plugin_statuses": {"p": {"instance_id": "p", "status": "error", "last_error": "boom"}},
             "radio_proxy": RadioProxyStatus(
@@ -563,7 +567,8 @@ class TestWebSocketDelivery:
                 "status": "error",
                 "last_error": None,
             }
-            assert data["notification_statuses"]["webhook"]["last_error"] is None
+            assert data["notification_statuses"]["legacy:webhook"]["last_error"] is None
+            assert data["notification_statuses"]["legacy:webhook"]["status"] == "error"
             assert data["plugin_statuses"]["p"]["last_error"] is None
             assert data["plugin_statuses"]["p"]["status"] == "error"
             assert data["radio_proxy"]["last_error"] is None

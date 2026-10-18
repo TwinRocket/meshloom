@@ -8,7 +8,7 @@ from app.auth.permissions import Permission, has_permission, public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
-from app.notify import notification_statuses
+from app.notifications.dispatcher import notification_statuses
 from app.plugins import lifecycle as plugin_lifecycle
 from app.repository import RawPacketRepository
 from app.services.radio_lifecycle import expected_reboot_reason
@@ -85,18 +85,17 @@ class PluginStatusResponse(BaseModel):
     send_guard: dict[str, Any] = Field(default_factory=dict)
 
 
-class NotificationLastError(BaseModel):
-    """A medium's last failure: a code and a time, for Apprise the line and the
-    redacted URL (scheme and host). Never an exception text."""
-
-    code: str
-    at: int
-    line: int | None = None
-    url: str | None = None
-
-
 class NotificationStatusResponse(BaseModel):
-    last_error: NotificationLastError | None = None
+    """One notification channel, keyed by its id (``app/notifications/dispatcher.py``).
+
+    ``last_error`` is a code (for Apprise with the URL's line and redacted host),
+    scrubbed of the channel's secrets; never an exception text. Emptied below
+    ``HEALTH_DETAIL_PERMISSION``.
+    """
+
+    status: Literal["connected", "error", "paused", "disconnected"]
+    last_error: str | None = None
+    last_ok_at: int | None = None
 
 
 class RadioStatsSnapshot(BaseModel):
@@ -295,7 +294,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "database_size_mb": db_size_mb,
         "oldest_undecrypted_timestamp": oldest_ts,
         "fanout_statuses": fanout_statuses,
-        "notification_statuses": notification_statuses(),
+        "notification_statuses": await notification_statuses(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
         "transport_configured": transport_configured,

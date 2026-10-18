@@ -77,6 +77,14 @@ class _SendResult:
     invalid: bool = False
 
 
+@dataclass(frozen=True)
+class PushOutcome:
+    """What one dispatch did: subscriptions tried and how many took the push."""
+
+    total: int = 0
+    delivered: int = 0
+
+
 class PushManager:
     def __init__(self) -> None:
         # (subscription id, code) already logged at WARNING: a liftable refusal
@@ -179,9 +187,9 @@ class PushManager:
         payload.setdefault("event", "message")
         await dispatch_system_event(payload, flags)
 
-    async def dispatch_event(self, data: dict) -> None:
+    async def dispatch_event(self, data: dict) -> PushOutcome:
         """Send a push payload to all subscriptions. Not a WebSocket event."""
-        await self._send_to_all_subscriptions(
+        return await self._send_to_all_subscriptions(
             lambda sub: build_push_payload(data, sub.get("language") or "fr")
         )
 
@@ -222,20 +230,22 @@ class PushManager:
         )
         return True
 
-    async def _send_to_all_subscriptions(self, payload_for_sub: Callable[[dict], str]) -> None:
+    async def _send_to_all_subscriptions(
+        self, payload_for_sub: Callable[[dict], str]
+    ) -> PushOutcome:
         try:
             subs = await PushSubscriptionRepository.get_all()
         except Exception:
             logger.debug("Push dispatch: failed to load subscriptions", exc_info=True)
-            return
+            return PushOutcome()
 
         if not subs:
-            return
+            return PushOutcome()
 
         vapid_key = get_vapid_private_key()
         if not vapid_key:
             logger.debug("Push dispatch: no VAPID key configured, skipping")
-            return
+            return PushOutcome()
 
         try:
             allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
@@ -247,6 +257,8 @@ class PushManager:
             return_exceptions=True,
         )
         await self._record_outcomes(results)
+        delivered = sum(1 for r in results if isinstance(r, _SendResult) and r.success)
+        return PushOutcome(total=len(subs), delivered=delivered)
 
     async def _record_outcomes(self, results: list[Any]) -> None:
         success_ids: list[str] = []

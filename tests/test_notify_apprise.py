@@ -18,7 +18,8 @@ import app.notify as notify
 from app.data.meshcore_channels import hashtag_key_from_name
 from app.models import NotificationAppriseDest, NotificationDestinations
 from app.notifications import apprise_medium
-from app.notifications.apprise_medium import AppriseQueue, AppriseSendFailed, _Response
+from app.notifications.apprise_medium import AppriseSendFailed, _Response
+from app.notifications.dispatcher import notification_dispatcher
 from app.push.manager import event_notification_text
 from app.repository.settings import AppSettingsRepository
 
@@ -29,7 +30,6 @@ DM_KEY = "aa" * 32
 
 @pytest.fixture(autouse=True)
 def _reset_apprise_state(monkeypatch):
-    monkeypatch.setattr(notify, "_apprise_queue", None)
     monkeypatch.setattr(notify, "_apprise_last_error", None)
     monkeypatch.setattr(
         "app.email_template.resolve_instance_language", AsyncMock(return_value="en")
@@ -138,7 +138,6 @@ async def test_last_error_is_scrubbed(monkeypatch, sleeps):
     assert last["line"] == 1
     assert last["url"] == "tgram://****"
     assert "AAAA" not in str(last) and "111111" not in str(last)
-    assert notify.notification_statuses()["apprise"]["last_error"] == last
 
 
 @pytest.mark.asyncio
@@ -198,66 +197,8 @@ async def test_real_http_answer_drives_the_retry_policy(http_server, sleeps):
     assert _Handler.hits == 1
 
 
-# -- limiter -------------------------------------------------------------------
-
-
-async def _drain(queue: AppriseQueue, delivered: list, expected: int) -> None:
-    for _ in range(500):
-        if len(delivered) >= expected:
-            break
-        await asyncio.sleep(0.01)
-    await asyncio.sleep(0.05)
-
-
-@pytest.mark.asyncio
-async def test_limiter_collapses_a_burst_of_50_into_20_plus_one():
-    delivered: list[dict] = []
-
-    async def deliver(payload):
-        delivered.append(payload)
-
-    queue = AppriseQueue(deliver, min_interval_s=0.001)
-    for i in range(50):
-        await queue.submit({"event": "message", "n": i})
-    await _drain(queue, delivered, 21)
-    assert len(delivered) == 21
-    assert [p["n"] for p in delivered[:20]] == list(range(20))
-    assert delivered[20] == {"event": "notifications_grouped", "count": 30}
-
-
-@pytest.mark.asyncio
-async def test_first_seen_is_capped_then_grouped():
-    delivered: list[dict] = []
-
-    async def deliver(payload):
-        delivered.append(payload)
-
-    queue = AppriseQueue(
-        deliver, min_interval_s=0.001, first_seen_per_hour=10, first_seen_period_s=0.5
-    )
-    for i in range(15):
-        await queue.submit({"event": "first_seen", "n": i})
-    await _drain(queue, delivered, 11)
-    assert [p.get("n") for p in delivered[:10]] == list(range(10))
-    assert delivered[10] == {"event": "first_seen_grouped", "count": 5}
-
-
-@pytest.mark.asyncio
-async def test_limiter_spaces_sends():
-    stamps: list[float] = []
-
-    async def deliver(_payload):
-        stamps.append(asyncio.get_running_loop().time())
-
-    queue = AppriseQueue(deliver, min_interval_s=0.1)
-    for i in range(3):
-        await queue.submit({"event": "message", "n": i})
-    for _ in range(100):
-        if len(stamps) == 3:
-            break
-        await asyncio.sleep(0.02)
-    assert len(stamps) == 3
-    assert stamps[2] - stamps[0] >= 0.18
+# The limiter (one send at a time, 2 s apart, "+N", the first-seen cap) is the
+# dispatcher's: tests/test_notification_dispatcher.py.
 
 
 # -- message text policy -------------------------------------------------------
@@ -318,39 +259,44 @@ async def test_dm_to_a_mocked_url_carries_no_message_text(monkeypatch, sleeps):
 # -- dispatch ------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_dispatch_enqueues_only_with_urls_and_flag(test_db, monkeypatch):
+@pytest.fixture
+def apprise_sends(monkeypatch) -> list[dict]:
+    """What reaches the Apprise medium through the dispatcher's legacy:apprise worker."""
     submitted: list[dict] = []
 
-    class _Queue:
-        async def submit(self, payload):
-            submitted.append(dict(payload))
+    async def fake_send(dest, payload):
+        submitted.append(dict(payload))
 
-    monkeypatch.setattr(notify, "apprise_queue", lambda: _Queue())
-    await notify.dispatch_system_event({"event": "app_started"}, {"apprise": True})
-    assert submitted == []  # no URL configured
+    monkeypatch.setattr(notify, "send_apprise_alert", fake_send)
+    return submitted
+
+
+async def _dispatch(payload: dict, flags: dict) -> None:
+    await notify.dispatch_system_event(payload, flags)
+    await notification_dispatcher().wait_idle()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_enqueues_only_with_urls_and_flag(test_db, apprise_sends):
+    await _dispatch({"event": "app_started"}, {"apprise": True})
+    assert apprise_sends == []  # no URL configured
 
     await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
-    await notify.dispatch_system_event({"event": "app_started"}, {"apprise": False})
-    assert submitted == []
-    await notify.dispatch_system_event({"event": "app_started"}, {"apprise": True})
-    assert submitted == [{"event": "app_started"}]
+    await _dispatch({"event": "app_started"}, {"apprise": False})
+    assert apprise_sends == []
+    await _dispatch({"event": "app_started"}, {"apprise": True})
+    assert apprise_sends == [{"event": "app_started"}]
 
 
 @pytest.mark.asyncio
-async def test_dm_matrix_apprise_flag_reaches_the_queue(test_db, monkeypatch):
+async def test_dm_matrix_apprise_flag_reaches_the_queue(test_db, apprise_sends):
     from app.push.manager import push_manager
 
-    submitted: list[dict] = []
-
-    class _Queue:
-        async def submit(self, payload):
-            submitted.append(dict(payload))
-
-    monkeypatch.setattr(notify, "apprise_queue", lambda: _Queue())
+    submitted = apprise_sends
     await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
     await AppSettingsRepository.set_push_defaults({"new_dm": {"push": False, "apprise": True}})
     await push_manager.dispatch_message(_dm())
+    await notification_dispatcher().wait_idle()
     assert len(submitted) == 1
     assert submitted[0]["text"] == "secret plans"  # the policy applies at send time
 
@@ -478,13 +424,14 @@ async def test_test_route_covers_apprise_with_coded_errors(
 @pytest.mark.asyncio
 async def test_health_reports_notification_statuses(test_db, client, monkeypatch, sleeps):
     _fake_sends(monkeypatch, {"1001": [_Response(status=500)]})
-    with pytest.raises(AppriseSendFailed):
-        await notify.send_apprise_alert(_dest(TG_A), _dm())
+    await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
+    await _dispatch(_dm(), {"apprise": True})
     body = (await client.get("/api/health")).json()
-    last = body["notification_statuses"]["apprise"]["last_error"]
-    assert last["code"] == "service_error"
-    assert last["url"] == "tgram://****"
-    assert body["notification_statuses"]["webhook"]["last_error"] is None
+    status = body["notification_statuses"]["legacy:apprise"]
+    assert status["status"] == "error"
+    assert status["last_error"] == "line 1 (tgram://****): service_error"
+    assert "AAAA" not in str(body)
+    assert body["notification_statuses"]["builtin:push"]["status"] == "connected"
 
 
 # -- review round 1 (mentions, DEBUG logs, multi-target retries) ---------------

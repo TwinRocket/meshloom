@@ -13,6 +13,7 @@ import pytest
 
 import app.notify as notify
 from app.models import AppSettings, NotificationAppriseDest, NotificationDestinations
+from app.notifications.dispatcher import notification_dispatcher
 from app.repository.channels import ChannelRepository
 from app.repository.settings import AppSettingsRepository
 from app.services.message_filters import is_blocked, is_filtered
@@ -62,11 +63,10 @@ async def test_muted_channel_is_filtered_until_the_mute_expires(test_db):
 async def apprise_submissions(test_db, monkeypatch) -> list[dict]:
     submitted: list[dict] = []
 
-    class _Queue:
-        async def submit(self, payload):
-            submitted.append(dict(payload))
+    async def fake_send(dest, payload):
+        submitted.append(dict(payload))
 
-    monkeypatch.setattr(notify, "apprise_queue", lambda: _Queue())
+    monkeypatch.setattr(notify, "send_apprise_alert", fake_send)
     monkeypatch.setattr(notify, "notify_destination_changed", lambda *_: None)
     await AppSettingsRepository.update(
         notification_destinations=NotificationDestinations(apprise=NotificationAppriseDest(urls=TG))
@@ -81,14 +81,17 @@ async def test_blocked_sender_never_reaches_the_apprise_medium(apprise_submissio
 
     await AppSettingsRepository.update(blocked_keys=[DM_KEY])
     await push_manager.dispatch_message(_dm())
+    await notification_dispatcher().wait_idle()
     assert apprise_submissions == []
 
     await AppSettingsRepository.update(blocked_keys=[], blocked_names=["Alice"])
     await push_manager.dispatch_message(_dm())
+    await notification_dispatcher().wait_idle()
     assert apprise_submissions == []
 
     await AppSettingsRepository.update(blocked_names=[])
     await push_manager.dispatch_message(_dm())
+    await notification_dispatcher().wait_idle()
     assert len(apprise_submissions) == 1
 
 
@@ -102,10 +105,12 @@ async def test_muted_channel_never_reaches_the_apprise_medium(apprise_submission
     )
     await ChannelRepository.set_muted(CHAN_KEY, True)
     await push_manager.dispatch_message(_chan())
+    await notification_dispatcher().wait_idle()
     assert apprise_submissions == []
 
     await ChannelRepository.set_muted(CHAN_KEY, True, muted_until=int(time.time()) - 5)
     await push_manager.dispatch_message(_chan())
+    await notification_dispatcher().wait_idle()
     assert len(apprise_submissions) == 1
 
 

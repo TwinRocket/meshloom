@@ -1,9 +1,10 @@
 """Bounded thread pool for blocking notification sends.
 
-Apprise sends block (``requests``, ``smtplib``). They run here, four threads at
-most, instead of the event loop's default pool, so a slow notification service
-never starves the other ``asyncio.to_thread`` users (radio, database backups).
-The notification engine shares it later.
+Apprise, e-mail and Web Push sends block (``requests``, ``smtplib``,
+``pywebpush``). They run here, four threads at most, instead of the event loop's
+default pool, so a slow notification service never starves the other
+``asyncio.to_thread`` users (radio, database backups). The dispatcher's workers
+send one delivery at a time per channel, so a slow channel holds one thread.
 """
 
 from __future__ import annotations

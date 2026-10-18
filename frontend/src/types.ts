@@ -388,8 +388,8 @@ export interface HealthStatus {
   database_size_mb: number;
   oldest_undecrypted_timestamp: number | null;
   fanout_statuses: Record<string, FanoutStatusEntry>;
-  /** Each notification medium's last failure (Apprise: line and redacted URL). */
-  notification_statuses?: Record<string, { last_error: NotificationLastError | null }>;
+  /** Each notification channel's status, keyed by channel id (`builtin:push`, `legacy:webhook`...). */
+  notification_statuses?: Record<string, NotificationChannelStatus>;
   bots_disabled: boolean;
   bots_disabled_source?: 'env' | 'until_restart' | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
@@ -399,11 +399,12 @@ export interface HealthStatus {
   radio_proxy?: RadioProxyStatus | null;
 }
 
-export interface NotificationLastError {
-  code: string;
-  at: number;
-  line?: number | null;
-  url?: string | null;
+export interface NotificationChannelStatus {
+  status: 'connected' | 'error' | 'paused' | 'disconnected';
+  /** A code, scrubbed of the channel's secrets; null below the admin role. */
+  last_error: string | null;
+  /** Epoch seconds of the last successful send. */
+  last_ok_at: number | null;
 }
 
 export interface FanoutConfig {
