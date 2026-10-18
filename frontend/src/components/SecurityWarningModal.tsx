@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 
 import { api } from '../api';
+import { useSession } from '../auth/SessionProvider';
 import type { HealthStatus } from '../types';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
@@ -45,11 +46,16 @@ export function SecurityWarningModal({ health }: SecurityWarningModalProps) {
   const [confirmedRisk, setConfirmedRisk] = useState(false);
   const [disablingBots, setDisablingBots] = useState(false);
   const [botsDisabledLocally, setBotsDisabledLocally] = useState(false);
+  // The real auth state (`GET /auth/session`), not the legacy Basic setting: a signed-in
+  // account means accounts exist and every `/api` call needs one (password, Home Assistant
+  // ingress or the Basic compatibility path all end in a session).
+  const { session } = useSession();
+  const protectedByAccounts = session?.authenticated === true;
 
   const shouldWarn =
     health !== null &&
     health.bots_disabled !== true &&
-    health.basic_auth_enabled !== true &&
+    !protectedByAccounts &&
     !botsDisabledLocally &&
     !acknowledged;
 

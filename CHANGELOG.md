@@ -44,6 +44,10 @@ The server now enforces the radio's message size limit for every way of sending.
 - **Restore files are limited to 64 MiB.** A larger file is refused with a clear error.
 - **Restoring an old backup no longer leaves a stale warning about local-network push.** When a restore turns local-network push back on for your subscriptions, the notice asking you to review it is cleared too.
 
+### Fixed
+
+- **The bot warning now follows accounts.** The "Unprotected bot execution is enabled" dialog used to depend on the 4.x Basic auth setting. It now reads the real sign-in state (`GET /api/auth/session`): no warning while an account is signed in, however it signed in.
+
 ### Security
 
 - **Signing a session out now cuts its live connection at once.** Signing out, revoking a session from the list, changing your password (which signs your other sessions out) or going past 50 sessions on one account (the oldest is signed out) now closes the live connection of the sessions concerned within a second, instead of leaving it open until the page reloads. A session signed out with `meshloom-admin`, an expired session or a disabled account loses its live connection within 30 seconds. A display that only keeps the live connection open, such as a kiosk screen, now stays signed in: the connection counts as a visit. Expired and signed-out sessions are deleted from the database every hour.
@@ -111,6 +115,10 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 - **Le téléchargement de meshcore.db ne contient plus le code PIN Bluetooth.** La copie de la base depuis **Réglages → Base de données** laisse désormais de côté le code PIN Bluetooth, comme la sauvegarde complète, ainsi que les clés avec lesquelles Meshloom s'identifiera auprès des services en ligne. Remettre une telle copie en place compte comme une restauration au prochain démarrage de Meshloom.
 - **Les fichiers à restaurer sont limités à 64 Mio.** Un fichier plus gros est refusé avec une erreur claire.
 - **Restaurer une ancienne sauvegarde ne laisse plus d’avertissement obsolète sur le push du réseau local.** Quand une restauration réactive le push vers le réseau local pour vos abonnements, l’avis qui demandait de le vérifier est aussi effacé.
+
+#### Corrections
+
+- **L’avertissement sur les bots suit désormais les comptes.** La fenêtre « L’exécution non protégée de bots est activée » dépendait du réglage Basic de la 4.x. Elle regarde maintenant la vraie connexion (`GET /api/auth/session`) : plus d’avertissement quand un compte est connecté, quelle que soit la façon de se connecter.
 
 #### Sécurité
 

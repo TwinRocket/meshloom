@@ -21,7 +21,7 @@ Meshloom sait lancer des bots : de petits programmes qui réagissent aux message
 
 La conséquence est directe : **tout administrateur peut faire exécuter n’importe quel code à la machine hôte.** Pas seulement dans l’application : sur la machine, avec les droits du serveur. C’est une fonction d’automatisation voulue, et c’est aussi la partie la plus sensible d’une installation.
 
-Tant que les bots sont activés et qu’aucun accès Basic (les variables de la 4.x) n’est configuré, Meshloom ouvre une fenêtre d’avertissement (« L’exécution non protégée de bots est activée »). Vous pouvez y désactiver les bots jusqu’au prochain redémarrage, ou cocher la reconnaissance et la fermer pour ce navigateur. Ce n’est pas décoratif.
+Tant que les bots sont activés et qu’aucun compte ne protège l’instance (depuis la 5.0, chaque page exige un compte connecté : vous ne la voyez normalement jamais), Meshloom ouvre une fenêtre d’avertissement (« L’exécution non protégée de bots est activée »). Vous pouvez y désactiver les bots jusqu’au prochain redémarrage, ou cocher la reconnaissance et la fermer pour ce navigateur. Ce n’est pas décoratif.
 
 Deux protections existent :
 

@@ -21,7 +21,7 @@ Meshloom can run bots: small programs that react to the messages you receive. Th
 
 The consequence is direct: **any administrator can make the host machine run any code.** Not only inside the application, but on the machine, with the server's permissions. It is an intentional automation feature, and it is also the most sensitive part of an installation.
 
-While bots are enabled and no Basic login (the 4.x variables) is configured, Meshloom opens a warning dialog ("Unprotected bot execution is enabled"). You can disable bots until the next restart from that dialog, or tick the acknowledgement and dismiss it for this browser. It is not decoration.
+While bots are enabled and no account protects the instance (from 5.0 every page needs a signed-in account, so you normally never see it), Meshloom opens a warning dialog ("Unprotected bot execution is enabled"). You can disable bots until the next restart from that dialog, or tick the acknowledgement and dismiss it for this browser. It is not decoration.
 
 Two protections exist:
 
