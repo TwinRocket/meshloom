@@ -54,6 +54,7 @@ def test_json_output(plugin, capsys):
     assert data["plugin"] == {"id": "acme.echo", "version": "1.0.0"}
     assert data["errors"] == []
     assert data["dry_run"]["calls"][0]["method"] == "messages.send"
+    assert data["dry_run"]["isolation"] == "none (development only)"
 
 
 @pytest.mark.parametrize("vector", INVALID, ids=[v["name"] for v in INVALID])
@@ -179,3 +180,36 @@ def test_importing_dev_pulls_in_neither_fastapi_nor_the_database():
         [sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=60
     )
     assert run.returncode == 0, run.stderr
+
+
+def test_text_output_labels_the_dry_run_isolation(plugin, capsys):
+    dev.main(["check", str(plugin)])
+    assert "isolation: none (development only)" in capsys.readouterr().out
+
+
+def test_json_marks_informative_findings(plugin, capsys):
+    (plugin / "plugin.py").write_text("def on_message(event):\n    print('hi')\n", "utf-8")
+    assert dev.main(["check", str(plugin), "--json"]) == 0
+    warning = json.loads(capsys.readouterr().out)["warnings"][0]
+    assert warning["code"] == "print_call" and warning["informative"] is True
+
+
+def test_bad_path_is_a_usage_error(tmp_path, capsys):
+    assert dev.main(["check", str(tmp_path / "nope"), "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["errors"][0]["code"] == "not_a_directory"
+
+
+def test_cli_strict_fails_on_a_blocking_finding(plugin):
+    (plugin / "plugin.py").write_text("def on_message(event):\n    exec('1')\n", "utf-8")
+    assert dev.main(["check", str(plugin)]) == 0
+    assert dev.main(["check", str(plugin), "--strict"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("origin", "plugin_id", "expected"),
+    [("bundled", "meshloom.echo", 0), ("local", "local.echo", 0), ("bundled", "acme.echo", 1)],
+)
+def test_cli_origin(plugin, origin, plugin_id, expected):
+    rewrite_manifest(plugin, id=plugin_id)
+    assert dev.main(["check", str(plugin), "--origin", origin]) == expected
+    assert dev.main(["check", str(plugin)]) == (1 if plugin_id != "acme.echo" else 0)

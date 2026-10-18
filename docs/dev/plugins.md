@@ -287,8 +287,8 @@ not shipped to the child). `check` runs, in order, and reports every finding:
    the tail of the plugin's stderr is printed on failure. The `plugin.init`
    payload is provisional until the supervisor (MSHL-179) fixes it.
 
-Exit status 0 passed, 1 failed, 2 usage. `--json` prints `{ok, plugin, errors,
-warnings, dry_run: {ran, calls, stderr}}`. Importing `meshloom_plugin.dev` imports
+Exit status 0 passed, 1 failed, 2 usage (a path that is not a directory included). `--json` prints `{ok, plugin, errors,
+warnings, dry_run: {isolation, ran, calls, stderr}}` (`isolation` is always `"none (development only)"`; the text output says so too; `informative` is set on informative findings). Importing `meshloom_plugin.dev` imports
 neither FastAPI nor the database (`app/message_limits.py` imports FastAPI lazily
 for that reason); `tests/test_plugin_dev_check.py` asserts it and feeds every
 invalid manifest vector through `check`. `tests/plugin_dev/echo/` is the reference

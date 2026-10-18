@@ -16,7 +16,7 @@ it may import `app.plugins`; it must stay free of FastAPI and the database
    `event.message` carrying `test: true`; the plugin's calls to the host are
    captured, nothing leaves the machine. Skipped when the package is invalid.
 
-Exit status: 0 passed, 1 failed, 2 usage error. `--json` prints one object.
+Exit status: 0 passed, 1 failed, 2 usage error (a bad path included). `--json` prints one object.
 """
 
 import argparse
@@ -86,6 +86,8 @@ class Finding:
             out["path"] = self.path
         if self.line is not None:
             out["line"] = self.line
+        if self.informative:
+            out["informative"] = True
         return out
 
 
@@ -113,7 +115,12 @@ class CheckReport:
             "plugin": {"id": self.plugin_id, "version": self.version},
             "errors": [f.to_json() for f in self.errors],
             "warnings": [f.to_json() for f in self.warnings],
-            "dry_run": {"ran": self.ran, "calls": self.calls, "stderr": self.stderr},
+            "dry_run": {
+                "isolation": "none (development only)",
+                "ran": self.ran,
+                "calls": self.calls,
+                "stderr": self.stderr,
+            },
         }
 
 
@@ -381,7 +388,9 @@ def _print_text(report: CheckReport) -> None:
         tag = "info   " if finding.informative else "warning"
         print(f"  {tag} [{finding.stage}] {_where(finding)}{finding.message}")
     if report.ran:
-        print(f"  dry run: {len(report.calls)} call(s) to the host")
+        print(
+            f"  dry run (isolation: none (development only), runner guards but no OS sandbox): {len(report.calls)} call(s) to the host"
+        )
         for send in report.sends:
             print(f"    messages.send {json.dumps(send['params'], ensure_ascii=False)}")
         if report.stderr and not report.ok:
@@ -420,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report.to_json(), ensure_ascii=False, indent=2))
     else:
         _print_text(report)
+    if report.errors and all(f.code == "not_a_directory" for f in report.errors):
+        return 2  # a bad path is a usage error
     return 0 if report.ok else 1
 
 
