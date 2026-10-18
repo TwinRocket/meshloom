@@ -12,7 +12,10 @@ Files and Access regenerate their instance identities through
   version of its owner, is not restored;
 - each section is restored in its own transaction: a failure rolls it back;
 - an identity seed (``app_settings.*_seed``) never reaches a file, and every
-  restore (JSON, or a SQLite snapshot put back in place) runs the hooks once.
+  restore (JSON, or a SQLite snapshot put back in place) runs the hooks once;
+- a name in ``NEVER_EXPORTED_SECTIONS`` (login sessions, pairing codes, the
+  audit trail, the Remote identity) cannot be registered, and a file section
+  with that name is ignored.
 """
 
 import asyncio
@@ -45,6 +48,9 @@ SECTION_RESTORE_TIMEOUT = 60.0
 SQLITE_SNAPSHOT_MARKER = "meshloom_backup_snapshot"
 # Seeds shorter than this are not looked for (a test value, never a real seed).
 _MIN_SEED_LENGTH = 16
+# Never in a file, whatever registers or writes them: registering one of these
+# names raises, and a file section carrying one is ignored (Access, cadrage Q19).
+NEVER_EXPORTED_SECTIONS = frozenset({"sessions", "pairing_codes", "auth_audit", "remote_identity"})
 
 
 @dataclass(frozen=True)
@@ -95,6 +101,8 @@ def register_backup_section(
     """
     if not SECTION_NAME.match(name):
         raise ValueError(f"invalid backup section name: {name!r}")
+    if name in NEVER_EXPORTED_SECTIONS:
+        raise ValueError(f"backup section {name!r} is never exported")
     if name in _sections:
         raise ValueError(f"backup section {name!r} is already registered")
     if version < 1:
@@ -131,13 +139,19 @@ def registered_backup_sections() -> list[str]:
     return list(_sections)
 
 
-async def export_sections() -> tuple[dict[str, BackupSection], list[str]]:
+async def export_sections(
+    *, skip: Iterable[str] = ()
+) -> tuple[dict[str, BackupSection], list[str]]:
     """Every registered section that has something to write, and the warnings
     of the ones that failed (left out of the file). The registration sets
-    each section's ``version`` and ``sensitive``, whatever the function says."""
+    each section's ``version`` and ``sensitive``, whatever the function says.
+    ``skip`` names sections the user left out: their export is not called."""
+    left_out = set(skip)
     exported: dict[str, BackupSection] = {}
     warnings: list[str] = []
     for spec in list(_sections.values()):
+        if spec.name in left_out:
+            continue
         try:
             section = await spec.export()
         except Exception:
@@ -187,7 +201,9 @@ async def _restore_one(spec: _Section, section: BackupSection) -> list[str]:
 async def restore_sections(sections: dict[str, BackupSection]) -> list[str]:
     """Restore the file's sections this version knows, dependencies first."""
     for name in sections:
-        if name not in _sections:
+        if name in NEVER_EXPORTED_SECTIONS:
+            logger.info("Backup restore: section %r is never restored, ignored", name)
+        elif name not in _sections:
             logger.info("Backup restore: section %r is not known to this version, ignored", name)
     registered = dict(_sections)
     warnings: list[str] = []

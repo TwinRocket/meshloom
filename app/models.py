@@ -2452,6 +2452,10 @@ class BackupExportRequest(BaseModel):
     passphrase: SecretStr | None = Field(
         default=None, description="Encrypt the file with this passphrase (8 characters or more)"
     )
+    include_accounts: bool = Field(
+        default=True,
+        description="Include the accounts (password hashes and two-factor secrets)",
+    )
 
 
 class BackupInspectRequest(BaseModel):

@@ -1158,7 +1158,10 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
             )
         )
     try:
-        doc = await export_backup_v2(encrypted=bool(passphrase))
+        doc = await export_backup_v2(
+            encrypted=bool(passphrase),
+            include_accounts=request.include_accounts if request else True,
+        )
     except BackupError as exc:
         raise _backup_http_error(exc) from None
     body = export_document(doc)
