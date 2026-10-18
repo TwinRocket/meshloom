@@ -20,7 +20,8 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
-ReadWritePaths=/opt/meshloom /var/lib/meshloom
+# The kiosk device token directory exists on kiosk hosts only ("-": optional).
+ReadWritePaths=/opt/meshloom /var/lib/meshloom -/var/lib/meshloom-kiosk
 SupplementaryGroups=dialout
 
 [Install]

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api, formatApiError } from '../api';
@@ -8,6 +8,9 @@ import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
 import { passwordStrength } from './passwordStrength';
 import { PASSWORD_MIN_LENGTH, noSessionReason, type AuthSessionInfo } from './types';
+
+/** How often the kiosk screen asks whether the administrator exists yet. */
+export const KIOSK_SETUP_POLL_MS = 5000;
 
 /**
  * First run: create the administrator. A database that existed before the upgrade also
@@ -32,6 +35,27 @@ export function SetupPage({
   const [setupCode, setSetupCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The kiosk screen: nobody types on it, the administrator is created from a phone. Once
+  // that is done, its own session (the launcher's device token) opens the app.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  });
+  useEffect(() => {
+    if (!kioskSetupCode) return;
+    const timer = window.setInterval(() => {
+      api.getAuthSession().then(
+        (session) => {
+          if (!session.setup_required) onDoneRef.current(session);
+        },
+        () => {
+          // Server restarting: ask again at the next tick.
+        }
+      );
+    }, KIOSK_SETUP_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [kioskSetupCode]);
 
   const strength = passwordStrength(password);
   const mismatch = confirm.length > 0 && confirm !== password;

@@ -88,6 +88,8 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/login/2fa"),
         ("POST", "/api/auth/logout"),
+        # The kiosk's one-time code exchange (``app/routers/auth_kiosk.py``).
+        ("GET", "/api/auth/kiosk-session"),
     }
 )
 
@@ -224,9 +226,23 @@ class _Resolution:
         self.refreshed_cookie: str | None = None
 
 
-async def resolve_bearer_token(token: str, via: Via, ip: str | None) -> Principal | None:
+KIOSK_BOOTSTRAP_ROUTE = ("POST", "/api/auth/kiosk-bootstrap")
+
+
+async def resolve_bearer_token(
+    token: str, via: Via, ip: str | None, *, kiosk_bootstrap: bool = False
+) -> Principal | None:
     """The principal of an API or device token (``app/auth/providers/token.py``)."""
-    return await token_provider.resolve_token(token, via, ip)
+    return await token_provider.resolve_token(token, via, ip, kiosk_bootstrap=kiosk_bootstrap)
+
+
+def is_kiosk_bootstrap(scope: Scope) -> bool:
+    """The one request the kiosk's device token may sign in."""
+    return (
+        scope.get("type") == "http"
+        and (scope.get("method", "").upper(), scope.get("path", "").rstrip("/"))
+        == KIOSK_BOOTSTRAP_ROUTE
+    )
 
 
 async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Resolution:
@@ -247,7 +263,13 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
         if scheme == "bearer":
             result.bearer_sent = True
             token = authorization.split(" ", 1)[1].strip() if " " in authorization else ""
-            principal = await resolve_bearer_token(token, via, client_ip(scope)) if token else None
+            principal = (
+                await resolve_bearer_token(
+                    token, via, client_ip(scope), kiosk_bootstrap=is_kiosk_bootstrap(scope)
+                )
+                if token
+                else None
+            )
             if principal is None:
                 result.credential_failed = True
             result.principal = principal

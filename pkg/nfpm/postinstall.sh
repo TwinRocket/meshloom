@@ -129,6 +129,35 @@ mark_kiosk_host() {
 }
 mark_kiosk_host || true
 
+# Kiosk device token (app/services/kiosk.py, docs/dev/auth.md "Kiosk device
+# token"): the server writes /var/lib/meshloom-kiosk/kiosk.token (0640) and the
+# desktop session user, uid 1000 as in meshloom-kiosk-setup, reads it through
+# the meshloom-kiosk group. setgid directory: the file gets the group without
+# meshloom being a member. Only on a kiosk host; the server refuses the
+# directory unless meshloom owns it and others get nothing.
+provision_kiosk_token_dir() {
+    [ -e /var/lib/meshloom/kiosk ] || return 0
+    getent passwd meshloom >/dev/null 2>&1 || return 0
+    if ! getent group meshloom-kiosk >/dev/null 2>&1; then
+        groupadd --system meshloom-kiosk || return 0
+    fi
+    dir=/var/lib/meshloom-kiosk
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+        rm -f "$dir"
+    fi
+    mkdir -p "$dir"
+    chown meshloom:meshloom-kiosk "$dir"
+    chmod 2750 "$dir"
+    # Upgrade of an image flashed before 5.0.0: its own meshloom-kiosk-setup
+    # (installed by the image) does not know the group. Effective at the next
+    # login; the launcher also tries `sg` meanwhile.
+    session_user="$(getent passwd 1000 | cut -d: -f1 || true)"
+    if [ -n "$session_user" ] && command -v usermod >/dev/null 2>&1; then
+        usermod -aG meshloom-kiosk "$session_user" || true
+    fi
+}
+provision_kiosk_token_dir || true
+
 if command -v systemctl >/dev/null 2>&1; then
     # Works offline too (image builds, chroots): enable only writes the
     # wants/ symlink. Before 4.18 this ran only with systemd up, so baked

@@ -60,7 +60,11 @@ Bots, which run code on the machine, are turned off on this image, like in every
 
 The kiosk image shows Meshloom full screen on a display plugged into the Pi, with a read-only `kiosk` account that has no password: it reads channel messages, never direct messages, and has no settings.
 
-On a new kiosk image, or on a kiosk image flashed before 5.0 once it has been updated, the screen first shows **Administrator account not created yet** with an installation code. From a phone or a computer on the same network, open `http://meshloom.local:8000`, type that code and create the administrator account. The screen itself then shows the sign-in page: the kiosk account has no password, so for now the wall screen stays on that page. Signing the screen in automatically comes later in 5.0, with device tokens. The code only appears on the Pi’s own screen; to get a new one, run `meshloom-admin setup-code` on the Pi.
+On a new kiosk image, or on a kiosk image flashed before 5.0 once it has been updated, the screen first shows **Administrator account not created yet** with an installation code. From a phone or a computer on the same network, open `http://meshloom.local:8000`, type that code and create the administrator account. A few seconds later the wall screen opens Meshloom by itself, signed in as the kiosk account. The code only appears on the Pi’s own screen; to get a new one, run `meshloom-admin setup-code` on the Pi.
+
+The screen signs in with a **device token** that Meshloom writes on the Pi, in `/var/lib/meshloom-kiosk/kiosk.token`: only the desktop user of the Pi can read it, the token never appears in an address or in the list of running programs, and it only works from the Pi itself. No trusted network is needed. In **Settings → Users & Access → API and device tokens**, an administrator sees it as **Kiosk screen** (owner `kiosk`): **Revoke** replaces it with a new one at once: the screen is signed out, then signs in again with the new token within a few seconds. To keep the screen signed out, disable the `kiosk` account in **Users & Access**. The token only opens the screen's session on the Pi itself: a copy used from another machine, or on any other address of the API, is refused.
+
+On a kiosk image flashed before 5.0, restart the Pi once after the update: the desktop session then gets access to the token and the screen signs in.
 
 ## Update
 

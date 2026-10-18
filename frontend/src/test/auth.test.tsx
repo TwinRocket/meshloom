@@ -6,6 +6,7 @@ import { ApiError, api, formatApiError } from '../api';
 import { reportAuthRequired } from '../auth/authEvents';
 import { passwordStrength } from '../auth/passwordStrength';
 import { SessionProvider, useSession } from '../auth/SessionProvider';
+import { KIOSK_SETUP_POLL_MS } from '../auth/SetupPage';
 import type { AuthSessionInfo } from '../auth/types';
 import i18n from '../i18n';
 
@@ -136,6 +137,44 @@ describe('session gate', () => {
     );
     expect(await screen.findByText(t('auth.setup.kioskBanner.title'))).toBeInTheDocument();
     expect(screen.getByText('1234 5678')).toBeInTheDocument();
+  });
+
+  it('opens the kiosk session once the administrator was created elsewhere', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const kioskUser = { id: 2, username: 'kiosk', display_name: 'Kiosk', role: 'kiosk' as const };
+      let adminExists = false;
+      stubFetch({
+        'GET /auth/session': () =>
+          adminExists
+            ? jsonResponse({ ...signedIn, user: kioskUser })
+            : jsonResponse({
+                ...base,
+                authenticated: true,
+                user: kioskUser,
+                setup_required: true,
+                setup_code_required: true,
+                kiosk_setup_code: '12345678',
+              }),
+      });
+      render(
+        <SessionProvider>
+          <Probe />
+        </SessionProvider>
+      );
+      expect(await screen.findByText(t('auth.setup.kioskBanner.title'))).toBeInTheDocument();
+      await act(async () => {
+        vi.advanceTimersByTime(KIOSK_SETUP_POLL_MS);
+      });
+      expect(screen.queryByTestId('app')).toBeNull();
+      adminExists = true;
+      await act(async () => {
+        vi.advanceTimersByTime(KIOSK_SETUP_POLL_MS);
+      });
+      expect(await screen.findByTestId('app')).toHaveTextContent('app for Kiosk');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows no kiosk banner without the code', async () => {
