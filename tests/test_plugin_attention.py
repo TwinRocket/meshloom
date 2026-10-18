@@ -2,6 +2,7 @@
 
 import re
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,7 @@ def test_open_meteo_bot_names_the_module_and_line_and_prefills_the_host():
             }
         ],
         "http_hosts": ["api.open-meteo.com"],
+        "truncated": False,
     }
 
 
@@ -140,3 +142,85 @@ def test_lists_match_the_runner_policy_when_it_is_present():
     policy = pytest.importorskip("meshloom_plugin.policy")
     assert attention.ALLOWED_IMPORTS == policy.ALLOWED_IMPORTS
     assert attention.DENIED_MODULES == policy.DENIED_MODULES
+
+
+def test_process_and_compile_calls_are_flagged():
+    source = textwrap.dedent(
+        """\
+        import os
+        os.system("ls")
+        os.popen("ls")
+        os.kill(1, 9)
+        os.path.join("a", "b")
+        code = compile("1", "<x>", "eval")
+        """
+    )
+    assert _codes(scan_source(source)) == [
+        ("process_call", 2, "os.system"),
+        ("process_call", 3, "os.popen"),
+        ("process_call", 4, "os.kill"),
+        ("compile_call", 6, None),
+    ]
+    flagged = _codes(scan_source("import subprocess\nsubprocess.run(['ls'])\n"))
+    assert flagged == [
+        ("import_not_allowed", 1, "subprocess"),
+        ("process_call", 2, "subprocess.run"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "x = " + "a+" * 500 + "a\n",
+        "x = " + "a+" * 200_000 + "a\n",
+        "x = a" + ".b" * 100_000 + "\n",
+        "x = " + "(" * 10_000 + "1" + ")" * 10_000 + "\n",
+        "x = " + "-" * 200_000 + "1\n",
+        "x = " + "[" * 5_000 + "]" * 5_000 + "\n",
+    ],
+    ids=["chain-500", "chain-200k", "attr-100k", "parens-10k", "unary-200k", "lists-5k"],
+)
+def test_deep_but_valid_source_never_raises(source):
+    report = scan_source(source)
+    codes = {r.code for r in report.reasons}
+    assert codes <= {"too_complex", "syntax_error"}
+
+
+def test_deep_nesting_is_scanned_without_recursion():
+    depth = 150
+    source = "".join(" " * i + "if x:\n" for i in range(depth)) + " " * depth + "eval('1')\n"
+    report = scan_source(source)
+    assert [r.code for r in report.reasons] in (["eval_call"], ["too_complex"], ["syntax_error"])
+
+
+def test_huge_and_node_heavy_sources_are_coded():
+    assert _codes(scan_source("x = 1\n" * 300_000)) == [("source_too_large", 0, None)]
+    assert _codes(scan_source("#" * (attention.MAX_SOURCE_BYTES + 1))) == [
+        ("source_too_large", 0, None)
+    ]
+    many = "x = [" + "1," * 250_000 + "]\n"
+    assert _codes(scan_source(many)) == [("too_complex", 0, None)]
+
+
+def test_host_extraction_is_bounded_and_fast():
+    # 200k URLs: too large for a source, so the extractor is driven directly.
+    urls = " ".join(f"https://h{i}.example.com/p" for i in range(200_000))
+    scanner = attention._Scanner(set())
+    start = time.monotonic()
+    scanner._hosts_from(urls)
+    assert time.monotonic() - start < 1.0
+    assert len(scanner.hosts) == attention.MAX_PREFILL_HOSTS
+    assert scanner.truncated
+
+    start = time.monotonic()
+    assert _codes(scan_source(f"X = {urls!r}\n")) == [("source_too_large", 0, None)]
+    assert time.monotonic() - start < 1.0
+
+    # One host repeated: the URL count bound stops the scan.
+    same = " ".join(["https://h.example.com/"] * 40_000)
+    start = time.monotonic()
+    report = scan_source(f"X = {same!r}\n")
+    assert time.monotonic() - start < 1.0
+    assert report.http_hosts == ["h.example.com"]
+    assert report.truncated
+    assert report.to_json()["truncated"] is True
