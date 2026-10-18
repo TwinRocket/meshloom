@@ -1587,6 +1587,21 @@ export interface AppSettings {
   notification_destinations?: NotificationDestinations;
 }
 
+/**
+ * `GET /api/settings/view`: the part of `AppSettings` every role may read
+ * (`app/models.py`, `AppSettingsView`). Everything else stays administrator-only.
+ */
+export type AppSettingsView = Pick<
+  AppSettings,
+  | 'ui_preferences'
+  | 'last_message_times'
+  | 'flood_scope'
+  | 'known_regions'
+  | 'blocked_keys'
+  | 'blocked_names'
+  | 'directory_available'
+>;
+
 export interface AppSettingsUpdate {
   ui_preferences?: UiPreferences;
   max_radio_contacts?: number;

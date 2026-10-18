@@ -31,6 +31,8 @@ Ce que chaque rôle voit dans l’interface suit ce tableau : les écrans qu’u
 | Réglages | toutes les sections | Configuration locale, Utilisateurs et accès (son propre compte) | Configuration locale, Utilisateurs et accès (son propre compte) | aucun |
 | Langue et thème de ce navigateur | oui | oui | oui | oui, depuis le bouton de compte |
 
+Chaque rôle reçoit le thème de l’instance, ses contacts et noms bloqués et les noms de régions, quoi qu’il puisse modifier : un contact bloqué reste masqué aussi pour un lecteur ou un kiosque. Seuls les administrateurs lisent ou modifient les autres réglages.
+
 Une action que le serveur refuse malgré tout (par exemple depuis une page restée ouverte avant un changement de rôle) affiche un seul message : « Ce compte n’a pas le droit de faire cela. »
 
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.

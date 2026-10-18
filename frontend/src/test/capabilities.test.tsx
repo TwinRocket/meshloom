@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
@@ -368,6 +368,33 @@ describe('startup calls', () => {
       await result.current.settings.fetchAppSettings();
       await result.current.radio.fetchConfig();
       for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['member', 'viewer', 'kiosk'] as const)(
+    'reads the readable settings view as the %s role, and cannot save settings',
+    async (role) => {
+      const view = vi.spyOn(api, 'getSettingsView').mockResolvedValue({
+        ui_preferences: { theme: 'dark', nav_rail: [] },
+        last_message_times: {},
+        flood_scope: '',
+        known_regions: [],
+        blocked_keys: ['ab'],
+        blocked_names: ['spam'],
+        directory_available: false,
+      });
+      const update = vi.spyOn(api, 'updateSettings').mockResolvedValue({} as never);
+      const { result } = await hookAs(role, () => useAppSettings());
+      await act(async () => {
+        await result.current.fetchAppSettings();
+      });
+      expect(view).toHaveBeenCalled();
+      expect(result.current.appSettings?.blocked_keys).toEqual(['ab']);
+      expect(result.current.appSettings?.blocked_names).toEqual(['spam']);
+      await act(async () => {
+        await result.current.handleSaveAppSettings({ flood_scope: 'x' });
+      });
+      expect(update).not.toHaveBeenCalled();
     }
   );
 

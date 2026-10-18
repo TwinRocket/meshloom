@@ -20,6 +20,7 @@ import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './uti
 
 import type {
   AppSettings,
+  AppSettingsView,
   AppSettingsUpdate,
   BackupExport,
   BackupInspectResult,
@@ -683,6 +684,7 @@ export const api = {
 
   // App Settings
   getSettings: () => fetchJson<AppSettings>('/settings'),
+  getSettingsView: () => fetchJson<AppSettingsView>('/settings/view'),
   updateSettings: (settings: AppSettingsUpdate) =>
     fetchJson<AppSettings>('/settings', {
       method: 'PATCH',

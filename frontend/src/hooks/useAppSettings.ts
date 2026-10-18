@@ -5,7 +5,7 @@ import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
 import { initLastMessageTimes } from '../utils/conversationState';
 import { applyTheme, cacheTheme, getSavedTheme, serverChoseTheme } from '../utils/theme';
-import type { AppSettings, AppSettingsUpdate } from '../types';
+import type { AppSettings, AppSettingsUpdate, AppSettingsView } from '../types';
 import { useCapabilities } from '../auth/SessionProvider';
 import { RAIL_DISCOVERED_BACKFILL_KEY, backfillRailToolsOnce } from '../components/navDestinations';
 
@@ -48,8 +48,30 @@ function adoptStoredTheme(stored: string | undefined): void {
   applyTheme(stored);
 }
 
+/**
+ * What a non-admin session runs on: the readable view over the defaults of the
+ * administration fields it never receives (the interface hides every surface that
+ * edits them, `auth/capabilities.ts`).
+ */
+function settingsFromView(view: AppSettingsView): AppSettings {
+  return {
+    max_radio_contacts: 0,
+    auto_decrypt_dm_on_advert: false,
+    advert_interval: 0,
+    last_advert_time: 0,
+    tracked_telemetry_repeaters: [],
+    tracked_telemetry_contacts: [],
+    auto_resend_channel: false,
+    telemetry_interval_hours: 0,
+    telemetry_routed_hourly: false,
+    discovery_blocked_types: [],
+    ...view,
+  };
+}
+
 export function useAppSettings() {
-  // `GET /api/settings` is administrator-only: the other roles run on the defaults.
+  // `GET /api/settings` is administrator-only: the other roles read the allowlisted
+  // `GET /api/settings/view` (theme, blocked lists, regions) and cannot write settings.
   const { isAdmin } = useCapabilities();
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
@@ -57,9 +79,18 @@ export function useAppSettings() {
   const hasMigratedRef = useRef(false);
 
   const fetchAppSettings = useCallback(async () => {
-    if (!isAdmin) return;
     try {
-      const data = await takePrefetchOrFetch('settings', api.getSettings);
+      if (!isAdmin) {
+        const view = (await takePrefetchOrFetch(
+          'settings',
+          api.getSettingsView
+        )) as AppSettingsView;
+        setAppSettings(settingsFromView(view));
+        initLastMessageTimes(view.last_message_times ?? {});
+        adoptStoredTheme(view.ui_preferences?.theme);
+        return;
+      }
+      const data = (await takePrefetchOrFetch('settings', api.getSettings)) as AppSettings;
       const alreadyBackfilled = railToolAlreadyBackfilled();
       const backfill = backfillRailToolsOnce(data.ui_preferences?.nav_rail, alreadyBackfilled);
       const next = backfill.shouldPersist
@@ -91,10 +122,12 @@ export function useAppSettings() {
 
   const handleSaveAppSettings = useCallback(
     async (update: AppSettingsUpdate) => {
+      // Writing settings is administrator-only; another role has nothing to save.
+      if (!isAdmin) return;
       await api.updateSettings(update);
       await fetchAppSettings();
     },
-    [fetchAppSettings]
+    [fetchAppSettings, isAdmin]
   );
 
   const handleToggleBlockedKey = useCallback(async (key: string) => {
