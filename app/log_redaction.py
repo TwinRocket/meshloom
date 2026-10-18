@@ -24,7 +24,9 @@ Three layers, all always on:
 
 The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, and
 ``aiosqlite`` prints every statement with its parameters (password and token
-hashes, VAPID and fanout secrets), so their level is clamped to INFO whatever
+hashes, VAPID and fanout secrets), and ``urllib3.connectionpool`` prints every
+request line (the Web Push endpoint path is the subscription's token, Apprise
+and webhook URLs carry theirs), so their level is clamped to INFO whatever
 ``MESHCORE_LOG_LEVEL`` says.
 
 Both the filter and the formatter are total: a redaction bug must never kill
@@ -45,7 +47,7 @@ from contextlib import contextmanager
 REDACTED = "[redacted]"
 REDACTION_FAILED = "[log record dropped: redaction error]"
 UNFORMATTABLE_RECORD = "[unformattable meshcore record]"
-QUIET_THIRD_PARTY_LOGGERS = ("bleak", "dbus_fast", "aiosqlite")
+QUIET_THIRD_PARTY_LOGGERS = ("bleak", "dbus_fast", "aiosqlite", "urllib3")
 SECRET_MIN_LITERAL_BYTES = 4
 
 # Companion frame codes whose payload is secret. Outgoing: command codes.

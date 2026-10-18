@@ -24,9 +24,10 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
+import app.push.manager as push_manager_module
 import app.push.send as push_send
 from app.net.egress_guard import EgressBlocked
-from app.push.manager import push_manager
+from app.push.manager import FORBIDDEN_ANSWER_CONFIRM_SECONDS, push_manager
 from app.push.send import send_push
 from app.repository.push_subscriptions import PushSubscriptionRepository
 
@@ -265,11 +266,26 @@ class TestRefusalPermanence:
         "answers",
         [["169.254.169.254"], ["192.0.2.10"], ["2001:db8::1"], ["::ffff:169.254.169.254"]],
     )
-    async def test_forbidden_whatever_the_setting_is_permanent(self, monkeypatch, answers):
+    async def test_a_forbidden_dns_answer_is_always_refused_not_permanent(
+        self, monkeypatch, answers
+    ):
+        """A resolver can be wrong once: the answer alone never proves the URL bad."""
         FakeResolver(monkeypatch, answers)
         with pytest.raises(EgressBlocked) as exc_info:
             await _send(f"https://{PUSH_HOST}/x", allow_private_network=True)
+        assert exc_info.value.always_refused
+        assert not exc_info.value.permanent
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["https://169.254.169.254/x", "https://192.0.2.10/x", "https://[2001:db8::1]/x"],
+    )
+    async def test_a_forbidden_ip_literal_is_permanent(self, endpoint):
+        with pytest.raises(EgressBlocked) as exc_info:
+            await _send(endpoint, allow_private_network=True)
         assert exc_info.value.permanent
+        assert exc_info.value.always_refused
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -288,6 +304,7 @@ class TestRefusalPermanence:
             await _send(f"https://{PUSH_HOST}/x")
         assert exc_info.value.code == "egress_unresolvable"
         assert not exc_info.value.permanent
+        assert not exc_info.value.always_refused
 
 
 async def _dispatch(monkeypatch) -> list:
@@ -302,23 +319,59 @@ async def _dispatch(monkeypatch) -> list:
 class TestStoredEndpointRevalidated:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("answers", [["169.254.169.254"], ["198.51.100.4"]])
-    async def test_an_endpoint_now_forbidden_for_good_is_skipped_and_deleted(
+    async def test_a_name_resolving_to_a_forbidden_address_is_deleted_once_confirmed(
         self, test_db, monkeypatch, caplog, answers
     ):
         # Valid when it was stored; the name now resolves to an address no setting allows.
         FakeResolver(monkeypatch, answers)
+        clock = [1000.0]
+        monkeypatch.setattr(push_manager_module, "_monotonic", lambda: clock[0])
         sub = await PushSubscriptionRepository.create(
             endpoint=f"https://{PUSH_HOST}/{SECRET_PATH}", p256dh="p", auth="a"
         )
         with caplog.at_level(logging.DEBUG):
+            assert await _dispatch(monkeypatch) == []
+            clock[0] += FORBIDDEN_ANSWER_CONFIRM_SECONDS - 1
+            assert await _dispatch(monkeypatch) == []
+            stored = await PushSubscriptionRepository.get(sub["id"])
+            assert stored is not None and stored["failure_count"] == 0
+            clock[0] += 1
             calls = await _dispatch(monkeypatch)
         assert calls == []
         assert await PushSubscriptionRepository.get(sub["id"]) is None
+        assert sub["id"] not in push_manager._forbidden_since
         refusals = [r for r in caplog.records if "refused for good" in r.getMessage()]
         assert len(refusals) == 1
         assert sub["id"] in refusals[0].getMessage()
         assert "secret-token" not in caplog.text
         assert "wpush" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_good_answer_in_between_restarts_the_confirmation(self, test_db, monkeypatch):
+        dns = FakeResolver(monkeypatch, ["169.254.169.254"])
+        clock = [1000.0]
+        monkeypatch.setattr(push_manager_module, "_monotonic", lambda: clock[0])
+        sub = await PushSubscriptionRepository.create(
+            endpoint=f"https://{PUSH_HOST}/{SECRET_PATH}", p256dh="p", auth="a"
+        )
+        assert await _dispatch(monkeypatch) == []
+        dns.answers = [["93.184.215.14"]]
+        dns.lookups = 0
+        clock[0] += 10
+        assert len(await _dispatch(monkeypatch)) == 1
+        dns.answers = [["169.254.169.254"]]
+        dns.lookups = 0
+        clock[0] += FORBIDDEN_ANSWER_CONFIRM_SECONDS
+        assert await _dispatch(monkeypatch) == []
+        assert await PushSubscriptionRepository.get(sub["id"]) is not None
+
+    @pytest.mark.asyncio
+    async def test_a_forbidden_ip_literal_is_deleted_at_once(self, test_db, monkeypatch):
+        sub = await PushSubscriptionRepository.create(
+            endpoint=f"https://169.254.169.254/{SECRET_PATH}", p256dh="p", auth="a"
+        )
+        assert await _dispatch(monkeypatch) == []
+        assert await PushSubscriptionRepository.get(sub["id"]) is None
 
     @pytest.mark.asyncio
     async def test_a_bad_stored_url_is_deleted(self, test_db, monkeypatch):
@@ -372,3 +425,59 @@ class TestStoredEndpointRevalidated:
         assert "ValueError" in caplog.text
         assert "secret-token" not in caplog.text
         assert await PushSubscriptionRepository.get(sub["id"]) is not None
+
+
+def test_refusal_memory_is_bounded(monkeypatch):
+    monkeypatch.setattr(push_manager_module, "_REFUSAL_MEMORY_MAX", 3)
+    manager = push_manager_module.PushManager()
+    for i in range(5):
+        assert manager._first_refusal(f"s{i}", "egress_unresolvable")
+        manager._forbidden_answer_confirmed(f"s{i}")
+    assert list(manager._refusals_logged) == [(f"s{i}", "egress_unresolvable") for i in (2, 3, 4)]
+    assert list(manager._forbidden_since) == ["s2", "s3", "s4"]
+    assert not manager._first_refusal("s3", "egress_unresolvable")
+    manager._forget("s3")
+    assert ("s3", "egress_unresolvable") not in manager._refusals_logged
+    assert "s3" not in manager._forbidden_since
+
+
+@pytest.mark.asyncio
+async def test_no_endpoint_token_in_debug_logs_or_the_support_snapshot(
+    test_db, client, monkeypatch, tmp_path, caplog
+):
+    """MESHCORE_LOG_LEVEL=DEBUG plus the support snapshot, as the troubleshooting page
+    asks: urllib3 logs each request line at DEBUG (the endpoint path is the token), so
+    it is clamped to INFO with the other quiet loggers (``app/log_redaction.py``)."""
+    from app.config import _recent_log_handler, clear_recent_log_lines, get_recent_log_lines
+    from app.log_redaction import clamp_quiet_third_party_loggers
+
+    root = logging.getLogger()
+    added = _recent_log_handler not in root.handlers
+    if added:
+        root.addHandler(_recent_log_handler)
+    previous_level = _recent_log_handler.level
+    _recent_log_handler.setLevel(logging.DEBUG)
+    clear_recent_log_lines()
+    try:
+        caplog.set_level(logging.DEBUG)
+        clamp_quiet_third_party_loggers()  # as setup_logging() does after dictConfig
+        FakeResolver(monkeypatch, ["127.0.0.1"])
+        ca_file, cert_file, key_file = _write_pki(tmp_path, PUSH_HOST)
+        _trust(monkeypatch, ca_file)
+        async with _tls_push_server(cert_file, key_file) as (port, seen):
+            status = await _send(
+                f"https://{PUSH_HOST}:{port}/{SECRET_PATH}", allow_private_network=True
+            )
+        assert status == 201 and len(seen["requests"]) == 1
+        snapshot = await client.get("/api/debug")
+        assert snapshot.status_code == 200, snapshot.text
+        token = SECRET_PATH.rsplit("/", 1)[1]
+        for record in caplog.records:
+            assert token not in record.getMessage(), record.name
+        assert not any(token in line for line in get_recent_log_lines())
+        assert token not in snapshot.text
+    finally:
+        clear_recent_log_lines()
+        _recent_log_handler.setLevel(previous_level)
+        if added:
+            root.removeHandler(_recent_log_handler)

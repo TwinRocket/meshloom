@@ -156,14 +156,22 @@ def egress_detail(code: str) -> dict[str, str]:
 class EgressBlocked(Exception):
     """A destination the guard refuses. ``code`` is stable and translated by the UI.
 
-    ``permanent`` marks a refusal no setting can lift (a bad scheme or URL, a
-    metadata or documentation address): the opt-in would not change it.
+    ``always_refused`` marks a refusal no setting can lift (a bad scheme or
+    URL, a metadata or documentation address): the opt-in would not change it.
+    ``permanent`` is the subset that does not depend on a DNS answer (the URL,
+    an IP literal, a metadata host name): the same URL is refused again
+    whatever the resolver says. A forbidden address in a DNS answer is
+    ``always_refused`` but not ``permanent``: a broken or hijacked resolver can
+    give it once.
     """
 
-    def __init__(self, code: EgressCode, *, permanent: bool = False) -> None:
+    def __init__(
+        self, code: EgressCode, *, permanent: bool = False, always_refused: bool = False
+    ) -> None:
         super().__init__(code)
         self.code: EgressCode = code
         self.permanent = permanent
+        self.always_refused = always_refused or permanent
 
 
 @dataclass(frozen=True)
@@ -229,7 +237,7 @@ def check_addresses(ips: Iterable[IPAddress], *, allow_private_network: bool) ->
     """Refuse when any address is refused: one private answer taints the host."""
     for ip in ips:
         if is_metadata_address(ip) or is_documentation_address(ip):
-            raise EgressBlocked("egress_private_address", permanent=True)
+            raise EgressBlocked("egress_private_address", always_refused=True)
         if not allow_private_network and is_private_address(ip):
             raise EgressBlocked("egress_private_address")
 
@@ -241,6 +249,14 @@ def _normal_host(host: str) -> str:
         return str(ipaddress.ip_address(host))
     except ValueError:
         return host
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 
 def _split(url: str, schemes: frozenset[str]) -> tuple[str, str, int]:
@@ -363,7 +379,12 @@ async def validate_destination(
     if host in _METADATA_HOSTS:
         raise EgressBlocked("egress_private_address", permanent=True)
     ips = await _resolve(host, port)
-    check_addresses(ips, allow_private_network=allow_private_network)
+    try:
+        check_addresses(ips, allow_private_network=allow_private_network)
+    except EgressBlocked as exc:
+        if exc.always_refused and _is_ip_literal(host):
+            exc.permanent = True  # no resolver involved: the URL itself is refused
+        raise
     return ResolvedDestination(url=url.strip(), scheme=scheme, host=host, port=port, ips=ips)
 
 

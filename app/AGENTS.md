@@ -643,7 +643,10 @@ run as root).
   (their DEBUG output dumps every BLE frame: `bluezdbus/client.py` write on
   Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`),
   `aiosqlite` clamped to INFO too (its DEBUG output prints every statement with
-  its parameters: password and token hashes, VAPID and fanout secrets), and
+  its parameters: password and token hashes, VAPID and fanout secrets),
+  `urllib3` clamped to INFO (its DEBUG output prints each request line: the
+  Web Push endpoint path is the subscription's token;
+  `tests/test_push_send_egress.py` checks the records and `/api/debug`), and
   an app-wide 422 handler that drops each error's `input` and `ctx`.
   `tests/test_meshcore_log_sites.py` pins the meshcore log calls: on a meshcore
   or bleak bump, review the rules, then refresh its fixture.
@@ -1065,9 +1068,15 @@ urllib3 connections); a private endpoint needs the instance setting
 (`PinnedHTTPAdapter`; SNI, `Host` and certificate check keep the host name;
 no redirect; connect 3 s, then 10 s on the IPv4 retry, read 10 s), resolving
 once: `tests/test_push_send_egress.py` drives a fake resolver and a local TLS
-push server. A send refused by the guard for good (`EgressBlocked.permanent`:
-bad URL or scheme, a metadata or documentation address) deletes the
-subscription lazily (`_SendResult.invalid`, one WARNING with the id and code).
+push server. A send refused by the guard for good deletes the subscription
+lazily (`_SendResult.invalid`, one WARNING with the id and code): at once for
+`EgressBlocked.permanent` (bad URL or scheme, a metadata or documentation IP
+literal or host name), and for a name whose DNS answer holds such an address
+(`always_refused`) only when a send at least `FORBIDDEN_ANSWER_CONFIRM_SECONDS`
+(1 h) after the first such answer meets it again, with no other outcome in
+between (a resolver can be wrong once). The bookkeeping (`_forbidden_since`,
+`_refusals_logged`) is in memory, bounded to 1024 entries (least recently
+touched dropped) and forgotten when the subscription delivers or is removed.
 Any other refusal (private address while the setting is off,
 `egress_unresolvable`) keeps the subscription, is logged at WARNING once per
 subscription and code, and does not count toward `MAX_CONSECUTIVE_FAILURES`
