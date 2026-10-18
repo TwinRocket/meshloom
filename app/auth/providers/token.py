@@ -101,16 +101,16 @@ async def issue_token(
 ) -> tuple[ApiToken, str]:
     """Create a token for ``user`` and return its row and its secret, to be
     shown once. The caller checked the scopes (``scope_violation``)."""
-    secret = new_api_token()
+    token = new_api_token()
     row = await ApiTokenRepository.create(
         user.id,
         name,
-        hash_token(secret),
+        hash_token(token),
         sorted(set(scopes)),
         expires_at=expires_at,
         origin=origin,
     )
-    return row, secret
+    return row, token
 
 
 def close_token_sockets(token_ids: Iterable[str]) -> int:
@@ -150,12 +150,12 @@ async def _audit_failure(token: ApiToken, reason: str, via: Via, ip: str | None)
 
 
 async def resolve_token(
-    secret: str, via: Via, ip: str | None, *, now: int | None = None
+    presented: str, via: Via, ip: str | None, *, now: int | None = None
 ) -> Principal | None:
     """The principal of a bearer token, or None (refused)."""
-    if not looks_like_token(secret):
+    if not looks_like_token(presented):
         return None
-    token = await ApiTokenRepository.get_by_hash(hash_token(secret))
+    token = await ApiTokenRepository.get_by_hash(hash_token(presented))
     if token is None:
         return None
     ts = int(time.time()) if now is None else now
