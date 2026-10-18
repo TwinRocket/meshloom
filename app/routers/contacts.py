@@ -8,7 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from meshcore import EventType
 from pydantic import BaseModel, Field
 
-from app.auth.permissions import can_read_private, require
+from app.auth.permissions import CONTACT_DM_ACTIVITY_FIELDS, can_read_private, require
+from app.auth.ws_events import WsEvent
 from app.models import (
     Contact,
     ContactActiveRoom,
@@ -74,7 +75,7 @@ async def _best_effort_push_contact_to_radio(contact: Contact, operation_name: s
 async def _broadcast_contact_update(contact: Contact) -> None:
     from app.websocket import broadcast_event
 
-    broadcast_event("contact", contact.model_dump())
+    broadcast_event(WsEvent.CONTACT, contact.model_dump())
 
 
 async def _broadcast_contact_resolution(previous_public_keys: list[str], contact: Contact) -> None:
@@ -82,7 +83,7 @@ async def _broadcast_contact_resolution(previous_public_keys: list[str], contact
 
     for old_key in previous_public_keys:
         broadcast_event(
-            "contact_resolved",
+            WsEvent.CONTACT_RESOLVED,
             {
                 "previous_public_key": old_key,
                 "contact": contact.model_dump(),
@@ -98,7 +99,7 @@ def _path_hash_mode_from_hop_width(hop_width: object) -> int:
 
 def _without_direct_messages(contact: Contact) -> Contact:
     """A contact as a caller without ``read_private`` sees it: no DM activity."""
-    return contact.model_copy(update={"last_contacted": None, "last_read_at": None})
+    return contact.model_copy(update=dict.fromkeys(CONTACT_DM_ACTIVITY_FIELDS))
 
 
 async def _build_keyed_contact_analytics(
@@ -392,7 +393,7 @@ async def bulk_delete_contacts(request: BulkDeleteRequest) -> dict:
     deleted = 0
     for contact in contacts_to_delete:
         await ContactRepository.delete(contact.public_key)
-        broadcast_event("contact_deleted", {"public_key": contact.public_key})
+        broadcast_event(WsEvent.CONTACT_DELETED, {"public_key": contact.public_key})
         deleted += 1
 
     logger.info("Bulk deleted %d/%d contacts", deleted, len(request.public_keys))
@@ -420,7 +421,7 @@ async def delete_contact(public_key: str) -> dict:
 
     from app.websocket import broadcast_event
 
-    broadcast_event("contact_deleted", {"public_key": contact.public_key})
+    broadcast_event(WsEvent.CONTACT_DELETED, {"public_key": contact.public_key})
 
     return {"status": "ok"}
 

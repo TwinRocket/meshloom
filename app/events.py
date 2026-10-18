@@ -2,11 +2,12 @@
 
 import json
 import logging
-from typing import Any, Literal, NotRequired
+from typing import Any, NotRequired
 
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
+from app.auth.ws_events import WsEvent
 from app.models import (
     Channel,
     CommunityLiveStatus,
@@ -20,25 +21,6 @@ from app.models import (
 from app.routers.health import HealthResponse
 
 logger = logging.getLogger(__name__)
-
-WsEventType = Literal[
-    "health",
-    "message",
-    "contact",
-    "contact_resolved",
-    "channel",
-    "contact_deleted",
-    "channel_deleted",
-    "raw_packet",
-    "community_packet",
-    "community_live",
-    "message_acked",
-    "message_deleted",
-    "radio_wifi",
-    "plugin_status",
-    "error",
-    "success",
-]
 
 
 class ContactDeletedPayload(TypedDict):
@@ -87,29 +69,30 @@ class ToastPayload(TypedDict):
     params: NotRequired[dict[str, Any]]
 
 
-_PAYLOAD_ADAPTERS: dict[WsEventType, TypeAdapter[Any]] = {
-    "health": TypeAdapter(HealthResponse),
-    "message": TypeAdapter(Message),
-    "contact": TypeAdapter(Contact),
-    "contact_resolved": TypeAdapter(ContactResolvedPayload),
-    "channel": TypeAdapter(Channel),
-    "contact_deleted": TypeAdapter(ContactDeletedPayload),
-    "channel_deleted": TypeAdapter(ChannelDeletedPayload),
-    "raw_packet": TypeAdapter(RawPacketBroadcast),
-    "community_packet": TypeAdapter(CommunityPacketBroadcast),
-    "community_live": TypeAdapter(CommunityLiveStatus),
-    "message_acked": TypeAdapter(MessageAckedPayload),
-    "message_deleted": TypeAdapter(MessageDeletedPayload),
-    "radio_wifi": TypeAdapter(RadioWifiState),
-    "plugin_status": TypeAdapter(PluginStatusPayload),
-    "error": TypeAdapter(ToastPayload),
-    "success": TypeAdapter(ToastPayload),
+# One payload model per member (``tests/test_websocket.py`` checks they match).
+_PAYLOAD_ADAPTERS: dict[WsEvent, TypeAdapter[Any]] = {
+    WsEvent.HEALTH: TypeAdapter(HealthResponse),
+    WsEvent.MESSAGE: TypeAdapter(Message),
+    WsEvent.CONTACT: TypeAdapter(Contact),
+    WsEvent.CONTACT_RESOLVED: TypeAdapter(ContactResolvedPayload),
+    WsEvent.CHANNEL: TypeAdapter(Channel),
+    WsEvent.CONTACT_DELETED: TypeAdapter(ContactDeletedPayload),
+    WsEvent.CHANNEL_DELETED: TypeAdapter(ChannelDeletedPayload),
+    WsEvent.RAW_PACKET: TypeAdapter(RawPacketBroadcast),
+    WsEvent.COMMUNITY_PACKET: TypeAdapter(CommunityPacketBroadcast),
+    WsEvent.COMMUNITY_LIVE: TypeAdapter(CommunityLiveStatus),
+    WsEvent.MESSAGE_ACKED: TypeAdapter(MessageAckedPayload),
+    WsEvent.MESSAGE_DELETED: TypeAdapter(MessageDeletedPayload),
+    WsEvent.RADIO_WIFI: TypeAdapter(RadioWifiState),
+    WsEvent.PLUGIN_STATUS: TypeAdapter(PluginStatusPayload),
+    WsEvent.ERROR: TypeAdapter(ToastPayload),
+    WsEvent.SUCCESS: TypeAdapter(ToastPayload),
 }
 
 
-def dump_ws_event(event_type: str, data: Any) -> str:
-    """Serialize a WebSocket event envelope with validation for known event types."""
-    adapter = _PAYLOAD_ADAPTERS.get(event_type)  # type: ignore[arg-type]
+def dump_ws_event(event_type: WsEvent, data: Any) -> str:
+    """Serialize a WebSocket event envelope, its payload validated by the type's model."""
+    adapter = _PAYLOAD_ADAPTERS.get(event_type)
     if adapter is None:
         return json.dumps({"type": event_type, "data": data})
 
@@ -117,7 +100,7 @@ def dump_ws_event(event_type: str, data: Any) -> str:
         validated = adapter.validate_python(data)
         # Omit absent packet_hash on community rain so old-Stats frames stay hash8-only.
         payload = adapter.dump_python(
-            validated, mode="json", exclude_none=(event_type == "community_packet")
+            validated, mode="json", exclude_none=(event_type == WsEvent.COMMUNITY_PACKET)
         )
         return json.dumps({"type": event_type, "data": payload})
     except Exception:

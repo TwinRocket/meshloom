@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.auth import audit
 from app.auth.permissions import can_read_private, require
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
 from app.cors import normalize_origins
 from app.database import db
@@ -678,7 +679,7 @@ async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggle
     if refreshed:
         from app.websocket import broadcast_event
 
-        broadcast_event("channel", refreshed.model_dump())
+        broadcast_event(WsEvent.CHANNEL, refreshed.model_dump())
         return MuteChannelToggleResponse(
             key=request.key, muted=refreshed.muted, muted_until=refreshed.muted_until
         )

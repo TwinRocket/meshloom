@@ -4,7 +4,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.auth.permissions import has_permission, public
+from app.auth.permissions import Permission, has_permission, public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
@@ -17,6 +17,37 @@ from app.services.radio_stats import get_latest_radio_stats
 from app.version_info import get_app_build_info
 
 router = APIRouter(tags=["health"])
+
+# Below this permission `health` (REST and WebSocket) carries no error text:
+# the fanout, notification, radio proxy and plugin `last_error` (raw exception
+# text, hosts, ports) and the plugins' `send_guard` are emptied, the statuses
+# stay (MSHL-64: fanout and plugin status are admin-only).
+HEALTH_DETAIL_PERMISSION: Permission = "admin"
+
+
+def _without_last_error(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={"last_error": None})
+    if isinstance(value, dict):
+        return {**value, "last_error": None}
+    return value
+
+
+def _blank_last_error(entries: Any) -> Any:
+    if not isinstance(entries, dict):
+        return entries
+    return {key: _without_last_error(value) for key, value in entries.items()}
+
+
+def without_admin_details(health: dict[str, Any]) -> dict[str, Any]:
+    """`health` as a principal without `HEALTH_DETAIL_PERMISSION` gets it."""
+    out = dict(plugin_lifecycle.without_plugin_errors(health))
+    for key in ("fanout_statuses", "notification_statuses"):
+        if key in out:
+            out[key] = _blank_last_error(out[key])
+    if out.get("radio_proxy") is not None:
+        out["radio_proxy"] = _without_last_error(out["radio_proxy"])
+    return out
 
 
 class RadioDeviceInfoResponse(BaseModel):
@@ -50,7 +81,7 @@ class PluginStatusResponse(BaseModel):
     dropped_events: int = 0
     restarts: int = 0
     # What the send guards refused since start (`total`, `by_scope`, `last`; `{}` when
-    # nothing); blanked for principals without `PLUGIN_ERROR_PERMISSION`.
+    # nothing); blanked below `HEALTH_DETAIL_PERMISSION`.
     send_guard: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -295,6 +326,6 @@ async def healthcheck(request: Request) -> HealthResponse | MinimalHealthRespons
     if get_principal(request) is None:
         return MinimalHealthResponse()
     data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
-    if not has_permission(get_principal(request), plugin_lifecycle.PLUGIN_ERROR_PERMISSION):
-        data = plugin_lifecycle.without_plugin_errors(data)
+    if not has_permission(get_principal(request), HEALTH_DETAIL_PERMISSION):
+        data = without_admin_details(data)
     return HealthResponse(**data)

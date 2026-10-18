@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from app.auth.ws_events import WsEvent
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
 from app.plugins import isolation, launch
 from app.plugins.quotas import effective_send_limits, send_guard
@@ -1514,7 +1515,7 @@ def _broadcast_status(payload: dict[str, Any]) -> None:
         from app.services.radio_runtime import radio_runtime
         from app.websocket import broadcast_event, broadcast_health
 
-        broadcast_event("plugin_status", payload, realtime=False)
+        broadcast_event(WsEvent.PLUGIN_STATUS, payload, realtime=False)
         broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
     except Exception:
         logger.debug("plugin_status broadcast failed", exc_info=True)
