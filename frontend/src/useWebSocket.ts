@@ -251,6 +251,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case 'success':
             handlers.onSuccess?.(msg.data as SuccessEvent);
             break;
+          case 'plugin_status':
+            // A health refresh follows (`app/plugins/host.py`): nothing to do here.
+            break;
           case 'pong':
             // Heartbeat response, ignore
             break;
