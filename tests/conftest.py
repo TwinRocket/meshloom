@@ -272,6 +272,44 @@ async def _reset_radio_proxy_runtime():
     radio_proxy_manager._last_error = None
 
 
+@pytest.fixture(autouse=True)
+def _auth_as_admin(request, monkeypatch):
+    """Sign every app request in as an admin, so route tests need no login.
+
+    The auth gate itself is tested with ``@pytest.mark.real_auth``
+    (``tests/test_auth_*.py``), which keeps the real resolution.
+    """
+    if request.node.get_closest_marker("real_auth"):
+        yield
+        return
+    from app.auth import middleware
+    from app.auth.models import User
+    from app.auth.principal import Principal
+
+    user = User(id=1, username="test-admin", role="admin", created_at=0, updated_at=0)
+
+    async def _resolve(scope, headers, via, secure):
+        result = middleware._Resolution()
+        result.principal = Principal(user=user, via=via, credential="session")
+        return result
+
+    monkeypatch.setattr(middleware, "resolve", _resolve)
+    yield
+
+
+@pytest.fixture
+def fast_argon2(monkeypatch):
+    """argon2id at libsodium's minimum cost: same code paths, milliseconds per hash."""
+    import nacl.pwhash.argon2id as argon2id
+
+    real_str = argon2id.str
+
+    def fast_str(password, opslimit=None, memlimit=None):
+        return real_str(password, opslimit=argon2id.OPSLIMIT_MIN, memlimit=argon2id.MEMLIMIT_MIN)
+
+    monkeypatch.setattr(argon2id, "str", fast_str)
+
+
 @pytest.fixture
 def client():
     """Create an httpx AsyncClient for testing the app."""

@@ -294,6 +294,13 @@ class UserRepository:
         return [_row_to_user(row) for row in rows]
 
     @staticmethod
+    async def any_exist() -> bool:
+        """Whether at least one account exists (setup is done)."""
+        async with db.readonly() as conn:
+            async with conn.execute("SELECT 1 FROM users LIMIT 1") as cursor:
+                return await cursor.fetchone() is not None
+
+    @staticmethod
     async def count_enabled_admins() -> int:
         async with db.readonly() as conn:
             async with conn.execute(
