@@ -19,11 +19,16 @@ export function toolIdOf(conversation: { type: string; feedPreset?: string } | n
     : conversation.type;
 }
 
-export function makeFeedConversation(name: string, feedPreset?: 'control'): Conversation {
+export function makeFeedConversation(
+  name: string,
+  feedPreset?: 'control',
+  feedQuery?: string
+): Conversation {
   return {
     type: 'feed',
     id: 'feed',
     name,
     ...(feedPreset && { feedPreset }),
+    ...(feedQuery && { feedQuery }),
   };
 }

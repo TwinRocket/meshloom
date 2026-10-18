@@ -100,6 +100,8 @@ interface ConversationPaneProps {
   /** The feed's rows: the conversation, scrolled to the message. */
   onNavigateToMessage?: (target: SearchNavigateTarget) => void;
   onOpenContactInfo: (publicKey: string, fromChannel?: boolean) => void;
+  /** The feed's current filters as a hash query, so the active conversation keeps them. */
+  onFeedQueryChange?: (feedQuery: string) => void;
   onOpenChannelInfo: (channelKey: string) => void;
   onSenderClick: (sender: string, quote?: string) => void;
   onChannelReferenceClick?: (channelName: string) => void;
@@ -204,6 +206,7 @@ export function ConversationPane({
   onSetChannelPathHashModeOverride,
   onSelectConversation,
   onOpenContactInfo,
+  onFeedQueryChange,
   onNavigateToMessage,
   onOpenChannelInfo,
   onSenderClick,
@@ -450,6 +453,8 @@ export function ConversationPane({
           // A preset is applied when the view opens, so another preset is another view.
           key={activeConversation.feedPreset ?? 'feed'}
           preset={activeConversation.feedPreset}
+          initialQuery={activeConversation.feedQuery}
+          onQueryChange={onFeedQueryChange}
           contacts={contacts}
           channels={channels}
           radioName={config?.name}

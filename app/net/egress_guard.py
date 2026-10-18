@@ -136,6 +136,10 @@ _METADATA_HOSTS = frozenset({"metadata.google.internal"})
 
 # English fallbacks for API details; the UI translates errors.<code>.
 EGRESS_MESSAGES: dict[str, str] = {
+    "verify_tls_requires_private_destination": "Certificate checks can only be turned off "
+    "for a destination on a private network (LAN, localhost)",
+    "smtp_plaintext_auth_refused": "A login and password are never sent without encryption "
+    "to a mail server outside your private network",
     "egress_scheme": "The address must be an http:// or https:// URL",
     "egress_private_address": "The address is on a private network (LAN, localhost); "
     "allow private networks for this destination to use it",
@@ -231,6 +235,14 @@ def is_private_address(ip: IPAddress) -> bool:
     if isinstance(ip, ipaddress.IPv4Address):
         return any(ip in net for net in _PRIVATE_V4)
     return any(ip in net for net in _PRIVATE_V6)
+
+
+def tls_check_may_be_off(ips: Iterable[IPAddress]) -> bool:
+    """True when every resolved address is a private/LAN one: the only destinations whose
+    certificate check a channel may turn off (a self-signed service on your network).
+    A public address, or one host with a public answer among private ones, keeps it on."""
+    resolved = list(ips)
+    return bool(resolved) and all(is_private_address(ip) for ip in resolved)
 
 
 def check_addresses(ips: Iterable[IPAddress], *, allow_private_network: bool) -> None:

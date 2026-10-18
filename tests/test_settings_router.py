@@ -12,6 +12,7 @@ from app.models import (
     ContactUpsert,
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
+    UiPreferences,
 )
 from app.repository import AppSettingsRepository, ContactRepository
 from app.routers.settings import (
@@ -24,6 +25,80 @@ from app.routers.settings import (
     update_settings,
 )
 from app.services.flood_scope import FORCE_UNSCOPED_FRAME
+
+
+class TestStartView:
+    @pytest.mark.asyncio
+    async def test_defaults_to_the_conversations(self, test_db):
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", ["feed", "control", "map", "raw", ""])
+    async def test_known_tool_or_empty_is_stored(self, test_db, value):
+        result = await update_settings(
+            AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value))
+        )
+        assert result.ui_preferences.start_view == value
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == value
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "nope",
+            "Feed",
+            "#feed",
+            "channel/ABC",
+            " feed",
+            "settings",
+            "map?src=control",
+            "feed?",
+            "feed?bogus=1",
+            "feed?src=bogus",
+            "feed?src=control&src=messages",
+            "feed?muted=2",
+            "feed?node=" + "A" * 32,
+            "feed?node=" + "G" * 64,
+            "feed?channel=" + "A" * 32,
+            "feed?src=control%2Cmessages",
+            "feed?" + "src=control&" * 60,
+        ],
+    )
+    async def test_unknown_or_non_tool_value_is_refused(self, test_db, value):
+        with pytest.raises(HTTPException) as exc:
+            await update_settings(AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value)))
+        assert exc.value.status_code == 400
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
+
+
+class TestStartViewFeedQuery:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "feed?display=1",
+            "control?display=1",
+            "feed?src=messages,control,events&types=chan,priv&dir=in,out&muted=1&pending=0",
+            "feed?src=&types=chan",
+            "feed?node=" + "ab" * 32,
+            "feed?node=" + "AB" * 32 + "&display=1",
+        ],
+    )
+    async def test_feed_hash_grammar_is_stored(self, test_db, value):
+        result = await update_settings(
+            AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value))
+        )
+        assert result.ui_preferences.start_view == value
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == value
+
+    @pytest.mark.asyncio
+    async def test_stale_invalid_query_reads_as_default(self, test_db):
+        await AppSettingsRepository.update(
+            ui_preferences=UiPreferences.model_construct(start_view="feed?bogus=1", theme="dark")
+        )
+        stored = (await AppSettingsRepository.get()).ui_preferences
+        assert stored.start_view == ""
+        assert stored.theme == "dark"
 
 
 class TestUpdateSettings:
@@ -791,3 +866,54 @@ class TestTelemetryAlertRulesPatchMerge:
         await toggle_tracked_telemetry(TrackedTelemetryRequest(public_key=key))
         stored = await AppSettingsRepository.get()
         assert stored.telemetry_alert_rules.overrides[key].alerting is False
+
+
+class TestStartViewHttp:
+    async def test_unknown_start_page_is_a_400_through_the_route(self, test_db, client):
+        response = await client.patch(
+            "/api/settings", json={"ui_preferences": {"start_view": "nope"}}
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Unknown start page"
+
+    async def test_known_start_page_is_saved_through_the_route(self, test_db, client):
+        response = await client.patch(
+            "/api/settings", json={"ui_preferences": {"start_view": "feed"}}
+        )
+        assert response.status_code == 200
+        assert response.json()["ui_preferences"]["start_view"] == "feed"
+
+    @pytest.mark.parametrize("role", ["member", "viewer", "kiosk"])
+    async def test_only_an_administrator_sets_it(self, test_db, client, sign_in_as, role):
+        sign_in_as(role)
+        response = await client.patch(
+            "/api/settings", json={"ui_preferences": {"start_view": "feed"}}
+        )
+        assert response.status_code == 403
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
+
+    async def test_a_stale_stored_value_reads_as_default_and_does_not_block_saves(
+        self, test_db, client
+    ):
+        await AppSettingsRepository.update(
+            ui_preferences=UiPreferences.model_construct(start_view="removed-tool", theme="dark")
+        )
+        stored = (await AppSettingsRepository.get()).ui_preferences
+        assert stored.start_view == ""
+
+        response = await client.patch(
+            "/api/settings",
+            json={"ui_preferences": stored.model_dump(mode="json") | {"theme": "light"}},
+        )
+        assert response.status_code == 200
+        assert response.json()["ui_preferences"]["theme"] == "light"
+
+
+def test_start_view_ids_match_the_frontend_hash_grammar():
+    from pathlib import Path
+
+    from app.models import START_VIEW_IDS
+
+    source = (Path(__file__).parent.parent / "frontend/src/utils/urlHash.ts").read_text()
+    for tool in START_VIEW_IDS:
+        assert f"hash === '{tool}'" in source, tool

@@ -11,6 +11,10 @@ Rien de ce qui suit n’est nécessaire pour envoyer un message. C’est de l’
 
 Sur un téléphone, on ouvre ces outils depuis **Outils**, dans la barre du bas. Chacun est accompagné d’une courte description. Sur un grand écran, ils sont sur la barre d’icônes à gauche, que l’on peut réordonner ou alléger dans **Réglages → Navigation**. La carte des nœuds est une destination à part, à côté des conversations.
 
+### Page de démarrage
+
+**Réglages → Navigation → Page de démarrage** choisit où Meshloom s'ouvre quand l'adresse n'a pas de partie `#`. Par défaut, ce sont vos conversations, comme avant. Choisissez la carte ou un outil (le Fil, son préréglage Contrôle, la vue en direct…) pour ouvrir là à la place. C'est un réglage de l'instance, modifié par un administrateur, et il s'applique à toutes les sessions et à tous les navigateurs, écran de kiosque compris. Un lien vers une conversation ou un outil l'emporte toujours, tout comme **Rouvrir la dernière vue** sur un appareil où vous l'avez activé et qui a une vue à rouvrir. Un outil que votre rôle ne peut pas utiliser est ignoré et vous arrivez sur vos conversations.
+
 ## La carte des nœuds
 
 La carte s’ouvre par **Carte**, dans la barre du bas ou sur la barre de gauche. Une annonce peut transporter des coordonnées. Quand elle en contient, Meshloom pose le nœud sur la carte. Une annonce entendue, un point de plus.
@@ -80,6 +84,8 @@ Le **Fil** réunit tout dans une seule chronologie, le plus récent en bas : les
 - **Mode suivi.** Le fil reste sur la ligne la plus récente tant que vous êtes en bas. Remontez, et un bouton **Suivre** compte ce qui est arrivé depuis et vous ramène en bas. Remonter charge aussi les messages plus anciens.
 - **Depuis votre dernière visite.** Une ligne **Nouveau depuis votre dernière visite** marque le premier message arrivé après la dernière fois que vous aviez le fil ouvert, dans ce navigateur.
 - **Lire ne marque rien comme lu.** Les compteurs de non lus restent inchangés tant que vous n’ouvrez pas la conversation elle-même.
+
+Les filtres sont aussi dans la barre d’adresse. Changez une pastille et l’adresse devient, par exemple, `#feed?src=messages,control&types=chan,priv&dir=in,out&muted=0&pending=0` : mettez-la en favori, ou utilisez-la comme adresse d’un écran kiosque, et le fil s’ouvre avec ces filtres quoi que le navigateur ait retenu (l’adresse l’emporte sur les filtres mémorisés, qui l’emportent sur les valeurs par défaut). `src` liste les sources (`messages`, `control`, `events`), `types` les genres (`chan`, `priv`), `dir` les sens (`in`, `out`), `muted` et `pending` valent `1` pour afficher ces canaux, `node` est la clé publique d’un nœud (64 caractères hexadécimaux) et `display=1` est conservé pour le mode d’affichage. **Les canaux n’y sont volontairement pas** : la clé d’un canal privé est son accès et les favoris sont synchronisés par le compte de votre navigateur, donc une clé de canal n’est jamais écrite dans une adresse. Tout ce qui est inconnu ou mal formé dans l’adresse est ignoré. La même forme (`feed?...`, `control?...`, sans le `#`) peut être la **Page de démarrage**.
 
 ### Le préréglage Contrôle
 

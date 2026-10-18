@@ -17,6 +17,7 @@ from app.models import (
     RejectedChannel,
     TelemetryAlertRules,
     UiPreferences,
+    is_valid_start_view,
 )
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
 from app.services.update_window import (
@@ -340,6 +341,10 @@ class AppSettingsRepository:
         except (json.JSONDecodeError, TypeError, KeyError, ValidationError) as e:
             logger.warning("Failed to parse ui_preferences, using defaults: %s", e)
             ui_preferences = UiPreferences()
+        # A start page that is no longer a known tool (restored backup, id removed later)
+        # reads as the default, so saving other preferences never sends it back.
+        if ui_preferences.start_view and not is_valid_start_view(ui_preferences.start_view):
+            ui_preferences = ui_preferences.model_copy(update={"start_view": ""})
 
         # Parse blocked_keys JSON
         blocked_keys: list[str] = []

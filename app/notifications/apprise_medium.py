@@ -43,6 +43,7 @@ from app.net.apprise_urls import (
     redact_apprise_url,
     validate_apprise_urls,
 )
+from app.net.egress_guard import tls_check_may_be_off
 from app.notifications.executor import run_blocking
 
 logger = logging.getLogger(__name__)
@@ -195,7 +196,14 @@ async def _sleep(seconds: float) -> None:
 
 
 async def _send_one_url(
-    url: str, *, line: int, allow_private_network: bool, title: str, body: str, markdown: bool
+    url: str,
+    *,
+    line: int,
+    allow_private_network: bool,
+    title: str,
+    body: str,
+    markdown: bool,
+    verify_tls: bool = True,
 ) -> None:
     # Apprise logs request URLs at DEBUG: its tokens are masked by the
     # redacting formatter while this URL is in flight.
@@ -207,11 +215,19 @@ async def _send_one_url(
             title=title,
             body=body,
             markdown=markdown,
+            verify_tls=verify_tls,
         )
 
 
 async def _send_one_url_scoped(
-    url: str, *, line: int, allow_private_network: bool, title: str, body: str, markdown: bool
+    url: str,
+    *,
+    line: int,
+    allow_private_network: bool,
+    title: str,
+    body: str,
+    markdown: bool,
+    verify_tls: bool,
 ) -> None:
     redacted = redact_apprise_url(url)
     try:
@@ -223,6 +239,18 @@ async def _send_one_url_scoped(
     server = validated.server
     server.socket_connect_timeout = CONNECT_TIMEOUT_S
     server.socket_read_timeout = READ_TIMEOUT_S
+    if not verify_tls:
+        # Only for a user-chosen host whose every address is private: a fixed-host
+        # service (Telegram, Discord...) or a public host keeps its certificate check.
+        destination = validated.destination
+        if destination is None or not tls_check_may_be_off(destination.ips):
+            raise AppriseUrlRefused(
+                "verify_tls_requires_private_destination", line=line, scheme=validated.scheme
+            )
+        server.verify_certificate = False
+    if validated.scheme == "discord":
+        # A webhook's avatar is fetched by Discord from an Apprise-hosted image.
+        server.avatar = False
     # A retry resends to every target of the URL: with several (ntfy topics,
     # Telegram chats, e-mail recipients) the ones already reached would get
     # duplicates, so such a URL is tried once.
@@ -251,7 +279,13 @@ class UrlResult:
 
 
 async def send_to_urls(
-    urls: list[str], *, allow_private_network: bool, title: str, body: str, markdown: bool
+    urls: list[str],
+    *,
+    allow_private_network: bool,
+    title: str,
+    body: str,
+    markdown: bool,
+    verify_tls: bool = True,
 ) -> list[UrlResult]:
     """Send to every URL, each on its own; one result per URL, in order."""
     results: list[UrlResult] = []
@@ -264,6 +298,7 @@ async def send_to_urls(
                 title=title,
                 body=body,
                 markdown=markdown,
+                verify_tls=verify_tls,
             )
         except (AppriseUrlRefused, AppriseSendFailed) as exc:
             results.append(UrlResult(line=line, url=redact_apprise_url(url), error=exc))

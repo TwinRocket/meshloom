@@ -11,6 +11,10 @@ None of this is needed to send a message. It is observation. You can skip it ent
 
 On a phone, open these tools from **Tools** in the bottom bar. Each one comes with a one-line description. On a large screen, they sit on the icon rail on the left, and you can reorder or remove them in **Settings → Navigation**. The node map is its own destination, next to your conversations.
 
+### Start page
+
+**Settings → Navigation → Start page** chooses where Meshloom opens when the address has no `#` part. The default is your conversations, as before. Pick the map or any tool (the Feed, its Control preset, the live view…) to open there instead. It is a setting of the instance, changed by an administrator, and it applies to every session and browser, including a kiosk screen. A link to a conversation or a tool still wins, and so does **Reopen the last viewed** on a device where you turned it on and that has a view to reopen. A tool your role may not use is skipped and you land on your conversations.
+
 ## The node map
 
 Open the map with **Map**, in the bottom bar or on the rail. An advert can include coordinates. When it does, Meshloom places the node on the map. One advert heard, one more point.
@@ -80,6 +84,8 @@ The **Feed** puts everything in one timeline, newest at the bottom: the messages
 - **Follow mode.** The feed stays at the newest row while you are at the bottom. Scroll up and a **Follow** button counts what arrived since and takes you back. Scrolling up also loads older messages.
 - **Since your last visit.** A line **New since your last visit** marks the first message that arrived after you last had the feed open, in this browser.
 - **Reading marks nothing as read.** Unread counts stay as they are until you open the conversation itself.
+
+The filters are also in the address bar. Change a chip and the address becomes, for example, `#feed?src=messages,control&types=chan,priv&dir=in,out&muted=0&pending=0`: bookmark it, or use it as the kiosk screen's address, and the Feed opens with those filters whatever the browser remembers (the address wins over the remembered filters, which win over the defaults). `src` lists the sources (`messages`, `control`, `events`), `types` the kinds (`chan`, `priv`), `dir` the directions (`in`, `out`), `muted` and `pending` are `1` to show those channels, `node` is a node's public key (64 hexadecimal characters), and `display=1` is carried for the display mode. **Channels are not in it on purpose**: a private channel's key is its access, and bookmarks are synced by your browser's account, so a channel key is never written in an address. Anything unknown or malformed in the address is ignored. The same form (`feed?...`, `control?...`, without the `#`) can be the **Start page**.
 
 ### The Control preset
 

@@ -66,6 +66,8 @@ The screen signs in with a **device token** that Meshloom writes on the Pi, in `
 
 On a kiosk image flashed before 5.0, restart the Pi once after the update: the desktop session then gets access to the token and the screen signs in.
 
+To make the wall screen open on the Feed (or any tool) after a reboot, an administrator sets **Settings → Navigation → Start page**: it applies to every session, the kiosk account included, and needs no SSH. `MESHLOOM_KIOSK_URL` remains a bootstrap variable of the launcher on a hand-built image; a start page only applies when that address has no `#` part.
+
 ## Update
 
 When the image (or any Linux package install) can update itself, **Settings > Updates** offers **Install now** and an optional automatic update. This only updates Meshloom, from the signed Meshloom repository, never the whole operating system. Images from 4.18 on are ready for this out of the box. On an older image, one `sudo apt update && sudo apt install meshloom` enables it.

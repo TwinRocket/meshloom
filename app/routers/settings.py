@@ -30,6 +30,7 @@ from app.models import (
     NotificationDestinationsUpdate,
     TelemetryAlertRules,
     UiPreferences,
+    is_valid_start_view,
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, error_code, validate_destination
 from app.region_scope import normalize_region_scope
@@ -409,6 +410,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     """
     kwargs = {}
     if update.ui_preferences is not None:
+        start_view = update.ui_preferences.start_view
+        if start_view and not is_valid_start_view(start_view):
+            raise HTTPException(status_code=400, detail="Unknown start page")
         kwargs["ui_preferences"] = update.ui_preferences
 
     if update.max_radio_contacts is not None:

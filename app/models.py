@@ -1182,6 +1182,71 @@ class ServerLabel(BaseModel):
     )
 
 
+# Where the app may open when the URL has no hash: the tool ids of the hash grammar
+# (frontend/src/utils/urlHash.ts). Empty means the conversations. The PATCH route
+# enforces it; the model does not, so a stale stored value cannot reset the others.
+START_VIEW_IDS: frozenset[str] = frozenset(
+    {
+        "raw",
+        "feed",
+        "control",
+        "map",
+        "live",
+        "visualizer",
+        "search",
+        "trace",
+        "locate",
+        "discovered",
+        "test",
+    }
+)
+
+
+_START_VIEW_FEED_BASES = frozenset({"feed", "control"})
+_START_VIEW_LISTS: dict[str, frozenset[str]] = {
+    "src": frozenset({"messages", "control", "events"}),
+    "types": frozenset({"chan", "priv"}),
+    "dir": frozenset({"in", "out"}),
+}
+_START_VIEW_FLAGS = frozenset({"muted", "pending", "display"})
+_START_VIEW_MAX_LENGTH = 512
+_PUBKEY64 = re.compile(r"[0-9a-fA-F]{64}")
+
+
+def is_valid_start_view(value: str) -> bool:
+    """True for a tool id, or ``feed?...`` / ``control?...`` in the feed hash grammar.
+
+    Stricter than the browser, which ignores what it does not know: a stored start page is
+    written by an administrator, so an unknown key, an unknown token, a repeated key or a
+    value that is not a 64-hex public key (a 32-hex channel key included) is refused rather
+    than kept. The grammar lives in ``frontend/src/utils/feedFilters.ts``.
+    """
+    if value in START_VIEW_IDS:
+        return True
+    base, sep, query = value.partition("?")
+    if not sep or base not in _START_VIEW_FEED_BASES or len(value) > _START_VIEW_MAX_LENGTH:
+        return False
+    seen: set[str] = set()
+    for pair in query.split("&"):
+        key, eq, raw = pair.partition("=")
+        if not eq or key in seen or "%" in raw:
+            return False
+        seen.add(key)
+        if key in _START_VIEW_LISTS:
+            tokens = raw.split(",") if raw else []
+            if len(set(tokens)) != len(tokens) or not set(tokens) <= _START_VIEW_LISTS[key]:
+                return False
+        elif key in _START_VIEW_FLAGS:
+            if raw not in ("0", "1"):
+                return False
+        elif key == "node":
+            if not _PUBKEY64.fullmatch(raw):
+                return False
+        else:
+            return False
+    return True
+
+
 class UiPreferences(BaseModel):
     """Interface preferences, kept with the instance rather than in a browser.
 
@@ -1202,6 +1267,16 @@ class UiPreferences(BaseModel):
     theme: str = Field(
         default="",
         description="Theme id, or empty to follow the operating system",
+    )
+    start_view: str = Field(
+        default="",
+        description=(
+            "Where the app opens when the URL has no hash: a tool hash fragment "
+            "without the '#' (one of START_VIEW_IDS, or feed/control with a filter "
+            "query, see is_valid_start_view). Empty means the conversations. "
+            "Kept with the instance so a screen with no settings, the kiosk, opens "
+            "where an administrator chose."
+        ),
     )
     server_label: ServerLabel = Field(
         default_factory=ServerLabel,

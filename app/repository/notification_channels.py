@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from app.database import db
 from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate_apprise_urls
-from app.net.egress_guard import EgressBlocked, validate_destination
+from app.net.egress_guard import EgressBlocked, tls_check_may_be_off, validate_destination
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
     Channel,
@@ -111,23 +111,50 @@ def _required_missing(entry: ChannelType, public: dict, secrets: dict) -> list[s
 
 
 async def _check_destination(
-    entry: ChannelType, public: dict, secrets: dict, allow_private_network: bool
+    entry: ChannelType,
+    public: dict,
+    secrets: dict,
+    allow_private_network: bool,
+    verify_tls: bool = True,
 ) -> None:
-    """Refuse a host the egress guard would refuse at send (400, coded)."""
+    """Refuse a host the egress guard would refuse at send (400, coded).
+
+    Certificate checks come off only for a destination whose every resolved address is
+    private (``verify_tls_requires_private_destination``), and a mail server outside the
+    private network never gets a login over ``mode=none`` (``smtp_plaintext_auth_refused``).
+    """
     try:
         if entry.id == "webhook" and secrets.get("url"):
-            await validate_destination(secrets["url"], allow_private_network=allow_private_network)
+            dest = await validate_destination(
+                secrets["url"], allow_private_network=allow_private_network
+            )
+            if not verify_tls and not tls_check_may_be_off(dest.ips):
+                raise ChannelError("verify_tls_requires_private_destination")
         elif entry.id == "apprise" and secrets.get("urls"):
-            await validate_apprise_urls(
+            validated = await validate_apprise_urls(
                 split_apprise_urls(secrets["urls"]), allow_private_network=allow_private_network
             )
+            if not verify_tls:
+                for line, item in enumerate(validated, start=1):
+                    if item.destination is None or not tls_check_may_be_off(item.destination.ips):
+                        raise ChannelError(
+                            "verify_tls_requires_private_destination",
+                            line=line,
+                            scheme=item.scheme,
+                        )
         elif entry.id == "email" and public.get("host"):
             host = str(public["host"]).strip()
             bracketed = f"[{host}]" if ":" in host else host
-            await validate_destination(
+            dest = await validate_destination(
                 f"http://{bracketed}:{public.get('port') or 587}/",
                 allow_private_network=allow_private_network,
             )
+            private = tls_check_may_be_off(dest.ips)
+            if not verify_tls and not private:
+                raise ChannelError("verify_tls_requires_private_destination")
+            has_login = public.get("user") or secrets.get("password")
+            if public.get("mode") == "none" and has_login and not private:
+                raise ChannelError("smtp_plaintext_auth_refused")
     except EgressBlocked as exc:
         raise ChannelError(exc.code) from None
     except AppriseUrlRefused as exc:
@@ -195,7 +222,9 @@ class NotificationChannelRepository:
             channel_id = body.id or f"{entry.id}-{uuid.uuid4().hex[:8]}"
             if is_builtin(channel_id) or ":" in channel_id:
                 raise ChannelError("channel_id_reserved")
-        await _check_destination(entry, public, secrets, body.allow_private_network)
+        await _check_destination(
+            entry, public, secrets, body.allow_private_network, body.verify_tls
+        )
         # NULL rate columns mean "the type's default limits" (registry).
         async with db.tx() as conn:
             if await _fetch(conn, channel_id) is not None:
@@ -223,7 +252,7 @@ class NotificationChannelRepository:
                     json.dumps(public, sort_keys=True),
                     json.dumps(secrets, sort_keys=True),
                     1 if body.allow_private_network else 0,
-                    body.include_message_text or entry.include_message_text_default,
+                    body.include_message_text or entry.include_message_text_for(public),
                     1 if body.verify_tls else 0,
                     1
                     if (
@@ -290,8 +319,13 @@ class NotificationChannelRepository:
             if patch.allow_private_network is None
             else patch.allow_private_network
         )
-        if config_changed or allow_private != current.allow_private_network:
-            await _check_destination(entry, public, secrets, allow_private)
+        verify_tls = current.verify_tls if patch.verify_tls is None else patch.verify_tls
+        if (
+            config_changed
+            or allow_private != current.allow_private_network
+            or verify_tls != current.verify_tls
+        ):
+            await _check_destination(entry, public, secrets, allow_private, verify_tls)
         if config_changed:
             # The grandfathering banner was about the old destination.
             public.pop("private_network_grandfathered", None)
