@@ -55,14 +55,14 @@ RADIO_WORKAROUND_ENV: dict[str, str] = {
 }
 
 ENV_COMMUNITY_IATA = "MESHLOOM_COMMUNITY_IATA"
-# Never imported: the setting that replaces it is on by default.
 ENV_BASIC_USERNAME = "MESHCORE_BASIC_AUTH_USERNAME"
 ENV_BASIC_PASSWORD = "MESHCORE_BASIC_AUTH_PASSWORD"
 _BASIC_UI = (
-    "Settings → Users & Access (at the first start with no account they became the "
-    "administrator account, see app/security.py; Authorization: Basic is still accepted "
+    "Settings → Users & Access (read only at the first start with no account, to create "
+    "the administrator, see app/security.py; Authorization: Basic is still accepted "
     "until 5.2)"
 )
+# Never imported: the setting that replaces it is on by default.
 ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
 _COMMUNITY_UI = "Settings → Meshloom Community"
 _COMMUNITY_FIXED = "no setting at all (the Meshloom Community addresses are fixed)"
@@ -109,9 +109,8 @@ def warn_about_retired_env() -> list[str]:
     if len({ENV_BASIC_USERNAME, ENV_BASIC_PASSWORD} & set(still_set)) == 1:
         # Never an error since 5.0 (it used to stop the start): half a pair imports nothing.
         logger.warning(
-            "Only one of %s and %s is set: nothing was imported as an account.",
-            ENV_BASIC_USERNAME,
-            ENV_BASIC_PASSWORD,
+            "Only one of MESHCORE_BASIC_AUTH_USERNAME and MESHCORE_BASIC_AUTH_PASSWORD "
+            "is set: nothing was imported as an account."
         )
     if ENV_CLOCK_WRAPAROUND in still_set and not _env_true(ENV_CLOCK_WRAPAROUND):
         # The variable kept the fix off; the setting that replaces it starts on.
