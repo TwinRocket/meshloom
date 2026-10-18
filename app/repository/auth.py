@@ -39,32 +39,65 @@ MAX_SESSIONS_PER_USER = 50
 # ``touch()`` writes ``last_seen_at`` at most this often per session.
 LAST_SEEN_WRITE_INTERVAL_S = 60
 
-# Audit ``details`` are free-form JSON. A key is normalised (lowercase, every
-# character that is not a letter or a digit removed: ``new_Password-2`` ->
-# ``newpassword2``) and refused when it contains one of these fragments or
-# equals one of the exact names. Over-refusing a harmless key is acceptable.
+# Audit ``details`` are free-form JSON. A key is checked in three steps
+# (``_is_secret_key``), after NFKC and case folding:
+# 1. anything outside ``[a-z0-9_-]`` is refused (a Cyrillic look-alike, a
+#    space, a dot), so the next two steps see every character;
+# 2. the key is split into words (snake_case, kebab-case, camelCase, digits:
+#    ``radio_ble_pin``, ``blePin``, ``newPassword1``) and refused when a word
+#    is in ``_SECRET_WORDS``, which keeps ``ping`` and ``pinned`` allowed;
+# 3. the joined form (separators removed) is refused when it contains one of
+#    ``_SECRET_FRAGMENTS``, for keys written without separators
+#    (``oldpassword``, ``privatekey``).
+# Over-refusing a harmless key is acceptable.
+_SECRET_WORDS = frozenset(
+    {
+        "apikey",
+        "auth",
+        "authorization",
+        "code",
+        "codes",
+        "cookie",
+        "credential",
+        "credentials",
+        "hash",
+        "key",
+        "keys",
+        "otp",
+        "pass",
+        "passphrase",
+        "passwd",
+        "password",
+        "pin",
+        "pins",
+        "pwd",
+        "secret",
+        "secrets",
+        "seed",
+        "session",
+        "token",
+        "tokens",
+        "totp",
+    }
+)
 _SECRET_FRAGMENTS = (
     "apikey",
     "authorization",
     "backupcode",
     "cookie",
     "credential",
-    "hash",
-    "key",
-    "otp",
     "pairingcode",
     "passphrase",
     "passwd",
     "password",
-    "pwd",
+    "privatekey",
     "recoverycode",
     "secret",
-    "seed",
     "setupcode",
     "token",
 )
-_SECRET_EXACT = frozenset({"code", "codes", "pin", "pins"})
-_NON_ALNUM = re.compile(r"[^0-9a-z]+")
+_ALLOWED_KEY = re.compile(r"[a-z0-9_-]+")
+_KEY_WORDS = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+")
 
 # Failed logins are written without authentication and kept for a year:
 # every field is bounded. Text is truncated; ``details`` larger than this
@@ -455,10 +488,15 @@ class AuthSessionRepository:
 
 
 def _is_secret_key(key: str) -> bool:
-    normalised = _NON_ALNUM.sub("", key.lower())
-    if normalised in _SECRET_EXACT:
+    composed = unicodedata.normalize("NFKC", key)
+    folded = composed.casefold()
+    if not _ALLOWED_KEY.fullmatch(folded):
         return True
-    return any(fragment in normalised for fragment in _SECRET_FRAGMENTS)
+    # Split on the composed form, before folding, so camelCase still shows.
+    if {word.casefold() for word in _KEY_WORDS.findall(composed)} & _SECRET_WORDS:
+        return True
+    joined = folded.replace("_", "").replace("-", "")
+    return any(fragment in joined for fragment in _SECRET_FRAGMENTS)
 
 
 def _bounded(field: str, value: str | None) -> str | None:
@@ -493,7 +531,8 @@ class AuthAuditRepository:
         ts: int | None = None,
     ) -> int:
         """Append an audit row. ``details`` must hold no secret: a key such as
-        ``password``, ``apiKey`` or ``setup_code`` raises ``ValueError``.
+        ``password``, ``apiKey``, ``blePin`` or ``setup_code``, or one with
+        characters outside ``[a-z0-9_-]`` once folded, raises ``ValueError``.
 
         Text fields are truncated to ``_AUDIT_TEXT_LIMITS``; ``details`` over
         ``MAX_AUDIT_DETAILS_BYTES`` serialised are stored as

@@ -70,12 +70,16 @@ and `auth_settings`.
   lifetime comes from `auth_settings.session_lifetime_days` (30 by default).
   Revoking sessions on a role change or a disable is the caller's decision.
 - **Audit.** `AuthAuditRepository.add()` appends a row; its `details` are JSON.
-  Each key, at any depth, is lowercased with every non-alphanumeric character
-  removed (`new_Password-2` becomes `newpassword2`), then refused with
-  `ValueError` when it contains a fragment such as `password`, `pwd`, `secret`,
-  `token`, `key` (so `apiKey`, `privateKey`), `hash`, `seed`, `otp` (so `totp`),
-  `cookie`, `setupcode` or `recoverycode`, or equals `code` or `pin`. Harmless
-  keys that contain a fragment are refused too: that is accepted. Failed
+  Each key, at any depth, goes through NFKC and case folding, then is refused
+  with `ValueError` when (1) it has a character outside `[a-z0-9_-]` (a
+  Cyrillic look-alike, a space, a dot), (2) one of its words (split on `_`,
+  `-`, camelCase and digits: `radio_ble_pin`, `blePin`, `newPassword1`) is a
+  secret word such as `password`, `pass`, `secret`, `token`, `key`, `apikey`,
+  `pin`, `code`, `otp`, `totp`, `hash`, `seed`, `cookie`, `session`, `auth` or
+  `credential`, or (3) the key with separators removed contains a fragment
+  such as `password`, `secret`, `token`, `apikey`, `privatekey` or
+  `setupcode`. `ping`, `pinned`, `user_id` or `reason` pass; a harmless key
+  that matches is refused, which is accepted. Failed
   logins are written without authentication, so every field is bounded:
   `action` 64, `outcome` 32, `target` 256, `ip` 64, `via` 32 characters
   (truncated), and `details` larger than 2 KiB serialised are stored as
@@ -100,8 +104,9 @@ and `auth_settings`.
 ## Backups
 
 The new tables and settings are not in any JSON backup yet. The `users` and
-`api_tokens` sections of the full backup are a later ticket; `sessions`,
-`auth_audit` and the setup code are never exported. The SQLite download
+`api_tokens` sections of the full backup are a later ticket. `sessions` and
+the setup code are never exported; `auth_audit` is not in the JSON backup but
+stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but
 not their secrets: `prepare_sqlite_snapshot()` sets `users.password_hash`,
 `users.totp_secret` and `auth_settings.setup_code_hash` to NULL and empties

@@ -292,6 +292,22 @@ async def test_a_new_session_is_never_its_own_eviction_victim(test_db):
         "cookie",
         "code",
         "pin",
+        "pin_code",
+        "x_pin",
+        "blePin",
+        "newPin",
+        "radio_ble_pin",
+        "api-key",
+        "x_auth_token",
+        "APIKey",
+        "privatekey",
+        "session_id",
+        "pass word",
+        "a.password",
+        "\uff50\uff41\uff53\uff53\uff57\uff4f\uff52\uff44",  # fullwidth "password"
+        "p\u00e4ssword",
+        "\u0440\u0430ssword",  # Cyrillic look-alike of "password"
+        "r\u043ele",  # Cyrillic "o" in an otherwise harmless "role"
     ],
 )
 @pytest.mark.asyncio
@@ -300,6 +316,29 @@ async def test_audit_refuses_secret_like_keys(test_db, key):
         await AuthAuditRepository.add("login", "failure", details={key: "x"})
     with pytest.raises(ValueError):
         await AuthAuditRepository.add("login", "failure", details={"outer": [{key: "x"}]})
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "user_id",
+        "role",
+        "ip",
+        "reason",
+        "count",
+        "attempt",
+        "ping",
+        "pinned",
+        "target-host",
+        "oldRole",
+        "Reason",
+    ],
+)
+@pytest.mark.asyncio
+async def test_audit_accepts_harmless_keys(test_db, key):
+    await AuthAuditRepository.add("settings", "success", details={key: 1})
+    (entry,) = await AuthAuditRepository.list_recent(limit=1)
+    assert entry.details == {key: 1}
 
 
 @pytest.mark.asyncio
