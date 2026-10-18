@@ -256,6 +256,17 @@ purpose.
   still-mounted app, so navigation state and drafts survive, and the WebSocket gets
   `AUTH_RESTORED_EVENT` to reconnect at once. Signing in as another user reloads
   the page instead. A tab returning to the foreground re-asks the session.
+- **Second factor.** `LoginForm` (also inside `ReloginDialog`) swaps itself for
+  `SecondFactorStep` when `POST /auth/login` answers `second_factor`; the step keeps the
+  pending token in memory only, sends a TOTP or recovery code to `POST /auth/login/2fa`
+  (listed in `AUTH_FORM_PATHS`, so its 401 is a form error) and goes back to the password
+  on `auth_2fa_pending_invalid` or after `expires_in` seconds. `user.second_factor_enrolment_required`
+  (or a 403 `auth_2fa_enrolment_required`, `onEnrolmentRequired`) makes `SessionProvider`
+  render `EnrolmentRequiredPage` instead of the app. Enrolment (`TotpEnrolment`, QR drawn
+  with `qrcode.react` from the `otpauth://` URI, never a remote service) and
+  `RecoveryCodesView` (codes shown once, acknowledgement before "Done") are shared by that
+  page and Settings → Users & Access → `AccessSecurityPanel` (hidden reason under ingress
+  or without a password). i18n slice `bo`.
 - **429.** `ApiError.retryAfter` comes from `Retry-After` or `params.retry_after`;
   `formatApiError` passes it as `{{retry_after}}` to `errors.auth_rate_limited`.
 - **Ingress.** Home Assistant signs ingress users in on every request (`via: ingress`,

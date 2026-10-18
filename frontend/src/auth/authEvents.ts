@@ -72,5 +72,19 @@ export function reportPasswordChangeRequired(): void {
   for (const listener of passwordChangeListeners) listener();
 }
 
+const enrolmentListeners = new Set<PasswordChangeListener>();
+
+export function onEnrolmentRequired(listener: () => void): () => void {
+  enrolmentListeners.add(listener);
+  return () => {
+    enrolmentListeners.delete(listener);
+  };
+}
+
+/** A 403 `auth_2fa_enrolment_required`: `require_2fa_for_admins` just started to apply to this admin. */
+export function reportEnrolmentRequired(): void {
+  for (const listener of enrolmentListeners) listener();
+}
+
 /** Dispatched on `window` once the user signed in again: the WebSocket reconnects at once. */
 export const AUTH_RESTORED_EVENT = 'meshloom:auth-restored';

@@ -68,6 +68,12 @@ function mockApi() {
   vi.spyOn(api, 'getAuthMe').mockImplementation(async () => me);
   vi.spyOn(api, 'listAuthSessions').mockImplementation(async () => sessions);
   vi.spyOn(api, 'listAuthTokens').mockResolvedValue([]);
+  vi.spyOn(api, 'getTotpStatus').mockResolvedValue({
+    enabled: false,
+    pending: false,
+    recovery_codes_left: 0,
+    enrolment_required: false,
+  });
   vi.spyOn(api, 'listAuthUsers').mockImplementation(async () => users);
   vi.spyOn(api, 'getAuthSettings').mockImplementation(async () => settings);
   vi.spyOn(api, 'getAuthAudit').mockResolvedValue({ entries: [], next_cursor: null });

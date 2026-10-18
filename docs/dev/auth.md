@@ -11,7 +11,9 @@ The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
 trusted networks in "Trusted networks", API and device tokens in "API and
 device tokens" (the tokens page is
 `frontend/src/components/settings/AccessTokensPanel.tsx`), the TOTP second
-factor in "Second factor (TOTP)". Pairing and passkeys come with later Access
+factor in "Second factor (TOTP)" (its pages: `frontend/src/auth/TotpEnrolment.tsx`,
+`SecondFactorStep.tsx`, `RecoveryCodesView.tsx`, `EnrolmentRequiredPage.tsx` and
+`frontend/src/components/settings/AccessSecurityPanel.tsx`). Pairing and passkeys come with later Access
 tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.

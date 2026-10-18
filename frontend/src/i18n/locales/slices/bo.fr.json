@@ -1,0 +1,70 @@
+{
+  "auth": {
+    "secondFactor": {
+      "help": "Saisissez le code à 6 chiffres de votre application d'authentification.",
+      "codeLabel": "Code d'authentification",
+      "recoveryHelp": "Saisissez l'un de vos codes de secours. Chacun ne sert qu'une fois.",
+      "recoveryLabel": "Code de secours",
+      "submit": "Vérifier",
+      "useRecovery": "Utiliser un code de secours",
+      "useApp": "Utiliser l'application d'authentification",
+      "back": "Retour au mot de passe",
+      "expired": "Cette connexion a expiré. Saisissez de nouveau votre mot de passe."
+    },
+    "recoveryCodes": {
+      "title": "Codes de secours",
+      "warning": "Conservez ces codes en lieu sûr, par exemple dans un gestionnaire de mots de passe. Ils ne sont affichés qu'une seule fois et chacun ne sert qu'une fois, si vous perdez votre application d'authentification.",
+      "copy": "Copier",
+      "copied": "Codes de secours copiés.",
+      "copyFailed": "Copie impossible : sélectionnez les codes et copiez-les à la main.",
+      "download": "Télécharger",
+      "fileHeader": "Codes de secours Meshloom. Chaque code ne sert qu'une fois. Gardez ce fichier privé.",
+      "saved": "J'ai enregistré ces codes",
+      "done": "Terminé"
+    },
+    "totp": {
+      "passwordHelp": "Confirmez votre mot de passe pour configurer l'authentification à deux facteurs.",
+      "currentPassword": "Mot de passe actuel",
+      "start": "Continuer",
+      "cancel": "Annuler",
+      "scanHelp": "Scannez ce QR code avec une application d'authentification, ou saisissez la clé à la main. Le code est dessiné dans ce navigateur ; la clé ne quitte jamais votre Meshloom.",
+      "qrTitle": "QR code de configuration à deux facteurs",
+      "manualKey": "Clé de configuration",
+      "manualHelp": "Basé sur l'heure, {{digits}} chiffres, toutes les {{period}} secondes.",
+      "confirmCode": "Code affiché par l'application",
+      "confirm": "Activer",
+      "codeField": "Code d'authentification",
+      "codeOrRecovery": "Un code de l'application ou un code de secours non utilisé.",
+      "codeOnly": "Un code de l'application (un code de secours ne fonctionne pas ici)."
+    },
+    "enrolmentRequired": {
+      "title": "Configurer l'authentification à deux facteurs",
+      "description": "L'administrateur exige l'authentification à deux facteurs pour les administrateurs. Configurez-la pour continuer."
+    }
+  },
+  "settings": {
+    "access": {
+      "security": {
+        "title": "Authentification à deux facteurs",
+        "ingress": "L'authentification à deux facteurs ne s'applique pas sous Home Assistant : Home Assistant vous a déjà connecté et gère la sécurité de votre connexion.",
+        "noPassword": "Ce compte n'a pas de mot de passe Meshloom (il se connecte autrement), donc pas de second facteur.",
+        "on": "L'authentification à deux facteurs est activée.",
+        "off": "L'authentification à deux facteurs est désactivée. Ajoutez une seconde étape à votre connexion avec une application d'authentification.",
+        "codesLeft_one": "{{count}} code de secours restant.",
+        "codesLeft_other": "{{count}} codes de secours restants.",
+        "pending": "Une configuration a été commencée mais pas terminée. En recommencer une la remplace.",
+        "enable": "Configurer l'authentification à deux facteurs",
+        "regenerate": "Nouveaux codes de secours",
+        "regenerateSubmit": "Générer de nouveaux codes",
+        "disable": "Désactiver",
+        "disableSubmit": "Désactiver l'authentification à deux facteurs",
+        "disabled": "Authentification à deux facteurs désactivée.",
+        "require": "Exiger l'authentification à deux facteurs pour les administrateurs",
+        "requireHelp": "Un administrateur avec mot de passe qui ne l'a pas configurée ne peut rien faire d'autre que la configurer. Les membres et les lecteurs ne sont pas concernés.",
+        "requireOwnFirst": "Configurez d'abord votre propre second facteur, sinon il vous sera demandé dès l'activation.",
+        "requireOn": "Les administrateurs doivent désormais utiliser l'authentification à deux facteurs.",
+        "requireOff": "L'authentification à deux facteurs n'est plus exigée des administrateurs."
+      }
+    }
+  }
+}
