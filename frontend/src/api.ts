@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next';
 
 import {
   reportAuthRequired,
+  reportEnrolmentRequired,
   reportForbidden,
   reportPasswordChangeRequired,
 } from './auth/authEvents';
@@ -19,6 +20,9 @@ import type {
   AuthSessionInfo,
   AuthSettings,
   AuthSetupRequest,
+  RecoveryCodes,
+  TotpEnrolment,
+  TotpStatus,
 } from './auth/types';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
 
@@ -217,6 +221,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     // The role may not do this: the session layer decides whether to tell the reader.
     const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
     if (refusal?.code === 'auth_password_change_required') reportPasswordChangeRequired();
+    if (refusal?.code === 'auth_2fa_enrolment_required') reportEnrolmentRequired();
     if (refusal?.code === 'auth_forbidden') {
       const permission = refusal.params.permission;
       reportForbidden({
@@ -231,7 +236,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-const AUTH_FORM_PATHS = new Set(['/auth/login', '/auth/setup']);
+const AUTH_FORM_PATHS = new Set(['/auth/login', '/auth/login/2fa', '/auth/setup']);
 
 /** Seconds from a `Retry-After` header (delta-seconds form), or null. */
 function retryAfterSeconds(header: string | null, detail: unknown): number | null {
@@ -302,6 +307,30 @@ export const api = {
     fetchJson<AuthSessionInfo>('/auth/setup', { method: 'POST', body: JSON.stringify(body) }),
   authLogin: (body: AuthLoginRequest) =>
     fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  /** `POST /auth/login/2fa`: the second step, the pending token of the first and a code. */
+  authLogin2fa: (body: { pending_token: string; code: string }) =>
+    fetchJson<AuthSessionInfo>('/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }),
+  getTotpStatus: () => fetchJson<TotpStatus>('/auth/2fa', { cache: 'no-store' }),
+  enrolTotp: (password: string) =>
+    fetchJson<TotpEnrolment>('/auth/2fa/enrol', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  confirmTotp: (code: string) =>
+    fetchJson<RecoveryCodes>('/auth/2fa/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  disableTotp: (password: string, code: string) =>
+    fetchJson<{ ok: boolean }>('/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+  regenerateRecoveryCodes: (password: string, code: string) =>
+    fetchJson<RecoveryCodes>('/auth/2fa/recovery', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
   authLogout: () => fetchJson<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   /** `PATCH /auth/me`: the one write open while a password change is required. */
   changeOwnPassword: (current_password: string, new_password: string) =>

@@ -116,7 +116,19 @@ The device sends the token in a header, `Authorization: Bearer mlt_…`, on ever
 
 ## Two-factor authentication
 
-Any account with a password (the kiosk and Home Assistant users excepted) can add a second factor: a 6-digit code from an authenticator app (TOTP, RFC 6238: Aegis, 2FAS, Google Authenticator, a password manager…). Signing in then takes the password **and** the current code. It is optional; an administrator can require it for administrators (below). There is no page for it yet: use the API while signed in.
+Any account with a password (the kiosk and Home Assistant users excepted) can add a second factor: a 6-digit code from an authenticator app (TOTP, RFC 6238: Aegis, 2FAS, Google Authenticator, a password manager…). Signing in then takes the password **and** the current code. It is optional; an administrator can require it for administrators (below). 
+
+### In the interface
+
+Go to **Settings → Users & Access → Two-factor authentication**.
+
+1. **Set up.** Choose **Set up two-factor authentication** and confirm your password. Meshloom shows a QR code and the same key in text: scan the code with your authenticator app, or type the key. The QR code is drawn in your browser; the key never goes to another service. Enter the 6-digit code the app shows, then **Turn on**.
+2. **Recovery codes.** Meshloom then shows ten recovery codes, **once**. Copy them, or download the file, and keep them somewhere safe (a password manager). Each works once if you lose your app. Tick that you saved them to close the list. Your other browsers are signed out.
+3. **Signing in.** After the password, a second screen asks for the code from the app. **Use a recovery code** switches to a recovery code. A wrong code is explained and you can try again (too many attempts slow you down). If you wait too long (5 minutes), or five codes are wrong, Meshloom takes you back to the password.
+4. **New recovery codes, turning it off.** Both ask for your password and a current code (turning it off also accepts a recovery code). New recovery codes replace all the old ones.
+5. **Require it for administrators.** Administrators see **Require two-factor authentication for administrators** in the same section. Turn on your own second factor first: an administrator who has not set it up sees only the setup page until it is done.
+
+Signed in through Home Assistant, or with an account that has no Meshloom password (a kiosk), the section says that two-factor authentication does not apply: Home Assistant already authenticated you. The API calls below do the same things.
 
 | Request | What it does |
 |---|---|

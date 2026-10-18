@@ -116,7 +116,19 @@ Les **portées** disent ce qu’un jeton peut faire : `read` (canaux, contacts, 
 
 ## La double authentification
 
-Tout compte qui a un mot de passe (sauf le kiosque et les utilisateurs Home Assistant) peut ajouter un second facteur : un code à 6 chiffres donné par une application d’authentification (TOTP, RFC 6238 : Aegis, 2FAS, Google Authenticator, un gestionnaire de mots de passe…). La connexion demande alors le mot de passe **et** le code du moment. C’est facultatif ; un administrateur peut l’exiger pour les administrateurs (plus bas). Il n’y a pas encore de page pour cela : passez par l’API en étant connecté.
+Tout compte qui a un mot de passe (sauf le kiosque et les utilisateurs Home Assistant) peut ajouter un second facteur : un code à 6 chiffres donné par une application d’authentification (TOTP, RFC 6238 : Aegis, 2FAS, Google Authenticator, un gestionnaire de mots de passe…). La connexion demande alors le mot de passe **et** le code du moment. C’est facultatif ; un administrateur peut l’exiger pour les administrateurs (plus bas). 
+
+### Dans l’interface
+
+Allez dans **Réglages → Utilisateurs et accès → Authentification à deux facteurs**.
+
+1. **Configurer.** Choisissez **Configurer l’authentification à deux facteurs** et confirmez votre mot de passe. Meshloom affiche un QR code et la même clé en texte : scannez le code avec votre application d’authentification, ou saisissez la clé. Le QR code est dessiné dans votre navigateur ; la clé ne part vers aucun autre service. Saisissez le code à 6 chiffres affiché par l’application, puis **Activer**.
+2. **Codes de secours.** Meshloom affiche alors dix codes de secours, **une seule fois**. Copiez-les, ou téléchargez le fichier, et gardez-les en lieu sûr (un gestionnaire de mots de passe). Chacun ne sert qu’une fois si vous perdez votre application. Cochez que vous les avez enregistrés pour fermer la liste. Vos autres navigateurs sont déconnectés.
+3. **Se connecter.** Après le mot de passe, un second écran demande le code de l’application. **Utiliser un code de secours** bascule vers un code de secours. Un mauvais code est expliqué et vous pouvez réessayer (trop d’essais vous ralentissent). Si vous attendez trop longtemps (5 minutes), ou après cinq mauvais codes, Meshloom vous ramène au mot de passe.
+4. **Nouveaux codes de secours, désactivation.** Les deux demandent votre mot de passe et un code actuel (la désactivation accepte aussi un code de secours). De nouveaux codes de secours remplacent tous les anciens.
+5. **L’exiger pour les administrateurs.** Les administrateurs voient **Exiger l’authentification à deux facteurs pour les administrateurs** dans la même section. Activez d’abord votre propre second facteur : un administrateur qui ne l’a pas configuré ne voit que la page de configuration tant que ce n’est pas fait.
+
+Connecté par Home Assistant, ou avec un compte sans mot de passe Meshloom (un kiosque), la section indique que l’authentification à deux facteurs ne s’applique pas : Home Assistant vous a déjà authentifié. Les appels d’API ci-dessous font les mêmes choses.
 
 | Requête | Ce qu’elle fait |
 |---|---|

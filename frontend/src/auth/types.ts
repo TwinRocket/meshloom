@@ -137,6 +137,30 @@ export interface AuthMe {
   created_at: number;
 }
 
+/** `GET /auth/2fa`: the caller's own second factor; never the secret. */
+export interface TotpStatus {
+  enabled: boolean;
+  /** Enrolment started, waiting for the first code. */
+  pending: boolean;
+  recovery_codes_left: number;
+  /** `require_2fa_for_admins` confines this account to enrolment until it enrols. */
+  enrolment_required: boolean;
+}
+
+/** `POST /auth/2fa/enrol`: the one time the secret leaves the server. */
+export interface TotpEnrolment {
+  secret: string;
+  otpauth_uri: string;
+  issuer: string;
+  digits: number;
+  period: number;
+}
+
+/** `POST /auth/2fa/confirm` and `POST /auth/2fa/recovery`: shown once. */
+export interface RecoveryCodes {
+  recovery_codes: string[];
+}
+
 /** One row of `GET /auth/sessions` (the caller's own; times in epoch seconds). */
 export interface AuthSessionRow {
   id: string;
