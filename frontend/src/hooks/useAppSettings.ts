@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { api, formatApiError } from '../api';
+import { api, ApiError, formatApiError } from '../api';
 import { takePrefetchOrFetch } from '../prefetch';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
 import { initLastMessageTimes } from '../utils/conversationState';
 import { applyTheme, cacheTheme, getSavedTheme, serverChoseTheme } from '../utils/theme';
-import type { AppSettings, AppSettingsUpdate } from '../types';
+import type { AppSettings, AppSettingsUpdate, AppSettingsView } from '../types';
 import { useCapabilities } from '../auth/SessionProvider';
 import { RAIL_DISCOVERED_BACKFILL_KEY, backfillRailToolsOnce } from '../components/navDestinations';
 
@@ -48,18 +48,49 @@ function adoptStoredTheme(stored: string | undefined): void {
   applyTheme(stored);
 }
 
+/**
+ * What a non-admin session runs on: the readable view over the defaults of the
+ * administration fields it never receives (the interface hides every surface that
+ * edits them, `auth/capabilities.ts`).
+ */
+function settingsFromView(view: AppSettingsView): AppSettings {
+  return {
+    max_radio_contacts: 0,
+    auto_decrypt_dm_on_advert: false,
+    advert_interval: 0,
+    last_advert_time: 0,
+    tracked_telemetry_repeaters: [],
+    tracked_telemetry_contacts: [],
+    auto_resend_channel: false,
+    telemetry_interval_hours: 0,
+    telemetry_routed_hourly: false,
+    discovery_blocked_types: [],
+    ...view,
+  };
+}
+
 export function useAppSettings() {
-  // `GET /api/settings` is administrator-only: the other roles run on the defaults.
-  const { isAdmin } = useCapabilities();
+  // `GET /api/settings` is administrator-only: the other roles read the allowlisted
+  // `GET /api/settings/view` (theme, blocked lists, regions) and cannot write settings.
+  const { isAdmin, canSend } = useCapabilities();
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
   // One-time migration guard
   const hasMigratedRef = useRef(false);
 
   const fetchAppSettings = useCallback(async () => {
-    if (!isAdmin) return;
     try {
-      const data = await takePrefetchOrFetch('settings', api.getSettings);
+      if (!isAdmin) {
+        const view = (await takePrefetchOrFetch(
+          'settings',
+          api.getSettingsView
+        )) as AppSettingsView;
+        setAppSettings(settingsFromView(view));
+        initLastMessageTimes(view.last_message_times ?? {});
+        adoptStoredTheme(view.ui_preferences?.theme);
+        return;
+      }
+      const data = (await takePrefetchOrFetch('settings', api.getSettings)) as AppSettings;
       const alreadyBackfilled = railToolAlreadyBackfilled();
       const backfill = backfillRailToolsOnce(data.ui_preferences?.nav_rail, alreadyBackfilled);
       const next = backfill.shouldPersist
@@ -91,10 +122,12 @@ export function useAppSettings() {
 
   const handleSaveAppSettings = useCallback(
     async (update: AppSettingsUpdate) => {
+      // Writing settings is administrator-only; another role has nothing to save.
+      if (!isAdmin) return;
       await api.updateSettings(update);
       await fetchAppSettings();
     },
-    [fetchAppSettings]
+    [fetchAppSettings, isAdmin]
   );
 
   const handleToggleBlockedKey = useCallback(async (key: string) => {
@@ -209,7 +242,8 @@ export function useAppSettings() {
   // Legacy favorites migration: if pre-server-side favorites exist in
   // localStorage, toggle each one via the existing API and clear the key.
   useEffect(() => {
-    if (!appSettings || hasMigratedRef.current) return;
+    // Toggling a favourite needs `send`; another role keeps its local list untouched.
+    if (!appSettings || !canSend || hasMigratedRef.current) return;
     hasMigratedRef.current = true;
 
     const FAVORITES_KEY = 'meshloom-favorites';
@@ -224,20 +258,23 @@ export function useAppSettings() {
 
     const migrate = async () => {
       let migrated = 0;
+      let refused = false;
       for (const f of localFavorites) {
         try {
           await api.toggleFavorite(f.type, f.id);
           migrated++;
-        } catch {
-          // Entity may have been deleted; skip and continue
+        } catch (err) {
+          // Entity may have been deleted; skip and continue. A refusal is not that:
+          // keep the local list.
+          if (err instanceof ApiError && err.status === 403) refused = true;
         }
       }
-      localStorage.removeItem(FAVORITES_KEY);
+      if (!refused) localStorage.removeItem(FAVORITES_KEY);
       // Reload so contacts/channels pick up the new favorite flags
       if (migrated > 0) window.location.reload();
     };
     migrate();
-  }, [appSettings]);
+  }, [appSettings, canSend]);
 
   return {
     appSettings,

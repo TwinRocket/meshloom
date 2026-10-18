@@ -125,6 +125,7 @@ def test_classification_of_representative_routes():
         ("POST", "/api/messages/direct"): "send",
         ("PATCH", "/api/settings"): "admin",
         ("GET", "/api/settings"): "admin",
+        ("GET", "/api/settings/view"): "read",
         ("GET", "/api/fanout"): "admin",
         ("POST", "/api/contacts/{public_key}/repeater/status"): "repeater_admin",
         ("POST", "/api/contacts/{public_key}/room/login"): "repeater_admin",

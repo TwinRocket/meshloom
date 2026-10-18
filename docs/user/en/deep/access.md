@@ -31,6 +31,8 @@ What each role sees in the interface follows the table: the screens a role canno
 | Settings | all sections | Local configuration, Users & Access (own account) | Local configuration, Users & Access (own account) | none |
 | Language and theme of this browser | yes | yes | yes | yes, from the account button |
 
+Every role receives the instance's theme, its blocked contacts and names and the region names, whatever it can change: a blocked contact stays hidden for a viewer or a kiosk too. Only administrators read or change the other settings.
+
 An action the server refuses anyway (for example from a page left open before a role change) shows one message, “This account is not allowed to do that.”
 
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.

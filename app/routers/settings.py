@@ -10,13 +10,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.auth import audit
-from app.auth.permissions import require
+from app.auth.permissions import can_read_private, require
 from app.background_tasks import spawn
 from app.cors import normalize_origins
 from app.database import db
 from app.models import (
     CONTACT_TYPE_REPEATER,
     AppSettings,
+    AppSettingsView,
     BackupExport,
     BackupExportRequest,
     BackupInspectRequest,
@@ -369,6 +370,31 @@ async def _settings_response() -> AppSettings:
 async def get_settings() -> AppSettings:
     """Get current application settings."""
     return await _settings_response()
+
+
+@router.get("/view", response_model=AppSettingsView, dependencies=[Depends(require("read"))])
+async def get_settings_view(request: Request) -> AppSettingsView:
+    """The non-sensitive settings the interface loads at startup, for every role.
+
+    ``GET /api/settings`` stays administrator-only; this is its allowlisted slice
+    (``AppSettingsView``). A caller without ``read_private`` (the kiosk) gets only
+    ``channel-`` keys in ``last_message_times`` (the others name direct conversations).
+    """
+    settings = await _settings_response()
+    last_message_times = settings.last_message_times
+    if not can_read_private(request):
+        last_message_times = {
+            key: ts for key, ts in last_message_times.items() if key.startswith("channel-")
+        }
+    return AppSettingsView(
+        ui_preferences=settings.ui_preferences,
+        last_message_times=last_message_times,
+        flood_scope=settings.flood_scope,
+        known_regions=settings.known_regions,
+        blocked_keys=settings.blocked_keys,
+        blocked_names=settings.blocked_names,
+        directory_available=settings.directory_available,
+    )
 
 
 @router.patch("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
