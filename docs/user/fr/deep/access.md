@@ -22,6 +22,10 @@ Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque
 
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
+## Derrière un reverse-proxy
+
+Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
+
 ## Les commandes
 
 | Commande | Effet |

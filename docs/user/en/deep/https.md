@@ -46,6 +46,55 @@ services:
 
 The certificate mounts are read-only. `command` replaces the one built into the image, so it must contain the whole line, host and port included.
 
+## Trusted proxies
+
+Behind a reverse proxy, every request reaches Meshloom from the proxy's address. The visitor's own address and whether they used HTTPS only arrive in the `X-Forwarded-For` and `X-Forwarded-Proto` headers, which anyone can send. Meshloom believes them only from the addresses listed in **Settings → Local Configuration → Trusted proxies** (administrators only). The list is empty by default, and `127.0.0.1` is not trusted unless you add it.
+
+List the address the proxy connects from, as Meshloom sees it:
+
+- the proxy runs on the same machine as a package or source install: `127.0.0.1` (and `::1` if it connects over IPv6);
+- the proxy is another container on the same Docker network: that network, for example `172.18.0.0/16` (`docker network inspect <network>` shows it);
+- the proxy is another machine: its address on your network.
+
+Once the proxy is listed:
+
+- sign-in delays, the audit log and the session list show the visitor's address instead of the proxy's. Meshloom takes the rightmost address of `X-Forwarded-For` that is not itself a trusted proxy, so a value the visitor wrote cannot be picked;
+- when the proxy says `X-Forwarded-Proto: https`, the session cookie is a secure one (`__Host-` prefix, `Secure`).
+
+Without the list, Meshloom still works behind a proxy, but every visitor shares the proxy's address and, on an HTTPS site, the session cookie is the plain one. Never list a network your visitors come from: a listed address can claim to be anyone. Meshloom's own server (uvicorn) reads none of these headers itself: every start command carries `--no-proxy-headers`, and a command you write yourself must keep it.
+
+Caddy keeps `Host` and sets both headers by itself:
+
+```text
+meshloom.example.org {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Nginx sets nothing unless told to:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+Traefik keeps `Host` and sets both headers; it passes on the headers a client sent only from its own `forwardedHeaders.trustedIPs`, so leave that empty unless another proxy sits in front of it. With Docker labels:
+
+```yaml
+labels:
+  - traefik.http.routers.meshloom.rule=Host(`meshloom.example.org`)
+  - traefik.http.services.meshloom.loadbalancer.server.port=8000
+```
+
+The Home Assistant sidebar needs no entry: Meshloom recognises the Supervisor by its own address.
+
 ## Reverse proxy under a subpath
 
 Meshloom can be served under a prefix such as `/meshcore/`, including through the Home Assistant sidebar. Addresses of assets, API and web manifest are all relative, so nothing else needs to be configured and no `X-Forwarded-*` header is required, except `X-Forwarded-Host` for the live connection when the proxy rewrites `Host` (see [WebSocket](#websocket)).

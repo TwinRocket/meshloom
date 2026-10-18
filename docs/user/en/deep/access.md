@@ -22,6 +22,10 @@ Each account has one of four roles. The server checks the role on every request,
 
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
 
+## Behind a reverse proxy
+
+Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies).
+
 ## Commands
 
 | Command | What it does |

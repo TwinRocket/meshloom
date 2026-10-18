@@ -30,7 +30,8 @@ works on the same tables.
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
 | Installation code, first run | `app/auth/setup_code.py` |
-| CSRF rule, https detection (the one reader of proxy headers) | `app/origin_policy.py` |
+| CSRF rule, https detection, `X-Forwarded-Host` for same-origin | `app/origin_policy.py` |
+| Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
 | Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_cli.py` |
@@ -278,17 +279,36 @@ MSHL-279).** Not run yet; record the result here.
 
 ### Proxy headers
 
-`app/origin_policy.py` is the only code that reads them:
-`X-Forwarded-Host` for same-origin (WebSocket and CSRF), `X-Forwarded-Proto`
-for `request_is_secure()` (cookie flavour only). The client IP stored in
-sessions and audit rows is the ASGI peer (`scope["client"]`). Trusted proxies
-and `X-Forwarded-For` come with a later ticket. Every launcher starts uvicorn
-with `--no-proxy-headers` (`meshloom/run.py`, `Dockerfile`,
-`pkg/nfpm/meshloom.service`, `scripts/setup/install_service.sh`, the snake-oil
-compose of `install_docker.sh`, and the documented commands): with uvicorn's
-default (`forwarded_allow_ips=127.0.0.1`) a loopback caller's
-`X-Forwarded-For: 172.30.32.2` would become the peer and pass for the
-Supervisor. `tests/test_auth_ingress.py` checks the launchers and that stack.
+`app/middleware/proxy_headers.py` is the only interpreter of `X-Forwarded-For`
+and `X-Forwarded-Proto`. It is uvicorn's own `ProxyHeadersMiddleware` (and
+`_TrustedHosts`: CIDRs, walk from the right), registered by the app as its
+outermost middleware and rebuilt whenever `auth_settings.trusted_proxies`
+changes (`AuthSettingsRepository.update()` calls `proxy_headers.apply()`;
+`load()` at startup). The list is addresses or CIDRs in canonical network form,
+empty by default; loopback is not trusted implicitly and a `/0` is refused
+(`normalize_proxy`; stored entries that fail it are dropped on read). It is
+read and written through `GET/PATCH /api/auth/settings` (`admin`; a refused
+entry is 400 `auth_trusted_proxies_invalid`; a change is audited as
+`settings_change`). From a listed peer only, `scope["client"]` becomes the
+rightmost `X-Forwarded-For` address that is not itself trusted (all trusted:
+the leftmost), and `scope["scheme"]` becomes `X-Forwarded-Proto` when it is
+`http`, `https`, `ws` or `wss`. Everything after it reads the scope:
+`client_ip()` (sessions, audit, login delays), `request_is_secure()` (the
+`__Host-` cookie; no header read) and later the HSTS header. The TCP peer
+before the rewrite stays in `scope["state"]["peer"]` (`peer_address()`): the
+ingress check compares that one with `SUPERVISOR_IP`, so listing the
+Supervisor as a proxy does not hide ingress, and a trusted proxy forwarding
+`172.30.32.2` is not the Supervisor. `app/origin_policy.py` still reads
+`X-Forwarded-Host`, for same-origin only (WebSocket and CSRF; a browser page
+cannot set it).
+
+Every launcher starts uvicorn with `--no-proxy-headers` (`meshloom/run.py`,
+`Dockerfile`, `pkg/nfpm/meshloom.service`, `scripts/setup/install_service.sh`,
+the snake-oil compose of `install_docker.sh`, and the documented commands):
+with uvicorn's default (`forwarded_allow_ips=127.0.0.1`) a loopback caller's
+`X-Forwarded-For: 172.30.32.2` would become the peer before the app sees it.
+`tests/test_auth_ingress.py` parses the launchers with uvicorn's CLI and
+`tests/test_proxy_headers.py` greps every tracked command line.
 A 401 under ingress never carries the Basic challenge (the browser would
 prompt inside the Home Assistant panel).
 
@@ -375,7 +395,8 @@ are `admin`: a single-admin installation sees no change.
   minute ago moves `expires_at` to now + lifetime (`touch()`, one write a
   minute at most) and gets the cookie again with the same `Max-Age`.
 - **Cookie.** `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age` = lifetime.
-  Over https (`scope["scheme"]` or the first `X-Forwarded-Proto`) its name is
+  Over https (`scope["scheme"]`, set from `X-Forwarded-Proto` only for a trusted
+  proxy, see "Proxy headers") its name is
   `__Host-meshloom_session` with `Secure`; over http `meshloom_session`
   without `Secure` (browsers refuse a `Secure` cookie from an insecure origin).
   Only the name for the request's scheme is read, so a cookie planted over
@@ -505,6 +526,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
 | `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
 | `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`), which revokes the user's other sessions |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies}` (canonical CIDRs) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a `/0` or more than 32 |
 
 Login, setup, logout, password changes and session revocations write an
 `auth_audit` row (IP, `via`, no secret).

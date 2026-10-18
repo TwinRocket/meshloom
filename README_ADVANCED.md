@@ -84,7 +84,7 @@ Generate a local cert and start the backend with TLS:
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
 For Docker Compose, generate the cert, mount it into the container, and override the launch command:
@@ -96,7 +96,7 @@ services:
       - ./data:/app/data
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
 ```
 
 Accept the browser warning, or use [mkcert](https://github.com/FiloSottile/mkcert) for locally-trusted certs.
@@ -138,7 +138,7 @@ A package install is different: the unit is `meshloom.service`, runs as the `mes
 If you're experiencing issues or opening a bug report, please start the backend with debug logging enabled. Debug mode provides a much more detailed breakdown of radio communication, packet processing, and other internal operations, which makes it significantly easier to diagnose problems.
 
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 On a package install, add `MESHCORE_LOG_LEVEL=DEBUG` to `/etc/meshloom/meshloom.env`, restart the service and read the logs with `journalctl -u meshloom`. With Docker, add it to `environment:` and use `docker compose logs meshloom`. The add-on has a `log_level` option.
