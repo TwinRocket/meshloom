@@ -324,6 +324,42 @@ export interface PluginStatusEntry {
     by_scope: Partial<Record<string, number>>;
     last: { scope: string; at: number } | null;
   };
+  /** Why the instance waits for the user (`config_required`, ...); null when it does not. */
+  attention?: PluginAttention | null;
+}
+
+export interface PluginAttention {
+  type: string;
+  [key: string]: unknown;
+}
+
+/** One plugin instance of `GET /api/plugins` (`config`, `source` and `last_error` are admin-only). */
+export interface PluginInstance {
+  instance_id: string;
+  plugin_id: string;
+  label: string;
+  kind: 'bundled' | 'store' | 'custom' | 'local';
+  version: string;
+  enabled: boolean;
+  manifest: Record<string, unknown>;
+  /** Secret fields read `********`. */
+  config: Record<string, unknown>;
+  config_schema: Record<string, unknown>;
+  secret_fields: string[];
+  scope: Record<string, unknown>;
+  granted_permissions: Record<string, unknown>;
+  quotas: Record<string, unknown>;
+  auto_update: boolean;
+  source: string | null;
+  installed_at: number;
+  updated_at: number;
+  status: string;
+  last_error: string | null;
+  attention: PluginAttention | null;
+  sort_order: number;
+  summary: string | null;
+  restarts: number;
+  dropped_events: number;
 }
 
 export interface FanoutStatusEntry {
