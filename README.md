@@ -67,6 +67,7 @@ Home Assistant: update the add-on there (the in-app updater only reports a new v
 
 - User docs (source): [`docs/user/`](docs/user/) — published at https://meshloom.app/docs/
 - Security: report a vulnerability privately, see [SECURITY.md](SECURITY.md)
+- Lost the administrator password? `meshloom-admin` recovers access from the host, for every install kind: [`docs/user/en/deep/access.md`](docs/user/en/deep/access.md)
 - API docs once the server is up: http://127.0.0.1:8000/docs
 - Home Assistant — publishing the mesh over MQTT: [README_HA.md](README_HA.md)
 - Home Assistant — running Meshloom as an add-on: [`meshloom/DOCS.md`](meshloom/DOCS.md)
