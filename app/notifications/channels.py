@@ -13,6 +13,8 @@ Labels and help texts live in the frontend: the schema only carries i18n keys
 
 from __future__ import annotations
 
+import ipaddress
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -75,7 +77,10 @@ class EmailConfig(_ConfigBase):
         max_length=255,
         json_schema_extra={"label_key": "notifications.channels.fields.from"},
     )
+    # Recipients, one per line (commas and semicolons work too); a single rejected
+    # recipient fails the whole delivery.
     to: str = _field("to", default="", help_key="email_to", max_length=2048)
+    cc: str = _field("cc", default="", help_key="email_to", max_length=2048)
 
 
 class WebhookConfig(_ConfigBase):
@@ -123,6 +128,9 @@ class ChannelType:
     # (config field, ...) a kept secret must not follow a change of: see ``destination_keys``.
     destination_keys: tuple[str, ...] = ()
     secret_follows: tuple[str, ...] = ()
+    # Decides ``cloud`` from the public config, for a type whose destination is
+    # chosen by the user (e-mail: a public SMTP relay is a third party).
+    cloud_check: Callable[[dict[str, Any]], bool] | None = None
 
     @property
     def secret_fields(self) -> frozenset[str]:
@@ -136,9 +144,29 @@ class ChannelType:
     def include_message_text_default(self) -> IncludeMessageText:
         return "public_only" if self.cloud else "always"
 
+    def include_message_text_for(self, public: dict[str, Any]) -> IncludeMessageText:
+        """The default text policy of a new channel with this public config."""
+        cloud = self.cloud_check(public) if self.cloud_check else self.cloud
+        return "public_only" if cloud else "always"
+
     def json_schema(self) -> dict[str, Any]:
         """The JSON Schema served to the form: secret fields are ``writeOnly``."""
         return self.config_model.model_json_schema(by_alias=True)
+
+
+def email_is_cloud(public: dict[str, Any]) -> bool:
+    """A mail channel is a third party unless its SMTP host is clearly local: a private
+    or loopback address, a single-label name, or a ``.local``/``.lan``/``.internal``
+    style suffix. No DNS lookup: this only picks the default text policy."""
+    host = str(public.get("host") or "").strip().strip("[]").lower().rstrip(".")
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        local_suffixes = (".local", ".lan", ".home", ".internal", ".home.arpa", ".localdomain")
+        return "." in host and not host.endswith(local_suffixes)
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local)
 
 
 REGISTRY: dict[str, ChannelType] = {
@@ -158,6 +186,7 @@ REGISTRY: dict[str, ChannelType] = {
             min_interval_s=10.0,
             destination_keys=("host", "port", "mode"),
             secret_follows=("password",),
+            cloud_check=email_is_cloud,
         ),
         ChannelType(
             "webhook",

@@ -99,3 +99,12 @@ def result_from_exception(exc: BaseException) -> SendResult:
         # A certificate the destination presents now, it presents again in 5 s.
         return SendResult("failed" if code == "tls_error" else "retry", error_code=code)
     return SendResult("failed", error_code="send_failed")
+
+
+async def channel_language(channel: Channel) -> Literal["fr", "en"]:
+    """The language a channel's text is rendered in: its own, else the instance's."""
+    if channel.language in ("fr", "en"):
+        return channel.language
+    from app.email_template import resolve_instance_language
+
+    return await resolve_instance_language()

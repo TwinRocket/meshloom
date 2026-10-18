@@ -134,6 +134,13 @@ async def _check_destination(
         raise ChannelError(exc.code, line=exc.line, scheme=exc.scheme) from None
 
 
+def _check_tls_policy(verify_tls: bool, allow_private_network: bool) -> None:
+    """Certificate checks come off only for a private-network destination (a LAN
+    service with a self-signed certificate), never for the public internet."""
+    if not verify_tls and not allow_private_network:
+        raise ChannelError("verify_tls_requires_private_network")
+
+
 def _utf_trim(value: str | None) -> str | None:
     return value[:LAST_ERROR_MAX] if value else value
 
@@ -195,6 +202,7 @@ class NotificationChannelRepository:
             channel_id = body.id or f"{entry.id}-{uuid.uuid4().hex[:8]}"
             if is_builtin(channel_id) or ":" in channel_id:
                 raise ChannelError("channel_id_reserved")
+        _check_tls_policy(body.verify_tls, body.allow_private_network)
         await _check_destination(entry, public, secrets, body.allow_private_network)
         # NULL rate columns mean "the type's default limits" (registry).
         async with db.tx() as conn:
@@ -223,7 +231,7 @@ class NotificationChannelRepository:
                     json.dumps(public, sort_keys=True),
                     json.dumps(secrets, sort_keys=True),
                     1 if body.allow_private_network else 0,
-                    body.include_message_text or entry.include_message_text_default,
+                    body.include_message_text or entry.include_message_text_for(public),
                     1 if body.verify_tls else 0,
                     1
                     if (
@@ -290,6 +298,12 @@ class NotificationChannelRepository:
             if patch.allow_private_network is None
             else patch.allow_private_network
         )
+        verify_tls = current.verify_tls if patch.verify_tls is None else patch.verify_tls
+        if (
+            "verify_tls" in patch.model_fields_set
+            or "allow_private_network" in patch.model_fields_set
+        ):
+            _check_tls_policy(verify_tls, allow_private)
         if config_changed or allow_private != current.allow_private_network:
             await _check_destination(entry, public, secrets, allow_private)
         if config_changed:

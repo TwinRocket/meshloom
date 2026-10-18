@@ -64,7 +64,11 @@ class LegacyWebhookTransport:
 
         dest = await _destinations()
         try:
-            await notify.send_webhook_alert(dest, event.payload)
+            await notify.send_webhook_alert(
+                dest,
+                event.payload,
+                dedup_key=event.event.dedup_key if event.event is not None else "",
+            )
         except ValueError:
             return SendResult("failed", error_code="not_configured")
         except Exception as exc:

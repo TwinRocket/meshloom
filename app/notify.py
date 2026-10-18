@@ -11,9 +11,6 @@ them (MSHL-110); the adapter goes once the producers are rewired (MSHL-112).
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import logging
 import time
 from collections.abc import Mapping
@@ -28,6 +25,8 @@ from app.net.apprise_urls import split_apprise_urls
 from app.net.egress_guard import error_code, pinned_async_client, validate_destination
 from app.notifications.apprise_medium import send_to_urls
 from app.notifications.executor import run_blocking
+from app.notifications.transports.email import build_email_apprise_url
+from app.notifications.transports.email import send_email_sync as _send_email_sync
 from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
@@ -73,63 +72,6 @@ async def _email_message(payload: Mapping[str, Any]) -> tuple[str, str]:
     return email_subject(payload, lang), render_html_email(payload, lang)
 
 
-def build_email_apprise_url(email: Mapping[str, Any]) -> str:
-    """Build an ephemeral Apprise mailto/mailtos URL. Never persist this string."""
-    mode = str(email.get("mode") or "starttls")
-    if mode == "none":
-        scheme = "mailto"
-        extra: dict[str, str] = {}
-    elif mode == "ssl":
-        scheme = "mailtos"
-        extra = {"mode": "ssl"}
-    else:
-        scheme = "mailtos"
-        extra = {}
-
-    params: dict[str, str] = {}
-    user = str(email.get("user") or "")
-    password = str(email.get("password") or "")
-    host = str(email.get("host") or "")
-    from_addr = str(email.get("from") or email.get("from_address") or "")
-    to_addr = str(email.get("to") or "")
-    port = email.get("port")
-    if user:
-        params["user"] = user
-    if password:
-        params["pass"] = password
-    if host:
-        params["smtp"] = host
-    if from_addr:
-        params["from"] = from_addr
-    if to_addr:
-        params["to"] = to_addr
-    if port not in (None, ""):
-        params["port"] = str(port)
-    params.update(extra)
-    # Embed image attachments referenced by cid: (the logo) as inline parts of
-    # a multipart/related message, instead of downloadable attachments.
-    params["inline"] = "yes"
-    return f"{scheme}://_?{urlencode(params)}"
-
-
-def _send_email_sync(url: str, title: str, body: str) -> bool:
-    import apprise as apprise_lib
-    from apprise import NotifyFormat
-    from apprise.attachment.file import AttachFile
-
-    from app.email_template import LOGO_CID, LOGO_PATH
-
-    notifier = apprise_lib.Apprise()
-    if not notifier.add(url):
-        return False
-    # The logo travels inside the email (cid:), so opening it fetches nothing.
-    attach = apprise_lib.AppriseAttachment()
-    attach.add(AttachFile(str(LOGO_PATH), name=LOGO_CID, mimetype="image/png"))
-    return bool(
-        notifier.notify(title=title, body=body, body_format=NotifyFormat.HTML, attach=attach)
-    )
-
-
 async def send_email_alert(dest: NotificationDestinations, payload: Mapping[str, Any]) -> None:
     email = dest.email.model_dump(by_alias=True)
     if not email.get("host") and not email.get("to"):
@@ -159,29 +101,27 @@ def describe_webhook_failure(exc: BaseException, url: str) -> str:
     return f"{error_code(exc)}: {type(exc).__name__} (host {host}, HTTP {status})"
 
 
-async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[str, Any]) -> None:
+async def send_webhook_alert(
+    dest: NotificationDestinations, payload: Mapping[str, Any], *, dedup_key: str = ""
+) -> None:
     """POST the payload through the egress guard, pinned to a validated address.
 
-    Raises ``ValueError`` when no URL is set, ``EgressBlocked`` when the guard
-    refuses it (before any connection), else the httpx error.
+    The body and headers are the native webhook transport's
+    (``app/notifications/transports/webhook.py``). Raises ``ValueError`` when no URL
+    is set, ``EgressBlocked`` when the guard refuses it (before any connection),
+    else the httpx error.
     """
     global _webhook_last_error
     url = (dest.webhook.url or "").strip()
     if not url:
         raise ValueError("webhook url is not configured")
 
-    from app.email_template import enrich_notification_payload
+    from app.notifications.transports.webhook import body_bytes, request_headers
 
-    body = enrich_notification_payload(payload)
-    body_bytes = json.dumps(body, separators=(",", ":"), sort_keys=True).encode()
-    headers = {
-        "Content-Type": "application/json",
-        "X-Webhook-Event": str(body.get("event") or "notification"),
-    }
-    secret = dest.webhook.hmac_secret or ""
-    if secret:
-        sig = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
-        headers["X-Webhook-Signature"] = f"sha256={sig}"
+    wire = body_bytes(payload)
+    headers = request_headers(
+        payload, wire, secret=dest.webhook.hmac_secret or "", dedup_key=dedup_key
+    )
 
     try:
         target = await validate_destination(
@@ -190,7 +130,7 @@ async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[st
         async with pinned_async_client(
             target, timeout=httpx.Timeout(WEBHOOK_TIMEOUT_SECONDS)
         ) as client:
-            resp = await client.post(content=body_bytes, headers=headers)
+            resp = await client.post(content=wire, headers=headers)
             resp.raise_for_status()
     except Exception as exc:
         _webhook_last_error = {"code": error_code(exc), "at": int(time.time())}
