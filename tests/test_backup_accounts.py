@@ -29,6 +29,7 @@ _reset_jobs = restore_v2._reset_jobs
 HASH_ADMIN = "$argon2id$v=19$m=65536,t=2,p=1$YWRtaW5zYWx0$YWRtaW5oYXNo"
 HASH_BOB = "$argon2id$v=19$m=65536,t=2,p=1$Ym9ic2FsdA$Ym9iaGFzaA"
 TOTP_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+RECOVERY_HASH = "$argon2id$v=19$m=1024,t=2,p=1$cmVjb3Zlcnk$cmVjb3ZlcnloYXNo"
 
 
 def _meshloom_only() -> BackupRestoreSteps:
@@ -46,6 +47,11 @@ async def _seed_accounts(test_db) -> None:
             "UPDATE users SET totp_secret = ?, totp_enabled_at = 100, totp_last_counter = 7"
             " WHERE id = ?",
             (TOTP_SECRET, bob.id),
+        )
+        await conn.execute(
+            "INSERT INTO recovery_codes (user_id, code_hash, created_at, used_at)"
+            " VALUES (?, ?, 100, NULL), (?, ?, 100, 150)",
+            (bob.id, RECOVERY_HASH, bob.id, RECOVERY_HASH),
         )
     await AuthSessionRepository.create(admin.id, "session-hash-admin", lifetime_s=3600)
 
@@ -535,3 +541,69 @@ async def test_a_failed_token_section_rolls_the_accounts_back(backup_db, setup_s
     assert f"section_failed:{USERS_SECTION}" in job.result.warnings
     assert f"section_failed:{API_TOKENS_SECTION}" in job.result.warnings
     assert await _accounts(backup_db) == before
+
+
+async def _recovery_codes(test_db) -> list[tuple]:
+    async with test_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT user_id, code_hash, created_at, used_at FROM recovery_codes ORDER BY id"
+        ) as cursor:
+            return [tuple(row) for row in await cursor.fetchall()]
+
+
+@pytest.mark.asyncio
+async def test_recovery_codes_travel_with_the_accounts_only(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    before = await _recovery_codes(backup_db)
+    assert len(before) == 2
+    exported = await _export()
+    section = exported["sections"][USERS_SECTION]
+    assert section["version"] == 2
+    bob = next(user for user in section["data"]["users"] if user["username"] == "bob")
+    assert [code["used_at"] for code in bob["recovery_codes"]] == [None, 150]
+
+    without = json.dumps(await _export(include_accounts=False))
+    assert TOTP_SECRET not in without and RECOVERY_HASH not in without
+
+    async with backup_db.tx() as conn:
+        await conn.execute("DELETE FROM recovery_codes")
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _recovery_codes(backup_db) == before
+
+
+@pytest.mark.asyncio
+async def test_a_version_1_section_restores_without_recovery_codes(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    section = exported["sections"][USERS_SECTION]
+    section["version"] = 1
+    for user in section["data"]["users"]:
+        user.pop("recovery_codes")
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _recovery_codes(backup_db) == []
+    accounts = {row[1]: row for row in await _accounts(backup_db)}
+    assert accounts["bob"][9] == TOTP_SECRET
+
+
+@pytest.mark.asyncio
+async def test_recovery_codes_need_an_enabled_factor_and_an_affordable_hash(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    users = exported["sections"][USERS_SECTION]["data"]["users"]
+    alice = next(user for user in users if user["username"] == "Alice")
+    alice["recovery_codes"] = [{"code_hash": RECOVERY_HASH, "created_at": 1}]
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert {row[0] for row in await _recovery_codes(backup_db)} == {
+        next(user["id"] for user in users if user["username"] == "bob")
+    }
+
+    bob = next(user for user in users if user["username"] == "bob")
+    bob["recovery_codes"] = [
+        {"code_hash": "$argon2id$v=19$m=4194304,t=9,p=1$c2FsdA$aGFzaA", "created_at": 1}
+    ]
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert RECOVERY_HASH not in json.dumps(job.model_dump(), default=str)
+    assert len(await _recovery_codes(backup_db)) == 2  # the section was refused, nothing changed

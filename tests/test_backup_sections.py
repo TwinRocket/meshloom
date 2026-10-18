@@ -727,8 +727,13 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
 
     password_hash = "$argon2id$v=19$m=8,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2g"
     user = await UserRepository.create("admin", "admin", password_hash=password_hash)
+    recovery_hash = "$argon2id$v=19$m=1024,t=2,p=1$cmVjb3Zlcnk$cmVjb3ZlcnloYXNo"
     async with test_db.tx() as conn:
         await conn.execute("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP'")
+        await conn.execute(
+            "INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, 1)",
+            (user.id, recovery_hash),
+        )
     await AuthSessionRepository.create(user.id, hash_token("cookie"), lifetime_s=60)
     await AuthSettingsRepository.set_setup_code_hash(hash_token("setup"))
 
@@ -739,10 +744,18 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
             assert await c.fetchall() == [("admin", None, None)]
         async with conn.execute("SELECT COUNT(*) FROM sessions") as c:
             assert (await c.fetchone())[0] == 0
+        async with conn.execute("SELECT COUNT(*) FROM recovery_codes") as c:
+            assert (await c.fetchone())[0] == 0
         async with conn.execute("SELECT setup_code_hash FROM auth_settings") as c:
             assert (await c.fetchone())[0] is None
     raw = snapshot.read_bytes()
-    for secret in (password_hash, hash_token("cookie"), hash_token("setup"), "JBSWY3DPEHPK3PXP"):
+    for secret in (
+        password_hash,
+        hash_token("cookie"),
+        hash_token("setup"),
+        "JBSWY3DPEHPK3PXP",
+        recovery_hash,
+    ):
         assert secret.encode() not in raw
     # The live database keeps them.
     assert await AuthSettingsRepository.get_setup_code_hash() == hash_token("setup")

@@ -165,7 +165,8 @@ These hold for every section; a restore function must keep them:
      previous-transport snapshot that holds it) and the local accounts
      secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
      `users.totp_secret`, `auth_settings.setup_code_hash`; the `sessions`
-     table and the plugin config secrets in `plugin_secrets` are emptied,
+     and `recovery_codes` tables and the plugin config secrets in
+     `plugin_secrets` are emptied,
      `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
      so the old values do not stay in the file's free space. The live database
      keeps them. `api_tokens` stays in the copy: it holds SHA-256 hashes of
@@ -188,13 +189,16 @@ These hold for every section; a restore function must keep them:
 ## Accounts (`users`, `api_tokens`)
 
 `app/services/backup_accounts.py` registers the `users` section (Access T65,
-`sensitive`, version 1) and the `api_tokens` section (Access T27, below),
+`sensitive`, version 2) and the `api_tokens` section (Access T27, below),
 imported by `services/backup.py`.
 
 - **Data.** `{"users": [...]}`, one object per `users` row: `id`, `username`,
   `display_name`, `password_hash` (argon2id), `role`, `provider`,
   `external_id`, `disabled`, `must_change_password`, `totp_secret`,
-  `totp_enabled_at`, `totp_last_counter`, `created_at`, `updated_at`. Never
+  `totp_enabled_at`, `totp_last_counter`, `created_at`, `updated_at`, and
+  since version 2 `recovery_codes` (`[{code_hash, created_at, used_at}]`, the
+  argon2id hashes of the TOTP recovery codes, never a code; a version 1 file
+  has none and restores without them). Never
   `username_key` (recomputed), sessions, the audit trail or `auth_settings`
   (with the setup code hash). Keys a file adds to a row are dropped
   (`BackupUser`, `extra="ignore"`, `hide_input_in_errors`).
@@ -222,7 +226,9 @@ imported by `services/backup.py`.
   are read again.
 - **Row rules** (`BackupUser`, the accounts API's invariants). A password hash,
   TOTP material and a forced password change are kept only on a `local`
-  account outside `kiosk`, stripped otherwise; a `system` account must be a
+  account outside `kiosk`, stripped otherwise; recovery codes only with an
+  enabled TOTP factor (secret and enable time), at most 64, each an argon2id
+  hash under the same cost limit; a `system` account must be a
   `kiosk`; a hash must be argon2id (`v=19`, `p=1`) with a cost up to libsodium's
   MODERATE limits (256 MiB, 3 passes), so a file cannot make a login allocate
   more.
