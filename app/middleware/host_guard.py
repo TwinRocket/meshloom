@@ -87,7 +87,7 @@ _LDH = re.compile(r"[a-z0-9][a-z0-9.-]*")
 _LABEL = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
 # Path prefix: RFC 3986 pchar and "/", without the sub-delims that carry markup or
 # separators; a percent escape must be two hex digits (dot segments checked apart).
-_PATH = re.compile(r"(?:/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+)+")
+_SEGMENT = re.compile(r"(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+")
 # New-name warnings: at most this many per window, the rest counted in one line.
 WARNING_BURST = 5
 WARNING_WINDOW_S = 60
@@ -235,9 +235,9 @@ def normalize_public_url(raw: str) -> str:
         shown = f"[{address}]" if address.version == 6 else str(address)
     path = parts.path.rstrip("/")
     if path:
-        segments = [unquote(part) for part in path.split("/")[1:]]
-        if not _PATH.fullmatch(path) or any(
-            part in (".", "..") or "/" in part for part in segments
+        raw_segments = path.split("/")[1:] if path.startswith("/") else [""]
+        if not all(_SEGMENT.fullmatch(part) for part in raw_segments) or any(
+            unquote(part) in (".", "..") or "/" in unquote(part) for part in raw_segments
         ):
             raise PublicUrlError(raw)
     if port is not None and port < 1:
