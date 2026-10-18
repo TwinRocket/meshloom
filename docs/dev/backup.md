@@ -133,7 +133,7 @@ These hold for every section; a restore function must keep them:
    section too new for its owner is skipped: a file from a newer version
    restores what this version knows. Both are listed in the summary.
 4. **Identity seeds are never exported.** The per-service instance identity
-   seeds (share, Remote: `app/services/instance_identity.py` once it lands) are
+   seeds (share, Remote: `app/services/instance_identity.py`) are
    never in a file, even though the radio private key is. Name their columns
    `app_settings.<service>_instance_seed` and mark them `excluded` in `BACKUP_COVERAGE`:
    - the JSON export reads every `app_settings.*_seed` value and refuses a
@@ -195,8 +195,12 @@ is logged and the others still run.
   Its seeds are already NULL (see rule 4): a hook must create new ones when it
   finds none.
 
-Consumers: Links & Files (T10/T45, share identity) and Access (T38/T65, Remote
-identity and accounts).
+Consumers: `app/services/instance_identity.py` registers `instance_identity`
+(Links & Files T45): it regenerates every per-service seed that exists, so a
+restored instance never signs with the identity it had before; an empty seed (a
+snapshot's, or a service never used) stays empty until its first use creates
+one. Access (T38/T65) adds its Remote seed to that module rather than a hook of
+its own, and registers its own hook for the accounts.
 
 ## Tests
 
