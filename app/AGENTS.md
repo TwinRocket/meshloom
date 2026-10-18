@@ -82,6 +82,16 @@ and the OpenAPI page (`/docs`), not a table here.
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
+  `plugins/isolation/` is the OS boundary around each child (MSHL-180): one
+  backend per process, detected once and logged (`selection.py`: `setuid` as root
+  with the `meshloom-plugin` account, else `bwrap` if its self-test passes, else
+  `none`, "hooks only", with a warning); `startup()` applies the file model of
+  `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
+  `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
+  `plugins_disabled_source: "isolation"`). The account is uid/gid 10002. bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  source and Docker data dirs live under it). Stdlib only, so
+  `tests/test_plugin_isolation.py` runs with `--noconftest` in the root container
+  job; details in `docs/dev/plugins-security.md`, "OS isolation".
   `plugins/host.py` supervises the children (one per enabled instance: budgets,
   bounded inbox, restarts, `crash_loop`, statuses); the app reaches it only
   through `plugins/lifecycle.py` (lifespan `start()`, the bounded `stop()`
@@ -205,7 +215,7 @@ Community guard.
   256 ids), after the opt-in check; turning sharing off clears it.
 - **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
   egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
-  = `keystore.has_private_key()`, `banned`, `shorten_mode`, `preview_policy`),
+  = `keystore.has_private_key()`, `banned`, `unreachable` (share breaker open), `shorten_mode`, `preview_policy`),
   `POST /links` (`send`, i.e. member+; off answers `share_disabled` before
   anything; the URL is checked locally: http/https, host, 2048 characters, no
   whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id

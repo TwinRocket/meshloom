@@ -1,10 +1,11 @@
 # Plugins
 
 Status: **format, validators, data model, the child runtime, the SDK, the legacy
-bot shim, the supervisor and the capability API v1** (MSHL-175, MSHL-184, MSHL-176,
-MSHL-177, MSHL-179, MSHL-181). The server starts one supervised child per enabled
-instance and answers its requests (see "Capabilities"); the OS isolation
-(MSHL-180), `http.fetch` (Store T7), the global send budgets and loop guards
+bot shim, the supervisor, the capability API v1 and the OS isolation** (MSHL-175,
+MSHL-184, MSHL-176, MSHL-177, MSHL-179, MSHL-181, MSHL-180; isolation:
+`docs/dev/plugins-security.md`, "OS isolation"). The server starts one supervised
+child per enabled instance, isolated by the OS, and answers its requests (see
+"Capabilities"); `http.fetch` (Store T7), the global send budgets and loop guards
 (Store T6b) and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
@@ -356,8 +357,12 @@ the cwd, the script directory and `PYTHONPATH` from `sys.path`, so
 cadrage's first draft) skips `site` too: no site-packages on the path and no
 `.pth` file executed before the runner freezes the process. `<python>` is
 `sys.executable`. The supervisor creates the instance's private work directory
-with `prepare_work_dir()` (0700, owned by the server user, not a symlink) and
-spawns with `subprocess.Popen(runner_command(), stderr=..., **popen_kwargs(work_dir))`:
+with the isolation backend's `prepare_work_dir()` (`launch.prepare_work_dir()`:
+0700, owned by the server user, not a symlink; handed to `meshloom-plugin`
+under the `setuid` level) and spawns with the backend's `launch()`, which wraps
+`subprocess.Popen(runner_command(), stderr=..., **popen_kwargs(work_dir))`
+(bwrap prefixes the command, `setuid` adds `user`, `group`, `extra_groups=[]`
+and `umask`):
 `cwd=work_dir` (the only writable place), `env=runner_env()` (`LANG=C.UTF-8`,
 `PYTHONHASHSEED=random`), stdin and stdout as pipes (the RPC stream),
 `close_fds=True` with no `pass_fds`, `start_new_session=True` (a process group
@@ -384,7 +389,9 @@ line on stdin is the RPC stream.
    `RLIMIT_NOFILE` 64, `RLIMIT_FSIZE` 50 MiB, `RLIMIT_CORE` 0, `RLIMIT_CPU`
    3600 s, `RLIMIT_AS` 256 MiB on Linux only (macOS does not enforce it),
    `RLIMIT_NPROC` only when `isolation == "setuid"`; `_thread.stack_size(256 KiB)`;
-   `PR_SET_NO_NEW_PRIVS` on Linux (through `ctypes`, purged afterwards). Then
+   `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 on Linux (through `ctypes`,
+   purged afterwards; dumpable 0 keeps a same-uid sibling out of
+   `/proc/<pid>/mem`). Then
    `asyncio` is imported: it loads `socket`, `ssl` and `subprocess` at module
    level, so it cannot come after the hook, and step 5 removes them again.
 4. Install the audit hook.
@@ -469,8 +476,9 @@ ends (`host_closed`; an oversized line still ends the child with exit 2), and
 Tests: `tests/test_plugin_runner.py` (real subprocesses; standard library and
 pytest only, so it also runs with `uv run --no-project --python 3.13 --with
 pytest pytest --noconftest tests/test_plugin_runner.py`), the seed corpus in
-`tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`;
-MSHL-191 consolidates it and runs it under each isolation level) and
+`tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`,
+run under each isolation level this machine offers; MSHL-191 consolidates it),
+`tests/test_plugin_isolation.py` and
 `tests/test_plugin_packaging.py`.
 
 ## SDK (`meshloom_plugin.sdk`)
@@ -606,6 +614,11 @@ ones.
   `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
 - **Platform.** No `resource` module (Windows): the system is off,
   `plugins_disabled_source: "platform"`.
+- **Isolation setup.** When `isolation.startup()` fails at start (detection, or
+  the dedicated uid's file model: a database left `0644` would be readable by the
+  plugin uid), the system fails closed: `fail_closed()`, nothing starts until a
+  restart, `start()` raises `plugins_disabled`, health says
+  `plugins_disabled_source: "isolation"` and the log has the error.
 - **Cap.** At most one running instance per 128 MB of `MemTotal` (sysconf
   elsewhere), clamped to 3..20 (`instance_cap()`); one more is
   `PluginCapacityError` (`code` `instance_cap_reached`, `cap`).
@@ -624,9 +637,14 @@ ends), the parameters line on stdin. The code directory is
 the database's directory); a local plugin's `source` and manifest are written to
 `<data>/plugins/local/<instance_id>/` at each start. stderr goes to a ring of
 1 MiB per instance, each line cut at 2 KiB (`[truncated]`), never to the server
-log; the runner's typed start error is kept for `last_error`. The isolation level
-is `none` (hooks only) until MSHL-180: `isolation_level()` and `_spawn_argv()`
-are its seam.
+log; the runner's typed start error is kept for `last_error`. Each child is
+launched through the OS isolation backend (`isolation.current().backend`:
+`prepare_plugin_dir()`, `prepare_work_dir()`, `launch()`); `isolation_level()`
+is the level health and `plugin.init` report, and `lifecycle.start()` detects it
+off the event loop (`isolation.startup()`) before the first child. Under bwrap a
+child killed by a signal exits `128 + signal` (mapped back, so `SIGXCPU` is still
+`cpu_rlimit`), and the CPU budget reads the whole process tree
+(`read_proc_tree_cpu_seconds`: the runner is bwrap's grandchild).
 
 `plugin.init` carries `api`, `instance` (`id`, `plugin_id`, `label`), `config`
 (secrets in clear, from `config_for_init()`, plus the standard field `language`),
@@ -690,8 +708,9 @@ the consecutive count. Five consecutive failures: `crash_loop`, stored, no more
 restarts. `restart()` builds a new supervisor, so its count starts at zero. A stop
 during the backoff pause ends it at once.
 
-CPU: on Linux the host samples `utime + stime` from `/proc/<pid>/stat` every
-5 s and kills a child that used more than 20 CPU-seconds in the last 60 s. The
+CPU: on Linux the host samples `utime + stime + cutime + cstime` from
+`/proc/<pid>/stat` of the child and every descendant (`/proc/<pid>/task/*/children`)
+every 5 s and kills a child that used more than 20 CPU-seconds in the last 60 s. The
 runner's hard `RLIMIT_CPU` (3600 s, `policy.DEFAULT_LIMITS`) is the portable
 backstop: the kernel ends the child (`SIGXCPU`, `last_error` `cpu_rlimit`) and
 the restart starts a new process, so the count starts again.

@@ -22,7 +22,10 @@ from typing import Any
 import pytest
 
 from app.plugins import launch
+from app.plugins.isolation.base import IsolationBackend
+from app.plugins.isolation.none import NoneBackend
 from meshloom_plugin import policy, rpc
+from tests.plugin_isolation_support import available_backends, run_probe, shared_tmp_dir
 
 CORPUS = Path(__file__).parent / "plugin_corpus"
 LINUX = sys.platform.startswith("linux")
@@ -43,20 +46,27 @@ class Runner:
         limits: dict[str, int] | None = None,
         params_line: bytes | None = None,
         cwd: Path | None = None,
+        backend: IsolationBackend | None = None,
     ):
-        # The supervisor's way: launch.prepare_work_dir() and launch.popen_kwargs().
+        # The supervisor's way: the backend's prepare_work_dir() and launch() (the
+        # runner command and launch.popen_kwargs(), wrapped by the isolation).
         # Tests override env, pass_fds or cwd only to play a parent that gets it wrong.
-        self.cwd = launch.prepare_work_dir(Path(tempfile.mkdtemp(dir=work, prefix="cwd-")))
+        backend = backend or NoneBackend()
+        if backend.level != "none":
+            isolation = backend.level
+        # The dedicated uid cannot enter pytest's 0700 base temp dir.
+        parent = shared_tmp_dir("meshloom-runner-") if backend.level == "setuid" else work
+        self.cwd = backend.prepare_work_dir(Path(tempfile.mkdtemp(dir=parent, prefix="cwd-")))
         self.stderr_path = work / f"stderr-{self.cwd.name}.log"
         self._stderr = self.stderr_path.open("wb")
-        kwargs = launch.popen_kwargs(self.cwd)
+        argv, kwargs = backend.launch(plugin_dir, self.cwd)
         if env is not None:
             kwargs["env"] = env
         if pass_fds:
             kwargs["pass_fds"] = pass_fds
         if cwd is not None:
             kwargs["cwd"] = str(cwd)
-        self.proc = subprocess.Popen(launch.runner_command(), stderr=self._stderr, **kwargs)
+        self.proc = subprocess.Popen(argv, stderr=self._stderr, **kwargs)
         assert self.proc.stdin is not None and self.proc.stdout is not None
         self._stdin = self.proc.stdin
         self._stdout_fd = self.proc.stdout.fileno()
@@ -414,6 +424,74 @@ def test_limits_and_no_new_privs_are_set(hostile: Runner) -> None:
     assert "NoNewPrivs:\t1" in status
 
 
+@pytest.mark.parametrize("level", ["none", "bwrap", "setuid"])
+def test_runner_serves_under_each_isolation_level(level: str, work: Path) -> None:
+    backend = available_backends().get(level)
+    if backend is None:
+        pytest.skip(f"the {level} backend is not available here")
+    root = shared_tmp_dir("meshloom-plugin-") if level == "setuid" else work
+    runner = Runner(make_plugin(root, HOSTILE), work, backend=backend)
+    try:
+        assert runner.event({"case": "ping"})["result"] == "pong"
+        assert _error_type(runner.event({"case": "etc_passwd"})) == "PermissionError"
+        if level == "setuid":
+            status = Path(f"/proc/{runner.proc.pid}/status").read_text()
+            uids = next(line for line in status.splitlines() if line.startswith("Uid:")).split()[1:]
+            assert set(uids) == {str(backend.uid)}  # real, effective, saved, fs
+            _os_check_nproc(runner, backend, work)
+    finally:
+        runner.close()
+
+
+_SIBLING = """
+import sys
+try:
+    with open("/proc/%s/mem" % sys.argv[1], "r+b"):
+        print("allowed")
+except OSError as exc:
+    print("denied: " + type(exc).__name__)
+"""
+
+
+@pytest.mark.skipif(not LINUX, reason="/proc/<pid>/mem and prctl are Linux only")
+@pytest.mark.parametrize("level", ["none", "bwrap", "setuid"])
+def test_a_sibling_under_the_same_uid_cannot_open_the_child_memory(level: str, work: Path) -> None:
+    # Another instance (same uid under setuid, the server's uid otherwise) escaping
+    # its hooks must not reach this child's memory: the runner is not dumpable.
+    backend = available_backends().get(level)
+    if backend is None:
+        pytest.skip(f"the {level} backend is not available here")
+    if level == "none" and os.geteuid() == 0:
+        pytest.skip("a root sibling bypasses dumpable checks; covered by the setuid case")
+    root = shared_tmp_dir("meshloom-plugin-") if level == "setuid" else work
+    runner = Runner(make_plugin(root, HOSTILE), work, backend=backend)
+    try:
+        assert runner.event({"case": "ping"})["result"] == "pong"
+        sibling_work = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-sibling-")))
+        sibling = backend.spawn(
+            [sys.executable, "-I", "-S", "-c", _SIBLING, str(runner.proc.pid)],
+            shared_tmp_dir("meshloom-sibling-plugin-"),
+            sibling_work,
+            stdin=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        out, err = sibling.communicate(timeout=30)
+        assert sibling.returncode == 0, err
+        assert out.decode().strip().startswith("denied"), out
+    finally:
+        runner.close()
+
+
+def test_setuid_announced_to_a_root_child_is_refused(work: Path) -> None:
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        pytest.skip("needs root: the runner checks it really dropped to another uid")
+    error = _start_with(
+        work, make_plugin(work, "def on_message(params):\n    return 1\n"), isolation="setuid"
+    )
+    assert error["runner_error"] == "params_invalid"
+    assert "root" in error["message"]
+
+
 # --- Corpus -----------------------------------------------------------------------
 
 
@@ -421,8 +499,12 @@ def _corpus_cases() -> list[Path]:
     return sorted(p for p in CORPUS.iterdir() if (p / "case.json").is_file())
 
 
+@pytest.mark.parametrize("level", ["none", "bwrap", "setuid"])
 @pytest.mark.parametrize("case_dir", _corpus_cases(), ids=lambda p: p.name)
-def test_corpus_case(case_dir: Path, work: Path) -> None:
+def test_corpus_case(case_dir: Path, level: str, work: Path) -> None:
+    backend = available_backends().get(level)
+    if backend is None:
+        pytest.skip(f"the {level} backend is not available here")
     case = json.loads((case_dir / "case.json").read_text())
     secret_env = {**launch.runner_env(), "MESHLOOM_SECRET": "leak", "HOME": "/root"}
     marker = work / "parent-only.txt"
@@ -433,18 +515,25 @@ def test_corpus_case(case_dir: Path, work: Path) -> None:
     try:
         # The child must hold its line even when the parent gets it wrong:
         # a polluted environment and a descriptor passed on purpose.
-        runner = Runner(case_dir, work, env=secret_env, pass_fds=(marker_fd,))
+        runner = Runner(case_dir, work, env=secret_env, pass_fds=(marker_fd,), backend=backend)
         try:
             for event in case["events"]:
                 response = runner.event(event["params"])
                 try:
                     _check_expectation(event["expect"], response, marker_stat)
                 except AssertionError:
-                    if not _open_path_applies(event.get("open_path")):
+                    open_path = event.get("open_path")
+                    if not _open_path_applies(open_path):
                         raise
-                    # A documented open path: the case is pinned so the ticket
-                    # that closes it (MSHL-180/MSHL-191) turns it into a pass.
-                    pytest.xfail(f"open path: {event['open_path']['note']}: {response}")
+                    assert open_path is not None
+                    if level in open_path.get("closed_by", []):
+                        # The runner cannot close it in-process; the OS level does,
+                        # and its check proves it (docs/dev/plugins-security.md).
+                        _OS_CHECKS[open_path["os_check"]](runner, backend, work)
+                    else:
+                        # A documented open path at this level: pinned so a later
+                        # ticket that closes it turns it into a pass.
+                        pytest.xfail(f"open path: {open_path['note']}: {response}")
                 assert runner.request("event.health", {"ok": True})["result"] is None
         finally:
             runner.close()
@@ -495,6 +584,35 @@ _CHECKS = {
     "hook_frame": _check_hook_frame,
     "environ": _check_environ,
     "inherited_fds": _check_inherited_fds,
+}
+
+
+def _os_check_exec_escape(_runner: Runner, backend: IsolationBackend, work: Path) -> None:
+    """What a rebuilt `fork_exec` gives a plugin: a program with no hook, in the box."""
+    data = shared_tmp_dir("meshloom-data-")
+    secret = data / "meshcore.db"
+    secret.write_bytes(b"SQLite format 3\x00")
+    os.chmod(secret, 0o600)
+    os.chmod(data, 0o711)
+    result = run_probe(backend, secret)
+    assert result["read_secret"].startswith("denied"), result
+    assert result["read_environ"].startswith("denied"), result
+    assert result["app_root_written"] is False, result
+    if backend.level == "bwrap":
+        assert result["read_app_code"].startswith("denied"), result
+        assert result["connect"].startswith("denied"), result
+
+
+def _os_check_nproc(runner: Runner, _backend: IsolationBackend, _work: Path) -> None:
+    """Threads stay possible on 3.11, but bounded by RLIMIT_NPROC for the uid."""
+    limits = Path(f"/proc/{runner.proc.pid}/limits").read_text()
+    line = next(line for line in limits.splitlines() if line.startswith("Max processes"))
+    assert line.split()[3] == str(policy.DEFAULT_LIMITS["processes"]), line
+
+
+_OS_CHECKS = {
+    "exec_escape": _os_check_exec_escape,
+    "nproc": _os_check_nproc,
 }
 
 

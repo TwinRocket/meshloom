@@ -111,7 +111,7 @@ class HealthResponse(BaseModel):
     bots_disabled_source: Literal["env", "until_restart"] | None = None
     # The plugin host (app/plugins/lifecycle.py): None when the system is off.
     plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
-    plugins_disabled_source: Literal["env", "platform"] | None = None
+    plugins_disabled_source: Literal["env", "platform", "isolation"] | None = None
     plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     basic_auth_enabled: bool = False
     radio_proxy: RadioProxyStatus | None = None
