@@ -89,7 +89,7 @@ The filters are also in the address bar. Change a chip and the address becomes, 
 
 ### Display mode
 
-The **Display mode** button in the Feed's header (or `display=1` in the address) turns the Feed into a screen for the wall: text 25 % larger, no rail, menu, header or filter chips, the newest message always in view, day separators and a small clock, no blur or shadow, and full screen when the browser allows it. **Exit** (top right) brings back your filters exactly as they were; your remembered filters and your choice about reactions are never changed. Direct messages are hidden and images and GIFs are not loaded until you tick **Direct messages** or **Images and GIFs** beside Exit. Hiding direct messages is a display choice, not an access control: the browser still receives them, and what keeps them off a shared screen is the `kiosk` account. See [Raspberry Pi image](/en/docs/rpi/#display-mode).
+The **Display mode** button in the Feed's header (or `display=1` in the address) turns the Feed into a screen for the wall: text 25 % larger, no rail, menu, header or filter chips, the newest message always in view, day separators and a small clock, no blur or shadow, and full screen when the browser allows it. **Exit** (top right) brings back your filters exactly as they were; your remembered filters and your choice about reactions are never changed. Direct messages are hidden and images and GIFs are not loaded, whatever the address says; **Exit** is the only control. Hiding direct messages is a display choice, not an access control: the browser still receives them, and what keeps them off a shared screen is the `kiosk` account. See [Raspberry Pi image](/en/docs/rpi/#display-mode).
 
 ### The Control preset
 

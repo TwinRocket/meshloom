@@ -76,7 +76,7 @@ Display mode is the Feed made for a wall screen: larger text (25 % on top of you
 - `#feed?display=1` as the **Start page** (`feed?display=1`, without the `#`), the way that needs no SSH;
 - `#feed?display=1` at the end of `MESHLOOM_KIOSK_URL` on a hand-built image, for example `http://127.0.0.1:8000/#feed?display=1`. A start page is ignored when the address has a `#` part.
 
-What it changes: the Feed's own filters are untouched and come back when you leave the mode. Only channels are asked from the server (`type=CHAN`), **direct messages are hidden** and **images and GIFs are not loaded** until you tick **Direct messages** or **Images and GIFs** next to Exit (or put `types=chan,priv` in the address for the direct messages). Rows can no longer be clicked. Your choice of showing reactions is never changed. Blur and shadows are turned off.
+What it changes: the Feed's own filters are untouched and come back when you leave the mode. Only channels are asked from the server (`type=CHAN`), **direct messages are hidden** and **images and GIFs are not loaded**, whatever the address says: nothing inside the mode turns them back on. Rows can no longer be clicked or focused, and **Exit** is the only control left. Your choice of showing reactions is never changed. Blur and shadows are turned off.
 
 **Display mode locks nothing.** Hiding direct messages only decides what this screen draws: the browser still receives them, and anyone who can sign in can read them elsewhere. What keeps direct messages off the screen is the `kiosk` account the image runs under, which the server refuses them to (it still reads muted and pending channels, and control packets). See [A trusted network](/en/docs/trust/).
 

@@ -6,6 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import './qSlices';
 
 const mocks = vi.hoisted(() => ({ getMessages: vi.fn() }));
+const sessionMocks = vi.hoisted(() => ({ canReadPrivate: true }));
+
+vi.mock('../auth/SessionProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auth/SessionProvider')>();
+  return {
+    ...actual,
+    useCapabilities: () => ({
+      ...actual.useCapabilities(),
+      canReadPrivate: sessionMocks.canReadPrivate,
+    }),
+  };
+});
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
@@ -796,6 +808,7 @@ describe('FeedView display mode', () => {
   const exitLabel = () => i18n.t('feed.display.exit');
 
   afterEach(() => {
+    sessionMocks.canReadPrivate = true;
     cleanup();
     document.documentElement.removeAttribute('data-feed-display');
     document.documentElement.style.fontSize = '';
@@ -881,38 +894,58 @@ describe('FeedView display mode', () => {
     expect(localStorage.getItem(RENDER_RICH_PAYLOADS_KEY)).toBe('true');
   });
 
-  it('keeps GIFs as text until media is re-enabled inside the mode', async () => {
+  it('keeps GIFs as text and offers no control but Exit', async () => {
     mocks.getMessages.mockResolvedValue([gifRow()]);
     render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
     const list = await screen.findByRole('list');
     expect(list.querySelector('img')).toBeNull();
-    fireEvent.click(screen.getByLabelText(i18n.t('feed.display.showMedia')));
-    await waitFor(() => expect(list.querySelector('img')).not.toBeNull());
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
-  it('shows DMs only when the URL names them or the toggle is ticked, and says why they are hidden', async () => {
-    mocks.getMessages.mockResolvedValue([msg(1), dmRow()]);
-    render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
-    await screen.findByRole('list');
-    const toggle = screen.getByLabelText(i18n.t('feed.display.showDms'));
-    expect((toggle as HTMLInputElement).checked).toBe(false);
-    expect(toggle.closest('label')?.getAttribute('title')).toBe(i18n.t('feed.display.showDmsNote'));
-    fireEvent.click(toggle);
-    await waitFor(() =>
-      expect(mocks.getMessages).toHaveBeenLastCalledWith(
-        expect.not.objectContaining({ type: 'CHAN' }),
+  it.each([['types=chan,priv&display=1'], ['src=messages&types=priv&dir=in,out&display=1']])(
+    'ignores DMs named by the URL (%s): type=CHAN, no PRIV row, URL stays channel-only',
+    async (query) => {
+      mocks.getMessages.mockResolvedValue([msg(1), dmRow()]);
+      render(<FeedView initialQuery={query} contacts={[]} channels={channels} />);
+      const list = await screen.findByRole('list');
+      expect(mocks.getMessages).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ type: 'CHAN' }),
         expect.anything()
-      )
-    );
-    expect(window.location.hash).toContain('types=chan,priv');
+      );
+      expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+      expect(screen.queryByText('psst')).toBeNull();
+      // Whatever is written back never carries a DM type, in the URL or in storage.
+      fireEvent.click(screen.getByRole('button', { name: exitLabel() }));
+      fireEvent.click(await screen.findByRole('button', { name: enterLabel() }));
+      await waitFor(() => expect(window.location.hash).toContain('display=1'));
+      expect(window.location.hash).toContain('types=chan&');
+      expect(window.location.hash).not.toContain('priv');
+    }
+  );
 
-    cleanup();
-    mocks.getMessages.mockClear();
+  it('is channel-only for a session that cannot read DMs (kiosk role) too', async () => {
+    sessionMocks.canReadPrivate = false;
+    mocks.getMessages.mockResolvedValue([msg(1), dmRow()]);
     render(<FeedView initialQuery="types=chan,priv&display=1" contacts={[]} channels={channels} />);
-    await screen.findByRole('list');
-    expect(
-      (screen.getByLabelText(i18n.t('feed.display.showDms')) as HTMLInputElement).checked
-    ).toBe(true);
+    const list = await screen.findByRole('list');
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ type: 'CHAN' }),
+      expect.anything()
+    );
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  });
+
+  it('makes message rows non-focusable', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
+    const list = await screen.findByRole('list');
+    for (const row of within(list).getAllByRole('listitem')) {
+      expect(row.hasAttribute('tabindex')).toBe(false);
+    }
   });
 
   it('keeps following whatever the reader scrolls, and rows are read-only', async () => {

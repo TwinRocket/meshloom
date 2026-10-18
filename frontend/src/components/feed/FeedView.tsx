@@ -12,7 +12,6 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, Monitor } from 'lucide-react';
 
 import { formatApiError } from '../../api';
-import { useCapabilities } from '../../auth/SessionProvider';
 import {
   activateFeedStore,
   clearFeedRows,
@@ -161,16 +160,10 @@ export function FeedView({
     applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), initialQuery)
   );
   // Display mode: a layer over `filters` (see `feedDisplay.ts`), so leaving it restores them.
-  // Direct messages open only when the URL named them (`types=chan,priv`), remote media never.
+  // It is channels only, whatever the URL says: nothing in the mode turns DMs or media back on.
   const [display, setDisplay] = useState(() =>
     initialQuery ? parseFeedQuery(initialQuery).display : false
   );
-  const [displayDms, setDisplayDms] = useState(
-    () => (initialQuery ? parseFeedQuery(initialQuery).filters.priv : false) === true
-  );
-  const [displayMedia, setDisplayMedia] = useState(false);
-  const { canReadPrivate } = useCapabilities();
-  const showDms = display && displayDms && canReadPrivate;
   useDisplayChrome(display);
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -234,9 +227,7 @@ export function FeedView({
     // The URL already shows this state and the pinned filters are not the reader's choice.
     skipFirstSaveRef.current = true;
     firstUrlSyncRef.current = true;
-    const parsed = parseFeedQuery(incoming);
-    setDisplay(parsed.display);
-    setDisplayDms(parsed.filters.priv === true);
+    setDisplay(parseFeedQuery(incoming).display);
     setFilters(applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), incoming));
   }, [initialQuery, preset]);
 
@@ -259,10 +250,10 @@ export function FeedView({
       firstUrlSyncRef.current = false;
       return;
     }
-    // In display mode the URL says what the screen shows (`types=chan` unless it opted in to
-    // DMs), so a reload of the bookmark opens the same screen.
+    // In display mode the URL says what the screen shows (`types=chan`, never a DM type),
+    // so a reload of the bookmark opens the same screen.
     const feedQuery = display
-      ? feedQueryOf(displayFilters(filters, showDms), true)
+      ? feedQueryOf(displayFilters(filters), true)
       : feedQueryOf(filters, false);
     ownQueryRef.current = feedQuery;
     replaceFeedHash(preset, feedQuery);
@@ -270,7 +261,7 @@ export function FeedView({
       makeFeedConversation(tRef.current('sidebar.feed'), preset, feedQuery)
     );
     onQueryChangeRef.current?.(feedQuery);
-  }, [filters, display, showDms, preset]);
+  }, [filters, display, preset]);
 
   // Rows are re-evaluated once a minute so an expired timed mute reappears. A `channel`
   // frame reaches this view as a new `channels` prop, which the memo below depends on.
@@ -287,10 +278,7 @@ export function FeedView({
   );
   const nodeSections = useMemo(() => buildFeedNodes(entries, t), [entries, t]);
   // What the timeline evaluates: the reader's filters, or the display layer over them.
-  const shown = useMemo(
-    () => (display ? displayFilters(filters, showDms) : filters),
-    [display, filters, showDms]
-  );
+  const shown = useMemo(() => (display ? displayFilters(filters) : filters), [display, filters]);
   // A stored node filters only while the facet that shows (and clears) it is on screen:
   // Control on and the node still among the threads. Otherwise it is ignored, never a
   // hidden filter the reader cannot see.
@@ -686,8 +674,6 @@ export function FeedView({
   }, [setFollow]);
   const exitDisplay = useCallback(() => {
     setDisplay(false);
-    setDisplayDms(false);
-    setDisplayMedia(false);
     leaveFullscreen();
   }, []);
   // Leaving the view (or the tab closing) must not strand the browser in fullscreen.
@@ -747,13 +733,7 @@ export function FeedView({
   const shell = (content: ReactNode) => (
     <>
       {display ? (
-        <FeedDisplayBar
-          showDms={canReadPrivate ? showDms : null}
-          showMedia={displayMedia}
-          onShowDmsChange={setDisplayDms}
-          onShowMediaChange={setDisplayMedia}
-          onExit={exitDisplay}
-        />
+        <FeedDisplayBar onExit={exitDisplay} />
       ) : (
         <>
           {header}
@@ -895,6 +875,7 @@ export function FeedView({
                     itemKeys.has(`control:${entry.entry.pairedKey}`)
                   }
                   highlighted={highlightKey === item.key}
+                  readOnly={display}
                 />
               );
             }
@@ -909,7 +890,8 @@ export function FeedView({
                 time={formatRowTime(entry.row.received_at)}
                 radioName={radioName}
                 actions={actions}
-                remoteMedia={!display || displayMedia}
+                remoteMedia={!display}
+                readOnly={display}
               />
             );
           })}

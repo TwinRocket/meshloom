@@ -153,17 +153,17 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   across the reconnect, and are neither reconciled nor emptied by `resetFeedForRefetch()`.
 - **Display mode** (`#feed?display=1`, the Display button in the header; `feed/feedDisplay.ts`,
   `FeedDisplayBar.tsx`, slice `ca`). A layer over the reader's filters, never an edit:
-  `displayFilters(filters, showDms)` forces channels, DMs only when opted in, no node, and `FeedView`
-  evaluates and queries `shown` (so the first request carries `type=CHAN`), while `filters` stays what the chips,
-  `localStorage` and Exit use. DMs start on only when the URL names `types=chan,priv`; remote media (`remoteMedia`
-  on `FeedMessageRow`) and the DM toggle live in the bar and start off; the rich-payload preference and the saved
-  font scale are never written. `useDisplayChrome` sets `data-feed-display` on `<html>` (`styles.css` hides the
-  rail and bottom bar, strips blur and shadows; platform variants only there under `[data-platform]`) and raises the
-  font size by `DISPLAY_FONT_FACTOR` (1.25) over the saved scale. Follow is forced, rows get no actions. The URL in display
-  mode is the explicit display state (`types=chan` unless DMs on), so a reload opens the same screen. Fullscreen is
-  requested on the button click only and leaves silently when unavailable. It hides DMs from the screen, it does
-  not protect them (the WebSocket still delivers them; the `kiosk` role locks). The DM toggle is absent without
-  `canReadPrivate`. Tests: `feedView.test.tsx` ("display mode").
+  `displayFilters(filters)` forces channels only and no node, and `FeedView` evaluates and queries `shown`
+  (so the first request carries `type=CHAN`, whatever `types=` the URL carries), while `filters` stays what the
+  chips, `localStorage` and Exit use. Nothing in the mode re-enables DMs or remote media (`remoteMedia={false}` on
+  `FeedMessageRow`); the bar holds a clock and Exit only. The rich-payload preference and the saved font scale are
+  never written. `useDisplayChrome` sets `data-feed-display` on `<html>` (`styles.css` hides the rail, bottom bar and
+  banners, strips blur and shadows; platform variants only there under `[data-platform]`) and raises the font size by
+  `DISPLAY_FONT_FACTOR` (1.25) over the saved scale. Follow is forced; rows get no actions and `readOnly` (no
+  `tabIndex`). The URL in display mode is the explicit display state (`types=chan`), so a reload opens the same
+  screen. Fullscreen is requested on the button click only and leaves silently when unavailable. It hides DMs from
+  the screen, it does not protect them (the WebSocket still delivers them; the `kiosk` role locks). Tests:
+  `feedView.test.tsx` ("display mode").
 - **Last-visit mark.** `localStorage` `meshloom-feed-last-seen` = `{at, id}` of the newest row
   the reader has reached: the last row when following, otherwise the last row at or above the
   bottom edge of the viewport (rows that arrived below it, never scrolled to, stay "new").
