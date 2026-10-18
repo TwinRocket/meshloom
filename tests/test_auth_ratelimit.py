@@ -553,8 +553,7 @@ async def test_device_cookie_refused_when_forged_expired_for_another_user_or_sta
 
     owner = await create_user()
     other = await create_user("someone", PASSWORD, "member")
-    owner_hash = (await UserRepository.get_credentials(ADMIN)).password_hash.get_secret_value()
-    value = device_cookie.issue(owner.id, owner_hash, "dev1")
+    value = device_cookie.issue(owner.id, owner.updated_at, "dev1")
 
     assert await device_cookie.known_device(device_cookie.parse(value), ADMIN) == "dev1"
     # Forged: any change to the signed part, or a cookie signed with another key.
@@ -572,14 +571,14 @@ async def test_device_cookie_refused_when_forged_expired_for_another_user_or_sta
     assert device_cookie.parse(value) is None
     monkeypatch.setattr(device_cookie.time, "time", real_time)
     # After a password change (the generation moves).
+    device_cookie_clock = owner.updated_at + 5
+    monkeypatch.setattr("app.repository.auth.time.time", lambda: device_cookie_clock)
     await UserRepository.set_password_hash(owner.id, await hash_password_async("another long pass"))
     assert await device_cookie.known_device(device_cookie.parse(value), ADMIN) is None
     # A disabled account.
-    fresh = device_cookie.issue(
-        owner.id,
-        (await UserRepository.get_credentials(ADMIN)).password_hash.get_secret_value(),
-        "dev1",
-    )
+    fresh = device_cookie.issue(owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1")
+    assert await device_cookie.known_device(device_cookie.parse(fresh), ADMIN) == "dev1"
+    device_cookie_clock += 5
     await UserRepository.update(owner.id, disabled=True)
     assert await device_cookie.known_device(device_cookie.parse(fresh), ADMIN) is None
     # A restart (new key).

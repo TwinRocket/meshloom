@@ -10,10 +10,13 @@ fast it sends.
 
 - **Value.** ``v1.<user id>.<issued at>.<device id>.<generation>.<mac>``:
   ``device id`` is 128 random bits (the key of the per-device failure count),
-  ``generation`` the first 16 hex digits of SHA-256 over the user's stored
-  password hash, so any password change (``PATCH /api/auth/me``, the CLI, a
-  rehash) invalidates every cookie of that user, and ``mac`` an HMAC-SHA256
-  over the rest. The account must also be enabled when the cookie is checked.
+  ``generation`` the account's ``users.updated_at``, which every write to the
+  account moves (a password change from ``PATCH /api/auth/me`` or the CLI, a
+  rehash, disabling or enabling it, a rename), so each of them invalidates
+  every cookie of that user (nothing derived from the password is put in the
+  cookie), and ``mac`` an HMAC-SHA256 over the rest. The account must also be
+  enabled when the cookie is checked. ``updated_at`` has one-second
+  resolution: a change in the same second as the previous one would not move it.
 - **Key.** A random per-process secret: after a restart every cookie is
   unknown until the next successful login on that browser (the owner then
   shares the one-attempt-a-second slot like any unknown browser). Persisting
@@ -59,10 +62,6 @@ def cookie_name(secure: bool) -> str:
     return SECURE_COOKIE_NAME if secure else PLAIN_COOKIE_NAME
 
 
-def password_generation(password_hash: str) -> str:
-    return hashlib.sha256(password_hash.encode()).hexdigest()[:16]
-
-
 def _mac(payload: str) -> str:
     return hmac.new(_secret, payload.encode(), hashlib.sha256).hexdigest()
 
@@ -75,12 +74,11 @@ class DeviceCookie:
     generation: str
 
 
-def issue(user_id: int, password_hash: str, device_id: str | None = None) -> str:
-    """A signed cookie value for this user, keeping ``device_id`` when given."""
+def issue(user_id: int, generation: int, device_id: str | None = None) -> str:
+    """A signed cookie value for this user (``generation``: its ``updated_at``),
+    keeping ``device_id`` when given."""
     device = device_id or secrets.token_hex(16)
-    payload = ".".join(
-        [_VERSION, str(user_id), str(int(time.time())), device, password_generation(password_hash)]
-    )
+    payload = ".".join([_VERSION, str(user_id), str(int(time.time())), device, str(generation)])
     return f"{payload}.{_mac(payload)}"
 
 
@@ -118,8 +116,7 @@ async def known_device(cookie: DeviceCookie | None, username: str) -> str | None
         return None
     if credentials.password_hash is None:
         return None
-    current = password_generation(credentials.password_hash.get_secret_value())
-    if not hmac.compare_digest(current, cookie.generation):
+    if not hmac.compare_digest(str(credentials.user.updated_at), cookie.generation):
         return None
     return cookie.device_id
 

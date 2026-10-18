@@ -571,9 +571,12 @@ and none by IP alone behind Docker:
   successful password login sets `meshloom_device` (`__Secure-meshloom_device`
   over https): `v1.<user id>.<issued at>.<device id>.<generation>.<HMAC-SHA256>`,
   `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 180 days. `generation` is
-  the first 16 hex of SHA-256 over the stored password hash, so any password
-  change (route, CLI, rehash) invalidates the user's cookies; the account must
-  be enabled at check time. A login for that username with a valid cookie skips
+  the account's `users.updated_at`, moved by every write to the account
+  (password change from the route or the CLI, rehash, disable, enable, rename),
+  so each invalidates the user's cookies; nothing derived from the password
+  goes in the cookie (CodeQL flags a hash of the password hash, rightly). One-second
+  resolution: a change in the same second as the previous write does not move
+  it. The account must be enabled at check time. A login for that username with a valid cookie skips
   all three rules while its device id has fewer than `DEVICE_MAX_FAILURES` (5)
   failures within 15 minutes; past that it follows the ordinary rules until
   the count is forgotten or a login succeeds. The HMAC key is random per

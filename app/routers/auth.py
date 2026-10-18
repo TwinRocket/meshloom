@@ -290,10 +290,11 @@ async def _remember_device(
     response: Response, user: User, device_id: str | None, secure: bool
 ) -> None:
     """Set the known-device cookie after a password login (``app/auth/device_cookie.py``)."""
-    credentials = await UserRepository.get_credentials(user.username)
-    if credentials is None or credentials.password_hash is None:
+    # Read again: a rehash on this login moved updated_at after ``user`` was read.
+    current = await UserRepository.get(user.id)
+    if current is None or not current.has_password:
         return
-    value = device_cookie.issue(user.id, credentials.password_hash.get_secret_value(), device_id)
+    value = device_cookie.issue(current.id, current.updated_at, device_id)
     response.headers.append("set-cookie", device_cookie.cookie_header(value, secure=secure))
 
 
