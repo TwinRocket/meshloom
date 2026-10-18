@@ -22,6 +22,12 @@ export interface AuthSessionInfo {
   instance?: { name?: string; version: string };
 }
 
+/** `GET/PATCH /auth/settings` (admin): the access settings. */
+export interface AuthSettings {
+  /** Reverse proxies whose forwarded headers are believed, canonical CIDRs. Empty trusts none. */
+  trusted_proxies: string[];
+}
+
 export interface AuthSetupRequest {
   username: string;
   password: string;

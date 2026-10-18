@@ -1,0 +1,18 @@
+{
+  "settings": {
+    "trustedProxies": {
+      "title": "Proxies de confiance",
+      "label": "Reverse proxies placés devant cette instance",
+      "help": "Une adresse ou un réseau par ligne (127.0.0.1, 172.18.0.0/16, fd00::/8). N’indiquez que le reverse proxy que vous avez placé devant Meshloom (nginx, Caddy, Traefik, cloudflared). Depuis ces adresses seulement, Meshloom croit X-Forwarded-For (l’adresse du visiteur, utilisée pour les délais de connexion, le journal d’audit et les sessions) et X-Forwarded-Proto (https : cookie sécurisé). Une adresse listée peut se faire passer pour n’importe qui : n’indiquez jamais un réseau d’où viennent vos visiteurs.",
+      "none": "Vide : aucun proxy n’est de confiance. Les en-têtes transmis sont ignorés et l’adresse du visiteur est celle de la connexion.",
+      "invalid": "Ni une adresse IP ni un réseau (une adresse, ou adresse/préfixe ; pas /0) : {{entries}}",
+      "save": "Enregistrer les proxies",
+      "saving": "Enregistrement…",
+      "saved": "Proxies de confiance enregistrés",
+      "saveFailed": "Impossible d’enregistrer les proxies de confiance"
+    }
+  },
+  "errors": {
+    "auth_trusted_proxies_invalid": "Ni une adresse IP ni un réseau, ou plus de 32 proxies de confiance"
+  }
+}
