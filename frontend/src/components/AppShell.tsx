@@ -409,30 +409,33 @@ export function AppShell({
       >
         {t('shell.skipToContent')}
       </a>
-      <ServerLabelBand label={serverLabel} />
+      {/* Hidden by the feed display mode (`styles.css`, `data-feed-display`). */}
+      <div data-shell-banners="" className="contents">
+        <ServerLabelBand label={serverLabel} />
 
-      {!(showSettings && settingsSection === 'radio') && (
-        <RadioSetupBanner
-          health={statusProps.health ?? null}
-          onOpenRadioSettings={() => handleOpenSettings('radio')}
-        />
-      )}
-      {!(showSettings && settingsSection === 'radio') && (
-        <PathHashOneByteBanner
-          config={statusProps.config}
-          onOpenRadioSettings={() => handleOpenSettings('radio')}
-        />
-      )}
-      {/* Shown everywhere, the Community settings included: nothing but the
-          status leaves until a position is chosen or Community is left. */}
-      {communityWaitingForPosition(communityStatus) && <CommunityWaitingBanner />}
-      {communityStatus && !(showSettings && settingsSection === 'community') && (
-        <CommunitySetupBanner
-          enabled={communityStatus.enabled}
-          iata={communityStatus.iata}
-          onOpenSettings={() => handleOpenSettings('community')}
-        />
-      )}
+        {!(showSettings && settingsSection === 'radio') && (
+          <RadioSetupBanner
+            health={statusProps.health ?? null}
+            onOpenRadioSettings={() => handleOpenSettings('radio')}
+          />
+        )}
+        {!(showSettings && settingsSection === 'radio') && (
+          <PathHashOneByteBanner
+            config={statusProps.config}
+            onOpenRadioSettings={() => handleOpenSettings('radio')}
+          />
+        )}
+        {/* Shown everywhere, the Community settings included: nothing but the
+            status leaves until a position is chosen or Community is left. */}
+        {communityWaitingForPosition(communityStatus) && <CommunityWaitingBanner />}
+        {communityStatus && !(showSettings && settingsSection === 'community') && (
+          <CommunitySetupBanner
+            enabled={communityStatus.enabled}
+            iata={communityStatus.iata}
+            onOpenSettings={() => handleOpenSettings('community')}
+          />
+        )}
+      </div>
       <div data-toast-anchor="statusbar" aria-hidden="true" />
 
       <div className="flex flex-1 overflow-hidden">

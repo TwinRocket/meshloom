@@ -9,9 +9,10 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, Monitor } from 'lucide-react';
 
 import { formatApiError } from '../../api';
+import { useCapabilities } from '../../auth/SessionProvider';
 import {
   activateFeedStore,
   clearFeedRows,
@@ -62,6 +63,8 @@ import {
 import { pickAnchor, scrollShiftForAnchor, type ScrollAnchor } from './feedScroll';
 import type { FeedRowActions } from './feedActions';
 import { FeedFilterChips } from './FeedFilterChips';
+import { FeedDisplayBar } from './FeedDisplayBar';
+import { displayFilters, enterFullscreen, leaveFullscreen, useDisplayChrome } from './feedDisplay';
 import {
   fillHiddenPages,
   FEED_MAX_PAGES_PER_GESTURE,
@@ -157,7 +160,18 @@ export function FeedView({
   const [filters, setFilters] = useState<FeedFilters>(() =>
     applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), initialQuery)
   );
-  const [display] = useState(() => (initialQuery ? parseFeedQuery(initialQuery).display : false));
+  // Display mode: a layer over `filters` (see `feedDisplay.ts`), so leaving it restores them.
+  // Direct messages open only when the URL named them (`types=chan,priv`), remote media never.
+  const [display, setDisplay] = useState(() =>
+    initialQuery ? parseFeedQuery(initialQuery).display : false
+  );
+  const [displayDms, setDisplayDms] = useState(
+    () => (initialQuery ? parseFeedQuery(initialQuery).filters.priv : false) === true
+  );
+  const [displayMedia, setDisplayMedia] = useState(false);
+  const { canReadPrivate } = useCapabilities();
+  const showDms = display && displayDms && canReadPrivate;
+  useDisplayChrome(display);
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -193,6 +207,8 @@ export function FeedView({
   const epochRef = useRef(epoch);
   const tRef = useRef(t);
   const filtersRef = useRef(filters);
+  const displayRef = useRef(display);
+  displayRef.current = display;
   const channelsRef = useRef(channels);
   const firstQueryRef = useRef(true);
   // True from a change of `type` / `outgoing` until the debounced reload empties the store:
@@ -218,7 +234,9 @@ export function FeedView({
     // The URL already shows this state and the pinned filters are not the reader's choice.
     skipFirstSaveRef.current = true;
     firstUrlSyncRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the hash changed under the view: its filters follow the URL.
+    const parsed = parseFeedQuery(incoming);
+    setDisplay(parsed.display);
+    setDisplayDms(parsed.filters.priv === true);
     setFilters(applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), incoming));
   }, [initialQuery, preset]);
 
@@ -241,14 +259,18 @@ export function FeedView({
       firstUrlSyncRef.current = false;
       return;
     }
-    const feedQuery = feedQueryOf(filters, display);
+    // In display mode the URL says what the screen shows (`types=chan` unless it opted in to
+    // DMs), so a reload of the bookmark opens the same screen.
+    const feedQuery = display
+      ? feedQueryOf(displayFilters(filters, showDms), true)
+      : feedQueryOf(filters, false);
     ownQueryRef.current = feedQuery;
     replaceFeedHash(preset, feedQuery);
     saveLastViewedConversation(
       makeFeedConversation(tRef.current('sidebar.feed'), preset, feedQuery)
     );
     onQueryChangeRef.current?.(feedQuery);
-  }, [filters, display, preset]);
+  }, [filters, display, showDms, preset]);
 
   // Rows are re-evaluated once a minute so an expired timed mute reappears. A `channel`
   // frame reaches this view as a new `channels` prop, which the memo below depends on.
@@ -264,28 +286,33 @@ export function FeedView({
     [controlPackets, contacts, channels, publicKey]
   );
   const nodeSections = useMemo(() => buildFeedNodes(entries, t), [entries, t]);
+  // What the timeline evaluates: the reader's filters, or the display layer over them.
+  const shown = useMemo(
+    () => (display ? displayFilters(filters, showDms) : filters),
+    [display, filters, showDms]
+  );
   // A stored node filters only while the facet that shows (and clears) it is on screen:
   // Control on and the node still among the threads. Otherwise it is ignored, never a
   // hidden filter the reader cannot see.
   // The match ignores case (a URL carries a lowercase key) and resolves to the thread's own id.
   const activeNode = useMemo(() => {
-    if (!filters.sources.control || !filters.node) return null;
-    const wanted = filters.node.toLowerCase();
+    if (!shown.sources.control || !shown.node) return null;
+    const wanted = shown.node.toLowerCase();
     for (const section of nodeSections) {
       const found = section.nodes.find((n) => n.id.toLowerCase() === wanted);
       if (found) return found.id;
     }
     return null;
-  }, [filters.sources.control, filters.node, nodeSections]);
+  }, [shown.sources.control, shown.node, nodeSections]);
   const effective = useMemo<FeedFilters>(
-    () => (activeNode === filters.node ? filters : { ...filters, node: activeNode }),
-    [filters, activeNode]
+    () => (activeNode === shown.node ? shown : { ...shown, node: activeNode }),
+    [shown, activeNode]
   );
   filtersRef.current = effective;
 
-  const noMessages = hasNoMessages(filters);
-  const emptySelection = hasEmptySelection(filters);
-  const query = useMemo(() => filtersToQuery(filters), [filters]);
+  const noMessages = hasNoMessages(shown);
+  const emptySelection = hasEmptySelection(shown);
+  const query = useMemo(() => filtersToQuery(shown), [shown]);
   const queryKey = noMessages ? 'none' : JSON.stringify(query);
 
   const visibleRows = useMemo(
@@ -294,8 +321,8 @@ export function FeedView({
   );
   visibleRowsRef.current = visibleRows;
   const visibleControl = useMemo(
-    () => visibleControlEntries(entries, filters.sources.control, activeNode),
-    [entries, filters.sources.control, activeNode]
+    () => visibleControlEntries(entries, shown.sources.control, activeNode),
+    [entries, shown.sources.control, activeNode]
   );
   visibleControlRef.current = visibleControl;
   const hidden = useMemo(
@@ -445,7 +472,7 @@ export function FeedView({
 
   // Muted / pending and the node are client-side: ticking them in place can leave a short list that
   // cannot be scrolled, so the same bounded fetch applies.
-  const clientFilterKey = `${filters.includeMuted}|${filters.includePending}|${activeNode}`;
+  const clientFilterKey = `${shown.includeMuted}|${shown.includePending}|${activeNode}`;
   useEffect(() => {
     if (firstClientFilterRef.current) {
       firstClientFilterRef.current = false;
@@ -564,7 +591,8 @@ export function FeedView({
     anchorRef.current = pickAnchor(virtualizer.getVirtualItems(), el.scrollTop);
     viewportBottomRef.current = el.scrollTop + el.clientHeight;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setFollow(distance <= FOLLOW_THRESHOLD_PX);
+    // Display mode keeps following whatever touched the screen.
+    setFollow(displayRef.current || distance <= FOLLOW_THRESHOLD_PX);
     if (el.scrollTop <= LOAD_OLDER_THRESHOLD_PX && status === 'ready') void loadOlder();
   }, [loadOlder, setFollow, status, virtualizer]);
 
@@ -595,6 +623,8 @@ export function FeedView({
 
   // Without the three callbacks (a bare view) rows are read-only, no menu either.
   const actions = useMemo<FeedRowActions | undefined>(() => {
+    // A wall screen has nobody to click: rows are plain text, no menu, no navigation.
+    if (display) return undefined;
     if (!onNavigateToMessage || !onSelectConversation || !onOpenContactInfo) return undefined;
     return {
       onOpenMessage: (row, conversationName) =>
@@ -612,7 +642,7 @@ export function FeedView({
         }),
       onOpenContact: onOpenContactInfo,
     };
-  }, [onNavigateToMessage, onSelectConversation, onOpenContactInfo]);
+  }, [display, onNavigateToMessage, onSelectConversation, onOpenContactInfo]);
 
   useEffect(
     () => () => {
@@ -633,23 +663,65 @@ export function FeedView({
     [items, virtualizer]
   );
   const controlActions = useMemo<FeedControlActions>(
-    () => ({
-      onInspect: setInspected,
-      onOpenContact: onOpenContactInfo,
-      onOpenChannel: onSelectConversation
-        ? (channel) =>
-            onSelectConversation({ type: 'channel', id: channel.key, name: channel.name })
-        : undefined,
-      onOpenPaired: openPaired,
-    }),
-    [onOpenContactInfo, onSelectConversation, openPaired]
+    () =>
+      display
+        ? { onInspect: () => {} }
+        : {
+            onInspect: setInspected,
+            onOpenContact: onOpenContactInfo,
+            onOpenChannel: onSelectConversation
+              ? (channel) =>
+                  onSelectConversation({ type: 'channel', id: channel.key, name: channel.name })
+              : undefined,
+            onOpenPaired: openPaired,
+          },
+    [display, onOpenContactInfo, onSelectConversation, openPaired]
   );
   const itemKeys = useMemo(() => new Set(items.map((item) => item.key)), [items]);
 
-  const header = <ToolPaneHeader title={t('feed.title')} onBack={onBackToTools} />;
+  const enterDisplay = useCallback(() => {
+    setFollow(true);
+    setDisplay(true);
+    enterFullscreen();
+  }, [setFollow]);
+  const exitDisplay = useCallback(() => {
+    setDisplay(false);
+    setDisplayDms(false);
+    setDisplayMedia(false);
+    leaveFullscreen();
+  }, []);
+  // Leaving the view (or the tab closing) must not strand the browser in fullscreen.
+  useEffect(() => leaveFullscreen, []);
+  useEffect(() => {
+    if (display) {
+      followingRef.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- display mode forces follow on, also when it opens from the URL.
+      setFollowing(true);
+    }
+  }, [display]);
+
+  const header = (
+    <ToolPaneHeader
+      title={t('feed.title')}
+      onBack={onBackToTools}
+      actions={
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={enterDisplay}
+          aria-label={t('feed.display.enter')}
+          title={t('feed.display.enterHint')}
+        >
+          <Monitor className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden md:inline">{t('feed.display.enter')}</span>
+        </Button>
+      }
+    />
+  );
   const chips = <FeedFilterChips filters={filters} hidden={hidden} onChange={setFilters} />;
   const facet =
-    filters.sources.control && nodeSections.length > 0 ? (
+    !display && filters.sources.control && nodeSections.length > 0 ? (
       <FeedNodesFacet
         sections={nodeSections}
         selected={activeNode}
@@ -674,8 +746,20 @@ export function FeedView({
   // Header, chips, then the Nodes facet beside the pane the rest of the view fills.
   const shell = (content: ReactNode) => (
     <>
-      {header}
-      {chips}
+      {display ? (
+        <FeedDisplayBar
+          showDms={canReadPrivate ? showDms : null}
+          showMedia={displayMedia}
+          onShowDmsChange={setDisplayDms}
+          onShowMediaChange={setDisplayMedia}
+          onExit={exitDisplay}
+        />
+      ) : (
+        <>
+          {header}
+          {chips}
+        </>
+      )}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {facet}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{content}</div>
@@ -825,12 +909,13 @@ export function FeedView({
                 time={formatRowTime(entry.row.received_at)}
                 radioName={radioName}
                 actions={actions}
+                remoteMedia={!display || displayMedia}
               />
             );
           })}
         </div>
       </div>
-      {!following && (
+      {!following && !display && (
         <Button
           type="button"
           size="sm"

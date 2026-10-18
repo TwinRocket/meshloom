@@ -1,0 +1,13 @@
+{
+  "feed": {
+    "display": {
+      "enter": "Display mode",
+      "enterHint": "Large text, no menus, follows the newest messages: for a wall screen or a kiosk. Direct messages and images are off until you tick them.",
+      "exit": "Exit",
+      "clock": "Current time",
+      "showDms": "Direct messages",
+      "showMedia": "Images and GIFs",
+      "showDmsNote": "Hiding direct messages is a display choice, not an access control: this browser still receives them. The kiosk role is what blocks them."
+    }
+  }
+}

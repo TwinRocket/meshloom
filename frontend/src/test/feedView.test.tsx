@@ -1,5 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './qSlices';
 
@@ -22,6 +24,7 @@ import {
   resetFeedStore,
 } from '../stores/feedStore';
 import { FEED_FILTERS_STORAGE_KEY } from '../utils/feedFilters';
+import { RENDER_RICH_PAYLOADS_KEY } from '../utils/richPayloadPreference';
 import type { Channel, Message } from '../types';
 
 const CHANNEL_KEY = '8B3387E9C5CDEA6AC9E5EDBAA115CD72';
@@ -782,5 +785,175 @@ describe('FeedView live merge', () => {
     });
     await waitFor(() => expect(getFeedSnapshot().rows.map((m) => m.id)).toEqual([50, 51, 52]));
     expect(mocks.getMessages).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('FeedView display mode', () => {
+  const dmRow = () =>
+    msg(5, { type: 'PRIV', conversation_key: 'aa'.repeat(32), text: 'psst', sender_name: 'Bob' });
+  const gifRow = () => msg(6, { text: 'Alice: g:abc123' });
+  const enterLabel = () => i18n.t('feed.display.enter');
+  const exitLabel = () => i18n.t('feed.display.exit');
+
+  afterEach(() => {
+    cleanup();
+    document.documentElement.removeAttribute('data-feed-display');
+    document.documentElement.style.fontSize = '';
+  });
+
+  it('opens from the URL with channels only, sent to the server as type=CHAN', async () => {
+    mocks.getMessages.mockResolvedValue([gifRow(), dmRow()]);
+    render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
+
+    const list = await screen.findByRole('list');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      1,
+      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      expect.anything()
+    );
+    expect(document.documentElement.hasAttribute('data-feed-display')).toBe(true);
+    // Chips, facets and the header are gone; Exit and the clock remain.
+    expect(screen.queryByRole('button', { name: new RegExp(chipLabel('muted')) })).toBeNull();
+    expect(screen.queryByRole('button', { name: enterLabel() })).toBeNull();
+    expect(screen.getByRole('button', { name: exitLabel() })).toBeTruthy();
+    expect(screen.getByLabelText(i18n.t('feed.display.clock'))).toBeTruthy();
+  });
+
+  it('raises the font scale by 25 % and gives it back, without touching the saved scale', async () => {
+    localStorage.setItem('meshloom-font-scale', '120');
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    const view = render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
+    await screen.findByRole('list');
+    expect(document.documentElement.style.fontSize).toBe('150%');
+    expect(localStorage.getItem('meshloom-font-scale')).toBe('120');
+    view.unmount();
+    expect(document.documentElement.hasAttribute('data-feed-display')).toBe(false);
+    expect(document.documentElement.style.fontSize).not.toBe('150%');
+  });
+
+  it('enters from the button, then exit restores the previous filters and request', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1), dmRow()]);
+    renderFeed();
+    const list = await screen.findByRole('list');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    // The reader's own filters: DMs on, Sent off.
+    fireEvent.click(chip(chipLabel('sent')));
+    const stored = localStorage.getItem(FEED_FILTERS_STORAGE_KEY);
+
+    fireEvent.click(screen.getByRole('button', { name: enterLabel() }));
+    await waitFor(() => expect(screen.getByRole('button', { name: exitLabel() })).toBeTruthy());
+    await waitFor(() =>
+      expect(mocks.getMessages).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: 'CHAN' }),
+        expect.anything()
+      )
+    );
+    expect(window.location.hash).toContain('display=1');
+    expect(window.location.hash).toContain('types=chan&');
+    expect(window.location.hash).not.toContain('priv');
+
+    fireEvent.click(screen.getByRole('button', { name: exitLabel() }));
+    await waitFor(() => expect(chip(chipLabel('sent'))).toBeTruthy());
+    expect(chip(chipLabel('sent')).getAttribute('aria-pressed')).toBe('false');
+    expect(chip(chipLabel('direct')).getAttribute('aria-pressed')).toBe('true');
+    expect(window.location.hash).not.toContain('display');
+    expect(localStorage.getItem(FEED_FILTERS_STORAGE_KEY)).toBe(stored);
+    await waitFor(() =>
+      expect(mocks.getMessages).toHaveBeenLastCalledWith(
+        expect.not.objectContaining({ type: 'CHAN' }),
+        expect.anything()
+      )
+    );
+  });
+
+  it('leaves the reactions preference untouched when entering and leaving', async () => {
+    localStorage.setItem(RENDER_RICH_PAYLOADS_KEY, 'false');
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    renderFeed();
+    await screen.findByRole('list');
+    fireEvent.click(screen.getByRole('button', { name: enterLabel() }));
+    fireEvent.click(await screen.findByRole('button', { name: exitLabel() }));
+    expect(localStorage.getItem(RENDER_RICH_PAYLOADS_KEY)).toBe('false');
+    localStorage.setItem(RENDER_RICH_PAYLOADS_KEY, 'true');
+    fireEvent.click(await screen.findByRole('button', { name: enterLabel() }));
+    fireEvent.click(await screen.findByRole('button', { name: exitLabel() }));
+    expect(localStorage.getItem(RENDER_RICH_PAYLOADS_KEY)).toBe('true');
+  });
+
+  it('keeps GIFs as text until media is re-enabled inside the mode', async () => {
+    mocks.getMessages.mockResolvedValue([gifRow()]);
+    render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
+    const list = await screen.findByRole('list');
+    expect(list.querySelector('img')).toBeNull();
+    fireEvent.click(screen.getByLabelText(i18n.t('feed.display.showMedia')));
+    await waitFor(() => expect(list.querySelector('img')).not.toBeNull());
+  });
+
+  it('shows DMs only when the URL names them or the toggle is ticked, and says why they are hidden', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1), dmRow()]);
+    render(<FeedView initialQuery="display=1" contacts={[]} channels={channels} />);
+    await screen.findByRole('list');
+    const toggle = screen.getByLabelText(i18n.t('feed.display.showDms'));
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(toggle.closest('label')?.getAttribute('title')).toBe(i18n.t('feed.display.showDmsNote'));
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(mocks.getMessages).toHaveBeenLastCalledWith(
+        expect.not.objectContaining({ type: 'CHAN' }),
+        expect.anything()
+      )
+    );
+    expect(window.location.hash).toContain('types=chan,priv');
+
+    cleanup();
+    mocks.getMessages.mockClear();
+    render(<FeedView initialQuery="types=chan,priv&display=1" contacts={[]} channels={channels} />);
+    await screen.findByRole('list');
+    expect(
+      (screen.getByLabelText(i18n.t('feed.display.showDms')) as HTMLInputElement).checked
+    ).toBe(true);
+  });
+
+  it('keeps following whatever the reader scrolls, and rows are read-only', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 8)));
+    render(
+      <FeedView
+        initialQuery="display=1"
+        contacts={[]}
+        channels={channels}
+        onNavigateToMessage={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onOpenContactInfo={vi.fn()}
+      />
+    );
+    const scroller = await findScroller();
+    mockGeometry(scroller, { scrollHeight: 1000, clientHeight: 400 });
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(
+      screen.queryByRole('button', { name: new RegExp(`^${i18n.t('feed.follow')}`) })
+    ).toBeNull();
+    // No row menu, no channel button: plain text.
+    expect(screen.queryByRole('button', { name: /more|plus/i })).toBeNull();
+    await act(async () => {
+      recordFeedMessage(msg(9));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(scroller.scrollTop).toBe(1000));
+  });
+});
+
+describe('display mode stylesheet', () => {
+  const css = readFileSync(join(__dirname, '..', 'styles.css'), 'utf8');
+
+  it('hides the shell chrome under data-feed-display', () => {
+    expect(css).toMatch(/\[data-feed-display\] \[data-desktop-rail\]/);
+    expect(css).toMatch(/\[data-feed-display\] \[data-bottom-nav\]/);
+  });
+
+  it('keeps platform variants in CSS under [data-platform]', () => {
+    expect(css).toMatch(/\[data-platform='ios'\] \[data-feed-display-bar\]/);
+    expect(css).toMatch(/\[data-platform='android'\] \[data-feed-display-bar\]/);
   });
 });

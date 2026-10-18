@@ -16,6 +16,8 @@ interface FeedMessageRowProps {
   time: { short: string; full: string };
   radioName?: string;
   actions?: FeedRowActions;
+  /** False keeps a GIF as its text (display mode); a pending channel never loads it either. */
+  remoteMedia?: boolean;
   /** The virtualizer's measuring ref, the item's index and its translateY offset. */
   measureRef?: Ref<HTMLDivElement>;
   index: number;
@@ -47,6 +49,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
   time,
   radioName,
   actions,
+  remoteMedia = true,
   measureRef,
   index,
   offset,
@@ -208,7 +211,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
       <MessageBody
         content={labels.content}
         radioName={radioName}
-        remoteMedia={!labels.pendingChannel}
+        remoteMedia={remoteMedia && !labels.pendingChannel}
       />
     </div>
   );
