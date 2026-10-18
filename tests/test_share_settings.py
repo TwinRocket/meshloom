@@ -133,3 +133,30 @@ def test_backup_decisions():
     assert BACKUP_COVERAGE["app_settings.share_instance_seed"][0] == "excluded"
     assert BACKUP_COVERAGE["app_settings.share_shorten_mode"][0] == "included"
     assert BACKUP_COVERAGE["app_settings.share_preview_policy"][0] == "included"
+
+
+@pytest.mark.asyncio
+async def test_json_export_leaves_the_consent_out(test_db):
+    await AppSettingsRepository.update(share_enabled=True, share_shorten_mode="never")
+    dumped = (await export_json()).model_dump(mode="json")
+    assert "share_enabled" not in dumped["settings"]
+    assert dumped["settings"]["share_shorten_mode"] == "never"
+
+
+@pytest.mark.asyncio
+async def test_database_copy_resets_the_consent_and_clears_the_seed(test_db, tmp_path):
+    import aiosqlite
+
+    from app.services.backup import write_sqlite_backup
+
+    await AppSettingsRepository.update(share_enabled=True, share_shorten_mode="never")
+    await AppSettingsRepository.set_share_seed(SEED)
+    path = tmp_path / "copy.db"
+    await write_sqlite_backup(test_db, str(path))
+    async with aiosqlite.connect(path) as conn:
+        async with conn.execute(
+            "SELECT share_enabled, share_instance_seed, share_shorten_mode FROM app_settings"
+        ) as cursor:
+            assert tuple(await cursor.fetchone()) == (0, None, "never")
+    # The live database keeps the consent.
+    assert (await AppSettingsRepository.get()).share_enabled is True

@@ -2039,6 +2039,13 @@ class BackupExport(BaseModel):
         description="Secrets written as ``********`` instead of their value, by path.",
     )
 
+    @field_serializer("settings", when_used="always")
+    def _serialize_settings(self, settings: AppSettings | None) -> dict[str, Any] | None:
+        """The sharing consent never travels: it is not written to the file."""
+        if settings is None:
+            return None
+        return settings.model_dump(mode="python", exclude={"share_enabled"})
+
 
 class BackupRestoreRequest(BackupExport):
     confirm: bool = Field(

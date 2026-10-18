@@ -284,4 +284,39 @@ describe('feed messages and the chat render path', () => {
     expect(mocks.conversationPane.mock.calls.length).toBe(paneRendersBefore);
     expect(mocks.messageList).not.toHaveBeenCalled();
   });
+
+  it('keeps control packets off the chat render path, and records them only once the feed is active', async () => {
+    type RawOptions = { onRawPacket?: (p: unknown) => void } | null;
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument());
+    const packet = (id: number) => ({
+      id,
+      observation_id: id,
+      timestamp: 1_700_000_000 + id,
+      data: `0100bbaa${id.toString(16).padStart(4, '0')}${'11'.repeat(16)}`,
+      payload_type: 'Request',
+      snr: null,
+      rssi: null,
+      decrypted: false,
+      decrypted_info: null,
+    });
+    const rendersBefore = mocks.messageList.mock.calls.length;
+    // Inactive: the handler only checks a flag.
+    await act(async () => {
+      for (let i = 1; i <= 50; i += 1)
+        (mocks.ws.options as unknown as RawOptions)?.onRawPacket?.(packet(i));
+      await Promise.resolve();
+    });
+    expect(getFeedSnapshot().controlPackets).toHaveLength(0);
+
+    activateFeedStore();
+    await act(async () => {
+      for (let i = 100; i < 300; i += 1)
+        (mocks.ws.options as unknown as RawOptions)?.onRawPacket?.(packet(i));
+      await Promise.resolve();
+    });
+    // The 50 held in the raw buffer seed the feed on activation, the 200 arrive live.
+    expect(getFeedSnapshot().controlPackets).toHaveLength(250);
+    expect(mocks.messageList.mock.calls.length).toBe(rendersBefore);
+  });
 });

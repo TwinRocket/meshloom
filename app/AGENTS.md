@@ -75,7 +75,8 @@ run as root).
   way). `share_instance_seed` is outside `AppSettings`, read and written only through
   `AppSettingsRepository.get_share_seed()/set_share_seed()`; the `*_seed` rule of
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
-  the backup restore, the two behaviours are restored.
+  the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
+  behaviours are restored.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or

@@ -100,6 +100,34 @@ function journalTypeOf(packet: RawPacket, facts: DecodeFacts): ControlJournalPay
   );
 }
 
+/** Header payload types of the four control types (bits 2-5 of the first byte). */
+const CONTROL_HEADER_TYPES: ReadonlySet<number> = new Set([
+  PayloadType.Request,
+  PayloadType.Response,
+  PayloadType.AnonRequest,
+  PayloadType.GroupData,
+]);
+
+/**
+ * Whether the packet is one of the four control types. The first header byte and the
+ * server's label settle the common case (everything else) without decoding; only a
+ * candidate goes through the decode cache, so each observation is decoded once.
+ */
+export function isControlJournalPacket(packet: RawPacket): boolean {
+  const header = Number.parseInt(packet.data.slice(0, 2), 16);
+  const headerHit = !Number.isNaN(header) && CONTROL_HEADER_TYPES.has((header >> 2) & 0x0f);
+  if (!headerHit && !isControlJournalPayloadType(packet.payload_type)) return false;
+  const facts = getDecodeFacts(packet);
+  return (
+    isControlJournalPayloadType(facts.typeName) || isControlJournalPayloadType(packet.payload_type)
+  );
+}
+
+/** Drop the cached decode of an observation that left the feed's control rows. */
+export function forgetControlDecode(observationKey: string): void {
+  decodeCache.delete(observationKey);
+}
+
 export function filterControlJournalPackets(packets: RawPacket[]): RawPacket[] {
   const kept: RawPacket[] = [];
   const live = new Set<string>();
