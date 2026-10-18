@@ -274,6 +274,22 @@ class WebSocketManager:
         1008). Returns how many. Call it after revoking them."""
         return self._close_indexed(self._by_session, session_ids, "session revoked")
 
+    def close_user(self, user_id: int, *, except_session_id: str | None = None) -> int:
+        """Close every socket a user opened, whatever its credential (session,
+        Basic, ingress, token), except those of ``except_session_id``: a role
+        change, a disable or a deletion (a socket keeps the role it opened with).
+        Returns how many."""
+        clients = [
+            client
+            for client in self.active_connections.values()
+            if client.principal is not None
+            and client.principal.user_id == user_id
+            and (except_session_id is None or client.session_id != except_session_id)
+        ]
+        for client in clients:
+            self._evict(client, "account changed", code=REVOKED_CLOSE_CODE)
+        return len(clients)
+
     def close_tokens(self, token_ids: Iterable[str]) -> int:
         """Close every socket opened with one of these API or device tokens."""
         return self._close_indexed(self._by_token, token_ids, "token revoked")

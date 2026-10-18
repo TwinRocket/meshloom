@@ -77,13 +77,43 @@ async def test_update_and_admin_count(test_db):
     assert await UserRepository.count_enabled_admins() == 2
     changed = await UserRepository.update(other.id, disabled=True, display_name=" Ops ", now=99)
     assert changed is not None and changed.disabled and changed.display_name == "Ops"
-    assert changed.updated_at == 99
+    # Never backwards, and at least one second on: the known-device cookies key on it.
+    assert changed.updated_at == other.updated_at + 1
     assert await UserRepository.count_enabled_admins() == 1
     demoted = await UserRepository.update(admin.id, role="viewer")
     assert demoted is not None and demoted.role == "viewer"
     with pytest.raises(ValueError):
         await UserRepository.update(admin.id, role="root")  # type: ignore[arg-type]
     assert await UserRepository.update(12345, role="member") is None
+
+
+@pytest.mark.asyncio
+async def test_updated_at_moves_on_every_write_even_in_the_same_second(test_db):
+    user = await UserRepository.create("erin", "member", password_hash=HASH, now=500)
+    first = await UserRepository.update(user.id, display_name="E", now=500)
+    assert first is not None and first.updated_at == 501
+    assert await UserRepository.set_password_hash(user.id, HASH, now=500)
+    second = await UserRepository.get(user.id)
+    assert second is not None and second.updated_at == 502
+    later = await UserRepository.update(user.id, display_name="Erin", now=900)
+    assert later is not None and later.updated_at == 900
+
+
+@pytest.mark.asyncio
+async def test_keep_an_admin_refuses_and_rolls_back(test_db):
+    from app.repository.auth import LastAdminError
+
+    admin = await UserRepository.create("root", "admin")
+    for change in ({"role": "member"}, {"disabled": True}):
+        with pytest.raises(LastAdminError):
+            await UserRepository.update(admin.id, keep_an_admin=True, **change)  # type: ignore[arg-type]
+        kept = await UserRepository.get(admin.id)
+        assert kept is not None and kept.role == "admin" and not kept.disabled
+    with pytest.raises(LastAdminError):
+        await UserRepository.delete(admin.id, keep_an_admin=True)
+    assert await UserRepository.get(admin.id) is not None
+    # Without the flag (meshloom-admin disable-user --force) the change goes through.
+    assert (await UserRepository.update(admin.id, disabled=True)).disabled  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio

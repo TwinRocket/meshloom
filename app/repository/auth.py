@@ -129,6 +129,10 @@ class InvalidUsernameError(ValueError):
     """Empty, too long, or containing control characters."""
 
 
+class LastAdminError(ValueError):
+    """The change would leave no enabled administrator (``auth_last_admin``)."""
+
+
 class AuthSettingsMissingError(RuntimeError):
     """The ``auth_settings`` row is gone: refuse to act on defaults (fail closed).
 
@@ -191,6 +195,20 @@ def _row_to_session(row: Any) -> AuthSession:
 def _check_role(role: str) -> None:
     if role not in ROLES:
         raise ValueError(f"unknown role: {role}")
+
+
+# Every write to an account moves ``updated_at`` forward by at least one
+# second, so the known-device cookies keyed on it (``app/auth/device_cookie.py``)
+# are invalidated even by a second write in the same second.
+_BUMP_UPDATED_AT = "updated_at = MAX(?, updated_at + 1)"
+
+
+async def _count_enabled_admins(conn: aiosqlite.Connection) -> int:
+    async with conn.execute(
+        "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
+    ) as cursor:
+        row = await cursor.fetchone()
+    return int(row[0]) if row else 0
 
 
 async def _fetch_user(conn: aiosqlite.Connection, user_id: int) -> User | None:
@@ -309,11 +327,7 @@ class UserRepository:
     @staticmethod
     async def count_enabled_admins() -> int:
         async with db.readonly() as conn:
-            async with conn.execute(
-                "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
-            ) as cursor:
-                row = await cursor.fetchone()
-        return int(row[0]) if row else 0
+            return await _count_enabled_admins(conn)
 
     @staticmethod
     async def update(
@@ -323,11 +337,17 @@ class UserRepository:
         role: Role | None = None,
         disabled: bool | None = None,
         must_change_password: bool | None = None,
+        clear_password: bool = False,
+        keep_an_admin: bool = False,
         now: int | None = None,
     ) -> User | None:
         """Change profile fields. Revoking sessions on a role change or a
-        disable is the caller's decision (``app.auth.sessions.revoke_user_sessions``,
-        which also closes their WebSockets)."""
+        disable is the caller's decision (``app.auth.sessions.sign_out_user``,
+        which also closes their WebSockets).
+
+        ``clear_password`` removes the password (a ``kiosk`` has none).
+        ``keep_an_admin`` refuses, in the same transaction, a change that
+        leaves no enabled administrator: ``LastAdminError``, nothing written."""
         updates: list[str] = []
         params: list[Any] = []
         if display_name is not None:
@@ -343,11 +363,15 @@ class UserRepository:
         if must_change_password is not None:
             updates.append("must_change_password = ?")
             params.append(int(must_change_password))
+        if clear_password:
+            updates.append("password_hash = NULL")
         async with db.tx() as conn:
             if updates:
-                updates.append("updated_at = ?")
+                updates.append(_BUMP_UPDATED_AT)
                 params.extend([_now(now), user_id])
                 await conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+                if keep_an_admin and await _count_enabled_admins(conn) == 0:
+                    raise LastAdminError("the last enabled administrator must stay")
             return await _fetch_user(conn, user_id)
 
     @staticmethod
@@ -361,21 +385,25 @@ class UserRepository:
         """Store a new hash (or None to remove the password). True if the user exists."""
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = ?"
-                " WHERE id = ?",
+                "UPDATE users SET password_hash = ?, must_change_password = ?, "
+                f"{_BUMP_UPDATED_AT} WHERE id = ?",
                 (password_hash, int(must_change_password), _now(now), user_id),
             ) as cursor:
                 return cursor.rowcount > 0
 
     @staticmethod
-    async def delete(user_id: int) -> bool:
-        """Delete a user; its sessions go with it (foreign key cascade)."""
+    async def delete(user_id: int, *, keep_an_admin: bool = False) -> bool:
+        """Delete a user; its sessions go with it (foreign key cascade).
+        ``keep_an_admin``: as for ``update()``."""
         async with db.tx() as conn:
             # Explicit, so the sessions go even on a connection without
             # PRAGMA foreign_keys (migration tests, scripts).
             await conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             async with conn.execute("DELETE FROM users WHERE id = ?", (user_id,)) as cursor:
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
+            if deleted and keep_an_admin and await _count_enabled_admins(conn) == 0:
+                raise LastAdminError("the last enabled administrator must stay")
+            return deleted
 
 
 class AuthSessionRepository:
