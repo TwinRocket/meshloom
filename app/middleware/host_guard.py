@@ -151,6 +151,11 @@ def _public_hosts(public_urls: Iterable[str]) -> frozenset[str]:
     return frozenset(hosts)
 
 
+def public_hosts(public_urls: Iterable[str]) -> frozenset[str]:
+    """The host names of the declared public addresses, lowercase."""
+    return _public_hosts(public_urls)
+
+
 def request_host(raw: str) -> str | None:
     """The host part of a ``Host`` header, lowercase, without port or brackets."""
     raw = raw.strip()

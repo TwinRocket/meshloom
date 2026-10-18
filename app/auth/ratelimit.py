@@ -60,6 +60,12 @@ attempt: ``delayed`` for the pair and username rules, ``refused`` for the
 per-IP rule (``LoginDelayed.first``), so a flood of refused attempts cannot
 fill the audit table. Failures themselves are audited as before.
 
+**Device pairing.** ``POST /api/auth/pair`` (``app/auth/pairing.py``) counts a
+bad code as a failure under one shared key with ``name_rule=False``: the pair
+and per-IP rules apply to the client, the per-username slow-down does not
+(one client must not slow every device down; a 128-bit code needs no global
+rule). On a shared address no rule applies to it.
+
 Not covered: ``Authorization: Basic`` keeps its own per-IP cooldown
 (``app/security.py``), and installation codes are answered one at a time
 (``app/routers/auth.py``). Concurrent attempts on one pair can each pass
@@ -281,13 +287,22 @@ class LoginLimiter:
         entry = self._devices.get(device)
         return entry is None or entry.failures < DEVICE_MAX_FAILURES
 
-    def check(self, address: str | None, username: str, device: str | None = None) -> None:
+    def check(
+        self,
+        address: str | None,
+        username: str,
+        device: str | None = None,
+        *,
+        name_rule: bool = True,
+    ) -> None:
         """Raise ``LoginDelayed`` unless this attempt may be checked now.
 
         ``address`` comes from ``address_key()``: None applies the username rule only.
         ``device`` is a known-device id (``app/auth/device_cookie.py``): while it
         has its budget, no rule applies to it. Takes the username's slot when it
-        is slowed down, so call it once per attempt.
+        is slowed down, so call it once per attempt. ``name_rule=False`` (the
+        device pairing redemption, whose "username" is one shared key) applies
+        the per-address rules only, so one client cannot slow everyone down.
         """
         now = self._clock()
         self._maybe_sweep(now)
@@ -306,6 +321,8 @@ class LoginLimiter:
                 first, pair.audited = not pair.audited, True
                 raise LoginDelayed("pair", pair.blocked_until - now, first)
 
+        if not name_rule:
+            return
         slowed = self._names.get(name)
         if slowed is not None and slowed.failures >= USERNAME_FREE_FAILURES:
             if slowed.blocked_until > now:
@@ -314,9 +331,15 @@ class LoginLimiter:
             slowed.blocked_until = now + USERNAME_INTERVAL_S
 
     async def record_failure(
-        self, address: str | None, username: str, device: str | None = None
+        self,
+        address: str | None,
+        username: str,
+        device: str | None = None,
+        *,
+        name_rule: bool = True,
     ) -> None:
-        """A wrong password (or unknown name) for this attempt."""
+        """A wrong password (or unknown name) for this attempt. ``name_rule``
+        as for ``check()``: False leaves the username count alone."""
         now = self._clock()
         name = _name_key(username)
 
@@ -324,9 +347,10 @@ class LoginLimiter:
             spent = self._touch(self._devices, device, now)
             spent.failures += 1
 
-        slowed = self._touch(self._names, name, now)
-        slowed.failures += 1
-        slowed.audited = False
+        if name_rule:
+            slowed = self._touch(self._names, name, now)
+            slowed.failures += 1
+            slowed.audited = False
 
         if address is None:
             return

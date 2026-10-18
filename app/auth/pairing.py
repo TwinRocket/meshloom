@@ -9,14 +9,14 @@ Routes: ``app/routers/auth_pairing.py``.
   goes by that hash and the stored hash is compared with
   ``hmac.compare_digest``. A value without the prefix or longer than
   ``MAX_CODE_LENGTH`` is refused before any query.
-- **Bound to its creator.** A ``member`` or ``admin`` (``TOKEN_ROLES``) creates
-  it from a signed-in session (never with a token), with one to five scopes
-  its role grants (``scope_violation``) and a lifetime of at most
+- **Bound to its creator.** An ``admin`` creates it from a signed-in session
+  (never with a token), with one to five scopes (``scope_violation``) and a
+  lifetime of at most
   ``MAX_TTL_S``. The device token it gives belongs to that account, with
   exactly those scopes, origin ``pairing``, no expiry.
 - **Single use, checked again at redemption.** ``PairingCodeRepository.redeem``
   spends the code and inserts the token in one transaction. The creator must
-  still exist, be enabled and hold the scopes (``authorize``): otherwise the
+  still exist, be enabled, be an admin and hold the scopes (``authorize``): otherwise the
   code is spent and gives nothing (fail closed). Expiry and revocation apply
   at once: the expiry is compared at redemption, a revocation is one
   ``UPDATE``.
@@ -24,16 +24,21 @@ Routes: ``app/routers/auth_pairing.py``.
   revoked, or refused at redemption: 410 ``auth_pairing_expired``, so the
   answer says nothing about which. Each is a failure for the login delays
   (``app/auth/ratelimit.py``) under the key ``LIMIT_KEY``, which no username
-  can produce: the per-address rules (and the shared per-IP budget with
-  ``POST /auth/login``) and the global slow-down apply.
+  can produce, with ``name_rule=False``: the per-client rules apply (the
+  progressive delay per address and the per-IP budget shared with ``POST
+  /auth/login``), never a global slow-down, so one client cannot slow every
+  device down. On a shared address (``address_key()`` None) no delay applies:
+  a 128-bit code cannot be guessed anyway.
 - **Never under ingress.** A redemption through the Home Assistant Supervisor
   is refused (403 ``auth_pairing_ingress``) before any lookup: the device
   token would be refused there anyway (``app/auth/providers/token.py``).
 - **QR payload.** ``meshloom://pair?d=<base64url, no padding, of the compact
   JSON {"v":1,"urls":[...],"code":"mlp_..."}>``. ``urls`` are the declared
   public addresses (``auth_settings.public_urls``), the Remote hostname when
-  linked, then the address the creator used when it is a LAN one
-  (``candidate_urls``).
+  linked, then the address the creator used when it is a LAN one: a private,
+  link-local or ULA IP, or a ``.local``/``.lan``/``.home.arpa`` name, not a
+  declared public host (``is_lan_host``, ``candidate_urls``). A public IP or
+  name is never offered over plain http: it is dropped.
 
 Nothing here logs a code or a token.
 """
@@ -48,7 +53,7 @@ import time
 from typing import Any
 
 from app.auth.models import PairingCode, User
-from app.auth.providers.token import TOKEN_ROLES, fresh_token, scope_violation
+from app.auth.providers.token import fresh_token, scope_violation
 from app.auth.tokens import hash_token
 from app.middleware import host_guard
 from app.repository.auth import (
@@ -107,10 +112,42 @@ def decode_qr_payload(payload: str) -> dict[str, Any]:
     return value
 
 
+# Where a LAN candidate may point: RFC 1918, IPv4 link-local, IPv6 ULA and
+# link-local (``is_private`` is not used: it also covers documentation and
+# other reserved ranges), or a local-only DNS suffix.
+LAN_NETWORKS = tuple(
+    ipaddress.ip_network(net)
+    for net in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+LAN_SUFFIXES = (".local", ".lan", ".home.arpa")
+
+
+def is_lan_host(host: str) -> bool:
+    """Whether ``host`` (lowercase, no port) can only be a local network name
+    or address: never a public IP, never a name that resolves on the internet."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host.endswith(LAN_SUFFIXES)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return any(address in network for network in LAN_NETWORKS)
+
+
 def _lan_candidate(scope: Any, public_urls: list[str]) -> str | None:
     """The base URL the creator used, when a device on the same network could
     use it too: a direct request (not ingress or the relay) whose ``Host``
-    names this instance (``host_guard.host_allowed``) and is not loopback."""
+    names this instance (``host_guard.host_allowed``) and is a LAN address or
+    name (``is_lan_host``). Anything else is dropped, never offered over
+    plain http: a public IP, a declared public host (its ``https`` entry is in
+    the list already), the Remote hostname, loopback."""
     if scope.get("auth_via", "lan") != "lan":
         return None
     raw_host = None
@@ -121,13 +158,10 @@ def _lan_candidate(scope: Any, public_urls: list[str]) -> str | None:
     if not raw_host or not host_guard.host_allowed(raw_host, public_urls):
         return None
     host = host_guard.request_host(raw_host)
-    if host is None or host == "localhost":
+    if host is None or not is_lan_host(host):
         return None
-    try:
-        if ipaddress.ip_address(host).is_loopback:
-            return None
-    except ValueError:
-        pass
+    if host in host_guard.public_hosts(public_urls) or host in host_guard.remote_hostnames():
+        return None
     scheme = "https" if scope.get("scheme") in ("https", "wss") else "http"
     return f"{scheme}://{raw_host.lower()}"
 
@@ -170,7 +204,7 @@ def authorize(owner: User | None, scopes: list[str]) -> str | None:
     None, or the refusal reason (the audit's ``details.reason``)."""
     if owner is None or owner.disabled:
         return "owner_unavailable"
-    if owner.role not in TOKEN_ROLES:
+    if owner.role != "admin":
         return "owner_role"
     if not scopes or scope_violation(owner.role, scopes) is not None:
         return "scope"

@@ -110,31 +110,91 @@ async def test_a_loopback_address_is_no_candidate(base_url):
     assert body["urls"] == []
 
 
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("http://10.1.2.3:8000", "http://10.1.2.3:8000"),
+        ("http://172.20.0.4", "http://172.20.0.4"),
+        ("http://169.254.10.1:8000", "http://169.254.10.1:8000"),
+        ("http://[fd12:3456::5]:8000", "http://[fd12:3456::5]:8000"),
+        ("http://[fe80::1]:8000", "http://[fe80::1]:8000"),
+        ("http://meshloom.local:8000", "http://meshloom.local:8000"),
+        ("http://pi.home.arpa", "http://pi.home.arpa"),
+    ],
+)
+async def test_a_private_or_local_address_is_a_candidate(base_url, expected):
+    _, body = await _pairing(["read"], base_url=base_url)
+    assert body["urls"] == [expected]
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://203.0.113.5:8000",  # a public (documentation) IP literal
+        "http://192.0.2.10:8000",  # reserved, ``is_private`` but not a LAN
+        "http://100.64.1.1:8000",  # carrier-grade NAT, not a LAN
+        "http://[2001:db8::1]:8000",
+        "https://8.8.8.8",
+    ],
+)
+async def test_a_public_ip_is_never_a_candidate(base_url):
+    _, body = await _pairing(["read"], base_url=base_url)
+    assert body["urls"] == []
+
+
+@pytest.mark.parametrize("public", ["https://mesh.example.org", "https://meshloom.local"])
+async def test_a_declared_public_host_is_only_offered_as_its_https_entry(public):
+    await AuthSettingsRepository.update(public_urls=[public])
+    host = public.removeprefix("https://")
+    _, body = await _pairing(["read"], base_url=f"http://{host}")
+    assert body["urls"] == [public]
+
+
+def test_is_lan_host():
+    for host in (
+        "10.0.0.1",
+        "192.168.0.2",
+        "172.31.255.255",
+        "fd00::1",
+        "::ffff:192.168.1.2",
+        "a.lan",
+    ):
+        assert pairing.is_lan_host(host), host
+    for host in (
+        "172.32.0.1",
+        "203.0.113.5",
+        "127.0.0.1",
+        "::1",
+        "example.org",
+        "local",
+        "x.internal",
+    ):
+        assert not pairing.is_lan_host(host), host
+
+
 async def test_a_host_that_does_not_name_the_instance_is_no_candidate():
     _, body = await _pairing(["read"], base_url="http://evil.example.com")
     assert body["urls"] == []
 
 
-async def test_a_member_cannot_bind_a_scope_beyond_its_role():
-    await create_user("owner")
-    await create_user("nadia", role="member")
+@pytest.mark.parametrize("role", ["member", "viewer"])
+async def test_only_an_admin_manages_pairing_codes(role):
+    _, body = await _pairing(["read"])
+    await create_user("nadia", role=role)
     async with make_client() as client:
         await login(client, "nadia")
-        response = await _create(client, ["read", "repeater_admin"])
-    assert response.status_code == 400 and _code(response) == "auth_token_scope"
-    assert response.json()["detail"]["params"] == {"scope": "repeater_admin"}
-    assert await PairingCodeRepository.list_pending() == []
-    (refused,) = await _audit("pairing.created")
-    assert refused.outcome == "failure" and refused.details["reason"] == "token_scope"
+        created = await _create(client, ["read"])
+        listed = await client.get("/api/auth/pairings")
+        revoked = await client.delete(f"/api/auth/pairings/{body['id']}")
+    for response in (created, listed, revoked):
+        assert response.status_code == 403 and _code(response) == "auth_forbidden"
+    assert [p.id for p in await PairingCodeRepository.list_pending()] == [body["id"]]
+    refusals = [r for r in await _audit("pairing.created") if r.outcome == "refused"]
+    assert refusals and refusals[0].details["reason"] == "forbidden"
 
 
-async def test_a_viewer_and_a_token_cannot_create_codes():
+async def test_a_token_cannot_create_codes():
     await create_user("owner")
-    await create_user("vic", role="viewer")
-    async with make_client() as client:
-        await login(client, "vic")
-        response = await _create(client, ["read"])
-    assert response.status_code == 403 and _code(response) == "auth_forbidden"
 
     owner = await UserRepository.get_by_username("owner")
     assert owner is not None
@@ -181,7 +241,7 @@ async def test_the_pending_code_cap():
 
 async def test_a_code_works_once_for_a_token_with_exactly_its_scopes_and_its_creator():
     await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
-    member, body = await _pairing(["read", "send"], username="nadia", role="member")
+    member, body = await _pairing(["read", "send"], username="nadia")
     response = await _pair(body["code"], extensions={"meshenger": {"v": 1, "key": "AAAA"}})
     assert response.status_code == 201, response.text
     paired = response.json()
@@ -270,29 +330,23 @@ async def test_a_revoked_code_stops_working_at_once():
     assert [r.outcome for r in revoked] == ["failure", "success"]
 
 
-async def test_a_member_sees_and_revokes_only_its_own_codes_an_admin_every_code():
+async def test_an_admin_sees_and_revokes_every_admins_codes():
     await create_user("owner")
-    await create_user("nadia", role="member")
-    await create_user("karim", role="member")
+    await create_user("nadia")
     async with make_client() as nadia:
         await login(nadia, "nadia")
         mine = (await _create(nadia, ["read"])).json()
-    async with make_client() as karim:
-        await login(karim, "karim")
-        assert (await karim.get("/api/auth/pairings")).json() == []
-        response = await karim.delete(f"/api/auth/pairings/{mine['id']}")
-        assert response.status_code == 404
     async with make_client() as admin:
         await login(admin)
         listed = (await admin.get("/api/auth/pairings")).json()
         assert [(p["id"], p["username"]) for p in listed] == [(mine["id"], "nadia")]
         assert (await admin.delete(f"/api/auth/pairings/{mine['id']}")).status_code == 204
-    (success, _) = await _audit("pairing.revoked")  # newest first
+    (success,) = await _audit("pairing.revoked")
     assert success.outcome == "success" and success.details == {"owner": mine["created_by"]}
 
 
 async def test_a_disabled_creator_spends_the_code_and_gives_nothing():
-    member, body = await _pairing(["read"], username="nadia", role="member")
+    member, body = await _pairing(["read"], username="nadia")
     await UserRepository.update(member.id, disabled=True)
     response = await _pair(body["code"])
     assert response.status_code == 410
@@ -303,13 +357,14 @@ async def test_a_disabled_creator_spends_the_code_and_gives_nothing():
     assert reasons == ["used", "owner_unavailable"]
 
 
-async def test_a_demoted_creator_cannot_hand_out_scopes_it_lost():
-    user, body = await _pairing(["read", "repeater_admin"], username="ada", role="admin")
+@pytest.mark.parametrize("scopes", [["read"], ["read", "repeater_admin"]])
+async def test_a_creator_no_longer_admin_gives_nothing(scopes):
+    user, body = await _pairing(scopes, username="ada")
     await UserRepository.update(user.id, role="member")
     response = await _pair(body["code"])
     assert response.status_code == 410
     (failure,) = await _audit("pairing.used")
-    assert failure.details["reason"] == "scope"
+    assert failure.details["reason"] == "owner_role"
 
 
 async def test_two_concurrent_redemptions_give_one_token():
@@ -357,10 +412,35 @@ async def test_wrong_codes_meet_the_login_delays_and_the_right_one_gets_in_after
     rows = [r for r in await _audit("pairing.used") if r.outcome == "delayed"]
     assert len(rows) == 1 and rows[0].details["reason"] == "pair"
 
-    # A login from another address is not slowed by the pairing failures of this one.
+    # Another client is not slowed down by this one's failures: no global slot.
+    other = await _pair(body["code"], client=("192.168.1.77", 41000))
+    assert other.status_code == 201
     async with make_client() as client:
         await login(client)
 
+
+async def test_many_bad_codes_never_slow_down_other_clients():
+    _, body = await _pairing(["read"])
+    for index in range(3 * ratelimit.USERNAME_FREE_FAILURES):
+        assert (
+            await _pair("mlp_" + "C" * 22, client=(f"192.168.2.{index}", 41000))
+        ).status_code == 410
+    assert (await _pair(body["code"])).status_code == 201
+
+
+async def test_on_a_shared_address_no_delay_applies(monkeypatch):
+    monkeypatch.setattr(ratelimit.login_limiter, "address_rules_active", lambda: False)
+    _, body = await _pairing(["read"])
+    for _ in range(3 * ratelimit.PAIR_FREE_FAILURES):
+        assert (await _pair("mlp_" + "D" * 22)).status_code == 410
+    assert (await _pair(body["code"])).status_code == 201
+
+
+async def test_after_the_delay_the_right_code_gets_in():
+    _, body = await _pairing(["read"])
+    for _ in range(ratelimit.PAIR_FREE_FAILURES):
+        assert (await _pair("mlp_" + "B" * 22)).status_code == 410
+    assert (await _pair(body["code"])).status_code == 429
     ratelimit.reset_login_limiter()
     assert (await _pair(body["code"])).status_code == 201
 
@@ -418,6 +498,12 @@ def test_the_contract_names_every_route_and_error_code_of_the_implementation():
         assert written == value and written in text
     for number in (pairing.MAX_TTL_S, pairing.DEFAULT_TTL_S, pairing.MAX_EXTENSIONS_BYTES):
         assert re.search(rf"\b{number}\b", text), number
+
+
+def test_the_contract_is_versioned_and_states_the_payload_version():
+    text = CONTRACT.read_text(encoding="utf-8")
+    assert "**Contract version 1** (MSHL-71)" in text
+    assert f"payload version `v: {pairing.PAYLOAD_VERSION}`" in text
 
 
 def test_the_contract_example_payload_decodes_to_its_json():

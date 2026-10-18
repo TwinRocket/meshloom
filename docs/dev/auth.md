@@ -879,6 +879,11 @@ and none by IP alone behind Docker:
   `details.retry_after`; the typed name follows `typed_username_target()`.
 - **Clock.** The limiter takes a clock; `_FailureWindow` hands it to
   aiolimiter in place of the loop's time, so the tests use a fake clock.
+- **Device pairing.** `POST /auth/pair` counts a bad code as a failure under
+  one shared key with `name_rule=False`: the pair and per-IP rules apply to the
+  client, the per-username slow-down never does, so one client cannot slow
+  every device down. On a shared address no rule applies to it (a 128-bit code
+  cannot be guessed; `docs/dev/device-pairing.md`).
 - **Not covered.** Concurrent attempts on one pair can each pass `check()`
   before the first failure is recorded (bounded by the argon2id queue of 10).
   Without a known device, under a sustained flood on one name from many
@@ -1136,10 +1141,10 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `GET /auth/tokens` | own account, `member` or `admin` (403 `auth_forbidden` otherwise; never a token) | Live tokens, newest first: `{id, name, scopes, created_at, last_used_at, expires_at, origin, user_id, username}`, the caller's own, every user's for an admin. Never the secret or the hash |
 | `POST /auth/tokens` | same | 201. `{name (1-64), scopes (1-5 of read, read_private, send, repeater_admin, admin), expires_at?}` (Unix seconds, null never). Answers the row plus `token` (`mlt_…`), the only time it is shown. 400 `auth_token_scope` (`params.scope`) for a scope the caller's role does not grant, 400 `auth_token_expiry_invalid` for an expiry not in the future, 409 `auth_token_limit` (`params.max`, 100 live tokens per user) |
 | `DELETE /auth/tokens/{id}` | same | 204. Revokes the token (the caller's own; any for an admin) and closes its sockets at once. 404 `auth_token_not_found` for an unknown, revoked or someone else's token |
-| `POST /auth/pairings` | same as the tokens | 201. `{label (1-64), scopes (1-5), ttl (30-600 s, 300 by default)}`: a single-use pairing code bound to those scopes and to the caller. Answers the row (`id, label, scopes, urls, created_at, expires_at, created_by, username`) plus `code` (`mlp_…`) and `qr_payload` (`meshloom://pair?d=…`), the only time they are shown. 400 `auth_token_scope`, 409 `auth_pairing_limit` (`params.max`, 10 pending per user) ([Device pairing](device-pairing.md)) |
-| `GET /auth/pairings` | same | Pending codes, newest first: the caller's own, every user's for an admin. Never the code |
-| `DELETE /auth/pairings/{id}` | same | 204. Revokes a pending code at once. 404 `auth_pairing_not_found` (unknown, no longer pending, someone else's) |
-| `POST /auth/pair` | public, login delays | `{code, device_name (1-64), extensions?}` → 201 `{token, token_id, scopes, user {id, username, display_name}, urls}`: the device token (origin `pairing`, no expiry) of the code's creator with exactly its scopes. 410 `auth_pairing_expired` for every bad code (one answer), 403 `auth_pairing_ingress`, 429 `auth_rate_limited`, 409 `auth_token_limit` ([Device pairing](device-pairing.md)) |
+| `POST /auth/pairings` | own account, `admin` only (403 `auth_forbidden` otherwise; never a token) | 201. `{label (1-64), scopes (1-5), ttl (30-600 s, 300 by default)}`: a single-use pairing code bound to those scopes and to the caller. Answers the row (`id, label, scopes, urls, created_at, expires_at, created_by, username`) plus `code` (`mlp_…`) and `qr_payload` (`meshloom://pair?d=…`), the only time they are shown. 400 `auth_token_scope`, 409 `auth_pairing_limit` (`params.max`, 10 pending per user) ([Device pairing](device-pairing.md)) |
+| `GET /auth/pairings` | same | Every pending code, newest first. Never the code |
+| `DELETE /auth/pairings/{id}` | same | 204. Revokes a pending code at once. 404 `auth_pairing_not_found` (unknown or no longer pending) |
+| `POST /auth/pair` | public, login delays per client (no username slow-down) | `{code, device_name (1-64), extensions?}` → 201 `{token, token_id, scopes, user {id, username, display_name}, urls}`: the device token (origin `pairing`, no expiry) of the code's creator with exactly its scopes. 410 `auth_pairing_expired` for every bad code (one answer), 403 `auth_pairing_ingress`, 429 `auth_rate_limited`, 409 `auth_token_limit` ([Device pairing](device-pairing.md)) |
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices, require_2fa_for_admins}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
