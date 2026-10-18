@@ -105,7 +105,7 @@ const MEDIA_COLUMNS: Array<{
   { channel: 'apprise', label: 'settings.notifications.mediaApprise' },
 ];
 
-const APPRISE_WIKI_URL = 'https://github.com/caronc/apprise/wiki';
+const APPRISE_SERVICES_URL = 'https://appriseit.com/services/';
 const APPRISE_URL_EXAMPLES = [
   'ntfys://ntfy.sh/my-meshloom-topic',
   'tgram://bot_token/chat_id',
@@ -657,7 +657,7 @@ export function SettingsNotificationsSection({
           <p className="text-[0.8125rem] text-muted-foreground">
             {t('settings.notifications.appriseHelp')}{' '}
             <a
-              href={APPRISE_WIKI_URL}
+              href={APPRISE_SERVICES_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="underline hover:text-foreground"

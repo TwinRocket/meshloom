@@ -94,7 +94,7 @@ L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage
 
 ### Destination Apprise
 
-La destination **Apprise**, au même endroit, prend une [URL Apprise](https://github.com/caronc/apprise/wiki) par ligne. Quelques exemples :
+La destination **Apprise**, au même endroit, prend une [URL Apprise](https://appriseit.com/services/) par ligne. Quelques exemples :
 
 | Service | URL |
 |---------|-----|

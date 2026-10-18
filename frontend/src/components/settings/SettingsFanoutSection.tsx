@@ -2797,7 +2797,7 @@ function AppriseConfigEditor({
             ),
             services: (
               <a
-                href="https://github.com/caronc/apprise/wiki#supported-notifications"
+                href="https://appriseit.com/services/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"
