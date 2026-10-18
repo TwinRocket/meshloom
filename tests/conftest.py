@@ -183,6 +183,16 @@ def _reset_trusted_proxies():
 
 
 @pytest.fixture(autouse=True)
+def _reset_trusted_networks():
+    """Trusted network rules (and their audit memory) must not leak between tests."""
+    from app.auth.providers import trusted_network
+
+    trusted_network.reset()
+    yield
+    trusted_network.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_position_rebind():
     """A SELF_INFO seen by one test must not re-bind in the next one."""
     from app.services.observer_position import reset_position_rebind_for_tests

@@ -9,8 +9,12 @@ scope it:
    tokens, a later Access ticket: no token is valid yet),
    ``Authorization: Basic`` (the compatibility credential,
    ``app/security.py``), then the session cookie (``app/auth/sessions.py``,
-   never under ingress), and stores it in ``scope["state"]``; when the
-   argon2id queue is full (``VerificationBusy``) it answers 503 ``auth_busy``;
+   never under ingress), and last, for a request that sent no credential or
+   only a cookie that did not resolve, a trusted network rule
+   (``app/auth/providers/trusted_network.py``: ``via`` becomes ``trusted``,
+   never through a proxy, the relay or ingress, strict ``Host`` guard); it
+   stores it in ``scope["state"]``; when the argon2id queue is full
+   (``VerificationBusy``) it answers 503 ``auth_busy``;
 2. applies the CSRF rule to unsafe methods (``origin_policy.unsafe_request_allowed``):
    403 ``auth_origin_rejected`` unless a bearer token resolved;
 3. refuses any ``/api`` route outside ``PUBLIC_ROUTES``, and the API docs
@@ -49,7 +53,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app import origin_policy
 from app.auth import sessions
 from app.auth.principal import Principal, Via, set_principal
-from app.auth.providers import ingress
+from app.auth.providers import ingress, trusted_network
 from app.auth.providers.password import VerificationBusy
 from app.security import (
     BASIC_CHALLENGE,
@@ -215,11 +219,12 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
         return result
     token = sessions.read_session_cookie(headers.get("cookie"), secure=secure)
     if token is None:
-        return result
+        return await _resolve_trusted_network(scope, headers, via, result)
     resolved = await sessions.resolve_session(token)
     if resolved is None:
         result.credential_failed = True
-        return result
+        # An expired cookie on a trusted network: the rule still signs it in.
+        return await _resolve_trusted_network(scope, headers, via, result)
     result.principal = Principal(
         user=resolved.user, via=via, credential="session", session_id=resolved.session.id
     )
@@ -227,6 +232,17 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
         result.refreshed_cookie = sessions.session_cookie_header(
             token, secure=secure, max_age=resolved.refreshed_max_age
         )
+    return result
+
+
+async def _resolve_trusted_network(
+    scope: Scope, headers: Headers, via: Via, result: _Resolution
+) -> _Resolution:
+    """The last resort of ``resolve()``: a trusted network rule, if one applies."""
+    match = await trusted_network.resolve_trusted_user(scope, headers, via)
+    if match is not None:
+        result.principal = Principal(user=match[0], via="trusted", credential="trusted_network")
+        result.credential_failed = False
     return result
 
 
@@ -253,6 +269,10 @@ class AuthMiddleware:
             result = _Resolution()
             result.credential_failed = True
         set_principal(scope, result.principal)
+        if result.principal is not None and result.principal.via != via:
+            # A trusted network rule signed the request in: audit rows say so.
+            via = result.principal.via
+            scope["auth_via"] = via
 
         if scope["type"] == "websocket":
             if is_api_path(path) and (

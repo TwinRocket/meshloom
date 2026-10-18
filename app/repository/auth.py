@@ -842,8 +842,12 @@ class AuthSettingsRepository:
                     if cursor.rowcount != 1:
                         raise AuthSettingsMissingError("auth_settings row missing")
             updated = await _fetch_settings(conn)
-        # The proxy list is read on every request (app/middleware/proxy_headers.py).
+        # The proxy list is read on every request (app/middleware/proxy_headers.py),
+        # and so are the trusted network rules.
         proxy_headers.apply(updated)
+        from app.auth.providers import trusted_network
+
+        trusted_network.apply(updated)
         return updated
 
     @staticmethod

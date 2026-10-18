@@ -1,7 +1,8 @@
 """``/api/auth/*``: first-run setup, login, logout, sessions and the own profile.
 
 ``GET/PATCH /auth/settings`` holds the access settings an admin tunes (the
-trusted proxies, the audit retention, the role of new Home Assistant users);
+trusted proxies, the trusted networks, the audit retention, the role of new
+Home Assistant users);
 ``/auth/users`` is the admin's account management (create, change the role,
 disable, delete, set a password, sign out). Every change writes an audit row;
 no change may leave the instance without an enabled administrator (409
@@ -20,7 +21,7 @@ import functools
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -34,6 +35,7 @@ from app.auth.models import (
     AuthAuditEntry,
     AuthSettings,
     Role,
+    TrustedNetworkRule,
     User,
 )
 from app.auth.passwords import (
@@ -44,6 +46,7 @@ from app.auth.passwords import (
 )
 from app.auth.permissions import ACCESS_ATTRIBUTE, own_account, public, require
 from app.auth.principal import Principal, Via, get_principal
+from app.auth.providers import trusted_network
 from app.auth.providers.password import (
     VerificationBusy,
     authenticate,
@@ -104,6 +107,18 @@ _MESSAGES = {
     ),
     "auth_trusted_proxies_invalid": (
         "Not an address or network, a network wider than /8 or /16, or too many trusted proxies"
+    ),
+    "auth_trusted_networks_invalid": (
+        "Not a network, a network wider than /8 or /16, a network listed twice, "
+        "or too many trusted networks"
+    ),
+    "auth_trusted_network_user_invalid": "A trusted network names no enabled account",
+    "auth_trusted_network_overlaps_proxy": "A trusted network overlaps a trusted proxy",
+    "auth_trusted_network_loopback": (
+        "A trusted network covers loopback, where a local proxy or tunnel would bring every visitor"
+    ),
+    "auth_trusted_network_overlaps_gateway": (
+        "A trusted network covers the Docker gateway while a public address is configured"
     ),
 }
 
@@ -651,6 +666,16 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
     return _me(updated)
 
 
+class TrustedNetworkRuleView(BaseModel):
+    cidr: str = Field(description="The network, canonical CIDR form.")
+    user_id: int = Field(description="The account a request from this network acts as.")
+
+
+SecurityNotice = Literal[
+    "trusted_admin_reduced_plugin_isolation", "trusted_loopback_or_gateway_public"
+]
+
+
 class AuthSettingsView(BaseModel):
     """The access settings an admin reads and changes (``auth_settings``)."""
 
@@ -658,6 +683,12 @@ class AuthSettingsView(BaseModel):
         description=(
             "Reverse proxies whose X-Forwarded-For and X-Forwarded-Proto are believed: "
             "addresses or CIDRs, canonical network form. Empty trusts no peer."
+        )
+    )
+    trusted_networks: list[TrustedNetworkRuleView] = Field(
+        description=(
+            "Networks whose direct requests act as an account without a login. Never "
+            "applies through a proxy, the relay or ingress. Empty by default."
         )
     )
     audit_retention_days: int = Field(
@@ -669,35 +700,132 @@ class AuthSettingsView(BaseModel):
             "(always admin)."
         )
     )
+    security_notices: list[SecurityNotice] = Field(
+        description=(
+            "The Access security notice: a trusted network signs in an administrator while "
+            "plugins run with reduced isolation, or covers loopback or the Docker gateway "
+            "while a public address is configured."
+        )
+    )
+
+
+class TrustedNetworkRuleIn(BaseModel):
+    cidr: str = Field(max_length=64)
+    user_id: int
 
 
 class AuthSettingsPatch(BaseModel):
     trusted_proxies: list[str] | None = Field(default=None, max_length=MAX_TRUSTED_PROXIES * 4)
+    trusted_networks: list[TrustedNetworkRuleIn] | None = Field(
+        default=None, max_length=trusted_network.MAX_TRUSTED_NETWORKS
+    )
     audit_retention_days: int | None = Field(
         default=None, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )
     ingress_default_role: Role | None = None
 
 
-def _settings_view(settings: AuthSettings) -> AuthSettingsView:
+def _plugins_isolation_reduced() -> bool:
+    """Plugins on with the ``none`` level. An unreadable state counts as reduced."""
+    try:
+        from app.plugins import lifecycle
+
+        fields = lifecycle.health_fields()
+    except Exception:
+        return True
+    return fields.get("plugins_disabled_source") is None and fields.get("plugins_isolation") in (
+        None,
+        "none",
+    )
+
+
+async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:
+    rules = settings.trusted_networks
+    if not rules:
+        return []
+    notices: list[SecurityNotice] = []
+    admins = {
+        user.id
+        for user in await UserRepository.list_all()
+        if user.role == "admin" and not user.disabled
+    }
+    if any(rule.user_id in admins for rule in rules) and _plugins_isolation_reduced():
+        notices.append("trusted_admin_reduced_plugin_isolation")
+    if settings.public_urls:
+        gateways = trusted_network.docker_gateways()
+        if any(
+            trusted_network.covers_loopback(rule.cidr)
+            or trusted_network.covered_gateway(rule.cidr, gateways)
+            for rule in rules
+        ):
+            notices.append("trusted_loopback_or_gateway_public")
+    return notices
+
+
+async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
     return AuthSettingsView(
         trusted_proxies=settings.trusted_proxies,
+        trusted_networks=[
+            TrustedNetworkRuleView(cidr=rule.cidr, user_id=rule.user_id)
+            for rule in settings.trusted_networks
+        ],
         audit_retention_days=settings.audit_retention_days,
         ingress_default_role=settings.ingress_default_role,
+        security_notices=await _security_notices(settings),
     )
+
+
+def _normalize_rules(raw: list[TrustedNetworkRuleIn]) -> list[TrustedNetworkRule]:
+    rules: list[TrustedNetworkRule] = []
+    seen: set[str] = set()
+    for item in raw:
+        try:
+            cidr = trusted_network.normalize_cidr(item.cidr)
+        except ValueError:
+            raise _error(400, "auth_trusted_networks_invalid", {"cidr": item.cidr}) from None
+        if cidr in seen:
+            raise _error(400, "auth_trusted_networks_invalid", {"cidr": cidr})
+        seen.add(cidr)
+        rules.append(TrustedNetworkRule(cidr=cidr, user_id=item.user_id))
+    return rules
+
+
+async def _check_rules(
+    rules: list[TrustedNetworkRule], proxies: list[str], public_urls: list[str]
+) -> None:
+    """Refuse a rule set the gate could be tricked with (coded 400s)."""
+    for rule in rules:
+        proxy = trusted_network.overlapping_proxy(rule.cidr, proxies)
+        if proxy is not None:
+            raise _error(
+                400, "auth_trusted_network_overlaps_proxy", {"cidr": rule.cidr, "proxy": proxy}
+            )
+        if trusted_network.covers_loopback(rule.cidr) and not trusted_network.loopback_allowed():
+            raise _error(400, "auth_trusted_network_loopback", {"cidr": rule.cidr})
+        if public_urls:
+            gateway = trusted_network.covered_gateway(rule.cidr, trusted_network.docker_gateways())
+            if gateway is not None:
+                raise _error(
+                    400,
+                    "auth_trusted_network_overlaps_gateway",
+                    {"cidr": rule.cidr, "gateway": gateway},
+                )
+        user = await UserRepository.get(rule.user_id)
+        if user is None or user.disabled:
+            raise _error(400, "auth_trusted_network_user_invalid", {"cidr": rule.cidr})
 
 
 @router.get("/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))])
 async def get_auth_settings() -> AuthSettingsView:
     """The access settings."""
-    return _settings_view(await AuthSettingsRepository.get())
+    return await _settings_view(await AuthSettingsRepository.get())
 
 
 @router.patch(
     "/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))]
 )
 async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> AuthSettingsView:
-    """Change the access settings. The trusted proxies apply to the next request."""
+    """Change the access settings. The trusted proxies and networks apply to the next request."""
     _require(request)
     trusted_proxies: list[str] | None = None
     if body.trusted_proxies is not None:
@@ -705,8 +833,20 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             trusted_proxies = normalize_proxies(body.trusted_proxies)
         except ValueError:
             raise _error(400, "auth_trusted_proxies_invalid") from None
+    trusted_networks: list[TrustedNetworkRule] | None = None
+    if body.trusted_networks is not None:
+        trusted_networks = _normalize_rules(body.trusted_networks)
+    if trusted_proxies is not None or trusted_networks is not None:
+        # Checked together: a new proxy may overlap a rule saved earlier.
+        current = await AuthSettingsRepository.get()
+        await _check_rules(
+            trusted_networks if trusted_networks is not None else current.trusted_networks,
+            trusted_proxies if trusted_proxies is not None else current.trusted_proxies,
+            current.public_urls,
+        )
     settings = await AuthSettingsRepository.update(
         trusted_proxies=trusted_proxies,
+        trusted_networks=trusted_networks,
         audit_retention_days=body.audit_retention_days,
         ingress_default_role=body.ingress_default_role,
     )
@@ -718,6 +858,15 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             "success",
             target="auth_settings.trusted_proxies",
             details={"trusted_proxies": trusted_proxies},
+        )
+    if trusted_networks is not None:
+        logger.info("Trusted networks updated: %d rules", len(trusted_networks))
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.trusted_networks",
+            details={"trusted_networks": [rule.model_dump() for rule in trusted_networks]},
         )
     if body.audit_retention_days is not None:
         await audit.record_request(
@@ -735,7 +884,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             target="auth_settings.ingress_default_role",
             details={"ingress_default_role": settings.ingress_default_role},
         )
-    return _settings_view(settings)
+    return await _settings_view(settings)
 
 
 # --- Users (admin) ----------------------------------------------------------------
