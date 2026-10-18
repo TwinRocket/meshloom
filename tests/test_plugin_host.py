@@ -279,7 +279,8 @@ async def test_five_consecutive_crashes_is_a_crash_loop_until_manual_restart(man
     assert instance.consecutive_failures == 5, describe(instance)
     assert instance.restarts == 4, describe(instance)
     assert "entry_load_failed" in (instance.last_error or ""), describe(instance)
-    assert not instance.active
+    # The status is published just before the supervision task returns.
+    await wait_until(lambda: not instance.active, timeout=5, what="stopped", instance=instance)
     stored = await PluginRepository.get(instance_id)
     assert stored is not None and stored["status"] == "crash_loop"
 
