@@ -75,7 +75,7 @@ PluginStatus = Literal[
     "incompatible",
     "revoked",
 ]
-DisabledSource = Literal["env", "platform"]
+DisabledSource = Literal["env", "platform", "isolation"]
 
 HOOKS = ("message", "raw_packet", "contact", "telemetry", "health", "timer")
 # Persisted statuses that keep an enabled instance stopped at start-up until
@@ -1138,6 +1138,8 @@ class PluginManager:
     ):
         self.budgets = budgets or Budgets()
         self._plugins_root = plugins_root
+        # Set when the selected isolation could not be prepared: fail closed.
+        self._isolation_failed = False
         self._cpu_reader = default_cpu_reader() if cpu_reader == "default" else cpu_reader
         self._clock = clock
         self._mem_total = mem_total
@@ -1151,14 +1153,21 @@ class PluginManager:
     # Gates.
 
     def disabled_source(self) -> DisabledSource | None:
-        """Why the plugin system is off: the host lock, then the platform; None when on."""
+        """Why the plugin system is off: the host lock, the platform, then an isolation
+        setup that failed (`fail_closed()`); None when on."""
         from app.config import settings
 
         if settings.disable_plugins:
             return "env"
         if not platform_supported():
             return "platform"
+        if self._isolation_failed:
+            return "isolation"
         return None
+
+    def fail_closed(self) -> None:
+        """The isolation setup failed: no child starts until the server restarts."""
+        self._isolation_failed = True
 
     def instance_cap(self) -> int:
         return instance_cap(self._mem_total())

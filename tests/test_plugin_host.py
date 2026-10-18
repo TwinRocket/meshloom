@@ -547,6 +547,31 @@ async def test_host_lock_and_platform_gate(manager, tmp_path, monkeypatch):
     assert fields["plugins_isolation"] is None
 
 
+async def test_isolation_setup_failure_fails_closed(monkeypatch):
+    # A selected backend whose file model could not be applied must start nothing.
+    manager = lifecycle.plugin_manager
+    monkeypatch.setattr(manager, "_isolation_failed", False)
+    loaded: list[bool] = []
+
+    async def load_from_db() -> None:
+        loaded.append(True)
+
+    def startup(_data_dir):
+        raise PermissionError("scandir refused")
+
+    monkeypatch.setattr(manager, "load_from_db", load_from_db)
+    monkeypatch.setattr(lifecycle.isolation, "startup", startup)
+    await lifecycle.start()
+    assert loaded == []
+    assert manager.disabled_source() == "isolation"
+    fields = lifecycle.health_fields()
+    assert fields["plugins_disabled_source"] == "isolation"
+    assert fields["plugins_isolation"] is None
+    with pytest.raises(PluginHostError) as exc:
+        await manager.start("any-instance")
+    assert exc.value.code == "plugins_disabled"
+
+
 async def test_events_reach_only_subscribed_hooks(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "echo", hooks=("message",))
     instance = await running(manager, instance_id)

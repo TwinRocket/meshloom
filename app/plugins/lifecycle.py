@@ -32,7 +32,11 @@ async def start() -> None:
         # the dedicated uid's file model before the first child, off the loop.
         await asyncio.to_thread(isolation.startup, plugin_manager.plugins_root().parent)
     except Exception:
-        logger.exception("Plugin isolation setup failed")
+        # Fail closed: a dedicated uid without its file model could read the
+        # database. No child starts; health says why (`plugins_disabled_source`).
+        logger.exception("Plugin isolation setup failed: no plugin will start")
+        plugin_manager.fail_closed()
+        return
     try:
         await plugin_manager.load_from_db()
     except Exception:
