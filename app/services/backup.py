@@ -11,13 +11,14 @@
   the copy carries a marker that runs the restore hooks if it is put back.
 """
 
+import ipaddress
 import json
 import logging
 import re
 import time
 import unicodedata
 from typing import Any, Literal, TypeVar
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import aiosqlite
 from pydantic import BaseModel, SecretStr, ValidationError
@@ -171,6 +172,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "app_settings.radio_outage_started_at": (
         "excluded",
         "live outage state of this host's radio: meaningless on another host",
+    ),
+    "app_settings.push_private_endpoints_review": (
+        "excluded",
+        "notice of the upgrade on this host, meaningless on another one",
     ),
     "app_settings.share_enabled": (
         "excluded",
@@ -990,16 +995,32 @@ async def push_restore_applies(extra: MeshloomExtra) -> bool | None:
 
 
 _PRIVATE_NAME_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain")
+# Listed, not ``is_global``: the answer must not change with the Python version.
+_PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(n)
+    for n in (
+        "0.0.0.0/8",
+        "10.0.0.0/8",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.0.0.0/24",
+        "192.168.0.0/16",
+        "198.18.0.0/15",
+        "::/128",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
 
 
 def endpoint_looks_private(endpoint: str) -> bool:
     """Whether a push endpoint visibly targets a private network: an IP literal
-    that is not global, a dotless name or a ``.local``/``.lan``/``.home.arpa``
-    style name. No DNS: a public name (ntfy.sh) never counts. Migration 104
-    holds a frozen copy of this rule."""
-    import ipaddress
-    from urllib.parse import urlsplit
-
+    in a private range, a dotless name or a ``.local``/``.lan``/``.home.arpa``/
+    ``.internal``/``.localdomain`` name. No DNS: a public name (ntfy.sh) never
+    counts. Migration 104 holds a frozen copy of this rule."""
     try:
         host = (urlsplit(endpoint).hostname or "").rstrip(".").lower()
     except ValueError:
@@ -1007,10 +1028,12 @@ def endpoint_looks_private(endpoint: str) -> bool:
     if not host:
         return False
     try:
-        return not ipaddress.ip_address(host).is_global
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
     except ValueError:
-        pass
-    return "." not in host or host.endswith(_PRIVATE_NAME_SUFFIXES)
+        return "." not in host or host.endswith(_PRIVATE_NAME_SUFFIXES)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return any(ip in net for net in _PRIVATE_NETWORKS if net.version == ip.version)
 
 
 async def _regrandfather_private_push(extra: MeshloomExtra) -> None:

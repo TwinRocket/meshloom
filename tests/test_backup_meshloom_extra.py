@@ -365,3 +365,66 @@ async def test_inspect_shows_where_restored_push_notifications_go(backup_db):
     )
     await PushSubscriptionRepository.delete(own["id"])
     assert (await inspect_backup(no_vapid, None)).push_targets == []
+
+
+def _restore_run(doc):
+    """The few attributes `_meshloom_step` reads, without the job machinery."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    return MagicMock(
+        options=SimpleNamespace(steps=SimpleNamespace(meshloom=True)),
+        doc=doc,
+        result=SimpleNamespace(warnings=[]),
+    )
+
+
+def _v2_doc(settings: dict):
+    from app.models import AppSettings, BackupExportV2
+
+    dumped = AppSettings().model_dump(mode="json")
+    dumped = {k: v for k, v in dumped.items() if k in settings or k not in _PUSH_KEYS}
+    dumped.update(settings)
+    return BackupExportV2.model_validate(
+        {
+            "settings": dumped,
+            "meshloom_extra": MeshloomExtra(
+                vapid=BackupVapid(private_key="backup-priv", public_key="backup-pub"),  # type: ignore[arg-type]
+                push_subscriptions=[
+                    BackupPushSubscription(
+                        endpoint="http://192.168.1.20:8080/UP", p256dh="k", auth="a"
+                    )
+                ],
+            ),
+        }
+    )
+
+
+_PUSH_KEYS = {"push_allow_private_endpoints", "push_private_endpoints_grandfathered"}
+
+
+@pytest.mark.asyncio
+async def test_restore_step_regrandfathers_a_backup_without_the_opt_in_key(
+    backup_db, reload_spy, proxy_spy
+):
+    from app.services.backup_restore import _meshloom_step
+
+    doc = _v2_doc({})
+    assert "push_allow_private_endpoints" not in doc.settings.model_fields_set  # type: ignore[union-attr]
+    await _meshloom_step(_restore_run(doc))
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is True
+    assert settings.push_private_endpoints_grandfathered is True
+
+
+@pytest.mark.asyncio
+async def test_restore_step_keeps_the_choice_of_a_backup_with_the_opt_in_key(
+    backup_db, reload_spy, proxy_spy
+):
+    from app.services.backup_restore import _meshloom_step
+
+    doc = _v2_doc({"push_allow_private_endpoints": False})
+    await _meshloom_step(_restore_run(doc))
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is False
+    assert settings.push_private_endpoints_grandfathered is False

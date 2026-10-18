@@ -302,6 +302,7 @@ class AppSettingsRepository:
                    force_channel_slot_reconfigure, load_with_autoevict,
                    auto_clock_wraparound, auth_allowed_origins,
                    push_allow_private_endpoints, push_private_endpoints_grandfathered,
+                   push_private_endpoints_review,
                    radio_offline_grace_s,
                    share_enabled, share_shorten_mode, share_preview_policy
             FROM app_settings WHERE id = 1
@@ -516,6 +517,7 @@ class AppSettingsRepository:
             auth_allowed_origins=auth_allowed_origins,
             push_allow_private_endpoints=_flag("push_allow_private_endpoints"),
             push_private_endpoints_grandfathered=_flag("push_private_endpoints_grandfathered"),
+            push_private_endpoints_review=_flag("push_private_endpoints_review"),
             radio_offline_grace_s=_grace,
             share_enabled=_flag("share_enabled"),
             share_shorten_mode=_share_choice(
@@ -564,6 +566,7 @@ class AppSettingsRepository:
         auth_allowed_origins: list[str] | None = None,
         push_allow_private_endpoints: bool | None = None,
         push_private_endpoints_grandfathered: bool | None = None,
+        push_private_endpoints_review: bool | None = None,
         radio_offline_grace_s: int | None = None,
         share_enabled: bool | None = None,
         share_shorten_mode: str | None = None,
@@ -709,6 +712,7 @@ class AppSettingsRepository:
             ("auto_clock_wraparound", auto_clock_wraparound),
             ("push_allow_private_endpoints", push_allow_private_endpoints),
             ("push_private_endpoints_grandfathered", push_private_endpoints_grandfathered),
+            ("push_private_endpoints_review", push_private_endpoints_review),
             ("share_enabled", share_enabled),
         ):
             if flag is not None:
@@ -783,6 +787,7 @@ class AppSettingsRepository:
         auth_allowed_origins: list[str] | None = None,
         push_allow_private_endpoints: bool | None = None,
         push_private_endpoints_grandfathered: bool | None = None,
+        push_private_endpoints_review: bool | None = None,
         radio_offline_grace_s: int | None = None,
         share_enabled: bool | None = None,
         share_shorten_mode: str | None = None,
@@ -833,6 +838,7 @@ class AppSettingsRepository:
                 auth_allowed_origins=auth_allowed_origins,
                 push_allow_private_endpoints=push_allow_private_endpoints,
                 push_private_endpoints_grandfathered=push_private_endpoints_grandfathered,
+                push_private_endpoints_review=push_private_endpoints_review,
                 radio_offline_grace_s=radio_offline_grace_s,
                 share_enabled=share_enabled,
                 share_shorten_mode=share_shorten_mode,

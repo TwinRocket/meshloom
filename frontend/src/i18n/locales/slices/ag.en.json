@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "notifications": {
+      "pushReview": "An upgrade switched off the private network option for your push devices, because Meshloom cannot tell where a device's address leads without looking it up. If one of them is a self-hosted UnifiedPush distributor reached through a name that points to your network (split DNS, a Tailscale *.ts.net name), its notifications are refused until you tick the box below. Nothing was deleted.",
+      "pushReviewEnable": "Allow private networks",
+      "pushReviewDismiss": "Dismiss"
+    }
+  }
+}

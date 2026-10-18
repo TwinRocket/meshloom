@@ -176,6 +176,10 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="Set to false to dismiss the upgrade notice (setting it also clears it)",
     )
+    push_private_endpoints_review: bool | None = Field(
+        default=None,
+        description="Set to false to dismiss the push review notice (saving the opt-in also clears it)",
+    )
     telemetry_interval_hours: int | None = Field(
         default=None,
         description=(
@@ -496,6 +500,7 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["push_allow_private_endpoints"] = update.push_allow_private_endpoints
         # An explicit choice replaces the upgrade default and its notice.
         kwargs["push_private_endpoints_grandfathered"] = False
+        kwargs["push_private_endpoints_review"] = False
     if update.radio_offline_grace_s is not None:
         logger.info("Updating radio_offline_grace_s to %s", update.radio_offline_grace_s)
         kwargs["radio_offline_grace_s"] = update.radio_offline_grace_s
@@ -508,6 +513,8 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["share_preview_policy"] = update.share_preview_policy
     if update.push_private_endpoints_grandfathered is False:
         kwargs["push_private_endpoints_grandfathered"] = False
+    if update.push_private_endpoints_review is False:
+        kwargs["push_private_endpoints_review"] = False
 
     # Flood scope
     flood_scope_changed = False

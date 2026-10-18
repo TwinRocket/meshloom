@@ -26,6 +26,11 @@ async def _upgrade(conn: aiosqlite.Connection, endpoints: list[str], flags=(None
     await run_migrations(conn)
 
 
+async def _review(conn: aiosqlite.Connection) -> int:
+    cursor = await conn.execute("SELECT push_private_endpoints_review FROM app_settings")
+    return (await cursor.fetchone())[0]
+
+
 async def _flags(conn: aiosqlite.Connection) -> tuple[int, int]:
     cursor = await conn.execute(
         "SELECT push_allow_private_endpoints, push_private_endpoints_grandfathered"
@@ -92,5 +97,60 @@ async def test_a_choice_the_user_made_is_kept():
         # Notice dismissed or box ticked by hand: grandfathered flag is 0.
         await _upgrade(conn, ["https://ntfy.sh/upabc"], flags=(1, 0))
         assert await _flags(conn) == (1, 0)
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("endpoint", "review"),
+    [
+        ("https://ntfy.tail1234.ts.net/up", 1),
+        ("https://ntfy.example.com/up", 1),
+        ("https://8.8.8.8/up", 0),
+    ],
+)
+async def test_withdrawing_for_a_hostname_sets_the_review_notice(endpoint, review):
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await _upgrade(conn, [endpoint], flags=(1, 1))
+        assert await _flags(conn) == (0, 0)
+        assert await _review(conn) == review
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_no_review_notice_when_the_opt_in_stays():
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await _upgrade(conn, ["https://ntfy.tail1234.ts.net/up", "http://10.0.0.5/up"], (1, 1))
+        assert await _flags(conn) == (1, 1)
+        assert await _review(conn) == 0
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_browser_push_services_only_set_no_notice():
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await _upgrade(conn, ["https://fcm.googleapis.com/fcm/send/abc"])
+        assert await _flags(conn) == (0, 0)
+        assert await _review(conn) == 0
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://[::ffff:192.168.1.2]/up", "http://100.64.0.5/up", "http://[fe80::1%25eth0]/up"],
+)
+async def test_listed_private_networks(endpoint):
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await _upgrade(conn, [endpoint], flags=(1, 1))
+        assert await _flags(conn) == (1, 1)
     finally:
         await conn.close()
