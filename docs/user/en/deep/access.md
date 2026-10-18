@@ -100,7 +100,9 @@ Meshloom refuses to save a rule that overlaps a trusted proxy, one that covers l
 
 ## API and device tokens
 
-A script, a Home Assistant sensor or a phone app talks to Meshloom with a **token** instead of a password: one per device, so you can revoke one without touching the others. Members and administrators create their own; a viewer or a kiosk cannot. There is no page for them yet: use the API while signed in.
+A script, a Home Assistant sensor or a phone app talks to Meshloom with a **token** instead of a password: one per device, so you can revoke one without touching the others. Members and administrators create their own; a viewer or a kiosk cannot.
+
+In **Settings → Users & Access → API and device tokens**, choose **Create a token**: give it a name, tick its scopes (only those your role allows are offered) and pick an expiry, or none. Meshloom then shows the token **once**, with a **Copy** button: it keeps only a fingerprint and cannot show it again, so copy it before you close the window. If you lose it, revoke it and create another. The list shows each token's scopes, creation, last use and expiry (an administrator also sees whose it is); **Revoke** asks for a confirmation, then the token stops working at once. Signed in through Home Assistant, the page tells you that tokens do not work through the add-on's ingress; you can still create tokens there for devices that reach Meshloom directly. The same actions are available through the API:
 
 | Request | What it does |
 |---|---|

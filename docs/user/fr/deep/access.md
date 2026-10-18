@@ -100,7 +100,9 @@ Meshloom refuse d’enregistrer une règle qui recoupe un proxy de confiance, un
 
 ## Les jetons d’API et d’appareil
 
-Un script, un capteur Home Assistant ou une application mobile parle à Meshloom avec un **jeton** au lieu d’un mot de passe : un par appareil, pour pouvoir en révoquer un sans toucher aux autres. Les membres et les administrateurs créent les leurs ; un lecteur ou un kiosque ne le peut pas. Il n’y a pas encore de page pour eux : passez par l’API en étant connecté.
+Un script, un capteur Home Assistant ou une application mobile parle à Meshloom avec un **jeton** au lieu d’un mot de passe : un par appareil, pour pouvoir en révoquer un sans toucher aux autres. Les membres et les administrateurs créent les leurs ; un lecteur ou un kiosque ne le peut pas.
+
+Dans **Réglages → Utilisateurs et accès → Jetons d’API et d’appareil**, choisissez **Créer un jeton** : donnez-lui un nom, cochez ses portées (seules celles que permet votre rôle sont proposées) et choisissez une expiration, ou aucune. Meshloom affiche alors le jeton **une seule fois**, avec un bouton **Copier** : il n’en garde qu’une empreinte et ne peut plus le montrer, copiez-le donc avant de fermer la fenêtre. Si vous le perdez, révoquez-le et créez-en un autre. La liste montre pour chaque jeton ses portées, sa création, sa dernière utilisation et son expiration (un administrateur voit aussi à qui il est) ; **Révoquer** demande une confirmation, puis le jeton cesse de fonctionner aussitôt. Connecté par Home Assistant, la page vous dit que les jetons ne fonctionnent pas à travers l’ingress de l’add-on ; vous pouvez quand même y créer les jetons d’appareils qui joignent Meshloom directement. Les mêmes actions sont disponibles par l’API :
 
 | Requête | Ce qu’elle fait |
 |---|---|

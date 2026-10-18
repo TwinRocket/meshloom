@@ -131,6 +131,31 @@ export interface AuthSessionRow {
   current: boolean;
 }
 
+/** One row of `GET /auth/tokens` (times in epoch seconds; `username` is the owner). */
+export interface AuthTokenRow {
+  id: string;
+  name: string;
+  scopes: string[];
+  created_at: number;
+  last_used_at: number | null;
+  expires_at: number | null;
+  origin: string;
+  user_id: number;
+  username: string | null;
+}
+
+/** The answer of `POST /auth/tokens`: the only one that carries the secret. */
+export interface AuthTokenCreated extends AuthTokenRow {
+  token: string;
+}
+
+export interface AuthTokenCreate {
+  name: string;
+  scopes: string[];
+  /** Unix seconds; omitted or null never expires. */
+  expires_at?: number | null;
+}
+
 /** One row of `GET /auth/users` (admin). `provider` is `local` or `ingress`. */
 export interface AuthUserRow {
   id: number;
