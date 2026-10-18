@@ -3222,3 +3222,36 @@ class RadioProxyUpdate(BaseModel):
     bind: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
     max_clients: int | None = Field(default=None, ge=1, le=32)
+
+
+class ShareStatus(BaseModel):
+    """``GET /api/share/status``: what the UI needs to offer sharing. No egress."""
+
+    enabled: bool = Field(description="Instance-level consent to the share service")
+    host: str = Field(description="The share service host links are written to")
+    hosts: list[str] = Field(description="Every host a share link may carry")
+    identity_ready: bool = Field(
+        description="The instance share key exists (created on the first write)"
+    )
+    dm_encryption_available: bool = Field(
+        description="The radio private key is held, so shared files can be encrypted for a contact"
+    )
+    banned: bool = Field(description="The service banned this instance: writes are refused")
+    shorten_mode: Literal["auto", "always", "never"]
+    preview_policy: Literal["always", "private", "never"]
+
+
+class ShareLinkRequest(BaseModel):
+    url: str = Field(description="The http(s) URL to shorten")
+
+
+class ShareLinkResponse(BaseModel):
+    id: str
+    url: str
+    expires_at: int
+
+
+class ShareMetaResponse(BaseModel):
+    kind: str
+    target_host: str | None = None
+    expires_at: int | None = None

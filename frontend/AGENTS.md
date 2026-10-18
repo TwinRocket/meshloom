@@ -275,6 +275,14 @@ purpose.
   (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.
 
+### Share API (`api.ts`)
+
+`api.getShareStatus()` (no egress), `api.shortenLink(url)` and
+`api.getShareMeta(id)` call `/api/share/*`; types `ShareStatus`, `ShareLink`,
+`ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
+`share_disabled` answer means sharing is off). Call `getShareMeta` only on hover
+or focus, never on render. No UI uses them yet.
+
 ### i18n
 
 - `src/i18n/index.ts` loads only the active language. i18next `fallbackLng` is
