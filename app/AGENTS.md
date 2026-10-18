@@ -651,11 +651,14 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Sections and restore hooks** (`services/backup_sections.py`, contract in
   `docs/dev/backup.md`). Other features add a named entry to the v2 file's
   optional `sections` with `register_backup_section(name, export_fn,
-  restore_fn, *, description=..., sensitive=..., version=..., requires=...)`,
+  restore_fn, *, description=..., sensitive=..., version=..., requires=..., restore_with=...)`,
   never a new top-level field or a second v2 format; the job restores them in
   its `meshloom` step after `meshloom_extra`, each in its own `db.tx()`
   (`restore_fn(section, conn)` writes through `conn` only; a failure rolls that
-  section back and the others go on), skips a section newer than its owner
+  section back and the others go on; a restore that keeps the current data on
+  purpose raises `SectionKept`, so what requires it is skipped; a
+  `restore_with` section, such as `api_tokens` with `users`, runs in its
+  owner's transaction only when the owner was written), skips a section newer than its owner
   (`section_too_new`) and ignores unknown ones with a log line. Inspect lists
   them (`sections[]`: description, sensitive, known, too_new); a sensitive
   section exported without a passphrase adds

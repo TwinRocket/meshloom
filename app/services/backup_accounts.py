@@ -14,7 +14,8 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   transaction. A file without the section keeps the current accounts. A section
   with no enabled administrator who can sign in here (a local account with a
   password, or a Home Assistant identity on the add-on) is refused
-  (``accounts_no_admin``) and the current accounts stay: a restore never locks
+  (``SectionKept(["accounts_no_admin"])``) and the current accounts stay, with
+  their tokens (the ``api_tokens`` section is skipped): a restore never locks
   everyone out. Rows follow the API's rules: a password hash, TOTP material or
   forced change only on a local account outside ``kiosk`` (stripped otherwise),
   a ``system`` account only as a kiosk, an argon2id hash only up to libsodium's
@@ -27,7 +28,8 @@ Rules (``docs/dev/backup.md``, "Accounts"):
 - **Never log** a hash, a TOTP secret or a row: log lines carry counts only.
 - **API tokens** (``api_tokens``, Access T27): every live token (not revoked,
   not expired) with its SHA-256 hash, scopes, expiry and origin, never a
-  secret (the database has none). ``sensitive``, ``requires=["users"]`` and in
+  secret (the database has none). ``sensitive``, ``restore_with="users"`` (same
+  transaction, right after the accounts, only when they were written) and in
   ``ACCOUNT_SECTIONS``, so the same box leaves it out and a file without
   accounts never restores tokens. Its restore replaces the tokens and keeps
   only the rows whose owner exists after the accounts restore and whose
@@ -58,6 +60,7 @@ from app.models import BackupSection
 from app.repository.auth import normalize_username, username_key
 from app.services.backup_sections import (
     RestoreSource,
+    SectionKept,
     register_backup_section,
     register_on_restore,
 )
@@ -263,7 +266,7 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
             "Backup restore: no administrator in the accounts section can sign in here,"
             " kept the current accounts"
         )
-        return ["accounts_no_admin"]
+        raise SectionKept(["accounts_no_admin"])
     before = await _username_keys(conn)
     updated_before = await _updated_at_before(conn)
     now = int(time.time())
@@ -438,5 +441,5 @@ register_backup_section(
         "fr": "Jetons d'API et d'appareil : noms, portées et hachés (jamais les jetons eux-mêmes)",
     },
     sensitive=True,
-    requires=[USERS_SECTION],
+    restore_with=USERS_SECTION,
 )

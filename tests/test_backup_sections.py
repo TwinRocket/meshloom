@@ -287,6 +287,80 @@ async def test_requires_orders_the_restore_and_skips_without_its_dependency(back
 
 
 @pytest.mark.asyncio
+async def test_a_kept_owner_skips_the_sections_that_depend_on_it(backup_db, setup_stub):
+    """A section that keeps the current data (``SectionKept``) does not count as
+    restored: ``requires`` and ``restore_with`` sections never run against it."""
+    order: list[str] = []
+    keep = {"owner": True}
+
+    async def export():
+        return BackupSection(data=1)
+
+    async def owner(_sec, conn) -> list[str]:
+        await conn.execute("UPDATE app_settings SET max_radio_contacts = 123 WHERE id = 1")
+        order.append("owner")
+        if keep["owner"]:
+            raise sections_module.SectionKept(["owner_kept"])
+        return []
+
+    def follower(name: str, *, fail: bool = False):
+        async def restore(_sec, _conn) -> list[str]:
+            order.append(name)
+            if fail:
+                raise RuntimeError("boom")
+            return []
+
+        return restore
+
+    register("owner", export, owner)
+    register("rider", export, follower("rider"), restore_with="owner")
+    register("after", export, follower("after"), requires=["owner"])
+    exported = export_document(await export_backup_v2())
+
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert order == ["owner"]
+    assert job.result is not None
+    for warning in ("owner_kept", "section_skipped:rider", "section_skipped:after"):
+        assert warning in job.result.warnings
+
+    async def max_contacts() -> int:
+        async with backup_db.readonly() as conn:
+            async with conn.execute("SELECT max_radio_contacts FROM app_settings") as cursor:
+                return (await cursor.fetchone())[0]
+
+    assert await max_contacts() != 123  # the kept owner's write was rolled back
+
+    order.clear()
+    keep["owner"] = False
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert order == ["owner", "rider", "after"]
+    assert await max_contacts() == 123
+
+
+@pytest.mark.asyncio
+async def test_a_failed_rider_rolls_its_owner_back(backup_db, setup_stub):
+    async def export():
+        return BackupSection(data=1)
+
+    async def owner(_sec, conn) -> list[str]:
+        await conn.execute("UPDATE app_settings SET max_radio_contacts = 77 WHERE id = 1")
+        return []
+
+    async def rider(_sec, _conn) -> list[str]:
+        raise RuntimeError("boom")
+
+    register("owner", export, owner)
+    register("rider", export, rider, restore_with="owner")
+    exported = export_document(await export_backup_v2())
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert job.result is not None
+    assert {"section_failed:owner", "section_failed:rider"} <= set(job.result.warnings)
+    async with backup_db.readonly() as conn:
+        async with conn.execute("SELECT max_radio_contacts FROM app_settings") as cursor:
+            assert (await cursor.fetchone())[0] != 77
+
+
+@pytest.mark.asyncio
 async def test_a_failing_section_is_a_warning_not_a_failed_restore(backup_db, setup_stub):
     async def export():
         return BackupSection(data=1)

@@ -105,6 +105,18 @@ version below 1 raises `ValueError`.
   is missing from the file, too new or failed, this section is skipped
   (`section_skipped:<name>`). A cycle is refused at registration. A required
   name nobody registered counts as missing.
+- **Kept on purpose.** A restore function that refuses the file's data and
+  keeps the current one (the accounts without a usable administrator) raises
+  `SectionKept(warnings)`: nothing it wrote is committed, its warnings reach
+  the result, and it does **not** count as restored, so the sections that
+  require it are skipped. Returning a warning alone would let them run against
+  the data it kept.
+- **`restore_with`.** `register_backup_section(name, ..., restore_with="users")`
+  for rows that belong to another section's rows (the `api_tokens` of the
+  accounts): implies `requires`, and the restore runs in the owner's
+  transaction, right after it, only when the owner was written. Owner kept,
+  failed, skipped or missing: this section is skipped and the current rows
+  stay. A failure of either rolls both back (`section_failed:` for each).
 
 - **Never exported.** `NEVER_EXPORTED_SECTIONS` (`sessions`, `pairing_codes`,
   `auth_audit`, `remote_identity`): registering one of these names raises, and
@@ -218,13 +230,16 @@ imported by `services/backup.py`.
   with one username key, a refused hash or `system` role) raises: the section is rolled back
   (`section_failed:users`) and the current accounts stay.
 - **Never log** a hash, a TOTP secret or a row; log lines carry counts.
-- **API tokens.** The `api_tokens` section (`sensitive`, `requires=["users"]`,
+- **API tokens.** The `api_tokens` section (`sensitive`, `restore_with="users"`,
   in `ACCOUNT_SECTIONS`) holds every live token (not revoked, not expired):
   id, owner id, name, SHA-256 hash, scopes, created, last used, expiry,
   origin. Never a secret: the database has none. Its restore replaces the
   tokens and keeps a row only when its owner exists after the accounts restore
   and that owner's role grants its scopes (`api_token_dropped:<id>`
-  otherwise); a hash must be 64 lowercase hex. A `users` restore without this
+  otherwise); a hash must be 64 lowercase hex. It runs in the accounts'
+  transaction, right after them, so an owner id always names the restored
+  account; when the accounts are kept (`accounts_no_admin`) the tokens are
+  not touched (`section_skipped:api_tokens`). A `users` restore without this
   section leaves no token (the replaced accounts' rows cascade). The sockets of
   the replaced tokens close at once.
 - **Extension point.** Passkeys and recovery codes (T50, T52), once their
