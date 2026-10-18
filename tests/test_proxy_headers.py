@@ -313,6 +313,7 @@ class TestSettingsRoute:
             "public_urls": [],
             "host_guard_mode": "observe",
             "security_notices": [],
+            "require_2fa_for_admins": False,
         }
         response = await client.patch(
             "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}

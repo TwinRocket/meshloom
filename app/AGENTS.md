@@ -47,8 +47,9 @@ and the OpenAPI page (`/docs`), not a table here.
   it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
   messages, conversations or DM activity must also honour `read_private`
   (`can_read_private(request)`): the `kiosk` role never gets a direct message.
-- `auth/ratelimit.py` (login delays) runs on `POST /api/auth/login` before any
-  argon2id check: progressive delay per (address, username), one attempt a second
+- `auth/ratelimit.py` (login delays) runs on `POST /api/auth/login` (and on the
+  second-factor code checks of `routers/auth_totp.py`, which count a wrong code as a
+  failed login) before any argon2id check: progressive delay per (address, username), one attempt a second
   per slowed username, hard refusal per address past 100 failures in 15 minutes.
   Addresses are keyed IPv4 /32, IPv6 /64; on a shared address (`compose`/`container`
   without a trusted proxy: configuration only, never a request header) only the
@@ -57,6 +58,12 @@ and the OpenAPI page (`/docs`), not a table here.
   No lockout by name. 429
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
+- `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
+  `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
+  logins between `POST /api/auth/login` and `POST /api/auth/login/2fa`). Sessions are
+  issued only after the second factor; Basic never signs in an account that has one;
+  `require_2fa_for_admins` confines an admin without one to the enrolment routes (the
+  gate, fail closed). Details: `docs/dev/auth.md`, "Second factor (TOTP)".
 - `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
   `host_allowed` is the one rule (trusted-network auto-login calls it directly and
   stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers
@@ -273,6 +280,8 @@ Community guard.
   repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
   server on its next read. Every command writes one `auth_audit` row through `app/auth/audit.py` (`via = "cli"`,
   the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
+- `disable-2fa <user>` removes a lost TOTP factor and its recovery codes (`totp.disabled`
+  row); it refuses a database the server has not migrated to 109 yet.
 - Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
   new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
@@ -344,6 +353,11 @@ run as root).
   `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_108.py`).
   Rules: `docs/dev/auth.md`, "API and device tokens". It travels in the `api_tokens`
   backup section with the accounts.
+- Migration 109 adds `recovery_codes` (TOTP recovery code hashes, DDL also in
+  `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_109.py`) and
+  `auth_settings.require_2fa_for_admins` (off; a later column, so from the migration
+  only). The TOTP columns of `users` came with 101. Rules: `docs/dev/auth.md`,
+  "Second factor (TOTP)".
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -672,7 +686,7 @@ be wrong, because historical decryption inserts old messages with new ids.
   `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
   the BLE PIN, the previous-transport snapshot, `users.password_hash`,
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
-  `sessions` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
+  `sessions`, `recovery_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. The accounts travel in the JSON full
   backup's `users` section, the API tokens in its `api_tokens` section
   (`services/backup_accounts.py`, `docs/dev/backup.md`,

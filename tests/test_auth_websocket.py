@@ -40,6 +40,14 @@ def valid_cookie(monkeypatch):
 
     monkeypatch.setattr(sessions, "resolve_session", resolve)
 
+    # No database here: ``require_2fa_for_admins`` off (unreadable would confine the admin).
+    async def two_factor_not_required():
+        return False
+
+    monkeypatch.setattr(
+        middleware.AuthSettingsRepository, "require_2fa_for_admins", two_factor_not_required
+    )
+
 
 @pytest.mark.parametrize("cookie", [None, "bad-token"])
 def test_upgrade_without_a_valid_session_is_refused_before_accept(valid_cookie, cookie):

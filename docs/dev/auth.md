@@ -9,7 +9,10 @@ registry (which role may call which route, and receive which WebSocket event).
 The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
 "Session gate"). Home Assistant ingress identities are in "Ingress" below,
 trusted networks in "Trusted networks", API and device tokens in "API and
-device tokens". The tokens page is `frontend/src/components/settings/AccessTokensPanel.tsx`. Pairing and 2FA come with later Access tickets. Like every doc here
+device tokens" (the tokens page is
+`frontend/src/components/settings/AccessTokensPanel.tsx`), the TOTP second
+factor in "Second factor (TOTP)". Pairing and passkeys come with later Access
+tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 
@@ -40,8 +43,9 @@ works on the same tables.
 | Host guard (`host_allowed`, observe/enforce middleware, observed names) | `app/middleware/host_guard.py`, `tests/test_host_guard.py` |
 | Security headers (HSTS over https, no-store, Permissions-Policy) | `app/middleware/security_headers.py`, `tests/test_security_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
+| TOTP second factor (codes, replay rule, recovery codes, pending logins) | `app/auth/totp.py`, routes in `app/routers/auth_totp.py`, `tests/test_auth_totp.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -167,7 +171,10 @@ logged at ERROR and the row is not written (a bug at the call site).
   | Action | Written by |
   |---|---|
   | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
-  | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout`, `GET /auth/kiosk-session` (`details.method = "kiosk_token"`, `reason` on failure) |
+  | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`; `pending` with `details.factor = totp` when the password checked and a second factor is owed), `POST /auth/login/2fa` (`success` with `details.factor` `totp` or `recovery`, plus `remaining` recovery codes for the latter; `failure` with `details.reason = second_factor_invalid`; `delayed`/`refused` while a login delay runs), `POST /auth/logout`, `GET /auth/kiosk-session` (`details.method = "kiosk_token"`, `reason` on failure) |
+  | `totp.enrolled` | `POST /auth/2fa/confirm` (`success` with `details.sessions_revoked`; `failure` for a wrong first code), and the password check of `POST /auth/2fa/enrol` (`failure`, `delayed`, `refused`) |
+  | `totp.disabled` | `POST /auth/2fa/disable` (password and code checks too), `meshloom-admin disable-2fa` |
+  | `totp.recovery_regenerated` | `POST /auth/2fa/recovery` (password and code checks too) |
   | `token.created`, `token.revoked` | `POST /auth/tokens` (`details.scopes`, `expires_at`, `origin`), `DELETE /auth/tokens/{id}` (`details.owner` when an admin revokes someone else's); refusals too, outcome `failure` (`refused` for a 403) with `details = {reason, status}` (`token_scope`, `token_expiry_invalid`, `token_limit`, `token_not_found`, `forbidden`) |
   | `token.used` | A refused use of a token that exists (outcome `failure`, `details.reason` `revoked`, `expired`, `owner_disabled`, `ingress`, `scopes_invalid`), at most once a minute per token; successful uses only move `last_used_at`. A refused `POST /auth/kiosk-bootstrap` (outcome `refused`, `details.route = "kiosk_bootstrap"`) |
   | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `DELETE /auth/users/{id}/sessions` (`details.scope = all`), `meshloom-admin revoke-sessions` |
@@ -196,7 +203,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   typed name or password. A 422 (body validation) writes no row.
 
   Reserved for the tickets that add their feature: `pairing.used`,
-  `totp.enrolled`, `totp.disabled`, `passkey.added`, `passkey.removed`,
+  `passkey.added`, `passkey.removed`,
   `plugin.created`, `plugin.changed`, `plugin.disabled`, `plugin.installed`,
   `plugin.updated`, `plugin.removed` (Store), `remote.linked`,
   `remote.enabled`, `remote.disabled` (Remote). A new sensitive action adds its
@@ -217,7 +224,8 @@ logged at ERROR and the row is not written (a bug at the call site).
 
 The accounts travel in the `users` section of the full backup
 (`app/services/backup_accounts.py`, `docs/dev/backup.md`, "Accounts"): hashes
-and TOTP material included, behind the export's **Include accounts** box
+and TOTP material included (the secret, the replay counter and, since section
+version 2, the recovery code hashes), behind the export's **Include accounts** box
 (checked by default); a restore never leaves the instance without an enabled
 admin. The API tokens travel in their own `api_tokens` section (hashes,
 scopes, expiry; never a secret, the database holds none), behind the same box
@@ -229,7 +237,7 @@ stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but
 not their secrets: `prepare_sqlite_snapshot()` sets `users.password_hash`,
 `users.totp_secret` and `auth_settings.setup_code_hash` to NULL and empties
-`sessions` in the copy, under `secure_delete`. A restored snapshot therefore
+`sessions` and `recovery_codes` in the copy, under `secure_delete`. A restored snapshot therefore
 has accounts that cannot log in with a password until an admin reset.
 
 ## The gate
@@ -843,6 +851,83 @@ and none by IP alone behind Docker:
   one slot a second; the per-IP rule and the relay's edge lock answer that,
   not a lock on the name.
 
+## Second factor (TOTP)
+
+Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
+(no hard rule: `require_2fa_for_admins`, off by default). `app/auth/totp.py`
+(pyotp), routes in `app/routers/auth_totp.py`, storage in `users.totp_*` and
+`recovery_codes` (migration 109) through `TotpRepository`.
+
+- **Who.** A `local` account with a password, outside `kiosk`. Home Assistant
+  identities and the kiosk account have none (403 `auth_2fa_not_applicable`);
+  ingress never asks for one (Home Assistant authenticated the user).
+- **Enrolment.** `POST /auth/2fa/enrol` checks the current password (login
+  delays, argon2id queue: a stolen session cannot enrol a factor that would
+  lock the owner out), stores `pyotp.random_base32()` (160 bits) as a pending
+  secret (`totp_enabled_at` NULL; enrolling again replaces it) and answers it
+  with its `otpauth://` URI (issuer: the radio's name, else `Meshloom`). `POST
+  /auth/2fa/confirm` turns it on with the first valid code: its step becomes
+  `totp_last_counter`, ten recovery codes are generated and returned once, and
+  every other session of the account is signed out. Turning the factor on or
+  off moves `updated_at` (known-device cookies, pending logins).
+- **Codes.** 6 digits, 30 s, one step either way (`VALID_WINDOW = 1`). A code
+  is accepted only for a step after `totp_last_counter`
+  (`TotpRepository.claim_counter`, one conditional `UPDATE`): replaying a code,
+  or using an earlier one, inside its 90 s window is refused, even by two
+  concurrent requests.
+- **Recovery codes.** Ten codes of 12 characters (`xxxx-xxxx-xxxx`, an alphabet
+  without 0/o/1/l/i, about 59 bits), typed with any case, spaces or dashes.
+  Stored as argon2id hashes (PyNaCl) at a light cost (2 passes, 1 MiB): they
+  are random, so the hash only makes a stolen table useless, and a check tries
+  up to ten. Each works once (`used_at`, conditional `UPDATE`). `POST
+  /auth/2fa/recovery` (password and a TOTP code) replaces them; disabling the
+  factor deletes them. Disable and recovery check the password with
+  `record_success=False`: the login delays are cleared only once the password
+  **and** the code checked, so wrong codes keep building the (address, name)
+  delay even with the right password.
+- **Login.** A correct password for an account with the factor on opens no
+  session and does not count as a limiter success: `POST /auth/login` answers a
+  pending-login token (256 bits, only its SHA-256 kept, in memory, 5 minutes,
+  1024 at most) and writes a `login` row with outcome `pending`. `POST
+  /auth/login/2fa` checks the code (TOTP or recovery) under the login delays,
+  keyed on the client's address and the account's name like a password: a
+  wrong code is `record_failure` (so password and code failures share one
+  budget), a right one `record_success`. The token is bound to the first
+  step's client (`client_binding`: SHA-256 of `client_ip()`, as the trusted-proxy
+  interpreter resolved it, and the User-Agent): another address or browser gets
+  401 `auth_2fa_pending_invalid`, the token is discarded and a `login` row
+  `refused` (`details.reason = pending_client_mismatch`) is written. While a
+  code is checked the entry is taken out of the table (`PendingLogins.take`), so
+  two concurrent requests cannot both use one token; it is put back only after a
+  check that opened no session (a wrong code counts). Five wrong codes void the
+  token; a change to the account (`updated_at`), a disable or a removed factor
+  void it too; a restart forgets every token (sign in again). The session and the
+  known-device cookie are issued only after the second factor.
+- **No other way around it.** `Authorization: Basic` never signs in an
+  account whose factor is on (no code in the header: 401). A trusted network
+  rule still signs its account in without a password or a code: that is the
+  admin's explicit choice, as before; the settings warn about rules naming an
+  administrator.
+- **`require_2fa_for_admins`** (`auth_settings`, `GET/PATCH /auth/settings`).
+  When on, an admin with a password and no enabled factor reaches only
+  `SECOND_FACTOR_ENROLMENT_ROUTES` (`GET /auth/session`, `POST /auth/logout`,
+  `GET /auth/me`, `GET /auth/2fa`, `POST /auth/2fa/enrol`, `POST
+  /auth/2fa/confirm`); every other `/api` route answers 403
+  `auth_2fa_enrolment_required` and the WebSocket upgrade is refused (the gate,
+  `app/auth/middleware.py`), whatever the credential (session, Basic, an API
+  token of that admin, a trusted network rule). Members, viewers, kiosks and
+  ingress identities are not affected. `must_change_password` comes first. An unreadable setting
+  counts as on (fail closed). `GET /auth/session` says
+  `user.second_factor_enrolment_required`.
+- **Recovery on the host.** `meshloom-admin disable-2fa <username>` removes the
+  factor (or a pending enrolment) and the recovery codes, and writes a
+  `totp.disabled` row (`via = cli`). Sessions stay.
+- **Secret at rest.** Base32 in `users.totp_secret` until the instance secrets
+  key (Notifications T32, `data/secrets.key`) exists; encrypting it then is a
+  follow-up. It is never returned after enrolment, never logged, null in the
+  database download, and in the JSON backup only inside the `users` section
+  ("Include accounts").
+
 ## First run and the installation code
 
 `prepare_first_run()` (`app/auth/setup_code.py`) runs in the lifespan, while
@@ -897,14 +982,20 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
-| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress, before any password check |
+| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"], expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
+| `POST /auth/login/2fa` | public | `{pending_token, code}`: the second step ("Second factor (TOTP)"). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
 | `GET /auth/sessions` | own account (not `kiosk`) | The user's active sessions, newest first, `current` marks this one |
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |
 | `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
-| `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
+| `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, totp_enabled, created_at` |
+| `GET /auth/2fa` | own account (not `kiosk`) | `{enabled, pending, recovery_codes_left, enrolment_required}`; never the secret |
+| `POST /auth/2fa/enrol` | own account (not `kiosk`) | `{password}` (checked like `PATCH /auth/me`'s current password). Stores a new pending secret and answers `{secret, otpauth_uri, issuer, digits, period}`, the only time the secret leaves. 403 `auth_2fa_not_applicable` (no password, ingress, kiosk), 409 `auth_2fa_already_enabled` |
+| `POST /auth/2fa/confirm` | own account (not `kiosk`) | `{code}`: the first valid code turns the factor on and answers `{recovery_codes}` (ten, shown once); signs the account out everywhere else. 400 `auth_2fa_invalid`, 409 `auth_2fa_not_pending`, `auth_2fa_already_enabled` |
+| `POST /auth/2fa/disable` | own account (not `kiosk`) | `{password, code}` (TOTP or recovery code). 403 `auth_invalid_credentials`, `auth_2fa_invalid`; 409 `auth_2fa_not_enabled`; 429 |
+| `POST /auth/2fa/recovery` | own account (not `kiosk`) | `{password, code}` (a TOTP code, not a recovery code): ten new recovery codes, the old ones stop working. Same errors as disable |
 | `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`). The current password is checked like a login: the login delays first (`login_limiter.check` on the client's address key and the account's name, 429 `auth_rate_limited`; a wrong one is `record_failure`), then the bounded argon2id queue (503 `auth_busy`). A change clears `must_change_password`, revokes the user's other sessions and closes their sockets (`sign_out_user`), and moves `updated_at` (known devices forgotten). The one write route open while `must_change_password` is set |
 | `GET /auth/users` | `admin` | Every account by id: `{id, username, display_name, role, provider, disabled, must_change_password, has_password, totp_enabled, created_at, updated_at}`; never `external_id` or a hash |
 | `POST /auth/users` | `admin` | 201. `{username, role, display_name?, password?, must_change_password = true}`. `password` required for every role but `kiosk` (400 `auth_password_required`) and refused for `kiosk` (400 `auth_password_not_applicable`); 400 `auth_password_policy`, `auth_username_invalid`; 409 `auth_username_taken`. Local accounts only (ingress ones come from Home Assistant) |
@@ -917,8 +1008,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/tokens/{id}` | same | 204. Revokes the token (the caller's own; any for an admin) and closes its sockets at once. 404 `auth_token_not_found` for an unknown, revoked or someone else's token |
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). One `settings.changed` row per field |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices, require_2fa_for_admins}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").

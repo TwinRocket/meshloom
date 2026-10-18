@@ -1,6 +1,6 @@
 ---
 title: Recover access
-description: meshloom-admin, the command that resets a password, creates an administrator or issues the installation code from the machine, for each way of installing Meshloom.
+description: Roles, accounts, two-factor authentication, tokens and meshloom-admin, the command that resets a password, removes a lost second factor, creates an administrator or issues the installation code from the machine, for each way of installing Meshloom.
 level: deep
 order: 21
 ---
@@ -114,9 +114,30 @@ The device sends the token in a header, `Authorization: Bearer mlt_…`, on ever
 
 **Scopes** say what a token may do: `read` (channels, contacts, packets, map), `read_private` (direct messages), `send` (send and edit contacts and channels), `repeater_admin` (repeaters and rooms) and `admin` (everything). A token never gets more than its account's role: a member cannot ask for `repeater_admin` or `admin` (`auth_token_scope`), and if an account loses a role later, its tokens lose it too. A disabled or deleted account takes its tokens with it. Give each token the fewest scopes it needs: a dashboard needs only `read`.
 
+## Two-factor authentication
+
+Any account with a password (the kiosk and Home Assistant users excepted) can add a second factor: a 6-digit code from an authenticator app (TOTP, RFC 6238: Aegis, 2FAS, Google Authenticator, a password manager…). Signing in then takes the password **and** the current code. It is optional; an administrator can require it for administrators (below). There is no page for it yet: use the API while signed in.
+
+| Request | What it does |
+|---|---|
+| `POST /api/auth/2fa/enrol` | Starts the setup: `{"password"}`. The answer holds the secret and an `otpauth://` link to scan or paste into the app, **this one time**: no other request shows the secret again. |
+| `POST /api/auth/2fa/confirm` | Turns it on with the first code the app shows: `{"code": "123456"}`. The answer holds **ten recovery codes**, shown once: print them or keep them in a password manager. Your other browsers are signed out. |
+| `GET /api/auth/2fa` | Whether it is on and how many recovery codes are left. |
+| `POST /api/auth/2fa/recovery` | Ten new recovery codes (the old ones stop working): `{"password", "code"}` with a code from the app. |
+| `POST /api/auth/2fa/disable` | Turns it off: `{"password", "code"}`, a code from the app or a recovery code. |
+
+- **Signing in.** After a correct password, `POST /api/auth/login` answers `"authenticated": false` with a `second_factor.pending_token`; send it with the code to `POST /api/auth/login/2fa` within 5 minutes to get the session. A recovery code works in place of the app's code, once each. Five wrong codes, or a change to the account, mean starting again with the password.
+- **A code works once.** A code already used, or an older one, is refused even while it is still shown in the app: wait for the next one.
+- **Wrong codes count like wrong passwords**, with the same delays (above).
+- **Scripts.** `Authorization: Basic` stops working for an account with a second factor: use an [API token](#api-and-device-tokens).
+- **Require it for administrators.** `PATCH /api/auth/settings` with `{"require_2fa_for_admins": true}` (off by default). An administrator without a second factor can then only set one up (and sign out) until it is done; members, viewers, the kiosk and Home Assistant users are not affected. Recommended when Meshloom is reachable from the Internet.
+- **Lost phone.** Use a recovery code. Without one, an administrator runs `meshloom-admin disable-2fa <user>` on the machine (below), then the user signs in with the password alone and sets it up again.
+
+The secret is kept in the database (encrypted at rest in a later version). The full backup carries it, with the recovery codes (only their hashes), only when **Include accounts** is checked; the database download leaves both out.
+
 ## Audit log
 
-Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or a bot's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
@@ -136,6 +157,7 @@ The full backup (**Settings → Database**) carries the accounts when **Include 
 | `meshloom-admin list-users` | Lists the accounts: id, role, provider, active or disabled, whether a password is set. `--json` for scripts. |
 | `meshloom-admin disable-user <user>` | Blocks a user and signs it out. Refuses the last active administrator unless you add `--force`. |
 | `meshloom-admin enable-user <user>` | Lets a disabled user sign in again. |
+| `meshloom-admin disable-2fa <user>` | Removes a user's two-factor authentication and recovery codes (lost phone). The user then signs in with the password alone. |
 | `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
 | `meshloom-admin host-guard-observe` | Switches the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) back to observation mode, for when strict mode refuses the only name you can reach Meshloom by. |
 

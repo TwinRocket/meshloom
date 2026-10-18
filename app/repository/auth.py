@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import aiosqlite
-from pydantic import SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr
 
 from app.auth.models import (
     PROVIDERS,
@@ -234,6 +234,10 @@ def _check_role(role: str) -> None:
 _BUMP_UPDATED_AT = "updated_at = MAX(?, updated_at + 1)"
 
 
+# Removes the TOTP second factor (secret, enable time, replay counter).
+_CLEAR_TOTP = ("totp_secret = NULL", "totp_enabled_at = NULL", "totp_last_counter = NULL")
+
+
 # Only a local account outside ``kiosk`` with a password can be asked to
 # change it; anything else would be stuck behind the gate's forced change.
 _CAN_CHANGE_PASSWORD = "password_hash IS NOT NULL AND role != 'kiosk' AND provider = 'local'"
@@ -422,8 +426,12 @@ class UserRepository:
             updates.append("must_change_password = ?")
             params.append(int(must_change_password))
         if clear_password:
+            # The second factor goes with the password (a ``kiosk`` has neither).
             updates.append("password_hash = NULL")
+            updates.extend(_CLEAR_TOTP)
         async with db.tx() as conn:
+            if clear_password:
+                await conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
             if updates:
                 updates.append(_BUMP_UPDATED_AT)
                 params.extend([_now(now), user_id])
@@ -463,11 +471,164 @@ class UserRepository:
             # Explicit, so the sessions go even on a connection without
             # PRAGMA foreign_keys (migration tests, scripts).
             await conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
             async with conn.execute("DELETE FROM users WHERE id = ?", (user_id,)) as cursor:
                 deleted = cursor.rowcount > 0
             if deleted and keep_an_admin and await _count_enabled_admins(conn) == 0:
                 raise LastAdminError("the last enabled administrator must stay")
             return deleted
+
+
+class TotpState(BaseModel):
+    """The TOTP material of one account, for ``app/auth/totp.py`` only. The
+    secret never reaches a general model, a log or an error message."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    secret: SecretStr | None = None
+    enabled_at: int | None = None
+    last_counter: int | None = None
+
+
+class TotpRepository:
+    """``users.totp_*`` and ``recovery_codes`` (migration 109). Rules:
+    ``docs/dev/auth.md``, "Second factor". Every write that turns the factor on
+    or off moves ``updated_at`` (known-device cookies, pending logins)."""
+
+    @staticmethod
+    async def get_state(user_id: int) -> TotpState | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT totp_secret, totp_enabled_at, totp_last_counter FROM users WHERE id = ?",
+                (user_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return TotpState(
+            secret=SecretStr(row[0]) if row[0] is not None else None,
+            enabled_at=row[1],
+            last_counter=row[2],
+        )
+
+    @staticmethod
+    async def set_pending_secret(user_id: int, secret: str) -> bool:
+        """Store a secret awaiting its first code. Never replaces an enabled
+        factor: False when the account has one (or does not exist). Sign-in
+        does not change until ``enable()``, so ``updated_at`` stays."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE users SET totp_secret = ?, totp_last_counter = NULL"
+                " WHERE id = ? AND totp_enabled_at IS NULL",
+                (secret, user_id),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def enable(
+        user_id: int, secret: str, counter: int, code_hashes: list[str], *, now: int | None = None
+    ) -> bool:
+        """Turn the pending factor on with its first accepted time step, and store
+        the recovery codes. False (nothing written) when the pending secret is no
+        longer ``secret`` (enrolled again meanwhile) or a factor is already on."""
+        ts = _now(now)
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE users SET totp_enabled_at = ?, totp_last_counter = ?, "
+                f"{_BUMP_UPDATED_AT} WHERE id = ? AND totp_enabled_at IS NULL AND totp_secret = ?",
+                (ts, counter, ts, user_id, secret),
+            ) as cursor:
+                if cursor.rowcount == 0:
+                    return False
+            await _replace_codes(conn, user_id, code_hashes, ts)
+            return True
+
+    @staticmethod
+    async def claim_counter(user_id: int, counter: int) -> bool:
+        """Record an accepted time step. False when this step or a later one was
+        already used (a replay), or the factor is off: one statement, so two
+        concurrent requests with the same code cannot both pass."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE users SET totp_last_counter = ? WHERE id = ?"
+                " AND totp_enabled_at IS NOT NULL"
+                " AND (totp_last_counter IS NULL OR totp_last_counter < ?)",
+                (counter, user_id, counter),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def unused_codes(user_id: int) -> list[tuple[int, str]]:
+        """``(id, code_hash)`` of the account's unused recovery codes."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT id, code_hash FROM recovery_codes"
+                " WHERE user_id = ? AND used_at IS NULL ORDER BY id",
+                (user_id,),
+            ) as cursor:
+                return [(int(row[0]), str(row[1])) for row in await cursor.fetchall()]
+
+    @staticmethod
+    async def use_code(user_id: int, code_id: int, *, now: int | None = None) -> bool:
+        """Spend one recovery code. False when it was spent meanwhile."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE recovery_codes SET used_at = ?"
+                " WHERE id = ? AND user_id = ? AND used_at IS NULL",
+                (_now(now), code_id, user_id),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def codes_left(user_id: int) -> int:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT COUNT(*) FROM recovery_codes WHERE user_id = ? AND used_at IS NULL",
+                (user_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    @staticmethod
+    async def replace_codes(
+        user_id: int, code_hashes: list[str], *, now: int | None = None
+    ) -> bool:
+        """New recovery codes for an account whose factor is on; the old ones stop working."""
+        ts = _now(now)
+        async with db.tx() as conn:
+            async with conn.execute(
+                "SELECT 1 FROM users WHERE id = ? AND totp_enabled_at IS NOT NULL", (user_id,)
+            ) as cursor:
+                if await cursor.fetchone() is None:
+                    return False
+            await _replace_codes(conn, user_id, code_hashes, ts)
+            return True
+
+    @staticmethod
+    async def disable(user_id: int, *, now: int | None = None) -> bool:
+        """Remove the factor (enabled or pending) and its recovery codes. True
+        when there was something to remove."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "DELETE FROM recovery_codes WHERE user_id = ?", (user_id,)
+            ) as cursor:
+                removed_codes = cursor.rowcount > 0
+            async with conn.execute(
+                f"UPDATE users SET {', '.join(_CLEAR_TOTP)}, {_BUMP_UPDATED_AT}"
+                " WHERE id = ? AND (totp_secret IS NOT NULL OR totp_enabled_at IS NOT NULL)",
+                (_now(now), user_id),
+            ) as cursor:
+                return cursor.rowcount > 0 or removed_codes
+
+
+async def _replace_codes(
+    conn: aiosqlite.Connection, user_id: int, code_hashes: list[str], ts: int
+) -> None:
+    await conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
+    await conn.executemany(
+        "INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, ?)",
+        [(user_id, code_hash, ts) for code_hash in code_hashes],
+    )
 
 
 class AuthSessionRepository:
@@ -928,6 +1089,7 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
         audit_retention_days=row["audit_retention_days"],
         basic_imported=bool(row["basic_imported"]),
         setup_code_set=row["setup_code_hash"] is not None,
+        require_2fa_for_admins=bool(row["require_2fa_for_admins"]),
     )
 
 
@@ -951,6 +1113,7 @@ class AuthSettingsRepository:
         session_lifetime_days: int | None = None,
         audit_retention_days: int | None = None,
         basic_imported: bool | None = None,
+        require_2fa_for_admins: bool | None = None,
     ) -> AuthSettings:
         """Validate the merged result as ``AuthSettings``, then write the given fields."""
         async with db.tx() as conn:
@@ -966,6 +1129,7 @@ class AuthSettingsRepository:
                     "session_lifetime_days": session_lifetime_days,
                     "audit_retention_days": audit_retention_days,
                     "basic_imported": basic_imported,
+                    "require_2fa_for_admins": require_2fa_for_admins,
                 }.items()
                 if value is not None
             }
@@ -998,6 +1162,18 @@ class AuthSettingsRepository:
         trusted_network.apply(updated)
         host_guard.apply(updated)
         return updated
+
+    @staticmethod
+    async def require_2fa_for_admins() -> bool:
+        """``require_2fa_for_admins`` alone, for the gate (one column, no parsing)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT require_2fa_for_admins FROM auth_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            raise AuthSettingsMissingError("auth_settings row missing")
+        return bool(row[0])
 
     @staticmethod
     async def get_setup_code_hash() -> str | None:
