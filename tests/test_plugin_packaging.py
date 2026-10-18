@@ -114,6 +114,8 @@ def test_runner_package_uses_only_the_standard_library() -> None:
 
     allowed = set(sys.stdlib_module_names) | {"meshloom_plugin"}
     for path in (ROOT / "meshloom_plugin").rglob("*.py"):
+        if path.name == "dev.py":  # author tooling in the server's interpreter, not child code
+            continue
         for match in re.finditer(
             r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", path.read_text(), re.M
         ):

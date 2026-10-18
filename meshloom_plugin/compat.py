@@ -292,8 +292,10 @@ def _call_sync(method: str, params: dict[str, Any], permission: str, url: str = 
 
 
 def _host_of(url: str) -> str:
-    rest = url.partition("://")[2] or url
-    return rest.partition("/")[0].partition("?")[0] or "this host"
+    """`host[:port]` of `url` for a message: no userinfo, path, query or fragment."""
+    shown = sdk.safe_url(url)
+    rest = shown.partition("://")[2] or shown
+    return rest.partition("/")[0] or "this host"
 
 
 def compile_bot(source: str) -> tuple[Any, BotCallPlan, dict[str, Any]]:

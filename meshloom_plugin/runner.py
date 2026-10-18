@@ -645,13 +645,18 @@ class Channel:
                 return msg.get("result")
             self._handle_line(line)  # an answer to an async call()
             return _NO_ANSWER
-        if msg["method"] == "event.cancel" and current is not None:
+        if msg["method"] == "event.cancel":
+            # Never held back: a cancel is applied now, whichever task it names.
             params = msg.get("params")
             target = params.get("id") if isinstance(params, dict) else None
-            if self._tasks.get(target) is current:
-                if "id" in msg:
-                    self._reply(rpc.result(msg["id"], True))
+            task = self._tasks.get(target)
+            if "id" in msg:
+                self._reply(rpc.result(msg["id"], task is not None))
+            if task is not None and task is current:
                 raise self._asyncio.CancelledError()
+            if task is not None:
+                task.cancel()
+            return _NO_ANSWER
         self._defer(line)
         return _NO_ANSWER
 

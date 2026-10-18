@@ -45,6 +45,10 @@ PLUGIN = """
 
     def on_health(params):
         return "health"
+
+    async def on_timer(params):
+        import asyncio
+        await asyncio.sleep(30)
 """
 
 
@@ -141,3 +145,23 @@ def test_the_stream_closing_while_blocked_ends_the_child(child: Runner) -> None:
     read_request(child)
     child._stdin.close()  # stdin EOF: the server is gone
     assert child.proc.wait(timeout=10) == 0
+
+
+def test_cancel_of_another_task_is_applied_at_once_even_past_the_cap(child: Runner) -> None:
+    slow = child.start("event.timer", {})
+    time.sleep(0.3)
+    msg_id = child.start("event.message", {"case": "ok"})
+    request = read_request(child)
+    health = [child.start("event.health", {}) for _ in range(150)]  # fill the held-back buffer
+    cancel_id = child.start("event.cancel", {"id": slow})
+    seen: dict[Any, dict[str, Any]] = {}
+    while cancel_id not in seen:  # answered at once, though the loop is blocked
+        message = child.read_message(timeout=10)
+        seen[message["id"]] = message
+    assert seen[cancel_id]["result"] is True
+    child.send(rpc.result(request["id"], "done"))
+    while not {slow, msg_id, *health} <= seen.keys():
+        message = child.read_message(timeout=30)
+        seen[message["id"]] = message
+    assert seen[slow]["error"]["code"] == rpc.CANCELLED  # delivered, not dropped
+    assert seen[msg_id]["result"] == "done"

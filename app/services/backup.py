@@ -51,6 +51,10 @@ from app.repository import (
     ContactGroupRepository,
     ContactRepository,
 )
+
+# Imported for its side effect: the instance identities' on_restore hook, so it is
+# registered before the lifespan runs the SQLite restore hooks.
+from app.services import instance_identity  # noqa: F401, E402
 from app.services.backup_sections import (
     export_sections,
     prepare_sqlite_snapshot,
@@ -174,7 +178,7 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     ),
     "app_settings.share_instance_seed": (
         "excluded",
-        "instance identity seed: never exported, regenerated on first enablement",
+        "instance identity seed: never exported, created on first use, rotated by every restore",
     ),
     "app_settings.store_online": (
         "excluded",

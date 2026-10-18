@@ -225,7 +225,7 @@ and never sits in `plugins.config`. They follow the write-only pattern of
 `app/plugins/attention.py` `scan_source(source)` parses a local source with `ast`
 (nothing is imported or run) and returns an `AttentionReport`: `reasons`
 (`code`, `line`, `detail`, `informative`), `http_hosts` and `truncated`. Reused by
-the switch (T9) and `dev check` (T4d). The reasons are a review aid, not an
+the switch (T9) and `dev check` (T4d, "Checking a plugin"). The reasons are a review aid, not an
 exhaustive list of what the sandbox refuses.
 
 It never raises on any `str`, so one hostile bot cannot abort a batch scan: a
@@ -258,6 +258,41 @@ are dropped). They **prefill** the `http` permission: the user still consents.
 Extraction is bounded and linear: at most `MAX_URL_SCAN_BYTES` (256 KiB) of literal
 text searched and `MAX_URL_MATCHES` (1000) URLs examined, stopping at 20 hosts;
 `truncated` is true when a bound cut the search, so more hosts may exist.
+
+## Checking a plugin
+
+```bash
+uv run python -m meshloom_plugin.dev check path/to/plugin [--json] [--origin third_party|bundled|local] [--strict]
+```
+
+Run from a source checkout (`meshloom_plugin.dev` imports `app.plugins`, which is
+not shipped to the child). `check` runs, in order, and reports every finding:
+
+1. **Package.** The directory is zipped in memory (files at the root, mode 0644,
+   `__pycache__` left out, a symlink refused) and goes through
+   `validate_package`, so manifest, archive and config-schema failures carry the
+   server's codes and messages. `--origin` picks the id-namespace rule (`bundled`
+   for `meshloom.*`, `local` for `local.*`).
+2. **Static scan.** `scan_source` on every `.py` outside `vendor/`. Findings are
+   warnings (informative ones are marked `info`); `--strict` makes the blocking
+   ones errors. A plugin's own absolute imports of its other modules are flagged
+   by the scan, which cannot tell them from third-party modules.
+3. **Dry run**, only when the package is valid: the real runner with
+   `isolation: none` (the OS isolation is not exercised), `plugin.init`, one
+   synthetic `event.message` carrying `test: true`, then `plugin.shutdown`. The
+   plugin's calls to the host are captured and answered locally (`messages.send`
+   gets `{"captured": true}`, everything else `null`); nothing is sent. Timeouts:
+   20 s for `plugin.init`, 30 s for the event. An error answer, a runner start
+   error (`entry_load_failed`...), a timeout or a plugin that exits is an error;
+   the tail of the plugin's stderr is printed on failure. The `plugin.init`
+   payload is provisional until the supervisor (MSHL-179) fixes it.
+
+Exit status 0 passed, 1 failed, 2 usage (a path that is not a directory included). `--json` prints `{ok, plugin, errors,
+warnings, dry_run: {isolation, ran, calls, stderr}}` (`isolation` is always `"none (development only)"`; the text output says so too; `informative` is set on informative findings). Importing `meshloom_plugin.dev` imports
+neither FastAPI nor the database (`app/message_limits.py` imports FastAPI lazily
+for that reason); `tests/test_plugin_dev_check.py` asserts it and feeds every
+invalid manifest vector through `check`. `tests/plugin_dev/echo/` is the reference
+valid plugin. `run --replay` and `pack` come later (T27).
 
 ## Contract
 
@@ -299,6 +334,7 @@ hooks block and what they cannot: `docs/dev/plugins-security.md`.
 | `meshloom_plugin/runner.py` | the child: start-up stages, audit hook, import guard, JSON-RPC loop |
 | `meshloom_plugin/rpc.py` | NDJSON framing and JSON-RPC 2.0 helpers, used by both ends |
 | `meshloom_plugin/policy.py` | import allowlist and denylist, kept environment keys, default limits, handler concurrency |
+| `meshloom_plugin/dev.py` | author tooling, not child code: `python -m meshloom_plugin.dev check <dir>` (see "Checking a plugin") |
 | `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server; lazy exports `Plugin`, `Message`, `HostError` |
 | `meshloom_plugin/sdk.py` | the SDK (below) |
 | `meshloom_plugin/compat.py` | the legacy bot shim and the call plans `app/fanout/bot_exec.py` shares (below) |
@@ -474,6 +510,13 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
 - `plugin.init` params: `api` (int), `instance` (object), `config` (object, secret
   values included), `lang`, `granted` (permission names), `limits` (`message_bytes`
   int, others free), `isolation`. Missing fields are tolerated.
+- `limits.message_bytes` is the **smallest** text allowance the instance may meet,
+  because `self.fit()` knows no target: a direct message allows 156 bytes, but a
+  channel message allows `156 - len(sender name) - 2` (`app/message_limits.py`,
+  `channel_text_allowance`). The supervisor should send the channel-effective
+  allowance (radio name known, else the 10-byte fallback: 144), not 156; otherwise
+  `fit()` output on a channel reply is refused with `message_too_long`. A plugin
+  that needs the exact bound reads `params.limit` of that refusal.
 - `event.message` params: the fields of the bots' call (`sender_name`, `sender_key`,
   `message_text` without the `"Name: "` prefix, `is_dm`, `channel_key`,
   `channel_name`, `sender_timestamp`, `path`, `path_bytes_per_hop`, `packet_hash`,
@@ -482,6 +525,22 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
 - `messages.send` takes an explicit target; `region` absent keeps the channel's
   default. A result of `http.fetch` is `{status, headers, body, encoding?}`, `body`
   a string (UTF-8 text, or base64 when `encoding` is `"base64"`).
+- Result shapes the SDK expects: `messages.send` and `status.set` and
+  `storage.set`/`storage.delete`: any JSON (ignored; `null` is fine);
+  `timer.set`: ignored; `storage.get`: the stored JSON value, or `null` when absent;
+  `storage.list`: an array of key strings (anything else reads as empty).
+- **Fail closed.** The SDK checks nothing against `granted`: the guarantee is the
+  server's. A method outside the instance's granted permissions gets
+  `permission_denied` (before any side effect, quota or network access), a method the
+  server does not know gets `-32601`, and invalid params get `invalid_params`.
+- **No head-of-line blocking.** The server must answer a child's requests while that
+  child still has events outstanding (read the child's stream concurrently with
+  waiting for event results). `call_sync` blocks the child's loop until the answer
+  arrives; a server that handles one child message at a time behind a pending event
+  would stall that child until the call times out.
+- **`http.fetch` timeout.** The server clamps `timeout` to at most 10 s (cadrage §4.3)
+  whatever the child sends: it must stay below the 25 s `call_sync` timeout and the 30 s
+  event deadline. The shim and the SDK pass the value through unchanged.
 - Refusals carry `error.data.code` (`permission_denied`, `host_not_allowed`,
   `quota_exceeded`, `target_not_allowed`, `message_too_long`, `invalid_params`).
 
@@ -517,5 +576,9 @@ Differences, on purpose:
   the child, and the other events of that instance wait. A refusal surfaces as a
   `PermissionError` naming the permission and the host (never the query string),
   which the shim logs like any exception of the bot.
+- `print()` goes to the child's **stderr** (fd 1 is redirected there so it cannot
+  corrupt the RPC stream), not to the RPC `log` method. The supervisor collects
+  stderr as the instance's raw log; use `self.log()` or an exception to get a
+  structured entry.
 - A bot that does not load (syntax error, no callable `bot`, unsupported signature)
   is logged at `plugin.init` and at each message; it does not stop the instance.

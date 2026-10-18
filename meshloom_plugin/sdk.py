@@ -61,13 +61,30 @@ class HttpStatusError(Exception):
     """`get_json`/`post_json` got an HTTP status of 400 or more."""
 
     def __init__(self, status: int, url: str):
-        super().__init__(f"HTTP {status} from {_without_query(url)}")
+        super().__init__(f"HTTP {status} from {safe_url(url)}")
         self.status = status
 
 
-def _without_query(url: str) -> str:
-    # An URL may carry an API key in its query: never put it in a message or a log.
-    return url.partition("?")[0]
+def safe_url(url: str) -> str:
+    """`scheme://host[:port]/path`: no userinfo, query or fragment.
+
+    An URL may carry an API key or a password in any of those: never put one
+    in a message or a log.
+    """
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return "an unreadable URL"
+    if not host:
+        return "an unreadable URL"
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc += f":{port}"
+    return f"{parts.scheme}://{netloc}{parts.path}" if parts.scheme else netloc + parts.path
 
 
 @dataclass(frozen=True)

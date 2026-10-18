@@ -367,3 +367,33 @@ async def test_legacy_positional_bot_is_unaffected_by_the_new_kwargs(host: FakeH
 
 def test_shim_message_type() -> None:
     assert sdk.Message.from_params(MESSAGE).text == "Hi"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:s3cret@api.example.org/w?k=SECRET#TOKEN",
+        "https://api.example.org:8443/w#TOKEN",
+        "https://tok@api.example.org/w",
+    ],
+)
+async def test_logs_never_carry_userinfo_query_or_fragment(url: str, host: FakeHost) -> None:
+    code = f"def bot(http, **k):\n    http.get_json({url!r})\n"
+    for answer in (
+        {"status": 500, "headers": {}, "body": ""},
+        HostError({"code": -32010, "message": "x", "data": {"code": "permission_denied"}}),
+        HostError({"code": -32010, "message": "x", "data": {"code": "host_not_allowed"}}),
+    ):
+        host.answers["http.fetch"] = answer
+        host.logs.clear()
+        await run_shim(code, host)
+        message = host.logs[-1][1]
+        for secret in ("s3cret", "SECRET", "TOKEN", "tok@", "user"):
+            assert secret not in message
+        assert "api.example.org" in message.replace("https://", "")  # noqa: S105
+
+
+def test_safe_url_shapes() -> None:
+    assert sdk.safe_url("https://u:p@a.example:81/x/y?q=1#f") == "https://a.example:81/x/y"
+    assert sdk.safe_url("not a url") == "an unreadable URL"
+    assert sdk.safe_url("http://[::1]:80/p") == "http://[::1]:80/p"
