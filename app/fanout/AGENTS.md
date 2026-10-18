@@ -25,6 +25,25 @@ configs are validated on every create and update, enabled or not.
 - `system:*` ids are reserved: hidden from `/api/fanout` and fanout statuses,
   `PATCH`/`DELETE` on them answer 403.
 
+## Secrets
+
+- Secret config keys are write-only: `FANOUT_SECRET_KEYS` in `app/secret_fields.py`
+  (Apprise `urls`, webhook `hmac_secret`, the MQTT `password`, SQS
+  `secret_access_key` and `session_token`). `GET /api/fanout` and
+  `GET /api/fanout/{id}` return them through `redact_config()`: `********` when
+  set, `""` when not; Apprise adds the derived `urls_redacted` (one
+  `redact_apprise_url()` line per URL, never stored). `allow_private_network`
+  and `private_network_grandfathered` are plain flags, not secrets.
+- Writes go through `merge_secrets()`: a key omitted, `None` or `********`
+  keeps the stored value, `""` clears it, anything else replaces it; derived
+  keys are dropped. The routes and the backup restore use it, so a redacted
+  config sent back never overwrites a secret.
+- `get_statuses()` (health, `/api/debug`) passes each `last_error` through
+  `scrub_error()` with `config_secret_values()` (an Apprise URL and its
+  fragments); the Apprise module scrubs its send errors before logging them.
+- Not secrets yet (follow-up): the webhook `url` and `headers`, the SQS
+  `access_key_id`.
+
 ## Event flow
 
 ```
@@ -130,6 +149,8 @@ Detail: `docs/dev/community-client.md`.
 3. In `app/routers/fanout.py`: add it to `_VALID_TYPES`, add a
    `_validate_<type>_config` wired into `_validate_and_normalize_config`, and an
    `_enforce_scope` branch if the scope is fixed.
+   List its secret keys in `FANOUT_SECRET_KEYS` (`app/secret_fields.py`), even
+   when empty, and use `SecretInput` for them in the editor.
 4. Frontend (`frontend/src/components/settings/SettingsFanoutSection.tsx`): add the
    type to `FANOUT_TYPE_ORDER`, the `DraftType` union and
    `CREATE_INTEGRATION_DEFINITIONS`, a `<Type>ConfigEditor` and its

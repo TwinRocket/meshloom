@@ -78,6 +78,10 @@ chose (SSRF). Like every agent doc here, check it against the code.
   lookup. An Apprise row whose URLs are refused here (a 4.18 file) is kept,
   disabled, with the warning `apprise_restored_disabled:<name>`
   (`prepare_refused_apprise_config`), as migration 100 keeps it.
+  A restored row whose opt-in is on (`allow_private_network: true`, or a
+  legacy row the restore grandfathers) comes back disabled with the warning
+  `private_network_restored_disabled:<name>`: the user re-enables it, which
+  runs the check.
 - Planned: Store plugins, Links & Files (breaker / share service), Access
   (Web Push). New consumers call `validate_destination` and send through a
   pinned client; never add an outbound path to a user-chosen URL around it.
@@ -115,7 +119,9 @@ chose (SSRF). Like every agent doc here, check it against the code.
   `errors.<code>_apprise` (i18next context) with a fallback to
   `errors.<code>`. Never the URL or a host.
 - `redact_apprise_url()` keeps the scheme and, for `user_host`, the host;
-  everything else is masked. The frontend `censorAppriseUrl` stays for display.
+  everything else is masked. It feeds `urls_redacted` in the fanout API (the
+  stored `urls` read `********`, `app/secret_fields.py`); the frontend
+  `censorAppriseUrl` is only a fallback for a config without it.
 - `tests/test_apprise_urls.py` fails when the installed Apprise exposes a
   plugin in neither list: on an Apprise bump, read the new plugin and classify
   it (refused unless reviewed).

@@ -27,7 +27,10 @@ There is one v2 format. A `meshloom-backup-v2` document is the v1 fields
   round trip of the same database (`tests/test_backup_sections.py`).
 - The encrypted envelope (`meshloom-backup-v2-encrypted`) wraps the whole
   document, sections included: nothing changes there.
-- `GET /settings/backup/json` stays `meshloom-backup-v1`, without sections.
+- `GET /settings/backup/json` stays `meshloom-backup-v1`, without sections and
+  without the notification secrets (`********`, paths listed in
+  `secret_omitted`; a restore of that file keeps the stored values). The full
+  backup carries them.
 - **Older versions.** A 4.18.x install reads a v2 file as a v1 one: it restores
   the v1 fields and silently drops `identity`, `radio`, `wifi`,
   `meshloom_extra` and `sections`. The user page tells users to restore v2 files
