@@ -486,7 +486,9 @@ and `isolation`, and must answer within 20 s. Then the status is `running`.
   says it timed out. Otherwise the process group is killed (`SIGKILL`).
 - A handler error (`-32000`) sets `last_error` and the instance keeps running.
 - Child requests go to `PluginManager.host_methods` (name to coroutine, filled
-  by the capability tickets); an unknown method is `-32601`.
+  by the capability tickets); an unknown method is `-32601`. A child has at most
+  `MAX_CHILD_REQUESTS` (32) requests pending at the host; past that each one is
+  answered `-32001` (overloaded) at once.
 
 ### Failures and restarts
 
@@ -496,7 +498,8 @@ queued) is dropped and counted, never replayed; the status is `error` with the
 reason in `last_error` (scrubbed of the instance's secret values); the child is
 restarted after 1, 2, 4 ... 60 s. A run that handled an event or lived 60 s resets
 the consecutive count. Five consecutive failures: `crash_loop`, stored, no more
-restarts. `restart()` builds a new supervisor, so its count starts at zero.
+restarts. `restart()` builds a new supervisor, so its count starts at zero. A stop
+during the backoff pause ends it at once.
 
 CPU: on Linux the host samples `utime + stime` from `/proc/<pid>/stat` every
 5 s and kills a child that used more than 20 CPU-seconds in the last 60 s. The
@@ -524,5 +527,5 @@ reaped, all within `timeout` (10 s from the lifespan). A stopped instance's
 pending events are dropped.
 
 Tests: `tests/test_plugin_host.py` (real children; fixture plugins echo, sleep,
-ignore-cancel, crash, cpu-burn, ignore-shutdown, sender; the `/proc` CPU test
+ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, sender; the `/proc` CPU test
 runs on Linux only).

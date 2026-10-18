@@ -13,6 +13,7 @@ import signal
 import sys
 import textwrap
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,18 @@ PLUGINS = {
                     await asyncio.sleep(60)
                 except asyncio.CancelledError:
                     pass
+    """,
+    "flood": """
+        import asyncio
+        import meshloom_plugin
+        from meshloom_plugin.errors import HostError
+
+        async def on_message(params):
+            calls = [meshloom_plugin.host().call("test.slow", {}) for _ in range(40)]
+            results = await asyncio.gather(*calls, return_exceptions=True)
+            return sorted(
+                r.error["code"] if isinstance(r, HostError) else r for r in results
+            )
     """,
     "sender": """
         import meshloom_plugin
@@ -295,7 +308,7 @@ def test_backoff_doubles_up_to_the_cap():
 async def test_rolling_cpu_budget_kills_the_child(test_db, tmp_path, statuses):
     ticks = iter(range(0, 10_000, 3))
     mgr = PluginManager(
-        Budgets(**{**FAST.__dict__, "cpu_budget": 5.0, "cpu_sample_interval": 0.02}),
+        replace(FAST, cpu_budget=5.0, cpu_sample_interval=0.02),
         plugins_root=tmp_path / "plugins",
         cpu_reader=lambda pid: float(next(ticks)),
         mem_total=lambda: 8 * 1024**3,
@@ -313,14 +326,12 @@ async def test_rolling_cpu_budget_kills_the_child(test_db, tmp_path, statuses):
 @pytest.mark.skipif(not LINUX, reason="/proc CPU accounting is Linux only")
 async def test_rolling_cpu_budget_with_the_proc_reader(test_db, tmp_path, statuses):
     mgr = PluginManager(
-        Budgets(
-            **{
-                **FAST.__dict__,
-                "event_timeout": 30.0,
-                "cpu_budget": 0.5,
-                "cpu_window": 5.0,
-                "cpu_sample_interval": 0.1,
-            }
+        replace(
+            FAST,
+            event_timeout=30.0,
+            cpu_budget=0.5,
+            cpu_window=5.0,
+            cpu_sample_interval=0.1,
         ),
         plugins_root=tmp_path / "plugins",
         mem_total=lambda: 8 * 1024**3,
@@ -343,7 +354,7 @@ def test_proc_reader_reads_this_process():
 
 async def test_rlimit_cpu_is_set_in_the_child(test_db, tmp_path, statuses):
     mgr = PluginManager(
-        Budgets(**{**FAST.__dict__, "event_timeout": 60.0, "runner_limits": {"cpu_seconds": 1}}),
+        replace(FAST, event_timeout=60.0, runner_limits={"cpu_seconds": 1}),
         plugins_root=tmp_path / "plugins",
         cpu_reader=None,
         mem_total=lambda: 8 * 1024**3,
@@ -458,7 +469,7 @@ async def test_events_reach_only_subscribed_hooks(manager, tmp_path):
 
 async def test_message_settle_delays_delivery(test_db, tmp_path, statuses):
     mgr = PluginManager(
-        Budgets(**{**FAST.__dict__, "message_settle": 0.4}),
+        replace(FAST, message_settle=0.4),
         plugins_root=tmp_path / "plugins",
         cpu_reader=None,
         mem_total=lambda: 8 * 1024**3,
@@ -503,6 +514,36 @@ async def test_unknown_host_method_is_refused_to_the_child(manager, tmp_path):
     manager.dispatch("message", {})  # not a test event: no capability yet
     await wait_until(lambda: "messages.send is not available" in (instance.last_error or ""))
     assert instance.status == "running"
+
+
+async def test_a_child_cannot_flood_the_host_with_requests(manager, tmp_path):
+    async def slow(_instance, _params):
+        await asyncio.sleep(0.3)
+        return 1
+
+    manager.host_methods["test.slow"] = slow
+    instance_id = await create_instance(tmp_path / "plugins", "flood")
+    await running(manager, instance_id)
+    outcome = await manager.dispatch_test(instance_id, "message", {}, timeout=10)
+    assert outcome["result"] == [-32001] * 8 + [1] * 32
+
+
+async def test_stop_during_backoff_is_immediate(test_db, tmp_path, statuses):
+    mgr = PluginManager(
+        replace(FAST, backoff_initial=30.0, backoff_max=30.0),
+        plugins_root=tmp_path / "plugins",
+        cpu_reader=None,
+        mem_total=lambda: 8 * 1024**3,
+    )
+    instance_id = await create_instance(tmp_path / "plugins", "crash_start")
+    await mgr.start(instance_id)
+    instance = mgr.get(instance_id)
+    assert instance is not None
+    await wait_until(lambda: instance.status == "error")
+    started = time.monotonic()
+    await mgr.stop(instance_id)
+    assert time.monotonic() - started < 1.0
+    assert not instance.active
 
 
 async def test_status_changes_are_broadcast_stored_and_scrubbed(manager, tmp_path, statuses):

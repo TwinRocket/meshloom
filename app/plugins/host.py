@@ -79,6 +79,8 @@ INSTANCE_CAP_MIN = 3
 INSTANCE_CAP_MAX = 20
 
 _DROP_LOG_INTERVAL = 10.0
+# Requests a child may have pending at the host at once; past it: -32001.
+MAX_CHILD_REQUESTS = 32
 
 
 @dataclass(frozen=True)
@@ -441,7 +443,11 @@ class PluginProcess:
             return
         if "id" not in msg:
             return  # child notifications carry nothing the host acts on yet
-        task = asyncio.create_task(self._answer(msg["id"], msg["method"], msg.get("params")))
+        if len(self._tasks) >= MAX_CHILD_REQUESTS:
+            overloaded = rpc.error(msg["id"], rpc.OVERLOADED, "too many pending host requests")
+            task = asyncio.create_task(self._write_quietly(rpc.encode(overloaded)))
+        else:
+            task = asyncio.create_task(self._answer(msg["id"], msg["method"], msg.get("params")))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -457,6 +463,9 @@ class PluginProcess:
             data = rpc.encode(response)
         except ValueError:
             data = rpc.encode(rpc.error(msg_id, rpc.INTERNAL_ERROR, "result too large"))
+        await self._write_quietly(data)
+
+    async def _write_quietly(self, data: bytes) -> None:
         with contextlib.suppress(ProcessEnded):
             await self._write(data)
 
@@ -523,6 +532,7 @@ class PluginInstance:
         self._process: PluginProcess | None = None
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
+        self._stop_requested = asyncio.Event()
         self._handled_ok = False
         self._secrets: list[str] = []
         self._last_drop_log = -_DROP_LOG_INTERVAL
@@ -547,6 +557,7 @@ class PluginInstance:
 
     async def stop(self, grace: float) -> None:
         self._stopping = True
+        self._stop_requested.set()
         self._inbox_ready.set()
         process = self._process
         if process is not None:
@@ -618,7 +629,9 @@ class PluginInstance:
                 )
                 return
             await self._set_status("error", reason)
-            await asyncio.sleep(self.budgets.backoff(self.consecutive_failures))
+            with contextlib.suppress(TimeoutError):
+                delay = self.budgets.backoff(self.consecutive_failures)
+                await asyncio.wait_for(self._stop_requested.wait(), delay)
             self.restarts += 1
 
     async def _run_once(self) -> str | None:
