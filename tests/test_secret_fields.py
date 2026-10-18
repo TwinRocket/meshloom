@@ -636,7 +636,7 @@ def test_webhook_url_and_header_values_are_scrubbed_from_errors():
     secrets = config_secret_values("webhook", HOOK_CONFIG)
     scrubbed = scrub_error(f"error POST {HOOK_URL} with Bearer hdr-tok-7", secrets)
     assert scrubbed is not None
-    assert "hooks.example.org" in scrubbed
+    assert re.search(r"https://hooks\.example\.org/", scrubbed)
     _assert_no_hook_token(scrubbed)
     assert "hdr-tok-7" not in scrubbed
 
