@@ -264,6 +264,66 @@ async def test_radio_offline_and_telemetry_get_one_long_retry(test_db, payload):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"event": "radio_offline"}, {"event": "telemetry_alert"}])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        SendResult("failed", error_code="http_410"),
+        SendResult("failed", error_code="egress_private_address"),
+        SendResult("failed", error_code="line 2 (tgram://****): service_error"),
+    ],
+)
+async def test_a_refused_urgent_alert_gets_no_long_retry(test_db, payload, answer):
+    """Review round 1: a ``failed`` answer is final, the long retry is for ``retry`` only."""
+    await _add_channel("webhook-1", "webhook")
+    clock = FakeClock()
+    transport = StubTransport(clock, [answer])
+    dispatcher = _dispatcher(transport, clock)
+    await dispatcher.emit(None, payload=payload, targets=["webhook-1"])
+    await _settle(dispatcher)
+    assert len(transport.calls) == 1
+    assert LONG_RETRY_S not in clock.sleeps
+    assert all(not w.long_retries for w in dispatcher._workers.values())
+    [row] = await _deliveries()
+    assert (row["status"], row["error"], row["attempts"]) == ("failed", answer.error_code, 1)
+
+
+@pytest.mark.asyncio
+async def test_an_apprise_partial_failure_never_resends_to_the_urls_that_took_it(
+    test_db, monkeypatch
+):
+    """The legacy Apprise medium: URL 1 took the alert, URL 2 failed for good. The
+    dispatcher must not send again (no retry, no long retry), so URL 1 gets it once."""
+    from app import notify
+    from app.models import NotificationDestinations
+    from app.notifications.apprise_medium import AppriseSendFailed
+    from app.notifications.transports.legacy import LegacyAppriseTransport
+
+    reached: list[str] = []
+
+    async def partial_send(dest, payload):
+        reached.append("tgram://url-1")  # URL 1 took it
+        raise AppriseSendFailed("service_error", line=2, url="tgram://****", status=503)
+
+    monkeypatch.setattr(notify, "send_apprise_alert", partial_send)
+    dest = NotificationDestinations.model_validate(
+        {"apprise": {"urls": "tgram://a/1\ntgram://b/2"}}
+    )
+    monkeypatch.setattr(
+        "app.repository.settings.AppSettingsRepository.get",
+        AsyncMock(return_value=type("S", (), {"notification_destinations": dest})()),
+    )
+    clock = FakeClock()
+    dispatcher = Dispatcher(
+        clock=clock, sleep=clock.sleep, transport_for=lambda _c: LegacyAppriseTransport()
+    )
+    await dispatcher.emit(None, payload={"event": "telemetry_alert"}, targets=["legacy:apprise"])
+    await _settle(dispatcher)
+    assert reached == ["tgram://url-1"]
+    assert clock.sleeps == []
+
+
+@pytest.mark.asyncio
 async def test_a_failed_long_retry_is_recorded_once(test_db):
     await _add_channel("webhook-1", "webhook")
     clock = FakeClock()

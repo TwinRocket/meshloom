@@ -418,7 +418,11 @@ class TestTelemetryAlerts:
                 }
             ),
         )
-        await asyncio.sleep(0.05)  # the "destination changed" push notice
+        # The "destination changed" push notice is a spawned task: wait for it.
+        from app.background_tasks import _tasks
+
+        pending = [t for t in _tasks if t.get_name() == "notify-destination-changed"]
+        await asyncio.gather(*pending)
         captured_alerts.clear()
         with (
             patch("app.notify.send_email_alert", new_callable=AsyncMock) as email,

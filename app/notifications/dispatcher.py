@@ -19,8 +19,9 @@ delays itself.
   transport answers ``retry`` (5xx, timeout, network error, 429 whose
   ``Retry-After`` wins, capped at ``MAX_RETRY_AFTER_S``); never after a ``failed``.
   A ``message.*`` job still failing is dropped as stale; ``radio.offline`` and
-  ``telemetry.alert`` get one more attempt ``LONG_RETRY_S`` later, requeued so
-  the worker is free meanwhile.
+  ``telemetry.alert`` still answering ``retry`` get one more attempt
+  ``LONG_RETRY_S`` later, requeued so the worker is free meanwhile; a ``failed``
+  answer is final for them too.
 - **Outcomes.** A success counts in memory (flushed to ``notification_counters``
   every ``COUNTER_FLUSH_S``, with the channel's ``last_ok_at``); a failure updates
   ``failure_count`` and ``last_error`` at once (``secret_fields.scrub_error``) and
@@ -91,7 +92,8 @@ LEGACY_CHANNEL_NAMES = {
     "legacy:apprise": "Apprise",
 }
 
-ChannelStatus = Literal["connected", "error", "paused", "secret_unreadable", "disconnected"]
+# ``secret_unreadable`` joins this list with the encryption at rest of the secrets.
+ChannelStatus = Literal["connected", "error", "paused", "disconnected"]
 DeliveryStatus = Literal[
     "failed", "rate_limited", "aggregated", "suppressed_quiet", "paused", "aborted"
 ]
@@ -396,7 +398,14 @@ class Dispatcher:
         if result.ok:
             await self._succeeded(channel)
             return
-        if job.delivery.name in LONG_RETRY_EVENTS and not job.long_retry:
+        # Only a retryable failure earns the long retry: a ``failed`` answer (a 4xx,
+        # a refused destination, an Apprise URL that failed after others took the
+        # alert) is final, and another attempt would resend to who already got it.
+        if (
+            result.status == "retry"
+            and job.delivery.name in LONG_RETRY_EVENTS
+            and not job.long_retry
+        ):
             await self._record_failure(channel, result.error_code, secrets)
             self._schedule_long_retry(worker, job, attempts)
             return

@@ -400,7 +400,7 @@ export interface HealthStatus {
 }
 
 export interface NotificationChannelStatus {
-  status: 'connected' | 'error' | 'paused' | 'secret_unreadable' | 'disconnected';
+  status: 'connected' | 'error' | 'paused' | 'disconnected';
   /** A code, scrubbed of the channel's secrets; null below the admin role. */
   last_error: string | null;
   /** Epoch seconds of the last successful send. */

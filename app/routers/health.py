@@ -93,7 +93,7 @@ class NotificationStatusResponse(BaseModel):
     ``HEALTH_DETAIL_PERMISSION``.
     """
 
-    status: Literal["connected", "error", "paused", "secret_unreadable", "disconnected"]
+    status: Literal["connected", "error", "paused", "disconnected"]
     last_error: str | None = None
     last_ok_at: int | None = None
 

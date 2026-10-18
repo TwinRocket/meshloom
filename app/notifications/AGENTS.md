@@ -112,7 +112,8 @@ This file is a hypothesis: check it against the code.
   answers `retry` (5xx, timeout, network error, 429 whose `Retry-After` wins, capped at
   120 s); a `failed` answer (other 4xx, refused destination, not configured) is never
   retried. A `message.*` job still failing is dropped as stale; `radio.offline` and
-  `telemetry.alert` get one more attempt 5 min later, requeued from a spawned timer so the
+  `telemetry.alert` still answering `retry` get one more attempt 5 min later (a `failed`
+  answer is final for them too), requeued from a spawned timer so the
   worker stays free. Web Push, e-mail and the legacy Apprise medium answer `failed`, never
   `retry` (a retry would reach again the subscriptions or URLs that took it; the Apprise
   medium retries each URL itself).
@@ -128,7 +129,8 @@ This file is a hypothesis: check it against the code.
   a row holds the event id, the hashed `dedup_key`, a code and the attempts, never the text.
 - **Status.** `notification_statuses()` is the health payload's `notification_statuses`:
   `{channel id: {status, last_error, last_ok_at}}`, `status` one of `connected`, `error`,
-  `paused`, `secret_unreadable` (with the encryption ticket), `disconnected` (disabled).
+  `paused`, `disconnected` (disabled); `secret_unreadable` is added with the encryption at
+  rest of the secrets, which is what can make a secret unreadable.
   A change of a channel's status or error broadcasts `health`; below admin `last_error` is
   emptied (`without_admin_details`).
 - **Shutdown.** `drain_background_tasks` cancels the workers, the long-retry timers and the
