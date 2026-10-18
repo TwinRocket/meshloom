@@ -11,6 +11,7 @@ import hashlib
 from unittest.mock import patch
 
 import nacl.bindings
+import pytest
 from nacl.signing import SigningKey, VerifyKey
 
 from app.fanout import community_mqtt
@@ -85,3 +86,11 @@ def test_a_signer_replaces_the_expanded_key():
     VerifyKey(public_key).verify(
         f"{header_b64}.{payload_b64}".encode(), bytes.fromhex(signature_hex)
     )
+
+
+@pytest.mark.parametrize(
+    "claim", ["iss", "sub", "aud", "exp", "iat", "nbf", "jti", "publicKey", "owner", "client"]
+)
+def test_extra_claims_never_override_a_standard_or_set_claim(claim):
+    with pytest.raises(ValueError, match=claim):
+        _mint(extra_claims={claim: "x"})

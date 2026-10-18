@@ -285,3 +285,23 @@ async def test_the_seed_never_leaves(test_db, client, caplog):
     new_seed = await AppSettingsRepository.get_instance_seed(SHARE_SERVICE)
     for secret in (seed, new_seed, token):
         assert secret not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_created_is_logged_only_by_the_writer_that_won(test_db, caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="app.services.instance_identity")
+    winner = "cd" * 32
+
+    async def lose_the_claim(service: str, seed: str) -> str:
+        await AppSettingsRepository.set_instance_seed(service, winner)
+        return winner
+
+    monkeypatch.setattr(AppSettingsRepository, "claim_instance_seed", lose_the_claim)
+    await ensure_instance_key(SHARE_SERVICE)
+    assert "Created the share instance identity" not in caplog.text
+    assert await AppSettingsRepository.get_instance_seed(SHARE_SERVICE) == winner
+
+    monkeypatch.undo()
+    await AppSettingsRepository.set_instance_seed(SHARE_SERVICE, "")
+    await ensure_instance_key(SHARE_SERVICE)
+    assert "Created the share instance identity" in caplog.text

@@ -64,17 +64,18 @@ async def ensure_instance_key(service: str) -> SigningKey:
         key = await _load(service)
         if key is not None:
             return key
-        stored = await AppSettingsRepository.claim_instance_seed(
-            service, secrets.token_bytes(SEED_BYTES).hex()
-        )
+        candidate = secrets.token_bytes(SEED_BYTES).hex()
+        stored = await AppSettingsRepository.claim_instance_seed(service, candidate)
         key = _signing_key(stored)
         if key is None:
             # An unreadable stored value: replace it rather than fail forever.
-            fresh = secrets.token_bytes(SEED_BYTES).hex()
-            await AppSettingsRepository.set_instance_seed(service, fresh)
-            key = _signing_key(fresh)
+            candidate = stored = secrets.token_bytes(SEED_BYTES).hex()
+            await AppSettingsRepository.set_instance_seed(service, stored)
+            key = _signing_key(stored)
             assert key is not None
-        logger.info("Created the %s instance identity", service)
+        # Another writer (a second process on the database) may have won the claim.
+        if stored == candidate:
+            logger.info("Created the %s instance identity", service)
         return key
 
 
@@ -139,17 +140,17 @@ async def mint_instance_jwt(
     ``owner``; ``jti`` adds 16 random bytes in base64url. Mint one per request.
     """
     key = await ensure_instance_key(service)
-    claims: dict[str, Any] = {}
-    if jti:
-        claims["jti"] = base64.urlsafe_b64encode(secrets.token_bytes(16)).rstrip(b"=").decode()
-    claims.update(extra_claims or {})
+    token_id = (
+        base64.urlsafe_b64encode(secrets.token_bytes(16)).rstrip(b"=").decode() if jti else None
+    )
     return _generate_jwt_token(
         None,
         bytes(key.verify_key),
         audience=audience,
         sign=lambda message: key.sign(message).signature,
         lifetime=lifetime,
-        extra_claims=claims,
+        extra_claims=extra_claims,
+        jti=token_id,
         owner=False,
         client=_client(),
     )

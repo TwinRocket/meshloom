@@ -80,9 +80,11 @@ and the OpenAPI page (`/docs`), not a table here.
   and no `owner`. `mint_share_jwt(binding)` is the share wrapper: `aud`
   `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
   sha256 hex of the binding string. One token per request, never cached.
-- `_generate_jwt_token`'s keywords `sign`, `lifetime`, `extra_claims`, `owner` and
-  `client` exist for these helpers only: the Community call sites pass none, and
-  `tests/test_community_jwt_golden.py` pins their tokens byte for byte.
+- `_generate_jwt_token`'s keywords `sign`, `lifetime`, `extra_claims`, `owner`,
+  `client` and `jti` exist for these helpers only: the Community call sites pass
+  none, and `tests/test_community_jwt_golden.py` pins their tokens byte for byte.
+  An extra claim that names a registered claim (`iss`, `sub`, `aud`, `exp`, `iat`,
+  `nbf`, `jti`) or one the function sets is a `ValueError`, never an override.
 - **Never log, return or export a seed or a token.** The seed is not in
   `AppSettings`; the backup rules are in `docs/dev/backup.md` (rule 4). Tests:
   `tests/test_share_identity.py` (a local re-implementation of the Worker's checks,

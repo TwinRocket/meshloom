@@ -94,6 +94,25 @@ class CommunityMqttSettings(Protocol):
     community_mqtt_websocket_path: str
 
 
+# Registered JWT claims and the ones this function sets: never taken from extra_claims.
+_RESERVED_CLAIMS = frozenset(
+    {
+        "iss",
+        "sub",
+        "aud",
+        "exp",
+        "iat",
+        "nbf",
+        "jti",
+        "publicKey",
+        "owner",
+        "client",
+        "email",
+        "iata",
+    }
+)
+
+
 def _base64url_encode(data: bytes) -> str:
     """Base64url encode without padding."""
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
@@ -111,6 +130,7 @@ def _generate_jwt_token(
     extra_claims: dict[str, object] | None = None,
     owner: bool = True,
     client: str | None = None,
+    jti: str | None = None,
 ) -> str:
     """Generate a JWT token for community MQTT authentication.
 
@@ -125,7 +145,8 @@ def _generate_jwt_token(
 
     The instance identities (``app/services/instance_identity.py``) mint in the
     same wire format: ``sign`` replaces the expanded radio key (``private_key``
-    is then ignored), ``lifetime`` the 3300 s default, ``extra_claims`` are
+    is then ignored), ``lifetime`` the 3300 s default, ``jti`` adds that claim,
+    ``extra_claims`` are
     appended after the standard claims, ``owner=False`` drops the ``owner``
     claim and ``client`` replaces the Community client string. The Community
     call sites pass none of them: their tokens stay byte-identical.
@@ -147,7 +168,12 @@ def _generate_jwt_token(
     iata_code = iata.upper().strip()
     if iata_code:
         payload["iata"] = iata_code
+    if jti is not None:
+        payload["jti"] = jti
     if extra_claims:
+        clashes = sorted((_RESERVED_CLAIMS | payload.keys()) & extra_claims.keys())
+        if clashes:
+            raise ValueError(f"extra claims would override: {', '.join(clashes)}")
         payload.update(extra_claims)
 
     header_b64 = _base64url_encode(json.dumps(header, separators=(",", ":")).encode())
